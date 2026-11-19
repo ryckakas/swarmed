@@ -130,6 +130,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **The model and effort actually in use** are asked of Claude Code (`get_settings`) when it
   starts and after each turn, and recorded as `Applied`. Only those two values are read: the
   rest of that answer is the user's whole configuration and is never kept or logged.
+- **Messages can wait in a queue** (`queue.rs`) while a session's agent is busy. The core sends
+  the first one when a turn ends well, as if it had just been typed; a turn that was stopped
+  or failed leaves the queue standing. The queue lives in memory, and its changes are published
+  as `Queue` events that are never stored, like the pieces of a reply.
 - **Swarmed never handles Claude.ai credentials.** It only shapes the child's environment (`Auth`).
 - **Session events are stored as JSON** (`AgentEvent`), so its variants and fields are only added,
   never renamed.

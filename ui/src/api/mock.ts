@@ -7,6 +7,7 @@ import type {
     FileDiff,
     HookOutput,
     Project,
+    QueuedMessage,
     Session,
     SessionEvent,
     SessionSettings,
@@ -361,8 +362,51 @@ class MockAgent {
 
     publish(sessionId: number, event: AgentEvent, status: SessionStatus | null) {
         this.history(sessionId).push(event);
+        this.tell(sessionId, event, status);
+        // A turn that ended well makes room for the next waiting message, as in the core.
+        if (event.type === "turn_done" && !event.is_error) {
+            this.sendQueued(sessionId);
+        }
+    }
+
+    private tell(sessionId: number, event: AgentEvent, status: SessionStatus | null) {
         for (const listener of this.listeners) {
             listener({ session_id: sessionId, status, event });
+        }
+    }
+
+    private readonly queues = new Map<number, QueuedMessage[]>();
+
+    queue(id: number): QueuedMessage[] {
+        return [...(this.queues.get(id) ?? [])];
+    }
+
+    /** Replaces a session's queue and tells the listeners, without making it history. */
+    private setQueue(id: number, messages: QueuedMessage[]): QueuedMessage[] {
+        this.queues.set(id, messages);
+        this.tell(id, { type: "queue", messages }, null);
+        return messages;
+    }
+
+    enqueue(id: number, text: string): QueuedMessage[] {
+        return this.setQueue(id, [...this.queue(id), { id: this.nextId++, text }]);
+    }
+
+    editQueued(id: number, message: number, text: string): QueuedMessage[] {
+        const edited = this.queue(id).map((queued) =>
+            queued.id === message ? { ...queued, text } : queued,
+        );
+        return this.setQueue(
+            id,
+            edited.filter((queued) => queued.text.trim() !== ""),
+        );
+    }
+
+    sendQueued(id: number) {
+        const [first, ...rest] = this.queue(id);
+        if (first) {
+            this.setQueue(id, rest);
+            this.send(id, first.text);
         }
     }
 
@@ -640,6 +684,10 @@ export function createMockApi(): Api {
         },
         sessionEvents: async (id) => [...agent.history(id)],
         sessionSend: async (id, text) => agent.send(id, text),
+        sessionQueue: async (id) => agent.queue(id),
+        sessionEnqueue: async (id, text) => agent.enqueue(id, text),
+        sessionQueueEdit: async (id, message, text) => agent.editQueued(id, message, text),
+        sessionSendQueued: async (id) => agent.sendQueued(id),
         sessionAllow: async (id, requestId) => agent.decide(id, requestId, true),
         sessionDeny: async (id, requestId) => agent.decide(id, requestId, false),
         sessionInterrupt: async (id) => agent.interrupt(id),

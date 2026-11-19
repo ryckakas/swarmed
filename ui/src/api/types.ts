@@ -99,6 +99,11 @@ export interface Project {
 
 /** What is being removed: a repository, or one of its tasks. */
 export type RemoveTarget = NoteTarget;
+/** A message written while the agent was busy, waiting to be sent. */
+export interface QueuedMessage {
+    id: number;
+    text: string;
+}
 
 /** What a note is kept on: a repository, or one of its tasks. */
 export interface NoteTarget {
@@ -150,6 +155,8 @@ export type AgentEvent =
     | { type: "renamed"; title: string }
     /** What the agent says it actually runs with, defaults resolved. */
     | { type: "applied"; model: string; effort: string | null }
+    /** What the session's queue of waiting messages now holds. Never part of the history. */
+    | { type: "queue"; messages: QueuedMessage[] }
     /** The session's supervision changed: by choice, or because its plan was approved. */
     | { type: "supervision_changed"; supervision: Supervision }
     /** What happened in the session's terminal, as given to the agent with the next message. */

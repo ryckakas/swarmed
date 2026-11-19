@@ -21,6 +21,7 @@ pub use self::claude::{ClaudeBackend, ClaudeNamer};
 pub use self::fake::FakeBackend;
 use crate::error::Result;
 use crate::mcp::McpServer;
+use crate::queue::QueuedMessage;
 use crate::secrets::SecretEnv;
 
 /// How much the agent may do without asking.
@@ -283,6 +284,11 @@ pub enum AgentEvent {
         model: String,
         /// How hard it thinks, if the agent has such a setting.
         effort: Option<String>,
+    /// What the session's queue of waiting messages now holds. Published by the core whenever
+    /// it changes, and never stored.
+    Queue {
+        /// The waiting messages, first to be sent first.
+        messages: Vec<QueuedMessage>,
     },
     /// How full the agent's context window is, reported after a turn.
     ContextUsage {

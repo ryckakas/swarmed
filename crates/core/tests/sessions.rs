@@ -720,3 +720,86 @@ async fn allowing_an_ordinary_request_leaves_plan_mode_alone() {
             .any(|event| matches!(event, AgentEvent::SupervisionChanged { .. }))
     );
 }
+
+/// Skips ahead to the next change of the session's queue and returns what it holds.
+async fn queue_change(bus: &mut Receiver<SessionEvent>) -> Vec<String> {
+    loop {
+        if let AgentEvent::Queue { messages } = next(bus).await.event {
+            return messages.into_iter().map(|message| message.text).collect();
+        }
+    }
+}
+
+#[tokio::test]
+async fn queued_messages_are_sent_one_by_one_as_turns_end() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    // The agent is held up, so what comes next has to wait.
+    core.session_send(session.id, "run: ls").expect("sends");
+    let (request_id, _) = permission_request(&mut bus).await;
+    core.session_enqueue(session.id, "first").expect("queues");
+    let queue = core.session_enqueue(session.id, "secnd").expect("queues");
+    assert_eq!(queue.len(), 2);
+    // A waiting message can still be corrected, and one emptied is taken out.
+    let queue = core
+        .session_queue_edit(session.id, queue[1].id, "second")
+        .expect("edits");
+    assert_eq!(queue[1].text, "second");
+    let extra = core.session_enqueue(session.id, "third").expect("queues");
+    core.session_queue_edit(session.id, extra[2].id, "  ")
+        .expect("removes");
+    assert_eq!(core.session_queue(session.id).expect("reads").len(), 2);
+    assert!(matches!(
+        core.session_enqueue(session.id, " "),
+        Err(Error::EmptyMessage)
+    ));
+
+    core.session_allow(session.id, &request_id).expect("sends");
+    turn(&mut bus, session.id).await;
+    // The turn ended: the first goes out, then, when that turn ends, the second.
+    let first = turn(&mut bus, session.id).await;
+    assert!(first.contains(&text("echo: first")), "{first:?}");
+    let second = turn(&mut bus, session.id).await;
+    assert!(second.contains(&text("echo: second")), "{second:?}");
+    assert_eq!(core.session_queue(session.id).expect("reads"), vec![]);
+
+    // The queue is never part of the stored conversation.
+    let stored = core.session_events(session.id).expect("reads");
+    assert!(
+        !stored
+            .iter()
+            .any(|event| matches!(event, AgentEvent::Queue { .. }))
+    );
+}
+
+#[tokio::test]
+async fn a_stopped_turn_leaves_the_queue_for_the_user_to_send() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    core.session_send(session.id, "slow").expect("sends");
+    core.session_enqueue(session.id, "after").expect("queues");
+    assert_eq!(queue_change(&mut bus).await, ["after"]);
+    core.session_interrupt(session.id).expect("interrupts");
+    turn(&mut bus, session.id).await;
+    assert_eq!(core.session_queue(session.id).expect("reads").len(), 1);
+
+    core.session_send_queued(session.id).expect("sends");
+    let events = turn(&mut bus, session.id).await;
+    assert!(events.contains(&text("echo: after")), "{events:?}");
+    assert_eq!(core.session_queue(session.id).expect("reads"), vec![]);
+
+    // With the agent stopped the message stays where it was.
+    core.session_enqueue(session.id, "later").expect("queues");
+    core.session_stop(session.id);
+    assert!(matches!(
+        core.session_send_queued(session.id),
+        Err(Error::SessionNotRunning(_))
+    ));
+    assert_eq!(core.session_queue(session.id).expect("reads").len(), 1);
+}

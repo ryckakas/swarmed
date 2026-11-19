@@ -11,7 +11,8 @@ use serde::Serialize;
 use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
     AgentInfo, ApiKeyInfo, BranchChoices, Core, FileChange, FileDiff, NewTaskOptions, Project,
-    ProjectOverview, RemoveOptions, Session, SessionOptions, SessionSettings, Settings, Task,
+    ProjectOverview, QueuedMessage, RemoveOptions, Session, SessionOptions, SessionSettings,
+    Settings, Task,
 };
 use tauri::{AppHandle, Emitter, Runtime, State};
 
@@ -227,6 +228,37 @@ pub(crate) fn session_events(core: CoreState<'_>, id: i64) -> Command<Vec<AgentE
 pub(crate) async fn session_send(core: CoreState<'_>, id: i64, text: String) -> Command<()> {
     core.session_start(id, Auth::Subscription)?;
     Ok(core.session_send(id, &text)?)
+}
+
+#[tauri::command]
+pub(crate) fn session_queue(core: CoreState<'_>, id: i64) -> Command<Vec<QueuedMessage>> {
+    Ok(core.session_queue(id)?)
+}
+
+#[tauri::command]
+pub(crate) fn session_enqueue(
+    core: CoreState<'_>,
+    id: i64,
+    text: String,
+) -> Command<Vec<QueuedMessage>> {
+    Ok(core.session_enqueue(id, &text)?)
+}
+
+#[tauri::command]
+pub(crate) fn session_queue_edit(
+    core: CoreState<'_>,
+    id: i64,
+    message: u64,
+    text: String,
+) -> Command<Vec<QueuedMessage>> {
+    Ok(core.session_queue_edit(id, message, &text)?)
+}
+
+/// Async for the same reason as `session_send`, which it is a form of.
+#[tauri::command]
+pub(crate) async fn session_send_queued(core: CoreState<'_>, id: i64) -> Command<()> {
+    core.session_start(id, Auth::Subscription)?;
+    Ok(core.session_send_queued(id)?)
 }
 
 #[tauri::command]

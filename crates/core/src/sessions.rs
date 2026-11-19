@@ -15,8 +15,10 @@ use crate::agent::{
 use crate::agents::CLAUDE;
 use crate::error::{Error, Result};
 use crate::mcp::{self, McpServer};
+use crate::queue::{self, Queues};
 use crate::secrets::SecretEnv;
 use crate::store::{Store, Task};
+use crate::terminal::Terminals;
 use crate::{Core, lock, views};
 
 /// How long a session title derived from the first message may be.
@@ -80,6 +82,7 @@ impl SessionStatus {
             | AgentEvent::Renamed { .. }
             | AgentEvent::SupervisionChanged { .. }
             | AgentEvent::Applied { .. }
+            | AgentEvent::Queue { .. }
             | AgentEvent::ContextUsage { .. }
             | AgentEvent::TerminalShared { .. }
             | AgentEvent::TextDelta { .. }
@@ -488,11 +491,14 @@ impl Core {
         })?;
         let run = self.live.runs.fetch_add(1, Ordering::Relaxed);
         running.insert(id, (run, handle.commands));
-        let (store, live) = (Arc::clone(&self.store), Arc::clone(&self.live));
+        let shared = Shared {
+            store: Arc::clone(&self.store),
+            live: Arc::clone(&self.live),
+            terminals: Arc::clone(&self.terminals),
+        };
         drop(tokio::spawn(record_and_publish(
             handle.events,
-            store,
-            live,
+            shared,
             (id, run),
         )));
         Ok(())
@@ -541,34 +547,11 @@ impl Core {
 
     /// Starts a turn with `text` in a running session.
     pub fn session_send(&self, id: i64, text: &str) -> Result<()> {
-        let commands = self.live.sender(id)?;
+        self.live.sender(id)?;
         if self.session(id)?.title.is_empty() {
             self.name_later(id, text);
         }
-        let event = AgentEvent::UserMessage {
-            text: text.to_string(),
-        };
-        self.live.note(&self.store, id, event)?;
-        let message = self.with_terminal(id, text)?;
-        commands
-            .send(AgentCommand::UserMessage(message))
-            .map_err(|_| Error::SessionNotRunning(id))
-    }
-
-    /// The message as the agent gets it: what the user typed, and after it whatever happened
-    /// in the session's terminal since the agent's last turn.
-    fn with_terminal(&self, id: i64, text: &str) -> Result<String> {
-        let shared = self.terminals.take_unshared(id);
-        if shared.is_empty() {
-            return Ok(text.to_string());
-        }
-        let message = format!(
-            "{text}\n\n<terminal>\nWhat the user ran in this session's terminal since your last \
-             turn, with its output:\n{shared}\n</terminal>"
-        );
-        self.live
-            .note(&self.store, id, AgentEvent::TerminalShared { text: shared })?;
-        Ok(message)
+        send_text(&self.store, &self.live, &self.terminals, id, text)
     }
 
     /// Lets a pending permission request go ahead. Does nothing if it is no longer pending.
@@ -679,8 +662,44 @@ impl Core {
         self.session(id)?;
         self.session_stop(id);
         self.terminal_close(id);
+        self.live.queues.clear(id);
         self.store().session_close(id)
     }
+}
+
+/// Starts a turn with `text` in a running session: records the message, then hands it to the
+/// agent together with what happened in the session's terminal since its last turn.
+pub(crate) fn send_text(
+    store: &Mutex<Store>,
+    live: &Live,
+    terminals: &Terminals,
+    id: i64,
+    text: &str,
+) -> Result<()> {
+    let commands = live.sender(id)?;
+    let event = AgentEvent::UserMessage {
+        text: text.to_string(),
+    };
+    live.note(store, id, event)?;
+    let shared = terminals.take_unshared(id);
+    let message = if shared.is_empty() {
+        text.to_string()
+    } else {
+        live.note(
+            store,
+            id,
+            AgentEvent::TerminalShared {
+                text: shared.clone(),
+            },
+        )?;
+        format!(
+            "{text}\n\n<terminal>\nWhat the user ran in this session's terminal since your last \
+             turn, with its output:\n{shared}\n</terminal>"
+        )
+    };
+    commands
+        .send(AgentCommand::UserMessage(message))
+        .map_err(|_| Error::SessionNotRunning(id))
 }
 
 /// Passes on the settings that differ from what the session had.
@@ -726,6 +745,8 @@ pub(crate) struct Live {
     open_requests: Mutex<HashMap<i64, HashSet<String>>>,
     /// Sessions whose agent is to be stopped when its turn ends, to start again with new settings.
     restarts: Mutex<HashSet<i64>>,
+    /// The messages waiting for each session's turn to end.
+    pub(crate) queues: Queues,
     runs: AtomicU64,
     bus: broadcast::Sender<SessionEvent>,
 }
@@ -736,6 +757,7 @@ impl Default for Live {
             commands: Mutex::default(),
             open_requests: Mutex::default(),
             restarts: Mutex::default(),
+            queues: Queues::default(),
             runs: AtomicU64::new(0),
             bus: broadcast::Sender::new(EVENT_BUFFER),
         }
@@ -747,7 +769,7 @@ impl Live {
         self.commands.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn sender(&self, id: i64) -> Result<mpsc::UnboundedSender<AgentCommand>> {
+    pub(crate) fn sender(&self, id: i64) -> Result<mpsc::UnboundedSender<AgentCommand>> {
         self.commands()
             .get(&id)
             .map(|(_, sender)| sender.clone())
@@ -778,11 +800,21 @@ impl Live {
         SessionStatus::after(event, false)
     }
 
-    /// Stores an event, unless it is a piece of one that follows whole, then publishes it.
-    fn note(&self, store: &Mutex<Store>, session_id: i64, event: AgentEvent) -> Result<()> {
+    /// Stores an event, unless it is one that is only ever shown, then publishes it.
+    pub(crate) fn note(
+        &self,
+        store: &Mutex<Store>,
+        session_id: i64,
+        event: AgentEvent,
+    ) -> Result<()> {
         let status = self.status_after(session_id, &event);
-        // Pieces of a reply are only shown; the whole reply is what gets stored.
-        let stored = if matches!(event, AgentEvent::TextDelta { .. }) {
+        // Pieces of a reply are only shown, the whole reply is what gets stored; and a queue is
+        // not part of the conversation.
+        let shown_only = matches!(
+            event,
+            AgentEvent::TextDelta { .. } | AgentEvent::Queue { .. }
+        );
+        let stored = if shown_only {
             Ok(())
         } else {
             lock(store).record(session_id, &event, status)
@@ -832,16 +864,39 @@ impl Live {
 ///
 /// Takes only the event half of the agent's handle: holding a command sender here would keep
 /// the agent's input open, and [`Core::session_stop`] could never end it.
-async fn record_and_publish(
-    mut events: mpsc::UnboundedReceiver<AgentEvent>,
+/// What the task following one agent's events needs of the core.
+struct Shared {
     store: Arc<Mutex<Store>>,
     live: Arc<Live>,
+    terminals: Arc<Terminals>,
+}
+
+async fn record_and_publish(
+    mut events: mpsc::UnboundedReceiver<AgentEvent>,
+    shared: Shared,
     (id, run): (i64, u64),
 ) {
+    let Shared {
+        store,
+        live,
+        terminals,
+    } = shared;
     while let Some(event) = events.recv().await {
+        // A turn that ended well makes room for the next message the user left waiting. One
+        // that was stopped or failed does not: what comes next is then theirs to decide.
+        let finished = matches!(
+            event,
+            AgentEvent::TurnDone {
+                is_error: false,
+                ..
+            }
+        );
         // A full disk must not cut the user off from a running agent: the event is published
         // even if storing it failed.
         live.note(&store, id, event).ok();
+        if finished {
+            queue::send_next(&store, &live, &terminals, id).ok();
+        }
     }
     live.forget(id, run);
 }

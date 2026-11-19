@@ -156,5 +156,24 @@ describe("removing", () => {
         await api.taskRemove("hero", "invoice-export", true);
         const hero = (await api.overview()).find((project) => project.name === "hero");
         expect(hero?.tasks.map((task) => task.name)).not.toContain("invoice-export");
+describe("the queue of waiting messages", () => {
+    it("is kept beside the transcript and follows the core's events", () => {
+        useStore.setState({ events: { 1: [text("a")] }, queues: {} });
+        const waiting = [{ id: 7, text: "next" }];
+        useStore.getState().apply(published(1, { type: "queue", messages: waiting }));
+        expect(useStore.getState().queues[1]).toEqual(waiting);
+        expect(useStore.getState().events[1]).toEqual([text("a")]);
+    });
+
+    it("can be rewritten and emptied while it waits", async () => {
+        const api = createMockApi();
+        const [first] = await api.sessionEnqueue(3, "frst");
+        await api.sessionEnqueue(3, "second");
+        const edited = await api.sessionQueueEdit(3, first?.id ?? 0, "first");
+        expect(edited.map((message) => message.text)).toEqual(["first", "second"]);
+        const left = await api.sessionQueueEdit(3, first?.id ?? 0, " ");
+        expect(left.map((message) => message.text)).toEqual(["second"]);
+        await api.sessionSendQueued(3);
+        expect(await api.sessionQueue(3)).toEqual([]);
     });
 });

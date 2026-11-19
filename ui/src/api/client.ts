@@ -7,6 +7,7 @@ import type {
     FileDiff,
     HookOutput,
     Project,
+    QueuedMessage,
     Session,
     SessionEvent,
     SessionSettings,
@@ -70,6 +71,14 @@ export interface Api {
     sessionEvents(id: number): Promise<AgentEvent[]>;
     /** Starts a turn, starting the session's agent first if it is not running. */
     sessionSend(id: number, text: string): Promise<void>;
+    /** The messages waiting for the session's agent to finish, first to be sent first. */
+    sessionQueue(id: number): Promise<QueuedMessage[]>;
+    /** Adds a message to the queue: it is sent by itself when the agent's turn ends well. */
+    sessionEnqueue(id: number, text: string): Promise<QueuedMessage[]>;
+    /** Rewrites a waiting message; empty text takes it out of the queue. */
+    sessionQueueEdit(id: number, message: number, text: string): Promise<QueuedMessage[]>;
+    /** Sends the first waiting message now, for a queue a stopped turn left standing. */
+    sessionSendQueued(id: number): Promise<void>;
     sessionAllow(id: number, requestId: string): Promise<void>;
     sessionDeny(id: number, requestId: string, reason: string): Promise<void>;
     /** Stops the current turn; the session stays usable. */

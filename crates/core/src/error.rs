@@ -113,6 +113,9 @@ pub enum Error {
     /// A note longer than notes may be.
     #[error("a note can hold at most {0} bytes")]
     NoteTooLong(usize),
+    /// A message with nothing in it.
+    #[error("a message cannot be empty")]
+    EmptyMessage,
     /// A session title with nothing in it.
     #[error("a session title cannot be empty")]
     EmptyTitle,
