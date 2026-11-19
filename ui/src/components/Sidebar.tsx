@@ -2,7 +2,7 @@ import type { KeyboardEvent } from "react";
 import { api } from "../api";
 import type { Project, Session, Task } from "../api/types";
 import { useStore } from "../store";
-import { countWaiting } from "../tree";
+import { countWaiting, projectStatus } from "../tree";
 import { StatusMark } from "./StatusMark";
 
 export function Sidebar() {
@@ -101,11 +101,30 @@ function NoProjects() {
 
 function ProjectGroup({ project }: { project: Project }) {
     const startNew = useStore((state) => state.startNew);
+    const folded = useStore((state) => state.folded.includes(project.id));
+    const toggleFolded = useStore((state) => state.toggleFolded);
     const tasks = project.tasks.filter((task) => !task.archived);
+    // A folded repository still shows whether one of its sessions needs something.
+    const status = folded ? projectStatus(project) : null;
     return (
         <section className="project">
             <div className="row-head">
-                <h2 className="project-name">{project.name}</h2>
+                <h2 className="project-name">
+                    <button
+                        type="button"
+                        className="project-toggle"
+                        aria-expanded={!folded}
+                        title={folded ? "Show this repository's tasks" : "Hide its tasks"}
+                        onClick={() => toggleFolded(project.id)}
+                    >
+                        <svg className="fold-chevron" viewBox="0 0 10 10" aria-hidden="true">
+                            <path d="M3.5 1.5 7 5 3.5 8.5" />
+                        </svg>
+                        <span className="project-title">{project.name}</span>
+                        {status && <StatusMark status={status} />}
+                        {folded && <span className="project-count">{tasks.length}</span>}
+                    </button>
+                </h2>
                 <button
                     type="button"
                     className="row-add"
@@ -116,10 +135,9 @@ function ProjectGroup({ project }: { project: Project }) {
                     +
                 </button>
             </div>
-            {tasks.length === 0 && <p className="hint">No tasks</p>}
-            {tasks.map((task) => (
-                <TaskGroup key={task.id} project={project.name} task={task} />
-            ))}
+            {!folded && tasks.length === 0 && <p className="hint">No tasks</p>}
+            {!folded &&
+                tasks.map((task) => <TaskGroup key={task.id} project={project.name} task={task} />)}
         </section>
     );
 }

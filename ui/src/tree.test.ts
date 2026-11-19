@@ -6,10 +6,12 @@ import {
     countWaiting,
     findSession,
     findSessionHome,
+    projectStatus,
     taskNameForPrompt,
     taskNameFrom,
     taskStatus,
     titleFrom,
+    toggledId,
     uniqueTaskName,
     withoutSession,
     withSession,
@@ -41,6 +43,20 @@ describe("withSession and withoutSession", () => {
         const after = withoutSession(before, 2);
         expect(findSession(after, 2)).toBeUndefined();
         expect(findSession(after, 1)).toEqual(findSession(before, 1));
+    });
+});
+
+describe("a folded repository", () => {
+    it("still says what its most urgent session needs", () => {
+        const [hero, bonsai, fsum] = sampleProjects();
+        expect(hero && projectStatus(hero)).toBe("waiting");
+        expect(bonsai && projectStatus(bonsai)).toBe("errored");
+        expect(fsum && projectStatus(fsum)).toBeNull();
+    });
+
+    it("folds and unfolds by id", () => {
+        expect(toggledId([1], 2)).toEqual([1, 2]);
+        expect(toggledId([1, 2], 1)).toEqual([2]);
     });
 });
 

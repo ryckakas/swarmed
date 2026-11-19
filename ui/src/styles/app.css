@@ -406,10 +406,59 @@ code {
 .project-name {
     flex: 1;
     min-width: 0;
-    padding: var(--space-1) var(--space-2) var(--space-1) var(--space-4);
     font-size: var(--text-sm);
     font-weight: 700;
     letter-spacing: 0.01em;
+}
+
+/* The repository's name folds its tasks away and brings them back. */
+.project-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: var(--space-1) var(--space-2) var(--space-1) 5px;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    letter-spacing: inherit;
+    text-align: left;
+}
+
+.project-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.project-count {
+    color: var(--faint);
+    font-size: var(--text-xs);
+    font-weight: 400;
+}
+
+.fold-chevron {
+    flex: none;
+    width: 9px;
+    height: 9px;
+    fill: none;
+    stroke: var(--faint);
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 120ms;
+}
+
+.project-toggle[aria-expanded="true"] .fold-chevron {
+    transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .fold-chevron {
+        transition: none;
+    }
 }
 
 .task {
