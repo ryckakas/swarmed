@@ -12,8 +12,9 @@ import type {
 import { useStore } from "../store";
 import { taskNameForPrompt, taskNameFrom, uniqueTaskName } from "../tree";
 import { ComposerBox } from "./ComposerBox";
+import { EffortPicker } from "./EffortPicker";
 import { ModePicker } from "./ModePicker";
-import { CLAUDE, EFFORT_CHOICES, modelChoices, useAgents, useSlashCommands } from "./options";
+import { CLAUDE, modelChoices, useAgents, useSlashCommands } from "./options";
 import { Picker } from "./Picker";
 
 /** The value of the branch picker that means "create a new branch". */
@@ -214,14 +215,7 @@ function AgentPickers(props: AgentPickersProps) {
                 />
             )}
             <Picker label="Model" value={model} onChange={onModel} options={modelChoices(agent)} />
-            {agentId === CLAUDE && (
-                <Picker
-                    label="Effort"
-                    value={effort ?? ""}
-                    onChange={(value) => onEffort((value || null) as Effort | null)}
-                    options={EFFORT_CHOICES}
-                />
-            )}
+            {agentId === CLAUDE && <EffortPicker value={effort} onChange={onEffort} />}
         </>
     );
 }
