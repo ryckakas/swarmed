@@ -55,7 +55,21 @@ export function appendEvent(
     published: SessionEvent,
 ): Record<number, AgentEvent[]> {
     const open = events[published.session_id];
-    return open ? { ...events, [published.session_id]: [...open, published.event] } : events;
+    return open ? { ...events, [published.session_id]: withEvent(open, published.event) } : events;
+}
+
+/**
+ * `events` with one more. The pieces of a reply that is still being written are kept as one
+ * growing event at the end, which whatever comes next replaces: the whole reply follows them.
+ */
+export function withEvent(events: AgentEvent[], event: AgentEvent): AgentEvent[] {
+    const last = events.at(-1);
+    if (last?.type !== "text_delta") {
+        return [...events, event];
+    }
+    const next: AgentEvent =
+        event.type === "text_delta" ? { ...event, text: last.text + event.text } : event;
+    return [...events.slice(0, -1), next];
 }
 
 /** Runs an action on a session; if it fails, the reason is shown instead of thrown. */

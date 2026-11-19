@@ -63,7 +63,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   scripted agent the tests use; `SWARMED_FAKE_AGENT=1` selects it in the CLI.
 - **Running sessions live in the core** (`sessions.rs`). Front ends call `session_start`,
   `session_send` and the like by session id and read every session's events from one stream,
-  `Core::subscribe`. Events are stored before they are published.
+  `Core::subscribe`. Events are stored before they are published, except the pieces of a reply
+  still being written (`TextDelta`), which are only published: the whole reply follows.
 - **The app crate holds no logic.** A command in `crates/app/src/commands.rs` calls one core
   function. If the UI needs something new, it is added to the core and tested there first.
 - **`crates/app/src/tests.rs` calls every command the way the UI does,** by name with JSON

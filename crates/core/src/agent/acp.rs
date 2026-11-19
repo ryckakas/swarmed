@@ -374,17 +374,22 @@ impl Conversation {
             .await;
     }
 
+    /// A piece of the reply: shown at once, and kept to be sent whole when the agent moves on.
+    fn on_chunk(&mut self, update: &Value) {
+        let chunk = update.pointer("/content/text").and_then(Value::as_str);
+        let chunk = chunk.unwrap_or_default();
+        self.text.push_str(chunk);
+        if !chunk.is_empty() {
+            self.emit(AgentEvent::TextDelta {
+                text: chunk.to_string(),
+            });
+        }
+    }
+
     /// One `session/update` notification: a piece of what the agent is doing.
     fn on_update(&mut self, update: &Value) {
         match str_of(update, "sessionUpdate").unwrap_or_default() {
-            "agent_message_chunk" => {
-                self.text.push_str(
-                    update
-                        .pointer("/content/text")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default(),
-                );
-            }
+            "agent_message_chunk" => self.on_chunk(update),
             "tool_call" | "tool_call_update" => self.on_tool(update),
             "usage_update" => {
                 self.cost = update

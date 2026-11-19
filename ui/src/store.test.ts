@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { Api } from "./api/client";
 import { createMockApi } from "./api/mock";
 import type { AgentEvent, SessionEvent } from "./api/types";
-import { appendEvent, connect, useStore } from "./store";
+import { appendEvent, connect, useStore, withEvent } from "./store";
 
 const text = (value: string): AgentEvent => ({ type: "text", text: value });
 const published = (sessionId: number, event: AgentEvent): SessionEvent => ({
@@ -80,6 +80,25 @@ describe("open", () => {
         };
         await useStore.getState().open(api, 7);
         expect(useStore.getState().problem).toBe("Error: session 7 not found");
+    });
+});
+
+describe("withEvent", () => {
+    const delta = (value: string): AgentEvent => ({ type: "text_delta", text: value });
+
+    it("grows a reply piece by piece and swaps in the whole reply", () => {
+        let events = [text("earlier")];
+        events = withEvent(events, delta("Rain "));
+        events = withEvent(events, delta("falls."));
+        expect(events).toEqual([text("earlier"), delta("Rain falls.")]);
+
+        events = withEvent(events, text("Rain falls."));
+        expect(events).toEqual([text("earlier"), text("Rain falls.")]);
+    });
+
+    it("drops unfinished pieces when something other than the reply follows", () => {
+        const done: AgentEvent = { type: "turn_done", is_error: true, result: null, cost_usd: 0 };
+        expect(withEvent([delta("Rai")], done)).toEqual([done]);
     });
 });
 

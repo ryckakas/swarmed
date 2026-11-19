@@ -143,6 +143,12 @@ pub enum AgentEvent {
         /// Markdown text.
         text: String,
     },
+    /// A piece of a reply that is still being written. It is published as it arrives and
+    /// never stored: the whole reply follows as one [`AgentEvent::Text`].
+    TextDelta {
+        /// The next few characters.
+        text: String,
+    },
     /// The agent calls a tool.
     ToolUse {
         /// Matches the later [`AgentEvent::ToolResult`].

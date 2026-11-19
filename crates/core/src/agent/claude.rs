@@ -77,6 +77,8 @@ fn args(spec: &SessionSpec) -> Vec<String> {
         "--output-format",
         "stream-json",
         "--verbose",
+        // Replies arrive piece by piece, as well as whole once finished.
+        "--include-partial-messages",
         "--permission-prompt-tool",
         "stdio",
         // Always explicit: the user's own default mode must not override the task's setting.
@@ -298,6 +300,7 @@ fn parse_message(message: &Value, pending: &Pending) -> Vec<AgentEvent> {
             .collect(),
         "control_request" => vec![parse_control_request(message, pending)],
         "control_cancel_request" => withdraw(message, pending),
+        "stream_event" => text_delta(message).into_iter().collect(),
         "rate_limit_event" => vec![parse_rate_limit(message)],
         "result" => vec![AgentEvent::TurnDone {
             is_error: message
@@ -375,6 +378,15 @@ fn parse_control_request(message: &Value, pending: &Pending) -> AgentEvent {
         input,
         description: kind_of(request, "description").map(String::from),
     }
+}
+
+/// The text in a piece of a message that is still being written. Pieces of thinking, of tool
+/// arguments and of a sub-agent's messages are not shown.
+fn text_delta(message: &Value) -> Option<AgentEvent> {
+    let own = message.get("parent_tool_use_id").is_none_or(Value::is_null);
+    let delta = message.pointer("/event/delta")?;
+    let text = (own && kind_of(delta, "type") == Some("text_delta")).then(|| str_of(delta, "text"));
+    text.map(|text| AgentEvent::TextDelta { text })
 }
 
 /// The CLI takes back a permission request, for example because the turn was interrupted.
@@ -553,6 +565,26 @@ mod tests {
             Some(&json!({ "subtype": "set_permission_mode", "mode": "auto" }))
         );
         assert_eq!(mode.get("request_id"), Some(&json!("swarmed-3")));
+    }
+
+    #[test]
+    fn only_the_main_agents_text_is_streamed() {
+        let delta = |delta: Value, parent: Value| {
+            parse(&json!({
+                "type": "stream_event", "parent_tool_use_id": parent,
+                "event": { "type": "content_block_delta", "index": 0, "delta": delta },
+            }))
+        };
+        let text = json!({ "type": "text_delta", "text": "Rain fal" });
+        let piece = AgentEvent::TextDelta {
+            text: "Rain fal".into(),
+        };
+        assert_eq!(delta(text.clone(), Value::Null), vec![piece]);
+        assert_eq!(delta(text, json!("toolu_1")), vec![]);
+        let arguments = json!({ "type": "input_json_delta", "partial_json": "{" });
+        assert_eq!(delta(arguments, Value::Null), vec![]);
+        let start = json!({ "type": "stream_event", "event": { "type": "message_start" } });
+        assert_eq!(parse(&start), vec![]);
     }
 
     #[test]

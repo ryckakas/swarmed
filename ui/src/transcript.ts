@@ -51,6 +51,8 @@ function single(event: AgentEvent, key: number): Item | null {
         case "user_message":
             return { kind: "user", key, text: event.text };
         case "text":
+        // A reply still being written reads like a finished one, and becomes one in place.
+        case "text_delta":
             return { kind: "text", key, text: event.text };
         case "init":
             return sessionItem(event, key);

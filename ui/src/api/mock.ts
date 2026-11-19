@@ -203,6 +203,15 @@ class MockAgent {
         }
     }
 
+    /** Publishes a piece of a reply without keeping it, as the core does. */
+    stream(sessionId: number, event: AgentEvent, steps: number) {
+        setTimeout(() => {
+            for (const listener of this.listeners) {
+                listener({ session_id: sessionId, status: null, event });
+            }
+        }, PACE * steps);
+    }
+
     later(sessionId: number, event: AgentEvent, status: SessionStatus | null, steps = 1) {
         setTimeout(() => this.publish(sessionId, event, status), PACE * steps);
     }
@@ -229,7 +238,13 @@ class MockAgent {
         } else if (text.startsWith("run:")) {
             this.askPermission(id, text.slice(4).trim(), done);
         } else {
-            this.later(id, { type: "text", text: `You said: ${text}` }, "working");
+            // Written word by word, the way a real reply arrives.
+            const reply = `You said: ${text}`;
+            const words = reply.split(/(?<= )/);
+            words.forEach((word, index) => {
+                this.stream(id, { type: "text_delta", text: word }, (index + 1) / words.length);
+            });
+            this.later(id, { type: "text", text: reply }, "working");
             this.later(id, done, "idle", 2);
         }
     }

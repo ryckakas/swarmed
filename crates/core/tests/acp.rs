@@ -117,6 +117,37 @@ async fn a_turn_joins_the_streamed_pieces_into_one_reply() {
     );
 }
 
+/// The pieces of the reply published until the turn ends, joined.
+async fn streamed_pieces(bus: &mut Receiver<SessionEvent>) -> String {
+    let mut pieces = String::new();
+    loop {
+        match next(bus).await.event {
+            AgentEvent::TextDelta { text } => pieces.push_str(&text),
+            AgentEvent::TurnDone { .. } => return pieces,
+            _ => {}
+        }
+    }
+}
+
+#[tokio::test]
+async fn pieces_of_a_reply_are_published_as_they_arrive_but_not_stored() {
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+
+    core.session_send(id, "hello").expect("sends");
+    let pieces = streamed_pieces(&mut bus).await;
+    assert_eq!(pieces, "echo: hello");
+    let stored = core.session_events(id).expect("exists");
+    assert!(stored.contains(&text("echo: hello")));
+    assert!(
+        !stored
+            .iter()
+            .any(|event| matches!(event, AgentEvent::TextDelta { .. }))
+    );
+}
+
 #[tokio::test]
 async fn a_permission_request_is_answered_with_the_matching_option() {
     let fx = fixture();

@@ -71,9 +71,10 @@ impl SessionStatus {
                 ..
             } => Some(Self::Idle),
             AgentEvent::Exited { .. } => Some(Self::Errored),
-            AgentEvent::Init { .. } | AgentEvent::RateLimit { .. } | AgentEvent::Other { .. } => {
-                None
-            }
+            AgentEvent::Init { .. }
+            | AgentEvent::TextDelta { .. }
+            | AgentEvent::RateLimit { .. }
+            | AgentEvent::Other { .. } => None,
         }
     }
 
@@ -567,10 +568,15 @@ impl Live {
         SessionStatus::after(event, false)
     }
 
-    /// Stores an event, then publishes it to every subscriber.
+    /// Stores an event, unless it is a piece of one that follows whole, then publishes it.
     fn note(&self, store: &Mutex<Store>, session_id: i64, event: AgentEvent) -> Result<()> {
         let status = self.status_after(session_id, &event);
-        let stored = lock(store).record(session_id, &event, status);
+        // Pieces of a reply are only shown; the whole reply is what gets stored.
+        let stored = if matches!(event, AgentEvent::TextDelta { .. }) {
+            Ok(())
+        } else {
+            lock(store).record(session_id, &event, status)
+        };
         // An error only means nobody is subscribed right now.
         self.bus
             .send(SessionEvent {

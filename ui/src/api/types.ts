@@ -55,6 +55,8 @@ export type AgentEvent =
           skills: number;
       }
     | { type: "text"; text: string }
+    /** A piece of a reply still being written; the whole reply follows as `text`. */
+    | { type: "text_delta"; text: string }
     | { type: "tool_use"; id: string; name: string; input: unknown }
     | { type: "tool_result"; tool_use_id: string; content: string; is_error: boolean }
     | {

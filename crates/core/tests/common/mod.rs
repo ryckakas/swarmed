@@ -76,12 +76,14 @@ pub async fn next(bus: &mut Receiver<SessionEvent>) -> SessionEvent {
         .expect("the event stream closed")
 }
 
-/// One session's events up to and including the end of the turn.
+/// One session's events up to and including the end of the turn, as they are stored: without
+/// the pieces of replies that are only published.
 pub async fn turn(bus: &mut Receiver<SessionEvent>, session_id: i64) -> Vec<AgentEvent> {
     let mut events = vec![];
     loop {
         let published = next(bus).await;
-        if published.session_id != session_id {
+        let piece = matches!(published.event, AgentEvent::TextDelta { .. });
+        if published.session_id != session_id || piece {
             continue;
         }
         let done = matches!(published.event, AgentEvent::TurnDone { .. });
