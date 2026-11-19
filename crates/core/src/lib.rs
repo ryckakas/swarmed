@@ -20,6 +20,7 @@ mod settings;
 mod statusline;
 mod store;
 mod tasks;
+mod terminal;
 mod vars;
 
 use std::path::Path;
@@ -46,6 +47,8 @@ pub use statusline::StatusItem;
 use store::Store;
 pub use store::{Project, SetupStatus, Task};
 pub use tasks::{BranchChoices, NewTaskOptions, RemoveOptions};
+pub use terminal::TerminalOutput;
+use terminal::Terminals;
 
 /// The entry point: one value per data directory, shared by everything a front end does.
 #[derive(Debug)]
@@ -58,6 +61,8 @@ pub struct Core {
     namer: Option<Arc<dyn Namer>>,
     /// Where API keys are kept.
     secrets: Box<dyn SecretStore>,
+    /// The sessions' terminals.
+    terminals: Arc<Terminals>,
 }
 
 /// The store is only ever locked for one short query, never across an `.await`. A panic while
@@ -92,6 +97,7 @@ impl Core {
             namer: None,
             // Nothing outside this process until `open` says where keys really live.
             secrets: Box::new(MemorySecrets::default()),
+            terminals: Arc::default(),
         })
     }
 

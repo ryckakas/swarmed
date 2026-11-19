@@ -242,6 +242,32 @@ pub(crate) fn session_configure(
     Ok(core.session_configure(id, &settings)?)
 }
 
+/// Async so that it runs on the runtime the core spawns the terminal's tasks on.
+#[tauri::command]
+pub(crate) async fn terminal_open(
+    core: CoreState<'_>,
+    id: i64,
+    cols: u16,
+    rows: u16,
+) -> Command<String> {
+    Ok(core.terminal_open(id, cols, rows)?)
+}
+
+#[tauri::command]
+pub(crate) fn terminal_write(core: CoreState<'_>, id: i64, data: String) -> Command<()> {
+    Ok(core.terminal_write(id, &data)?)
+}
+
+#[tauri::command]
+pub(crate) fn terminal_resize(core: CoreState<'_>, id: i64, cols: u16, rows: u16) -> Command<()> {
+    Ok(core.terminal_resize(id, cols, rows)?)
+}
+
+#[tauri::command]
+pub(crate) fn terminal_close(core: CoreState<'_>, id: i64) {
+    core.terminal_close(id);
+}
+
 #[tauri::command]
 pub(crate) async fn status_line(core: CoreState<'_>, id: i64) -> Command<Option<String>> {
     Ok(core.status_line(id).await?)

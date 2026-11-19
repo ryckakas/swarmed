@@ -214,6 +214,15 @@ fn the_ui_can_deny_interrupt_stop_and_remove() {
     app.ok("session_stop", json!({ "id": id }));
     app.wait_for_event(id, "exited");
     assert_eq!(app.ok("status_line", json!({ "id": id })), json!(null));
+    let size = json!({ "id": id, "cols": 80, "rows": 24 });
+    assert_eq!(app.ok("terminal_open", size.clone()), json!(""));
+    app.ok("terminal_write", json!({ "id": id, "data": "true\n" }));
+    app.ok("terminal_resize", size);
+    app.ok("terminal_close", json!({ "id": id }));
+    assert_eq!(
+        app.invoke("terminal_write", json!({ "id": id, "data": "ls\n" })),
+        Err(json!(format!("session {id} has no terminal open")))
+    );
     let renamed = app.ok(
         "session_rename",
         json!({ "id": id, "title": "  Slow test  " }),

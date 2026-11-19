@@ -15,6 +15,7 @@ import type {
     SessionEvent,
     Settings,
     Task,
+    TerminalOutput,
 } from "./types";
 
 /** The real app: commands and events of the Tauri shell in crates/app. */
@@ -45,6 +46,11 @@ export const tauriApi: Api = {
     sessionInterrupt: (id) => invoke("session_interrupt", { id }),
     slashCommands: (id) => invoke<string[]>("slash_commands", { id }),
     sessionConfigure: (id, settings) => invoke<Session>("session_configure", { id, ...settings }),
+    terminalOpen: (id, cols, rows) => invoke<string>("terminal_open", { id, cols, rows }),
+    terminalWrite: (id, data) => invoke("terminal_write", { id, data }),
+    terminalResize: (id, cols, rows) => invoke("terminal_resize", { id, cols, rows }),
+    onTerminalOutput: (listener) =>
+        listen<TerminalOutput>("terminal-output", (event) => listener(event.payload)),
     statusLine: (id) => invoke<string | null>("status_line", { id }),
     sessionRename: (id, title) => invoke<Session>("session_rename", { id, title }),
     sessionClose: (id) => invoke("session_close", { id }),

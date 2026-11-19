@@ -204,6 +204,12 @@ pub enum AgentEvent {
         /// The new title.
         title: String,
     },
+    /// What happened in the session's terminal since the agent's last turn, which the agent was
+    /// given along with the user's message. Recorded by the core.
+    TerminalShared {
+        /// The terminal's output as plain text.
+        text: String,
+    },
     /// Usage-limit state.
     RateLimit {
         /// `allowed`, or the agent's word for a limit that was hit.

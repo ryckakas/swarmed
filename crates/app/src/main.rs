@@ -11,7 +11,7 @@ mod commands;
 use std::sync::Arc;
 
 use swarmed_core::agent::FakeBackend;
-use swarmed_core::{Core, Paths, SessionEvent};
+use swarmed_core::{Core, Paths, SessionEvent, TerminalOutput};
 use tauri::{AppHandle, Builder, Emitter, Runtime};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
@@ -20,6 +20,8 @@ use tokio::sync::broadcast::error::RecvError;
 const SESSION_EVENT: &str = "session-event";
 /// Emitted when the UI fell too far behind to be sent every event and must reload history.
 const SESSION_EVENTS_LAGGED: &str = "session-events-lagged";
+/// The event every piece of terminal output is emitted as.
+const TERMINAL_OUTPUT: &str = "terminal-output";
 
 /// `SWARMED_FAKE_AGENT` swaps Claude for the scripted agent, to work on the UI without tokens.
 fn open_core() -> swarmed_core::Result<Core> {
@@ -37,6 +39,18 @@ async fn forward_events<R: Runtime>(mut bus: Receiver<SessionEvent>, app: AppHan
         match bus.recv().await {
             Ok(event) => app.emit(SESSION_EVENT, event).ok(),
             Err(RecvError::Lagged(_)) => app.emit(SESSION_EVENTS_LAGGED, ()).ok(),
+            Err(RecvError::Closed) => return,
+        };
+    }
+}
+
+/// Passes on what the sessions' terminals print. Output a slow window missed is not replayed:
+/// reopening the terminal redraws it from what the core kept.
+async fn forward_terminals<R: Runtime>(mut bus: Receiver<TerminalOutput>, app: AppHandle<R>) {
+    loop {
+        match bus.recv().await {
+            Ok(output) => app.emit(TERMINAL_OUTPUT, output).ok(),
+            Err(RecvError::Lagged(_)) => None,
             Err(RecvError::Closed) => return,
         };
     }
@@ -72,6 +86,10 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
             commands::session_stop,
             commands::session_configure,
             commands::slash_commands,
+            commands::terminal_open,
+            commands::terminal_write,
+            commands::terminal_resize,
+            commands::terminal_close,
             commands::status_line,
             commands::session_rename,
             commands::session_close,
@@ -82,11 +100,16 @@ fn main() {
     let core =
         Arc::new(open_core().unwrap_or_else(|e| panic!("could not open Swarmed's data: {e}")));
     let bus = core.subscribe();
+    let terminals = core.subscribe_terminals();
     // The dialog plugin is the native folder picker, for adding a repository.
     with_core(Builder::default().plugin(tauri_plugin_dialog::init()), core)
         .setup(move |app| {
             drop(tauri::async_runtime::spawn(forward_events(
                 bus,
+                app.handle().clone(),
+            )));
+            drop(tauri::async_runtime::spawn(forward_terminals(
+                terminals,
                 app.handle().clone(),
             )));
             Ok(())

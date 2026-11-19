@@ -13,6 +13,7 @@ import type {
     SessionSetup,
     Settings,
     Task,
+    TerminalOutput,
 } from "./types";
 
 /** Stops a subscription. */
@@ -71,6 +72,16 @@ export interface Api {
      * from its next turn, the supervision from its next action.
      */
     sessionConfigure(id: number, settings: SessionSettings): Promise<Session>;
+    /**
+     * Opens the session's terminal, starting a shell in the task's worktree if none runs, and
+     * returns what it has printed so far, to redraw it.
+     */
+    terminalOpen(id: number, cols: number, rows: number): Promise<string>;
+    /** Types into the session's terminal. */
+    terminalWrite(id: number, data: string): Promise<void>;
+    terminalResize(id: number, cols: number, rows: number): Promise<void>;
+    /** Calls `listener` for everything any session's terminal prints, from now on. */
+    onTerminalOutput(listener: (output: TerminalOutput) => void): Promise<Unsubscribe>;
     /**
      * What the user's status line script prints for the session, or `null` if no script is
      * configured and the built-in pieces apply.

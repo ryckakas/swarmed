@@ -76,6 +76,7 @@ impl SessionStatus {
             AgentEvent::Exited { .. } => Some(Self::Errored),
             AgentEvent::Init { .. }
             | AgentEvent::Renamed { .. }
+            | AgentEvent::TerminalShared { .. }
             | AgentEvent::TextDelta { .. }
             | AgentEvent::RateLimit { .. }
             | AgentEvent::Other { .. } => None,
@@ -524,9 +525,26 @@ impl Core {
             text: text.to_string(),
         };
         self.live.note(&self.store, id, event)?;
+        let message = self.with_terminal(id, text)?;
         commands
-            .send(AgentCommand::UserMessage(text.to_string()))
+            .send(AgentCommand::UserMessage(message))
             .map_err(|_| Error::SessionNotRunning(id))
+    }
+
+    /// The message as the agent gets it: what the user typed, and after it whatever happened
+    /// in the session's terminal since the agent's last turn.
+    fn with_terminal(&self, id: i64, text: &str) -> Result<String> {
+        let shared = self.terminals.take_unshared(id);
+        if shared.is_empty() {
+            return Ok(text.to_string());
+        }
+        let message = format!(
+            "{text}\n\n<terminal>\nWhat the user ran in this session's terminal since your last \
+             turn, with its output:\n{shared}\n</terminal>"
+        );
+        self.live
+            .note(&self.store, id, AgentEvent::TerminalShared { text: shared })?;
+        Ok(message)
     }
 
     /// Lets a pending permission request go ahead. Does nothing if it is no longer pending.
@@ -591,6 +609,7 @@ impl Core {
     pub fn session_close(&self, id: i64) -> Result<()> {
         self.session(id)?;
         self.session_stop(id);
+        self.terminal_close(id);
         self.store().session_close(id)
     }
 }

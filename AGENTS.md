@@ -86,6 +86,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   one call to Claude Code's smallest model, with none of the user's settings, tools or MCP
   servers) then suggests a better one, unless `auto_title` is off or the user renamed the session
   first. Every change of title is an event, `Renamed`, so all front ends follow.
+- **Each session can have a terminal** (`terminal.rs`): the user's shell on a pseudo-terminal in
+  the task's worktree, shown in place of the message box. Its output is published on its own
+  channel (`Core::subscribe_terminals`) and not stored. What it printed since the agent's last
+  turn is appended, as plain text, to the user's next message and recorded as `TerminalShared`.
+  The agent cannot type into the terminal.
 - **The status line** under the message box is drawn by the UI from built-in pieces
   (`ui/src/statusline.ts`) chosen in the settings. A `status_command` replaces them: the core
   runs it (`statusline.rs`) with the session as JSON on standard input and shows its first line.

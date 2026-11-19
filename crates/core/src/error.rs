@@ -104,6 +104,12 @@ pub enum Error {
     /// The user's status line script could not be run, failed, or took too long.
     #[error("status line: {0}")]
     StatusLine(String),
+    /// A session's terminal could not be started or reached.
+    #[error("terminal: {0}")]
+    Terminal(String),
+    /// The session has no terminal open.
+    #[error("session {0} has no terminal open")]
+    TerminalNotOpen(i64),
     /// A session title with nothing in it.
     #[error("a session title cannot be empty")]
     EmptyTitle,

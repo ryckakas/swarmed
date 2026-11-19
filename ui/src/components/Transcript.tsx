@@ -101,6 +101,13 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
                     <span className="mono">{summarize(item.input)}</span>
                 </p>
             );
+        case "terminal":
+            return (
+                <details className="shared-terminal">
+                    <summary>Terminal output sent to the agent with this message</summary>
+                    <pre className="tool-body">{item.text}</pre>
+                </details>
+            );
         case "session":
             return (
                 <p className="aside">

@@ -119,6 +119,8 @@ export type AgentEvent =
       }
     /** The session got a new title, from the user or from the model that names sessions. */
     | { type: "renamed"; title: string }
+    /** What happened in the session's terminal, as given to the agent with the next message. */
+    | { type: "terminal_shared"; text: string }
     | { type: "permission_answered"; request_id: string; allowed: boolean }
     | { type: "permission_withdrawn"; request_id: string }
     | { type: "rate_limit"; status: string; resets_at: number | null; raw: unknown }
@@ -131,6 +133,13 @@ export interface SessionEvent {
     /** The session's status after this event, if the event changed it. */
     status: SessionStatus | null;
     event: AgentEvent;
+}
+
+/** A piece of what a session's terminal printed. */
+export interface TerminalOutput {
+    session_id: number;
+    /** The text, with the escape sequences a terminal emulator expects. */
+    data: string;
 }
 
 /** One line a hook printed, with the task it belongs to. */

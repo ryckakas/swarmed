@@ -8,7 +8,7 @@ use std::sync::Arc;
 use swarmed_core::agent::{AgentEvent, Auth, Namer, Naming, Supervision};
 use swarmed_core::{
     Core, Error, NewTaskOptions, Session, SessionEvent, SessionOptions, SessionSettings,
-    SessionStatus, Settings, hooks,
+    SessionStatus, Settings, TerminalOutput, hooks,
 };
 use tokio::sync::broadcast::Receiver;
 
@@ -319,6 +319,75 @@ async fn a_status_line_script_is_told_about_the_session_it_is_for() {
     assert!(matches!(
         core.status_line(404).await,
         Err(Error::SessionNotFound(404))
+    ));
+}
+
+/// Waits until the session's terminal has printed `wanted`.
+async fn printed(output: &mut Receiver<TerminalOutput>, wanted: &str) {
+    let mut seen = String::new();
+    let wait = async {
+        while !seen.contains(wanted) {
+            seen.push_str(&output.recv().await.expect("the terminal is open").data);
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(20), wait)
+        .await
+        .expect("the terminal never printed what was typed");
+}
+
+#[tokio::test]
+async fn what_happens_in_the_terminal_travels_with_the_next_message() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let mut output = core.subscribe_terminals();
+    let session = started_session(&core);
+
+    assert_eq!(core.terminal_open(session.id, 80, 24).expect("opens"), "");
+    // The sum shows the command ran: its text alone would also match what the terminal echoes.
+    core.terminal_write(session.id, "echo term-$((40 + 2))\n")
+        .expect("types");
+    printed(&mut output, "term-42").await;
+    assert!(
+        core.terminal_open(session.id, 100, 30)
+            .expect("reopens")
+            .contains("term-42")
+    );
+
+    core.session_send(session.id, "what happened?")
+        .expect("sends");
+    let events = turn(&mut bus, session.id).await;
+    let shared = events.iter().find_map(|event| match event {
+        AgentEvent::TerminalShared { text } => Some(text.as_str()),
+        _ => None,
+    });
+    assert!(
+        shared.is_some_and(|text| text.contains("term-42")),
+        "{events:?}"
+    );
+    let reply = events.iter().find_map(|event| match event {
+        AgentEvent::Text { text } => Some(text.as_str()),
+        _ => None,
+    });
+    let reply = reply.expect("the agent replied");
+    assert!(
+        reply.starts_with("echo: what happened?\n\n<terminal>"),
+        "{reply}"
+    );
+    assert!(
+        reply.contains("term-42") && reply.ends_with("</terminal>"),
+        "{reply}"
+    );
+
+    // Nothing new in the terminal: the next message goes out as typed.
+    core.session_send(session.id, "and now?").expect("sends");
+    let events = turn(&mut bus, session.id).await;
+    assert!(events.contains(&text("echo: and now?")), "{events:?}");
+
+    core.terminal_close(session.id);
+    assert!(matches!(
+        core.terminal_write(session.id, "ls\n"),
+        Err(Error::TerminalNotOpen(id)) if id == session.id
     ));
 }
 

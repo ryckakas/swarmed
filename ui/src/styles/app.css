@@ -1190,6 +1190,55 @@ code {
     padding: var(--space-1) var(--space-2) var(--space-2) var(--space-3);
 }
 
+/* The terminal that takes the message box's place. */
+
+.terminal-pane {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--panel);
+    overflow: hidden;
+}
+
+.terminal-pane:focus-within {
+    border-color: var(--faint);
+}
+
+.terminal-box {
+    height: min(42vh, 26rem);
+    padding: var(--space-2) var(--space-3);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    cursor: text;
+}
+
+.terminal-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-top: 1px solid var(--line);
+    color: var(--faint);
+    font-size: var(--text-xs);
+}
+
+.terminal-foot p {
+    margin-right: auto;
+}
+
+/* The browser's own disclosure triangle is enough here. */
+.shared-terminal summary {
+    color: var(--faint);
+    font-size: var(--text-xs);
+}
+
+/* A button that sits among the menus and looks like them, without a menu's chevron. */
+.picker-plain {
+    padding-right: var(--space-2);
+    background-image: none;
+}
+
 /* The status line: one quiet row under the message box, which folds away to its toggle. */
 
 .status-line {

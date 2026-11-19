@@ -12,6 +12,7 @@ import type {
     SessionStatus,
     Settings,
     Task,
+    TerminalOutput,
 } from "./types";
 
 // Sample data and a scripted agent, for working on the UI in a browser where there is no Tauri
@@ -239,6 +240,36 @@ function storeKey(keys: ApiKeyInfo[], name: string, stored: boolean) {
     key.stored = stored;
 }
 
+const PROMPT = "\u001b[32m~/swarmed/task\u001b[0m $ ";
+
+/** A pretend shell: it echoes what is typed and answers every command the same way. */
+class MockTerminal {
+    readonly listeners = new Set<(output: TerminalOutput) => void>();
+    private readonly printed = new Map<number, string>();
+
+    open(id: number): string {
+        const replay = this.printed.get(id);
+        if (replay === undefined) {
+            // Marked as started at once, so opening it twice in a row starts one shell.
+            this.printed.set(id, "");
+            setTimeout(() => this.print(id, PROMPT), 0);
+        }
+        return replay ?? "";
+    }
+
+    type(id: number, data: string) {
+        const entered = data.includes("\r");
+        this.print(id, entered ? `\r\n(the sample shell runs nothing)\r\n${PROMPT}` : data);
+    }
+
+    private print(id: number, data: string) {
+        this.printed.set(id, (this.printed.get(id) ?? "") + data);
+        for (const listener of this.listeners) {
+            listener({ session_id: id, data });
+        }
+    }
+}
+
 class MockAgent {
     readonly projects = sampleProjects();
     readonly events = new Map<number, AgentEvent[]>();
@@ -407,6 +438,7 @@ export function createMockApi(): Api {
     const agent = new MockAgent();
     const tasks = () => agent.projects.flatMap((project) => project.tasks);
     const hookListeners = new Set<(output: HookOutput) => void>();
+    const terminal = new MockTerminal();
     const keys: ApiKeyInfo[] = [
         { name: "OPENROUTER_API_KEY", provider: "OpenRouter", stored: false },
         { name: "OPENAI_API_KEY", provider: "OpenAI", stored: true },
@@ -509,6 +541,13 @@ export function createMockApi(): Api {
             "tdd",
         ],
         sessionConfigure: async (id, settings) => agent.configure(id, settings),
+        terminalOpen: async (id) => terminal.open(id),
+        terminalWrite: async (id, data) => terminal.type(id, data),
+        terminalResize: async () => undefined,
+        onTerminalOutput: async (listener) => {
+            terminal.listeners.add(listener);
+            return () => terminal.listeners.delete(listener);
+        },
         statusLine: async (id) => scriptedStatus(settings.status_command, id),
         sessionRename: async (id, title) => agent.rename(id, title),
         sessionClose: async (id) => agent.close(id),
