@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { Api } from "./api/client";
 import { createMockApi } from "./api/mock";
 import type { AgentEvent, SessionEvent } from "./api/types";
-import { appendEvent, connect, useStore } from "./store";
+import { appendEvent, connect, useStore, withEvent } from "./store";
 
 const text = (value: string): AgentEvent => ({ type: "text", text: value });
 const published = (sessionId: number, event: AgentEvent): SessionEvent => ({
@@ -83,6 +83,25 @@ describe("open", () => {
     });
 });
 
+describe("withEvent", () => {
+    const delta = (value: string): AgentEvent => ({ type: "text_delta", text: value });
+
+    it("grows a reply piece by piece and swaps in the whole reply", () => {
+        let events = [text("earlier")];
+        events = withEvent(events, delta("Rain "));
+        events = withEvent(events, delta("falls."));
+        expect(events).toEqual([text("earlier"), delta("Rain falls.")]);
+
+        events = withEvent(events, text("Rain falls."));
+        expect(events).toEqual([text("earlier"), text("Rain falls.")]);
+    });
+
+    it("drops unfinished pieces when something other than the reply follows", () => {
+        const done: AgentEvent = { type: "turn_done", is_error: true, result: null, cost_usd: 0 };
+        expect(withEvent([delta("Rai")], done)).toEqual([done]);
+    });
+});
+
 describe("connect", () => {
     it("keeps delivering events after an earlier connection is cleaned up", async () => {
         const api = createMockApi();
@@ -96,6 +115,7 @@ describe("connect", () => {
         const before = useStore.getState().events[1]?.length ?? 0;
         await api.sessionAllow(1, "sample-request");
 
-        expect(useStore.getState().events[1]).toHaveLength(before + 1);
+        // The answer and the tool's result, each delivered once.
+        expect(useStore.getState().events[1]).toHaveLength(before + 2);
     });
 });

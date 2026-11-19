@@ -98,6 +98,7 @@ impl Script {
             api_key_source: "none".to_string(),
             mcp_servers: vec![],
             skills: 0,
+            slash_commands: vec!["context".to_string(), "review".to_string()],
         }
     }
 

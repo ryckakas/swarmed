@@ -6,6 +6,7 @@ export type Item =
     | { kind: "user"; key: number; text: string }
     | { kind: "text"; key: number; text: string }
     | { kind: "tool"; key: number; name: string; input: unknown; result: ToolResult | null }
+    /** A request nobody has decided yet. It leaves the transcript once it is. */
     | {
           kind: "permission";
           key: number;
@@ -13,9 +14,9 @@ export type Item =
           toolName: string;
           input: unknown;
           description: string | null;
-          /** Still waiting for a decision. */
-          pending: boolean;
       }
+    /** A request the user refused. An allowed one shows as the tool call it let through. */
+    | { kind: "denied"; key: number; toolName: string; input: unknown }
     | { kind: "session"; key: number; model: string; login: string; mcp: string; skills: number }
     | { kind: "turn"; key: number; isError: boolean; costUsd: number | null }
     | { kind: "notice"; key: number; tone: "error" | "warning"; text: string };
@@ -39,14 +40,19 @@ export function summarize(input: unknown): string {
     return text.length <= SUMMARY_CHARS ? text : `${text.slice(0, SUMMARY_CHARS - 1)}…`;
 }
 
-/** Events that show the agent moved on, so an earlier permission request was answered. */
-const ANSWERS_A_REQUEST = new Set<AgentEvent["type"]>(["tool_result", "turn_done", "exited"]);
+/**
+ * Events after which no earlier permission request can still be open. A history written before
+ * answers were recorded has only these to go by.
+ */
+const CLOSES_REQUESTS = new Set<AgentEvent["type"]>(["user_message", "turn_done", "exited"]);
 
 function single(event: AgentEvent, key: number): Item | null {
     switch (event.type) {
         case "user_message":
             return { kind: "user", key, text: event.text };
         case "text":
+        // A reply still being written reads like a finished one, and becomes one in place.
+        case "text_delta":
             return { kind: "text", key, text: event.text };
         case "init":
             return sessionItem(event, key);
@@ -101,33 +107,61 @@ function exitNotice(event: Extract<AgentEvent, { type: "exited" }>, key: number)
     return { kind: "notice", key, tone: "error", text } satisfies Item;
 }
 
+type Permission = Extract<Item, { kind: "permission" }>;
+
+/** What is being built up while walking through a session's events. */
+interface Draft {
+    items: Item[];
+    tools: Map<string, Extract<Item, { kind: "tool" }>>;
+    /** The permission requests still waiting for a decision, by request id. */
+    open: Map<string, Permission>;
+    /** Requests that were decided or abandoned; they are left out of the result. */
+    settled: Set<Item>;
+}
+
 /** The transcript items for a session's events, in order. Tool results join their calls. */
 export function toItems(events: AgentEvent[]): Item[] {
-    const items: Item[] = [];
-    const tools = new Map<string, Extract<Item, { kind: "tool" }>>();
+    const draft: Draft = { items: [], tools: new Map(), open: new Map(), settled: new Set() };
     events.forEach((event, key) => {
-        if (event.type === "tool_use") {
-            const tool: Item = {
-                kind: "tool",
-                key,
-                name: event.name,
-                input: event.input,
-                result: null,
-            };
-            tools.set(event.id, tool);
-            items.push(tool);
-        } else if (event.type === "tool_result") {
-            attachResult(tools.get(event.tool_use_id), event);
-        } else if (event.type === "permission_request") {
-            items.push(permissionItem(event, key, events));
-        } else {
-            const item = single(event, key);
-            if (item) {
-                items.push(item);
-            }
-        }
+        add(draft, event, key);
     });
-    return items;
+    return draft.items.filter((item) => !draft.settled.has(item));
+}
+
+function add(draft: Draft, event: AgentEvent, key: number) {
+    if (CLOSES_REQUESTS.has(event.type)) {
+        for (const request of draft.open.values()) {
+            draft.settled.add(request);
+        }
+        draft.open.clear();
+    }
+    switch (event.type) {
+        case "tool_use":
+            return addTool(draft, event, key);
+        case "tool_result":
+            return attachResult(draft.tools.get(event.tool_use_id), event);
+        case "permission_request":
+            return addRequest(draft, event, key);
+        case "permission_answered":
+            return settle(draft, event.request_id, key, event.allowed);
+        case "permission_withdrawn":
+            return settle(draft, event.request_id, key, true);
+        default:
+            return addSingle(draft, event, key);
+    }
+}
+
+function addSingle(draft: Draft, event: AgentEvent, key: number) {
+    const item = single(event, key);
+    if (item) {
+        draft.items.push(item);
+    }
+}
+
+function addTool(draft: Draft, event: Extract<AgentEvent, { type: "tool_use" }>, key: number) {
+    const tool: Item = { kind: "tool", key, name: event.name, input: event.input, result: null };
+    draft.tools.set(event.id, tool);
+    draft.items.push(tool);
 }
 
 function attachResult(
@@ -139,19 +173,33 @@ function attachResult(
     }
 }
 
-function permissionItem(
+function addRequest(
+    draft: Draft,
     event: Extract<AgentEvent, { type: "permission_request" }>,
     key: number,
-    events: AgentEvent[],
-): Item {
-    const answered = events.slice(key + 1).some((later) => ANSWERS_A_REQUEST.has(later.type));
-    return {
+) {
+    const request: Permission = {
         kind: "permission",
         key,
         requestId: event.request_id,
         toolName: event.tool_name,
         input: event.input,
         description: event.description,
-        pending: !answered,
     };
+    draft.open.set(event.request_id, request);
+    draft.items.push(request);
+}
+
+/** Takes a decided request out of the transcript; a refusal leaves a line where it happened. */
+function settle(draft: Draft, requestId: string, key: number, allowed: boolean) {
+    const request = draft.open.get(requestId);
+    if (!request) {
+        return;
+    }
+    draft.open.delete(requestId);
+    draft.settled.add(request);
+    if (!allowed) {
+        const { toolName, input } = request;
+        draft.items.push({ kind: "denied", key, toolName, input });
+    }
 }

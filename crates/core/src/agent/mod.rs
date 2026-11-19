@@ -137,10 +137,19 @@ pub enum AgentEvent {
         mcp_servers: Vec<McpServerInfo>,
         /// How many skills the session loaded.
         skills: usize,
+        /// The commands and skills a message can call by starting with `/`, without the slash.
+        #[serde(default)]
+        slash_commands: Vec<String>,
     },
     /// A piece of the agent's reply.
     Text {
         /// Markdown text.
+        text: String,
+    },
+    /// A piece of a reply that is still being written. It is published as it arrives and
+    /// never stored: the whole reply follows as one [`AgentEvent::Text`].
+    TextDelta {
+        /// The next few characters.
         text: String,
     },
     /// The agent calls a tool.
@@ -171,6 +180,19 @@ pub enum AgentEvent {
         input: Value,
         /// The agent's own summary of the action, if it gave one.
         description: Option<String>,
+    },
+    /// The user decided a [`AgentEvent::PermissionRequest`]. Recorded by the core, not produced by
+    /// a backend.
+    PermissionAnswered {
+        /// The request that was decided.
+        request_id: String,
+        /// Whether it was allowed.
+        allowed: bool,
+    },
+    /// The agent no longer needs a decision on a [`AgentEvent::PermissionRequest`].
+    PermissionWithdrawn {
+        /// The request that was taken back.
+        request_id: String,
     },
     /// Usage-limit state.
     RateLimit {
@@ -224,6 +246,10 @@ pub enum AgentCommand {
     },
     /// Stop the current turn; the session stays usable.
     Interrupt,
+    /// Run on this model from the next turn on; `None` is the agent's default.
+    SetModel(Option<String>),
+    /// Change how much the agent may do without asking, from now on.
+    SetSupervision(Supervision),
 }
 
 /// A running session. Dropping `commands` ends it.

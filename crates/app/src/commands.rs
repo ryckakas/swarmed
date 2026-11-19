@@ -11,7 +11,7 @@ use serde::Serialize;
 use swarmed_core::agent::{AgentEvent, Auth, Supervision};
 use swarmed_core::{
     AgentInfo, BranchChoices, Core, NewTaskOptions, Project, ProjectOverview, RemoveOptions,
-    Session, SessionOptions, Task,
+    Session, SessionOptions, SessionSettings, Task,
 };
 use tauri::{AppHandle, Emitter, Runtime, State};
 
@@ -170,4 +170,25 @@ pub(crate) fn session_interrupt(core: CoreState<'_>, id: i64) -> Command<()> {
 #[tauri::command]
 pub(crate) fn session_stop(core: CoreState<'_>, id: i64) {
     core.session_stop(id);
+}
+
+#[tauri::command]
+pub(crate) fn slash_commands(core: CoreState<'_>, id: Option<i64>) -> Command<Vec<String>> {
+    Ok(core.slash_commands(id)?)
+}
+
+#[tauri::command]
+pub(crate) fn session_configure(
+    core: CoreState<'_>,
+    id: i64,
+    model: Option<String>,
+    supervision: Supervision,
+) -> Command<Session> {
+    let settings = SessionSettings { model, supervision };
+    Ok(core.session_configure(id, &settings)?)
+}
+
+#[tauri::command]
+pub(crate) fn session_close(core: CoreState<'_>, id: i64) -> Command<()> {
+    Ok(core.session_close(id)?)
 }

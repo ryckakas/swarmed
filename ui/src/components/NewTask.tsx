@@ -4,7 +4,15 @@ import type { AgentInfo, BranchChoices, Project, SessionSetup, Supervision } fro
 import { useStore } from "../store";
 import { taskNameForPrompt, taskNameFrom, uniqueTaskName } from "../tree";
 import { ComposerBox } from "./ComposerBox";
-import { CLAUDE, modelLabel, SUPERVISION_CHOICES, SUPERVISION_LABELS } from "./options";
+import {
+    CLAUDE,
+    modelChoices,
+    SUPERVISION_CHOICES,
+    SUPERVISION_LABELS,
+    useAgents,
+    useSlashCommands,
+} from "./options";
+import { Picker } from "./Picker";
 
 /** The value of the branch picker that means "create a new branch". */
 const NEW_BRANCH = "";
@@ -19,6 +27,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
     const [agentId, setAgentId] = useState(CLAUDE);
     const [model, setModel] = useState("");
     const agents = useAgents();
+    const commands = useSlashCommands(null);
     const [prompt, setPrompt] = useState("");
     const [creating, setCreating] = useState<string | null>(null);
 
@@ -73,6 +82,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 placeholder="Describe the task"
                 disabled={creating !== null}
                 autoFocus
+                commands={commands}
             >
                 <Picker
                     label="Repository"
@@ -168,24 +178,6 @@ function AgentPickers({ agents, agentId, model, onAgent, onModel }: AgentPickers
     );
 }
 
-/** The agent's default, then the models it offers. */
-function modelChoices(agent: AgentInfo | undefined): [string, string][] {
-    const models = agent?.models ?? [];
-    return [
-        ["", modelLabel(null)],
-        ...models.map((model): [string, string] => [model, modelLabel(model)]),
-    ];
-}
-
-/** The agents sessions can run on; empty until they are read. */
-function useAgents(): AgentInfo[] {
-    const [agents, setAgents] = useState<AgentInfo[]>([]);
-    useEffect(() => {
-        api.agents().then(setAgents).catch(useStore.getState().report);
-    }, []);
-    return agents;
-}
-
 /** The branches a task in `project` can start from; `null` until they are read. */
 function useBranchChoices(project: string | undefined): BranchChoices | null {
     const [choices, setChoices] = useState<BranchChoices | null>(null);
@@ -203,29 +195,4 @@ function useBranchChoices(project: string | undefined): BranchChoices | null {
         };
     }, [project]);
     return choices;
-}
-
-interface PickerProps {
-    label: string;
-    value: string;
-    onChange(value: string): void;
-    options: [value: string, label: string][];
-}
-
-/** A native menu dressed as a chip, so it behaves the way every other menu on the system does. */
-function Picker({ label, value, onChange, options }: PickerProps) {
-    return (
-        <select
-            className="picker"
-            aria-label={label}
-            value={value}
-            onChange={(event) => onChange(event.target.value)}
-        >
-            {options.map(([optionValue, optionLabel]) => (
-                <option key={optionValue} value={optionValue}>
-                    {optionLabel}
-                </option>
-            ))}
-        </select>
-    );
 }

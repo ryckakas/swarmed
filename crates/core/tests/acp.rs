@@ -98,6 +98,7 @@ async fn a_turn_joins_the_streamed_pieces_into_one_reply() {
         api_key_source: "agent".into(),
         mcp_servers: vec![],
         skills: 0,
+        slash_commands: vec![],
     };
     let done = AgentEvent::TurnDone {
         is_error: false,
@@ -114,6 +115,37 @@ async fn a_turn_joins_the_streamed_pieces_into_one_reply() {
             .agent_session_id
             .as_deref(),
         Some("acp-1")
+    );
+}
+
+/// The pieces of the reply published until the turn ends, joined.
+async fn streamed_pieces(bus: &mut Receiver<SessionEvent>) -> String {
+    let mut pieces = String::new();
+    loop {
+        match next(bus).await.event {
+            AgentEvent::TextDelta { text } => pieces.push_str(&text),
+            AgentEvent::TurnDone { .. } => return pieces,
+            _ => {}
+        }
+    }
+}
+
+#[tokio::test]
+async fn pieces_of_a_reply_are_published_as_they_arrive_but_not_stored() {
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+
+    core.session_send(id, "hello").expect("sends");
+    let pieces = streamed_pieces(&mut bus).await;
+    assert_eq!(pieces, "echo: hello");
+    let stored = core.session_events(id).expect("exists");
+    assert!(stored.contains(&text("echo: hello")));
+    assert!(
+        !stored
+            .iter()
+            .any(|event| matches!(event, AgentEvent::TextDelta { .. }))
     );
 }
 
@@ -137,7 +169,7 @@ async fn a_permission_request_is_answered_with_the_matching_option() {
         content: "ok".into(),
         is_error: false,
     };
-    assert_eq!(rest.first(), Some(&ok));
+    assert_eq!(rest.get(1), Some(&ok));
     assert!(rest.contains(&text("ran it")));
 
     core.session_send(id, "run: ls").expect("sends");
@@ -145,7 +177,7 @@ async fn a_permission_request_is_answered_with_the_matching_option() {
     core.session_deny(id, &request, "no").expect("sends");
     let rest = turn(&mut bus, id).await;
     assert!(matches!(
-        rest.first(),
+        rest.get(1),
         Some(AgentEvent::ToolResult { is_error: true, .. })
     ));
     assert!(rest.contains(&text("not allowed")));

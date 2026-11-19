@@ -5,6 +5,7 @@ import type {
     Project,
     Session,
     SessionEvent,
+    SessionSettings,
     SessionStatus,
     Task,
 } from "./types";
@@ -85,6 +86,7 @@ const INIT: AgentEvent = {
         { name: "hero-mcp", status: "failed" },
     ],
     skills: 89,
+    slash_commands: [],
 };
 
 const REDIRECT_FIX = `I found the cause. \`redirectAfterLogin\` trusts the \`next\` parameter, and the login page sets \`next\` to itself when the session cookie is missing.
@@ -202,6 +204,15 @@ class MockAgent {
         }
     }
 
+    /** Publishes a piece of a reply without keeping it, as the core does. */
+    stream(sessionId: number, event: AgentEvent, steps: number) {
+        setTimeout(() => {
+            for (const listener of this.listeners) {
+                listener({ session_id: sessionId, status: null, event });
+            }
+        }, PACE * steps);
+    }
+
     later(sessionId: number, event: AgentEvent, status: SessionStatus | null, steps = 1) {
         setTimeout(() => this.publish(sessionId, event, status), PACE * steps);
     }
@@ -228,7 +239,13 @@ class MockAgent {
         } else if (text.startsWith("run:")) {
             this.askPermission(id, text.slice(4).trim(), done);
         } else {
-            this.later(id, { type: "text", text: `You said: ${text}` }, "working");
+            // Written word by word, the way a real reply arrives.
+            const reply = `You said: ${text}`;
+            const words = reply.split(/(?<= )/);
+            words.forEach((word, index) => {
+                this.stream(id, { type: "text_delta", text: word }, (index + 1) / words.length);
+            });
+            this.later(id, { type: "text", text: reply }, "working");
             this.later(id, done, "idle", 2);
         }
     }
@@ -253,19 +270,27 @@ class MockAgent {
                 content,
                 is_error: !allowed,
             };
-            this.publish(id, result, "working");
+            // The command takes a while, as real ones do.
+            this.later(id, result, "working", 3);
             this.later(
                 id,
                 { type: "text", text: allowed ? "Done." : "I won't run that." },
                 "working",
+                4,
             );
-            this.later(id, done, "idle", 2);
+            this.later(id, done, "idle", 5);
         });
     }
 
-    decide(id: number, allowed: boolean) {
+    decide(id: number, requestId: string, allowed: boolean) {
         const decision = this.decisions.get(id);
         this.decisions.delete(id);
+        const answered: AgentEvent = {
+            type: "permission_answered",
+            request_id: requestId,
+            allowed,
+        };
+        this.publish(id, answered, "working");
         if (decision) {
             decision(allowed);
         } else {
@@ -281,6 +306,26 @@ class MockAgent {
                 { type: "turn_done", is_error: false, result: null, cost_usd: 0.31 },
                 "idle",
             );
+        }
+    }
+
+    private tasks() {
+        return this.projects.flatMap((project) => project.tasks);
+    }
+
+    configure(id: number, settings: SessionSettings): Session {
+        const sessions = this.tasks().flatMap((task) => task.sessions);
+        const found = sessions.find((candidate) => candidate.id === id);
+        if (!found) {
+            throw new Error(`session ${id} not found`);
+        }
+        return Object.assign(found, settings);
+    }
+
+    close(id: number) {
+        this.interrupt(id);
+        for (const task of this.tasks()) {
+            task.sessions = task.sessions.filter((candidate) => candidate.id !== id);
         }
     }
 
@@ -356,9 +401,23 @@ export function createMockApi(): Api {
         },
         sessionEvents: async (id) => [...agent.history(id)],
         sessionSend: async (id, text) => agent.send(id, text),
-        sessionAllow: async (id) => agent.decide(id, true),
-        sessionDeny: async (id) => agent.decide(id, false),
+        sessionAllow: async (id, requestId) => agent.decide(id, requestId, true),
+        sessionDeny: async (id, requestId) => agent.decide(id, requestId, false),
         sessionInterrupt: async (id) => agent.interrupt(id),
+        slashCommands: async () => [
+            "code-review",
+            "context",
+            "frontend-design",
+            "grill-me",
+            "init",
+            "planning",
+            "review",
+            "security-review",
+            "simplify",
+            "tdd",
+        ],
+        sessionConfigure: async (id, settings) => agent.configure(id, settings),
+        sessionClose: async (id) => agent.close(id),
         onSessionEvent: async (listener) => {
             agent.listeners.add(listener);
             return () => agent.listeners.delete(listener);

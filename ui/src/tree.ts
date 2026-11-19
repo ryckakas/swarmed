@@ -11,6 +11,20 @@ export function withSessionStatus(
     return mapSession(projects, sessionId, (session) => ({ ...session, status }));
 }
 
+/** The tree with one session replaced by a newer copy of itself. */
+export function withSession(projects: Project[], session: Session): Project[] {
+    return mapSession(projects, session.id, () => session);
+}
+
+/** The tree without one session. */
+export function withoutSession(projects: Project[], sessionId: number): Project[] {
+    const inTask = (task: Task) => ({
+        ...task,
+        sessions: task.sessions.filter((session) => session.id !== sessionId),
+    });
+    return projects.map((project) => ({ ...project, tasks: project.tasks.map(inTask) }));
+}
+
 /** How long a title taken from a message may be; the same limit the core uses. */
 const TITLE_CHARS = 60;
 

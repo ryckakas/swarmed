@@ -11,6 +11,8 @@ import {
     taskStatus,
     titleFrom,
     uniqueTaskName,
+    withoutSession,
+    withSession,
     withSessionStatus,
 } from "./tree";
 
@@ -21,6 +23,26 @@ function withTitle(projects: Project[], sessionId: number, title: string): Proje
     }
     return projects;
 }
+
+describe("withSession and withoutSession", () => {
+    it("replaces a session with its newer copy", () => {
+        const before = sampleProjects();
+        const current = findSession(before, 2);
+        expect(current).toBeDefined();
+        const after = withSession(before, { ...current, id: 2, model: "opus" } as typeof current & {
+            id: number;
+        });
+        expect(findSession(after, 2)?.model).toBe("opus");
+        expect(findSession(after, 1)).toBe(findSession(before, 1));
+    });
+
+    it("removes a session and nothing else", () => {
+        const before = sampleProjects();
+        const after = withoutSession(before, 2);
+        expect(findSession(after, 2)).toBeUndefined();
+        expect(findSession(after, 1)).toEqual(findSession(before, 1));
+    });
+});
 
 describe("withSessionStatus", () => {
     it("replaces one session's status and leaves other branches untouched", () => {

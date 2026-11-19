@@ -221,15 +221,24 @@ impl Conversation {
             api_key_source: "agent".to_string(),
             mcp_servers: self.passed_servers(),
             skills: 0,
+            slash_commands: vec![],
         });
-        if let Some(model) = self.spec.model.clone() {
-            let params = json!({ "sessionId": session_id, "configId": "model", "value": model });
-            self.call(Call::SetModel, "session/set_config_option", params)
-                .await;
-        }
+        self.set_model(self.spec.model.clone()).await;
         while let Some(text) = self.queued.pop_front() {
             self.prompt(text).await;
         }
+    }
+
+    /// Switches the open session to `model`. The protocol has no way back to the agent's own
+    /// default, so `None` only applies when the session is next started.
+    async fn set_model(&mut self, model: Option<String>) {
+        self.spec.model.clone_from(&model);
+        let (Some(model), Some(session_id)) = (model, self.session_id.clone()) else {
+            return;
+        };
+        let params = json!({ "sessionId": session_id, "configId": "model", "value": model });
+        self.call(Call::SetModel, "session/set_config_option", params)
+            .await;
     }
 
     async fn prompt(&mut self, text: String) {
@@ -366,17 +375,22 @@ impl Conversation {
             .await;
     }
 
+    /// A piece of the reply: shown at once, and kept to be sent whole when the agent moves on.
+    fn on_chunk(&mut self, update: &Value) {
+        let chunk = update.pointer("/content/text").and_then(Value::as_str);
+        let chunk = chunk.unwrap_or_default();
+        self.text.push_str(chunk);
+        if !chunk.is_empty() {
+            self.emit(AgentEvent::TextDelta {
+                text: chunk.to_string(),
+            });
+        }
+    }
+
     /// One `session/update` notification: a piece of what the agent is doing.
     fn on_update(&mut self, update: &Value) {
         match str_of(update, "sessionUpdate").unwrap_or_default() {
-            "agent_message_chunk" => {
-                self.text.push_str(
-                    update
-                        .pointer("/content/text")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default(),
-                );
-            }
+            "agent_message_chunk" => self.on_chunk(update),
             "tool_call" | "tool_call_update" => self.on_tool(update),
             "usage_update" => {
                 self.cost = update
@@ -429,6 +443,9 @@ impl Conversation {
             AgentCommand::Allow { request_id } => self.decide(&request_id, true).await,
             AgentCommand::Deny { request_id, .. } => self.decide(&request_id, false).await,
             AgentCommand::Interrupt => self.cancel().await,
+            AgentCommand::SetModel(model) => self.set_model(model).await,
+            // Supervision is applied here, when the agent asks: nothing to tell the agent.
+            AgentCommand::SetSupervision(supervision) => self.spec.supervision = supervision,
         }
     }
 

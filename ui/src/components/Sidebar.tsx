@@ -163,15 +163,28 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
 function SessionRow({ session }: { session: Session }) {
     const selected = useStore((state) => state.selectedSessionId === session.id);
     const open = useStore((state) => state.open);
+    const close = useStore((state) => state.close);
+    const title = session.title || "New session";
     return (
-        <button
-            type="button"
-            className={`session-row status-${session.status}`}
-            aria-current={selected ? "true" : undefined}
-            onClick={() => void open(api, session.id)}
-        >
-            <StatusMark status={session.status} />
-            <span className="session-title">{session.title || "New session"}</span>
-        </button>
+        <div className={`session-line status-${session.status}`} data-current={selected}>
+            <button
+                type="button"
+                className="session-row"
+                aria-current={selected ? "true" : undefined}
+                onClick={() => void open(api, session.id)}
+            >
+                <StatusMark status={session.status} />
+                <span className="session-title">{title}</span>
+            </button>
+            <button
+                type="button"
+                className="row-close"
+                aria-label={`Close ${title}`}
+                title="Close session"
+                onClick={() => void close(api, session.id)}
+            >
+                ×
+            </button>
+        </div>
     );
 }

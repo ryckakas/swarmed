@@ -53,8 +53,12 @@ export type AgentEvent =
           api_key_source: string;
           mcp_servers: McpServerInfo[];
           skills: number;
+          /** The commands and skills a message can call with `/`, without the slash. */
+          slash_commands: string[];
       }
     | { type: "text"; text: string }
+    /** A piece of a reply still being written; the whole reply follows as `text`. */
+    | { type: "text_delta"; text: string }
     | { type: "tool_use"; id: string; name: string; input: unknown }
     | { type: "tool_result"; tool_use_id: string; content: string; is_error: boolean }
     | {
@@ -64,6 +68,8 @@ export type AgentEvent =
           input: unknown;
           description: string | null;
       }
+    | { type: "permission_answered"; request_id: string; allowed: boolean }
+    | { type: "permission_withdrawn"; request_id: string }
     | { type: "rate_limit"; status: string; resets_at: number | null; raw: unknown }
     | { type: "turn_done"; is_error: boolean; result: string | null; cost_usd: number | null }
     | { type: "exited"; code: number | null; stderr: string }
@@ -100,6 +106,13 @@ export interface AgentInfo {
 }
 
 /** How a new session should run. */
+/** What can be changed about a session after it was created. */
+export interface SessionSettings {
+    /** A model name the agent accepts, or `null` for its default. */
+    model: string | null;
+    supervision: Supervision;
+}
+
 export interface SessionSetup {
     /** An agent id, or `null` for Claude Code. */
     agent: string | null;

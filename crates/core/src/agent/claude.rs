@@ -77,6 +77,8 @@ fn args(spec: &SessionSpec) -> Vec<String> {
         "--output-format",
         "stream-json",
         "--verbose",
+        // Replies arrive piece by piece, as well as whole once finished.
+        "--include-partial-messages",
         "--permission-prompt-tool",
         "stdio",
         // Always explicit: the user's own default mode must not override the task's setting.
@@ -209,9 +211,9 @@ async fn write_commands(
     mut commands: mpsc::UnboundedReceiver<AgentCommand>,
     pending: Pending,
 ) {
-    let mut interrupts = 0_u64;
+    let mut requests = 0_u64;
     while let Some(command) = commands.recv().await {
-        let mut bytes = command_line(command, &pending, &mut interrupts)
+        let mut bytes = command_line(command, &pending, &mut requests)
             .to_string()
             .into_bytes();
         bytes.push(b'\n');
@@ -221,7 +223,7 @@ async fn write_commands(
     }
 }
 
-fn command_line(command: AgentCommand, pending: &Pending, interrupts: &mut u64) -> Value {
+fn command_line(command: AgentCommand, pending: &Pending, requests: &mut u64) -> Value {
     match command {
         AgentCommand::UserMessage(text) => json!({
             "type": "user",
@@ -241,15 +243,29 @@ fn command_line(command: AgentCommand, pending: &Pending, interrupts: &mut u64) 
                 &json!({ "behavior": "deny", "message": reason }),
             )
         }
-        AgentCommand::Interrupt => {
-            *interrupts += 1;
-            json!({
-                "type": "control_request",
-                "request_id": format!("swarmed-{interrupts}"),
-                "request": { "subtype": "interrupt" },
-            })
+        AgentCommand::Interrupt => control_request(requests, &json!({ "subtype": "interrupt" })),
+        // A null model puts the CLI back on its own default.
+        AgentCommand::SetModel(model) => {
+            control_request(requests, &json!({ "subtype": "set_model", "model": model }))
+        }
+        AgentCommand::SetSupervision(supervision) => {
+            let mode = permission_mode(supervision);
+            control_request(
+                requests,
+                &json!({ "subtype": "set_permission_mode", "mode": mode }),
+            )
         }
     }
+}
+
+/// A request of our own to the CLI; each needs an id it has not seen.
+fn control_request(requests: &mut u64, request: &Value) -> Value {
+    *requests += 1;
+    json!({
+        "type": "control_request",
+        "request_id": format!("swarmed-{requests}"),
+        "request": request,
+    })
 }
 
 fn control_response(request_id: &str, response: &Value) -> Value {
@@ -283,6 +299,8 @@ fn parse_message(message: &Value, pending: &Pending) -> Vec<AgentEvent> {
             .filter_map(parse_tool_result)
             .collect(),
         "control_request" => vec![parse_control_request(message, pending)],
+        "control_cancel_request" => withdraw(message, pending),
+        "stream_event" => text_delta(message).into_iter().collect(),
         "rate_limit_event" => vec![parse_rate_limit(message)],
         "result" => vec![AgentEvent::TurnDone {
             is_error: message
@@ -316,7 +334,14 @@ fn parse_init(message: &Value) -> AgentEvent {
             .get("skills")
             .and_then(Value::as_array)
             .map_or(0, Vec::len),
+        slash_commands: strings(message.get("slash_commands")),
     }
+}
+
+/// The strings of a JSON array; anything else in it is skipped.
+fn strings(value: Option<&Value>) -> Vec<String> {
+    let items = value.and_then(Value::as_array).into_iter().flatten();
+    items.filter_map(Value::as_str).map(String::from).collect()
 }
 
 fn parse_assistant_block(block: &Value) -> Option<AgentEvent> {
@@ -360,6 +385,23 @@ fn parse_control_request(message: &Value, pending: &Pending) -> AgentEvent {
         input,
         description: kind_of(request, "description").map(String::from),
     }
+}
+
+/// The text in a piece of a message that is still being written. Pieces of thinking, of tool
+/// arguments and of a sub-agent's messages are not shown.
+fn text_delta(message: &Value) -> Option<AgentEvent> {
+    let own = message.get("parent_tool_use_id").is_none_or(Value::is_null);
+    let delta = message.pointer("/event/delta")?;
+    let text = (own && kind_of(delta, "type") == Some("text_delta")).then(|| str_of(delta, "text"));
+    text.map(|text| AgentEvent::TextDelta { text })
+}
+
+/// The CLI takes back a permission request, for example because the turn was interrupted.
+fn withdraw(message: &Value, pending: &Pending) -> Vec<AgentEvent> {
+    let request_id = str_of(message, "request_id");
+    let known = pending.take(&request_id).is_some();
+    let withdrawn = AgentEvent::PermissionWithdrawn { request_id };
+    known.then_some(withdrawn).into_iter().collect()
 }
 
 fn parse_rate_limit(message: &Value) -> AgentEvent {
@@ -418,7 +460,7 @@ mod tests {
             "type": "system", "subtype": "init", "session_id": "abc", "model": "claude-haiku-5-5",
             "permissionMode": "acceptEdits", "apiKeySource": "none",
             "mcp_servers": [{ "name": "context7", "status": "connected" }],
-            "skills": ["a", "b"],
+            "skills": ["a", "b"], "slash_commands": ["review", "context"],
         }));
         let expected = AgentEvent::Init {
             agent_session_id: "abc".into(),
@@ -430,6 +472,7 @@ mod tests {
                 status: "connected".into(),
             }],
             skills: 2,
+            slash_commands: vec!["review".into(), "context".into()],
         };
         assert_eq!(events, vec![expected]);
     }
@@ -511,6 +554,57 @@ mod tests {
             Some(&json!({ "behavior": "allow", "updatedInput": { "command": "git push" } }))
         );
         assert_eq!(pending.take("r1"), None);
+    }
+
+    #[test]
+    fn settings_change_through_control_requests() {
+        let mut requests = 0;
+        let mut line = |command| command_line(command, &Pending::default(), &mut requests);
+        let model = line(AgentCommand::SetModel(Some("opus".into())));
+        assert_eq!(
+            model.get("request"),
+            Some(&json!({ "subtype": "set_model", "model": "opus" }))
+        );
+        let default_model = line(AgentCommand::SetModel(None));
+        assert_eq!(default_model.pointer("/request/model"), Some(&Value::Null));
+        let mode = line(AgentCommand::SetSupervision(Supervision::Auto));
+        assert_eq!(
+            mode.get("request"),
+            Some(&json!({ "subtype": "set_permission_mode", "mode": "auto" }))
+        );
+        assert_eq!(mode.get("request_id"), Some(&json!("swarmed-3")));
+    }
+
+    #[test]
+    fn only_the_main_agents_text_is_streamed() {
+        let delta = |delta: Value, parent: Value| {
+            parse(&json!({
+                "type": "stream_event", "parent_tool_use_id": parent,
+                "event": { "type": "content_block_delta", "index": 0, "delta": delta },
+            }))
+        };
+        let text = json!({ "type": "text_delta", "text": "Rain fal" });
+        let piece = AgentEvent::TextDelta {
+            text: "Rain fal".into(),
+        };
+        assert_eq!(delta(text.clone(), Value::Null), vec![piece]);
+        assert_eq!(delta(text, json!("toolu_1")), vec![]);
+        let arguments = json!({ "type": "input_json_delta", "partial_json": "{" });
+        assert_eq!(delta(arguments, Value::Null), vec![]);
+        let start = json!({ "type": "stream_event", "event": { "type": "message_start" } });
+        assert_eq!(parse(&start), vec![]);
+    }
+
+    #[test]
+    fn a_cancelled_request_is_withdrawn_once() {
+        let pending = Pending::default();
+        pending.insert("r1".into(), json!({}));
+        let cancel = json!({ "type": "control_cancel_request", "request_id": "r1" });
+        let withdrawn = AgentEvent::PermissionWithdrawn {
+            request_id: "r1".into(),
+        };
+        assert_eq!(parse_message(&cancel, &pending), vec![withdrawn]);
+        assert_eq!(parse_message(&cancel, &pending), vec![]);
     }
 
     #[test]

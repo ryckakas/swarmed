@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use clap::{Subcommand, ValueEnum};
 use serde_json::Value;
 use swarmed_core::agent::{AgentEvent, Auth, McpServerInfo, Supervision};
-use swarmed_core::{Core, SessionEvent, SessionOptions};
+use swarmed_core::{Core, SessionEvent, SessionOptions, SessionSettings};
 use tokio::io::{AsyncBufReadExt, BufReader, Lines, Stdin};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
@@ -44,6 +44,18 @@ pub(crate) enum SessionCommand {
     List { project: String, task: String },
     /// Print everything a session has said and been told.
     Show { id: i64 },
+    /// Change the model and supervision a session runs with from now on.
+    Set {
+        id: i64,
+        /// The model to run on; without it, the agent's own default.
+        #[arg(long)]
+        model: Option<String>,
+        /// Let Claude Code's auto mode decide which actions are safe, instead of asking.
+        #[arg(long)]
+        auto: bool,
+    },
+    /// Take a session out of the lists. Its history is kept.
+    Close { id: i64 },
 }
 
 /// Where the agent's credentials come from.
@@ -82,16 +94,11 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             auto,
             auth,
         } => {
-            let supervision = if auto {
-                Supervision::Auto
-            } else {
-                Supervision::Ask
-            };
             let options = SessionOptions {
                 agent,
                 title: None,
                 model,
-                supervision,
+                supervision: supervision(auto),
             };
             let session = core.session_new(&project, &task, &options)?;
             say(&format!("session {}", session.id));
@@ -119,6 +126,23 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
                 .for_each(|line| say(&line));
             Ok(())
         }
+        SessionCommand::Set { id, model, auto } => {
+            let settings = SessionSettings {
+                model,
+                supervision: supervision(auto),
+            };
+            core.session_configure(id, &settings)?;
+            Ok(())
+        }
+        SessionCommand::Close { id } => Ok(core.session_close(id)?),
+    }
+}
+
+fn supervision(auto: bool) -> Supervision {
+    if auto {
+        Supervision::Auto
+    } else {
+        Supervision::Ask
     }
 }
 

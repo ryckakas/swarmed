@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
 import type { AgentEvent } from "../api/types";
-import { type Item, toItems } from "../transcript";
+import { type Item, summarize, toItems } from "../transcript";
 import { Markdown } from "./Markdown";
 import { PermissionPrompt } from "./PermissionPrompt";
 import { ToolCall } from "./ToolCall";
@@ -75,8 +75,14 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
                     toolName={item.toolName}
                     input={item.input}
                     description={item.description}
-                    pending={item.pending}
                 />
+            );
+        case "denied":
+            return (
+                <p className="asked">
+                    You denied {item.toolName}:{" "}
+                    <span className="mono">{summarize(item.input)}</span>
+                </p>
             );
         case "session":
             return (

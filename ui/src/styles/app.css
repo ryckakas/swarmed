@@ -22,6 +22,11 @@ body {
     overflow: hidden;
 }
 
+/* Anything that can be pressed says so under the pointer. */
+:is(button, select, summary, a):not(:disabled) {
+    cursor: pointer;
+}
+
 h1,
 h2,
 h3,
@@ -55,6 +60,40 @@ code {
     display: grid;
     grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
     height: 100%;
+    position: relative;
+}
+
+/* The edge between two panels. It sits on the border and is wider than it looks. */
+.resizer {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    z-index: 2;
+    width: 7px;
+    cursor: col-resize;
+    touch-action: none;
+}
+
+.resizer-left {
+    left: calc(var(--sidebar-width) - 4px);
+}
+
+.resizer::after {
+    content: "";
+    position: absolute;
+    inset: 0 3px;
+    background: transparent;
+    transition: background 120ms;
+}
+
+.resizer:hover::after,
+.resizer:active::after,
+.resizer:focus-visible::after {
+    background: var(--focus);
+}
+
+.resizer:focus-visible {
+    outline: none;
 }
 
 .sidebar {
@@ -173,38 +212,71 @@ code {
     padding-left: var(--space-4);
 }
 
-.session-row {
+/* A session's line: the row that opens it, and a close button that shows on approach. */
+.session-line {
     display: flex;
     align-items: center;
-    gap: var(--space-2);
-    width: 100%;
-    padding: 5px var(--space-3) 5px calc(var(--space-4) + var(--space-3) - 2px);
-    border: 0;
     /* The bar that turns pollen when a session needs you; transparent holds its place. */
     border-left: 2px solid transparent;
-    background: none;
     color: var(--text);
-    font: inherit;
-    text-align: left;
-    cursor: default;
 }
 
-.session-row:hover {
+.session-line:hover {
     background: color-mix(in srgb, var(--raised) 55%, transparent);
 }
 
-.session-row[aria-current="true"] {
+.session-line[data-current="true"] {
     background: var(--raised);
 }
 
-.session-row.status-idle {
+.session-line.status-idle {
     color: var(--muted);
 }
 
-.session-row.status-waiting {
+.session-line.status-waiting {
     border-left-color: var(--pollen);
     background: var(--pollen-wash);
     font-weight: 600;
+}
+
+.session-row {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 5px var(--space-2) 5px calc(var(--space-4) + var(--space-3) - 2px);
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+}
+
+.row-close {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    margin-right: var(--space-2);
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--faint);
+    font: inherit;
+    font-size: var(--text-md);
+    line-height: 1;
+    opacity: 0;
+}
+
+.session-line:hover .row-close,
+.session-line:focus-within .row-close {
+    opacity: 1;
+}
+
+.row-close:hover,
+.row-close:focus-visible {
+    background: var(--line);
+    color: var(--text);
 }
 
 .session-title {
@@ -359,6 +431,19 @@ code {
     font-size: var(--text-xs);
 }
 
+.session-meta {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-4);
+    margin-top: var(--space-1);
+}
+
+.session-meta .quiet-button {
+    width: auto;
+    font-size: var(--text-xs);
+}
+
 .session-status {
     display: flex;
     align-items: center;
@@ -414,6 +499,8 @@ code {
 }
 
 .items {
+    /* An ordered list for what it means, without the numbers. */
+    list-style: none;
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
@@ -426,8 +513,25 @@ code {
     contain-intrinsic-size: auto 3em;
 }
 
+/*
+ * What the agent did sits in a box of its own, so it cannot be mistaken for what it said.
+ * Calls that follow each other share one box.
+ */
+.item-tool {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+}
+
 .item-tool + .item-tool {
-    margin-top: calc(var(--space-2) * -1);
+    margin-top: calc(var(--space-3) * -1 - 1px);
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+}
+
+.item-tool:has(+ .item-tool) {
+    border-bottom-right-radius: 0;
+    border-bottom-left-radius: 0;
 }
 
 .said {
@@ -505,12 +609,11 @@ code {
     display: flex;
     align-items: baseline;
     gap: var(--space-2);
-    padding: 2px 0;
+    padding: 5px var(--space-3);
     color: var(--muted);
     font-family: var(--font-mono);
     font-size: var(--text-sm);
     list-style: none;
-    cursor: default;
 }
 
 .tool summary::-webkit-details-marker {
@@ -540,6 +643,7 @@ code {
 
 .tool-state {
     flex: none;
+    margin-left: auto;
     font-family: var(--font-ui);
     font-size: var(--text-xs);
 }
@@ -548,12 +652,36 @@ code {
     color: var(--moss);
 }
 
+.tool-running .tool-state::before {
+    content: "";
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-right: 5px;
+    border-radius: 50%;
+    background: currentcolor;
+    animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    50% {
+        opacity: 0.25;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tool-running .tool-state::before {
+        animation: none;
+    }
+}
+
 .tool-failed .tool-state {
     color: var(--clay);
 }
 
 .tool-body {
-    margin-top: var(--space-1);
+    margin: 0 var(--space-3) var(--space-2);
+    background: var(--dusk);
     max-height: 24em;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -619,6 +747,7 @@ code {
 }
 
 .composer-box {
+    position: relative;
     display: flex;
     flex-direction: column;
     max-width: 76ch;
@@ -656,6 +785,39 @@ code {
     align-items: center;
     gap: var(--space-2);
     padding: var(--space-1) var(--space-2) var(--space-2) var(--space-3);
+}
+
+/* Suggestions for a message that starts with a slash; they open upwards, over the transcript. */
+.slash-menu {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + var(--space-1));
+    left: 0;
+    z-index: 3;
+    padding: var(--space-1);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--raised);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+}
+
+.slash-option {
+    display: block;
+    width: 100%;
+    padding: 4px var(--space-2);
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    text-align: left;
+}
+
+.slash-option:hover,
+.slash-option[aria-current="true"] {
+    background: var(--line);
+    color: var(--text);
 }
 
 .composer-options {
