@@ -11,6 +11,7 @@ import type {
 } from "../api/types";
 import { useStore } from "../store";
 import { taskNameForPrompt, taskNameFrom, uniqueTaskName } from "../tree";
+import { AgentNotice } from "./AgentNotice";
 import { ComposerBox } from "./ComposerBox";
 import { EffortPicker } from "./EffortPicker";
 import { ModePicker } from "./ModePicker";
@@ -132,6 +133,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
                     onEffort={setEffort}
                 />
             </ComposerBox>
+            <AgentNotice agentId={agentId} />
             <p className="new-task-note" aria-live="polite">
                 {note(creating, prompt, hookLine)}
             </p>

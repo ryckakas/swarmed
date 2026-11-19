@@ -181,6 +181,10 @@ export interface AgentSetup {
     models: string[];
     /** The command that installs it, shown before it is run. */
     install_command: string;
+    /** How the user signs in to it, which Swarmed never does for them. */
+    sign_in: string;
+    /** Whether it is Claude Code: nothing to set up beyond installing, and no models to choose. */
+    built_in: boolean;
 }
 
 /** What a note is kept on: a repository, or one of its tasks. */

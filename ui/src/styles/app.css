@@ -429,10 +429,6 @@ code {
     letter-spacing: 0.01em;
 }
 
-.project-toggle .row-icon {
-    stroke: var(--text);
-}
-
 /* The repository's name folds its tasks away and brings them back. */
 .project-toggle {
     display: flex;
@@ -485,21 +481,6 @@ code {
 
 .task {
     margin-top: 6px;
-}
-
-/* The worktree's band: marked off from the rows around it, and quieter than a repository. */
-.task > .row-head {
-    margin: 0 6px 0 22px;
-    border-radius: 5px;
-    background: color-mix(in srgb, var(--raised) 55%, transparent);
-}
-
-.task > .row-head .row-close {
-    margin-right: 2px;
-}
-
-.task > .row-head .row-icon {
-    stroke: var(--muted);
 }
 
 .row-head {
@@ -749,6 +730,25 @@ code {
 .closed-reopen:focus-visible {
     border-color: var(--faint);
     color: var(--text);
+}
+
+.project-toggle .row-icon {
+    stroke: var(--text);
+}
+
+/* The worktree's band: marked off from the rows around it, and quieter than a repository. */
+.task > .row-head {
+    margin: 0 6px 0 22px;
+    border-radius: 5px;
+    background: color-mix(in srgb, var(--raised) 55%, transparent);
+}
+
+.task > .row-head .row-close {
+    margin-right: 2px;
+}
+
+.task > .row-head .row-icon {
+    stroke: var(--muted);
 }
 
 /* A session an agent started sits under its starter, one step in. */
@@ -2243,6 +2243,14 @@ code {
     font-size: var(--text-xl);
     font-weight: 650;
     letter-spacing: -0.01em;
+}
+
+.agent-notice {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin: var(--space-3) 0 0;
+    color: var(--pollen);
 }
 
 .new-task-note {

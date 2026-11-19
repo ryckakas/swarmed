@@ -1,4 +1,4 @@
-//! Setting up an agent other than Claude Code, with a stand-in for Homebrew.
+//! Setting up agents, with stand-ins for Homebrew and for the agents' own programs.
 
 mod common;
 
@@ -7,7 +7,7 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use common::fixture;
-use swarmed_core::{Core, Error};
+use swarmed_core::{AgentSetup, Core, Error};
 
 /// An executable file at `path` that runs `script`.
 fn executable(path: &Path, script: &str) {
@@ -25,19 +25,61 @@ fn core_with_tools(fx: &common::Fixture, tools: &Path) -> Core {
     core
 }
 
+/// What the core says about setting up the agent `id`.
+fn setup_of(core: &Core, id: &str) -> AgentSetup {
+    let setups = core.agent_setups().expect("reads");
+    let found = setups.into_iter().find(|setup| setup.id == id);
+    found.expect("a known agent")
+}
+
+#[test]
+fn claude_code_and_codex_can_be_set_up_like_any_other_agent() {
+    let fx = fixture();
+    let tools = fx.paths.data_dir.join("tools");
+    let core = core_with_tools(&fx, &tools);
+    let ids: Vec<String> = core
+        .agent_setups()
+        .expect("reads")
+        .into_iter()
+        .map(|s| s.id)
+        .collect();
+    assert_eq!(ids, ["claude", "codex", "opencode"]);
+
+    // Claude Code is installed by its own installer, and needs nothing written down.
+    let claude = setup_of(&core, "claude");
+    assert_eq!((claude.installed.clone(), claude.configured), (None, false));
+    assert!(claude.built_in);
+    assert!(claude.install_command.contains("claude.ai/install.sh"));
+    assert!(claude.sign_in.contains("/login"));
+    executable(&tools.join("claude"), "exit 0");
+    let claude = core.agent_configure("claude", None).expect("nothing to do");
+    assert_eq!(claude.installed, Some(tools.join("claude")));
+    assert!(claude.configured);
+    assert!(!fx.paths.agents_config().exists());
+
+    // Codex runs through its ACP adapter, started without arguments.
+    let codex = setup_of(&core, "codex");
+    assert_eq!(codex.install_command, "brew install codex-acp");
+    assert!(!codex.built_in);
+    executable(&tools.join("codex-acp"), "exit 0");
+    let codex = core.agent_configure("codex", None).expect("configures");
+    assert!(codex.configured);
+    let written = std::fs::read_to_string(fx.paths.agents_config()).expect("written");
+    let command = format!("command = \"{}\"", tools.join("codex-acp").display());
+    assert!(written.contains(&command), "{written}");
+    assert!(written.contains("args = []"), "{written}");
+    assert!(core.agents().iter().any(|agent| agent.id == "codex"));
+}
+
 #[test]
 fn an_installed_agent_is_configured_without_editing_the_file() {
     let fx = fixture();
     let tools = fx.paths.data_dir.join("tools");
     let core = core_with_tools(&fx, &tools);
 
-    let before = core.agent_setups().expect("reads");
-    assert_eq!(before[0].id, "opencode");
-    assert_eq!(
-        (before[0].installed.clone(), before[0].configured),
-        (None, false)
-    );
-    assert!(before[0].install_command.starts_with("brew install "));
+    let before = setup_of(&core, "opencode");
+    assert_eq!((before.installed.clone(), before.configured), (None, false));
+    assert!(before.install_command.starts_with("brew install "));
 
     // Something the user wrote by hand must survive.
     let config = fx.paths.agents_config();
