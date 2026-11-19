@@ -2362,12 +2362,6 @@ kbd {
     border-color: var(--faint);
 }
 
-/* A button at the end of a row keeps its words on one line. */
-.settings-row .button {
-    flex: none;
-    white-space: nowrap;
-}
-
 /* What Swarmed takes up: one figure to a line, the name on the left. */
 .usage {
     margin: 0;
@@ -2481,6 +2475,12 @@ kbd {
     color: var(--text);
     font: inherit;
     font-weight: 600;
+}
+
+/* A button never breaks its words over two lines, however little room its row has. */
+.button {
+    flex: none;
+    white-space: nowrap;
 }
 
 .button:hover:not(:disabled) {
