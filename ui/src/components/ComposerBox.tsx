@@ -6,6 +6,7 @@ import {
     useRef,
     useState,
 } from "react";
+import { type Edit, editFor } from "../editing";
 import { slashMatches, slashQuery, stepActive, withCommand } from "../slash";
 
 interface Props {
@@ -44,6 +45,12 @@ export function ComposerBox(props: Props) {
     const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
         if (menu.onKeyDown(event)) {
             return;
+        }
+        const box = event.currentTarget;
+        const edit = editFor(event, value, box.selectionStart, box.selectionEnd);
+        if (edit) {
+            event.preventDefault();
+            return applyEdit(edit, box, onChange);
         }
         // Enter sends; Shift+Enter is a new line. Enter that confirms an IME candidate is neither.
         if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -123,6 +130,14 @@ export function ComposerBox(props: Props) {
             </div>
         </form>
     );
+}
+
+function applyEdit(edit: Edit, box: HTMLTextAreaElement, onChange: (value: string) => void) {
+    if (edit.kind === "clear") {
+        onChange("");
+    } else {
+        box.setSelectionRange(edit.start, edit.end, edit.direction);
+    }
 }
 
 function assign<T>(ref: Ref<T> | undefined, value: T | null) {

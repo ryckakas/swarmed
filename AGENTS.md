@@ -108,6 +108,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   The instructions are deliberately firm that this is the way to show something and needs no
   tool: without that, agents build a file and drive a browser instead. An ordinary `html` block
   stays code, with a button to show it as a view.
+- **The message box handles a few keys itself** (`ui/src/editing.ts`): Home and End move within
+  the line, and ⌘⌫ at the very start empties the box.
 - **The status line** under the message box is drawn by the UI from built-in pieces
   (`ui/src/statusline.ts`) chosen in the settings. A `status_command` replaces them: the core
   runs it (`statusline.rs`) with the session as JSON on standard input and shows its first line.
