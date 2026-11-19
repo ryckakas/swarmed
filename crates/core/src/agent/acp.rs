@@ -55,6 +55,7 @@ impl AgentBackend for AcpBackend {
             .stderr(Stdio::piped())
             .kill_on_drop(true)
             .spawn()?;
+        let pid = child.id();
         let stdin = child.stdin.take().ok_or_else(missing_pipe)?;
         let stdout = child.stdout.take().ok_or_else(missing_pipe)?;
         let stderr = child.stderr.take().ok_or_else(missing_pipe)?;
@@ -65,7 +66,11 @@ impl AgentBackend for AcpBackend {
         drop(tokio::spawn(drive(
             session, child, stdout, stderr, command_rx,
         )));
-        Ok(AgentHandle { events, commands })
+        Ok(AgentHandle {
+            events,
+            commands,
+            pid,
+        })
     }
 }
 

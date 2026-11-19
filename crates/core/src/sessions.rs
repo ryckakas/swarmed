@@ -239,6 +239,14 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// How many events are stored, over all sessions.
+    pub(crate) fn event_count(&self) -> Result<u64> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM session_events", [], |row| row.get(0))?;
+        Ok(u64::try_from(count).unwrap_or(0))
+    }
+
     pub(crate) fn sessions_all(&self) -> Result<Vec<Session>> {
         let mut stmt = self.conn.prepare(&format!(
             "{SESSION_SELECT} WHERE closed_at IS NULL ORDER BY id"
@@ -431,7 +439,7 @@ impl Core {
     ) -> Result<Session> {
         let (_, task) = self.task(project, task)?;
         if let Some(agent) = &options.agent {
-            self.agents.backend(agent)?;
+            self.agents_now().backend(agent)?;
         }
         self.store().session_insert(task.id, options)
     }
@@ -511,7 +519,8 @@ impl Core {
         } else {
             self.key_env()?
         };
-        let handle = self.agents.backend(&session.agent)?.start(SessionSpec {
+        let backend = self.agents_now().backend(&session.agent)?;
+        let handle = backend.start(SessionSpec {
             mcp_servers,
             env,
             append_system_prompt: html_views.then(|| views::INSTRUCTIONS.to_string()),
@@ -527,6 +536,9 @@ impl Core {
         })?;
         let run = self.live.runs.fetch_add(1, Ordering::Relaxed);
         running.insert(id, (run, handle.commands));
+        if let Some(pid) = handle.pid {
+            lock(&self.live.pids).insert(id, pid);
+        }
         let shared = Shared {
             store: Arc::clone(&self.store),
             live: Arc::clone(&self.live),
@@ -557,7 +569,7 @@ impl Core {
     /// The MCP servers Swarmed hands the agent: the ones configured for Claude Code, for every
     /// agent that does not read that configuration itself.
     fn mcp_servers_for(&self, agent: &str, task: &Task) -> Result<Vec<McpServer>> {
-        if !self.agents.gets_claude_code_mcp_servers(agent)? {
+        if !self.agents_now().gets_claude_code_mcp_servers(agent)? {
             return Ok(vec![]);
         }
         let repo = self
@@ -803,6 +815,8 @@ pub(crate) struct Live {
     restarts: Mutex<HashSet<i64>>,
     /// The messages waiting for each session's turn to end.
     pub(crate) queues: Queues,
+    /// The process of each session's agent, as of when it was last started.
+    pub(crate) pids: Mutex<HashMap<i64, u32>>,
     runs: AtomicU64,
     bus: broadcast::Sender<SessionEvent>,
 }
@@ -814,6 +828,7 @@ impl Default for Live {
             open_requests: Mutex::default(),
             restarts: Mutex::default(),
             queues: Queues::default(),
+            pids: Mutex::default(),
             runs: AtomicU64::new(0),
             bus: broadcast::Sender::new(EVENT_BUFFER),
         }

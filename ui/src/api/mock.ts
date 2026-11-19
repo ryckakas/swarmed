@@ -2,6 +2,7 @@ import { PLAN_TOOL } from "../transcript";
 import type { Api } from "./client";
 import type {
     AgentEvent,
+    AgentSetup,
     ApiKeyInfo,
     FileChange,
     FileDiff,
@@ -14,6 +15,7 @@ import type {
     Settings,
     Task,
     TerminalOutput,
+    Usage,
 } from "./types";
 
 // Sample data and a scripted agent, for working on the UI in a browser where there is no Tauri
@@ -90,6 +92,69 @@ function removeApi(projects: () => Project[]): Pick<Api, "projectRemove" | "task
             const at = tasks.findIndex((task) => task.name === name);
             tasks.splice(at, at === -1 ? 0 : 1);
         },
+    };
+}
+
+const SAMPLE_USAGE: Usage = {
+    database_bytes: 4_700_000,
+    events: 576,
+    notes_bytes: 4100,
+    worktrees: [
+        { project: "hero", task: "invoice-export", path: "/w/hero/a", bytes: 365_600_000 },
+        { project: "hero", task: "fix-login-redirect", path: "/w/hero/b", bytes: 282_800_000 },
+        { project: "bonsai-lint", task: "rust-support", path: "/w/b/c", bytes: 540_700 },
+        { project: "hero", task: "pm-16037", path: "/w/hero/d", bytes: null },
+    ],
+    running: { processes: 9, memory_bytes: 612_000_000, cpu_percent: 14.2 },
+    sessions: [
+        {
+            session_id: 2,
+            title: "Write a regression test for the loop",
+            processes: 4,
+            memory_bytes: 410_000_000,
+            cpu_percent: 12.6,
+        },
+    ],
+};
+
+/** Setting up an agent: the sample starts with OpenCode not installed, and "installs" it. */
+function setupApi(
+    hookListeners: Set<(output: HookOutput) => void>,
+): Pick<Api, "agentSetups" | "agentInstall" | "agentConfigure" | "openrouterModels"> {
+    const opencode: AgentSetup = {
+        id: "opencode",
+        name: "OpenCode",
+        about: "An open-source coding agent that runs models from OpenRouter and other providers.",
+        installed: null,
+        configured: false,
+        models: [],
+        install_command: "brew install anomalyco/tap/opencode-v2",
+    };
+    return {
+        agentSetups: async () => [{ ...opencode }],
+        agentInstall: async () => {
+            for (const line of ["==> Fetching opencode", "==> Pouring opencode", "Installed"]) {
+                for (const listener of hookListeners) {
+                    listener({ project: "", task: "opencode", line });
+                }
+                await new Promise((resolve) => setTimeout(resolve, PACE * 2));
+            }
+            const models = ["openrouter/openai/gpt-6.2-sol", "openrouter/google/gemini-3.8-flash"];
+            Object.assign(opencode, { installed: "/opt/homebrew/bin/opencode", models });
+            opencode.configured = true;
+            return { ...opencode };
+        },
+        agentConfigure: async (_id, models) => {
+            opencode.configured = true;
+            opencode.models = models ?? opencode.models;
+            return { ...opencode };
+        },
+        openrouterModels: async () => [
+            "openrouter/openai/gpt-6.2-sol",
+            "openrouter/google/gemini-3.8-flash",
+            "openrouter/x-ai/grok-4.7",
+            "openrouter/deepseek/deepseek-v4.1-flash",
+        ],
     };
 }
 
@@ -610,6 +675,8 @@ export function createMockApi(): Api {
     };
     return {
         overview: async () => structuredClone(agent.projects),
+        usage: async () => SAMPLE_USAGE,
+        ...setupApi(hookListeners),
         agents: async () => [
             { id: "claude", name: "Claude Code", models: ["opus", "sonnet", "haiku", "fable"] },
             {

@@ -11,7 +11,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use session::SessionCommand;
 use swarmed_core::agent::FakeBackend;
 use swarmed_core::{
-    ApiKeyInfo, Core, NewTaskOptions, Paths, RemoveOptions, Settings, SetupStatus, Task,
+    AgentSetup, ApiKeyInfo, Core, NewTaskOptions, Paths, RemoveOptions, Settings, SetupStatus, Task,
 };
 
 /// Swarmed: parallel Claude Code sessions in isolated git worktrees.
@@ -33,8 +33,13 @@ enum Command {
     /// Run agent sessions in a task's worktree.
     #[command(subcommand)]
     Session(SessionCommand),
+    /// Show what Swarmed takes up on disk, and in memory and processor time right now.
+    Usage,
     /// List the agents sessions can run on.
     Agents,
+    /// Set up an agent other than Claude Code: install it, or choose the models it offers.
+    #[command(subcommand)]
+    Agent(AgentCommand),
     /// Serve Swarmed's own tools to an agent over standard input and output. Agents start
     /// this themselves.
     #[command(name = swarmed_core::TOOL_SERVER_ARG, hide = true)]
@@ -62,6 +67,16 @@ enum Command {
         #[arg(value_enum)]
         state: Option<Switch>,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum AgentCommand {
+    /// List the agents that can be set up, and whether each is installed and configured.
+    Status,
+    /// Install an agent with Homebrew and configure it.
+    Install { id: String },
+    /// Configure an installed agent; with MODELS, offer those in its model menu.
+    Configure { id: String, models: Vec<String> },
 }
 
 #[derive(Debug, Subcommand)]
@@ -196,6 +211,8 @@ async fn main() -> Result<()> {
         Command::Session(command) => session::session(&core, command).await,
         // Answered above, before anything was opened.
         Command::ToolServer => Ok(()),
+        Command::Agent(command) => agent(&core, command).await,
+        Command::Usage => usage(&core).await,
         Command::Agents => {
             agents(&core);
             Ok(())
@@ -262,6 +279,81 @@ fn auto_title(core: &Core, state: Option<Switch>) -> Result<()> {
     } else {
         "off"
     });
+    Ok(())
+}
+
+async fn agent(core: &Core, command: AgentCommand) -> Result<()> {
+    let row = |setup: &AgentSetup| {
+        let installed = setup.installed.as_ref().map_or_else(
+            || format!("not installed ({})", setup.install_command),
+            |path| path.display().to_string(),
+        );
+        let configured = if setup.configured {
+            "configured"
+        } else {
+            "not configured"
+        };
+        say(&format!(
+            "{}\t{installed}\t{configured}\t{}",
+            setup.id,
+            setup.models.join(", ")
+        ));
+    };
+    match command {
+        AgentCommand::Status => core.agent_setups()?.iter().for_each(row),
+        AgentCommand::Install { id } => row(&core.agent_install(&id, &hook_line).await?),
+        AgentCommand::Configure { id, models } => {
+            let models = (!models.is_empty()).then_some(models);
+            row(&core.agent_configure(&id, models)?);
+        }
+    }
+    Ok(())
+}
+
+/// A size as people say it: 512 B, 3.4 MB, 1.2 GB.
+fn bytes(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["kB", "MB", "GB", "TB"];
+    let mut unit = "B";
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "a size for reading, not for arithmetic"
+    )]
+    let mut value = bytes as f64;
+    for next in UNITS {
+        if value < 1000.0 {
+            break;
+        }
+        value /= 1000.0;
+        unit = next;
+    }
+    if unit == "B" {
+        format!("{bytes} B")
+    } else {
+        format!("{value:.1} {unit}")
+    }
+}
+
+async fn usage(core: &Core) -> Result<()> {
+    let usage = core.usage().await?;
+    let database = bytes(usage.database_bytes);
+    say(&format!("database\t{database}\t{} events", usage.events));
+    say(&format!("notes\t{}", bytes(usage.notes_bytes)));
+    for worktree in &usage.worktrees {
+        let size = worktree
+            .bytes
+            .map_or_else(|| "not measured".to_string(), bytes);
+        say(&format!(
+            "worktree\t{size}\t{}/{}",
+            worktree.project, worktree.task
+        ));
+    }
+    let running = usage.running;
+    say(&format!(
+        "running\t{}\t{:.1}% of a core\t{} processes",
+        bytes(running.memory_bytes),
+        running.cpu_percent,
+        running.processes
+    ));
     Ok(())
 }
 

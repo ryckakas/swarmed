@@ -1,0 +1,33 @@
+// What Swarmed takes up, put into words. Pure, so it can be tested.
+
+import type { Usage } from "./api/types";
+
+const UNITS = ["kB", "MB", "GB", "TB"];
+
+/** A size as people say it: 512 B, 3.4 MB, 1.2 GB. */
+export function formatBytes(bytes: number): string {
+    let value = bytes;
+    let unit = "B";
+    for (const next of UNITS) {
+        if (value < 1000) {
+            break;
+        }
+        value /= 1000;
+        unit = next;
+    }
+    if (unit === "B") {
+        return `${bytes} B`;
+    }
+    return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${unit}`;
+}
+
+/** Everything Swarmed keeps on disk: its database, the notes, and every measured worktree. */
+export function totalBytes(usage: Usage): number {
+    const worktrees = usage.worktrees.reduce((sum, worktree) => sum + (worktree.bytes ?? 0), 0);
+    return usage.database_bytes + usage.notes_bytes + worktrees;
+}
+
+/** Processor use as a share of one core: 0.4%, 12%, 180%. */
+export function formatCpu(percent: number): string {
+    return `${percent < 10 ? percent.toFixed(1) : Math.round(percent)}%`;
+}

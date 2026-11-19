@@ -88,9 +88,12 @@ export function useSlashCommands(sessionId: number | null, refreshOn?: unknown):
 /** The agents sessions can run on; empty until they are read. */
 export function useAgents(): AgentInfo[] {
     const [agents, setAgents] = useState<AgentInfo[]>([]);
+    // Read again when an agent is set up or its models are changed in the settings.
+    const version = useStore((state) => state.agentsVersion);
+    // biome-ignore lint/correctness/useExhaustiveDependencies: version exists to trigger a re-read
     useEffect(() => {
         api.agents().then(setAgents).catch(useStore.getState().report);
-    }, []);
+    }, [version]);
     return agents;
 }
 

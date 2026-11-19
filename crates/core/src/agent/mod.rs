@@ -365,6 +365,8 @@ pub struct AgentHandle {
     pub events: mpsc::UnboundedReceiver<AgentEvent>,
     /// The way to talk to the session.
     pub commands: mpsc::UnboundedSender<AgentCommand>,
+    /// The agent's process, if it is one, for seeing what it takes.
+    pub pid: Option<u32>,
 }
 
 /// What a [`Namer`] returns: a title, or `None` if it could not think of one in time.

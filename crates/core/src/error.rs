@@ -89,6 +89,14 @@ pub enum Error {
     /// The user's home directory is unknown, so the default locations cannot be derived.
     #[error("could not determine the home directory")]
     NoHome,
+    /// An agent could not be installed, or what is needed to set it up could not be had.
+    #[error("could not set up {agent}: {reason}")]
+    Install {
+        /// What was being set up.
+        agent: String,
+        /// Why it did not work.
+        reason: String,
+    },
     /// No agent is configured under this id.
     #[error("agent `{0}` is not configured")]
     AgentNotFound(String),

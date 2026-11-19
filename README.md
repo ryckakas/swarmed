@@ -62,6 +62,9 @@ models = ["openrouter/openai/gpt-5.6"]   # offered in the model menu
 # OPENROUTER_API_KEY = "..."
 ```
 
+OpenCode can also be installed and given its models from Settings → Agents, without editing
+the file.
+
 The agent keeps its own credentials: sign in with the agent's own command first (for OpenCode,
 `opencode auth login`). It then appears in the app's agent menu and as `--agent opencode` in the
 CLI.

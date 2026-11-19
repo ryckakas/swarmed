@@ -4,10 +4,12 @@ import type { Settings, Supervision, Theme } from "../api/types";
 import { keyCaps, LOCAL_HOTKEYS, listedHotkeys } from "../hotkeys";
 import { STATUS_ITEM_LABELS, STATUS_ITEMS, withItem } from "../statusline";
 import { useStore } from "../store";
+import { AgentsSettings } from "./AgentsSettings";
 import { ApiKeys } from "./ApiKeys";
 import { CloseIcon, IconButton } from "./IconButton";
 import { editorChoices, supervisionChoices, TEXT_SCALES, THEMES } from "./options";
 import { Picker } from "./Picker";
+import { UsageSettings } from "./UsageSettings";
 
 /** The user's preferences. Every change takes effect, and is saved, at once. */
 export function SettingsDialog() {
@@ -44,6 +46,8 @@ export function SettingsDialog() {
                 <Appearance settings={settings} />
                 <Sessions settings={settings} />
                 <StatusLineSettings settings={settings} />
+                <UsageSettings />
+                <AgentsSettings />
                 <ApiKeys />
                 <Shortcuts />
             </div>

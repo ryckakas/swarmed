@@ -60,6 +60,8 @@ struct Agent {
     /// Whether sessions on it are given the MCP servers configured for Claude Code. Claude Code
     /// itself is not: it reads them on its own.
     gets_claude_code_mcp_servers: bool,
+    /// Whether it comes from `agents.toml`, and goes when that file is read again without it.
+    from_file: bool,
 }
 
 fn claude_info() -> AgentInfo {
@@ -80,6 +82,7 @@ impl Agents {
             info: claude_info(),
             backend: claude,
             gets_claude_code_mcp_servers: false,
+            from_file: false,
         };
         Self(BTreeMap::from([(CLAUDE.to_string(), agent)]))
     }
@@ -87,9 +90,17 @@ impl Agents {
     /// Claude Code plus the ACP agents in `agents.toml`, if that file exists.
     pub(crate) fn load(config: &Path) -> Result<Self> {
         let mut agents = Self::only_claude(Arc::new(ClaudeBackend::default()));
+        agents.reload(config)?;
+        Ok(agents)
+    }
+
+    /// Reads `agents.toml` again: the agents it listed before are replaced by the ones it lists
+    /// now. Claude Code and agents registered directly stay as they are. A file that cannot be
+    /// read leaves everything as it was.
+    pub(crate) fn reload(&mut self, config: &Path) -> Result<()> {
         let text = match std::fs::read_to_string(config) {
             Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(agents),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
             Err(e) => return Err(e.into()),
         };
         let invalid = |message: String| Error::Config {
@@ -103,10 +114,11 @@ impl Agents {
                 "`{CLAUDE}` is built in and cannot be redefined"
             )));
         }
+        self.0.retain(|_, agent| !agent.from_file);
         for (id, entry) in entries {
-            agents.add(id, entry);
+            self.add(id, entry);
         }
-        Ok(agents)
+        Ok(())
     }
 
     fn add(&mut self, id: String, entry: AgentConfig) {
@@ -125,6 +137,7 @@ impl Agents {
             info,
             backend: Arc::new(backend),
             gets_claude_code_mcp_servers: entry.claude_code_mcp_servers,
+            from_file: true,
         };
         self.0.insert(id, agent);
     }
@@ -135,6 +148,7 @@ impl Agents {
             info,
             backend,
             gets_claude_code_mcp_servers: true,
+            from_file: false,
         };
         self.0.insert(agent.info.id.clone(), agent);
     }

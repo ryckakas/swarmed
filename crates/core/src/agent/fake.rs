@@ -35,7 +35,11 @@ impl AgentBackend for FakeBackend {
             initialised: false,
         };
         drop(tokio::spawn(script.run()));
-        Ok(AgentHandle { events, commands })
+        Ok(AgentHandle {
+            events,
+            commands,
+            pid: None,
+        })
     }
 }
 

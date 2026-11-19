@@ -115,6 +115,44 @@ export interface TaskNaming {
     title: string;
 }
 
+/** What a group of processes takes right now. */
+export interface ProcessUsage {
+    processes: number;
+    memory_bytes: number;
+    /** In percent of one core. */
+    cpu_percent: number;
+}
+
+/** What Swarmed takes up on disk, and what it is using right now. */
+export interface Usage {
+    /** The database with all sessions' events. */
+    database_bytes: number;
+    events: number;
+    notes_bytes: number;
+    /** Every active task's worktree, largest first; `bytes` is `null` if it was not measured. */
+    worktrees: { project: string; task: string; path: string; bytes: number | null }[];
+    /** Swarmed's own process with everything it started. */
+    running: ProcessUsage;
+    /** The share of that taken by each session whose agent is running. */
+    sessions: ({ session_id: number; title: string } & ProcessUsage)[];
+}
+
+/** An agent that can be set up from the settings, and how far along it is. */
+export interface AgentSetup {
+    id: string;
+    name: string;
+    /** One sentence on what it is for. */
+    about: string;
+    /** Where its program was found; `null` if it is not installed. */
+    installed: string | null;
+    /** Whether sessions can run on it. */
+    configured: boolean;
+    /** The models offered for it. */
+    models: string[];
+    /** The command that installs it, shown before it is run. */
+    install_command: string;
+}
+
 /** What a note is kept on: a repository, or one of its tasks. */
 export interface NoteTarget {
     project: string;
