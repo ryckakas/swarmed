@@ -105,6 +105,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   (`view_response` in the app crate). That origin has no capability, so it cannot call a
   command. Never show agent HTML in the app's own origin, and never loosen the app's policy
   for it.
+  The instructions are deliberately firm that this is the way to show something and needs no
+  tool: without that, agents build a file and drive a browser instead. An ordinary `html` block
+  stays code, with a button to show it as a view.
 - **The status line** under the message box is drawn by the UI from built-in pieces
   (`ui/src/statusline.ts`) chosen in the settings. A `status_command` replaces them: the core
   runs it (`statusline.rs`) with the session as JSON on standard input and shows its first line.

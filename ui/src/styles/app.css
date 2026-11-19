@@ -1488,6 +1488,25 @@ code {
     border: 0;
 }
 
+.html-view-note {
+    padding: var(--space-1) var(--space-3);
+    border-bottom: 1px solid var(--line);
+    background: var(--pollen-wash);
+    color: var(--pollen);
+    font-size: var(--text-xs);
+}
+
+/* HTML written as code, with the offer to show it as a view above it. */
+.html-code {
+    display: grid;
+    justify-items: end;
+    gap: 2px;
+}
+
+.html-code pre {
+    justify-self: stretch;
+}
+
 .html-view .tool-body {
     margin: var(--space-2);
 }

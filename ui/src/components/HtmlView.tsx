@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import { requestedHeight, type ViewTheme, viewDocument } from "../htmlview";
+import { needsNetwork, requestedHeight, type ViewTheme, viewDocument } from "../htmlview";
 import { useStore } from "../store";
 
 /** The tallest a view is shown before it scrolls inside its frame. */
@@ -74,6 +74,12 @@ export function HtmlView({ html }: { html: string }) {
                     {source ? "Show the view" : "Show the source"}
                 </button>
             </div>
+            {needsNetwork(html) && (
+                <p className="html-view-note">
+                    This view asks for files from the network, which views cannot reach. Parts of it
+                    may be missing.
+                </p>
+            )}
             {source && <pre className="tool-body">{html}</pre>}
             {!source && address && (
                 <iframe

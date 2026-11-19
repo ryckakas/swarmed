@@ -1,8 +1,8 @@
-import { type ComponentProps, isValidElement, memo, type ReactNode } from "react";
+import { type ComponentProps, isValidElement, memo, type ReactNode, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
-import { VIEW_LANGUAGE } from "../htmlview";
+import { HTML_LANGUAGE, VIEW_LANGUAGE } from "../htmlview";
 import { useStore } from "../store";
 import { HtmlView } from "./HtmlView";
 
@@ -54,7 +54,33 @@ function Pre({ children, node: _node, ...rest }: ComponentProps<"pre"> & { node?
     if (code && classes.includes(`language-${VIEW_LANGUAGE}`)) {
         return <HtmlView html={textOf(code.props.children)} />;
     }
+    if (code && classes.includes(`language-${HTML_LANGUAGE}`)) {
+        return (
+            <HtmlCode html={textOf(code.props.children)}>
+                <pre {...rest}>{children}</pre>
+            </HtmlCode>
+        );
+    }
     return <pre {...rest}>{children}</pre>;
+}
+
+/**
+ * HTML the agent wrote as ordinary code. It stays code, since it may be quoted from a file, but
+ * one press shows it as a view, for when the agent meant it to be seen.
+ */
+function HtmlCode({ html, children }: { html: string; children: ReactNode }) {
+    const [shown, setShown] = useState(false);
+    if (shown) {
+        return <HtmlView html={html} />;
+    }
+    return (
+        <div className="html-code">
+            <button type="button" className="changes-refresh" onClick={() => setShown(true)}>
+                Show as a view
+            </button>
+            {children}
+        </div>
+    );
 }
 
 const VIEW_COMPONENTS = { pre: Pre };

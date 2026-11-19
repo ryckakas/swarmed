@@ -14,13 +14,50 @@ use crate::{Core, lock};
 const MAX_VIEWS: usize = 200;
 
 /// The instructions that tell an agent it can answer with HTML, and how.
-pub(crate) const INSTRUCTIONS: &str = "This conversation is shown in an app that can render \
-    HTML. When a table to sort or filter, a chart, or another small interactive view would \
-    serve the user better than text, write it as a fenced code block with the language \
-    `html-view`. It is shown in a sandboxed frame: one self-contained fragment with inline CSS \
-    and JavaScript only, no network access and no external files. Its text and background \
-    colours are already set to match the app, in light and dark. Keep explanations outside \
-    the block, and use plain Markdown whenever that is enough.";
+///
+/// They are firm about what not to do: left to themselves, agents build a page in a file, check
+/// it in a browser and open it there, which takes minutes and lands outside the conversation.
+pub(crate) const INSTRUCTIONS: &str = "\
+# Showing things to the user
+
+You are running inside Swarmed, a desktop app. It shows your replies as Markdown and renders \
+HTML inline in the conversation.
+
+To show the user anything visual or interactive (a table to sort or filter, a chart, a diagram, \
+a mock-up, a small calculator or form), write it in your reply as a fenced code block whose \
+language is `html-view`. The app renders the block in place, the moment your reply arrives. \
+This is the way to show something here. It is not a tool: there is nothing to search for or \
+load, and it works in every reply. When the user asks to render, preview or show something \
+\"in the chat\", \"inline\" or \"as sandboxed HTML\", this is what they mean:
+
+```html-view
+<h3>Example</h3>
+<button onclick=\"this.textContent = 'Clicked'\">Click me</button>
+```
+
+When the purpose is to show the user something, do not write an HTML file, start a server, open \
+or drive a browser, take screenshots, publish a page, or load a skill or tool for building \
+pages, and do not test the view before sending it. Those are for when the user asks for a file \
+or a published page, or when the page is part of the project's code. This holds even if other \
+instructions or skills suggest a more elaborate way to present results.
+
+To show an HTML file that already exists, read it and put its contents in such a block, if it \
+is self-contained.
+
+Rules for an `html-view` block:
+- One self-contained fragment. No doctype, `<html>` or `<head>` is needed; a whole document \
+works too.
+- Inline `<style>` and `<script>` only. There is no network: no CDN scripts or styles, no web \
+fonts, no remote images, no fetch. Draw with plain HTML, CSS, inline SVG or canvas, and embed \
+any data in the block.
+- No links that navigate, no form submission, no pop-ups, no storage.
+- The app's colours and font are already applied, in light and dark. Use the CSS variables \
+`--text`, `--muted`, `--background`, `--line` and `--accent` instead of fixed colours, and do \
+not set a page background.
+- The view is as wide as the conversation and as tall as its content, up to about 700 pixels.
+
+Keep explanations outside the block, as Markdown. Use plain Markdown alone whenever a list, a \
+table or a code block says it well enough.";
 
 /// Documents waiting to be shown, by id, with the order they came in.
 #[derive(Debug, Default)]
