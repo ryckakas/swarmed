@@ -4,6 +4,7 @@ import type {
     AgentEvent,
     AgentSetup,
     ApiKeyInfo,
+    CloudTask,
     Environment,
     FileChange,
     FileDiff,
@@ -284,6 +285,56 @@ function noteApi(projects: () => Project[]): Pick<Api, "note" | "setNote"> {
     };
 }
 
+/** Delegating to the cloud: the sample has an environment for `hero` and for nothing else. */
+function cloudApi(
+    projects: () => Project[],
+): Pick<Api, "cloudDelegate" | "cloudTasks" | "cloudTaskForget" | "cloudTaskOpen"> {
+    const find = (name: string) => {
+        const project = projects().find((candidate) => candidate.name === name);
+        if (!project) {
+            throw new Error(`project \`${name}\` not found`);
+        }
+        return project;
+    };
+    return {
+        cloudDelegate: async (name, prompt) => {
+            const project = find(name);
+            if (name !== "hero") {
+                throw new Error(
+                    `you/${name} has no Codex cloud environment. Create one for it at https://chatgpt.com/codex, under Environments, then delegate again`,
+                );
+            }
+            const id = Date.now();
+            const task: CloudTask = {
+                id,
+                project_id: project.id,
+                provider: "codex",
+                remote_id: `task_${id}`,
+                url: `https://chatgpt.com/codex/tasks/task_${id}`,
+                prompt,
+                branch: "main",
+                status: "pending",
+                session_id: null,
+            };
+            project.cloud = [task, ...project.cloud];
+            return task;
+        },
+        cloudTasks: async (name, refresh) => {
+            const project = find(name);
+            if (refresh) {
+                project.cloud = project.cloud.map((task) => ({ ...task, status: "ready" }));
+            }
+            return project.cloud;
+        },
+        cloudTaskForget: async (id) => {
+            for (const project of projects()) {
+                project.cloud = project.cloud.filter((task) => task.id !== id);
+            }
+        },
+        cloudTaskOpen: async () => undefined,
+    };
+}
+
 /** Environments, kept per repository for as long as the page is open. */
 function environmentApi(): Pick<Api, "environments" | "environmentSave" | "environmentRemove"> {
     const kept = new Map<string, Record<string, Environment>>([
@@ -322,6 +373,19 @@ export function sampleProjects(): Project[] {
             name: "hero",
             repo_path: "/Users/you/code/hero",
             has_note: true,
+            cloud: [
+                {
+                    id: 1,
+                    project_id: 1,
+                    provider: "codex",
+                    remote_id: "task_sample",
+                    url: "https://chatgpt.com/codex/tasks/task_sample",
+                    prompt: "Bring the API docs up to date with the new VAT fields",
+                    branch: "main",
+                    status: "ready",
+                    session_id: null,
+                },
+            ],
             tasks: [
                 task(1, 1, "fix-login-redirect", [
                     session(1, 1, "Fix the redirect loop after login", "waiting"),
@@ -338,6 +402,7 @@ export function sampleProjects(): Project[] {
             name: "bonsai-lint",
             repo_path: "/Users/you/code/bonsai-lint",
             has_note: false,
+            cloud: [],
             tasks: [
                 task(4, 2, "rust-support", [
                     session(4, 4, "Sketch a Rust language spec", "errored"),
@@ -345,7 +410,14 @@ export function sampleProjects(): Project[] {
                 ]),
             ],
         },
-        { id: 3, name: "fsum", repo_path: "/Users/you/code/fsum", tasks: [], has_note: false },
+        {
+            id: 3,
+            name: "fsum",
+            repo_path: "/Users/you/code/fsum",
+            tasks: [],
+            has_note: false,
+            cloud: [],
+        },
     ];
 }
 
@@ -892,6 +964,7 @@ export function createMockApi(): Api {
                 repo_path: path,
                 tasks: [],
                 has_note: false,
+                cloud: [],
             };
             agent.projects.push(project);
             return project;
@@ -904,6 +977,7 @@ export function createMockApi(): Api {
         // The sample data has no model to ask, so tasks are named after their prompts.
         taskNameFor: async () => null,
         ...environmentApi(),
+        ...cloudApi(() => agent.projects),
         taskNew: async (projectName, name, branch, environment) => {
             const project = agent.projects.find((candidate) => candidate.name === projectName);
             if (!project) {

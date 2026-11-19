@@ -3,6 +3,7 @@ import { api } from "./api";
 import { applyAppearance } from "./appearance";
 import icon from "./assets/icon.jpg";
 import { CloseSessionDialog } from "./components/CloseSessionDialog";
+import { CloudDialog } from "./components/CloudDialog";
 import { EnvironmentsDialog } from "./components/EnvironmentsDialog";
 import { NoteDialog } from "./components/NoteDialog";
 import { RemoveDialog } from "./components/RemoveDialog";
@@ -65,6 +66,7 @@ export function App() {
             <CloseSessionDialog />
             <NoteDialog />
             <EnvironmentsDialog />
+            <CloudDialog />
             <RemoveDialog />
             <SettingsDialog />
         </div>

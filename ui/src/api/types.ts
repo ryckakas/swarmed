@@ -120,6 +120,27 @@ export interface Project {
     tasks: Task[];
     /** Whether the user keeps a note on the repository. */
     has_note: boolean;
+    /** The tasks handed to cloud agents from the repository, newest first, as last heard of. */
+    cloud: CloudTask[];
+}
+
+/** A task handed to an agent that runs in its provider's cloud. */
+export interface CloudTask {
+    id: number;
+    project_id: number;
+    /** Whose cloud it runs in: `codex`. */
+    provider: string;
+    /** The provider's id for it. */
+    remote_id: string;
+    /** Where it is looked at in a browser. */
+    url: string;
+    prompt: string;
+    /** The branch it started from. */
+    branch: string;
+    /** What the provider last said of it, such as `pending`, `ready` or `error`. */
+    status: string;
+    /** The session that delegated it, if an agent did. */
+    session_id: number | null;
 }
 
 /** What is being removed: a repository, or one of its tasks. */

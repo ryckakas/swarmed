@@ -11,8 +11,8 @@ use clap::{Parser, Subcommand, ValueEnum};
 use session::SessionCommand;
 use swarmed_core::agent::FakeBackend;
 use swarmed_core::{
-    AgentSetup, ApiKeyInfo, Core, McpServerView, NewTaskOptions, Paths, RemoveOptions, Settings,
-    SetupStatus, Task,
+    AgentSetup, ApiKeyInfo, CloudOrigin, CloudTask, Core, McpServerView, NewTaskOptions, Paths,
+    RemoveOptions, Settings, SetupStatus, Task,
 };
 
 /// Swarmed: parallel Claude Code sessions in isolated git worktrees.
@@ -55,6 +55,9 @@ enum Command {
     /// List a project's environments: the ways a task can be set up in it. They are edited
     /// in the app.
     Environment { project: String },
+    /// Hand work to an agent in the cloud, or see what was handed over.
+    #[command(subcommand)]
+    Cloud(CloudCommand),
     /// Print the note kept on a project or on one of its tasks, or replace it.
     Note {
         project: String,
@@ -93,6 +96,21 @@ enum AgentCommand {
     /// Ask an agent that knows its own models, such as Codex, which ones it offers, and
     /// offer those.
     Models { id: String },
+}
+
+#[derive(Debug, Subcommand)]
+enum CloudCommand {
+    /// Hand PROMPT to a Codex cloud agent working on the project's repository as it is on
+    /// GitHub. Refused if the repository has no cloud environment at the provider.
+    Delegate {
+        project: String,
+        prompt: String,
+        /// Start from this task's branch, if it has been pushed; else from the base branch.
+        #[arg(long)]
+        task: Option<String>,
+    },
+    /// List the cloud tasks delegated from a project, with their statuses as of now.
+    List { project: String },
 }
 
 #[derive(Debug, Subcommand)]
@@ -255,6 +273,7 @@ async fn run(core: &Core, command: Command) -> Result<()> {
         Command::Key(command) => key(core, command),
         Command::Note { project, task, set } => note(core, &project, task.as_deref(), set),
         Command::Environment { project } => environments(core, &project),
+        Command::Cloud(command) => cloud(core, command).await,
         Command::Rules { set } => rules(core, set),
     }
 }
@@ -293,6 +312,35 @@ fn note(core: &Core, project: &str, task: Option<&str>, set: bool) -> Result<()>
         return Ok(core.set_note(project, task, &text)?);
     }
     say(core.note(project, task)?.trim_end());
+    Ok(())
+}
+
+async fn cloud(core: &Core, command: CloudCommand) -> Result<()> {
+    let row = |task: &CloudTask| {
+        say(&format!(
+            "{}\t{}\t{}\t{}",
+            task.status,
+            task.branch,
+            task.url,
+            task.prompt.lines().next().unwrap_or_default()
+        ));
+    };
+    match command {
+        CloudCommand::Delegate {
+            project,
+            prompt,
+            task,
+        } => {
+            let origin = CloudOrigin {
+                task: task.as_deref(),
+                session: None,
+            };
+            row(&core.cloud_delegate(&project, &prompt, origin).await?);
+        }
+        CloudCommand::List { project } => {
+            core.cloud_tasks(&project, true).await?.iter().for_each(row);
+        }
+    }
     Ok(())
 }
 

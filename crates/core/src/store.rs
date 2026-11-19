@@ -146,6 +146,20 @@ const MIGRATIONS: &[&str] = &[
     "
     ALTER TABLE tasks ADD COLUMN environment TEXT;
 ",
+    "
+    CREATE TABLE cloud_tasks (
+        id         INTEGER PRIMARY KEY,
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        provider   TEXT NOT NULL,
+        remote_id  TEXT NOT NULL,
+        url        TEXT NOT NULL,
+        prompt     TEXT NOT NULL,
+        branch     TEXT NOT NULL,
+        status     TEXT NOT NULL,
+        session_id INTEGER,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+",
 ];
 
 const TASK_SELECT: &str = "SELECT id, project_id, name, branch, base_ref, worktree_path, slot, \

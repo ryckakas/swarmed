@@ -3,6 +3,7 @@
 use serde::Serialize;
 
 use crate::Core;
+use crate::cloud::CloudTask;
 use crate::error::Result;
 use crate::sessions::Session;
 use crate::store::{Project, Task};
@@ -17,6 +18,8 @@ pub struct ProjectOverview {
     pub tasks: Vec<TaskOverview>,
     /// Whether the user keeps a note on the project.
     pub has_note: bool,
+    /// The tasks handed to cloud agents from the project, newest first, as last heard of.
+    pub cloud: Vec<CloudTask>,
 }
 
 /// A task with its sessions.
@@ -72,6 +75,7 @@ impl Core {
             }
         };
         let mut tasks: Vec<TaskOverview> = tasks.into_iter().map(task_overview).collect();
+        let mut cloud = self.cloud_tasks_of(None)?;
         let overview = projects.into_iter().map(|project| {
             let (mut own, rest): (Vec<_>, Vec<_>) = tasks
                 .drain(..)
@@ -79,10 +83,15 @@ impl Core {
             tasks = rest;
             self.add_urls(&project, &mut own);
             self.add_notes(&project, &mut own);
+            let (delegated, others): (Vec<_>, Vec<_>) = cloud
+                .drain(..)
+                .partition(|task| task.project_id == project.id);
+            cloud = others;
             ProjectOverview {
                 has_note: self.has_note(&project.name, None),
                 project,
                 tasks: own,
+                cloud: delegated,
             }
         });
         Ok(overview.collect())

@@ -149,6 +149,9 @@ pub enum Error {
     /// A note longer than notes may be.
     #[error("a note can hold at most {0} bytes")]
     NoteTooLong(usize),
+    /// Work could not be handed to a cloud agent. Says why, and what to do about it.
+    #[error("{0}")]
+    Cloud(String),
     /// Something one session asked about another was refused.
     #[error("{0}")]
     Peers(String),

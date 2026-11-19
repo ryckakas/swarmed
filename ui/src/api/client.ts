@@ -4,6 +4,7 @@ import type {
     AgentSetup,
     ApiKeyInfo,
     BranchChoices,
+    CloudTask,
     Environment,
     FileChange,
     FileDiff,
@@ -83,6 +84,18 @@ export interface Api {
         branch: string | null,
         environment: string | null,
     ): Promise<Task>;
+    /**
+     * Hands a prompt to a cloud agent working on the project's repository, from the branch of
+     * `task` if one is named and it has been pushed. Rejects, saying what to do, if the
+     * repository is not on GitHub or has no cloud environment.
+     */
+    cloudDelegate(project: string, prompt: string, task: string | null): Promise<CloudTask>;
+    /** The project's cloud tasks; with `refresh`, their statuses are asked for again first. */
+    cloudTasks(project: string, refresh: boolean): Promise<CloudTask[]>;
+    /** Takes a cloud task off the list, without stopping it. */
+    cloudTaskForget(id: number): Promise<void>;
+    /** Opens a cloud task's page at its provider. */
+    cloudTaskOpen(id: number): Promise<void>;
     /** A project's environments, by name. */
     environments(project: string): Promise<Record<string, Environment>>;
     /** Adds an environment to a project, or replaces the one of that name. */

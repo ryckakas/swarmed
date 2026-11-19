@@ -608,6 +608,56 @@ code {
     border-left: 1px solid var(--line);
 }
 
+/* Tasks handed to cloud agents: listed under the repository, set in like its worktrees. */
+.cloud-tasks {
+    margin: 6px 6px 0 22px;
+    padding: 0;
+    list-style: none;
+}
+
+.cloud-line {
+    display: flex;
+    align-items: center;
+    color: var(--muted);
+}
+
+.cloud-line:hover {
+    background: color-mix(in srgb, var(--raised) 55%, transparent);
+    border-radius: 5px;
+}
+
+.cloud-row {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-2);
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+}
+
+.cloud-status {
+    flex: none;
+    color: var(--faint);
+    font-size: var(--text-xs);
+}
+
+.cloud-line[data-tone="going"] .cloud-status {
+    color: var(--pollen);
+}
+
+.cloud-line[data-tone="failed"] .cloud-status {
+    color: var(--clay);
+}
+
+.cloud-line[data-tone="done"] .cloud-status {
+    color: var(--moss);
+}
+
 /* A session's line: the row that opens it, and a close button that shows on approach. */
 .session-line {
     display: flex;
