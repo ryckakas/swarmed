@@ -387,8 +387,11 @@ fn the_ui_can_ask_for_a_task_name_and_is_told_when_there_is_none() {
 fn the_ui_can_see_which_agents_can_be_set_up_and_choose_their_models() {
     let app = app();
     let setups = app.ok("agent_setups", json!({}));
-    assert_eq!(setups[0]["id"], "opencode");
-    assert_eq!(setups[0]["configured"], false);
+    // Claude Code first; whether it is installed depends on who runs the tests.
+    assert_eq!(setups[0]["id"], "claude");
+    assert_eq!(setups[0]["built_in"], true);
+    assert_eq!(setups[2]["id"], "opencode");
+    assert_eq!(setups[2]["configured"], false);
 
     let chosen = json!({ "id": "opencode", "models": ["openrouter/x-ai/grok-4.7"] });
     let setup = app.ok("agent_configure", chosen);

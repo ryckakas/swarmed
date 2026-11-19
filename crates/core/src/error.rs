@@ -107,8 +107,8 @@ pub enum Error {
     /// Claude Code is not installed, or not where Swarmed looks for it.
     #[error(
         "Claude Code was not found (`{0}`). Swarmed runs your own Claude Code: install it from \
-         https://claude.com/claude-code, run `claude` once in a terminal to sign in, then try \
-         again. Or pick another agent, set up in Settings under Agents"
+         Settings, under Agents, run `claude` once in a terminal to sign in, then try again. Or \
+         pick another agent there"
     )]
     ClaudeMissing(String),
     /// No agent is configured under this id.

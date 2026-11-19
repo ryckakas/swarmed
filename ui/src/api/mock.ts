@@ -164,33 +164,73 @@ const SAMPLE_USAGE: Usage = {
 function setupApi(
     hookListeners: Set<(output: HookOutput) => void>,
 ): Pick<Api, "agentSetups" | "agentInstall" | "agentConfigure" | "openrouterModels"> {
-    const opencode: AgentSetup = {
-        id: "opencode",
-        name: "OpenCode",
-        about: "An open-source coding agent that runs models from OpenRouter and other providers.",
-        installed: null,
-        configured: false,
-        models: [],
-        install_command: "brew install anomalyco/tap/opencode-v2",
+    const hint = "To sign in, run its program in a terminal once.";
+    const setups: AgentSetup[] = [
+        {
+            id: "claude",
+            name: "Claude Code",
+            about: "Anthropic's coding agent, on your Claude subscription. What sessions run on unless you choose otherwise.",
+            installed: "/Users/you/.local/bin/claude",
+            configured: true,
+            models: [],
+            install_command: "curl -fsSL https://claude.ai/install.sh | bash",
+            sign_in:
+                "To sign in, run `claude` in a terminal once and follow /login. Swarmed uses that login and never sees it.",
+            built_in: true,
+        },
+        {
+            id: "codex",
+            name: "Codex",
+            about: "OpenAI's coding agent, on your ChatGPT plan or an OpenAI API key.",
+            installed: null,
+            configured: false,
+            models: [],
+            install_command: "brew install codex-acp",
+            sign_in: hint,
+            built_in: false,
+        },
+        {
+            id: "opencode",
+            name: "OpenCode",
+            about: "An open-source coding agent that runs models from OpenRouter and other providers.",
+            installed: null,
+            configured: false,
+            models: [],
+            install_command: "brew install anomalyco/tap/opencode-v2",
+            sign_in: "It uses the API keys stored in Settings.",
+            built_in: false,
+        },
+    ];
+    const setup = (id: string): AgentSetup => {
+        const found = setups.find((candidate) => candidate.id === id);
+        if (!found) {
+            throw new Error(`agent \`${id}\` is not configured`);
+        }
+        return found;
     };
     return {
-        agentSetups: async () => [{ ...opencode }],
-        agentInstall: async () => {
-            for (const line of ["==> Fetching opencode", "==> Pouring opencode", "Installed"]) {
+        agentSetups: async () => setups.map((each) => ({ ...each })),
+        agentInstall: async (id) => {
+            const installing = setup(id);
+            for (const line of ["==> Fetching", "==> Pouring", "Installed"]) {
                 for (const listener of hookListeners) {
-                    listener({ project: "", task: "opencode", line });
+                    listener({ project: "", task: id, line });
                 }
                 await new Promise((resolve) => setTimeout(resolve, PACE * 2));
             }
-            const models = ["openrouter/openai/gpt-6.2-sol", "openrouter/google/gemini-3.8-flash"];
-            Object.assign(opencode, { installed: "/opt/homebrew/bin/opencode", models });
-            opencode.configured = true;
-            return { ...opencode };
+            const models =
+                id === "opencode"
+                    ? ["openrouter/openai/gpt-6.2-sol", "openrouter/google/gemini-3.8-flash"]
+                    : [];
+            Object.assign(installing, { installed: `/opt/homebrew/bin/${id}`, models });
+            installing.configured = true;
+            return { ...installing };
         },
-        agentConfigure: async (_id, models) => {
-            opencode.configured = true;
-            opencode.models = models ?? opencode.models;
-            return { ...opencode };
+        agentConfigure: async (id, models) => {
+            const configured = setup(id);
+            configured.configured = true;
+            configured.models = models ?? configured.models;
+            return { ...configured };
         },
         openrouterModels: async () => [
             "openrouter/openai/gpt-6.2-sol",

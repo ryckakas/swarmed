@@ -205,8 +205,9 @@ describe("opening a session", () => {
 describe("setting up an agent", () => {
     it("installs it, then lets its models be chosen", async () => {
         const api = createMockApi();
-        const [before] = await api.agentSetups();
-        expect(before?.installed).toBeNull();
+        const setups = await api.agentSetups();
+        expect(setups.map((setup) => setup.id)).toEqual(["claude", "codex", "opencode"]);
+        expect(setups[2]?.installed).toBeNull();
         const installed = await api.agentInstall("opencode");
         expect(installed.configured).toBe(true);
         const chosen = await api.agentConfigure("opencode", ["openrouter/x-ai/grok-4.7"]);

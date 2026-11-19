@@ -4,8 +4,9 @@ import type { AgentSetup } from "../api/types";
 import { useStore } from "../store";
 
 /**
- * Agents other than Claude Code: whether each is installed, a button that installs it, and the
- * models it offers. What used to be a command in a terminal and a file edited by hand.
+ * The agents sessions can run on: whether each is installed, a button that installs it, how to
+ * sign in to it, and the models it offers. What used to be commands in a terminal and a file
+ * edited by hand.
  */
 export function AgentsSettings() {
     const report = useStore((state) => state.report);
@@ -24,8 +25,8 @@ export function AgentsSettings() {
         <section className="settings-group" aria-label="Agents">
             <h3>Agents</h3>
             <p className="settings-hint">
-                Claude Code is always there. Other agents run models from other providers, with the
-                API keys stored below.
+                Sessions run on Claude Code unless you choose another agent. Swarmed installs an
+                agent when you ask it to; signing in stays between you and the agent.
             </p>
             {setups.map((setup) => (
                 <AgentRow key={setup.id} setup={setup} onChange={replace} />
@@ -68,6 +69,7 @@ function AgentRow({ setup, onChange }: { setup: AgentSetup; onChange(setup: Agen
                     <p className="settings-label">{setup.name}</p>
                     <p className="settings-hint">{setup.about}</p>
                     <p className="settings-hint">{stateOf(setup)}</p>
+                    {setup.installed !== null && <p className="settings-hint">{setup.sign_in}</p>}
                 </div>
                 {setup.installed === null && !asking && (
                     <button
@@ -99,7 +101,7 @@ function AgentRow({ setup, onChange }: { setup: AgentSetup; onChange(setup: Agen
                 </div>
             )}
             {installing && <p className="agent-output mono">{printed ?? "Starting…"}</p>}
-            {setup.configured && (
+            {setup.configured && !setup.built_in && (
                 <Models models={setup.models} onChange={(models) => void configure(models)} />
             )}
         </div>

@@ -19,6 +19,7 @@ use super::{
     AgentBackend, AgentCommand, AgentEvent, AgentHandle, Auth, ContextCategory, McpServerInfo,
     Namer, Naming, SessionSpec, Supervision,
 };
+use crate::agent_setup::{default_tool_dirs, find_program};
 use crate::error::{Error, Result};
 use crate::mcp::{McpServer, McpTransport};
 
@@ -60,7 +61,7 @@ pub struct ClaudeNamer {
 
 impl ClaudeNamer {
     fn command(&self, prompt: &str) -> Command {
-        let mut command = Command::new(&self.backend.program);
+        let mut command = Command::new(self.backend.resolved());
         command
             .args(["-p", "--model", "haiku", "--output-format", "text"])
             .args(["--setting-sources", "", "--strict-mcp-config"])
@@ -196,6 +197,17 @@ fn missing_pipe() -> Error {
 }
 
 impl ClaudeBackend {
+    /// The executable to start. A bare name is looked for where installers put programs as
+    /// well as on the `PATH`, each time: an app started from the Dock has a shorter `PATH`
+    /// than a shell, and Claude Code may have been installed since Swarmed was started.
+    fn resolved(&self) -> PathBuf {
+        let bare = self.program.components().count() == 1;
+        let name = self.program.to_string_lossy();
+        bare.then(|| find_program(&name, &default_tool_dirs()))
+            .flatten()
+            .unwrap_or_else(|| self.program.clone())
+    }
+
     /// Why Claude Code could not be started, said so that someone who never installed it knows
     /// what is missing and what to do.
     fn not_started(&self, error: std::io::Error) -> Error {
@@ -208,7 +220,7 @@ impl ClaudeBackend {
 
 impl AgentBackend for ClaudeBackend {
     fn start(&self, spec: SessionSpec) -> Result<AgentHandle> {
-        let mut command = Command::new(&self.program);
+        let mut command = Command::new(self.resolved());
         command
             .args(args(&spec))
             .current_dir(&spec.cwd)
@@ -937,7 +949,7 @@ mod tests {
         );
         let said = error.to_string();
         assert!(
-            said.contains("claude.com/claude-code") && said.contains("sign in"),
+            said.contains("Settings, under Agents") && said.contains("sign in"),
             "{said}"
         );
     }

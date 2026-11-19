@@ -1,8 +1,10 @@
-//! Setting up agents other than Claude Code: seeing whether one is installed, installing it,
-//! and writing its entry in `agents.toml`, so that nobody has to edit that file by hand.
+//! Setting up agents: seeing whether one is installed, installing it, and, for agents other
+//! than Claude Code, writing its entry in `agents.toml`, so that nobody has to edit that file
+//! by hand.
 //!
-//! Only agents listed in [`KNOWN`] can be set up from here. Each is installed with Homebrew,
-//! by a command a front end shows the user before it is run.
+//! Only agents listed in [`KNOWN`] can be set up from here. Each is installed by a command a
+//! front end shows the user before it is run. Signing in to an agent's account is never done
+//! from here: that stays between the user and the agent's own program.
 
 use std::path::{Path, PathBuf};
 
@@ -11,7 +13,7 @@ use tokio::process::Command;
 use toml::{Table, Value};
 
 use crate::Core;
-use crate::agents::Agents;
+use crate::agents::{Agents, CLAUDE};
 use crate::error::{Error, Result};
 use crate::hooks::{self, OutputSink};
 
@@ -25,25 +27,76 @@ struct Known {
     program: &'static str,
     /// The arguments that put it into ACP mode.
     args: &'static [&'static str],
-    /// The Homebrew formula that installs it.
-    formula: &'static str,
+    /// What installs it.
+    install: Install,
     /// The models offered for it until the user chooses their own.
     models: &'static [&'static str],
+    /// How the user gets it to act on their account, once it is installed.
+    sign_in: &'static str,
+    /// Whether it is the agent Swarmed runs by itself, with no entry in `agents.toml`.
+    built_in: bool,
 }
 
-const KNOWN: &[Known] = &[Known {
-    id: "opencode",
-    name: "OpenCode",
-    about: "An open-source coding agent that runs models from OpenRouter and other providers.",
-    program: "opencode",
-    args: &["acp"],
-    formula: "anomalyco/tap/opencode-v2",
-    models: &[
-        "openrouter/openai/gpt-6.2-sol",
-        "openrouter/google/gemini-3.8-flash",
-        "openrouter/anthropic/claude-sonnet-5.5",
-    ],
-}];
+/// How an agent gets onto this machine.
+enum Install {
+    /// A Homebrew formula.
+    Brew(&'static str),
+    /// The agent's own installer, as its makers document it.
+    Script(&'static str),
+}
+
+impl Install {
+    /// The command as the user would type it.
+    fn shown(&self) -> String {
+        match self {
+            Self::Brew(formula) => format!("brew install {formula}"),
+            Self::Script(command) => (*command).to_string(),
+        }
+    }
+}
+
+const KNOWN: &[Known] = &[
+    Known {
+        id: CLAUDE,
+        name: "Claude Code",
+        about: "Anthropic's coding agent, on your Claude subscription. What sessions run on \
+                unless you choose otherwise.",
+        program: "claude",
+        args: &[],
+        install: Install::Script("curl -fsSL https://claude.ai/install.sh | bash"),
+        models: &[],
+        sign_in: "To sign in, run `claude` in a terminal once and follow /login. Swarmed uses \
+                  that login and never sees it.",
+        built_in: true,
+    },
+    Known {
+        id: "codex",
+        name: "Codex",
+        about: "OpenAI's coding agent, on your ChatGPT plan or an OpenAI API key.",
+        program: "codex-acp",
+        args: &[],
+        install: Install::Brew("codex-acp"),
+        models: &[],
+        sign_in: "To sign in, run `codex login` in a terminal once. Without the Codex CLI, \
+                  `codex-acp login` does the same.",
+        built_in: false,
+    },
+    Known {
+        id: "opencode",
+        name: "OpenCode",
+        about: "An open-source coding agent that runs models from OpenRouter and other providers.",
+        program: "opencode",
+        args: &["acp"],
+        install: Install::Brew("anomalyco/tap/opencode-v2"),
+        models: &[
+            "openrouter/openai/gpt-6.2-sol",
+            "openrouter/google/gemini-3.8-flash",
+            "openrouter/anthropic/claude-sonnet-5.5",
+        ],
+        sign_in: "It uses the API keys stored in Settings.",
+        built_in: false,
+    },
+];
 
 /// Where OpenRouter lists its models. Public: asking needs no key and sends nothing of ours.
 const OPENROUTER_MODELS: &str = "https://openrouter.ai/api/v1/models";
@@ -65,6 +118,11 @@ pub struct AgentSetup {
     pub models: Vec<String>,
     /// The command that installs it, to show before it is run.
     pub install_command: String,
+    /// How the user signs in to it, which is never done from Swarmed.
+    pub sign_in: String,
+    /// Whether it is Claude Code, which needs no setting up beyond being installed and has its
+    /// models built in.
+    pub built_in: bool,
 }
 
 fn known(id: &str) -> Result<&'static Known> {
@@ -75,7 +133,7 @@ fn known(id: &str) -> Result<&'static Known> {
 }
 
 /// The first of `dirs` that holds an executable file called `program`.
-fn find_program(program: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
+pub(crate) fn find_program(program: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
     dirs.iter()
         .map(|dir| dir.join(program))
         .find(|candidate| candidate.is_file())
@@ -152,29 +210,44 @@ impl Core {
             let name = |model: &Value| model.as_str().map(String::from);
             models.iter().filter_map(name).collect::<Vec<String>>()
         };
+        let installed = find_program(agent.program, &self.tool_dirs);
         AgentSetup {
             id: agent.id.to_string(),
             name: agent.name.to_string(),
             about: agent.about.to_string(),
-            installed: find_program(agent.program, &self.tool_dirs),
-            configured: entry.is_some(),
+            configured: entry.is_some() || (agent.built_in && installed.is_some()),
+            installed,
             models: models.map_or_else(Vec::new, named),
-            install_command: format!("brew install {}", agent.formula),
+            install_command: agent.install.shown(),
+            sign_in: agent.sign_in.to_string(),
+            built_in: agent.built_in,
         }
     }
 
-    /// Installs a known agent with Homebrew, forwarding what the installer prints to `sink`,
-    /// then writes its entry in `agents.toml` so sessions can run on it at once.
+    /// The command that installs `agent`, as the shell is to run it.
+    fn install_command(&self, agent: &Known) -> Result<String> {
+        match agent.install {
+            Install::Script(command) => Ok(command.to_string()),
+            Install::Brew(formula) => {
+                let brew = find_program("brew", &self.tool_dirs).ok_or_else(|| Error::Install {
+                    agent: agent.name.to_string(),
+                    reason: "Homebrew was not found; install the agent yourself, then come back"
+                        .to_string(),
+                })?;
+                Ok(format!("'{}' install {formula}", brew.display()))
+            }
+        }
+    }
+
+    /// Installs a known agent, forwarding what the installer prints to `sink`, then writes its
+    /// entry in `agents.toml`, if it needs one, so sessions can run on it at once.
     pub async fn agent_install(&self, id: &str, sink: OutputSink<'_>) -> Result<AgentSetup> {
         let agent = known(id)?;
         let failed = |reason: String| Error::Install {
             agent: agent.name.to_string(),
             reason,
         };
-        let brew = find_program("brew", &self.tool_dirs).ok_or_else(|| {
-            failed("Homebrew was not found; install the agent yourself, then come back".into())
-        })?;
-        let command = format!("'{}' install {}", brew.display(), agent.formula);
+        let command = self.install_command(agent)?;
         hooks::run("install", &command, &std::env::temp_dir(), &[], sink)
             .await
             .map_err(|e| failed(e.to_string()))?;
@@ -194,6 +267,9 @@ impl Core {
         let agent = known(id)?;
         let path = self.paths.agents_config();
         let mut config = read_config(&path)?;
+        if agent.built_in {
+            return Ok(self.setup_of(agent, &config));
+        }
         let program = find_program(agent.program, &self.tool_dirs);
         // The whole path, since an app started from the Dock has a shorter `PATH` than a shell.
         let command = program.map_or_else(
