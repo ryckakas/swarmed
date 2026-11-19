@@ -68,6 +68,22 @@ describe("statusParts", () => {
         };
         expect(statusParts(["model"], source({ events: [init] }))[0]?.text).toBe("claude-opus-5-5");
     });
+
+    it("shows a chosen effort in the model's badge, after a bar", () => {
+        const base = source({});
+        const high = {
+            ...base,
+            session: { ...base.session, model: "opus", effort: "high" as const },
+        };
+        expect(statusParts(["model"], high)[0]?.runs).toEqual([
+            ["opus", "plain"],
+            [" | ", "quiet"],
+            ["high", "plain"],
+        ]);
+        // The agent's default effort is not named.
+        const unset = { ...base, session: { ...base.session, model: "opus", effort: null } };
+        expect(statusParts(["model"], unset)[0]?.text).toBe("opus");
+    });
 });
 
 describe("the context window", () => {

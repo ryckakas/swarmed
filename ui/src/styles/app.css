@@ -1601,6 +1601,11 @@ code {
     color: var(--muted);
 }
 
+/* A bar between two values that share a badge. */
+.status-run-quiet {
+    opacity: 0.5;
+}
+
 .status-run-added {
     color: var(--moss);
 }

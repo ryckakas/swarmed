@@ -24,7 +24,7 @@ export interface StatusSource {
 }
 
 /** How a run of text in the status line is coloured: by what it says, not by its piece. */
-export type StatusTone = "plain" | "added" | "removed";
+export type StatusTone = "plain" | "added" | "removed" | "quiet";
 
 export interface StatusPart {
     item: StatusItem;
@@ -38,6 +38,20 @@ export interface StatusPart {
 function model({ session, events }: StatusSource): string | null {
     const init = events.findLast((event) => event.type === "init");
     return (init?.type === "init" ? init.model : null) || session.model;
+}
+
+/** The model, then the effort it was asked for, if one was chosen: `opus | high`. */
+function modelRuns(source: StatusSource): StatusPart["runs"] | null {
+    const name = model(source);
+    const { effort } = source.session;
+    if (!(name && effort)) {
+        return plain(name || effort);
+    }
+    return [
+        [name, "plain"],
+        [" | ", "quiet"],
+        [effort, "plain"],
+    ];
 }
 
 export type ContextUsage = Extract<AgentEvent, { type: "context_usage" }>;
@@ -120,7 +134,7 @@ const plain = (text: string | null): StatusPart["runs"] | null =>
 const RUNS: Record<StatusItem, (source: StatusSource) => StatusPart["runs"] | null> = {
     branch: ({ task }) => plain(task.branch),
     changes: changeRuns,
-    model: (source) => plain(model(source)),
+    model: modelRuns,
     context,
     cost: (source) => plain(cost(source)),
     agent: ({ session }) => plain(session.agent),
