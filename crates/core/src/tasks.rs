@@ -187,6 +187,7 @@ impl Core {
             git::git(repo, &["worktree", "prune"]).await.ok();
         }
         self.store().task_archive(task.id)?;
+        self.forget_note(&project.name, &task.name)?;
         if options.delete_branch && git::local_branch_exists(repo, &task.branch).await {
             git::branch_delete(repo, &task.branch).await?;
         }

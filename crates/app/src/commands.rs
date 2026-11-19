@@ -121,6 +121,21 @@ pub(crate) fn task_open_editor(core: CoreState<'_>, project: String, name: Strin
 }
 
 #[tauri::command]
+pub(crate) fn note(core: CoreState<'_>, project: String, task: Option<String>) -> Command<String> {
+    Ok(core.note(&project, task.as_deref())?)
+}
+
+#[tauri::command]
+pub(crate) fn set_note(
+    core: CoreState<'_>,
+    project: String,
+    task: Option<String>,
+    text: String,
+) -> Command<()> {
+    Ok(core.set_note(&project, task.as_deref(), &text)?)
+}
+
+#[tauri::command]
 pub(crate) fn task_open_url(core: CoreState<'_>, project: String, name: String) -> Command<()> {
     Ok(core.task_open_url(&project, &name)?)
 }

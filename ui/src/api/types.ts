@@ -33,6 +33,8 @@ export interface Task {
     running: number[];
     /** Where the task's running stack is reached in a browser, if its project says so. */
     url: string | null;
+    /** Whether the user keeps a note on the task. */
+    has_note: boolean;
 }
 
 /** One file a task has changed since its branch left its base. */
@@ -91,6 +93,14 @@ export interface Project {
     name: string;
     repo_path: string;
     tasks: Task[];
+    /** Whether the user keeps a note on the repository. */
+    has_note: boolean;
+}
+
+/** What a note is kept on: a repository, or one of its tasks. */
+export interface NoteTarget {
+    project: string;
+    task: string | null;
 }
 
 export interface McpServerInfo {

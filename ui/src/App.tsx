@@ -3,6 +3,7 @@ import { api } from "./api";
 import { applyAppearance } from "./appearance";
 import icon from "./assets/icon.jpg";
 import { CloseSessionDialog } from "./components/CloseSessionDialog";
+import { NoteDialog } from "./components/NoteDialog";
 import { Resizer, useStoredWidth } from "./components/Resizer";
 import { SessionPane } from "./components/SessionPane";
 import { SettingsDialog } from "./components/SettingsDialog";
@@ -60,6 +61,7 @@ export function App() {
                 }
             />
             <CloseSessionDialog />
+            <NoteDialog />
             <SettingsDialog />
         </div>
     );

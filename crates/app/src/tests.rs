@@ -304,6 +304,41 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
 }
 
 #[test]
+fn the_ui_can_keep_a_note_on_a_project_and_on_a_task() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+
+    let on_project = json!({ "project": "demo", "task": null });
+    let on_task = json!({ "project": "demo", "task": "one" });
+    assert_eq!(app.ok("note", on_project.clone()), "");
+    app.ok(
+        "set_note",
+        json!({ "project": "demo", "task": null, "text": "for the repository" }),
+    );
+    app.ok(
+        "set_note",
+        json!({ "project": "demo", "task": "one", "text": "for the task" }),
+    );
+    assert_eq!(app.ok("note", on_project), "for the repository");
+    assert_eq!(app.ok("note", on_task.clone()), "for the task");
+    let overview = app.ok("overview", json!({}));
+    assert_eq!(overview[0]["has_note"], true);
+    assert_eq!(overview[0]["tasks"][0]["has_note"], true);
+
+    app.ok(
+        "set_note",
+        json!({ "project": "demo", "task": "one", "text": "" }),
+    );
+    assert_eq!(app.ok("note", on_task), "");
+    assert_eq!(
+        app.ok("overview", json!({}))[0]["tasks"][0]["has_note"],
+        false
+    );
+}
+
+#[test]
 fn the_ui_can_store_and_remove_a_key_without_ever_reading_it() {
     let app = app();
     let stored = |app: &App| {

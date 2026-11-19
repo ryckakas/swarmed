@@ -26,6 +26,7 @@ export type HotkeyId =
     | "toggle-panel"
     | "open-editor"
     | "open-browser"
+    | "open-note"
     | "toggle-status"
     | "settings"
     | "shortcuts"
@@ -92,6 +93,7 @@ export const HOTKEYS: Hotkey[] = [
         label: "Open the task in the browser",
         group: "Task",
     },
+    { id: "open-note", keys: "cmd+shift+n", label: "Open the task's note", group: "Task" },
     {
         id: "toggle-status",
         keys: "cmd+shift+s",

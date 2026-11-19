@@ -43,6 +43,10 @@ export interface Api {
     taskOpenEditor(project: string, name: string): Promise<void>;
     /** Opens the task's running stack in the default browser. */
     taskOpenUrl(project: string, name: string): Promise<void>;
+    /** The user's note on a repository, or on one of its tasks; empty if there is none. */
+    note(project: string, task: string | null): Promise<string>;
+    /** Replaces that note. Nothing but blank space removes it. */
+    setNote(project: string, task: string | null, text: string): Promise<void>;
     /** The providers a key can be stored for, and which have one. */
     apiKeys(): Promise<ApiKeyInfo[]>;
     /** Stores a provider's key in the system's keychain. It cannot be read back. */

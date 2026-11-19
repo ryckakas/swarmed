@@ -110,6 +110,9 @@ pub enum Error {
     /// The session has no terminal open.
     #[error("session {0} has no terminal open")]
     TerminalNotOpen(i64),
+    /// A note longer than notes may be.
+    #[error("a note can hold at most {0} bytes")]
+    NoteTooLong(usize),
     /// A session title with nothing in it.
     #[error("a session title cannot be empty")]
     EmptyTitle,

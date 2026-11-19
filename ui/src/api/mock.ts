@@ -47,6 +47,39 @@ function task(id: number, projectId: number, name: string, sessions: Session[]):
         sessions,
         running: sessions.filter((s) => s.status !== "idle").map((s) => s.id),
         url: `http://localhost:${3000 + id * 100}`,
+        has_note: id === 1,
+    };
+}
+
+const noteKey = (project: string, task: string | null) => `${project}/${task ?? ""}`;
+
+/** The notes the sample data starts with. */
+const notes = new Map<string, string>([
+    [
+        noteKey("hero", null),
+        "Staging: https://staging.example.test\nDeploys go out on Thursdays.\n",
+    ],
+    [noteKey("hero", "fix-login-redirect"), "Test user: demo@example.test\n"],
+]);
+
+/** Marks in the tree whether a repository or a task has a note. */
+function markNote(projects: Project[], project: string, task: string | null, has: boolean) {
+    const home = projects.find((candidate) => candidate.name === project);
+    const target = task === null ? home : home?.tasks.find((candidate) => candidate.name === task);
+    if (target) {
+        target.has_note = has;
+    }
+}
+
+/** Reading and writing notes, over the tree `projects` returns. */
+function noteApi(projects: () => Project[]): Pick<Api, "note" | "setNote"> {
+    return {
+        note: async (project, task) => notes.get(noteKey(project, task)) ?? "",
+        setNote: async (project, task, text) => {
+            const kept = text.trim() === "" ? "" : text;
+            notes.set(noteKey(project, task), kept);
+            markNote(projects(), project, task, kept !== "");
+        },
     };
 }
 
@@ -56,6 +89,7 @@ export function sampleProjects(): Project[] {
             id: 1,
             name: "hero",
             repo_path: "/Users/you/code/hero",
+            has_note: true,
             tasks: [
                 task(1, 1, "fix-login-redirect", [
                     session(1, 1, "Fix the redirect loop after login", "waiting"),
@@ -71,6 +105,7 @@ export function sampleProjects(): Project[] {
             id: 2,
             name: "bonsai-lint",
             repo_path: "/Users/you/code/bonsai-lint",
+            has_note: false,
             tasks: [
                 task(4, 2, "rust-support", [
                     session(4, 4, "Sketch a Rust language spec", "errored"),
@@ -78,7 +113,7 @@ export function sampleProjects(): Project[] {
                 ]),
             ],
         },
-        { id: 3, name: "fsum", repo_path: "/Users/you/code/fsum", tasks: [] },
+        { id: 3, name: "fsum", repo_path: "/Users/you/code/fsum", tasks: [], has_note: false },
     ];
 }
 
@@ -488,7 +523,13 @@ export function createMockApi(): Api {
             if (agent.projects.some((project) => project.name === name)) {
                 throw new Error(`project \`${name}\` already exists`);
             }
-            const project = { id: agent.projects.length + 1, name, repo_path: path, tasks: [] };
+            const project = {
+                id: agent.projects.length + 1,
+                name,
+                repo_path: path,
+                tasks: [],
+                has_note: false,
+            };
             agent.projects.push(project);
             return project;
         },
@@ -518,6 +559,7 @@ export function createMockApi(): Api {
         taskDiff: sampleDiff,
         taskOpenEditor: async () => undefined,
         taskOpenUrl: async () => undefined,
+        ...noteApi(() => agent.projects),
         apiKeys: async () => structuredClone(keys),
         setApiKey: async (name, key) => storeKey(keys, name, key.trim() !== ""),
         deleteApiKey: async (name) => storeKey(keys, name, false),

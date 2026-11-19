@@ -467,3 +467,84 @@ async fn a_tasks_changes_cover_commits_edits_and_new_files() {
         Err(Error::PathOutsideWorktree(_))
     ));
 }
+
+#[tokio::test]
+async fn notes_are_kept_per_project_and_per_task_for_the_user_alone() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+
+    assert_eq!(core.note("demo", None).expect("reads"), "");
+    core.set_note("demo", None, "staging: https://example.test\n")
+        .expect("writes");
+    core.set_note("demo", Some("one"), "password: hunter2")
+        .expect("writes");
+    assert_eq!(
+        core.note("demo", None).expect("reads"),
+        "staging: https://example.test\n"
+    );
+    assert_eq!(
+        core.note("demo", Some("one")).expect("reads"),
+        "password: hunter2"
+    );
+
+    // A plain text file nobody else on the machine can read.
+    let file = fx.paths.note("demo", Some("one"));
+    assert_eq!(file.extension().and_then(|e| e.to_str()), Some("txt"));
+    let mode = std::fs::metadata(&file)
+        .expect("exists")
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o777, 0o600);
+
+    let overview = core.overview().expect("reads");
+    assert!(overview[0].has_note);
+    assert!(overview[0].tasks[0].has_note);
+
+    // Blank space is no note.
+    core.set_note("demo", None, "  \n").expect("clears");
+    assert!(!fx.paths.note("demo", None).exists());
+    assert!(!core.overview().expect("reads")[0].has_note);
+
+    assert!(matches!(
+        core.set_note("demo", Some("one"), &"x".repeat(200_001)),
+        Err(Error::NoteTooLong(_))
+    ));
+    assert!(matches!(
+        core.note("demo", Some("two")),
+        Err(Error::TaskNotFound { .. })
+    ));
+    assert!(matches!(
+        core.set_note("nowhere", None, "x"),
+        Err(Error::ProjectNotFound(_))
+    ));
+}
+
+#[tokio::test]
+async fn a_removed_task_takes_its_note_along() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    core.set_note("demo", Some("one"), "token: abc")
+        .expect("writes");
+    let options = RemoveOptions {
+        force: true,
+        delete_branch: true,
+    };
+    core.task_remove("demo", "one", options, &hooks::discard)
+        .await
+        .expect("removes");
+    assert!(!fx.paths.note("demo", Some("one")).exists());
+
+    // A new task of the same name starts with an empty note.
+    core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    assert_eq!(core.note("demo", Some("one")).expect("reads"), "");
+}

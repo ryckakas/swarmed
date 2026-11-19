@@ -112,6 +112,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   providers. They are written by a front end and afterwards only read to fill the environment
   of an agent other than Claude Code. They are never returned, logged or written to Swarmed's
   files, and `SecretEnv` prints names only. Keep it that way.
+- **Notes** (`notes.rs`) are the user's own: one text file per project and per task, under
+  `notes/` in the data directory, readable by the user alone. They may hold credentials, so
+  they are never logged and never handed to an agent, and a removed task takes its note along.
 - **Swarmed never handles Claude.ai credentials.** It only shapes the child's environment (`Auth`).
 - **Session events are stored as JSON** (`AgentEvent`), so its variants and fields are only added,
   never renamed.

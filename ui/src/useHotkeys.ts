@@ -136,6 +136,12 @@ const ACTIONS: Partial<Record<HotkeyId, () => void>> = {
     "toggle-panel": () => useStore.getState().togglePanel(),
     "open-editor": () => openTask("editor"),
     "open-browser": () => openTask("browser"),
+    "open-note": () => {
+        const open = current();
+        if (open) {
+            useStore.getState().askForNote({ project: open.project.name, task: open.task.name });
+        }
+    },
     "toggle-status": () => useStore.getState().toggleStatus(),
     settings: () => useStore.getState().showSettings(!useStore.getState().settingsOpen),
     shortcuts: showShortcuts,
