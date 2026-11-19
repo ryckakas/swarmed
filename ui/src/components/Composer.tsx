@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { Session } from "../api/types";
+import { expandPastes, forgetPastes } from "../pastes";
 import { appliedEffort } from "../statusline";
 import { useStore } from "../store";
 import { suggestionOf } from "../suggestion";
@@ -53,10 +54,13 @@ export function Composer({ session }: { session: Session }) {
         }
         setText("");
         setFiles([]);
+        // What was pasted large goes out in full, in place of the token that stood for it.
+        const message = expandPastes(text.trim());
+        forgetPastes(text);
         // A busy agent is not interrupted: the message waits its turn, and can still be changed.
         const sent = busy
-            ? api.sessionEnqueue(id, text.trim(), files)
-            : api.sessionSend(id, text.trim(), files);
+            ? api.sessionEnqueue(id, message, files)
+            : api.sessionSend(id, message, files);
         sent.catch(report);
     };
     const stop = () => void api.sessionInterrupt(id).catch(report);

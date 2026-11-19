@@ -1258,6 +1258,34 @@ code {
     overflow-wrap: anywhere;
 }
 
+/* A large paste in a message: one line until it is opened. */
+.pasted {
+    margin: var(--space-1) 0;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    white-space: normal;
+}
+
+.pasted summary {
+    padding: 3px var(--space-2);
+    color: var(--muted);
+    font-size: var(--text-xs);
+    cursor: default;
+}
+
+.pasted pre {
+    max-height: 22rem;
+    margin: 0;
+    padding: var(--space-2);
+    border-top: 1px solid var(--line);
+    overflow: auto;
+    color: var(--text);
+    font: 400 var(--text-xs) / 1.5 var(--font-mono);
+    white-space: pre-wrap;
+    user-select: text;
+}
+
 /* What another session left here: set like a message, but not in the user's own colour. */
 .said-peer {
     border-left-color: var(--lilac);

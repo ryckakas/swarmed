@@ -453,8 +453,36 @@ fn event_from_json(text: &str) -> AgentEvent {
     })
 }
 
+/// A session's first title: the start of what the user typed. What they pasted large, which a
+/// front end sends wrapped in `<pasted_text_N>` tags, is not what the session is called after.
 fn title_from(message: &str) -> String {
-    shortened(message, TITLE_CHARS)
+    let title = shortened(&without_pastes(message), TITLE_CHARS);
+    if title.is_empty() && message.contains("<pasted_text_") {
+        return "Pasted text".to_string();
+    }
+    title
+}
+
+/// `message` without the large pastes in it.
+fn without_pastes(message: &str) -> String {
+    let mut typed = String::new();
+    let mut rest = message;
+    while let Some((before, paste)) = rest.split_once("<pasted_text_") {
+        typed.push_str(before);
+        let after = paste.split_once('>').and_then(|(number, after)| {
+            let (_, after) = after.split_once(&format!("</pasted_text_{number}>"))?;
+            Some(after)
+        });
+        // An opening tag that is never closed is only text.
+        let Some(after) = after else {
+            typed.push_str("<pasted_text_");
+            rest = paste;
+            continue;
+        };
+        rest = after;
+    }
+    typed.push_str(rest);
+    typed
 }
 
 /// A namer's answer as a session title.
@@ -1111,6 +1139,25 @@ async fn record_and_publish(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_title_is_taken_from_what_was_typed_and_not_from_what_was_pasted() {
+        let paste = "<pasted_text_1>\nBuild ok\nTests ok\n</pasted_text_1>";
+        assert_eq!(
+            title_from(&format!("{paste}\nsummarise this report")),
+            "summarise this report"
+        );
+        assert_eq!(
+            title_from(&format!("look at {paste} please")),
+            "look at  please"
+        );
+        assert_eq!(title_from(paste), "Pasted text");
+        // A tag that is only mentioned is text like any other.
+        assert_eq!(
+            title_from("what is <pasted_text_1> for?"),
+            "what is <pasted_text_1> for?"
+        );
+    }
 
     #[test]
     fn title_is_the_first_line_shortened() {

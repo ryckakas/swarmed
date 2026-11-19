@@ -9,6 +9,7 @@ import type {
     Supervision,
     TaskNaming,
 } from "../api/types";
+import { expandPastes, forgetPastes } from "../pastes";
 import { useStore } from "../store";
 import { taskNameForPrompt, taskNameFrom, uniqueTaskName } from "../tree";
 import { AgentNotice } from "./AgentNotice";
@@ -74,9 +75,10 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 branch: branch === NEW_BRANCH ? null : branch,
                 environment: chosenEnvironment(environments, environment),
                 setup: setupFor(agentId, model, supervision, effort),
-                prompt: prompt.trim(),
+                prompt: expandPastes(prompt.trim()),
                 files,
             });
+            forgetPastes(prompt);
         } catch (error) {
             // A task whose setup failed still exists; reload so it shows up in the sidebar.
             const { report, refresh } = useStore.getState();

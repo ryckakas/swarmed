@@ -1,6 +1,8 @@
 // Keys the message box handles itself, where the system's own behaviour is not what is wanted
 // while writing a prompt. Pure, so it can be tested.
 
+import { tokenToRemove } from "./pastes";
+
 /** What of a key press matters here. */
 export interface EditPress {
     key: string;
@@ -13,7 +15,9 @@ export interface EditPress {
 /** What a key does to the text box: move or extend the selection, or empty the box. */
 export type Edit =
     | { kind: "select"; start: number; end: number; direction: "forward" | "backward" | "none" }
-    | { kind: "clear" };
+    | { kind: "clear" }
+    /** Take out what stands between `start` and `end`: a paste's token, all of it. */
+    | { kind: "remove"; start: number; end: number };
 
 /**
  * What `press` does in a box holding `value` with the selection from `start` to `end`, or `null`
@@ -21,10 +25,25 @@ export type Edit =
  *
  * - Home and End go to the start and end of the line the caret is on (macOS would scroll
  *   instead); with Shift they select up to there.
+ * - Backspace right after the token of a large paste, or Delete right before it, takes the
+ *   whole token out.
  * - ⌘⌫ with the caret at the very start, where the system has nothing left to delete, empties
  *   the box.
  */
 export function editFor(press: EditPress, value: string, start: number, end: number): Edit | null {
+    return removalFor(press, value, start, end) ?? movementFor(press, value, start, end);
+}
+
+/** The edit that takes a paste's token out whole, if the key is one that does and stands at one. */
+function removalFor(press: EditPress, value: string, start: number, end: number): Edit | null {
+    if (press.ctrlKey || press.altKey || press.metaKey) {
+        return null;
+    }
+    const token = tokenToRemove(press.key, value, start, end);
+    return token ? { kind: "remove", ...token } : null;
+}
+
+function movementFor(press: EditPress, value: string, start: number, end: number): Edit | null {
     if (press.ctrlKey || press.altKey) {
         return null;
     }
