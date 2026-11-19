@@ -119,3 +119,19 @@ describe("connect", () => {
         expect(useStore.getState().events[1]).toHaveLength(before + 2);
     });
 });
+
+describe("notes", () => {
+    it("are kept per repository and per task, and marked in the tree", async () => {
+        const api = createMockApi();
+        await api.setNote("bonsai-lint", "rust-support", "token: abc");
+        expect(await api.note("bonsai-lint", "rust-support")).toBe("token: abc");
+        expect(await api.note("bonsai-lint", null)).toBe("");
+        const marked = (await api.overview()).find((project) => project.name === "bonsai-lint");
+        expect(marked?.has_note).toBe(false);
+        expect(marked?.tasks[0]?.has_note).toBe(true);
+
+        await api.setNote("bonsai-lint", "rust-support", "  ");
+        const cleared = (await api.overview()).find((project) => project.name === "bonsai-lint");
+        expect(cleared?.tasks[0]?.has_note).toBe(false);
+    });
+});

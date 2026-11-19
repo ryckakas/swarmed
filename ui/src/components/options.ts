@@ -9,10 +9,16 @@ export const SUPERVISION_LABELS: Record<Supervision, string> = {
     ask: "Ask before commands",
     auto: "Auto mode",
     bypass: "Never ask",
+    plan: "Plan mode",
 };
 
 /** What a new session can be given. Never asking is deliberately not offered here. */
-export const SUPERVISION_CHOICES: Supervision[] = ["ask", "auto"];
+export const SUPERVISION_CHOICES: Supervision[] = ["ask", "auto", "plan"];
+
+/** What a session goes on with once its plan is approved: the way new sessions start. */
+export function afterPlan(defaultSupervision: Supervision | undefined): Supervision {
+    return defaultSupervision && defaultSupervision !== "plan" ? defaultSupervision : "ask";
+}
 
 /** Model names Claude Code accepts, by label. The empty name is its own default. */
 export const MODEL_LABELS: Record<string, string> = {
@@ -44,9 +50,15 @@ export function modelChoices(agent: AgentInfo | undefined, current?: string | nu
     ] satisfies [string, string][];
 }
 
-/** The supervision choices as menu options, with the current one even if it is not offered. */
-export function supervisionChoices(current?: Supervision) {
-    const offered = new Set<Supervision>(SUPERVISION_CHOICES);
+/**
+ * The supervision choices as menu options, with the current one even if it is not offered.
+ * Plan mode is Claude Code's own, so it is left out for another agent.
+ */
+export function supervisionChoices(current?: Supervision, agentId: string = CLAUDE) {
+    const plans = agentId === CLAUDE;
+    const offered = new Set<Supervision>(
+        SUPERVISION_CHOICES.filter((choice) => plans || choice !== "plan"),
+    );
     if (current) {
         offered.add(current);
     }

@@ -112,6 +112,7 @@ function ProjectGroup({ project }: { project: Project }) {
                         {folded && <span className="project-count">{tasks.length}</span>}
                     </button>
                 </h2>
+                <NoteButton project={project.name} task={null} has={project.has_note} />
                 <button
                     type="button"
                     className="row-add"
@@ -137,6 +138,7 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
                     {task.name}
                     {task.setup === "failed" && <span className="task-flag">setup failed</span>}
                 </h3>
+                <NoteButton project={project} task={task.name} has={task.has_note} />
                 <button
                     type="button"
                     className="row-add"
@@ -156,6 +158,35 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
                 ))}
             </ul>
         </div>
+    );
+}
+
+/** Opens the note on a repository or a task. It stays in view once there is something noted. */
+function NoteButton({
+    project,
+    task,
+    has,
+}: {
+    project: string;
+    task: string | null;
+    has: boolean;
+}) {
+    const askForNote = useStore((state) => state.askForNote);
+    const label = `${has ? "Note" : "Add a note"} on ${task ?? project}`;
+    return (
+        <button
+            type="button"
+            className="row-note"
+            data-has={has}
+            aria-label={label}
+            title={label}
+            onClick={() => askForNote({ project, task })}
+        >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M4 2h6l3 3v9H4z" />
+                <path d="M6.5 7.5h4M6.5 10.5h4" />
+            </svg>
+        </button>
     );
 }
 

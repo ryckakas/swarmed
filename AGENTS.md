@@ -105,6 +105,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   (`view_response` in the app crate). That origin has no capability, so it cannot call a
   command. Never show agent HTML in the app's own origin, and never loosen the app's policy
   for it.
+  The instructions are deliberately firm that this is the way to show something and needs no
+  tool: without that, agents build a file and drive a browser instead. An ordinary `html` block
+  stays code, with a button to show it as a view.
+- **The message box handles a few keys itself** (`ui/src/editing.ts`): Home and End move within
+  the line, and ⌘⌫ at the very start empties the box.
 - **The status line** under the message box is drawn by the UI from built-in pieces
   (`ui/src/statusline.ts`) chosen in the settings. A `status_command` replaces them: the core
   runs it (`statusline.rs`) with the session as JSON on standard input and shows its first line.
@@ -112,6 +117,14 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   providers. They are written by a front end and afterwards only read to fill the environment
   of an agent other than Claude Code. They are never returned, logged or written to Swarmed's
   files, and `SecretEnv` prints names only. Keep it that way.
+- **Notes** (`notes.rs`) are the user's own: one text file per project and per task, under
+  `notes/` in the data directory, readable by the user alone. They may hold credentials, so
+  they are never logged and never handed to an agent, and a removed task takes its note along.
+- **Plan mode** is a value of `Supervision`. Claude Code is started in, or switched to, its own
+  plan mode, and presents its plan by asking to use `PLAN_TOOL`. Allowing that request approves
+  the plan: the core then puts the session back to how new sessions are supervised and tells the
+  agent, which by itself would fall back to asking about everything. Every change of
+  supervision is an event, `SupervisionChanged`. Other agents have no plan mode and ask instead.
 - **Swarmed never handles Claude.ai credentials.** It only shapes the child's environment (`Auth`).
 - **Session events are stored as JSON** (`AgentEvent`), so its variants and fields are only added,
   never renamed.

@@ -11,6 +11,7 @@ mod error;
 mod git;
 pub mod hooks;
 pub mod mcp;
+mod notes;
 mod open;
 mod overview;
 mod paths;

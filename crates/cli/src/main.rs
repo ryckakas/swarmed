@@ -40,6 +40,16 @@ enum Command {
         /// The new command, such as `code`, `zed` or `cursor`.
         command: Option<String>,
     },
+    /// Print the note kept on a project or on one of its tasks, or replace it.
+    Note {
+        project: String,
+        /// The task the note is on; without it, the project's own note.
+        task: Option<String>,
+        /// Replace the note with what is read from standard input, so it stays out of the
+        /// shell history. Nothing but blank space removes it.
+        #[arg(long)]
+        set: bool,
+    },
     /// Store, remove or list the API keys given to agents other than Claude Code.
     #[command(subcommand)]
     Key(KeyCommand),
@@ -167,6 +177,7 @@ async fn main() -> Result<()> {
         Command::Editor { command } => editor(&core, command),
         Command::AutoTitle { state } => auto_title(&core, state),
         Command::Key(command) => key(&core, command),
+        Command::Note { project, task, set } => note(&core, &project, task.as_deref(), set),
     }
 }
 
@@ -195,6 +206,15 @@ fn key(core: &Core, command: KeyCommand) -> Result<()> {
         }
         KeyCommand::Rm { name } => core.delete_api_key(&name)?,
     }
+    Ok(())
+}
+
+fn note(core: &Core, project: &str, task: Option<&str>, set: bool) -> Result<()> {
+    if set {
+        let text = std::io::read_to_string(std::io::stdin())?;
+        return Ok(core.set_note(project, task, &text)?);
+    }
+    say(core.note(project, task)?.trim_end());
     Ok(())
 }
 

@@ -21,11 +21,13 @@ export type HotkeyId =
     | "session-9"
     | "focus-message"
     | "toggle-terminal"
+    | "toggle-plan"
     | "allow"
     | "deny"
     | "toggle-panel"
     | "open-editor"
     | "open-browser"
+    | "open-note"
     | "toggle-status"
     | "settings"
     | "shortcuts"
@@ -75,6 +77,12 @@ export const HOTKEYS: Hotkey[] = [
         label: "Switch between message box and terminal",
         group: "In a session",
     },
+    {
+        id: "toggle-plan",
+        keys: "cmd+shift+p",
+        label: "Switch plan mode on or off",
+        group: "In a session",
+    },
     { id: "allow", keys: "cmd+enter", label: "Allow the pending request", group: "In a session" },
     { id: "deny", keys: "cmd+backspace", label: "Deny the pending request", group: "In a session" },
     {
@@ -92,6 +100,7 @@ export const HOTKEYS: Hotkey[] = [
         label: "Open the task in the browser",
         group: "Task",
     },
+    { id: "open-note", keys: "cmd+shift+n", label: "Open the task's note", group: "Task" },
     {
         id: "toggle-status",
         keys: "cmd+shift+s",
@@ -126,6 +135,9 @@ export const LOCAL_HOTKEYS: { keys: string; label: string }[] = [
     { keys: "enter", label: "Send the message" },
     { keys: "shift+enter", label: "New line in the message" },
     { keys: "escape", label: "Stop the agent's turn" },
+    { keys: "home", label: "Start of the line in the message" },
+    { keys: "end", label: "End of the line in the message" },
+    { keys: "cmd+backspace", label: "Empty the message, with the caret at its start" },
     { keys: "/", label: "Suggest commands and skills, at the start of a message" },
     { keys: "arrowup", label: "Previous session, with a sidebar row focused" },
     { keys: "arrowdown", label: "Next session, with a sidebar row focused" },

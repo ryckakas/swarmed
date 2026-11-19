@@ -1,6 +1,13 @@
 import { create } from "zustand";
 import type { Api } from "./api/client";
-import type { AgentEvent, Project, SessionEvent, SessionSettings, Settings } from "./api/types";
+import type {
+    AgentEvent,
+    NoteTarget,
+    Project,
+    SessionEvent,
+    SessionSettings,
+    Settings,
+} from "./api/types";
 import {
     applySessionEvent,
     mayHaveEdited,
@@ -57,6 +64,10 @@ interface State {
     showSettings(open: boolean): void;
     /** Gives a session a new title. The tree follows when the app confirms it. */
     rename(api: Api, sessionId: number, title: string): Promise<void>;
+    /** The repository or task whose note is being edited. */
+    noting: NoteTarget | null;
+    /** Opens a note; `null` puts it away. */
+    askForNote(target: NoteTarget | null): void;
     /** The session the user asked to close, until they confirm or change their mind. */
     closing: number | null;
     /** Asks before closing: `null` withdraws the question. */
@@ -223,6 +234,8 @@ export const useStore = create<State>((set, get) => ({
         reporting(async () => {
             await api.sessionRename(sessionId, title);
         }),
+    noting: null,
+    askForNote: (target) => set({ noting: target }),
     closing: null,
     askToClose: (sessionId) => set({ closing: sessionId }),
     refresh: async (api) => {

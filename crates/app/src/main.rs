@@ -107,6 +107,8 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
             commands::task_open_url,
             commands::task_changes,
             commands::task_diff,
+            commands::note,
+            commands::set_note,
             commands::api_keys,
             commands::set_api_key,
             commands::delete_api_key,

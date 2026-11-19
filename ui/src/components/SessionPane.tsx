@@ -13,6 +13,7 @@ const SUPERVISION = {
     ask: "Edits allowed, commands ask",
     auto: "Auto mode decides",
     bypass: "Nothing asks",
+    plan: "Plans first, acts once approved",
 };
 
 /** Stands in for a transcript that has not been read, without a new array on every render. */

@@ -5,6 +5,7 @@ import { keyCaps, LOCAL_HOTKEYS, listedHotkeys } from "../hotkeys";
 import { STATUS_ITEM_LABELS, STATUS_ITEMS, withItem } from "../statusline";
 import { useStore } from "../store";
 import { ApiKeys } from "./ApiKeys";
+import { CloseIcon, IconButton } from "./IconButton";
 import { editorChoices, supervisionChoices, TEXT_SCALES, THEMES } from "./options";
 import { Picker } from "./Picker";
 
@@ -32,17 +33,29 @@ export function SettingsDialog() {
             aria-labelledby="settings-title"
             onClose={() => showSettings(false)}
         >
-            <h2 id="settings-title">Settings</h2>
-            <Appearance settings={settings} />
-            <Sessions settings={settings} />
-            <StatusLineSettings settings={settings} />
-            <ApiKeys />
-            <Shortcuts />
-            <div className="confirm-actions">
-                <button type="button" className="button" onClick={() => showSettings(false)}>
+            <header className="settings-head">
+                <h2 id="settings-title">Settings</h2>
+                <IconButton label="Close settings" onClick={() => showSettings(false)}>
+                    <CloseIcon />
+                </IconButton>
+            </header>
+            {/* Only this part scrolls: the title and the way out stay where they are. */}
+            <div className="settings-body">
+                <Appearance settings={settings} />
+                <Sessions settings={settings} />
+                <StatusLineSettings settings={settings} />
+                <ApiKeys />
+                <Shortcuts />
+            </div>
+            <footer className="settings-foot">
+                <button
+                    type="button"
+                    className="button button-primary"
+                    onClick={() => showSettings(false)}
+                >
                     Done
                 </button>
-            </div>
+            </footer>
         </dialog>
     );
 }
@@ -175,11 +188,16 @@ function StatusLineSettings({ settings }: { settings: Settings }) {
 
 const SHORTCUT_GROUPS = ["Sessions", "In a session", "Task", "Window"] as const;
 
-/** Every keyboard shortcut, by where it applies. */
+/** Every keyboard shortcut, by where it applies. Folded away until asked for: it is a long list. */
 function Shortcuts() {
     return (
-        <section className="settings-group" id="shortcuts" aria-label="Keyboard shortcuts">
-            <h3>Keyboard shortcuts</h3>
+        <details className="settings-group settings-fold" id="shortcuts">
+            <summary>
+                <svg className="fold-chevron" viewBox="0 0 10 10" aria-hidden="true">
+                    <path d="M3.5 1.5 7 5 3.5 8.5" />
+                </svg>
+                Keyboard shortcuts
+            </summary>
             {SHORTCUT_GROUPS.map((group) => (
                 <ShortcutList
                     key={group}
@@ -188,7 +206,7 @@ function Shortcuts() {
                 />
             ))}
             <ShortcutList title="While typing or in the sidebar" shortcuts={LOCAL_HOTKEYS} />
-        </section>
+        </details>
     );
 }
 

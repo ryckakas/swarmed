@@ -57,6 +57,16 @@ impl Paths {
             .join(format!("{project}.toml"))
     }
 
+    /// The text file holding the user's note on `project`, or on its `task` when one is named.
+    #[must_use]
+    pub fn note(&self, project: &str, task: Option<&str>) -> PathBuf {
+        let notes = self.data_dir.join("notes").join(project);
+        match task {
+            Some(task) => notes.join("tasks").join(format!("{task}.txt")),
+            None => notes.join("note.txt"),
+        }
+    }
+
     /// The worktree directory of `task` in `project`.
     #[must_use]
     pub fn worktree(&self, project: &str, task: &str) -> PathBuf {

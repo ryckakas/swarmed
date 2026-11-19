@@ -34,7 +34,14 @@ pub enum Supervision {
     Auto,
     /// Nothing asks. Never a default.
     Bypass,
+    /// The agent only reads and plans. It changes nothing until the user approves its plan,
+    /// which it presents by asking to use [`PLAN_TOOL`].
+    Plan,
 }
+
+/// The tool an agent in plan mode asks to use when its plan is ready. Allowing it approves the
+/// plan, which is the `plan` of its input.
+pub const PLAN_TOOL: &str = "ExitPlanMode";
 
 impl Supervision {
     /// The value stored in the database and shown to the user.
@@ -44,6 +51,7 @@ impl Supervision {
             Self::Ask => "ask",
             Self::Auto => "auto",
             Self::Bypass => "bypass",
+            Self::Plan => "plan",
         }
     }
 
@@ -54,6 +62,7 @@ impl Supervision {
             "ask" => Some(Self::Ask),
             "auto" => Some(Self::Auto),
             "bypass" => Some(Self::Bypass),
+            "plan" => Some(Self::Plan),
             _ => None,
         }
     }
@@ -260,6 +269,12 @@ pub enum AgentEvent {
     TerminalShared {
         /// The terminal's output as plain text.
         text: String,
+    },
+    /// The session's supervision changed, by the user's choice or because a plan was approved.
+    /// Recorded by the core.
+    SupervisionChanged {
+        /// What it is from now on.
+        supervision: Supervision,
     },
     /// How full the agent's context window is, reported after a turn.
     ContextUsage {

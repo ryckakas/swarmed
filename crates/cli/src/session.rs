@@ -3,7 +3,7 @@
 use anyhow::{Context, Result};
 use clap::{Subcommand, ValueEnum};
 use serde_json::Value;
-use swarmed_core::agent::{AgentEvent, Auth, Effort, McpServerInfo, Supervision};
+use swarmed_core::agent::{AgentEvent, Auth, Effort, McpServerInfo, PLAN_TOOL, Supervision};
 use swarmed_core::{Core, SessionEvent, SessionOptions, SessionSettings};
 use tokio::io::{AsyncBufReadExt, BufReader, Lines, Stdin};
 use tokio::sync::broadcast::Receiver;
@@ -33,9 +33,12 @@ pub(crate) enum SessionCommand {
         /// Let Claude Code's auto mode decide which actions are safe, instead of asking.
         #[arg(long, conflicts_with = "ask")]
         auto: bool,
-        /// Ask before commands. Without either flag, the default from the settings applies.
-        #[arg(long)]
+        /// Ask before commands. Without one of these flags, the default from the settings applies.
+        #[arg(long, conflicts_with = "plan")]
         ask: bool,
+        /// Plan mode: the agent only reads, then presents a plan to approve before it acts.
+        #[arg(long, conflicts_with = "auto")]
+        plan: bool,
         #[arg(long, value_enum, default_value_t)]
         auth: AuthMode,
     },
@@ -62,6 +65,9 @@ pub(crate) enum SessionCommand {
         /// Let Claude Code's auto mode decide which actions are safe, instead of asking.
         #[arg(long)]
         auto: bool,
+        /// Plan mode: the agent only reads, then presents a plan to approve before it acts.
+        #[arg(long, conflicts_with = "auto")]
+        plan: bool,
     },
     /// Print what the status line script shows for a session.
     Status { id: i64 },
@@ -107,9 +113,10 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             effort,
             auto,
             ask,
+            plan,
             auth,
         } => {
-            let chosen = (auto || ask).then(|| supervision(auto));
+            let chosen = (auto || ask || plan).then(|| supervision(auto, plan));
             let options = SessionOptions {
                 agent,
                 title: None,
@@ -148,10 +155,11 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             model,
             effort,
             auto,
+            plan,
         } => {
             let settings = SessionSettings {
                 model,
-                supervision: supervision(auto),
+                supervision: supervision(auto, plan),
                 effort,
             };
             core.session_configure(id, &settings)?;
@@ -175,11 +183,11 @@ fn effort(value: &str) -> std::result::Result<Effort, String> {
     Effort::parse(value).ok_or_else(|| "use low, medium, high, xhigh or max".to_string())
 }
 
-fn supervision(auto: bool) -> Supervision {
-    if auto {
-        Supervision::Auto
-    } else {
-        Supervision::Ask
+fn supervision(auto: bool, plan: bool) -> Supervision {
+    match (auto, plan) {
+        (true, _) => Supervision::Auto,
+        (_, true) => Supervision::Plan,
+        _ => Supervision::Ask,
     }
 }
 
@@ -267,6 +275,8 @@ fn describe(event: &AgentEvent) -> Option<String> {
             ))
         }
         AgentEvent::Text { text } => Some(text.clone()),
+        // The plan is printed in full with the question that follows.
+        AgentEvent::ToolUse { name, .. } if name == PLAN_TOOL => None,
         AgentEvent::ToolUse { name, input, .. } => Some(format!("▸ {name} {}", summary(input))),
         AgentEvent::ToolResult {
             content,
@@ -276,6 +286,15 @@ fn describe(event: &AgentEvent) -> Option<String> {
             "  ✗ {}",
             content.lines().next().unwrap_or_default()
         )),
+        AgentEvent::PermissionRequest {
+            tool_name, input, ..
+        } if tool_name == PLAN_TOOL => {
+            let plan = input
+                .get("plan")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            Some(format!("{}\n? approve this plan [y/N]", plan.trim_end()))
+        }
         AgentEvent::PermissionRequest {
             tool_name, input, ..
         } => Some(format!("? allow {tool_name}: {} [y/N]", summary(input))),

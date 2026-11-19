@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
 import type { AgentEvent } from "../api/types";
-import { activity, type Item, summarize, toItems } from "../transcript";
+import { activity, type Item, PLAN_TOOL, summarize, toItems } from "../transcript";
 import { Markdown } from "./Markdown";
 import { PermissionPrompt } from "./PermissionPrompt";
 import { ToolCall } from "./ToolCall";
@@ -95,6 +95,9 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
                 />
             );
         case "denied":
+            if (item.toolName === PLAN_TOOL) {
+                return <p className="asked">You sent the plan back for changes.</p>;
+            }
             return (
                 <p className="asked">
                     You denied {item.toolName}:{" "}

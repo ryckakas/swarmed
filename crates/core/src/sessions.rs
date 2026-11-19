@@ -9,7 +9,9 @@ use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::{broadcast, mpsc};
 
-use crate::agent::{AgentCommand, AgentEvent, Auth, Effort, Namer, SessionSpec, Supervision};
+use crate::agent::{
+    AgentCommand, AgentEvent, Auth, Effort, Namer, PLAN_TOOL, SessionSpec, Supervision,
+};
 use crate::agents::CLAUDE;
 use crate::error::{Error, Result};
 use crate::mcp::{self, McpServer};
@@ -76,6 +78,7 @@ impl SessionStatus {
             AgentEvent::Exited { .. } => Some(Self::Errored),
             AgentEvent::Init { .. }
             | AgentEvent::Renamed { .. }
+            | AgentEvent::SupervisionChanged { .. }
             | AgentEvent::ContextUsage { .. }
             | AgentEvent::TerminalShared { .. }
             | AgentEvent::TextDelta { .. }
@@ -592,13 +595,48 @@ impl Core {
         }
         let request_id = request_id.clone();
         let answered = AgentEvent::PermissionAnswered {
-            request_id,
+            request_id: request_id.clone(),
             allowed,
         };
+        let plan_approved = allowed && self.is_plan_request(id, &request_id)?;
         self.live.note(&self.store, id, answered)?;
         commands
             .send(command)
-            .map_err(|_| Error::SessionNotRunning(id))
+            .map_err(|_| Error::SessionNotRunning(id))?;
+        if plan_approved {
+            self.leave_plan_mode(id)?;
+        }
+        Ok(())
+    }
+
+    /// Whether `request_id` is the session's agent presenting its plan.
+    fn is_plan_request(&self, id: i64, request_id: &str) -> Result<bool> {
+        // A plan is the only thing asked while it is open, so it is the latest request.
+        let latest = self.store().latest_event(id, "permission_request")?;
+        Ok(matches!(
+            latest,
+            Some(AgentEvent::PermissionRequest { request_id: asked, tool_name, .. })
+                if asked == request_id && tool_name == PLAN_TOOL
+        ))
+    }
+
+    /// Once its plan is approved the agent carries it out, supervised the way new sessions are.
+    /// The agent is told, since by itself it would fall back to asking about everything.
+    fn leave_plan_mode(&self, id: i64) -> Result<()> {
+        let session = self.session(id)?;
+        if session.supervision != Supervision::Plan {
+            return Ok(());
+        }
+        let supervision = match self.settings()?.default_supervision {
+            Supervision::Plan => Supervision::Ask,
+            other => other,
+        };
+        let settings = SessionSettings {
+            model: session.model,
+            supervision,
+            effort: session.effort,
+        };
+        self.session_configure(id, &settings).map(drop)
     }
 
     /// Stops the current turn. The session stays running.
@@ -626,6 +664,11 @@ impl Core {
         }
         if before.effort != settings.effort {
             self.live.restart_when_idle(id, before.status);
+        }
+        if before.supervision != settings.supervision {
+            let supervision = settings.supervision;
+            let changed = AgentEvent::SupervisionChanged { supervision };
+            self.live.note(&self.store, id, changed)?;
         }
         self.session(id)
     }

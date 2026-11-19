@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { requestedHeight, viewDocument } from "./htmlview";
+import { needsNetwork, requestedHeight, viewDocument } from "./htmlview";
 
 const theme = {
     text: "#eee",
@@ -31,5 +31,34 @@ describe("requestedHeight", () => {
         expect(requestedHeight({ swarmedViewHeight: "240" })).toBeNull();
         expect(requestedHeight("anything")).toBeNull();
         expect(requestedHeight(null)).toBeNull();
+    });
+});
+
+describe("needsNetwork", () => {
+    it("spots scripts, styles, images and requests by address", () => {
+        expect(needsNetwork('<script src="https://cdn.example/chart.js"></script>')).toBe(true);
+        expect(needsNetwork("<link href=//fonts.example/a.css rel=stylesheet>")).toBe(true);
+        expect(needsNetwork("<style>@import 'x.css';</style>")).toBe(true);
+        expect(needsNetwork("<script>fetch('/api')</script>")).toBe(true);
+    });
+
+    it("leaves a self-contained view alone", () => {
+        expect(needsNetwork('<img src="data:image/png;base64,AAAA"><a href="#top">Top</a>')).toBe(
+            false,
+        );
+        expect(needsNetwork("<svg><path d='M0 0'/></svg><script>let x = 1;</script>")).toBe(false);
+    });
+});
+
+describe("a whole document as a view", () => {
+    it("is kept as written, with the theme first in its head and the height script after it", () => {
+        const page =
+            '<!doctype html>\n<html lang="en"><head><title>t</title></head><body><p>hi</p></body></html>';
+        const shown = viewDocument(page, theme);
+        expect(shown.startsWith('<!doctype html>\n<html lang="en"><head>\n<style>')).toBe(true);
+        expect(shown).toContain("<title>t</title></head><body><p>hi</p></body></html>");
+        expect(shown.indexOf("swarmedViewHeight")).toBeGreaterThan(shown.indexOf("</html>"));
+        // Not wrapped a second time.
+        expect(shown.match(/<html/g)).toHaveLength(1);
     });
 });

@@ -15,6 +15,8 @@ pub struct ProjectOverview {
     pub project: Project,
     /// Its tasks, oldest first, archived ones last.
     pub tasks: Vec<TaskOverview>,
+    /// Whether the user keeps a note on the project.
+    pub has_note: bool,
 }
 
 /// A task with its sessions.
@@ -29,6 +31,8 @@ pub struct TaskOverview {
     pub running: Vec<i64>,
     /// Where the task's running stack is reached in a browser, if its project says so.
     pub url: Option<String>,
+    /// Whether the user keeps a note on the task.
+    pub has_note: bool,
 }
 
 impl Core {
@@ -56,6 +60,7 @@ impl Core {
                 sessions,
                 running,
                 url: None,
+                has_note: false,
             }
         };
         let mut tasks: Vec<TaskOverview> = tasks.into_iter().map(task_overview).collect();
@@ -65,12 +70,21 @@ impl Core {
                 .partition(|t| t.task.project_id == project.id);
             tasks = rest;
             self.add_urls(&project, &mut own);
+            self.add_notes(&project, &mut own);
             ProjectOverview {
+                has_note: self.has_note(&project.name, None),
                 project,
                 tasks: own,
             }
         });
         Ok(overview.collect())
+    }
+
+    /// Marks the tasks the user keeps a note on.
+    fn add_notes(&self, project: &Project, tasks: &mut [TaskOverview]) {
+        for task in tasks {
+            task.has_note = self.has_note(&project.name, Some(&task.task.name));
+        }
     }
 
     /// Fills in where each task's stack is reached. A config that cannot be read, or a URL that

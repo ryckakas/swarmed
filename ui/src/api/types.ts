@@ -1,6 +1,6 @@
 // The shapes swarmed-core serialises. Field names are the core's, so they stay snake_case.
 
-export type Supervision = "ask" | "auto" | "bypass";
+export type Supervision = "ask" | "auto" | "bypass" | "plan";
 export type SessionStatus = "idle" | "working" | "waiting" | "errored";
 export type SetupStatus = "pending" | "ok" | "failed";
 
@@ -33,6 +33,8 @@ export interface Task {
     running: number[];
     /** Where the task's running stack is reached in a browser, if its project says so. */
     url: string | null;
+    /** Whether the user keeps a note on the task. */
+    has_note: boolean;
 }
 
 /** One file a task has changed since its branch left its base. */
@@ -91,6 +93,14 @@ export interface Project {
     name: string;
     repo_path: string;
     tasks: Task[];
+    /** Whether the user keeps a note on the repository. */
+    has_note: boolean;
+}
+
+/** What a note is kept on: a repository, or one of its tasks. */
+export interface NoteTarget {
+    project: string;
+    task: string | null;
 }
 
 export interface McpServerInfo {
@@ -135,6 +145,8 @@ export type AgentEvent =
     | { type: "context_usage"; used: number; max: number; categories: ContextCategory[] }
     /** The session got a new title, from the user or from the model that names sessions. */
     | { type: "renamed"; title: string }
+    /** The session's supervision changed: by choice, or because its plan was approved. */
+    | { type: "supervision_changed"; supervision: Supervision }
     /** What happened in the session's terminal, as given to the agent with the next message. */
     | { type: "terminal_shared"; text: string }
     | { type: "permission_answered"; request_id: string; allowed: boolean }

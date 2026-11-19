@@ -1,5 +1,6 @@
 import { memo } from "react";
-import { summarize, type ToolResult } from "../transcript";
+import { PLAN_TOOL, planOf, summarize, type ToolResult } from "../transcript";
+import { Markdown } from "./Markdown";
 
 interface Props {
     name: string;
@@ -9,6 +10,9 @@ interface Props {
 
 /** One tool call on one line; opening it shows the arguments and the result. */
 export const ToolCall = memo(function ToolCall({ name, input, result }: Props) {
+    if (name === PLAN_TOOL) {
+        return <Plan text={planOf(input)} />;
+    }
     const state = result === null ? "running" : result.isError ? "failed" : "done";
     return (
         <details className={`tool tool-${state}`}>
@@ -22,3 +26,13 @@ export const ToolCall = memo(function ToolCall({ name, input, result }: Props) {
         </details>
     );
 });
+
+/** A plan the agent presents for approval, read as prose instead of as a tool call's arguments. */
+function Plan({ text }: { text: string }) {
+    return (
+        <section className="plan" aria-label="Plan">
+            <p className="plan-title">Plan</p>
+            <Markdown text={text || "The agent gave no plan."} />
+        </section>
+    );
+}

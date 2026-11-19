@@ -1,3 +1,4 @@
+import { PLAN_TOOL } from "../transcript";
 import type { Api } from "./client";
 import type {
     AgentEvent,
@@ -47,6 +48,39 @@ function task(id: number, projectId: number, name: string, sessions: Session[]):
         sessions,
         running: sessions.filter((s) => s.status !== "idle").map((s) => s.id),
         url: `http://localhost:${3000 + id * 100}`,
+        has_note: id === 1,
+    };
+}
+
+const noteKey = (project: string, task: string | null) => `${project}/${task ?? ""}`;
+
+/** The notes the sample data starts with. */
+const notes = new Map<string, string>([
+    [
+        noteKey("hero", null),
+        "Staging: https://staging.example.test\nDeploys go out on Thursdays.\n",
+    ],
+    [noteKey("hero", "fix-login-redirect"), "Test user: demo@example.test\n"],
+]);
+
+/** Marks in the tree whether a repository or a task has a note. */
+function markNote(projects: Project[], project: string, task: string | null, has: boolean) {
+    const home = projects.find((candidate) => candidate.name === project);
+    const target = task === null ? home : home?.tasks.find((candidate) => candidate.name === task);
+    if (target) {
+        target.has_note = has;
+    }
+}
+
+/** Reading and writing notes, over the tree `projects` returns. */
+function noteApi(projects: () => Project[]): Pick<Api, "note" | "setNote"> {
+    return {
+        note: async (project, task) => notes.get(noteKey(project, task)) ?? "",
+        setNote: async (project, task, text) => {
+            const kept = text.trim() === "" ? "" : text;
+            notes.set(noteKey(project, task), kept);
+            markNote(projects(), project, task, kept !== "");
+        },
     };
 }
 
@@ -56,6 +90,7 @@ export function sampleProjects(): Project[] {
             id: 1,
             name: "hero",
             repo_path: "/Users/you/code/hero",
+            has_note: true,
             tasks: [
                 task(1, 1, "fix-login-redirect", [
                     session(1, 1, "Fix the redirect loop after login", "waiting"),
@@ -71,6 +106,7 @@ export function sampleProjects(): Project[] {
             id: 2,
             name: "bonsai-lint",
             repo_path: "/Users/you/code/bonsai-lint",
+            has_note: false,
             tasks: [
                 task(4, 2, "rust-support", [
                     session(4, 4, "Sketch a Rust language spec", "errored"),
@@ -78,7 +114,7 @@ export function sampleProjects(): Project[] {
                 ]),
             ],
         },
-        { id: 3, name: "fsum", repo_path: "/Users/you/code/fsum", tasks: [] },
+        { id: 3, name: "fsum", repo_path: "/Users/you/code/fsum", tasks: [], has_note: false },
     ];
 }
 
@@ -343,6 +379,8 @@ class MockAgent {
             this.interrupts.set(id, () =>
                 this.publish(id, { ...done, is_error: true, result: "interrupted" }, "idle"),
             );
+        } else if (this.configure(id, {}).supervision === "plan") {
+            this.presentPlan(id, text, done);
         } else if (text.startsWith("run:")) {
             this.askPermission(id, text.slice(4).trim(), done);
         } else {
@@ -358,18 +396,46 @@ class MockAgent {
         }
     }
 
-    private askPermission(id: number, command: string, done: AgentEvent) {
-        const input = { command };
+    /** In plan mode the agent only proposes; approving the plan ends plan mode. */
+    private presentPlan(id: number, text: string, done: AgentEvent) {
+        const plan = `## ${text}\n\n1. Read the code this touches.\n2. Make the change in \`src/\`.\n3. Run the tests.\n\nNothing is changed until you approve.`;
+        const toolId = this.ask(id, PLAN_TOOL, { plan });
+        this.decisions.set(id, (approved) => {
+            const content = approved ? "ok" : "The user wants changes to the plan.";
+            const result: AgentEvent = {
+                type: "tool_result",
+                tool_use_id: toolId,
+                content,
+                is_error: !approved,
+            };
+            this.later(id, result, "working");
+            if (approved) {
+                this.configure(id, { supervision: "auto" });
+                this.later(id, { type: "supervision_changed", supervision: "auto" }, null);
+            }
+            const reply = approved ? "Starting on the plan." : "What should I change?";
+            this.later(id, { type: "text", text: reply }, "working", 2);
+            this.later(id, done, "idle", 3);
+        });
+    }
+
+    /** Calls a tool and asks for permission; returns the call's id. */
+    private ask(id: number, toolName: string, input: unknown): string {
         const toolId = `tool-${this.nextId++}`;
-        this.later(id, { type: "tool_use", id: toolId, name: "Bash", input }, "working");
+        this.later(id, { type: "tool_use", id: toolId, name: toolName, input }, "working");
         const request: AgentEvent = {
             type: "permission_request",
             request_id: `request-${toolId}`,
-            tool_name: "Bash",
+            tool_name: toolName,
             input,
             description: null,
         };
         this.later(id, request, "waiting", 2);
+        return toolId;
+    }
+
+    private askPermission(id: number, command: string, done: AgentEvent) {
+        const toolId = this.ask(id, "Bash", { command });
         this.decisions.set(id, (allowed) => {
             const content = allowed ? "ok" : "The user declined this action.";
             const result: AgentEvent = {
@@ -488,7 +554,13 @@ export function createMockApi(): Api {
             if (agent.projects.some((project) => project.name === name)) {
                 throw new Error(`project \`${name}\` already exists`);
             }
-            const project = { id: agent.projects.length + 1, name, repo_path: path, tasks: [] };
+            const project = {
+                id: agent.projects.length + 1,
+                name,
+                repo_path: path,
+                tasks: [],
+                has_note: false,
+            };
             agent.projects.push(project);
             return project;
         },
@@ -518,6 +590,7 @@ export function createMockApi(): Api {
         taskDiff: sampleDiff,
         taskOpenEditor: async () => undefined,
         taskOpenUrl: async () => undefined,
+        ...noteApi(() => agent.projects),
         apiKeys: async () => structuredClone(keys),
         setApiKey: async (name, key) => storeKey(keys, name, key.trim() !== ""),
         deleteApiKey: async (name) => storeKey(keys, name, false),
