@@ -21,6 +21,7 @@ pub use self::claude::{ClaudeBackend, ClaudeNamer};
 pub use self::fake::FakeBackend;
 use crate::error::Result;
 use crate::mcp::McpServer;
+use crate::secrets::SecretEnv;
 
 /// How much the agent may do without asking.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -102,6 +103,9 @@ pub struct SessionSpec {
     pub append_system_prompt: Option<String>,
     /// MCP servers to give the agent, on top of any it finds in its own configuration.
     pub mcp_servers: Vec<McpServer>,
+    /// The user's API keys, for agents that bring no login of their own. Claude Code is never
+    /// given these: its credentials are chosen by [`SessionSpec::auth`].
+    pub env: SecretEnv,
 }
 
 /// One MCP server a session loaded, and whether it connected.

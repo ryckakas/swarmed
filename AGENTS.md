@@ -86,6 +86,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   one call to Claude Code's smallest model, with none of the user's settings, tools or MCP
   servers) then suggests a better one, unless `auto_title` is off or the user renamed the session
   first. Every change of title is an event, `Renamed`, so all front ends follow.
+- **API keys live in the system's keychain** (`secrets.rs`), under names from a fixed list of
+  providers. They are written by a front end and afterwards only read to fill the environment
+  of an agent other than Claude Code. They are never returned, logged or written to Swarmed's
+  files, and `SecretEnv` prints names only. Keep it that way.
 - **Swarmed never handles Claude.ai credentials.** It only shapes the child's environment (`Auth`).
 - **Session events are stored as JSON** (`AgentEvent`), so its variants and fields are only added,
   never renamed.

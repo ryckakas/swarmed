@@ -1,6 +1,7 @@
 import type {
     AgentEvent,
     AgentInfo,
+    ApiKeyInfo,
     BranchChoices,
     FileChange,
     FileDiff,
@@ -41,6 +42,11 @@ export interface Api {
     taskOpenEditor(project: string, name: string): Promise<void>;
     /** Opens the task's running stack in the default browser. */
     taskOpenUrl(project: string, name: string): Promise<void>;
+    /** The providers a key can be stored for, and which have one. */
+    apiKeys(): Promise<ApiKeyInfo[]>;
+    /** Stores a provider's key in the system's keychain. It cannot be read back. */
+    setApiKey(name: string, key: string): Promise<void>;
+    deleteApiKey(name: string): Promise<void>;
     settings(): Promise<Settings>;
     setSettings(settings: Settings): Promise<void>;
     /** Calls `listener` for every line a hook prints while a task is created or removed. */

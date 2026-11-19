@@ -29,5 +29,9 @@ tokio = { workspace = true, features = [
 ] }
 toml = { workspace = true }
 
+# The Keychain, where API keys are kept.
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = { workspace = true }
+
 [dev-dependencies]
 tempfile = { workspace = true }

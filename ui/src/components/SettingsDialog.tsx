@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useRef } from "react";
 import { api } from "../api";
 import type { Settings, Theme } from "../api/types";
 import { useStore } from "../store";
+import { ApiKeys } from "./ApiKeys";
 import { editorChoices, TEXT_SCALES, THEMES } from "./options";
 import { Picker } from "./Picker";
 
@@ -32,6 +33,7 @@ export function SettingsDialog() {
             <h2 id="settings-title">Settings</h2>
             <Appearance settings={settings} />
             <Sessions settings={settings} />
+            <ApiKeys />
             <div className="confirm-actions">
                 <button type="button" className="button" onClick={() => showSettings(false)}>
                     Done

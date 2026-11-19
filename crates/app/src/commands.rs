@@ -10,8 +10,8 @@ use std::sync::Arc;
 use serde::Serialize;
 use swarmed_core::agent::{AgentEvent, Auth, Supervision};
 use swarmed_core::{
-    AgentInfo, BranchChoices, Core, FileChange, FileDiff, NewTaskOptions, Project, ProjectOverview,
-    RemoveOptions, Session, SessionOptions, SessionSettings, Settings, Task,
+    AgentInfo, ApiKeyInfo, BranchChoices, Core, FileChange, FileDiff, NewTaskOptions, Project,
+    ProjectOverview, RemoveOptions, Session, SessionOptions, SessionSettings, Settings, Task,
 };
 use tauri::{AppHandle, Emitter, Runtime, State};
 
@@ -152,6 +152,21 @@ pub(crate) fn settings(core: CoreState<'_>) -> Command<Settings> {
 #[tauri::command]
 pub(crate) fn set_settings(core: CoreState<'_>, settings: Settings) -> Command<()> {
     Ok(core.set_settings(&settings)?)
+}
+
+#[tauri::command]
+pub(crate) fn api_keys(core: CoreState<'_>) -> Command<Vec<ApiKeyInfo>> {
+    Ok(core.api_keys()?)
+}
+
+#[tauri::command]
+pub(crate) fn set_api_key(core: CoreState<'_>, name: String, key: String) -> Command<()> {
+    Ok(core.set_api_key(&name, &key)?)
+}
+
+#[tauri::command]
+pub(crate) fn delete_api_key(core: CoreState<'_>, name: String) -> Command<()> {
+    Ok(core.delete_api_key(&name)?)
 }
 
 #[tauri::command]

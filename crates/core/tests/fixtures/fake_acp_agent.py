@@ -42,6 +42,9 @@ def on_prompt(request_id, params):
     if text == "mcp":
         chunk(session, "servers: " + ", ".join(state.get("servers", [])))
         finish()
+    elif text == "key":
+        chunk(session, "key: " + os.environ.get("OPENROUTER_API_KEY", "none"))
+        finish()
     elif text == "slow":
         chunk(session, "working")
     elif text == "fail":

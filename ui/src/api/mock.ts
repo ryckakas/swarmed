@@ -1,6 +1,7 @@
 import type { Api } from "./client";
 import type {
     AgentEvent,
+    ApiKeyInfo,
     FileChange,
     FileDiff,
     HookOutput,
@@ -225,6 +226,14 @@ async function sampleDiff(_project: string, _name: string, path: string): Promis
     return { text: path.endsWith(".png") ? SAMPLE_BINARY_DIFF : SAMPLE_DIFF, truncated: false };
 }
 
+function storeKey(keys: ApiKeyInfo[], name: string, stored: boolean) {
+    const key = keys.find((candidate) => candidate.name === name);
+    if (!key) {
+        throw new Error(`\`${name}\` is not an API key Swarmed can store`);
+    }
+    key.stored = stored;
+}
+
 class MockAgent {
     readonly projects = sampleProjects();
     readonly events = new Map<number, AgentEvent[]>();
@@ -393,6 +402,12 @@ export function createMockApi(): Api {
     const agent = new MockAgent();
     const tasks = () => agent.projects.flatMap((project) => project.tasks);
     const hookListeners = new Set<(output: HookOutput) => void>();
+    const keys: ApiKeyInfo[] = [
+        { name: "OPENROUTER_API_KEY", provider: "OpenRouter", stored: false },
+        { name: "OPENAI_API_KEY", provider: "OpenAI", stored: true },
+        { name: "ANTHROPIC_API_KEY", provider: "Anthropic API", stored: false },
+        { name: "GEMINI_API_KEY", provider: "Google Gemini", stored: false },
+    ];
     let settings: Settings = {
         editor: "code",
         auto_title: true,
@@ -445,6 +460,9 @@ export function createMockApi(): Api {
         taskDiff: sampleDiff,
         taskOpenEditor: async () => undefined,
         taskOpenUrl: async () => undefined,
+        apiKeys: async () => structuredClone(keys),
+        setApiKey: async (name, key) => storeKey(keys, name, key.trim() !== ""),
+        deleteApiKey: async (name) => storeKey(keys, name, false),
         settings: async () => ({ ...settings }),
         setSettings: async (changed) => {
             settings = changed;

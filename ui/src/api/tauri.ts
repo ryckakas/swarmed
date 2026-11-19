@@ -5,6 +5,7 @@ import type { Api } from "./client";
 import type {
     AgentEvent,
     AgentInfo,
+    ApiKeyInfo,
     BranchChoices,
     FileChange,
     FileDiff,
@@ -28,6 +29,9 @@ export const tauriApi: Api = {
     taskDiff: (project, name, path) => invoke<FileDiff>("task_diff", { project, name, path }),
     taskOpenEditor: (project, name) => invoke("task_open_editor", { project, name }),
     taskOpenUrl: (project, name) => invoke("task_open_url", { project, name }),
+    apiKeys: () => invoke<ApiKeyInfo[]>("api_keys"),
+    setApiKey: (name, key) => invoke("set_api_key", { name, key }),
+    deleteApiKey: (name) => invoke("delete_api_key", { name }),
     settings: () => invoke<Settings>("settings"),
     setSettings: (settings) => invoke("set_settings", { settings }),
     onHookOutput: (listener) =>

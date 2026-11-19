@@ -287,6 +287,44 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
 }
 
 #[test]
+fn the_ui_can_store_and_remove_a_key_without_ever_reading_it() {
+    let app = app();
+    let stored = |app: &App| {
+        let keys = app.ok("api_keys", json!({}));
+        let openrouter = keys
+            .as_array()
+            .and_then(|keys| keys.iter().find(|key| key["name"] == "OPENROUTER_API_KEY"));
+        openrouter.cloned().expect("OpenRouter is offered")
+    };
+    assert_eq!(
+        stored(&app),
+        json!({ "name": "OPENROUTER_API_KEY", "provider": "OpenRouter", "stored": false })
+    );
+    let key = json!({ "name": "OPENROUTER_API_KEY", "key": " sk-or-test " });
+    app.ok("set_api_key", key);
+    assert_eq!(stored(&app)["stored"], true);
+    assert!(
+        !app.ok("api_keys", json!({}))
+            .to_string()
+            .contains("sk-or-test")
+    );
+
+    app.ok("delete_api_key", json!({ "name": "OPENROUTER_API_KEY" }));
+    assert_eq!(stored(&app)["stored"], false);
+    assert_eq!(
+        app.invoke("set_api_key", json!({ "name": "AWS_SECRET", "key": "x" })),
+        Err(json!("`AWS_SECRET` is not an API key Swarmed can store"))
+    );
+    assert_eq!(
+        app.invoke(
+            "set_api_key",
+            json!({ "name": "OPENAI_API_KEY", "key": "  " })
+        ),
+        Err(json!("an API key cannot be empty"))
+    );
+}
+
+#[test]
 fn a_core_error_reaches_the_ui_as_its_message() {
     let app = app();
     let missing = app.invoke(

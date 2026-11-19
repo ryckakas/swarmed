@@ -10,7 +10,9 @@ use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use session::SessionCommand;
 use swarmed_core::agent::FakeBackend;
-use swarmed_core::{Core, NewTaskOptions, Paths, RemoveOptions, Settings, SetupStatus, Task};
+use swarmed_core::{
+    ApiKeyInfo, Core, NewTaskOptions, Paths, RemoveOptions, Settings, SetupStatus, Task,
+};
 
 /// Swarmed: parallel Claude Code sessions in isolated git worktrees.
 #[derive(Debug, Parser)]
@@ -38,11 +40,27 @@ enum Command {
         /// The new command, such as `code`, `zed` or `cursor`.
         command: Option<String>,
     },
+    /// Store, remove or list the API keys given to agents other than Claude Code.
+    #[command(subcommand)]
+    Key(KeyCommand),
     /// Show whether new sessions are named by a model after their first message, or set it.
     AutoTitle {
         #[arg(value_enum)]
         state: Option<Switch>,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum KeyCommand {
+    /// List the providers a key can be stored for, and which have one.
+    List,
+    /// Store a provider's key, read from standard input so it stays out of the shell history.
+    Set {
+        /// The environment variable the key is for, such as `OPENROUTER_API_KEY`.
+        name: String,
+    },
+    /// Remove a provider's key.
+    Rm { name: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -148,6 +166,7 @@ async fn main() -> Result<()> {
         }
         Command::Editor { command } => editor(&core, command),
         Command::AutoTitle { state } => auto_title(&core, state),
+        Command::Key(command) => key(&core, command),
     }
 }
 
@@ -161,6 +180,27 @@ fn editor(core: &Core, command: Option<String>) -> Result<()> {
     }
     say(&core.settings()?.editor);
     Ok(())
+}
+
+fn key(core: &Core, command: KeyCommand) -> Result<()> {
+    match command {
+        KeyCommand::List => {
+            core.api_keys()?.iter().for_each(|key| say(&key_row(key)));
+        }
+        KeyCommand::Set { name } => {
+            let mut value = String::new();
+            std::io::stdin().read_line(&mut value)?;
+            core.set_api_key(&name, &value)?;
+            say(&format!("stored {name}"));
+        }
+        KeyCommand::Rm { name } => core.delete_api_key(&name)?,
+    }
+    Ok(())
+}
+
+fn key_row(key: &ApiKeyInfo) -> String {
+    let state = if key.stored { "stored" } else { "not set" };
+    format!("{}\t{}\t{state}", key.name, key.provider)
 }
 
 fn auto_title(core: &Core, state: Option<Switch>) -> Result<()> {

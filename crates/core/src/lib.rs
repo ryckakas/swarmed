@@ -14,6 +14,7 @@ pub mod mcp;
 mod open;
 mod overview;
 mod paths;
+pub mod secrets;
 mod sessions;
 mod settings;
 mod store;
@@ -33,6 +34,8 @@ pub use error::{Error, Result};
 pub use hooks::OutputSink;
 pub use overview::{ProjectOverview, TaskOverview};
 pub use paths::Paths;
+pub use secrets::ApiKeyInfo;
+use secrets::{MemorySecrets, SecretStore};
 use sessions::Live;
 pub use sessions::{
     EVENT_BUFFER, Session, SessionEvent, SessionOptions, SessionSettings, SessionStatus,
@@ -51,6 +54,8 @@ pub struct Core {
     live: Arc<Live>,
     /// What gives new sessions their titles, if anything does.
     namer: Option<Arc<dyn Namer>>,
+    /// Where API keys are kept.
+    secrets: Box<dyn SecretStore>,
 }
 
 /// The store is only ever locked for one short query, never across an `.await`. A panic while
@@ -66,6 +71,7 @@ impl Core {
         let agents = Agents::load(&paths.agents_config())?;
         let mut core = Self::with_agents(paths, agents)?;
         core.set_namer(Arc::new(ClaudeNamer::default()));
+        core.secrets = secrets::platform_store();
         Ok(core)
     }
 
@@ -82,6 +88,8 @@ impl Core {
             agents,
             live: Arc::default(),
             namer: None,
+            // Nothing outside this process until `open` says where keys really live.
+            secrets: Box::new(MemorySecrets::default()),
         })
     }
 

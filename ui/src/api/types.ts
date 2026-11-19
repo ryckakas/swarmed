@@ -50,6 +50,15 @@ export interface FileDiff {
     truncated: boolean;
 }
 
+/** One provider an API key can be stored for. The key itself never reaches the UI. */
+export interface ApiKeyInfo {
+    /** The environment variable agents read the key from. */
+    name: string;
+    provider: string;
+    /** Whether a key is stored. */
+    stored: boolean;
+}
+
 /** The colours the app is drawn in: the system's choice, or always one of the two. */
 export type Theme = "system" | "dark" | "light";
 

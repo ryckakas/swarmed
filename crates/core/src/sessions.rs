@@ -13,6 +13,7 @@ use crate::agent::{AgentCommand, AgentEvent, Auth, Namer, SessionSpec, Supervisi
 use crate::agents::CLAUDE;
 use crate::error::{Error, Result};
 use crate::mcp::{self, McpServer};
+use crate::secrets::SecretEnv;
 use crate::store::{Store, Task};
 use crate::{Core, lock};
 
@@ -432,8 +433,14 @@ impl Core {
             return Ok(());
         }
         let mcp_servers = self.mcp_servers_for(&session.agent, &task)?;
+        let env = if session.agent == CLAUDE {
+            SecretEnv::default()
+        } else {
+            self.key_env()?
+        };
         let handle = self.agents.backend(&session.agent)?.start(SessionSpec {
             mcp_servers,
+            env,
             cwd: task.worktree_path,
             model: session.model,
             supervision: session.supervision,
