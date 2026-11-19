@@ -12,6 +12,11 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
 
+# Where the jobs run is a repository variable, CI_RUNNER: unset, they run on GitHub's runners;
+# set to the label of a self-hosted runner, they run there. That machine keeps its own tools
+# (Rust, Node, pnpm, typos, taplo, shellcheck, actionlint, cargo-deny, cargo-shear, zizmor), so
+# the steps that install them are skipped on it, and so is the cache: its checkout stays.
+
 # A new push to a PR makes the previous run's result irrelevant.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -20,13 +25,16 @@ concurrency:
 jobs:
   lint:
     name: Format and lint
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # A self-hosted runner keeps its checkout, and with it what was already built.
+          clean: ${{ runner.environment == 'github-hosted' }}
 
       - name: Install stable Rust
+        if: runner.environment == 'github-hosted'
         run: |
           rustup toolchain install stable --profile minimal --no-self-update \
             --component rustfmt,clippy
@@ -46,6 +54,7 @@ jobs:
         run: mkdir -p ui/dist && touch ui/dist/index.html
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        if: runner.environment == 'github-hosted'
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -62,9 +71,16 @@ jobs:
 
       # An exact release, since each one adds corrections; Dependabot proposes the next one.
       - name: Spelling
+        if: runner.environment == 'github-hosted'
         uses: crate-ci/typos@276087d9a4f06398b3e04825487805e2d7375888 # v1.52.2
 
+      # The action runs in a container, which a Mac has none of.
+      - name: Spelling, with the runner's own typos
+        if: runner.environment != 'github-hosted'
+        run: typos
+
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        if: runner.environment == 'github-hosted'
         with:
           tool: taplo,shellcheck@0.11.0
 
@@ -74,6 +90,7 @@ jobs:
       # install-action has no actionlint, so the release archive is pinned by its hash, the way the
       # actions are pinned by commit. It finds shellcheck on the PATH and runs it over `run:` blocks.
       - name: Install actionlint
+        if: runner.environment == 'github-hosted'
         working-directory: ${{ runner.temp }}
         run: |
           archive=actionlint_1.7.12_linux_amd64.tar.gz
@@ -90,18 +107,22 @@ jobs:
   dependencies:
     # deny.toml holds the policy: advisories, licenses, duplicate crates and allowed sources.
     name: Dependencies
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # A self-hosted runner keeps its checkout, and with it what was already built.
+          clean: ${{ runner.environment == 'github-hosted' }}
 
       - name: Install stable Rust
+        if: runner.environment == 'github-hosted'
         run: |
           rustup toolchain install stable --profile minimal --no-self-update
           rustup default stable
 
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        if: runner.environment == 'github-hosted'
         with:
           tool: cargo-deny,cargo-shear
 
@@ -114,13 +135,16 @@ jobs:
   workflows:
     # Workflows are audited like code: pinned actions, least-privilege tokens, no template injection.
     name: Workflow security
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # A self-hosted runner keeps its checkout, and with it what was already built.
+          clean: ${{ runner.environment == 'github-hosted' }}
 
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        if: runner.environment == 'github-hosted'
         with:
           tool: zizmor@1.30.1
 
@@ -132,13 +156,16 @@ jobs:
 
   ui:
     name: UI
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # A self-hosted runner keeps its checkout, and with it what was already built.
+          clean: ${{ runner.environment == 'github-hosted' }}
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: runner.environment == 'github-hosted'
         with:
           node-version: 22
 
@@ -172,13 +199,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest]
+        # A self-hosted runner is one machine, so the tests run once, there.
+        os: ${{ fromJSON(vars.CI_RUNNER && format('["{0}"]', vars.CI_RUNNER) || '["macos-latest", "ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # A self-hosted runner keeps its checkout, and with it what was already built.
+          clean: ${{ runner.environment == 'github-hosted' }}
 
       - name: Install stable Rust
+        if: runner.environment == 'github-hosted'
         run: |
           rustup toolchain install stable --profile minimal --no-self-update
           rustup default stable
@@ -197,6 +228,7 @@ jobs:
         run: mkdir -p ui/dist && touch ui/dist/index.html
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        if: runner.environment == 'github-hosted'
 
       - name: Test
         run: cargo test --workspace --all-features
