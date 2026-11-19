@@ -201,6 +201,8 @@ export type AgentEvent =
     | { type: "context_usage"; used: number; max: number; categories: ContextCategory[] }
     /** The session got a new title, from the user or from the model that names sessions. */
     | { type: "renamed"; title: string }
+    /** HTML the agent showed through Swarmed's own tool, handed over by the tool itself. */
+    | { type: "view"; html: string }
     /** What the agent says it actually runs with, defaults resolved. */
     | { type: "applied"; model: string; effort: string | null }
     /** What the session's queue of waiting messages now holds. Never part of the history. */

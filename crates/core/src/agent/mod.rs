@@ -277,6 +277,12 @@ pub enum AgentEvent {
         /// What it is from now on.
         supervision: Supervision,
     },
+    /// HTML the agent showed the user through Swarmed's own tool. Recorded by the core, which
+    /// gets it from the tool and not from the shape of the agent's call.
+    View {
+        /// The document or fragment to show.
+        html: String,
+    },
     /// What the agent says it actually runs with, which settings left at their default do not
     /// tell.
     Applied {
