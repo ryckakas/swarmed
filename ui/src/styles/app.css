@@ -1431,7 +1431,7 @@ code {
 .status-text {
     min-width: 0;
     display: flex;
-    gap: var(--space-4);
+    gap: 6px;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -1439,8 +1439,50 @@ code {
 }
 
 .status-part {
+    padding: 1px var(--space-2);
+    border-radius: 999px;
+    /* A wash of the badge's own colour, whichever that is. */
+    background: color-mix(in srgb, currentcolor 13%, transparent);
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+/* Each value is a badge in its own colour, so the eye finds it without reading the line. */
+.status-branch,
+.status-nth-0 {
+    color: var(--lilac);
+}
+
+.status-changes,
+.status-nth-1 {
+    color: var(--muted);
+}
+
+.status-model,
+.status-nth-2 {
+    color: var(--sky);
+}
+
+.status-cost,
+.status-nth-3 {
+    color: var(--sand);
+}
+
+.status-agent,
+.status-nth-4 {
+    color: var(--teal);
+}
+
+.status-worktree {
+    color: var(--muted);
+}
+
+.status-run-added {
+    color: var(--moss);
+}
+
+.status-run-removed {
+    color: var(--clay);
 }
 
 .status-failed {

@@ -69,8 +69,16 @@ function BuiltIn({ project, task, session, events }: Props) {
     return (
         <p className="status-text">
             {parts.map((part) => (
-                <span key={part.item} className="status-part" title={STATUS_ITEM_LABELS[part.item]}>
-                    {part.text}
+                <span
+                    key={part.item}
+                    className={`status-part status-${part.item}`}
+                    title={STATUS_ITEM_LABELS[part.item]}
+                >
+                    {part.runs.map(([text, tone]) => (
+                        <span key={`${tone}-${text}`} className={`status-run-${tone}`}>
+                            {text}
+                        </span>
+                    ))}
                 </span>
             ))}
         </p>
@@ -94,7 +102,22 @@ function Scripted({ task, session }: Props) {
             current = false;
         };
     }, [session.id, tick, command]);
+    if (shown.failed) {
+        return <p className="status-text status-failed">{shown.text}</p>;
+    }
+    // A script that separates its values with bars gets a badge for each, like the built-in line.
+    const values = shown.text
+        .split("|")
+        .map((value) => value.trim())
+        .filter((value) => value !== "");
     return (
-        <p className={shown.failed ? "status-text status-failed" : "status-text"}>{shown.text}</p>
+        <p className="status-text">
+            {values.map((value, index) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: the values of one line never reorder
+                <span key={index} className={`status-part status-nth-${index % 5}`}>
+                    {value}
+                </span>
+            ))}
+        </p>
     );
 }

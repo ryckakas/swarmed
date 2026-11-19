@@ -22,7 +22,9 @@ const done = (cost: number | null): AgentEvent => ({
 describe("statusParts", () => {
     it("shows the chosen pieces in the chosen order and skips what is not known yet", () => {
         const parts = statusParts(["cost", "changes", "branch"], source());
-        expect(parts).toEqual([{ item: "branch", text: "ricardas/fix-login-redirect" }]);
+        expect(parts.map(({ item, text }) => [item, text])).toEqual([
+            ["branch", "ricardas/fix-login-redirect"],
+        ]);
     });
 
     it("totals the changes and takes the cost from the latest turn that reported one", () => {
@@ -37,6 +39,13 @@ describe("statusParts", () => {
             }),
         );
         expect(parts.map((part) => part.text)).toEqual(["2 files +9 −2", "$0.31"]);
+        // Additions and removals are runs of their own, so they can be coloured apart.
+        expect(parts[0]?.runs).toEqual([
+            ["2 files ", "plain"],
+            ["+9", "added"],
+            [" ", "plain"],
+            ["−2", "removed"],
+        ]);
     });
 
     it("prefers the model the agent reported over the one the session was set to", () => {
