@@ -1,11 +1,13 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import type { Effort, Session } from "../api/types";
+import type { Session } from "../api/types";
+import { appliedEffort } from "../statusline";
 import { useStore } from "../store";
 import { ComposerBox } from "./ComposerBox";
+import { EffortPicker } from "./EffortPicker";
 import { MessageQueue } from "./MessageQueue";
 import { ModePicker, TerminalIcon } from "./ModePicker";
-import { CLAUDE, EFFORT_CHOICES, modelChoices, useAgents, useSlashCommands } from "./options";
+import { CLAUDE, modelChoices, useAgents, useSlashCommands } from "./options";
 import { Picker } from "./Picker";
 
 // The terminal emulator is a large library; it is only fetched when a terminal is first shown.
@@ -111,6 +113,8 @@ function SessionPickers({ session }: { session: Session }) {
     const configure = useStore((state) => state.configure);
     const agent = useAgents().find((candidate) => candidate.id === session.agent);
     const { id, model, supervision, effort } = session;
+    // What the agent last said its effort comes to, for when none was chosen.
+    const applied = useStore((state) => appliedEffort(state.events[id]));
     const current = { model, supervision, effort };
     return (
         <>
@@ -130,16 +134,10 @@ function SessionPickers({ session }: { session: Session }) {
             />
             {/* Only Claude Code takes an effort. Changing it restarts the agent between turns. */}
             {session.agent === CLAUDE && (
-                <Picker
-                    label="Effort"
-                    value={effort ?? ""}
-                    onChange={(value) =>
-                        void configure(api, id, {
-                            ...current,
-                            effort: (value || null) as Effort | null,
-                        })
-                    }
-                    options={EFFORT_CHOICES}
+                <EffortPicker
+                    value={effort}
+                    applied={applied}
+                    onChange={(value) => void configure(api, id, { ...current, effort: value })}
                 />
             )}
         </>

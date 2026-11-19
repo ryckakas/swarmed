@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { sampleProjects } from "./api/mock";
 import type { AgentEvent } from "./api/types";
 import {
+    appliedEffort,
     contextBreakdown,
     contextUsage,
     formatTokens,
@@ -146,5 +147,17 @@ describe("withItem", () => {
         expect(withItem(["branch"], "cost", true)).toEqual(["branch", "cost"]);
         expect(withItem(["branch", "cost"], "branch", false)).toEqual(["cost"]);
         expect(withItem(["branch"], "branch", true)).toEqual(["branch"]);
+    });
+});
+
+describe("appliedEffort", () => {
+    it("is what the agent last reported, and nothing before it has", () => {
+        const told: AgentEvent[] = [
+            { type: "applied", model: "m", effort: "low" },
+            { type: "applied", model: "m", effort: "xhigh" },
+        ];
+        expect(appliedEffort(told)).toBe("xhigh");
+        expect(appliedEffort([])).toBeNull();
+        expect(appliedEffort(undefined)).toBeNull();
     });
 });

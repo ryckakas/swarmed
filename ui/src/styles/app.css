@@ -1981,6 +1981,21 @@ code {
     color: var(--text);
 }
 
+/* Effort as a signal meter: bars that are filled count, the rest only mark the scale. */
+.icon-picker .effort-bar {
+    fill: color-mix(in srgb, currentcolor 28%, transparent);
+    stroke: none;
+}
+
+.icon-picker .effort-bar-on {
+    fill: currentcolor;
+}
+
+/* An effort somebody chose stands out from one the agent fell back on. */
+.effort-picker[data-chosen="true"] {
+    color: var(--text);
+}
+
 /* The mode says how far the agent is trusted, so each has a colour of its own. */
 .icon-picker[data-mode="auto"] {
     color: var(--moss);

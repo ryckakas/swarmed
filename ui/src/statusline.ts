@@ -40,6 +40,11 @@ function applied(events: AgentEvent[]) {
     return latest?.type === "applied" ? latest : null;
 }
 
+/** The effort the agent last said it runs with, if it has said. */
+export function appliedEffort(events: AgentEvent[] | undefined): string | null {
+    return applied(events ?? [])?.effort ?? null;
+}
+
 /** The model the agent last said it runs on, else the one the session was set to. */
 function model({ session, events }: StatusSource): string | null {
     const init = events.findLast((event) => event.type === "init");
