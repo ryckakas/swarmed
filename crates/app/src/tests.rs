@@ -163,6 +163,14 @@ fn the_ui_can_go_from_an_empty_app_to_an_answered_permission_request() {
     assert_eq!(overview[0]["tasks"][1]["running"], json!([id]));
     assert_eq!(overview[0]["tasks"][1]["sessions"][0]["title"], "run: ls");
 
+    assert_eq!(
+        app.ok("slash_commands", json!({ "id": id })),
+        json!(["context", "review"])
+    );
+    assert_eq!(
+        app.ok("slash_commands", json!({ "id": null })),
+        json!(["context", "review"])
+    );
     app.ok(
         "session_allow",
         json!({ "id": id, "requestId": request["request_id"] }),

@@ -10,6 +10,7 @@ import {
     SUPERVISION_CHOICES,
     SUPERVISION_LABELS,
     useAgents,
+    useSlashCommands,
 } from "./options";
 import { Picker } from "./Picker";
 
@@ -26,6 +27,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
     const [agentId, setAgentId] = useState(CLAUDE);
     const [model, setModel] = useState("");
     const agents = useAgents();
+    const commands = useSlashCommands(null);
     const [prompt, setPrompt] = useState("");
     const [creating, setCreating] = useState<string | null>(null);
 
@@ -80,6 +82,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 placeholder="Describe the task"
                 disabled={creating !== null}
                 autoFocus
+                commands={commands}
             >
                 <Picker
                     label="Repository"

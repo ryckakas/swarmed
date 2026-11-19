@@ -137,6 +137,9 @@ pub enum AgentEvent {
         mcp_servers: Vec<McpServerInfo>,
         /// How many skills the session loaded.
         skills: usize,
+        /// The commands and skills a message can call by starting with `/`, without the slash.
+        #[serde(default)]
+        slash_commands: Vec<String>,
     },
     /// A piece of the agent's reply.
     Text {

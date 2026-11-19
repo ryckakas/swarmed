@@ -221,6 +221,7 @@ impl Conversation {
             api_key_source: "agent".to_string(),
             mcp_servers: self.passed_servers(),
             skills: 0,
+            slash_commands: vec![],
         });
         self.set_model(self.spec.model.clone()).await;
         while let Some(text) = self.queued.pop_front() {

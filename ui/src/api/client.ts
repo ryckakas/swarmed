@@ -43,6 +43,11 @@ export interface Api {
     /** Stops the current turn; the session stays usable. */
     sessionInterrupt(id: number): Promise<void>;
     /**
+     * The commands and skills a message can call by starting with `/`, as last reported by the
+     * session's agent; for `null` or a session that has not run, by the newest session.
+     */
+    slashCommands(id: number | null): Promise<string[]>;
+    /**
      * Changes the model and supervision. A running agent is told at once: the model applies
      * from its next turn, the supervision from its next action.
      */

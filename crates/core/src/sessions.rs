@@ -233,6 +233,20 @@ impl Store {
         Ok(())
     }
 
+    /// The newest record of an agent starting, in this session if there is one, else in any
+    /// session on the same agent.
+    fn latest_init(&self, session_id: Option<i64>, agent: &str) -> Result<Option<AgentEvent>> {
+        // The event's type is the first thing in its JSON, which keeps this a prefix match.
+        let sql = "SELECT e.event FROM session_events e JOIN sessions s ON s.id = e.session_id \
+                   WHERE s.agent = ?2 AND e.event LIKE '{\"type\":\"init\"%' \
+                   ORDER BY e.session_id = ?1 DESC, e.id DESC LIMIT 1";
+        let text: Option<String> = self
+            .conn
+            .query_row(sql, params![session_id, agent], |row| row.get(0))
+            .optional()?;
+        Ok(text.map(|text| event_from_json(&text)))
+    }
+
     fn events(&self, session_id: i64) -> Result<Vec<AgentEvent>> {
         let mut stmt = self
             .conn
@@ -323,6 +337,23 @@ impl Core {
     pub fn session_events(&self, id: i64) -> Result<Vec<AgentEvent>> {
         self.store().session_by_id(id)?;
         self.store().events(id)
+    }
+
+    /// The commands and skills a message to this session can call by starting with `/`.
+    ///
+    /// They are known from the last time the session's agent started. A session that has not
+    /// run yet, or `None`, gets what the newest session on the same agent reported, which may
+    /// differ where projects bring their own commands.
+    pub fn slash_commands(&self, session: Option<i64>) -> Result<Vec<String>> {
+        let agent = match session {
+            Some(id) => self.session(id)?.agent,
+            None => CLAUDE.to_string(),
+        };
+        let init = self.store().latest_init(session, &agent)?;
+        let Some(AgentEvent::Init { slash_commands, .. }) = init else {
+            return Ok(vec![]);
+        };
+        Ok(slash_commands)
     }
 
     /// Every event of every running session, from now on.

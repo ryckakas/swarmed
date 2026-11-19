@@ -110,6 +110,7 @@ describe("toItems", () => {
                     { name: "hero", status: "failed" },
                 ],
                 skills: 89,
+                slash_commands: [],
             },
         ]);
         expect(item).toMatchObject({
@@ -134,6 +135,7 @@ describe("a session on another agent", () => {
                     { name: "files", status: "passed" },
                 ],
                 skills: 0,
+                slash_commands: [],
             },
         ]);
         expect(item).toMatchObject({ login: "agent", mcp: "2 MCP servers passed to the agent" });

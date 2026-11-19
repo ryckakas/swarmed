@@ -3,7 +3,7 @@ import { api } from "../api";
 import type { Session, Supervision } from "../api/types";
 import { useStore } from "../store";
 import { ComposerBox } from "./ComposerBox";
-import { CLAUDE, modelChoices, supervisionChoices, useAgents } from "./options";
+import { CLAUDE, modelChoices, supervisionChoices, useAgents, useSlashCommands } from "./options";
 import { Picker } from "./Picker";
 
 const PLACEHOLDER: Record<Session["status"], string> = {
@@ -20,6 +20,7 @@ export function Composer({ session }: { session: Session }) {
     const input = useRef<HTMLTextAreaElement>(null);
     const { id, status } = session;
     const busy = status === "working" || status === "waiting";
+    const commands = useSlashCommands(id, status);
     const canSend = !busy && text.trim() !== "";
 
     // Answering a permission request removes the button that had focus. Bring it back here, so
@@ -49,6 +50,7 @@ export function Composer({ session }: { session: Session }) {
                 canSend={canSend}
                 placeholder={PLACEHOLDER[status]}
                 inputRef={input}
+                commands={commands}
             >
                 <SessionPickers session={session} />
             </ComposerBox>

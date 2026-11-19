@@ -334,7 +334,14 @@ fn parse_init(message: &Value) -> AgentEvent {
             .get("skills")
             .and_then(Value::as_array)
             .map_or(0, Vec::len),
+        slash_commands: strings(message.get("slash_commands")),
     }
+}
+
+/// The strings of a JSON array; anything else in it is skipped.
+fn strings(value: Option<&Value>) -> Vec<String> {
+    let items = value.and_then(Value::as_array).into_iter().flatten();
+    items.filter_map(Value::as_str).map(String::from).collect()
 }
 
 fn parse_assistant_block(block: &Value) -> Option<AgentEvent> {
@@ -453,7 +460,7 @@ mod tests {
             "type": "system", "subtype": "init", "session_id": "abc", "model": "claude-haiku-5-5",
             "permissionMode": "acceptEdits", "apiKeySource": "none",
             "mcp_servers": [{ "name": "context7", "status": "connected" }],
-            "skills": ["a", "b"],
+            "skills": ["a", "b"], "slash_commands": ["review", "context"],
         }));
         let expected = AgentEvent::Init {
             agent_session_id: "abc".into(),
@@ -465,6 +472,7 @@ mod tests {
                 status: "connected".into(),
             }],
             skills: 2,
+            slash_commands: vec!["review".into(), "context".into()],
         };
         assert_eq!(events, vec![expected]);
     }

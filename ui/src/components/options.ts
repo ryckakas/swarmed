@@ -53,6 +53,26 @@ export function supervisionChoices(current?: Supervision) {
     return [...offered].map((choice): [string, string] => [choice, SUPERVISION_LABELS[choice]]);
 }
 
+/**
+ * The `/` commands a message can call, for a session or, with `null`, for a new one. Read again
+ * when `refreshOn` changes: an agent only reports its commands once it has started.
+ */
+export function useSlashCommands(sessionId: number | null, refreshOn?: unknown): string[] {
+    const [commands, setCommands] = useState<string[]>([]);
+    // biome-ignore lint/correctness/useExhaustiveDependencies: refreshOn exists to trigger a re-read
+    useEffect(() => {
+        let current = true;
+        api.slashCommands(sessionId)
+            .then((read) => current && setCommands(read))
+            // Suggestions are a convenience: without them the box still sends what is typed.
+            .catch(() => undefined);
+        return () => {
+            current = false;
+        };
+    }, [sessionId, refreshOn]);
+    return commands;
+}
+
 /** The agents sessions can run on; empty until they are read. */
 export function useAgents(): AgentInfo[] {
     const [agents, setAgents] = useState<AgentInfo[]>([]);

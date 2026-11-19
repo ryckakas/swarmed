@@ -173,6 +173,11 @@ pub(crate) fn session_stop(core: CoreState<'_>, id: i64) {
 }
 
 #[tauri::command]
+pub(crate) fn slash_commands(core: CoreState<'_>, id: Option<i64>) -> Command<Vec<String>> {
+    Ok(core.slash_commands(id)?)
+}
+
+#[tauri::command]
 pub(crate) fn session_configure(
     core: CoreState<'_>,
     id: i64,

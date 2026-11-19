@@ -86,6 +86,7 @@ const INIT: AgentEvent = {
         { name: "hero-mcp", status: "failed" },
     ],
     skills: 89,
+    slash_commands: [],
 };
 
 const REDIRECT_FIX = `I found the cause. \`redirectAfterLogin\` trusts the \`next\` parameter, and the login page sets \`next\` to itself when the session cookie is missing.
@@ -403,6 +404,18 @@ export function createMockApi(): Api {
         sessionAllow: async (id, requestId) => agent.decide(id, requestId, true),
         sessionDeny: async (id, requestId) => agent.decide(id, requestId, false),
         sessionInterrupt: async (id) => agent.interrupt(id),
+        slashCommands: async () => [
+            "code-review",
+            "context",
+            "frontend-design",
+            "grill-me",
+            "init",
+            "planning",
+            "review",
+            "security-review",
+            "simplify",
+            "tdd",
+        ],
         sessionConfigure: async (id, settings) => agent.configure(id, settings),
         sessionClose: async (id) => agent.close(id),
         onSessionEvent: async (listener) => {

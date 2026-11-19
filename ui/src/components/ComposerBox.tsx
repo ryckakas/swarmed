@@ -1,4 +1,12 @@
-import { type KeyboardEvent, type ReactNode, type Ref, useLayoutEffect, useRef } from "react";
+import {
+    type KeyboardEvent,
+    type ReactNode,
+    type Ref,
+    useLayoutEffect,
+    useRef,
+    useState,
+} from "react";
+import { slashMatches, slashQuery, stepActive, withCommand } from "../slash";
 
 interface Props {
     value: string;
@@ -11,6 +19,8 @@ interface Props {
     disabled?: boolean;
     autoFocus?: boolean;
     inputRef?: Ref<HTMLTextAreaElement>;
+    /** The commands and skills suggested while a message starts with `/`. */
+    commands?: string[];
     /** What sits under the text, left of the button: pickers or labels. */
     children?: ReactNode;
 }
@@ -19,6 +29,7 @@ interface Props {
 export function ComposerBox(props: Props) {
     const { value, onChange, onSend, onStop, canSend, placeholder, children } = props;
     const own = useRef<HTMLTextAreaElement>(null);
+    const menu = useSlashMenu(value, props.commands ?? [], onChange);
 
     // Grow with the text, up to the limit the stylesheet sets, then scroll.
     // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the text changes
@@ -31,6 +42,9 @@ export function ComposerBox(props: Props) {
     }, [value]);
 
     const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+        if (menu.onKeyDown(event)) {
+            return;
+        }
         // Enter sends; Shift+Enter is a new line. Enter that confirms an IME candidate is neither.
         if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
             event.preventDefault();
@@ -48,6 +62,24 @@ export function ComposerBox(props: Props) {
                 onSend();
             }}
         >
+            {menu.matches.length > 0 && (
+                <ul className="slash-menu" aria-label="Commands">
+                    {menu.matches.map((name, index) => (
+                        <li key={name}>
+                            <button
+                                type="button"
+                                className="slash-option"
+                                aria-current={index === menu.active ? "true" : undefined}
+                                // Keeps the text box focused, so typing carries on after the click.
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() => menu.choose(name)}
+                            >
+                                /{name}
+                            </button>
+                        </li>
+                    ))}
+                </ul>
+            )}
             <textarea
                 ref={(element) => {
                     own.current = element;
@@ -99,4 +131,44 @@ function assign<T>(ref: Ref<T> | undefined, value: T | null) {
     } else if (ref) {
         ref.current = value;
     }
+}
+
+/**
+ * The suggestions for a message that starts with `/`: which to show, which one the arrow keys
+ * are on, and the keys the list takes for itself while it is open.
+ */
+function useSlashMenu(value: string, commands: string[], onChange: (value: string) => void) {
+    const [active, setActive] = useState(0);
+    // The text Esc was pressed on; the list stays away until the text changes.
+    const [dismissed, setDismissed] = useState<string | null>(null);
+    const query = dismissed === value ? null : slashQuery(value);
+    const matches = query === null ? [] : slashMatches(query, commands);
+    const current = Math.min(active, Math.max(matches.length - 1, 0));
+    const choose = (name: string) => {
+        setActive(0);
+        onChange(withCommand(name));
+    };
+
+    /** Handles the key if the list is open and it is one of the list's; says whether it did. */
+    const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): boolean => {
+        const chosen = matches[current];
+        if (chosen === undefined || event.nativeEvent.isComposing) {
+            return false;
+        }
+        const actions = new Map<string, () => void>([
+            ["ArrowDown", () => setActive(stepActive(current, 1, matches.length))],
+            ["ArrowUp", () => setActive(stepActive(current, -1, matches.length))],
+            ["Enter", () => choose(chosen)],
+            ["Tab", () => choose(chosen)],
+            ["Escape", () => setDismissed(value)],
+        ]);
+        const action = actions.get(event.key);
+        if (!action || event.shiftKey) {
+            return false;
+        }
+        event.preventDefault();
+        action();
+        return true;
+    };
+    return { matches, active: current, choose, onKeyDown };
 }

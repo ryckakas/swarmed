@@ -53,6 +53,8 @@ export type AgentEvent =
           api_key_source: string;
           mcp_servers: McpServerInfo[];
           skills: number;
+          /** The commands and skills a message can call with `/`, without the slash. */
+          slash_commands: string[];
       }
     | { type: "text"; text: string }
     /** A piece of a reply still being written; the whole reply follows as `text`. */
