@@ -273,6 +273,11 @@ pub(crate) async fn session_send_queued(core: CoreState<'_>, id: i64) -> Command
 }
 
 #[tauri::command]
+pub(crate) fn session_mark_read(core: CoreState<'_>, id: i64) -> Command<()> {
+    Ok(core.session_mark_read(id)?)
+}
+
+#[tauri::command]
 pub(crate) fn session_allow(core: CoreState<'_>, id: i64, request_id: String) -> Command<()> {
     Ok(core.session_allow(id, &request_id)?)
 }

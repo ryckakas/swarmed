@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use clap::{Subcommand, ValueEnum};
 use serde_json::Value;
 use swarmed_core::agent::{AgentEvent, Auth, Effort, McpServerInfo, PLAN_TOOL, Supervision};
-use swarmed_core::{Core, SessionEvent, SessionOptions, SessionSettings};
+use swarmed_core::{Core, Session, SessionEvent, SessionOptions, SessionSettings};
 use tokio::io::{AsyncBufReadExt, BufReader, Lines, Stdin};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
@@ -134,16 +134,13 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
         SessionCommand::List { project, task } => {
             for s in core.sessions(&project, &task)? {
                 let mode = s.supervision.as_str();
-                say(&format!(
-                    "{}\t{}\t{mode}\t{}",
-                    s.id,
-                    s.status.as_str(),
-                    s.title
-                ));
+                let state = state_of(&s);
+                say(&format!("{}\t{state}\t{mode}\t{}", s.id, s.title));
             }
             Ok(())
         }
         SessionCommand::Show { id } => {
+            core.session_mark_read(id)?;
             core.session_events(id)?
                 .iter()
                 .filter_map(describe)
@@ -175,6 +172,15 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             Ok(())
         }
         SessionCommand::Close { id } => Ok(core.session_close(id)?),
+    }
+}
+
+/// What the list says a session is doing. An answer nobody has read yet says more than "idle".
+fn state_of(session: &Session) -> &'static str {
+    if session.unread {
+        "unread"
+    } else {
+        session.status.as_str()
     }
 }
 

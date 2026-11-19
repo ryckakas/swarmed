@@ -70,10 +70,45 @@ export function applySessionEvent(projects: Project[], published: SessionEvent):
     }
     return mapSession(projects, id, (session) => ({
         ...session,
+        unread: unreadAfter(session.unread, published),
         status: status ?? session.status,
         title:
             session.title === "" && firstMessage !== null ? titleFrom(firstMessage) : session.title,
     }));
+}
+
+/** Whether `event` is the agent handing the conversation back: a turn over, or an error. */
+export function endsTurn({ event, status }: SessionEvent): boolean {
+    return event.type === "turn_done" || (event.type === "exited" && status === "errored");
+}
+
+/** Whether a session is unread after an event: once its agent is done, until the user writes. */
+function unreadAfter(unread: boolean, published: SessionEvent): boolean {
+    if (published.event.type === "user_message") {
+        return false;
+    }
+    return unread || endsTurn(published);
+}
+
+/** The tree with one session marked as looked at. */
+export function withRead(projects: Project[], sessionId: number): Project[] {
+    return mapSession(projects, sessionId, (session) =>
+        session.unread ? { ...session, unread: false } : session,
+    );
+}
+
+/** How many sessions hold an answer nobody has looked at. */
+export function countUnread(projects: Project[]): number {
+    return projects
+        .flatMap((project) => project.tasks)
+        .filter((task) => !task.archived)
+        .flatMap((task) => task.sessions)
+        .filter((session) => session.unread).length;
+}
+
+/** Whether any session of a project holds an answer nobody has looked at. */
+export function projectUnread(project: Project): boolean {
+    return countUnread([project]) > 0;
 }
 
 export function findSession(projects: Project[], sessionId: number | null): Session | undefined {

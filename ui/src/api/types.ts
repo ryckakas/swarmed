@@ -16,6 +16,8 @@ export interface Session {
     /** How hard the model thinks; `null` is the agent's default. */
     effort: Effort | null;
     status: SessionStatus;
+    /** Whether its agent finished a turn, or stopped with an error, that nobody has looked at. */
+    unread: boolean;
 }
 
 export interface Task {

@@ -180,3 +180,24 @@ describe("the queue of waiting messages", () => {
         expect(await api.sessionQueue(3)).toEqual([]);
     });
 });
+
+describe("opening a session", () => {
+    it("marks its unread answer as read, here and in the app", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        const unread = () =>
+            useStore
+                .getState()
+                .projects.flatMap((project) => project.tasks)
+                .flatMap((task) => task.sessions)
+                .find((session) => session.id === 5)?.unread;
+        expect(unread()).toBe(true);
+        await useStore.getState().open(api, 5);
+        expect(unread()).toBe(false);
+        const stored = (await api.overview())
+            .flatMap((project) => project.tasks)
+            .flatMap((task) => task.sessions)
+            .find((session) => session.id === 5);
+        expect(stored?.unread).toBe(false);
+    });
+});

@@ -17,6 +17,7 @@ import {
     taskIdOf,
     toggledId,
     withoutSession,
+    withRead,
     withSession,
 } from "./tree";
 
@@ -70,6 +71,8 @@ interface State {
     /** The repository or task the user asked to remove, until they confirm or think again. */
     removing: RemoveTarget | null;
     askToRemove(target: RemoveTarget | null): void;
+    /** Notes that the user has looked at a session, here and in the core. */
+    markRead(api: Api, sessionId: number): void;
     /** Per session, the messages waiting for its agent to finish. */
     queues: Record<number, QueuedMessage[]>;
     setQueue(sessionId: number, messages: QueuedMessage[]): void;
@@ -245,6 +248,13 @@ export const useStore = create<State>((set, get) => ({
         }),
     removing: null,
     askToRemove: (target) => set({ removing: target }),
+    markRead: (api, sessionId) => {
+        if (!findSession(get().projects, sessionId)?.unread) {
+            return;
+        }
+        set((state) => ({ projects: withRead(state.projects, sessionId) }));
+        api.sessionMarkRead(sessionId).catch(get().report);
+    },
     queues: {},
     setQueue: (sessionId, messages) =>
         set((state) => ({ queues: { ...state.queues, [sessionId]: messages } })),
@@ -264,6 +274,7 @@ export const useStore = create<State>((set, get) => ({
     },
     open: async (api, sessionId) => {
         set({ selectedSessionId: sessionId });
+        get().markRead(api, sessionId);
         if (get().events[sessionId] || loading.has(sessionId)) {
             return;
         }
@@ -304,6 +315,9 @@ export const useStore = create<State>((set, get) => ({
     dismissProblem: () => set({ problem: null }),
 }));
 
+/** The window the app is shown in. There is none where the store runs without one, as in tests. */
+const inView = typeof window === "undefined" ? null : window;
+
 /** Loads the tree and keeps it in step with the sessions. Returns what stops that again. */
 export function connect(api: Api): () => void {
     const { refresh, apply } = useStore.getState();
@@ -320,12 +334,25 @@ export function connect(api: Api): () => void {
     };
     // Fresh closures on every call: React mounts twice in development, and an `Api` that tells
     // listeners apart by identity would let the first mount's cleanup remove the second's.
+    // An answer in the session on screen is read as it arrives, if the window is being looked
+    // at; otherwise when the window is.
+    const readIfSeen = () => {
+        const { selectedSessionId, markRead } = useStore.getState();
+        if (selectedSessionId !== null && inView?.document.hasFocus()) {
+            markRead(api, selectedSessionId);
+        }
+    };
+    inView?.addEventListener("focus", readIfSeen);
     const subscriptions = [
-        api.onSessionEvent((event) => apply(event)),
+        api.onSessionEvent((event) => {
+            apply(event);
+            readIfSeen();
+        }),
         api.onEventsLagged(() => reload()),
         api.onHookOutput((output) => useStore.setState({ hookLine: output.line })),
     ];
     return () => {
+        inView?.removeEventListener("focus", readIfSeen);
         for (const subscription of subscriptions) {
             void subscription.then((unsubscribe) => unsubscribe());
         }

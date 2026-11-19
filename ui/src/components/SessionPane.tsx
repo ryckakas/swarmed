@@ -58,8 +58,8 @@ export function SessionPane() {
                 <SessionTitle key={session.id} session={session} />
                 <div className="session-meta">
                     <p className={`session-status status-${session.status}`}>
-                        <StatusMark status={session.status} />
-                        {statusLabel(session.status)}
+                        <StatusMark status={session.status} unread={session.unread} />
+                        {statusLabel(session.status, session.unread)}
                     </p>
                 </div>
             </header>

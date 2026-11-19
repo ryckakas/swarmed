@@ -10,7 +10,6 @@ import type {
     QueuedMessage,
     Session,
     SessionEvent,
-    SessionSettings,
     SessionStatus,
     Settings,
     Task,
@@ -32,6 +31,8 @@ function session(id: number, taskId: number, title: string, status: SessionStatu
         supervision: "ask",
         effort: null,
         status,
+        // One sample session has answered and not been looked at.
+        unread: id === 5,
     };
 }
 
@@ -362,6 +363,9 @@ class MockAgent {
 
     publish(sessionId: number, event: AgentEvent, status: SessionStatus | null) {
         this.history(sessionId).push(event);
+        if (event.type === "turn_done") {
+            this.configure(sessionId, { unread: true });
+        }
         this.tell(sessionId, event, status);
         // A turn that ended well makes room for the next waiting message, as in the core.
         if (event.type === "turn_done" && !event.is_error) {
@@ -553,7 +557,7 @@ class MockAgent {
         return this.projects.flatMap((project) => project.tasks);
     }
 
-    configure(id: number, settings: Partial<SessionSettings>): Session {
+    configure(id: number, settings: Partial<Session>): Session {
         const sessions = this.tasks().flatMap((task) => task.sessions);
         const found = sessions.find((candidate) => candidate.id === id);
         if (!found) {
@@ -690,6 +694,9 @@ export function createMockApi(): Api {
         sessionEnqueue: async (id, text) => agent.enqueue(id, text),
         sessionQueueEdit: async (id, message, text) => agent.editQueued(id, message, text),
         sessionSendQueued: async (id) => agent.sendQueued(id),
+        sessionMarkRead: async (id) => {
+            agent.configure(id, { unread: false });
+        },
         sessionAllow: async (id, requestId) => agent.decide(id, requestId, true),
         sessionDeny: async (id, requestId) => agent.decide(id, requestId, false),
         sessionInterrupt: async (id) => agent.interrupt(id),

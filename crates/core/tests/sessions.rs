@@ -100,6 +100,38 @@ async fn published_events_carry_the_status_they_lead_to() {
 }
 
 #[tokio::test]
+async fn a_finished_turn_is_unread_until_the_user_looks_or_writes() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+    assert!(!session.unread);
+
+    core.session_send(session.id, "hello").expect("sends");
+    assert!(!core.session(session.id).expect("exists").unread);
+    turn(&mut bus, session.id).await;
+    let done = core.session(session.id).expect("exists");
+    assert_eq!((done.status, done.unread), (SessionStatus::Idle, true));
+    // The lists say so too.
+    assert!(core.overview().expect("reads")[0].tasks[0].sessions[0].unread);
+
+    core.session_mark_read(session.id).expect("marks");
+    assert!(!core.session(session.id).expect("exists").unread);
+
+    // Writing to a session is having seen it.
+    core.session_send(session.id, "again").expect("sends");
+    turn(&mut bus, session.id).await;
+    assert!(core.session(session.id).expect("exists").unread);
+    core.session_send(session.id, "slow").expect("sends");
+    next(&mut bus).await;
+    assert!(!core.session(session.id).expect("exists").unread);
+    assert!(matches!(
+        core.session_mark_read(404),
+        Err(Error::SessionNotFound(404))
+    ));
+}
+
+#[tokio::test]
 async fn a_permission_request_waits_for_the_decision() {
     let fx = fixture();
     let core = core_with_task(&fx).await;

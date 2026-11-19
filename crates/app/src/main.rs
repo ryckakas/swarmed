@@ -121,6 +121,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
             commands::session_new,
             commands::session_events,
             commands::session_send,
+            commands::session_mark_read,
             commands::session_queue,
             commands::session_enqueue,
             commands::session_queue_edit,

@@ -183,6 +183,13 @@ fn the_ui_can_go_from_an_empty_app_to_an_answered_permission_request() {
     let result = app.wait_for_event(id, "tool_result");
     assert_eq!(result["is_error"], false);
     app.wait_for_event(id, "turn_done");
+
+    // The finished turn is unread until the UI says the user has seen it.
+    let unread =
+        |app: &App| app.ok("overview", json!({}))[0]["tasks"][1]["sessions"][0]["unread"].clone();
+    assert_eq!(unread(&app), true);
+    app.ok("session_mark_read", json!({ "id": id }));
+    assert_eq!(unread(&app), false);
 }
 
 #[test]

@@ -45,7 +45,7 @@ function nextWaiting() {
     const waiting = projects
         .flatMap((project) => project.tasks)
         .flatMap((task) => task.sessions)
-        .filter((session) => session.status === "waiting")
+        .filter((session) => session.status === "waiting" || session.unread)
         .map((session) => session.id);
     openSession(stepThrough(waiting, selectedSessionId, 1));
 }

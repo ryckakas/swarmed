@@ -86,6 +86,8 @@ export interface Api {
     sessionQueueEdit(id: number, message: number, text: string): Promise<QueuedMessage[]>;
     /** Sends the first waiting message now, for a queue a stopped turn left standing. */
     sessionSendQueued(id: number): Promise<void>;
+    /** Says the user has looked at the session, so it is no longer unread. */
+    sessionMarkRead(id: number): Promise<void>;
     sessionAllow(id: number, requestId: string): Promise<void>;
     sessionDeny(id: number, requestId: string, reason: string): Promise<void>;
     /** Stops the current turn; the session stays usable. */
