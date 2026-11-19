@@ -33,6 +33,8 @@ enum Command {
     /// Run agent sessions in a task's worktree.
     #[command(subcommand)]
     Session(SessionCommand),
+    /// Show what Swarmed takes up on disk, and in memory and processor time right now.
+    Usage,
     /// List the agents sessions can run on.
     Agents,
     /// Set up an agent other than Claude Code: install it, or choose the models it offers.
@@ -210,6 +212,7 @@ async fn main() -> Result<()> {
         // Answered above, before anything was opened.
         Command::ToolServer => Ok(()),
         Command::Agent(command) => agent(&core, command).await,
+        Command::Usage => usage(&core).await,
         Command::Agents => {
             agents(&core);
             Ok(())
@@ -304,6 +307,53 @@ async fn agent(core: &Core, command: AgentCommand) -> Result<()> {
             row(&core.agent_configure(&id, models)?);
         }
     }
+    Ok(())
+}
+
+/// A size as people say it: 512 B, 3.4 MB, 1.2 GB.
+fn bytes(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["kB", "MB", "GB", "TB"];
+    let mut unit = "B";
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "a size for reading, not for arithmetic"
+    )]
+    let mut value = bytes as f64;
+    for next in UNITS {
+        if value < 1000.0 {
+            break;
+        }
+        value /= 1000.0;
+        unit = next;
+    }
+    if unit == "B" {
+        format!("{bytes} B")
+    } else {
+        format!("{value:.1} {unit}")
+    }
+}
+
+async fn usage(core: &Core) -> Result<()> {
+    let usage = core.usage().await?;
+    let database = bytes(usage.database_bytes);
+    say(&format!("database\t{database}\t{} events", usage.events));
+    say(&format!("notes\t{}", bytes(usage.notes_bytes)));
+    for worktree in &usage.worktrees {
+        let size = worktree
+            .bytes
+            .map_or_else(|| "not measured".to_string(), bytes);
+        say(&format!(
+            "worktree\t{size}\t{}/{}",
+            worktree.project, worktree.task
+        ));
+    }
+    let running = usage.running;
+    say(&format!(
+        "running\t{}\t{:.1}% of a core\t{} processes",
+        bytes(running.memory_bytes),
+        running.cpu_percent,
+        running.processes
+    ));
     Ok(())
 }
 

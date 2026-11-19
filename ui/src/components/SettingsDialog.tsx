@@ -9,6 +9,7 @@ import { ApiKeys } from "./ApiKeys";
 import { CloseIcon, IconButton } from "./IconButton";
 import { editorChoices, supervisionChoices, TEXT_SCALES, THEMES } from "./options";
 import { Picker } from "./Picker";
+import { UsageSettings } from "./UsageSettings";
 
 /** The user's preferences. Every change takes effect, and is saved, at once. */
 export function SettingsDialog() {
@@ -45,6 +46,7 @@ export function SettingsDialog() {
                 <Appearance settings={settings} />
                 <Sessions settings={settings} />
                 <StatusLineSettings settings={settings} />
+                <UsageSettings />
                 <AgentsSettings />
                 <ApiKeys />
                 <Shortcuts />

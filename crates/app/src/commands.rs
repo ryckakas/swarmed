@@ -12,7 +12,7 @@ use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
     AgentInfo, AgentSetup, ApiKeyInfo, BranchChoices, Core, FileChange, FileDiff, NewTaskOptions,
     Project, ProjectOverview, QueuedMessage, RemoveOptions, Session, SessionOptions,
-    SessionSettings, Settings, Task, TaskNaming,
+    SessionSettings, Settings, Task, TaskNaming, Usage,
 };
 use tauri::{AppHandle, Emitter, Runtime, State};
 
@@ -68,6 +68,12 @@ pub(crate) fn agents(core: CoreState<'_>) -> Vec<AgentInfo> {
 #[tauri::command]
 pub(crate) fn overview(core: CoreState<'_>) -> Command<Vec<ProjectOverview>> {
     Ok(core.overview()?)
+}
+
+/// What Swarmed takes up on disk and is using right now. Async: it measures folders.
+#[tauri::command]
+pub(crate) async fn usage(core: CoreState<'_>) -> Command<Usage> {
+    Ok(core.usage().await?)
 }
 
 /// The agents that can be set up from the settings, and how far along each is.

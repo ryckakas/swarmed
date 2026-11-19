@@ -239,6 +239,14 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// How many events are stored, over all sessions.
+    pub(crate) fn event_count(&self) -> Result<u64> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM session_events", [], |row| row.get(0))?;
+        Ok(u64::try_from(count).unwrap_or(0))
+    }
+
     pub(crate) fn sessions_all(&self) -> Result<Vec<Session>> {
         let mut stmt = self.conn.prepare(&format!(
             "{SESSION_SELECT} WHERE closed_at IS NULL ORDER BY id"
@@ -528,6 +536,9 @@ impl Core {
         })?;
         let run = self.live.runs.fetch_add(1, Ordering::Relaxed);
         running.insert(id, (run, handle.commands));
+        if let Some(pid) = handle.pid {
+            lock(&self.live.pids).insert(id, pid);
+        }
         let shared = Shared {
             store: Arc::clone(&self.store),
             live: Arc::clone(&self.live),
@@ -804,6 +815,8 @@ pub(crate) struct Live {
     restarts: Mutex<HashSet<i64>>,
     /// The messages waiting for each session's turn to end.
     pub(crate) queues: Queues,
+    /// The process of each session's agent, as of when it was last started.
+    pub(crate) pids: Mutex<HashMap<i64, u32>>,
     runs: AtomicU64,
     bus: broadcast::Sender<SessionEvent>,
 }
@@ -815,6 +828,7 @@ impl Default for Live {
             open_requests: Mutex::default(),
             restarts: Mutex::default(),
             queues: Queues::default(),
+            pids: Mutex::default(),
             runs: AtomicU64::new(0),
             bus: broadcast::Sender::new(EVENT_BUFFER),
         }

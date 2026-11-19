@@ -206,6 +206,7 @@ impl AgentBackend for ClaudeBackend {
         apply_auth(&mut command, &spec.auth);
 
         let mut child = command.spawn()?;
+        let pid = child.id();
         let stdin = child.stdin.take().ok_or_else(missing_pipe)?;
         let stdout = child.stdout.take().ok_or_else(missing_pipe)?;
         let stderr = child.stderr.take().ok_or_else(missing_pipe)?;
@@ -227,7 +228,11 @@ impl AgentBackend for ClaudeBackend {
             pending,
             asks,
         )));
-        Ok(AgentHandle { events, commands })
+        Ok(AgentHandle {
+            events,
+            commands,
+            pid,
+        })
     }
 }
 

@@ -26,6 +26,7 @@ mod store;
 mod tasks;
 mod terminal;
 mod toolserver;
+mod usage;
 mod vars;
 mod views;
 
@@ -59,6 +60,7 @@ pub use tasks::{BranchChoices, NewTaskOptions, RemoveOptions};
 pub use terminal::TerminalOutput;
 use terminal::Terminals;
 pub use toolserver::{SERVER_NAME, SHOW_HTML, TOOL_SERVER_ARG, serve_tools};
+pub use usage::{ProcessUsage, SessionUsage, Usage, WorktreeUsage};
 pub use views::VIEW_POLICY;
 use views::ViewStore;
 

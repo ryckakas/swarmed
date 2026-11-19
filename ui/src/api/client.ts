@@ -17,6 +17,7 @@ import type {
     Task,
     TaskNaming,
     TerminalOutput,
+    Usage,
 } from "./types";
 
 /** Stops a subscription. */
@@ -27,6 +28,8 @@ export interface Api {
     overview(): Promise<Project[]>;
     /** The agents a session can run on, Claude Code first. */
     agents(): Promise<AgentInfo[]>;
+    /** What Swarmed takes up and uses. Measuring the worktrees can take a few seconds. */
+    usage(): Promise<Usage>;
     /** The agents that can be set up from the settings, and how far along each is. */
     agentSetups(): Promise<AgentSetup[]>;
     /** Installs a known agent and configures it. Its installer's output comes as hook output. */

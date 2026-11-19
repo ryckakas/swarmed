@@ -2362,6 +2362,46 @@ kbd {
     border-color: var(--faint);
 }
 
+/* A button at the end of a row keeps its words on one line. */
+.settings-row .button {
+    flex: none;
+    white-space: nowrap;
+}
+
+/* What Swarmed takes up: one figure to a line, the name on the left. */
+.usage {
+    margin: 0;
+}
+
+.usage-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding: 3px 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent);
+}
+
+.usage-row dt {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.usage-detail {
+    margin-left: var(--space-2);
+    color: var(--faint);
+    font-size: var(--text-xs);
+}
+
+.usage-row dd {
+    flex: none;
+    margin: 0;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+
 /* An agent in the settings: what it is, its state, and the models it offers. */
 .agent-ask {
     display: flex;

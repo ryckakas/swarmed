@@ -72,6 +72,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   with their whole path and the models to offer. The registry is behind a lock and read again
   after every change, so nothing needs a restart. The list of OpenRouter's models is fetched
   with `curl` from its public address, with no key and nothing of the user's in the request.
+- **What Swarmed takes up** (`usage.rs`) is measured on request: the database and notes by
+  their files, each worktree with `du`, and memory and processor time with `ps`, summed over
+  Swarmed's own process and everything started from it. An agent's share is the tree under the
+  process its backend reported when it started.
 - **Running sessions live in the core** (`sessions.rs`). Front ends call `session_start`,
   `session_send` and the like by session id and read every session's events from one stream,
   `Core::subscribe`. Events are stored before they are published, except the pieces of a reply

@@ -410,6 +410,22 @@ fn the_ui_can_see_which_agents_can_be_set_up_and_choose_their_models() {
 }
 
 #[test]
+fn the_ui_can_see_what_swarmed_takes_up() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+    let usage = app.ok("usage", json!({}));
+    let positive = |value: &Value| value.as_u64().is_some_and(|bytes| bytes > 0);
+    assert!(positive(&usage["database_bytes"]), "{usage}");
+    assert_eq!(usage["worktrees"][0]["task"], "one");
+    assert!(positive(&usage["worktrees"][0]["bytes"]), "{usage}");
+    // The process running this test is the app, and it is using some memory.
+    assert!(positive(&usage["running"]["memory_bytes"]), "{usage}");
+    assert_eq!(usage["sessions"], json!([]));
+}
+
+#[test]
 fn the_ui_can_keep_a_note_on_a_project_and_on_a_task() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));

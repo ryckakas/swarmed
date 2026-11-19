@@ -15,6 +15,7 @@ import type {
     Settings,
     Task,
     TerminalOutput,
+    Usage,
 } from "./types";
 
 // Sample data and a scripted agent, for working on the UI in a browser where there is no Tauri
@@ -93,6 +94,28 @@ function removeApi(projects: () => Project[]): Pick<Api, "projectRemove" | "task
         },
     };
 }
+
+const SAMPLE_USAGE: Usage = {
+    database_bytes: 4_700_000,
+    events: 576,
+    notes_bytes: 4100,
+    worktrees: [
+        { project: "hero", task: "invoice-export", path: "/w/hero/a", bytes: 365_600_000 },
+        { project: "hero", task: "fix-login-redirect", path: "/w/hero/b", bytes: 282_800_000 },
+        { project: "bonsai-lint", task: "rust-support", path: "/w/b/c", bytes: 540_700 },
+        { project: "hero", task: "pm-16037", path: "/w/hero/d", bytes: null },
+    ],
+    running: { processes: 9, memory_bytes: 612_000_000, cpu_percent: 14.2 },
+    sessions: [
+        {
+            session_id: 2,
+            title: "Write a regression test for the loop",
+            processes: 4,
+            memory_bytes: 410_000_000,
+            cpu_percent: 12.6,
+        },
+    ],
+};
 
 /** Setting up an agent: the sample starts with OpenCode not installed, and "installs" it. */
 function setupApi(
@@ -652,6 +675,7 @@ export function createMockApi(): Api {
     };
     return {
         overview: async () => structuredClone(agent.projects),
+        usage: async () => SAMPLE_USAGE,
         ...setupApi(hookListeners),
         agents: async () => [
             { id: "claude", name: "Claude Code", models: ["opus", "sonnet", "haiku", "fable"] },
