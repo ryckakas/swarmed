@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Api } from "./client";
 import type {
@@ -35,6 +36,16 @@ export const tauriApi: Api = {
     agentInstall: (id) => invoke<AgentSetup>("agent_install", { id }),
     agentConfigure: (id, models) => invoke<AgentSetup>("agent_configure", { id, models }),
     openrouterModels: () => invoke<string[]>("openrouter_models"),
+    pickFiles: async () => {
+        const chosen = await open({ multiple: true, title: "Point the agent at files" });
+        return chosen ?? [];
+    },
+    onFilesDropped: (listener) =>
+        getCurrentWebview().onDragDropEvent((event) => {
+            if (event.payload.type === "drop") {
+                listener(event.payload.paths);
+            }
+        }),
     pickFolder: () => open({ directory: true, multiple: false, title: "Add a repository" }),
     projectAdd: (path) => invoke<Project>("project_add", { path, name: null }),
     projectRemove: (name, force) => invoke("project_remove", { name, force }),
@@ -60,9 +71,10 @@ export const tauriApi: Api = {
     sessionNew: (project, task, setup) =>
         invoke<Session>("session_new", { project, task, ...setup }),
     sessionEvents: (id) => invoke<AgentEvent[]>("session_events", { id }),
-    sessionSend: (id, text) => invoke("session_send", { id, text }),
+    sessionSend: (id, text, files) => invoke("session_send", { id, text, files: files ?? [] }),
     sessionQueue: (id) => invoke<QueuedMessage[]>("session_queue", { id }),
-    sessionEnqueue: (id, text) => invoke<QueuedMessage[]>("session_enqueue", { id, text }),
+    sessionEnqueue: (id, text, files) =>
+        invoke<QueuedMessage[]>("session_enqueue", { id, text, files: files ?? [] }),
     sessionQueueEdit: (id, message, text) =>
         invoke<QueuedMessage[]>("session_queue_edit", { id, message, text }),
     sessionSendQueued: (id) => invoke("session_send_queued", { id }),

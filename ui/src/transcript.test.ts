@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { AgentEvent } from "./api/types";
-import { activity, planOf, summarize, toItems } from "./transcript";
+import {
+    activity,
+    fileName,
+    planOf,
+    splitFiles,
+    summarize,
+    toItems,
+    withFiles,
+} from "./transcript";
 
 const toolUse = (id: string, command: string): AgentEvent => ({
     type: "tool_use",
@@ -238,5 +246,35 @@ describe("a message from another session", () => {
             text: "All green.\nTwo files changed.",
         });
         expect(items[1]).toMatchObject({ kind: "user" });
+    });
+});
+
+describe("attached files", () => {
+    it("are listed under the message and read back from it", () => {
+        const files = ["/Users/me/a b.png", "/Users/me/notes.md"];
+        const message = withFiles("look at these", files);
+        expect(message).toBe(
+            "look at these\n\nAttached files:\n- /Users/me/a b.png\n- /Users/me/notes.md",
+        );
+        expect(splitFiles(message)).toEqual({ text: "look at these", files });
+        // Files alone are a message too.
+        expect(splitFiles(withFiles("", files))).toEqual({ text: "", files });
+        expect(withFiles(" plain ", [])).toBe("plain");
+    });
+
+    it("are not read into a message that merely mentions them", () => {
+        const prose = "Attached files:\n- one\nand then more words";
+        expect(splitFiles(prose)).toEqual({ text: prose, files: [] });
+        const inline = "see\nAttached files:\n- /x";
+        expect(splitFiles(inline)).toEqual({ text: inline, files: [] });
+    });
+
+    it("show on the user\u2019s message in the transcript, by name", () => {
+        const [item] = toItems([
+            { type: "user_message", text: withFiles("hi", ["/Users/me/a.png"]) },
+        ]);
+        expect(item).toMatchObject({ kind: "user", text: "hi", files: ["/Users/me/a.png"] });
+        expect(fileName("/Users/me/a.png")).toBe("a.png");
+        expect(fileName("/Users/me/folder/")).toBe("folder");
     });
 });

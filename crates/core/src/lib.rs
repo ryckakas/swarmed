@@ -6,6 +6,7 @@
 pub mod agent;
 mod agent_setup;
 mod agents;
+mod attach;
 mod changes;
 mod config;
 mod error;
@@ -39,6 +40,7 @@ use agent::{AgentBackend, ClaudeNamer, Namer};
 pub use agent_setup::{AgentSetup, openrouter_models};
 use agents::Agents;
 pub use agents::{AgentInfo, CLAUDE};
+pub use attach::{ATTACHED_FILES, with_files};
 
 pub use changes::{ChangeKind, FileChange, FileDiff};
 pub use config::{Hooks, ProjectConfig};
