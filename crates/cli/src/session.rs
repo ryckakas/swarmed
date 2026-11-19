@@ -1,10 +1,12 @@
 //! The `swarmed session` commands: run a turn in the terminal and read back history.
 
+use std::path::PathBuf;
+
 use anyhow::{Context, Result};
 use clap::{Subcommand, ValueEnum};
 use serde_json::Value;
 use swarmed_core::agent::{AgentEvent, Auth, Effort, McpServerInfo, PLAN_TOOL, Supervision};
-use swarmed_core::{Core, Session, SessionEvent, SessionOptions, SessionSettings};
+use swarmed_core::{Core, Session, SessionEvent, SessionOptions, SessionSettings, with_files};
 use tokio::io::{AsyncBufReadExt, BufReader, Lines, Stdin};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
@@ -46,6 +48,9 @@ pub(crate) enum SessionCommand {
     Send {
         id: i64,
         prompt: String,
+        /// A file or folder to point the agent at; may be given more than once.
+        #[arg(long = "file")]
+        files: Vec<PathBuf>,
         #[arg(long, value_enum, default_value_t)]
         auth: AuthMode,
     },
@@ -128,7 +133,18 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             say(&format!("session {}", session.id));
             run_turn(core, session.id, &prompt, auth.resolve()?).await
         }
-        SessionCommand::Send { id, prompt, auth } => {
+        SessionCommand::Send {
+            id,
+            prompt,
+            files,
+            auth,
+        } => {
+            // A path typed in a terminal is meant from where the terminal is.
+            let files: Vec<PathBuf> = files
+                .iter()
+                .map(std::path::absolute)
+                .collect::<std::io::Result<_>>()?;
+            let prompt = with_files(&prompt, &files)?;
             run_turn(core, id, &prompt, auth.resolve()?).await
         }
         SessionCommand::List { project, task } => {

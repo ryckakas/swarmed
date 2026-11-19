@@ -46,6 +46,10 @@ export interface Api {
     agentConfigure(id: string, models: string[] | null): Promise<AgentSetup>;
     /** Every model OpenRouter offers right now, named as agents take them. */
     openrouterModels(): Promise<string[]>;
+    /** Lets the user choose files to point an agent at; empty if they cancelled. */
+    pickFiles(): Promise<string[]>;
+    /** Calls `listener` with the paths of files dropped on the window, from now on. */
+    onFilesDropped(listener: (files: string[]) => void): Promise<Unsubscribe>;
     /** Lets the user choose a folder; `null` if they cancelled. */
     pickFolder(): Promise<string | null>;
     /** Registers the git repository containing `path`. */
@@ -97,11 +101,11 @@ export interface Api {
     /** Everything the session has said and been told, oldest first. */
     sessionEvents(id: number): Promise<AgentEvent[]>;
     /** Starts a turn, starting the session's agent first if it is not running. */
-    sessionSend(id: number, text: string): Promise<void>;
+    sessionSend(id: number, text: string, files?: string[]): Promise<void>;
     /** The messages waiting for the session's agent to finish, first to be sent first. */
     sessionQueue(id: number): Promise<QueuedMessage[]>;
     /** Adds a message to the queue: it is sent by itself when the agent's turn ends well. */
-    sessionEnqueue(id: number, text: string): Promise<QueuedMessage[]>;
+    sessionEnqueue(id: number, text: string, files?: string[]): Promise<QueuedMessage[]>;
     /** Rewrites a waiting message; empty text takes it out of the queue. */
     sessionQueueEdit(id: number, message: number, text: string): Promise<QueuedMessage[]>;
     /** Sends the first waiting message now, for a queue a stopped turn left standing. */

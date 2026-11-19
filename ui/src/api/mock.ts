@@ -1,4 +1,4 @@
-import { PLAN_TOOL } from "../transcript";
+import { PLAN_TOOL, withFiles } from "../transcript";
 import type { Api } from "./client";
 import type {
     AgentEvent,
@@ -728,6 +728,12 @@ export function createMockApi(): Api {
                 models: ["openrouter/openai/gpt-5.6", "openrouter/google/gemini-3-pro"],
             },
         ],
+        // A browser gives no paths, so the sample hands out two that look real.
+        pickFiles: async () => [
+            "/Users/you/Desktop/login-error.png",
+            "/Users/you/code/hero/README.md",
+        ],
+        onFilesDropped: async () => () => undefined,
         pickFolder: async () => "/Users/you/code/new-repo",
         projectAdd: async (path) => {
             const name = path.split("/").pop() ?? "repo";
@@ -799,9 +805,9 @@ export function createMockApi(): Api {
             return created;
         },
         sessionEvents: async (id) => [...agent.history(id)],
-        sessionSend: async (id, text) => agent.send(id, text),
+        sessionSend: async (id, text, files) => agent.send(id, withFiles(text, files ?? [])),
         sessionQueue: async (id) => agent.queue(id),
-        sessionEnqueue: async (id, text) => agent.enqueue(id, text),
+        sessionEnqueue: async (id, text, files) => agent.enqueue(id, withFiles(text, files ?? [])),
         sessionQueueEdit: async (id, message, text) => agent.editQueued(id, message, text),
         sessionSendQueued: async (id) => agent.sendQueued(id),
         sessionMarkRead: async (id) => {

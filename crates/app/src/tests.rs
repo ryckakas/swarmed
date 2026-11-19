@@ -460,6 +460,35 @@ fn the_ui_can_set_up_an_mcp_server_and_never_reads_its_secrets_back() {
 }
 
 #[test]
+fn the_ui_can_point_the_agent_at_files_with_a_message() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+    let session = app.ok(
+        "session_new",
+        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "ask", "effort": null }),
+    );
+    let id = &session["id"];
+    let readme = app.repo.join("README.md");
+    app.ok(
+        "session_send",
+        json!({ "id": id, "text": "what is this?", "files": [readme] }),
+    );
+    let said = app.wait_for_event(id, "user_message");
+    let expected = format!("what is this?\n\nAttached files:\n- {}", readme.display());
+    assert_eq!(said["text"], expected);
+    // A file that is not there is refused before anything is sent.
+    let missing = json!({ "id": id, "text": "x", "files": ["/nonexistent/file.txt"] });
+    assert_eq!(
+        app.invoke("session_send", missing),
+        Err(json!(
+            "/nonexistent/file.txt cannot be attached: there is no such file"
+        ))
+    );
+}
+
+#[test]
 fn the_ui_can_keep_a_note_on_a_project_and_on_a_task() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));

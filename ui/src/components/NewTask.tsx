@@ -36,6 +36,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
     const agents = useAgents();
     const commands = useSlashCommands(null);
     const [prompt, setPrompt] = useState("");
+    const [files, setFiles] = useState<string[]>([]);
     const [creating, setCreating] = useState<string | null>(null);
 
     // The sidebar's plus on a project preselects it; otherwise the last choice, or the first.
@@ -70,6 +71,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 branch: branch === NEW_BRANCH ? null : branch,
                 setup: setupFor(agentId, model, supervision, effort),
                 prompt: prompt.trim(),
+                files,
             });
         } catch (error) {
             // A task whose setup failed still exists; reload so it shows up in the sidebar.
@@ -86,6 +88,8 @@ export function NewTask({ projects }: { projects: Project[] }) {
             <ComposerBox
                 value={prompt}
                 onChange={setPrompt}
+                files={files}
+                onFiles={setFiles}
                 onSend={() => void send()}
                 canSend={canSend}
                 placeholder="Describe the task"
@@ -159,10 +163,12 @@ interface Start {
     branch: string | null;
     setup: SessionSetup;
     prompt: string;
+    /** The files the first message points the agent at. */
+    files: string[];
 }
 
 /** Creates the task and its first session, opens it, and sends the prompt. */
-async function startTask({ project, name, title, branch, setup, prompt }: Start) {
+async function startTask({ project, name, title, branch, setup, prompt, files }: Start) {
     const { refresh, open } = useStore.getState();
     await api.taskNew(project, name, branch);
     const session = await api.sessionNew(project, name, setup);
@@ -171,7 +177,7 @@ async function startTask({ project, name, title, branch, setup, prompt }: Start)
     }
     await refresh(api);
     await open(api, session.id);
-    await api.sessionSend(session.id, prompt);
+    await api.sessionSend(session.id, prompt, files);
 }
 
 interface AgentPickersProps {

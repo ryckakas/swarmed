@@ -1,6 +1,7 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
 import type { AgentEvent } from "../api/types";
 import { activity, type Item, PLAN_TOOL, summarize, toItems } from "../transcript";
+import { FileChips } from "./FileChips";
 import { HtmlView } from "./HtmlView";
 import { Markdown } from "./Markdown";
 import { PermissionPrompt } from "./PermissionPrompt";
@@ -80,7 +81,12 @@ export function Transcript({ sessionId, events, working }: Props) {
 function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
     switch (item.kind) {
         case "user":
-            return <p className="said">{item.text}</p>;
+            return (
+                <div className="said">
+                    {item.text}
+                    <FileChips files={item.files} />
+                </div>
+            );
         case "text":
             return <Markdown text={item.text} streaming={item.streaming} />;
         case "tool":

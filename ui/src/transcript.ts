@@ -4,7 +4,8 @@ import { shownHtml } from "./htmlview";
 // Turns a session's raw events into what the transcript shows. Pure, so it can be tested.
 
 export type Item =
-    | { kind: "user"; key: number; text: string }
+    /** What the user wrote, and the files they pointed the agent at with it. */
+    | { kind: "user"; key: number; text: string; files: string[] }
     /** A message another of the user's sessions left for this one. */
     | { kind: "peer"; key: number; from: number; title: string; text: string }
     /** Something the agent said. `streaming` while its end has not arrived yet. */
@@ -34,6 +35,37 @@ export interface ToolResult {
     isError: boolean;
 }
 
+/** The line that opens the list of attached files in a message, as the core writes it. */
+const ATTACHED_FILES = "Attached files:";
+
+/** A message with the files attached to it listed underneath, as the agent is sent it. */
+export function withFiles(text: string, files: string[]): string {
+    const list = [ATTACHED_FILES, ...files.map((file) => `- ${file}`)].join("\n");
+    if (files.length === 0) {
+        return text.trim();
+    }
+    return text.trim() === "" ? list : `${text.trim()}\n\n${list}`;
+}
+
+/** A message taken apart again: what the user wrote, and the files listed under it. */
+export function splitFiles(message: string): { text: string; files: string[] } {
+    const lines = message.split("\n");
+    const at = lines.lastIndexOf(ATTACHED_FILES);
+    const listed = at === -1 ? [] : lines.slice(at + 1);
+    // Only a list that runs to the end of the message, and is nothing but files, is one.
+    const isList = listed.length > 0 && listed.every((line) => line.startsWith("- "));
+    if (!isList || (at > 0 && lines[at - 1] !== "")) {
+        return { text: message, files: [] };
+    }
+    const text = lines.slice(0, Math.max(at - 1, 0)).join("\n");
+    return { text, files: listed.map((line) => line.slice(2)) };
+}
+
+/** The last part of a path: the name a file is known by. */
+export function fileName(path: string): string {
+    return path.replace(/\/+$/, "").split("/").pop() || path;
+}
+
 /** How the core marks a message one session left for another. */
 const FROM_SESSION =
     /^Message from session (\d+) \("([^"]*)"\), another agent session of the same user:\n\n([\s\S]*)$/;
@@ -42,7 +74,7 @@ const FROM_SESSION =
 function messageItem(text: string, key: number): Item {
     const left = FROM_SESSION.exec(text);
     if (!left) {
-        return { kind: "user", key, text };
+        return { kind: "user", key, ...splitFiles(text) };
     }
     return { kind: "peer", key, from: Number(left[1]), title: left[2] ?? "", text: left[3] ?? "" };
 }
