@@ -276,6 +276,14 @@ pub enum AgentEvent {
         /// What it is from now on.
         supervision: Supervision,
     },
+    /// What the agent says it actually runs with, which settings left at their default do not
+    /// tell.
+    Applied {
+        /// The model in use.
+        model: String,
+        /// How hard it thinks, if the agent has such a setting.
+        effort: Option<String>,
+    },
     /// How full the agent's context window is, reported after a turn.
     ContextUsage {
         /// Tokens in use.

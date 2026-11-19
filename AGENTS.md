@@ -127,6 +127,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   the plan: the core then puts the session back to how new sessions are supervised and tells the
   agent, which by itself would fall back to asking about everything. Every change of
   supervision is an event, `SupervisionChanged`. Other agents have no plan mode and ask instead.
+- **The model and effort actually in use** are asked of Claude Code (`get_settings`) when it
+  starts and after each turn, and recorded as `Applied`. Only those two values are read: the
+  rest of that answer is the user's whole configuration and is never kept or logged.
 - **Swarmed never handles Claude.ai credentials.** It only shapes the child's environment (`Auth`).
 - **Session events are stored as JSON** (`AgentEvent`), so its variants and fields are only added,
   never renamed.

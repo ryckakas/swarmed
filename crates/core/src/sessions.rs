@@ -79,6 +79,7 @@ impl SessionStatus {
             AgentEvent::Init { .. }
             | AgentEvent::Renamed { .. }
             | AgentEvent::SupervisionChanged { .. }
+            | AgentEvent::Applied { .. }
             | AgentEvent::ContextUsage { .. }
             | AgentEvent::TerminalShared { .. }
             | AgentEvent::TextDelta { .. }

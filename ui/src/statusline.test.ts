@@ -83,12 +83,12 @@ describe("statusParts", () => {
             [" | ", "quiet"],
             ["high", "plain"],
         ]);
-        // Without a choice it says so, since the agent does not report its own default.
+        // Without a choice it is what the agent reports its default comes to.
         const unset = { ...base, session: { ...base.session, model: "opus", effort: null } };
-        expect(statusParts(["model"], unset)[0]?.text).toBe("opus | default");
-        // An agent that takes no effort shows its model alone.
-        const other = { ...unset, session: { ...unset.session, agent: "opencode" } };
-        expect(statusParts(["model"], other)[0]?.text).toBe("opus");
+        expect(statusParts(["model"], unset)[0]?.text).toBe("opus");
+        const reported: AgentEvent = { type: "applied", model: "claude-opus-5-5", effort: "xhigh" };
+        const told = { ...unset, events: [reported] };
+        expect(statusParts(["model"], told)[0]?.text).toBe("claude-opus-5-5 | xhigh");
     });
 });
 

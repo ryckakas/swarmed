@@ -412,6 +412,9 @@ class MockAgent {
             this.later(id, { type: "text", text: reply }, "working");
             this.later(id, done, "idle", 2);
             this.later(id, SAMPLE_CONTEXT, null, 3);
+            const { model, effort } = this.configure(id, {});
+            const applied = { model: model ?? "claude-opus-5-5", effort: effort ?? "xhigh" };
+            this.later(id, { type: "applied", ...applied }, null, 3);
         }
     }
 
