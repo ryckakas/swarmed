@@ -4,6 +4,7 @@
 //! UI dependency.
 
 pub mod agent;
+mod agent_models;
 mod agent_setup;
 mod agents;
 mod attach;

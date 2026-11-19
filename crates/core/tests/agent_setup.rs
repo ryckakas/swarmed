@@ -71,6 +71,51 @@ fn claude_code_and_codex_can_be_set_up_like_any_other_agent() {
     assert!(core.agents().iter().any(|agent| agent.id == "codex"));
 }
 
+#[tokio::test]
+async fn an_agent_that_knows_its_models_is_asked_for_them() {
+    let fx = fixture();
+    let tools = fx.paths.data_dir.join("tools");
+    let core = core_with_tools(&fx, &tools);
+    // A stand-in that answers the greeting, chatters, then says what it offers.
+    let answers = r#"read greeting
+echo '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}'
+read session
+echo '{"jsonrpc":"2.0","method":"_auth/status_update","params":{}}'
+echo '{"jsonrpc":"2.0","id":2,"result":{"sessionId":"s","configOptions":[{"id":"model","options":[{"value":"gpt-a"},{"value":"gpt-b"}]}]}}'
+sleep 5"#;
+    executable(&tools.join("codex-acp"), answers);
+
+    let setup = core.agent_models_refresh("codex").await.expect("asks");
+    assert_eq!(setup.models, ["gpt-a", "gpt-b"]);
+    assert_eq!(setup.model_source, "agent");
+    let codex = core.agents().into_iter().find(|agent| agent.id == "codex");
+    assert_eq!(codex.expect("offered").models, ["gpt-a", "gpt-b"]);
+    // It keeps its own list of MCP servers, so it is not handed Claude Code's.
+    let written = std::fs::read_to_string(fx.paths.agents_config()).expect("written");
+    assert!(
+        written.contains("claude_code_mcp_servers = false"),
+        "{written}"
+    );
+
+    // An agent that will not say leaves the models as they were, and says why.
+    let unwilling = r#"read greeting
+echo '{"jsonrpc":"2.0","id":1,"result":{}}'
+read session
+echo '{"jsonrpc":"2.0","id":2,"error":{"code":-32000,"message":"sign in first"}}'"#;
+    executable(&tools.join("codex-acp"), unwilling);
+    let refused = core.agent_models_refresh("codex").await;
+    assert!(
+        matches!(&refused, Err(Error::Install { reason, .. }) if reason.ends_with("sign in first")),
+        "{refused:?}"
+    );
+    assert_eq!(setup_of(&core, "codex").models, ["gpt-a", "gpt-b"]);
+    // Nothing to ask of an agent whose models the user picks.
+    executable(&tools.join("opencode"), "exit 0");
+    let picked = core.agent_models_refresh("opencode").await.expect("keeps");
+    assert_eq!(picked.model_source, "openrouter");
+    assert_eq!(picked.models.len(), 3);
+}
+
 #[test]
 fn an_installed_agent_is_configured_without_editing_the_file() {
     let fx = fixture();

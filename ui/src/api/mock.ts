@@ -163,7 +163,10 @@ const SAMPLE_USAGE: Usage = {
 /** Setting up an agent: the sample starts with OpenCode not installed, and "installs" it. */
 function setupApi(
     hookListeners: Set<(output: HookOutput) => void>,
-): Pick<Api, "agentSetups" | "agentInstall" | "agentConfigure" | "openrouterModels"> {
+): Pick<
+    Api,
+    "agentSetups" | "agentInstall" | "agentConfigure" | "agentModelsRefresh" | "openrouterModels"
+> {
     const hint = "To sign in, run its program in a terminal once.";
     const setups: AgentSetup[] = [
         {
@@ -177,6 +180,7 @@ function setupApi(
             sign_in:
                 "To sign in, run `claude` in a terminal once and follow /login. Swarmed uses that login and never sees it.",
             built_in: true,
+            model_source: "built_in",
         },
         {
             id: "codex",
@@ -188,6 +192,7 @@ function setupApi(
             install_command: "brew install codex-acp",
             sign_in: hint,
             built_in: false,
+            model_source: "agent",
         },
         {
             id: "opencode",
@@ -199,6 +204,7 @@ function setupApi(
             install_command: "brew install anomalyco/tap/opencode-v2",
             sign_in: "It uses the API keys stored in Settings.",
             built_in: false,
+            model_source: "openrouter",
         },
     ];
     const setup = (id: string): AgentSetup => {
@@ -221,10 +227,17 @@ function setupApi(
             const models =
                 id === "opencode"
                     ? ["openrouter/openai/gpt-6.2-sol", "openrouter/google/gemini-3.8-flash"]
-                    : [];
+                    : ["gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.1-sol"];
             Object.assign(installing, { installed: `/opt/homebrew/bin/${id}`, models });
             installing.configured = true;
             return { ...installing };
+        },
+        agentModelsRefresh: async (id) => {
+            const asked = setup(id);
+            if (asked.model_source === "agent") {
+                asked.models = ["gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.1-sol"];
+            }
+            return { ...asked };
         },
         agentConfigure: async (id, models) => {
             const configured = setup(id);

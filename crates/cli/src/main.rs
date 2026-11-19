@@ -87,6 +87,9 @@ enum AgentCommand {
     Install { id: String },
     /// Configure an installed agent; with MODELS, offer those in its model menu.
     Configure { id: String, models: Vec<String> },
+    /// Ask an agent that knows its own models, such as Codex, which ones it offers, and
+    /// offer those.
+    Models { id: String },
 }
 
 #[derive(Debug, Subcommand)]
@@ -342,6 +345,7 @@ async fn agent(core: &Core, command: AgentCommand) -> Result<()> {
     match command {
         AgentCommand::Status => core.agent_setups()?.iter().for_each(row),
         AgentCommand::Install { id } => row(&core.agent_install(&id, &hook_line).await?),
+        AgentCommand::Models { id } => row(&core.agent_models_refresh(&id).await?),
         AgentCommand::Configure { id, models } => {
             let models = (!models.is_empty()).then_some(models);
             row(&core.agent_configure(&id, models)?);

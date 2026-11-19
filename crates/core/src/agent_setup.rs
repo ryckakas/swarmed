@@ -13,6 +13,7 @@ use tokio::process::Command;
 use toml::{Table, Value};
 
 use crate::Core;
+use crate::agent_models;
 use crate::agents::{Agents, CLAUDE};
 use crate::error::{Error, Result};
 use crate::hooks::{self, OutputSink};
@@ -29,12 +30,44 @@ struct Known {
     args: &'static [&'static str],
     /// What installs it.
     install: Install,
-    /// The models offered for it until the user chooses their own.
-    models: &'static [&'static str],
+    /// Where the models offered for it come from.
+    models: Models,
+    /// Whether it is given the MCP servers configured for Claude Code. Not for an agent that
+    /// keeps a list of its own, which would refuse the ones it already has.
+    shares_claude_mcp: bool,
     /// How the user gets it to act on their account, once it is installed.
     sign_in: &'static str,
     /// Whether it is the agent Swarmed runs by itself, with no entry in `agents.toml`.
     built_in: bool,
+}
+
+/// Where the models offered for an agent come from.
+enum Models {
+    /// Swarmed knows them: nothing to choose or look up.
+    BuiltIn,
+    /// The user picks from what OpenRouter lists, starting with these.
+    OpenRouter(&'static [&'static str]),
+    /// The agent says which it offers, and is asked.
+    Agent,
+}
+
+impl Models {
+    /// What a front end is told, to show the right way of choosing.
+    fn source(&self) -> &'static str {
+        match self {
+            Self::BuiltIn => "built_in",
+            Self::OpenRouter(_) => "openrouter",
+            Self::Agent => "agent",
+        }
+    }
+
+    /// The models to offer before anything is known or chosen.
+    fn starting(&self) -> Vec<String> {
+        match self {
+            Self::OpenRouter(models) => models.iter().map(ToString::to_string).collect(),
+            Self::BuiltIn | Self::Agent => vec![],
+        }
+    }
 }
 
 /// How an agent gets onto this machine.
@@ -64,7 +97,8 @@ const KNOWN: &[Known] = &[
         program: "claude",
         args: &[],
         install: Install::Script("curl -fsSL https://claude.ai/install.sh | bash"),
-        models: &[],
+        models: Models::BuiltIn,
+        shares_claude_mcp: false,
         sign_in: "To sign in, run `claude` in a terminal once and follow /login. Swarmed uses \
                   that login and never sees it.",
         built_in: true,
@@ -76,7 +110,8 @@ const KNOWN: &[Known] = &[
         program: "codex-acp",
         args: &[],
         install: Install::Brew("codex-acp"),
-        models: &[],
+        models: Models::Agent,
+        shares_claude_mcp: false,
         sign_in: "To sign in, run `codex login` in a terminal once. Without the Codex CLI, \
                   `codex-acp login` does the same.",
         built_in: false,
@@ -88,11 +123,12 @@ const KNOWN: &[Known] = &[
         program: "opencode",
         args: &["acp"],
         install: Install::Brew("anomalyco/tap/opencode-v2"),
-        models: &[
+        models: Models::OpenRouter(&[
             "openrouter/openai/gpt-6.2-sol",
             "openrouter/google/gemini-3.8-flash",
             "openrouter/anthropic/claude-sonnet-5.5",
-        ],
+        ]),
+        shares_claude_mcp: true,
         sign_in: "It uses the API keys stored in Settings.",
         built_in: false,
     },
@@ -123,6 +159,9 @@ pub struct AgentSetup {
     /// Whether it is Claude Code, which needs no setting up beyond being installed and has its
     /// models built in.
     pub built_in: bool,
+    /// Where its models come from: `built_in`, `openrouter` (the user picks from OpenRouter's
+    /// list) or `agent` (the agent itself is asked).
+    pub model_source: String,
 }
 
 fn known(id: &str) -> Result<&'static Known> {
@@ -221,6 +260,7 @@ impl Core {
             install_command: agent.install.shown(),
             sign_in: agent.sign_in.to_string(),
             built_in: agent.built_in,
+            model_source: agent.models.source().to_string(),
         }
     }
 
@@ -257,7 +297,30 @@ impl Core {
                 agent.program
             )));
         }
-        self.agent_configure(id, None)
+        let configured = self.agent_configure(id, None)?;
+        // Not being able to list its models yet, say before the user has signed in, is no
+        // reason to call the install a failure.
+        Ok(self.agent_models_refresh(id).await.unwrap_or(configured))
+    }
+
+    /// Asks an agent that knows its own models which ones it offers, and offers those from now
+    /// on. For any other agent nothing changes.
+    pub async fn agent_models_refresh(&self, id: &str) -> Result<AgentSetup> {
+        let agent = known(id)?;
+        let Some(program) = find_program(agent.program, &self.tool_dirs) else {
+            return Err(Error::AgentMissing(agent.program.to_string()));
+        };
+        if !matches!(agent.models, Models::Agent) {
+            return self.agent_configure(id, None);
+        }
+        let args: Vec<String> = agent.args.iter().map(ToString::to_string).collect();
+        let models = agent_models::offered(&program, &args)
+            .await
+            .map_err(|reason| Error::Install {
+                agent: agent.name.to_string(),
+                reason: format!("its models could not be read: {reason}"),
+            })?;
+        self.agent_configure(id, Some(models))
     }
 
     /// Writes a known agent's entry in `agents.toml` and puts it to use: where its executable
@@ -286,7 +349,10 @@ impl Core {
             });
         };
         let args: Vec<String> = agent.args.iter().map(ToString::to_string).collect();
-        let starting: Vec<String> = agent.models.iter().map(ToString::to_string).collect();
+        let starting = agent.models.starting();
+        if !agent.shares_claude_mcp {
+            entry.insert("claude_code_mcp_servers".into(), Value::Boolean(false));
+        }
         entry.insert("name".into(), Value::String(agent.name.to_string()));
         entry.insert("command".into(), Value::String(command));
         entry.insert("args".into(), strings(&args));

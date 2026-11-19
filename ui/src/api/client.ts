@@ -44,6 +44,8 @@ export interface Api {
     agentInstall(id: string): Promise<AgentSetup>;
     /** Makes an installed agent usable, offering `models` if given, else keeping its own. */
     agentConfigure(id: string, models: string[] | null): Promise<AgentSetup>;
+    /** Asks an agent that knows its own models which ones it offers, and offers those. */
+    agentModelsRefresh(id: string): Promise<AgentSetup>;
     /** Every model OpenRouter offers right now, named as agents take them. */
     openrouterModels(): Promise<string[]>;
     /** Lets the user choose files to point an agent at; empty if they cancelled. */

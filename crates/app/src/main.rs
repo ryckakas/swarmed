@@ -108,6 +108,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
             commands::agent_setups,
             commands::agent_install,
             commands::agent_configure,
+            commands::agent_models_refresh,
             commands::openrouter_models,
             commands::overview,
             commands::project_add,
