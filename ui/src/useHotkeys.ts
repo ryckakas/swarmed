@@ -116,14 +116,7 @@ function focusMessage() {
 }
 
 function showShortcuts() {
-    useStore.getState().showSettings(true);
-    requestAnimationFrame(() => {
-        const list = document.getElementById("shortcuts");
-        if (list instanceof HTMLDetailsElement) {
-            list.open = true;
-        }
-        list?.scrollIntoView({ block: "start" });
-    });
+    useStore.getState().showSettings(true, "shortcuts");
 }
 
 /** What each shortcut does. Those that act on a session do nothing when none is open. */

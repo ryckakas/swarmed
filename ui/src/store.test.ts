@@ -221,3 +221,14 @@ describe("setting up an agent", () => {
         expect(useStore.getState().agentsVersion).toBe(before + 1);
     });
 });
+
+describe("the settings", () => {
+    it("open on the part asked for, and otherwise where they were last", () => {
+        useStore.getState().showSettings(true, "shortcuts");
+        expect(useStore.getState().settingsTab).toBe("shortcuts");
+        useStore.getState().showSettings(false);
+        useStore.getState().showSettings(true);
+        expect(useStore.getState()).toMatchObject({ settingsOpen: true, settingsTab: "shortcuts" });
+        useStore.getState().showSettings(false, "appearance");
+    });
+});

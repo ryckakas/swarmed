@@ -21,6 +21,19 @@ import {
     withSession,
 } from "./tree";
 
+/** The parts the settings are divided into, in the order their tabs are listed. */
+export const SETTINGS_TABS = [
+    ["appearance", "Appearance"],
+    ["sessions", "Sessions"],
+    ["status", "Status line"],
+    ["agents", "Agents"],
+    ["keys", "API keys"],
+    ["usage", "Storage and activity"],
+    ["shortcuts", "Keyboard shortcuts"],
+] as const;
+
+export type SettingsTab = (typeof SETTINGS_TABS)[number][0];
+
 interface State {
     projects: Project[];
     /** `loading` until the first read finished; an error message if it failed. */
@@ -65,7 +78,10 @@ interface State {
     askToRename(): void;
     /** Whether the settings are on screen. */
     settingsOpen: boolean;
-    showSettings(open: boolean): void;
+    /** The part of the settings that is on screen, or was last. */
+    settingsTab: SettingsTab;
+    /** Shows or hides the settings; opening can name the part to show. */
+    showSettings(open: boolean, tab?: SettingsTab): void;
     /** Gives a session a new title. The tree follows when the app confirms it. */
     rename(api: Api, sessionId: number, title: string): Promise<void>;
     /** The repository or task the user asked to remove, until they confirm or think again. */
@@ -244,7 +260,9 @@ export const useStore = create<State>((set, get) => ({
     renameAsked: 0,
     askToRename: () => set((state) => ({ renameAsked: state.renameAsked + 1 })),
     settingsOpen: false,
-    showSettings: (open) => set({ settingsOpen: open }),
+    settingsTab: "appearance",
+    showSettings: (open, tab) =>
+        set((state) => ({ settingsOpen: open, settingsTab: tab ?? state.settingsTab })),
     rename: (api, sessionId, title) =>
         reporting(async () => {
             await api.sessionRename(sessionId, title);

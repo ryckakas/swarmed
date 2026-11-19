@@ -1,9 +1,9 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { Settings, Supervision, Theme } from "../api/types";
 import { keyCaps, LOCAL_HOTKEYS, listedHotkeys } from "../hotkeys";
 import { STATUS_ITEM_LABELS, STATUS_ITEMS, withItem } from "../statusline";
-import { useStore } from "../store";
+import { SETTINGS_TABS, type SettingsTab, useStore } from "../store";
 import { AgentsSettings } from "./AgentsSettings";
 import { ApiKeys } from "./ApiKeys";
 import { CloseIcon, IconButton } from "./IconButton";
@@ -16,6 +16,7 @@ export function SettingsDialog() {
     const open = useStore((state) => state.settingsOpen);
     const settings = useStore((state) => state.settings);
     const showSettings = useStore((state) => state.showSettings);
+    const tab = useStore((state) => state.settingsTab);
     const dialog = useRef<HTMLDialogElement>(null);
     const shown = open && settings !== null;
 
@@ -41,15 +42,17 @@ export function SettingsDialog() {
                     <CloseIcon />
                 </IconButton>
             </header>
-            {/* Only this part scrolls: the title and the way out stay where they are. */}
-            <div className="settings-body">
-                <Appearance settings={settings} />
-                <Sessions settings={settings} />
-                <StatusLineSettings settings={settings} />
-                <UsageSettings />
-                <AgentsSettings />
-                <ApiKeys />
-                <Shortcuts />
+            <div className="settings-main">
+                <Tabs tab={tab} />
+                {/* Only this part scrolls: the title, the tabs and the way out stay put. */}
+                <div
+                    className="settings-body"
+                    role="tabpanel"
+                    id="settings-panel"
+                    aria-labelledby={`settings-tab-${tab}`}
+                >
+                    <Panel tab={tab} settings={settings} />
+                </div>
             </div>
             <footer className="settings-foot">
                 <button
@@ -62,6 +65,70 @@ export function SettingsDialog() {
             </footer>
         </dialog>
     );
+}
+
+/** The tabs down the left side. Up and down move between them, as in any list of tabs. */
+function Tabs({ tab }: { tab: SettingsTab }) {
+    const showSettings = useStore((state) => state.showSettings);
+    const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+        const step = { ArrowDown: 1, ArrowUp: -1 }[event.key];
+        if (step === undefined) {
+            return;
+        }
+        event.preventDefault();
+        const at = SETTINGS_TABS.findIndex(([id]) => id === tab);
+        const next = SETTINGS_TABS[(at + step + SETTINGS_TABS.length) % SETTINGS_TABS.length];
+        if (next) {
+            showSettings(true, next[0]);
+            document.getElementById(`settings-tab-${next[0]}`)?.focus();
+        }
+    };
+    return (
+        <div
+            className="settings-tabs"
+            role="tablist"
+            aria-label="Settings"
+            aria-orientation="vertical"
+            onKeyDown={onKeyDown}
+        >
+            {SETTINGS_TABS.map(([id, label]) => (
+                <button
+                    key={id}
+                    type="button"
+                    role="tab"
+                    id={`settings-tab-${id}`}
+                    className="settings-tab"
+                    aria-selected={id === tab}
+                    aria-controls="settings-panel"
+                    // Only the chosen tab is a Tab stop; the arrows reach the others.
+                    tabIndex={id === tab ? 0 : -1}
+                    onClick={() => showSettings(true, id)}
+                >
+                    {label}
+                </button>
+            ))}
+        </div>
+    );
+}
+
+/** The part of the settings a tab stands for. Only the one on screen is built. */
+function Panel({ tab, settings }: { tab: SettingsTab; settings: Settings }) {
+    switch (tab) {
+        case "appearance":
+            return <Appearance settings={settings} />;
+        case "sessions":
+            return <Sessions settings={settings} />;
+        case "status":
+            return <StatusLineSettings settings={settings} />;
+        case "agents":
+            return <AgentsSettings />;
+        case "keys":
+            return <ApiKeys />;
+        case "usage":
+            return <UsageSettings />;
+        case "shortcuts":
+            return <Shortcuts />;
+    }
 }
 
 function Appearance({ settings }: { settings: Settings }) {
@@ -195,13 +262,8 @@ const SHORTCUT_GROUPS = ["Sessions", "In a session", "Task", "Window"] as const;
 /** Every keyboard shortcut, by where it applies. Folded away until asked for: it is a long list. */
 function Shortcuts() {
     return (
-        <details className="settings-group settings-fold" id="shortcuts">
-            <summary>
-                <svg className="fold-chevron" viewBox="0 0 10 10" aria-hidden="true">
-                    <path d="M3.5 1.5 7 5 3.5 8.5" />
-                </svg>
-                Keyboard shortcuts
-            </summary>
+        <section className="settings-group" aria-label="Keyboard shortcuts">
+            <h3>Keyboard shortcuts</h3>
             {SHORTCUT_GROUPS.map((group) => (
                 <ShortcutList
                     key={group}
@@ -210,7 +272,7 @@ function Shortcuts() {
                 />
             ))}
             <ShortcutList title="While typing or in the sidebar" shortcuts={LOCAL_HOTKEYS} />
-        </details>
+        </section>
     );
 }
 
