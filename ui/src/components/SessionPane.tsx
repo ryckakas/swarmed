@@ -1,9 +1,11 @@
 import type { AgentEvent, Session, Task } from "../api/types";
+import { agentName, iconForAgent } from "../providerIcons";
 import { useStore } from "../store";
 import { findSession, findSessionHome } from "../tree";
 import { Composer } from "./Composer";
 import { EndIcon, IconButton, PanelIcon } from "./IconButton";
 import { NewTask } from "./NewTask";
+import { ProviderMark } from "./ProviderMark";
 import { SessionTitle } from "./SessionTitle";
 import { StatusLine } from "./StatusLine";
 import { StatusMark, statusLabel } from "./StatusMark";
@@ -60,6 +62,10 @@ export function SessionPane() {
                     <p className={`session-status status-${session.status}`}>
                         <StatusMark status={session.status} unread={session.unread} />
                         {statusLabel(session.status, session.unread)}
+                    </p>
+                    <p className="session-agent">
+                        <ProviderMark icon={iconForAgent(session.agent)} />
+                        {agentName(session.agent)}
                     </p>
                 </div>
             </header>

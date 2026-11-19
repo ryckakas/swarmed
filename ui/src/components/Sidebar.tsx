@@ -2,8 +2,10 @@ import { type KeyboardEvent, useEffect, useState } from "react";
 import { addProject, newSession } from "../actions";
 import { api } from "../api";
 import type { Project, Session, Task } from "../api/types";
+import { agentName, iconForAgent } from "../providerIcons";
 import { useStore } from "../store";
 import { countUnread, countWaiting, nestedSessions, projectStatus, projectUnread } from "../tree";
+import { ProviderMark } from "./ProviderMark";
 import { StatusMark } from "./StatusMark";
 
 export function Sidebar() {
@@ -329,6 +331,7 @@ function SessionRow({ session }: { session: Session }) {
                     </span>
                 )}
                 <span className="session-title">{title}</span>
+                <ProviderMark icon={iconForAgent(session.agent)} label={agentName(session.agent)} />
             </button>
             <button
                 type="button"

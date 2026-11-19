@@ -679,9 +679,33 @@ code {
 }
 
 .session-title {
+    flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* A provider's mark: what a session runs on, or whose key or agent a row is about. */
+.provider-mark {
+    flex: none;
+    width: 13px;
+    height: 13px;
+    fill: currentColor;
+}
+
+/* In the sidebar the marks form a column at the rows' right edge. */
+.session-row .provider-mark {
+    opacity: 0.85;
+}
+
+.session-agent {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--text-xs);
 }
 
 /* A task's closed sessions: one quiet line that unfolds into them. */
