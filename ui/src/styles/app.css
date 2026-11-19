@@ -60,6 +60,40 @@ code {
     display: grid;
     grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
     height: 100%;
+    position: relative;
+}
+
+/* The edge between two panels. It sits on the border and is wider than it looks. */
+.resizer {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    z-index: 2;
+    width: 7px;
+    cursor: col-resize;
+    touch-action: none;
+}
+
+.resizer-left {
+    left: calc(var(--sidebar-width) - 4px);
+}
+
+.resizer::after {
+    content: "";
+    position: absolute;
+    inset: 0 3px;
+    background: transparent;
+    transition: background 120ms;
+}
+
+.resizer:hover::after,
+.resizer:active::after,
+.resizer:focus-visible::after {
+    background: var(--focus);
+}
+
+.resizer:focus-visible {
+    outline: none;
 }
 
 .sidebar {
