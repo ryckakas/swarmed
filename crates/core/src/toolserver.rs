@@ -132,6 +132,21 @@ fn tools() -> Value {
             },
             "required": ["prompt"],
         },
+    }, {
+        "name": "close_session",
+        "title": "Close a session you spawned",
+        "description": "Closes a session that you started with spawn_session, once it is idle: \
+            it leaves the sidebar and its agent is stopped. Its conversation is kept and the \
+            user can reopen it. Use it when a spawned session is done and you have what you \
+            need from it, so finished helpers do not pile up. You cannot close a session you \
+            did not start, or one that is still working.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session_id": { "type": "integer", "description": "The session to close." },
+            },
+            "required": ["session_id"],
+        },
     }])
 }
 

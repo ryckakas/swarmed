@@ -1,4 +1,4 @@
-import type { KeyboardEvent } from "react";
+import { type KeyboardEvent, useEffect, useState } from "react";
 import { addProject, newSession } from "../actions";
 import { api } from "../api";
 import type { Project, Session, Task } from "../api/types";
@@ -163,6 +163,9 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
                     </li>
                 ))}
             </ul>
+            {task.closed > 0 && (
+                <ClosedSessions project={project} task={task.name} count={task.closed} />
+            )}
         </div>
     );
 }
@@ -215,6 +218,66 @@ function WorktreeIcon() {
             <circle cx="11.5" cy="5.2" r="1.6" />
             <path d="M4.5 4.8v6.4M11.5 6.8c0 2.6-3.2 2.4-7 3.6" />
         </svg>
+    );
+}
+
+interface ClosedProps {
+    project: string;
+    task: string;
+    count: number;
+}
+
+/**
+ * A task's closed sessions, folded away under its open ones. Closing a session, whether the
+ * user did it or the agent that started it, only puts it here: it can be looked up and reopened.
+ */
+function ClosedSessions({ project, task, count }: ClosedProps) {
+    const refresh = useStore((state) => state.refresh);
+    const report = useStore((state) => state.report);
+    const [sessions, setSessions] = useState<Session[] | null>(null);
+    // Read when unfolded, and again whenever the number of closed sessions changes.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: count exists to trigger a re-read
+    useEffect(() => {
+        if (sessions !== null) {
+            api.sessionsClosed(project, task).then(setSessions).catch(report);
+        }
+    }, [count]);
+    const toggle = () => {
+        if (sessions !== null) {
+            return setSessions(null);
+        }
+        api.sessionsClosed(project, task).then(setSessions).catch(report);
+    };
+    const reopen = (id: number) =>
+        api
+            .sessionReopen(id)
+            .then(() => refresh(api))
+            .catch(report);
+    return (
+        <div className="closed-sessions">
+            <button
+                type="button"
+                className="closed-toggle"
+                aria-expanded={sessions !== null}
+                onClick={toggle}
+            >
+                {count} closed
+            </button>
+            {sessions?.map((session) => (
+                <div key={session.id} className="closed-row">
+                    <span className="session-title" title={session.title}>
+                        {session.title || "New session"}
+                    </span>
+                    <button
+                        type="button"
+                        className="closed-reopen"
+                        onClick={() => void reopen(session.id)}
+                    >
+                        Reopen
+                    </button>
+                </div>
+            ))}
+        </div>
     );
 }
 

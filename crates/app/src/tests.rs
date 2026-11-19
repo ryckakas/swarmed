@@ -460,6 +460,31 @@ fn the_ui_can_set_up_an_mcp_server_and_never_reads_its_secrets_back() {
 }
 
 #[test]
+fn the_ui_can_list_closed_sessions_and_reopen_one() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    app.ok(
+        "task_new",
+        json!({ "project": "demo", "name": "one", "branch": null }),
+    );
+    let session = app.ok(
+        "session_new",
+        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "ask", "effort": null }),
+    );
+    let id = &session["id"];
+    app.ok("session_close", json!({ "id": id }));
+
+    // Closed is not gone: it is counted, listed, and can be put back.
+    let closed = |app: &App| app.ok("overview", json!({}))[0]["tasks"][0]["closed"].clone();
+    assert_eq!(closed(&app), 1);
+    let task = json!({ "project": "demo", "task": "one" });
+    assert_eq!(app.ok("sessions_closed", task.clone())[0]["id"], *id);
+    assert_eq!(app.ok("session_reopen", json!({ "id": id }))["id"], *id);
+    assert_eq!(app.ok("sessions_closed", task), json!([]));
+    assert_eq!(closed(&app), 0);
+}
+
+#[test]
 fn the_ui_can_point_the_agent_at_files_with_a_message() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
