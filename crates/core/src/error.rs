@@ -141,6 +141,9 @@ pub enum Error {
     /// An MCP server could not be saved or found as asked.
     #[error("{0}")]
     Mcp(String),
+    /// A file attached to a message is not there, or was not named by its whole path.
+    #[error("{} cannot be attached: there is no such file", .0.display())]
+    NoSuchAttachment(PathBuf),
     /// A message with nothing in it.
     #[error("a message cannot be empty")]
     EmptyMessage,

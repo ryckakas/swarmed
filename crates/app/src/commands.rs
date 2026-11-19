@@ -12,7 +12,7 @@ use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
     AgentInfo, AgentSetup, ApiKeyInfo, BranchChoices, Core, FileChange, FileDiff, McpServerInput,
     McpServerView, NewTaskOptions, Project, ProjectOverview, QueuedMessage, RemoveOptions, Session,
-    SessionOptions, SessionSettings, Settings, Task, TaskNaming, Usage,
+    SessionOptions, SessionSettings, Settings, Task, TaskNaming, Usage, with_files,
 };
 use tauri::{AppHandle, Emitter, Runtime, State};
 
@@ -293,9 +293,15 @@ pub(crate) fn session_events(core: CoreState<'_>, id: i64) -> Command<Vec<AgentE
 ///
 /// Async so that it runs on the runtime the core spawns the agent's tasks on.
 #[tauri::command]
-pub(crate) async fn session_send(core: CoreState<'_>, id: i64, text: String) -> Command<()> {
+pub(crate) async fn session_send(
+    core: CoreState<'_>,
+    id: i64,
+    text: String,
+    files: Option<Vec<PathBuf>>,
+) -> Command<()> {
+    let message = with_files(&text, &files.unwrap_or_default())?;
     core.session_start(id, Auth::Subscription)?;
-    Ok(core.session_send(id, &text)?)
+    Ok(core.session_send(id, &message)?)
 }
 
 #[tauri::command]
@@ -308,8 +314,10 @@ pub(crate) fn session_enqueue(
     core: CoreState<'_>,
     id: i64,
     text: String,
+    files: Option<Vec<PathBuf>>,
 ) -> Command<Vec<QueuedMessage>> {
-    Ok(core.session_enqueue(id, &text)?)
+    let message = with_files(&text, &files.unwrap_or_default())?;
+    Ok(core.session_enqueue(id, &message)?)
 }
 
 #[tauri::command]

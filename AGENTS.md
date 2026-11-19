@@ -120,6 +120,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   own. A server's secrets are named in the file and kept in the keychain under
   `mcp:<server>:<name>`; a front end can set one and never read it. Claude Code's servers are
   shown from its configuration and from what it last reported, and never written.
+- **Attaching a file is naming its path** (`attach.rs`). Nothing is uploaded or copied: the
+  agent runs on this machine and reads the file where it is. `with_files` lists the paths
+  under the message in one fixed form, which the UI reads back (`splitFiles`) to show them as
+  files. The front end gets paths from the system's file picker and from files dropped on the
+  window, never file contents.
 - **Each session can have a terminal** (`terminal.rs`): the user's shell on a pseudo-terminal in
   the task's worktree, shown in place of the message box. Its output is published on its own
   channel (`Core::subscribe_terminals`) and not stored. What it printed since the agent's last

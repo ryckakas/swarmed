@@ -2,12 +2,16 @@ import {
     type KeyboardEvent,
     type ReactNode,
     type Ref,
+    useEffect,
     useLayoutEffect,
     useRef,
     useState,
 } from "react";
+import { api } from "../api";
 import { type Edit, editFor } from "../editing";
 import { slashMatches, slashQuery, stepActive, withCommand } from "../slash";
+import { useStore } from "../store";
+import { FileChips } from "./FileChips";
 
 interface Props {
     value: string;
@@ -22,6 +26,9 @@ interface Props {
     inputRef?: Ref<HTMLTextAreaElement>;
     /** The commands and skills suggested while a message starts with `/`. */
     commands?: string[];
+    /** The files the message points the agent at. */
+    files: string[];
+    onFiles(files: string[]): void;
     /** What sits under the text, left of the button: pickers or labels. */
     children?: ReactNode;
 }
@@ -29,8 +36,10 @@ interface Props {
 /** The message box: text that grows with what is typed, options below it, and one round button. */
 export function ComposerBox(props: Props) {
     const { value, onChange, onSend, onStop, canSend, placeholder, children } = props;
+    const { files, onFiles } = props;
     const own = useRef<HTMLTextAreaElement>(null);
     const menu = useSlashMenu(value, props.commands ?? [], onChange);
+    const attach = useAttaching(files, onFiles);
 
     // Grow with the text, up to the limit the stylesheet sets, then scroll.
     // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the text changes
@@ -87,6 +96,10 @@ export function ComposerBox(props: Props) {
                     ))}
                 </ul>
             )}
+            <FileChips
+                files={files}
+                onRemove={(file) => onFiles(files.filter((other) => other !== file))}
+            />
             <textarea
                 ref={(element) => {
                     own.current = element;
@@ -103,7 +116,20 @@ export function ComposerBox(props: Props) {
                 onKeyDown={onKeyDown}
             />
             <div className="composer-row">
-                <div className="composer-options">{children}</div>
+                <div className="composer-options">
+                    <button
+                        type="button"
+                        className="icon-picker"
+                        aria-label="Attach files"
+                        title="Attach files: point the agent at files on this Mac. You can also drop them on the window."
+                        onClick={attach}
+                    >
+                        <svg viewBox="0 0 16 16" aria-hidden="true">
+                            <path d="M8 3v10M3 8h10" />
+                        </svg>
+                    </button>
+                    {children}
+                </div>
                 {onStop ? (
                     <button
                         type="button"
@@ -130,6 +156,32 @@ export function ComposerBox(props: Props) {
             </div>
         </form>
     );
+}
+
+/** `files` with `added` at the end, each file once. */
+export function withAdded(files: string[], added: string[]): string[] {
+    return [...files, ...added.filter((file) => !files.includes(file))];
+}
+
+/**
+ * Adding files to the message: returns what the "+" button does, which is to open the system's
+ * file picker, and takes files dropped on the window while this box is on screen. Nothing is
+ * read or copied: a file is attached by its path.
+ */
+function useAttaching(files: string[], onFiles: (files: string[]) => void) {
+    // The latest list and setter, for the listener that outlives the render that made it.
+    const latest = useRef({ files, onFiles });
+    latest.current = { files, onFiles };
+    const add = (added: string[]) => {
+        const now = latest.current;
+        now.onFiles(withAdded(now.files, added));
+    };
+    // biome-ignore lint/correctness/useExhaustiveDependencies: subscribed once, for as long as the box is shown
+    useEffect(() => {
+        const subscription = api.onFilesDropped(add);
+        return () => void subscription.then((unsubscribe) => unsubscribe());
+    }, []);
+    return () => void api.pickFiles().then(add).catch(useStore.getState().report);
 }
 
 function applyEdit(edit: Edit, box: HTMLTextAreaElement, onChange: (value: string) => void) {

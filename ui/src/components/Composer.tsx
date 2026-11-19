@@ -26,6 +26,7 @@ const PLACEHOLDER: Record<Session["status"], string> = {
 /** The message box of an existing session. */
 export function Composer({ session }: { session: Session }) {
     const [text, setText] = useState("");
+    const [files, setFiles] = useState<string[]>([]);
     const terminal = useStore((state) => state.terminalOpen);
     const toggleTerminal = useStore((state) => state.toggleTerminal);
     const report = useStore((state) => state.report);
@@ -33,7 +34,7 @@ export function Composer({ session }: { session: Session }) {
     const { id, status } = session;
     const busy = status === "working" || status === "waiting";
     const commands = useSlashCommands(id, status);
-    const canSend = text.trim() !== "";
+    const canSend = text.trim() !== "" || files.length > 0;
 
     // Answering a permission request removes the button that had focus. Bring it back here, so
     // the keyboard is never left pointing at nothing.
@@ -49,8 +50,11 @@ export function Composer({ session }: { session: Session }) {
             return;
         }
         setText("");
+        setFiles([]);
         // A busy agent is not interrupted: the message waits its turn, and can still be changed.
-        const sent = busy ? api.sessionEnqueue(id, text.trim()) : api.sessionSend(id, text.trim());
+        const sent = busy
+            ? api.sessionEnqueue(id, text.trim(), files)
+            : api.sessionSend(id, text.trim(), files);
         sent.catch(report);
     };
     const stop = () => void api.sessionInterrupt(id).catch(report);
@@ -84,6 +88,8 @@ export function Composer({ session }: { session: Session }) {
                     <ComposerBox
                         value={text}
                         onChange={setText}
+                        files={files}
+                        onFiles={setFiles}
                         onSend={send}
                         onStop={status === "working" ? stop : undefined}
                         canSend={canSend}
