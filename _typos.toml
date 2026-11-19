@@ -1,0 +1,8 @@
+# Spell check with `typos`, run by CI's lint job.
+
+[files]
+extend-exclude = [".plans/"]
+
+[default.extend-words]
+# A misspelt config key, there on purpose: a test checks that unknown keys are rejected.
+patern = "patern"
