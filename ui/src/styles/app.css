@@ -2486,6 +2486,21 @@ kbd {
     border-color: var(--faint);
 }
 
+.rules-input {
+    display: block;
+    width: 100%;
+    line-height: 1.45;
+    resize: vertical;
+    user-select: text;
+}
+
+.rules-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-top: var(--space-2);
+}
+
 /* MCP servers: the form for one of Swarmed's own, and the list of Claude Code's. */
 .settings-subhead {
     margin-top: var(--space-6);

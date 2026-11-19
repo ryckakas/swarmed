@@ -119,6 +119,8 @@ function Panel({ tab, settings }: { tab: SettingsTab; settings: Settings }) {
             return <Appearance settings={settings} />;
         case "sessions":
             return <Sessions settings={settings} />;
+        case "rules":
+            return <Rules settings={settings} />;
         case "status":
             return <StatusLineSettings settings={settings} />;
         case "agents":
@@ -207,6 +209,65 @@ function Sessions({ settings }: { settings: Settings }) {
                     onChange={(event) => void change(api, { html_views: event.target.checked })}
                 />
             </Row>
+        </section>
+    );
+}
+
+/** The most the rules may hold, as the core enforces it. */
+const MAX_RULES_BYTES = 20_000;
+
+/** What the line beside the Save button says. */
+function rulesState(tooLong: boolean, changed: boolean, saved: string): string {
+    if (tooLong) {
+        return "Too long to be given to every session. Not saved until it is shorter.";
+    }
+    if (changed) {
+        return "Not saved yet";
+    }
+    return saved === "" ? "No rules" : "Saved";
+}
+
+function Rules({ settings }: { settings: Settings }) {
+    const change = useStore((state) => state.changeSettings);
+    const [rules, setRules] = useState(settings.rules);
+    const tooLong = new TextEncoder().encode(rules).length > MAX_RULES_BYTES;
+    const changed = rules.trim() !== settings.rules;
+    const save = () => {
+        if (!tooLong && changed) {
+            void change(api, { rules: rules.trim() });
+        }
+    };
+    return (
+        <section className="settings-group" aria-label="Rules">
+            <h3>Rules</h3>
+            <p className="settings-hint">
+                What every agent should keep to, whatever the agent or model: how to answer, what to
+                avoid, how you like things done. Written in plain words, one rule per line. They are
+                given to each session when its agent starts, so a session that is already running
+                gets them the next time it is started.
+            </p>
+            <textarea
+                className="key-input rules-input"
+                aria-label="Rules for every agent"
+                rows={10}
+                placeholder={"Keep answers short.\nAsk before adding a dependency."}
+                value={rules}
+                onChange={(event) => setRules(event.target.value)}
+                onBlur={save}
+            />
+            <div className="rules-foot">
+                <button
+                    type="button"
+                    className="button"
+                    disabled={tooLong || !changed}
+                    onClick={save}
+                >
+                    Save rules
+                </button>
+                <span className="settings-hint" role="status">
+                    {rulesState(tooLong, changed, settings.rules)}
+                </span>
+            </div>
         </section>
     );
 }

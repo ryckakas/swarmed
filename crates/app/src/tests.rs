@@ -276,7 +276,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
             "editor": "code", "auto_title": true, "theme": "system", "text_scale": 100,
             "html_views": true, "default_supervision": "auto",
             "status_items": ["branch", "changes", "model", "context", "cost"],
-            "status_command": "",
+            "status_command": "", "rules": "",
         })
     );
 
@@ -298,6 +298,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     let chosen = json!({ "settings": {
         "editor": "swarmed-no-such-editor", "auto_title": false, "theme": "light", "text_scale": 110,
         "html_views": false, "default_supervision": "ask", "status_items": ["cost"], "status_command": "",
+        "rules": "Keep answers short.",
     } });
     app.ok("set_settings", chosen);
     let target = json!({ "project": "demo", "name": "one" });

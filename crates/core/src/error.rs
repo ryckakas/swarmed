@@ -132,6 +132,9 @@ pub enum Error {
     /// The session has no terminal open.
     #[error("session {0} has no terminal open")]
     TerminalNotOpen(i64),
+    /// Rules longer than rules may be.
+    #[error("the rules can hold at most {0} bytes")]
+    RulesTooLong(usize),
     /// A note longer than notes may be.
     #[error("a note can hold at most {0} bytes")]
     NoteTooLong(usize),

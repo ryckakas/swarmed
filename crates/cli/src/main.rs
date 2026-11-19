@@ -62,6 +62,13 @@ enum Command {
         #[arg(long)]
         set: bool,
     },
+    /// Print the rules every agent is given, whatever the agent or model, or replace them.
+    Rules {
+        /// Replace the rules with what is read from standard input. Nothing but blank space
+        /// removes them. Sessions started from then on get them.
+        #[arg(long)]
+        set: bool,
+    },
     /// Store, remove or list the API keys given to agents other than Claude Code.
     #[command(subcommand)]
     Key(KeyCommand),
@@ -238,6 +245,7 @@ async fn run(core: &Core, command: Command) -> Result<()> {
         Command::AutoTitle { state } => auto_title(core, state),
         Command::Key(command) => key(core, command),
         Command::Note { project, task, set } => note(core, &project, task.as_deref(), set),
+        Command::Rules { set } => rules(core, set),
     }
 }
 
@@ -275,6 +283,21 @@ fn note(core: &Core, project: &str, task: Option<&str>, set: bool) -> Result<()>
         return Ok(core.set_note(project, task, &text)?);
     }
     say(core.note(project, task)?.trim_end());
+    Ok(())
+}
+
+fn rules(core: &Core, set: bool) -> Result<()> {
+    if set {
+        let rules = std::io::read_to_string(std::io::stdin())?
+            .trim()
+            .to_string();
+        let settings = Settings {
+            rules,
+            ..core.settings()?
+        };
+        return Ok(core.set_settings(&settings)?);
+    }
+    say(core.settings()?.rules.trim_end());
     Ok(())
 }
 
