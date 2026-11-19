@@ -741,7 +741,7 @@ async fn queued_messages_are_sent_one_by_one_as_turns_end() {
     core.session_send(session.id, "run: ls").expect("sends");
     let (request_id, _) = permission_request(&mut bus).await;
     core.session_enqueue(session.id, "first").expect("queues");
-    let queue = core.session_enqueue(session.id, "secnd").expect("queues");
+    let queue = core.session_enqueue(session.id, "2nd").expect("queues");
     assert_eq!(queue.len(), 2);
     // A waiting message can still be corrected, and one emptied is taken out.
     let queue = core

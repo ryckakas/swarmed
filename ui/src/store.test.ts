@@ -167,7 +167,7 @@ describe("the queue of waiting messages", () => {
 
     it("can be rewritten and emptied while it waits", async () => {
         const api = createMockApi();
-        const [first] = await api.sessionEnqueue(3, "frst");
+        const [first] = await api.sessionEnqueue(3, "1st");
         await api.sessionEnqueue(3, "second");
         const edited = await api.sessionQueueEdit(3, first?.id ?? 0, "first");
         expect(edited.map((message) => message.text)).toEqual(["first", "second"]);

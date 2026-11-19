@@ -329,8 +329,8 @@ fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
     app.ok("session_send", json!({ "id": id, "text": "run: ls" }));
     let request = app.wait_for_event(id, "permission_request");
 
-    let queue = app.ok("session_enqueue", json!({ "id": id, "text": "nxt" }));
-    assert_eq!(queue[0]["text"], "nxt");
+    let queue = app.ok("session_enqueue", json!({ "id": id, "text": "then" }));
+    assert_eq!(queue[0]["text"], "then");
     let edited = app.ok(
         "session_queue_edit",
         json!({ "id": id, "message": queue[0]["id"], "text": "next" }),
