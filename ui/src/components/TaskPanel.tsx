@@ -45,7 +45,7 @@ export function TaskPanel({ width, onResize }: Props) {
 function TaskHead({ project, task }: { project: Project; task: Task }) {
     const report = useStore((state) => state.report);
     const editor = useStore((state) => state.settings?.editor ?? "code");
-    const setEditor = useStore((state) => state.setEditor);
+    const changeSettings = useStore((state) => state.changeSettings);
     return (
         <header className="panel-head">
             <h2>{task.name}</h2>
@@ -64,7 +64,7 @@ function TaskHead({ project, task }: { project: Project; task: Task }) {
                 <Picker
                     label="Editor"
                     value={editor}
-                    onChange={(value) => void setEditor(api, value)}
+                    onChange={(editor) => void changeSettings(api, { editor })}
                     options={editorChoices(editor)}
                 />
                 {task.url !== null && (

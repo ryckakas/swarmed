@@ -9,15 +9,18 @@ use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::{broadcast, mpsc};
 
-use crate::agent::{AgentCommand, AgentEvent, Auth, SessionSpec, Supervision};
+use crate::agent::{AgentCommand, AgentEvent, Auth, Namer, SessionSpec, Supervision};
 use crate::agents::CLAUDE;
 use crate::error::{Error, Result};
 use crate::mcp::{self, McpServer};
+use crate::secrets::SecretEnv;
 use crate::store::{Store, Task};
-use crate::{Core, lock};
+use crate::{Core, lock, views};
 
 /// How long a session title derived from the first message may be.
 const TITLE_CHARS: usize = 60;
+/// How long a title the user typed may be.
+const MAX_TITLE_CHARS: usize = 120;
 
 /// What a session is doing, as far as the last recorded event tells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -72,6 +75,8 @@ impl SessionStatus {
             } => Some(Self::Idle),
             AgentEvent::Exited { .. } => Some(Self::Errored),
             AgentEvent::Init { .. }
+            | AgentEvent::Renamed { .. }
+            | AgentEvent::TerminalShared { .. }
             | AgentEvent::TextDelta { .. }
             | AgentEvent::RateLimit { .. }
             | AgentEvent::Other { .. } => None,
@@ -225,6 +230,14 @@ impl Store {
         Ok(())
     }
 
+    fn session_rename(&self, id: i64, title: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions SET title = ?2 WHERE id = ?1",
+            params![id, title],
+        )?;
+        Ok(())
+    }
+
     fn session_close(&self, id: i64) -> Result<()> {
         self.conn.execute(
             "UPDATE sessions SET closed_at = CURRENT_TIMESTAMP, status = 'idle' WHERE id = ?1",
@@ -243,6 +256,19 @@ impl Store {
         let text: Option<String> = self
             .conn
             .query_row(sql, params![session_id, agent], |row| row.get(0))
+            .optional()?;
+        Ok(text.map(|text| event_from_json(&text)))
+    }
+
+    /// The session's newest event of one type, by the name it is stored under.
+    pub(crate) fn latest_event(&self, session_id: i64, kind: &str) -> Result<Option<AgentEvent>> {
+        // The event's type is the first thing in its JSON, which keeps this a prefix match.
+        let prefix = format!("{{\"type\":\"{kind}\"%");
+        let sql = "SELECT event FROM session_events WHERE session_id = ?1 AND event LIKE ?2 \
+                   ORDER BY id DESC LIMIT 1";
+        let text: Option<String> = self
+            .conn
+            .query_row(sql, params![session_id, prefix], |row| row.get(0))
             .optional()?;
         Ok(text.map(|text| event_from_json(&text)))
     }
@@ -298,13 +324,44 @@ fn event_from_json(text: &str) -> AgentEvent {
 }
 
 fn title_from(message: &str) -> String {
-    let line = message.lines().next().unwrap_or_default().trim();
-    if line.chars().count() <= TITLE_CHARS {
+    shortened(message, TITLE_CHARS)
+}
+
+/// The first line of `text`, without surrounding space or quotes, at most `limit` characters.
+fn shortened(text: &str, limit: usize) -> String {
+    let line = text.trim().lines().next().unwrap_or_default();
+    let line = line.trim().trim_matches(['"', '\'', '`']).trim();
+    if line.chars().count() <= limit {
         return line.to_string();
     }
-    let mut title: String = line.chars().take(TITLE_CHARS - 1).collect();
+    let mut title: String = line.chars().take(limit - 1).collect();
     title.push('…');
     title
+}
+
+/// Stores a session's new title and tells every front end.
+fn rename(store: &Mutex<Store>, live: &Live, id: i64, title: String) -> Result<()> {
+    lock(store).session_rename(id, &title)?;
+    live.note(store, id, AgentEvent::Renamed { title })
+}
+
+/// Asks `namer` for a title and uses it, unless the session was renamed in the meantime.
+async fn name_session(
+    namer: Arc<dyn Namer>,
+    store: Arc<Mutex<Store>>,
+    live: Arc<Live>,
+    (id, prompt): (i64, String),
+) {
+    let from_prompt = title_from(&prompt);
+    let suggested = namer.name(prompt).await;
+    let title = suggested.map(|title| shortened(&title, TITLE_CHARS));
+    let Some(title) = title.filter(|title| !title.is_empty()) else {
+        return;
+    };
+    let current = lock(&store).session_by_id(id).map(|session| session.title);
+    if current.is_ok_and(|current| current == from_prompt) {
+        rename(&store, &live, id, title).ok();
+    }
 }
 
 impl Core {
@@ -390,8 +447,16 @@ impl Core {
             return Ok(());
         }
         let mcp_servers = self.mcp_servers_for(&session.agent, &task)?;
+        let env = if session.agent == CLAUDE {
+            SecretEnv::default()
+        } else {
+            self.key_env()?
+        };
+        let html_views = self.settings()?.html_views;
         let handle = self.agents.backend(&session.agent)?.start(SessionSpec {
             mcp_servers,
+            env,
+            append_system_prompt: html_views.then(|| views::INSTRUCTIONS.to_string()),
             cwd: task.worktree_path,
             model: session.model,
             supervision: session.supervision,
@@ -429,16 +494,59 @@ impl Core {
         ))
     }
 
+    /// Gives a session a title of the user's choosing.
+    pub fn session_rename(&self, id: i64, title: &str) -> Result<Session> {
+        self.session(id)?;
+        let title = shortened(title, MAX_TITLE_CHARS);
+        if title.is_empty() {
+            return Err(Error::EmptyTitle);
+        }
+        rename(&self.store, &self.live, id, title)?;
+        self.session(id)
+    }
+
+    /// Has the session named after its first message, if the user wants that and something
+    /// can do it. Until the name arrives the title is the start of the message.
+    fn name_later(&self, id: i64, prompt: &str) {
+        let wanted = self.settings().is_ok_and(|settings| settings.auto_title);
+        let Some(namer) = self.namer.clone().filter(|_| wanted) else {
+            return;
+        };
+        let (store, live) = (Arc::clone(&self.store), Arc::clone(&self.live));
+        let naming = name_session(namer, store, live, (id, prompt.to_string()));
+        drop(tokio::spawn(naming));
+    }
+
     /// Starts a turn with `text` in a running session.
     pub fn session_send(&self, id: i64, text: &str) -> Result<()> {
         let commands = self.live.sender(id)?;
+        if self.session(id)?.title.is_empty() {
+            self.name_later(id, text);
+        }
         let event = AgentEvent::UserMessage {
             text: text.to_string(),
         };
         self.live.note(&self.store, id, event)?;
+        let message = self.with_terminal(id, text)?;
         commands
-            .send(AgentCommand::UserMessage(text.to_string()))
+            .send(AgentCommand::UserMessage(message))
             .map_err(|_| Error::SessionNotRunning(id))
+    }
+
+    /// The message as the agent gets it: what the user typed, and after it whatever happened
+    /// in the session's terminal since the agent's last turn.
+    fn with_terminal(&self, id: i64, text: &str) -> Result<String> {
+        let shared = self.terminals.take_unshared(id);
+        if shared.is_empty() {
+            return Ok(text.to_string());
+        }
+        let message = format!(
+            "{text}\n\n<terminal>\nWhat the user ran in this session's terminal since your last \
+             turn, with its output:\n{shared}\n</terminal>"
+        );
+        self.live
+            .note(&self.store, id, AgentEvent::TerminalShared { text: shared })?;
+        Ok(message)
     }
 
     /// Lets a pending permission request go ahead. Does nothing if it is no longer pending.
@@ -503,6 +611,7 @@ impl Core {
     pub fn session_close(&self, id: i64) -> Result<()> {
         self.session(id)?;
         self.session_stop(id);
+        self.terminal_close(id);
         self.store().session_close(id)
     }
 }
@@ -660,6 +769,15 @@ mod tests {
         let title = title_from(&long);
         assert_eq!(title.chars().count(), TITLE_CHARS);
         assert!(title.ends_with('…'));
+    }
+
+    #[test]
+    fn a_suggested_title_loses_its_quotes_and_extra_lines() {
+        assert_eq!(
+            shortened("  \"Fix the login loop\"\n\nSure!", 60),
+            "Fix the login loop"
+        );
+        assert_eq!(shortened("   ", 60), "");
     }
 
     #[test]

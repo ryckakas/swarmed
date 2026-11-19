@@ -82,6 +82,29 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **MCP servers are read from Claude Code's configuration** (`mcp.rs`) and handed to every agent
   that does not read it itself. The definitions hold secrets: they are passed on and never
   logged, and their `Debug` output leaves values out. Keep it that way.
+- **A session's title** starts as the first line of its first message. A `Namer` (`ClaudeNamer`:
+  one call to Claude Code's smallest model, with none of the user's settings, tools or MCP
+  servers) then suggests a better one, unless `auto_title` is off or the user renamed the session
+  first. Every change of title is an event, `Renamed`, so all front ends follow.
+- **Each session can have a terminal** (`terminal.rs`): the user's shell on a pseudo-terminal in
+  the task's worktree, shown in place of the message box. Its output is published on its own
+  channel (`Core::subscribe_terminals`) and not stored. What it printed since the agent's last
+  turn is appended, as plain text, to the user's next message and recorded as `TerminalShared`.
+  The agent cannot type into the terminal.
+- **Agents may answer with HTML views**: a fenced block with the language `html-view`, which
+  they are told about through `views::INSTRUCTIONS`. The UI wraps the fragment in a document
+  (`ui/src/htmlview.ts`), hands it to the core (`views.rs`), and shows it in a sandboxed frame
+  loaded from `swarmed-view://`, a scheme the app serves with a policy of its own
+  (`view_response` in the app crate). That origin has no capability, so it cannot call a
+  command. Never show agent HTML in the app's own origin, and never loosen the app's policy
+  for it.
+- **The status line** under the message box is drawn by the UI from built-in pieces
+  (`ui/src/statusline.ts`) chosen in the settings. A `status_command` replaces them: the core
+  runs it (`statusline.rs`) with the session as JSON on standard input and shows its first line.
+- **API keys live in the system's keychain** (`secrets.rs`), under names from a fixed list of
+  providers. They are written by a front end and afterwards only read to fill the environment
+  of an agent other than Claude Code. They are never returned, logged or written to Swarmed's
+  files, and `SecretEnv` prints names only. Keep it that way.
 - **Swarmed never handles Claude.ai credentials.** It only shapes the child's environment (`Auth`).
 - **Session events are stored as JSON** (`AgentEvent`), so its variants and fields are only added,
   never renamed.

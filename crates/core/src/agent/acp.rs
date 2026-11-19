@@ -46,6 +46,8 @@ impl AgentBackend for AcpBackend {
     fn start(&self, spec: SessionSpec) -> Result<AgentHandle> {
         let mut child = Command::new(&self.program)
             .args(&self.args)
+            .envs(spec.env.0.iter().map(|(name, value)| (name, value)))
+            // What the user wrote for this agent in agents.toml wins over a stored key.
             .envs(self.env.iter().map(|(name, value)| (name, value)))
             .current_dir(&spec.cwd)
             .stdin(Stdio::piped())

@@ -14,6 +14,7 @@ categories.workspace = true
 workspace = true
 
 [dependencies]
+pty-process = { workspace = true }
 rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -25,9 +26,13 @@ tokio = { workspace = true, features = [
     "process",
     "rt-multi-thread",
     "sync",
+    "time",
 ] }
 toml = { workspace = true }
 
+# The Keychain, where API keys are kept.
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = { workspace = true }
+
 [dev-dependencies]
-tokio = { workspace = true, features = ["time"] }
 tempfile = { workspace = true }

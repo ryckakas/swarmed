@@ -92,6 +92,27 @@ pub enum Error {
     /// No agent is configured under this id.
     #[error("agent `{0}` is not configured")]
     AgentNotFound(String),
+    /// The place API keys are kept could not be read or written.
+    #[error("the key store failed: {0}")]
+    Secrets(String),
+    /// A key for a provider Swarmed does not know.
+    #[error("`{0}` is not an API key Swarmed can store")]
+    UnknownApiKey(String),
+    /// An API key with nothing in it.
+    #[error("an API key cannot be empty")]
+    EmptyApiKey,
+    /// The user's status line script could not be run, failed, or took too long.
+    #[error("status line: {0}")]
+    StatusLine(String),
+    /// A session's terminal could not be started or reached.
+    #[error("terminal: {0}")]
+    Terminal(String),
+    /// The session has no terminal open.
+    #[error("session {0} has no terminal open")]
+    TerminalNotOpen(i64),
+    /// A session title with nothing in it.
+    #[error("a session title cannot be empty")]
+    EmptyTitle,
     /// No session has this id.
     #[error("session {0} not found")]
     SessionNotFound(i64),

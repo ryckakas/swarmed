@@ -1,6 +1,7 @@
 import type {
     AgentEvent,
     AgentInfo,
+    ApiKeyInfo,
     BranchChoices,
     FileChange,
     FileDiff,
@@ -12,6 +13,7 @@ import type {
     SessionSetup,
     Settings,
     Task,
+    TerminalOutput,
 } from "./types";
 
 /** Stops a subscription. */
@@ -41,6 +43,11 @@ export interface Api {
     taskOpenEditor(project: string, name: string): Promise<void>;
     /** Opens the task's running stack in the default browser. */
     taskOpenUrl(project: string, name: string): Promise<void>;
+    /** The providers a key can be stored for, and which have one. */
+    apiKeys(): Promise<ApiKeyInfo[]>;
+    /** Stores a provider's key in the system's keychain. It cannot be read back. */
+    setApiKey(name: string, key: string): Promise<void>;
+    deleteApiKey(name: string): Promise<void>;
     settings(): Promise<Settings>;
     setSettings(settings: Settings): Promise<void>;
     /** Calls `listener` for every line a hook prints while a task is created or removed. */
@@ -65,6 +72,28 @@ export interface Api {
      * from its next turn, the supervision from its next action.
      */
     sessionConfigure(id: number, settings: SessionSettings): Promise<Session>;
+    /**
+     * Hands over an HTML document an agent wrote and returns the address a sandboxed frame
+     * loads it from: an origin of its own, with no access to the app.
+     */
+    viewUrl(document: string): Promise<string>;
+    /**
+     * Opens the session's terminal, starting a shell in the task's worktree if none runs, and
+     * returns what it has printed so far, to redraw it.
+     */
+    terminalOpen(id: number, cols: number, rows: number): Promise<string>;
+    /** Types into the session's terminal. */
+    terminalWrite(id: number, data: string): Promise<void>;
+    terminalResize(id: number, cols: number, rows: number): Promise<void>;
+    /** Calls `listener` for everything any session's terminal prints, from now on. */
+    onTerminalOutput(listener: (output: TerminalOutput) => void): Promise<Unsubscribe>;
+    /**
+     * What the user's status line script prints for the session, or `null` if no script is
+     * configured and the built-in pieces apply.
+     */
+    statusLine(id: number): Promise<string | null>;
+    /** Gives the session a title of the user's choosing. Every front end hears of it as an event. */
+    sessionRename(id: number, title: string): Promise<Session>;
     /** Stops the session's agent and takes the session out of the tree. Its history is kept. */
     sessionClose(id: number): Promise<void>;
     /** Calls `listener` for every event of every running session, from now on. */

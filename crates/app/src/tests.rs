@@ -213,6 +213,26 @@ fn the_ui_can_deny_interrupt_stop_and_remove() {
     app.ok("session_interrupt", json!({ "id": id }));
     app.ok("session_stop", json!({ "id": id }));
     app.wait_for_event(id, "exited");
+    assert_eq!(app.ok("status_line", json!({ "id": id })), json!(null));
+    let size = json!({ "id": id, "cols": 80, "rows": 24 });
+    assert_eq!(app.ok("terminal_open", size.clone()), json!(""));
+    app.ok("terminal_write", json!({ "id": id, "data": "true\n" }));
+    app.ok("terminal_resize", size);
+    app.ok("terminal_close", json!({ "id": id }));
+    assert_eq!(
+        app.invoke("terminal_write", json!({ "id": id, "data": "ls\n" })),
+        Err(json!(format!("session {id} has no terminal open")))
+    );
+    let renamed = app.ok(
+        "session_rename",
+        json!({ "id": id, "title": "  Slow test  " }),
+    );
+    assert_eq!(renamed["title"], "Slow test");
+    assert_eq!(app.wait_for_event(id, "renamed")["title"], "Slow test");
+    assert_eq!(
+        app.invoke("session_rename", json!({ "id": id, "title": " " })),
+        Err(json!("a session title cannot be empty"))
+    );
     app.ok("session_close", json!({ "id": id }));
     assert_eq!(
         app.ok("overview", json!({}))[0]["tasks"][0]["sessions"],
@@ -237,7 +257,14 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
         app.ok("overview", json!({}))[0]["tasks"][0]["url"],
         json!(null)
     );
-    assert_eq!(app.ok("settings", json!({})), json!({ "editor": "code" }));
+    assert_eq!(
+        app.ok("settings", json!({})),
+        json!({
+            "editor": "code", "auto_title": true, "theme": "system", "text_scale": 100,
+            "html_views": true,
+            "status_items": ["branch", "changes", "model", "cost"], "status_command": "",
+        })
+    );
 
     let worktree = app.ok("overview", json!({}))[0]["tasks"][0]["worktree_path"].clone();
     let worktree = Path::new(worktree.as_str().expect("a path"));
@@ -254,7 +281,10 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
             .is_some_and(|text| text.ends_with("+one\n"))
     );
 
-    let chosen = json!({ "settings": { "editor": "swarmed-no-such-editor" } });
+    let chosen = json!({ "settings": {
+        "editor": "swarmed-no-such-editor", "auto_title": false, "theme": "light", "text_scale": 110,
+        "html_views": false, "status_items": ["cost"], "status_command": "",
+    } });
     app.ok("set_settings", chosen);
     let target = json!({ "project": "demo", "name": "one" });
     let failed = app.invoke("task_open_editor", target.clone());
@@ -269,6 +299,73 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
         app.invoke("task_open_url", target),
         Err(json!("project `demo` has no `open_url` in its config"))
     );
+}
+
+#[test]
+fn the_ui_can_store_and_remove_a_key_without_ever_reading_it() {
+    let app = app();
+    let stored = |app: &App| {
+        let keys = app.ok("api_keys", json!({}));
+        let openrouter = keys
+            .as_array()
+            .and_then(|keys| keys.iter().find(|key| key["name"] == "OPENROUTER_API_KEY"));
+        openrouter.cloned().expect("OpenRouter is offered")
+    };
+    assert_eq!(
+        stored(&app),
+        json!({ "name": "OPENROUTER_API_KEY", "provider": "OpenRouter", "stored": false })
+    );
+    let key = json!({ "name": "OPENROUTER_API_KEY", "key": " sk-or-test " });
+    app.ok("set_api_key", key);
+    assert_eq!(stored(&app)["stored"], true);
+    assert!(
+        !app.ok("api_keys", json!({}))
+            .to_string()
+            .contains("sk-or-test")
+    );
+
+    app.ok("delete_api_key", json!({ "name": "OPENROUTER_API_KEY" }));
+    assert_eq!(stored(&app)["stored"], false);
+    assert_eq!(
+        app.invoke("set_api_key", json!({ "name": "AWS_SECRET", "key": "x" })),
+        Err(json!("`AWS_SECRET` is not an API key Swarmed can store"))
+    );
+    assert_eq!(
+        app.invoke(
+            "set_api_key",
+            json!({ "name": "OPENAI_API_KEY", "key": "  " })
+        ),
+        Err(json!("an API key cannot be empty"))
+    );
+}
+
+#[test]
+fn an_agents_html_is_served_from_its_own_origin_under_its_own_policy() {
+    let dir = TempDir::new().expect("temp dir");
+    let paths = Paths {
+        data_dir: dir.path().join("data"),
+        worktrees_root: dir.path().join("worktrees"),
+        claude_config: dir.path().join("claude.json"),
+    };
+    let core = Core::with_backend(paths, Arc::new(FakeBackend::default())).expect("core opens");
+    let id = core.view_put("<p>sorted</p>".to_string());
+
+    let found = crate::view_response(&core, &format!("/{id}"));
+    assert_eq!(found.status(), 200);
+    assert_eq!(found.body().as_ref(), b"<p>sorted</p>");
+    let policy = found.headers()["content-security-policy"]
+        .to_str()
+        .expect("text");
+    assert!(policy.starts_with("default-src 'none'"), "{policy}");
+    assert!(!policy.contains("connect-src"), "{policy}");
+    assert_eq!(crate::view_response(&core, "/missing").status(), 404);
+}
+
+#[test]
+fn the_ui_can_hand_over_html_for_a_frame() {
+    let app = app();
+    let id = app.ok("view_put", json!({ "document": "<p>hi</p>" }));
+    assert_eq!(id.as_str().map(str::len), Some(16));
 }
 
 #[test]

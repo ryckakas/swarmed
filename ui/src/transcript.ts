@@ -4,7 +4,8 @@ import type { AgentEvent } from "./api/types";
 
 export type Item =
     | { kind: "user"; key: number; text: string }
-    | { kind: "text"; key: number; text: string }
+    /** Something the agent said. `streaming` while its end has not arrived yet. */
+    | { kind: "text"; key: number; text: string; streaming: boolean }
     | { kind: "tool"; key: number; name: string; input: unknown; result: ToolResult | null }
     /** A request nobody has decided yet. It leaves the transcript once it is. */
     | {
@@ -17,6 +18,8 @@ export type Item =
       }
     /** A request the user refused. An allowed one shows as the tool call it let through. */
     | { kind: "denied"; key: number; toolName: string; input: unknown }
+    /** What happened in the terminal, as the agent was told with the message before it. */
+    | { kind: "terminal"; key: number; text: string }
     | { kind: "session"; key: number; model: string; login: string; mcp: string; skills: number }
     | { kind: "turn"; key: number; isError: boolean; costUsd: number | null }
     | { kind: "notice"; key: number; tone: "error" | "warning"; text: string };
@@ -51,9 +54,12 @@ function single(event: AgentEvent, key: number): Item | null {
         case "user_message":
             return { kind: "user", key, text: event.text };
         case "text":
+            return { kind: "text", key, text: event.text, streaming: false };
         // A reply still being written reads like a finished one, and becomes one in place.
         case "text_delta":
-            return { kind: "text", key, text: event.text };
+            return { kind: "text", key, text: event.text, streaming: true };
+        case "terminal_shared":
+            return { kind: "terminal", key, text: event.text };
         case "init":
             return sessionItem(event, key);
         case "turn_done":

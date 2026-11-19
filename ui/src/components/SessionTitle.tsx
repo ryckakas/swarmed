@@ -1,0 +1,56 @@
+import { type KeyboardEvent, useState } from "react";
+import { api } from "../api";
+import type { Session } from "../api/types";
+import { useStore } from "../store";
+
+/** The session's title. Double-click it, or press Rename, to type a better one. */
+export function SessionTitle({ session }: { session: Session }) {
+    const rename = useStore((state) => state.rename);
+    const [draft, setDraft] = useState<string | null>(null);
+    const title = session.title || "New session";
+
+    if (draft === null) {
+        return (
+            <div className="session-title-row">
+                <h1 title="Double-click to rename" onDoubleClick={() => setDraft(session.title)}>
+                    {title}
+                </h1>
+                <button
+                    type="button"
+                    className="title-rename"
+                    onClick={() => setDraft(session.title)}
+                >
+                    Rename
+                </button>
+            </div>
+        );
+    }
+    const save = () => {
+        const wanted = draft.trim();
+        if (wanted !== "" && wanted !== session.title) {
+            void rename(api, session.id, wanted);
+        }
+        setDraft(null);
+    };
+    const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === "Enter") {
+            save();
+        } else if (event.key === "Escape") {
+            setDraft(null);
+        }
+    };
+    return (
+        <input
+            className="session-title-input"
+            aria-label="Session title"
+            value={draft}
+            maxLength={120}
+            // biome-ignore lint/a11y/noAutofocus: the user just asked to type here
+            autoFocus
+            onFocus={(event) => event.currentTarget.select()}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={onKeyDown}
+            onBlur={save}
+        />
+    );
+}

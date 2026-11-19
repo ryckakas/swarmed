@@ -50,10 +50,36 @@ export interface FileDiff {
     truncated: boolean;
 }
 
+/** One provider an API key can be stored for. The key itself never reaches the UI. */
+export interface ApiKeyInfo {
+    /** The environment variable agents read the key from. */
+    name: string;
+    provider: string;
+    /** Whether a key is stored. */
+    stored: boolean;
+}
+
+/** The colours the app is drawn in: the system's choice, or always one of the two. */
+export type Theme = "system" | "dark" | "light";
+
+/** One built-in piece of the status line. */
+export type StatusItem = "branch" | "changes" | "model" | "cost" | "agent" | "worktree";
+
 /** The user's own preferences. */
 export interface Settings {
     /** The command that opens a folder in the user's code editor. */
     editor: string;
+    /** Whether a model names a new session once its first message is sent. */
+    auto_title: boolean;
+    theme: Theme;
+    /** The size of the app's text, in percent of its normal size. */
+    text_scale: number;
+    /** Whether agents may answer with small HTML views, and those are shown. */
+    html_views: boolean;
+    /** The built-in pieces of the status line under the message box, in order. */
+    status_items: StatusItem[];
+    /** A command whose first line of output replaces the built-in pieces. Empty for none. */
+    status_command: string;
 }
 
 export interface Project {
@@ -93,6 +119,10 @@ export type AgentEvent =
           input: unknown;
           description: string | null;
       }
+    /** The session got a new title, from the user or from the model that names sessions. */
+    | { type: "renamed"; title: string }
+    /** What happened in the session's terminal, as given to the agent with the next message. */
+    | { type: "terminal_shared"; text: string }
     | { type: "permission_answered"; request_id: string; allowed: boolean }
     | { type: "permission_withdrawn"; request_id: string }
     | { type: "rate_limit"; status: string; resets_at: number | null; raw: unknown }
@@ -105,6 +135,13 @@ export interface SessionEvent {
     /** The session's status after this event, if the event changed it. */
     status: SessionStatus | null;
     event: AgentEvent;
+}
+
+/** A piece of what a session's terminal printed. */
+export interface TerminalOutput {
+    session_id: number;
+    /** The text, with the escape sequences a terminal emulator expects. */
+    data: string;
 }
 
 /** One line a hook printed, with the task it belongs to. */

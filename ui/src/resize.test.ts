@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { clampWidth, KEY_STEP, SIDEBAR_WIDTH, widthAfterKey } from "./resize";
+import {
+    clampWidth,
+    KEY_STEP,
+    MIN_MAIN_WIDTH,
+    PANEL_WIDTH,
+    SIDEBAR_WIDTH,
+    widestPanel,
+    widthAfterKey,
+} from "./resize";
 
 describe("clampWidth", () => {
     it("keeps a width within the limits and whole", () => {
@@ -25,5 +33,15 @@ describe("widthAfterKey", () => {
 
     it("ignores other keys", () => {
         expect(widthAfterKey("a", 300, SIDEBAR_WIDTH)).toBeNull();
+    });
+});
+
+describe("widestPanel", () => {
+    it("leaves the conversation its minimum width", () => {
+        expect(widestPanel(1600, 300)).toBe(1600 - 300 - MIN_MAIN_WIDTH);
+    });
+
+    it("never goes below the panel's own minimum in a small window", () => {
+        expect(widestPanel(700, 300)).toBe(PANEL_WIDTH.min);
     });
 });

@@ -3,10 +3,12 @@
 mod common;
 
 use common::{core_with_project, fixture, next, turn};
-use swarmed_core::agent::{AgentEvent, Auth, Supervision};
+use std::sync::Arc;
+
+use swarmed_core::agent::{AgentEvent, Auth, Namer, Naming, Supervision};
 use swarmed_core::{
     Core, Error, NewTaskOptions, Session, SessionEvent, SessionOptions, SessionSettings,
-    SessionStatus, hooks,
+    SessionStatus, Settings, TerminalOutput, hooks,
 };
 use tokio::sync::broadcast::Receiver;
 
@@ -208,6 +210,214 @@ async fn two_sessions_run_side_by_side() {
         core.session(second.id).expect("exists").status,
         SessionStatus::Idle
     );
+}
+
+/// Names every conversation the same, after a moment, as a model would.
+#[derive(Debug)]
+struct FixedNamer(&'static str);
+
+impl Namer for FixedNamer {
+    fn name(&self, _prompt: String) -> Naming {
+        let title = self.0.to_string();
+        Box::pin(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            Some(title)
+        })
+    }
+}
+
+/// Skips ahead to the next change of title.
+async fn renamed(bus: &mut Receiver<SessionEvent>) -> String {
+    loop {
+        if let AgentEvent::Renamed { title } = next(bus).await.event {
+            return title;
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_session_is_named_after_its_first_message_and_can_be_renamed() {
+    let fx = fixture();
+    let mut core = core_with_task(&fx).await;
+    core.set_namer(Arc::new(FixedNamer("\"Greeting the agent\"")));
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    core.session_send(session.id, "hello there").expect("sends");
+    assert_eq!(
+        core.session(session.id).expect("exists").title,
+        "hello there"
+    );
+    assert_eq!(renamed(&mut bus).await, "Greeting the agent");
+    assert_eq!(
+        core.session(session.id).expect("exists").title,
+        "Greeting the agent"
+    );
+
+    let by_hand = core
+        .session_rename(session.id, "  My own name\nsecond line ")
+        .expect("renames");
+    assert_eq!(by_hand.title, "My own name");
+    assert_eq!(renamed(&mut bus).await, "My own name");
+    // Only the first message names a session.
+    core.session_send(session.id, "another").expect("sends");
+    turn(&mut bus, session.id).await;
+    assert_eq!(
+        core.session(session.id).expect("exists").title,
+        "My own name"
+    );
+    assert!(matches!(
+        core.session_rename(session.id, "  "),
+        Err(Error::EmptyTitle)
+    ));
+}
+
+#[tokio::test]
+async fn a_title_chosen_before_the_suggestion_arrives_is_kept_and_naming_can_be_off() {
+    let fx = fixture();
+    let mut core = core_with_task(&fx).await;
+    core.set_namer(Arc::new(FixedNamer("Suggested")));
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+    core.session_send(session.id, "hello").expect("sends");
+    core.session_rename(session.id, "Mine").expect("renames");
+    turn(&mut bus, session.id).await;
+    tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+    assert_eq!(core.session(session.id).expect("exists").title, "Mine");
+
+    let off = Settings {
+        auto_title: false,
+        ..Settings::default()
+    };
+    core.set_settings(&off).expect("saves");
+    let quiet = started_session(&core);
+    core.session_send(quiet.id, "hello again").expect("sends");
+    turn(&mut bus, quiet.id).await;
+    tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+    assert_eq!(core.session(quiet.id).expect("exists").title, "hello again");
+}
+
+#[tokio::test]
+async fn a_status_line_script_is_told_about_the_session_it_is_for() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+    core.session_send(session.id, "hello").expect("sends");
+    turn(&mut bus, session.id).await;
+    assert_eq!(core.status_line(session.id).await.expect("no script"), None);
+
+    // Runs in the worktree and reads the model the agent reported from its input.
+    let script = r#"printf '%s on ' "$(basename "$PWD")"; sed -E 's/.*"model":"([^"]*)".*/\1/'"#;
+    let settings = Settings {
+        status_command: script.to_string(),
+        ..Settings::default()
+    };
+    core.set_settings(&settings).expect("saves");
+    let shown = core.status_line(session.id).await.expect("runs");
+    assert_eq!(shown.as_deref(), Some("one on fake"));
+    assert!(matches!(
+        core.status_line(404).await,
+        Err(Error::SessionNotFound(404))
+    ));
+}
+
+/// Waits until the session's terminal has printed `wanted`.
+async fn printed(output: &mut Receiver<TerminalOutput>, wanted: &str) {
+    let mut seen = String::new();
+    let wait = async {
+        while !seen.contains(wanted) {
+            seen.push_str(&output.recv().await.expect("the terminal is open").data);
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(20), wait)
+        .await
+        .expect("the terminal never printed what was typed");
+}
+
+#[tokio::test]
+async fn what_happens_in_the_terminal_travels_with_the_next_message() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let mut output = core.subscribe_terminals();
+    let session = started_session(&core);
+
+    assert_eq!(core.terminal_open(session.id, 80, 24).expect("opens"), "");
+    // The sum shows the command ran: its text alone would also match what the terminal echoes.
+    core.terminal_write(session.id, "echo term-$((40 + 2))\n")
+        .expect("types");
+    printed(&mut output, "term-42").await;
+    assert!(
+        core.terminal_open(session.id, 100, 30)
+            .expect("reopens")
+            .contains("term-42")
+    );
+
+    core.session_send(session.id, "what happened?")
+        .expect("sends");
+    let events = turn(&mut bus, session.id).await;
+    let shared = events.iter().find_map(|event| match event {
+        AgentEvent::TerminalShared { text } => Some(text.as_str()),
+        _ => None,
+    });
+    assert!(
+        shared.is_some_and(|text| text.contains("term-42")),
+        "{events:?}"
+    );
+    let reply = events.iter().find_map(|event| match event {
+        AgentEvent::Text { text } => Some(text.as_str()),
+        _ => None,
+    });
+    let reply = reply.expect("the agent replied");
+    assert!(
+        reply.starts_with("echo: what happened?\n\n<terminal>"),
+        "{reply}"
+    );
+    assert!(
+        reply.contains("term-42") && reply.ends_with("</terminal>"),
+        "{reply}"
+    );
+
+    // Nothing new in the terminal: the next message goes out as typed.
+    core.session_send(session.id, "and now?").expect("sends");
+    let events = turn(&mut bus, session.id).await;
+    assert!(events.contains(&text("echo: and now?")), "{events:?}");
+
+    core.terminal_close(session.id);
+    assert!(matches!(
+        core.terminal_write(session.id, "ls\n"),
+        Err(Error::TerminalNotOpen(id)) if id == session.id
+    ));
+}
+
+#[tokio::test]
+async fn agents_are_told_about_html_views_unless_the_user_turned_them_off() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+    core.session_send(session.id, "instructions")
+        .expect("sends");
+    let told = turn(&mut bus, session.id).await;
+    assert!(
+        told.iter()
+            .any(|e| matches!(e, AgentEvent::Text { text } if text.contains("`html-view`"))),
+        "{told:?}"
+    );
+
+    let off = Settings {
+        html_views: false,
+        ..Settings::default()
+    };
+    core.set_settings(&off).expect("saves");
+    let quiet = started_session(&core);
+    core.session_send(quiet.id, "instructions").expect("sends");
+    assert!(turn(&mut bus, quiet.id).await.contains(&text("none")));
+
+    let id = core.view_put("<p>hi</p>".to_string());
+    assert_eq!(core.view(&id).as_deref(), Some("<p>hi</p>"));
+    assert_eq!(core.view("nope"), None);
 }
 
 #[tokio::test]

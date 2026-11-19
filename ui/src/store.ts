@@ -1,7 +1,14 @@
 import { create } from "zustand";
 import type { Api } from "./api/client";
 import type { AgentEvent, Project, SessionEvent, SessionSettings, Settings } from "./api/types";
-import { applySessionEvent, mayHaveEdited, taskIdOf, withoutSession, withSession } from "./tree";
+import {
+    applySessionEvent,
+    mayHaveEdited,
+    taskIdOf,
+    toggledId,
+    withoutSession,
+    withSession,
+} from "./tree";
 
 interface State {
     projects: Project[];
@@ -31,7 +38,19 @@ interface State {
     /** Whether the task panel on the right is shown. */
     panelOpen: boolean;
     togglePanel(): void;
-    setEditor(api: Api, editor: string): Promise<void>;
+    /** Changes some of the user's preferences and keeps the rest. */
+    changeSettings(api: Api, change: Partial<Settings>): Promise<void>;
+    /** The ids of the repositories whose tasks are folded away in the sidebar. */
+    folded: number[];
+    toggleFolded(projectId: number): void;
+    /** Whether the status line under the message box is shown, or folded away. */
+    statusOpen: boolean;
+    toggleStatus(): void;
+    /** Whether the settings are on screen. */
+    settingsOpen: boolean;
+    showSettings(open: boolean): void;
+    /** Gives a session a new title. The tree follows when the app confirms it. */
+    rename(api: Api, sessionId: number, title: string): Promise<void>;
     /** The session the user asked to close, until they confirm or change their mind. */
     closing: number | null;
     /** Asks before closing: `null` withdraws the question. */
@@ -94,6 +113,26 @@ function countEdit(state: State, published: SessionEvent): Record<number, number
 }
 
 const PANEL_OPEN = "swarmed.panel-open";
+const STATUS_OPEN = "swarmed.status-open";
+const FOLDED = "swarmed.folded-projects";
+
+/** A list of ids remembered on this machine; empty if nothing usable is stored. */
+function readIds(key: string): number[] {
+    try {
+        const stored: unknown = JSON.parse(localStorage.getItem(key) ?? "[]");
+        return Array.isArray(stored) ? stored.filter((id) => typeof id === "number") : [];
+    } catch {
+        return [];
+    }
+}
+
+function writeStored(key: string, value: string) {
+    try {
+        localStorage.setItem(key, value);
+    } catch {
+        // Without storage the choice just lasts until the window closes.
+    }
+}
 
 /** A yes or no remembered on this machine; `fallback` if nothing, or nothing readable, is stored. */
 function readFlag(key: string, fallback: boolean): boolean {
@@ -148,11 +187,31 @@ export const useStore = create<State>((set, get) => ({
         writeFlag(PANEL_OPEN, panelOpen);
         set({ panelOpen });
     },
-    setEditor: (api, editor) =>
+    changeSettings: (api, change) =>
         reporting(async () => {
-            const settings = { ...get().settings, editor };
-            await api.setSettings(settings);
+            const current = get().settings ?? (await api.settings());
+            const settings = { ...current, ...change };
+            // Shown at once; the app only has to remember it.
             set({ settings });
+            await api.setSettings(settings);
+        }),
+    folded: readIds(FOLDED),
+    toggleFolded: (projectId) => {
+        const folded = toggledId(get().folded, projectId);
+        writeStored(FOLDED, JSON.stringify(folded));
+        set({ folded });
+    },
+    statusOpen: readFlag(STATUS_OPEN, true),
+    toggleStatus: () => {
+        const statusOpen = !get().statusOpen;
+        writeFlag(STATUS_OPEN, statusOpen);
+        set({ statusOpen });
+    },
+    settingsOpen: false,
+    showSettings: (open) => set({ settingsOpen: open }),
+    rename: (api, sessionId, title) =>
+        reporting(async () => {
+            await api.sessionRename(sessionId, title);
         }),
     closing: null,
     askToClose: (sessionId) => set({ closing: sessionId }),

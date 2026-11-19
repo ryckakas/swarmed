@@ -1,6 +1,7 @@
 import type { Api } from "./client";
 import type {
     AgentEvent,
+    ApiKeyInfo,
     FileChange,
     FileDiff,
     HookOutput,
@@ -11,6 +12,7 @@ import type {
     SessionStatus,
     Settings,
     Task,
+    TerminalOutput,
 } from "./types";
 
 // Sample data and a scripted agent, for working on the UI in a browser where there is no Tauri
@@ -225,6 +227,49 @@ async function sampleDiff(_project: string, _name: string, path: string): Promis
     return { text: path.endsWith(".png") ? SAMPLE_BINARY_DIFF : SAMPLE_DIFF, truncated: false };
 }
 
+/** What a status line script would print: here, just its own name and the session. */
+function scriptedStatus(command: string, id: number): string | null {
+    return command === "" ? null : `${command} (session ${id})`;
+}
+
+function storeKey(keys: ApiKeyInfo[], name: string, stored: boolean) {
+    const key = keys.find((candidate) => candidate.name === name);
+    if (!key) {
+        throw new Error(`\`${name}\` is not an API key Swarmed can store`);
+    }
+    key.stored = stored;
+}
+
+const PROMPT = "\u001b[32m~/swarmed/task\u001b[0m $ ";
+
+/** A pretend shell: it echoes what is typed and answers every command the same way. */
+class MockTerminal {
+    readonly listeners = new Set<(output: TerminalOutput) => void>();
+    private readonly printed = new Map<number, string>();
+
+    open(id: number): string {
+        const replay = this.printed.get(id);
+        if (replay === undefined) {
+            // Marked as started at once, so opening it twice in a row starts one shell.
+            this.printed.set(id, "");
+            setTimeout(() => this.print(id, PROMPT), 0);
+        }
+        return replay ?? "";
+    }
+
+    type(id: number, data: string) {
+        const entered = data.includes("\r");
+        this.print(id, entered ? `\r\n(the sample shell runs nothing)\r\n${PROMPT}` : data);
+    }
+
+    private print(id: number, data: string) {
+        this.printed.set(id, (this.printed.get(id) ?? "") + data);
+        for (const listener of this.listeners) {
+            listener({ session_id: id, data });
+        }
+    }
+}
+
 class MockAgent {
     readonly projects = sampleProjects();
     readonly events = new Map<number, AgentEvent[]>();
@@ -359,13 +404,20 @@ class MockAgent {
         return this.projects.flatMap((project) => project.tasks);
     }
 
-    configure(id: number, settings: SessionSettings): Session {
+    configure(id: number, settings: Partial<SessionSettings>): Session {
         const sessions = this.tasks().flatMap((task) => task.sessions);
         const found = sessions.find((candidate) => candidate.id === id);
         if (!found) {
             throw new Error(`session ${id} not found`);
         }
         return Object.assign(found, settings);
+    }
+
+    rename(id: number, title: string): Session {
+        const renamed = this.configure(id, {}) as Session;
+        renamed.title = title.trim();
+        this.publish(id, { type: "renamed", title: renamed.title }, null);
+        return renamed;
     }
 
     close(id: number) {
@@ -386,7 +438,22 @@ export function createMockApi(): Api {
     const agent = new MockAgent();
     const tasks = () => agent.projects.flatMap((project) => project.tasks);
     const hookListeners = new Set<(output: HookOutput) => void>();
-    let settings: Settings = { editor: "code" };
+    const terminal = new MockTerminal();
+    const keys: ApiKeyInfo[] = [
+        { name: "OPENROUTER_API_KEY", provider: "OpenRouter", stored: false },
+        { name: "OPENAI_API_KEY", provider: "OpenAI", stored: true },
+        { name: "ANTHROPIC_API_KEY", provider: "Anthropic API", stored: false },
+        { name: "GEMINI_API_KEY", provider: "Google Gemini", stored: false },
+    ];
+    let settings: Settings = {
+        editor: "code",
+        auto_title: true,
+        theme: "system",
+        text_scale: 100,
+        html_views: true,
+        status_items: ["branch", "changes", "model", "cost"],
+        status_command: "",
+    };
     return {
         overview: async () => structuredClone(agent.projects),
         agents: async () => [
@@ -433,6 +500,9 @@ export function createMockApi(): Api {
         taskDiff: sampleDiff,
         taskOpenEditor: async () => undefined,
         taskOpenUrl: async () => undefined,
+        apiKeys: async () => structuredClone(keys),
+        setApiKey: async (name, key) => storeKey(keys, name, key.trim() !== ""),
+        deleteApiKey: async (name) => storeKey(keys, name, false),
         settings: async () => ({ ...settings }),
         setSettings: async (changed) => {
             settings = changed;
@@ -472,6 +542,18 @@ export function createMockApi(): Api {
             "tdd",
         ],
         sessionConfigure: async (id, settings) => agent.configure(id, settings),
+        // A browser has no custom scheme; a blob address is enough to see the view.
+        viewUrl: async (document) =>
+            URL.createObjectURL(new Blob([document], { type: "text/html" })),
+        terminalOpen: async (id) => terminal.open(id),
+        terminalWrite: async (id, data) => terminal.type(id, data),
+        terminalResize: async () => undefined,
+        onTerminalOutput: async (listener) => {
+            terminal.listeners.add(listener);
+            return () => terminal.listeners.delete(listener);
+        },
+        statusLine: async (id) => scriptedStatus(settings.status_command, id),
+        sessionRename: async (id, title) => agent.rename(id, title),
         sessionClose: async (id) => agent.close(id),
         onSessionEvent: async (listener) => {
             agent.listeners.add(listener);

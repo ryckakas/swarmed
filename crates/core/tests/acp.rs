@@ -131,6 +131,34 @@ async fn streamed_pieces(bus: &mut Receiver<SessionEvent>) -> String {
 }
 
 #[tokio::test]
+async fn a_stored_api_key_reaches_other_agents_and_never_claude_code() {
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    core.set_api_key("OPENROUTER_API_KEY", "sk-or-test")
+        .expect("stores");
+
+    let id = started(&core, Supervision::Ask);
+    core.session_send(id, "key").expect("sends");
+    assert!(turn(&mut bus, id).await.contains(&text("key: sk-or-test")));
+
+    // What agents.toml sets for an agent wins over the stored key.
+    let own = scripted_agent(&[("OPENROUTER_API_KEY", "from-agents-toml")]);
+    let other = fixture();
+    let core = core_with(&other, own).await;
+    let mut bus = core.subscribe();
+    core.set_api_key("OPENROUTER_API_KEY", "sk-or-test")
+        .expect("stores");
+    let id = started(&core, Supervision::Ask);
+    core.session_send(id, "key").expect("sends");
+    assert!(
+        turn(&mut bus, id)
+            .await
+            .contains(&text("key: from-agents-toml"))
+    );
+}
+
+#[tokio::test]
 async fn pieces_of_a_reply_are_published_as_they_arrive_but_not_stored() {
     let fx = fixture();
     let core = core_with(&fx, scripted_agent(&[])).await;

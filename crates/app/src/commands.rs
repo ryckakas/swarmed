@@ -10,8 +10,8 @@ use std::sync::Arc;
 use serde::Serialize;
 use swarmed_core::agent::{AgentEvent, Auth, Supervision};
 use swarmed_core::{
-    AgentInfo, BranchChoices, Core, FileChange, FileDiff, NewTaskOptions, Project, ProjectOverview,
-    RemoveOptions, Session, SessionOptions, SessionSettings, Settings, Task,
+    AgentInfo, ApiKeyInfo, BranchChoices, Core, FileChange, FileDiff, NewTaskOptions, Project,
+    ProjectOverview, RemoveOptions, Session, SessionOptions, SessionSettings, Settings, Task,
 };
 use tauri::{AppHandle, Emitter, Runtime, State};
 
@@ -155,6 +155,21 @@ pub(crate) fn set_settings(core: CoreState<'_>, settings: Settings) -> Command<(
 }
 
 #[tauri::command]
+pub(crate) fn api_keys(core: CoreState<'_>) -> Command<Vec<ApiKeyInfo>> {
+    Ok(core.api_keys()?)
+}
+
+#[tauri::command]
+pub(crate) fn set_api_key(core: CoreState<'_>, name: String, key: String) -> Command<()> {
+    Ok(core.set_api_key(&name, &key)?)
+}
+
+#[tauri::command]
+pub(crate) fn delete_api_key(core: CoreState<'_>, name: String) -> Command<()> {
+    Ok(core.delete_api_key(&name)?)
+}
+
+#[tauri::command]
 pub(crate) fn session_new(
     core: CoreState<'_>,
     project: String,
@@ -225,6 +240,48 @@ pub(crate) fn session_configure(
 ) -> Command<Session> {
     let settings = SessionSettings { model, supervision };
     Ok(core.session_configure(id, &settings)?)
+}
+
+/// Hands over an HTML document for a sandboxed frame and returns the id the frame loads it by.
+#[tauri::command]
+pub(crate) fn view_put(core: CoreState<'_>, document: String) -> String {
+    core.view_put(document)
+}
+
+/// Async so that it runs on the runtime the core spawns the terminal's tasks on.
+#[tauri::command]
+pub(crate) async fn terminal_open(
+    core: CoreState<'_>,
+    id: i64,
+    cols: u16,
+    rows: u16,
+) -> Command<String> {
+    Ok(core.terminal_open(id, cols, rows)?)
+}
+
+#[tauri::command]
+pub(crate) fn terminal_write(core: CoreState<'_>, id: i64, data: String) -> Command<()> {
+    Ok(core.terminal_write(id, &data)?)
+}
+
+#[tauri::command]
+pub(crate) fn terminal_resize(core: CoreState<'_>, id: i64, cols: u16, rows: u16) -> Command<()> {
+    Ok(core.terminal_resize(id, cols, rows)?)
+}
+
+#[tauri::command]
+pub(crate) fn terminal_close(core: CoreState<'_>, id: i64) {
+    core.terminal_close(id);
+}
+
+#[tauri::command]
+pub(crate) async fn status_line(core: CoreState<'_>, id: i64) -> Command<Option<String>> {
+    Ok(core.status_line(id).await?)
+}
+
+#[tauri::command]
+pub(crate) fn session_rename(core: CoreState<'_>, id: i64, title: String) -> Command<Session> {
+    Ok(core.session_rename(id, &title)?)
 }
 
 #[tauri::command]

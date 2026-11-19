@@ -81,7 +81,7 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
         case "user":
             return <p className="said">{item.text}</p>;
         case "text":
-            return <Markdown text={item.text} />;
+            return <Markdown text={item.text} streaming={item.streaming} />;
         case "tool":
             return <ToolCall name={item.name} input={item.input} result={item.result} />;
         case "permission":
@@ -100,6 +100,13 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
                     You denied {item.toolName}:{" "}
                     <span className="mono">{summarize(item.input)}</span>
                 </p>
+            );
+        case "terminal":
+            return (
+                <details className="shared-terminal">
+                    <summary>Terminal output sent to the agent with this message</summary>
+                    <pre className="tool-body">{item.text}</pre>
+                </details>
             );
         case "session":
             return (

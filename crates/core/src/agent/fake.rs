@@ -108,6 +108,12 @@ impl Script {
             result: result.map(String::from),
             cost_usd: Some(0.0),
         };
+        if message == "instructions" {
+            let told = self.spec.append_system_prompt.clone();
+            self.text(told.unwrap_or_else(|| "none".to_string()));
+            self.emit(done(false, None));
+            return Next::Continue;
+        }
         if message == "slow" {
             self.text("working…");
             let interrupt = wait_for(&mut self.commands, |c| matches!(c, AgentCommand::Interrupt));

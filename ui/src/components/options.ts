@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import type { AgentInfo, Supervision } from "../api/types";
+import type { AgentInfo, Supervision, Theme } from "../api/types";
 import { useStore } from "../store";
 
 // The choices a session is started with, and how they are named in the UI.
@@ -101,3 +101,18 @@ export function editorChoices(current: string): [string, string][] {
     const known = EDITORS.some(([command]) => command === current);
     return known ? EDITORS : [...EDITORS, [current, current]];
 }
+
+export const THEMES: [Theme, string][] = [
+    ["system", "Same as the system"],
+    ["dark", "Dark"],
+    ["light", "Light"],
+];
+
+/** Text sizes offered, in percent of the normal size. */
+export const TEXT_SCALES: [string, string][] = [
+    ["90", "Small"],
+    ["100", "Normal"],
+    ["110", "Large"],
+    ["125", "Larger"],
+    ["140", "Largest"],
+];

@@ -54,6 +54,10 @@ pub(crate) enum SessionCommand {
         #[arg(long)]
         auto: bool,
     },
+    /// Print what the status line script shows for a session.
+    Status { id: i64 },
+    /// Give a session a new title.
+    Rename { id: i64, title: String },
     /// Take a session out of the lists. Its history is kept.
     Close { id: i64 },
 }
@@ -132,6 +136,15 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
                 supervision: supervision(auto),
             };
             core.session_configure(id, &settings)?;
+            Ok(())
+        }
+        SessionCommand::Status { id } => {
+            let line = core.status_line(id).await?;
+            say(line.as_deref().unwrap_or("no status_command is set"));
+            Ok(())
+        }
+        SessionCommand::Rename { id, title } => {
+            say(&core.session_rename(id, &title)?.title);
             Ok(())
         }
         SessionCommand::Close { id } => Ok(core.session_close(id)?),

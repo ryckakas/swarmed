@@ -8,10 +8,13 @@
 
 mod commands;
 
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use swarmed_core::agent::FakeBackend;
-use swarmed_core::{Core, Paths, SessionEvent};
+use swarmed_core::{Core, Paths, SessionEvent, TerminalOutput};
+use tauri::http::header::{CONTENT_SECURITY_POLICY, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
+use tauri::http::{HeaderValue, Response, StatusCode};
 use tauri::{AppHandle, Builder, Emitter, Runtime};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
@@ -20,6 +23,10 @@ use tokio::sync::broadcast::error::RecvError;
 const SESSION_EVENT: &str = "session-event";
 /// Emitted when the UI fell too far behind to be sent every event and must reload history.
 const SESSION_EVENTS_LAGGED: &str = "session-events-lagged";
+/// The event every piece of terminal output is emitted as.
+const TERMINAL_OUTPUT: &str = "terminal-output";
+/// The scheme frames load an agent's HTML from: `swarmed-view://localhost/<id>`.
+const VIEW_SCHEME: &str = "swarmed-view";
 
 /// `SWARMED_FAKE_AGENT` swaps Claude for the scripted agent, to work on the UI without tokens.
 fn open_core() -> swarmed_core::Result<Core> {
@@ -42,11 +49,53 @@ async fn forward_events<R: Runtime>(mut bus: Receiver<SessionEvent>, app: AppHan
     }
 }
 
+/// Passes on what the sessions' terminals print. Output a slow window missed is not replayed:
+/// reopening the terminal redraws it from what the core kept.
+async fn forward_terminals<R: Runtime>(mut bus: Receiver<TerminalOutput>, app: AppHandle<R>) {
+    loop {
+        match bus.recv().await {
+            Ok(output) => app.emit(TERMINAL_OUTPUT, output).ok(),
+            Err(RecvError::Lagged(_)) => None,
+            Err(RecvError::Closed) => return,
+        };
+    }
+}
+
+/// What a frame showing an agent's HTML may do: run its own inline code and styles, and
+/// nothing that reaches outside the frame.
+const VIEW_POLICY: &str = "default-src 'none'; style-src 'unsafe-inline'; \
+    script-src 'unsafe-inline'; img-src data:; font-src data:; form-action 'none'; base-uri 'none'";
+
+/// Answers a frame asking for the HTML document kept under the id in `path`.
+///
+/// The document comes from an agent. It is served from this scheme's own origin, which holds no
+/// permission to call Swarmed's commands, under a policy of its own instead of the app's.
+fn view_response(core: &Core, path: &str) -> Response<Cow<'static, [u8]>> {
+    let (status, body) = match core.view(path.trim_start_matches('/')) {
+        Some(document) => (StatusCode::OK, document),
+        None => (StatusCode::NOT_FOUND, String::new()),
+    };
+    let mut response = Response::new(Cow::Owned(body.into_bytes()));
+    *response.status_mut() = status;
+    let headers = response.headers_mut();
+    let html = HeaderValue::from_static("text/html; charset=utf-8");
+    headers.insert(CONTENT_TYPE, html);
+    headers.insert(
+        CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(VIEW_POLICY),
+    );
+    headers.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    response
+}
+
 /// Gives a Tauri app the core and the commands that reach it. Generic over the runtime, so the
 /// tests can drive the same commands without a window.
 fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
     builder
-        .manage(core)
+        .manage(Arc::clone(&core))
+        .register_uri_scheme_protocol(VIEW_SCHEME, move |_context, request| {
+            view_response(&core, request.uri().path())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::agents,
             commands::overview,
@@ -58,6 +107,9 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
             commands::task_open_url,
             commands::task_changes,
             commands::task_diff,
+            commands::api_keys,
+            commands::set_api_key,
+            commands::delete_api_key,
             commands::settings,
             commands::set_settings,
             commands::session_new,
@@ -69,6 +121,13 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
             commands::session_stop,
             commands::session_configure,
             commands::slash_commands,
+            commands::view_put,
+            commands::terminal_open,
+            commands::terminal_write,
+            commands::terminal_resize,
+            commands::terminal_close,
+            commands::status_line,
+            commands::session_rename,
             commands::session_close,
         ])
 }
@@ -77,11 +136,16 @@ fn main() {
     let core =
         Arc::new(open_core().unwrap_or_else(|e| panic!("could not open Swarmed's data: {e}")));
     let bus = core.subscribe();
+    let terminals = core.subscribe_terminals();
     // The dialog plugin is the native folder picker, for adding a repository.
     with_core(Builder::default().plugin(tauri_plugin_dialog::init()), core)
         .setup(move |app| {
             drop(tauri::async_runtime::spawn(forward_events(
                 bus,
+                app.handle().clone(),
+            )));
+            drop(tauri::async_runtime::spawn(forward_terminals(
+                terminals,
                 app.handle().clone(),
             )));
             Ok(())

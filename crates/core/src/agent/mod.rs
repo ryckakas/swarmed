@@ -10,16 +10,18 @@ mod fake;
 
 use std::fmt;
 use std::path::PathBuf;
+use std::pin::Pin;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::mpsc;
 
 pub use self::acp::AcpBackend;
-pub use self::claude::ClaudeBackend;
+pub use self::claude::{ClaudeBackend, ClaudeNamer};
 pub use self::fake::FakeBackend;
 use crate::error::Result;
 use crate::mcp::McpServer;
+use crate::secrets::SecretEnv;
 
 /// How much the agent may do without asking.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -101,6 +103,9 @@ pub struct SessionSpec {
     pub append_system_prompt: Option<String>,
     /// MCP servers to give the agent, on top of any it finds in its own configuration.
     pub mcp_servers: Vec<McpServer>,
+    /// The user's API keys, for agents that bring no login of their own. Claude Code is never
+    /// given these: its credentials are chosen by [`SessionSpec::auth`].
+    pub env: SecretEnv,
 }
 
 /// One MCP server a session loaded, and whether it connected.
@@ -194,6 +199,17 @@ pub enum AgentEvent {
         /// The request that was taken back.
         request_id: String,
     },
+    /// The session got a new title, from the user or from a [`Namer`]. Recorded by the core.
+    Renamed {
+        /// The new title.
+        title: String,
+    },
+    /// What happened in the session's terminal since the agent's last turn, which the agent was
+    /// given along with the user's message. Recorded by the core.
+    TerminalShared {
+        /// The terminal's output as plain text.
+        text: String,
+    },
     /// Usage-limit state.
     RateLimit {
         /// `allowed`, or the agent's word for a limit that was hit.
@@ -259,6 +275,15 @@ pub struct AgentHandle {
     pub events: mpsc::UnboundedReceiver<AgentEvent>,
     /// The way to talk to the session.
     pub commands: mpsc::UnboundedSender<AgentCommand>,
+}
+
+/// What a [`Namer`] returns: a title, or `None` if it could not think of one in time.
+pub type Naming = Pin<Box<dyn Future<Output = Option<String>> + Send>>;
+
+/// Something that can give a conversation a short title from its first message.
+pub trait Namer: fmt::Debug + Send + Sync {
+    /// A title of a few words for a conversation that starts with `prompt`.
+    fn name(&self, prompt: String) -> Naming;
 }
 
 /// Something that can run agent sessions.

@@ -38,10 +38,24 @@
     --moss: #7fb58a;
     --clay: #e07d6c;
     --focus: #8fb4ff;
+
+    /*
+     * Reading colours, for what the agent writes: quieter than the status colours and never
+     * used for state. Sky for links and keywords, lilac for names and headings, teal for code
+     * and types, bright for what the prose stresses.
+     */
+    --sky: #8fb4ff;
+    --lilac: #c4a7e7;
+    --teal: #7fc8c2;
+    --sand: #e3c08a;
+    --bright: #fbf8ef;
 }
 
+/* Light, when the system is and the user has not asked for dark. */
 @media (prefers-color-scheme: light) {
-    :root {
+    :root:not([data-theme="dark"]) {
+        color-scheme: light;
+
         --dusk: #eceef2;
         --panel: #f7f8fa;
         --raised: #ffffff;
@@ -54,5 +68,39 @@
         --moss: #2c7443;
         --clay: #b03c2a;
         --focus: #1f5fd1;
+
+        --sky: #1f5fd1;
+        --lilac: #7a3fb5;
+        --teal: #0e6f69;
+        --sand: #8a5a10;
+        --bright: #0b0d12;
     }
+}
+
+/* Light because the user asked for it, whatever the system is. The same values as above. */
+:root[data-theme="light"] {
+    color-scheme: light;
+
+    --dusk: #eceef2;
+    --panel: #f7f8fa;
+    --raised: #ffffff;
+    --line: #d3d8e0;
+    --text: #1c2029;
+    --muted: #535b6b;
+    --faint: #7b8392;
+    --pollen: #8a5d00;
+    --pollen-wash: rgb(214 158 20 / 0.18);
+    --moss: #2c7443;
+    --clay: #b03c2a;
+    --focus: #1f5fd1;
+
+    --sky: #1f5fd1;
+    --lilac: #7a3fb5;
+    --teal: #0e6f69;
+    --sand: #8a5a10;
+    --bright: #0b0d12;
+}
+
+:root[data-theme="dark"] {
+    color-scheme: dark;
 }

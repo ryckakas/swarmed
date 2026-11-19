@@ -57,6 +57,9 @@ function mapSession(
  */
 export function applySessionEvent(projects: Project[], published: SessionEvent): Project[] {
     const { session_id: id, status, event } = published;
+    if (event.type === "renamed") {
+        return mapSession(projects, id, (session) => ({ ...session, title: event.title }));
+    }
     const firstMessage = event.type === "user_message" ? event.text : null;
     if (status === null && firstMessage === null) {
         return projects;
@@ -112,6 +115,18 @@ export function countWaiting(projects: Project[]): number {
 export function taskStatus(task: Task): SessionStatus | null {
     const urgency: SessionStatus[] = ["waiting", "errored", "working", "idle"];
     return urgency.find((status) => task.sessions.some((s) => s.status === status)) ?? null;
+}
+
+/** The one status that best describes a repository: the most urgent among its open tasks. */
+export function projectStatus(project: Project): SessionStatus | null {
+    const sessions = project.tasks.filter((task) => !task.archived).flatMap((t) => t.sessions);
+    const urgency: SessionStatus[] = ["waiting", "errored", "working", "idle"];
+    return urgency.find((status) => sessions.some((s) => s.status === status)) ?? null;
+}
+
+/** `ids` with `id` added if it was missing, removed if it was there. */
+export function toggledId(ids: number[], id: number): number[] {
+    return ids.includes(id) ? ids.filter((existing) => existing !== id) : [...ids, id];
 }
 
 /**
