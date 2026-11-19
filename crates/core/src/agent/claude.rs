@@ -140,6 +140,10 @@ fn args(spec: &SessionSpec) -> Vec<String> {
     };
     let joined = |rules: &[String]| (!rules.is_empty()).then(|| rules.join(","));
     flag("--model", spec.model.clone());
+    flag(
+        "--effort",
+        spec.effort.map(|effort| effort.as_str().to_string()),
+    );
     flag("--resume", spec.resume.clone());
     flag("--allowedTools", joined(&spec.allowed_tools));
     flag("--disallowedTools", joined(&spec.disallowed_tools));
@@ -771,6 +775,7 @@ mod tests {
     fn ask_supervision_maps_to_accept_edits_and_passes_rules() {
         let spec = SessionSpec {
             model: Some("haiku".into()),
+            effort: Some(crate::agent::Effort::High),
             resume: Some("abc".into()),
             allowed_tools: vec!["Bash(git add:*)".into(), "Bash(git commit:*)".into()],
             disallowed_tools: vec!["Bash(git push --force:*)".into()],
@@ -785,7 +790,10 @@ mod tests {
         };
         let args = args(&spec).join(" ");
         assert!(args.contains("--permission-mode acceptEdits"), "{args}");
-        assert!(args.contains("--model haiku --resume abc"), "{args}");
+        assert!(
+            args.contains("--model haiku --effort high --resume abc"),
+            "{args}"
+        );
         assert!(
             args.contains("--allowedTools Bash(git add:*),Bash(git commit:*)"),
             "{args}"

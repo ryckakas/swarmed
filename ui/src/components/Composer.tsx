@@ -1,9 +1,16 @@
 import { type KeyboardEvent, lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import type { Session, Supervision } from "../api/types";
+import type { Effort, Session, Supervision } from "../api/types";
 import { useStore } from "../store";
 import { ComposerBox } from "./ComposerBox";
-import { CLAUDE, modelChoices, supervisionChoices, useAgents, useSlashCommands } from "./options";
+import {
+    CLAUDE,
+    EFFORT_CHOICES,
+    modelChoices,
+    supervisionChoices,
+    useAgents,
+    useSlashCommands,
+} from "./options";
 import { Picker } from "./Picker";
 
 // The terminal emulator is a large library; it is only fetched when a terminal is first shown.
@@ -105,18 +112,19 @@ export function Composer({ session }: { session: Session }) {
     );
 }
 
-/** The session's supervision and model, changeable at any time, also while the agent works. */
+/** The session's supervision, model and effort, changeable at any time, also while the agent works. */
 function SessionPickers({ session }: { session: Session }) {
     const configure = useStore((state) => state.configure);
     const agent = useAgents().find((candidate) => candidate.id === session.agent);
-    const { id, model, supervision } = session;
+    const { id, model, supervision, effort } = session;
+    const current = { model, supervision, effort };
     return (
         <>
             <Picker
                 label="Supervision"
                 value={supervision}
                 onChange={(value) =>
-                    void configure(api, id, { model, supervision: value as Supervision })
+                    void configure(api, id, { ...current, supervision: value as Supervision })
                 }
                 options={supervisionChoices(supervision)}
             />
@@ -126,9 +134,23 @@ function SessionPickers({ session }: { session: Session }) {
             <Picker
                 label="Model"
                 value={model ?? ""}
-                onChange={(value) => void configure(api, id, { model: value || null, supervision })}
+                onChange={(value) => void configure(api, id, { ...current, model: value || null })}
                 options={modelChoices(agent, model)}
             />
+            {/* Only Claude Code takes an effort. Changing it restarts the agent between turns. */}
+            {session.agent === CLAUDE && (
+                <Picker
+                    label="Effort"
+                    value={effort ?? ""}
+                    onChange={(value) =>
+                        void configure(api, id, {
+                            ...current,
+                            effort: (value || null) as Effort | null,
+                        })
+                    }
+                    options={EFFORT_CHOICES}
+                />
+            )}
         </>
     );
 }

@@ -153,7 +153,7 @@ fn the_ui_can_go_from_an_empty_app_to_an_answered_permission_request() {
     );
     let session = app.ok(
         "session_new",
-        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "ask" }),
+        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "ask", "effort": null }),
     );
     let id = &session["id"];
 
@@ -190,7 +190,7 @@ fn the_ui_can_deny_interrupt_stop_and_remove() {
     );
     let session = app.ok(
         "session_new",
-        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "auto" }),
+        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "auto", "effort": "high" }),
     );
     let id = &session["id"];
     assert_eq!(session["supervision"], "auto");
@@ -204,7 +204,8 @@ fn the_ui_can_deny_interrupt_stop_and_remove() {
 
     app.ok("session_send", json!({ "id": id, "text": "slow" }));
     app.wait_for_event(id, "text");
-    let settings = json!({ "id": id, "model": "opus", "supervision": "ask" });
+    assert_eq!(session["effort"], "high");
+    let settings = json!({ "id": id, "model": "opus", "supervision": "ask", "effort": "high" });
     let changed = app.ok("session_configure", settings);
     assert_eq!(
         (&changed["model"], &changed["supervision"]),

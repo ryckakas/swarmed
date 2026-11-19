@@ -150,6 +150,7 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
                 agent: null,
                 model: null,
                 supervision: useStore.getState().settings?.default_supervision ?? "auto",
+                effort: null,
             });
             await refresh(api);
             await open(api, session.id);

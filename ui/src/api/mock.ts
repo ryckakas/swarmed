@@ -28,6 +28,7 @@ function session(id: number, taskId: number, title: string, status: SessionStatu
         agent_session_id: `mock-${id}`,
         model: null,
         supervision: "ask",
+        effort: null,
         status,
     };
 }

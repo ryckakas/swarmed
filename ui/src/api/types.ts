@@ -13,6 +13,8 @@ export interface Session {
     agent_session_id: string | null;
     model: string | null;
     supervision: Supervision;
+    /** How hard the model thinks; `null` is the agent's default. */
+    effort: Effort | null;
     status: SessionStatus;
 }
 
@@ -185,7 +187,15 @@ export interface SessionSettings {
     /** A model name the agent accepts, or `null` for its default. */
     model: string | null;
     supervision: Supervision;
+    /**
+     * How hard the model thinks, or `null` for the agent's default. An agent takes it when it
+     * starts, so a running one is restarted between turns and carries on the conversation.
+     */
+    effort: Effort | null;
 }
+
+/** How hard the model thinks before it answers. */
+export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface SessionSetup {
     /** An agent id, or `null` for Claude Code. */
@@ -193,4 +203,5 @@ export interface SessionSetup {
     /** A model name the agent accepts, or `null` for its default. */
     model: string | null;
     supervision: Supervision;
+    effort: Effort | null;
 }
