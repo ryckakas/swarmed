@@ -105,13 +105,20 @@ export const HOTKEYS: Hotkey[] = [
     { id: "shortcuts", keys: "cmd+/", label: "Show these shortcuts", group: "Window" },
 ];
 
+/** A shortcut as the list shows it. */
+export type ListedHotkey = Pick<Hotkey, "keys" | "label" | "group">;
+
 /** The shortcuts as the list shows them: the nine "go to session" ones as a single line. */
-export function listedHotkeys(): { keys: string; label: string; group: Hotkey["group"] }[] {
+export function listedHotkeys(): ListedHotkey[] {
     const numbered = /^session-\d$/;
-    const others = HOTKEYS.filter((hotkey) => !numbered.test(hotkey.id));
+    const others: ListedHotkey[] = HOTKEYS.filter((hotkey) => !numbered.test(hotkey.id));
     const first = HOTKEYS.findIndex((hotkey) => numbered.test(hotkey.id));
-    const nine = { keys: "cmd+1…9", label: "Go to session 1 to 9 in the sidebar" };
-    return others.toSpliced(first, 0, { ...nine, group: "Sessions" });
+    const nine: ListedHotkey = {
+        keys: "cmd+1…9",
+        label: "Go to session 1 to 9 in the sidebar",
+        group: "Sessions",
+    };
+    return others.toSpliced(first, 0, nine);
 }
 
 /** Shortcuts that are handled where they happen, listed so the map is complete. */
