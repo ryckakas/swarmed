@@ -763,7 +763,7 @@ code {
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
-    max-width: 76ch;
+    /* As wide as the column: it follows the window and the panels on either side. */
 }
 
 .item {
@@ -1059,7 +1059,6 @@ code {
     position: relative;
     display: flex;
     flex-direction: column;
-    max-width: 76ch;
     border: 1px solid var(--line);
     border-radius: 14px;
     background: var(--panel);
