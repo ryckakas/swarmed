@@ -4,3 +4,5 @@ dist
 .DS_Store
 # Local planning notes
 /.plans
+# Tauri's generated schemas
+/crates/app/gen

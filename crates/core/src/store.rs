@@ -3,11 +3,12 @@
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, Row, params};
+use serde::Serialize;
 
 use crate::error::Result;
 
 /// A registered git repository.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Project {
     /// The database id.
     pub id: i64,
@@ -18,7 +19,8 @@ pub struct Project {
 }
 
 /// Whether a task's `setup` hook has run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SetupStatus {
     /// The hook has not finished yet.
     Pending,
@@ -49,7 +51,7 @@ impl SetupStatus {
 }
 
 /// One unit of work: a branch, a worktree and a slot.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Task {
     /// The database id.
     pub id: i64,
@@ -247,6 +249,13 @@ impl Store {
             .zip(1..)
             .take_while(|(slot, expected)| *slot == expected);
         Ok(taken.last().map_or(1, |(_, expected)| expected + 1))
+    }
+
+    pub(crate) fn tasks_all(&self) -> Result<Vec<Task>> {
+        let sql = format!("{TASK_SELECT} ORDER BY archived_at IS NOT NULL, created_at, id");
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map([], task_from_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     pub(crate) fn task_set_setup(&self, task_id: i64, status: SetupStatus) -> Result<()> {

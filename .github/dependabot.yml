@@ -11,6 +11,14 @@ updates:
     cooldown:
       default-days: 7
 
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+
   # The workflows' actions are pinned to a commit with the version in a comment; Dependabot
   # moves both.
   - package-ecosystem: github-actions

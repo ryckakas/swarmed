@@ -3,12 +3,16 @@
 Parallel Claude Code sessions, each in its own git worktree with a fully isolated dev stack.
 A personal tool with a Rust core; the desktop app (Tauri) comes later.
 
-Status: early. The core and a CLI exist; there is no desktop app yet.
+Status: early. The core and CLI work. In the desktop app you can start sessions, talk to the
+agent, answer its permission requests and stop a turn. Tasks are still created from the CLI, and
+there is no view of the changes yet.
 
 ## Layout
 
 - `crates/core` — `swarmed-core`, the headless core. No UI dependency.
 - `crates/cli` — the `swarmed` command, a thin front end over the core.
+- `crates/app` — `swarmed-app`, the desktop app: a Tauri shell over the core.
+- `ui` — the app's front end, in React and TypeScript.
 
 ## Try it
 
@@ -29,6 +33,14 @@ Code's auto mode; without it, file edits go through and other actions ask. Set
 Worktrees are created under `~/swarmed/<project>/<task>`. Config and state live in
 `~/Library/Application Support/swarmed/`; nothing is written into your repositories.
 `SWARMED_DATA_DIR` and `SWARMED_WORKTREES_DIR` override both locations.
+
+## The desktop app
+
+```sh
+corepack enable && pnpm install
+pnpm app            # builds and opens the app
+pnpm dev            # the UI alone in a browser, on sample data
+```
 
 ## Development
 

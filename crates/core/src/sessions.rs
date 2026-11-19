@@ -1,10 +1,13 @@
 //! Agent sessions: creating them, running them, and keeping what they said.
 
-use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use rusqlite::{OptionalExtension, Row, params};
+use serde::Serialize;
 use serde_json::Value;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 
 use crate::agent::{AgentCommand, AgentEvent, Auth, SessionSpec, Supervision};
 use crate::error::{Error, Result};
@@ -15,7 +18,8 @@ use crate::{Core, lock};
 const TITLE_CHARS: usize = 60;
 
 /// What a session is doing, as far as the last recorded event tells.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SessionStatus {
     /// Waiting for the next message.
     Idle,
@@ -70,7 +74,7 @@ impl SessionStatus {
 }
 
 /// One conversation with an agent, in a task's worktree.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Session {
     /// The database id.
     pub id: i64,
@@ -149,6 +153,14 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    pub(crate) fn sessions_all(&self) -> Result<Vec<Session>> {
+        let mut stmt = self
+            .conn
+            .prepare(&format!("{SESSION_SELECT} ORDER BY id"))?;
+        let rows = stmt.query_map([], session_from_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     fn events(&self, session_id: i64) -> Result<Vec<AgentEvent>> {
         let mut stmt = self
             .conn
@@ -205,7 +217,7 @@ fn title_from(message: &str) -> String {
 }
 
 impl Core {
-    /// Creates a session in a task. Nothing runs until [`Core::session_open`].
+    /// Creates a session in a task. Nothing runs until [`Core::session_start`].
     pub fn session_new(
         &self,
         project: &str,
@@ -233,16 +245,39 @@ impl Core {
         self.store().events(id)
     }
 
-    /// Starts the agent for a session, continuing its conversation if it has one.
+    /// Every event of every running session, from now on.
     ///
-    /// Every event is stored before it is handed out, so history survives a front end that
+    /// A receiver that falls more than [`EVENT_BUFFER`] events behind gets a `Lagged` error
+    /// and should reload the affected history with [`Core::session_events`].
+    #[must_use]
+    pub fn subscribe(&self) -> broadcast::Receiver<SessionEvent> {
+        self.live.bus.subscribe()
+    }
+
+    /// The ids of the sessions whose agent is running.
+    #[must_use]
+    pub fn running_sessions(&self) -> Vec<i64> {
+        let mut ids: Vec<i64> = self.live.commands().keys().copied().collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    /// Starts the agent for a session, continuing its conversation if it has one. Does
+    /// nothing if it is already running.
+    ///
+    /// Every event is stored before it is published, so history survives a front end that
     /// stops listening. Must be called from within a tokio runtime.
-    pub fn session_open(&self, id: i64, auth: Auth) -> Result<LiveSession> {
+    pub fn session_start(&self, id: i64, auth: Auth) -> Result<()> {
         let session = self.session(id)?;
         let task = self
             .store()
             .task_by_id(session.task_id)?
             .ok_or(Error::SessionNotFound(id))?;
+        // Held from the check to the insert, so two callers cannot start the same session twice.
+        let mut running = self.live.commands();
+        if running.contains_key(&id) {
+            return Ok(());
+        }
         let handle = self.backend.start(SessionSpec {
             cwd: task.worktree_path,
             model: session.model,
@@ -251,91 +286,155 @@ impl Core {
             resume: session.agent_session_id,
             ..SessionSpec::default()
         })?;
-        let (event_tx, events) = mpsc::unbounded_channel();
-        drop(tokio::spawn(record_and_forward(
+        let run = self.live.runs.fetch_add(1, Ordering::Relaxed);
+        running.insert(id, (run, handle.commands));
+        let (store, live) = (Arc::clone(&self.store), Arc::clone(&self.live));
+        drop(tokio::spawn(record_and_publish(
             handle.events,
-            event_tx,
-            Arc::clone(&self.store),
-            id,
+            store,
+            live,
+            (id, run),
         )));
-        Ok(LiveSession {
-            id,
-            events,
-            commands: handle.commands,
-            store: Arc::clone(&self.store),
-        })
-    }
-}
-
-async fn record_and_forward(
-    mut from: mpsc::UnboundedReceiver<AgentEvent>,
-    to: mpsc::UnboundedSender<AgentEvent>,
-    store: Arc<Mutex<Store>>,
-    session_id: i64,
-) {
-    while let Some(event) = from.recv().await {
-        // A full disk must not cut the user off from a running agent, so a failed write is
-        // skipped and the event still reaches the front end.
-        lock(&store).record(session_id, &event).ok();
-        to.send(event).ok();
-    }
-}
-
-/// A session whose agent is running. Dropping it stops the agent.
-#[derive(Debug)]
-pub struct LiveSession {
-    id: i64,
-    events: mpsc::UnboundedReceiver<AgentEvent>,
-    commands: mpsc::UnboundedSender<AgentCommand>,
-    store: Arc<Mutex<Store>>,
-}
-
-impl LiveSession {
-    /// The session's id.
-    #[must_use]
-    pub fn id(&self) -> i64 {
-        self.id
+        Ok(())
     }
 
-    /// The next event, or `None` once the agent has exited.
-    pub async fn next_event(&mut self) -> Option<AgentEvent> {
-        self.events.recv().await
-    }
-
-    /// Starts a turn with `text`.
-    pub fn send(&self, text: &str) -> Result<()> {
-        lock(&self.store).record(
-            self.id,
-            &AgentEvent::UserMessage {
-                text: text.to_string(),
-            },
-        )?;
-        self.command(AgentCommand::UserMessage(text.to_string()))
+    /// Starts a turn with `text` in a running session.
+    pub fn session_send(&self, id: i64, text: &str) -> Result<()> {
+        let commands = self.live.sender(id)?;
+        let event = AgentEvent::UserMessage {
+            text: text.to_string(),
+        };
+        self.store().record(id, &event)?;
+        self.live.publish(id, event);
+        commands
+            .send(AgentCommand::UserMessage(text.to_string()))
+            .map_err(|_| Error::SessionNotRunning(id))
     }
 
     /// Lets a pending permission request go ahead.
-    pub fn allow(&self, request_id: &str) -> Result<()> {
-        self.command(AgentCommand::Allow {
-            request_id: request_id.to_string(),
-        })
+    pub fn session_allow(&self, id: i64, request_id: &str) -> Result<()> {
+        self.live.command(
+            id,
+            AgentCommand::Allow {
+                request_id: request_id.to_string(),
+            },
+        )
     }
 
     /// Refuses a pending permission request; the agent is shown `reason`.
-    pub fn deny(&self, request_id: &str, reason: &str) -> Result<()> {
+    pub fn session_deny(&self, id: i64, request_id: &str, reason: &str) -> Result<()> {
         let (request_id, reason) = (request_id.to_string(), reason.to_string());
-        self.command(AgentCommand::Deny { request_id, reason })
+        self.live
+            .command(id, AgentCommand::Deny { request_id, reason })
     }
 
-    /// Stops the current turn. The session stays usable.
-    pub fn interrupt(&self) -> Result<()> {
-        self.command(AgentCommand::Interrupt)
+    /// Stops the current turn. The session stays running.
+    pub fn session_interrupt(&self, id: i64) -> Result<()> {
+        self.live.command(id, AgentCommand::Interrupt)
     }
 
-    fn command(&self, command: AgentCommand) -> Result<()> {
-        self.commands
+    /// Stops a session's agent. Its history stays, and [`Core::session_start`] continues it.
+    /// Does nothing if it is not running.
+    pub fn session_stop(&self, id: i64) {
+        // Dropping the last command sender closes the agent's input, which ends it.
+        self.live.commands().remove(&id);
+    }
+}
+
+/// How many events a slow subscriber may fall behind before it starts losing them.
+pub const EVENT_BUFFER: usize = 4096;
+
+/// One event of one session, as published to every subscriber.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SessionEvent {
+    /// The session the event belongs to.
+    pub session_id: i64,
+    /// The session's status after this event, if the event changed it.
+    pub status: Option<SessionStatus>,
+    /// What happened.
+    pub event: AgentEvent,
+}
+
+/// A running session's command channel, with a number that tells one run from the next.
+type Commands = HashMap<i64, (u64, mpsc::UnboundedSender<AgentCommand>)>;
+
+/// The sessions whose agent is running, and the channel their events are published on.
+#[derive(Debug)]
+pub(crate) struct Live {
+    commands: Mutex<Commands>,
+    runs: AtomicU64,
+    bus: broadcast::Sender<SessionEvent>,
+}
+
+impl Default for Live {
+    fn default() -> Self {
+        Self {
+            commands: Mutex::default(),
+            runs: AtomicU64::new(0),
+            bus: broadcast::Sender::new(EVENT_BUFFER),
+        }
+    }
+}
+
+impl Live {
+    fn commands(&self) -> MutexGuard<'_, Commands> {
+        self.commands.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn sender(&self, id: i64) -> Result<mpsc::UnboundedSender<AgentCommand>> {
+        self.commands()
+            .get(&id)
+            .map(|(_, sender)| sender.clone())
+            .ok_or(Error::SessionNotRunning(id))
+    }
+
+    fn command(&self, id: i64, command: AgentCommand) -> Result<()> {
+        self.sender(id)?
             .send(command)
-            .map_err(|_| Error::SessionClosed)
+            .map_err(|_| Error::SessionNotRunning(id))
     }
+
+    fn publish(&self, session_id: i64, event: AgentEvent) {
+        let status = SessionStatus::after(&event);
+        // An error only means nobody is subscribed right now.
+        self.bus
+            .send(SessionEvent {
+                session_id,
+                status,
+                event,
+            })
+            .ok();
+    }
+
+    /// Forgets a session whose agent has exited, unless it was restarted in the meantime.
+    fn forget(&self, id: i64, run: u64) {
+        let mut commands = self.commands();
+        if commands
+            .get(&id)
+            .is_some_and(|(current, _)| *current == run)
+        {
+            commands.remove(&id);
+        }
+    }
+}
+
+/// Stores and publishes a run's events until its agent exits.
+///
+/// Takes only the event half of the agent's handle: holding a command sender here would keep
+/// the agent's input open, and [`Core::session_stop`] could never end it.
+async fn record_and_publish(
+    mut events: mpsc::UnboundedReceiver<AgentEvent>,
+    store: Arc<Mutex<Store>>,
+    live: Arc<Live>,
+    (id, run): (i64, u64),
+) {
+    while let Some(event) = events.recv().await {
+        // A full disk must not cut the user off from a running agent, so a failed write is
+        // skipped and the event is still published.
+        lock(&store).record(id, &event).ok();
+        live.publish(id, event);
+    }
+    live.forget(id, run);
 }
 
 #[cfg(test)]

@@ -1,0 +1,58 @@
+/*
+ * Swarmed's palette is dusk blue-grey, not black, with three status colours that mean something:
+ * pollen (a session needs you), moss (an agent is working), clay (something stopped).
+ * Pollen is the only loud colour, and it is spent on the one thing that needs attention.
+ */
+:root {
+    color-scheme: dark light;
+
+    --font-ui: "Atkinson Hyperlegible Next Variable", system-ui, sans-serif;
+    --font-mono: "Atkinson Hyperlegible Mono Variable", ui-monospace, monospace;
+
+    /* A minor-third scale from a 13px base, which suits a dense tool. */
+    --text-xs: 0.6875rem;
+    --text-sm: 0.8125rem;
+    --text-md: 0.9375rem;
+    --text-lg: 1.125rem;
+    --text-xl: 1.375rem;
+
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-6: 24px;
+    --space-8: 40px;
+
+    --sidebar-width: 272px;
+    --titlebar-height: 38px;
+
+    --dusk: #1b1e26;
+    --panel: #20242e;
+    --raised: #2a2f3c;
+    --line: #333a49;
+    --text: #e6e3da;
+    --muted: #a0a6b4;
+    --faint: #757c8c;
+    --pollen: #e9b93a;
+    --pollen-wash: rgb(233 185 58 / 0.12);
+    --moss: #7fb58a;
+    --clay: #e07d6c;
+    --focus: #8fb4ff;
+}
+
+@media (prefers-color-scheme: light) {
+    :root {
+        --dusk: #eceef2;
+        --panel: #f7f8fa;
+        --raised: #ffffff;
+        --line: #d3d8e0;
+        --text: #1c2029;
+        --muted: #535b6b;
+        --faint: #7b8392;
+        --pollen: #8a5d00;
+        --pollen-wash: rgb(214 158 20 / 0.18);
+        --moss: #2c7443;
+        --clay: #b03c2a;
+        --focus: #1f5fd1;
+    }
+}
