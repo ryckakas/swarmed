@@ -752,6 +752,7 @@ export function createMockApi(): Api {
         text_scale: 100,
         default_supervision: "auto",
         html_views: true,
+        rules: "",
         status_items: ["branch", "changes", "model", "context", "cost"],
         status_command: "",
     };

@@ -92,6 +92,8 @@ export interface Settings {
     status_items: StatusItem[];
     /** A command whose first line of output replaces the built-in pieces. Empty for none. */
     status_command: string;
+    /** The user's own rules, given to every agent whatever the model. Empty for none. */
+    rules: string;
 }
 
 export interface Project {

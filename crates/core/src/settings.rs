@@ -29,7 +29,14 @@ pub struct Settings {
     pub status_items: Vec<StatusItem>,
     /// A command whose first line of output replaces the built-in pieces. Empty for none.
     pub status_command: String,
+    /// Rules of the user's own that every agent is given with its instructions, whatever the
+    /// agent or model: plain text, such as "keep answers short". Empty for none.
+    pub rules: String,
 }
+
+/// The longest the user's rules may be, in bytes: they travel with every session's
+/// instructions.
+pub(crate) const MAX_RULES_BYTES: usize = 20_000;
 
 /// The colours the app is drawn in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -59,6 +66,7 @@ impl Default for Settings {
             html_views: true,
             status_items: StatusItem::defaults(),
             status_command: String::new(),
+            rules: String::new(),
         }
     }
 }
@@ -83,6 +91,9 @@ impl Settings {
     }
 
     pub(crate) fn save(&self, path: &Path) -> Result<()> {
+        if self.rules.len() > MAX_RULES_BYTES {
+            return Err(Error::RulesTooLong(MAX_RULES_BYTES));
+        }
         let text = toml::to_string(&self.clone().within_limits()).map_err(|e| invalid(path, &e))?;
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
@@ -118,8 +129,16 @@ mod tests {
             html_views: false,
             status_items: vec![StatusItem::Cost],
             status_command: "~/bin/status".to_string(),
+            rules: "Keep answers short.\nNo em dashes.".to_string(),
         };
         chosen.save(&path).expect("saves");
+        assert_eq!(Settings::load(&path).expect("loads"), chosen);
+
+        let endless = Settings {
+            rules: "x".repeat(MAX_RULES_BYTES + 1),
+            ..Settings::default()
+        };
+        assert!(matches!(endless.save(&path), Err(Error::RulesTooLong(_))));
         assert_eq!(Settings::load(&path).expect("loads"), chosen);
     }
 

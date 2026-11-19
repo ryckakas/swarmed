@@ -487,6 +487,20 @@ async fn agents_are_told_about_html_views_unless_the_user_turned_them_off() {
     core.session_send(quiet.id, "instructions").expect("sends");
     assert!(turn(&mut bus, quiet.id).await.contains(&text("none")));
 
+    // The user's own rules are told to every agent, and come first.
+    let ruled = Settings {
+        html_views: false,
+        rules: "  Keep answers short.\nNo em dashes.\n".to_string(),
+        ..Settings::default()
+    };
+    core.set_settings(&ruled).expect("saves");
+    let obedient = started_session(&core);
+    core.session_send(obedient.id, "instructions")
+        .expect("sends");
+    let told = turn(&mut bus, obedient.id).await;
+    let obeyed = |e: &AgentEvent| matches!(e, AgentEvent::Text { text } if text.starts_with("The user has set these rules.") && text.ends_with(":\nKeep answers short.\nNo em dashes."));
+    assert!(told.iter().any(obeyed), "{told:?}");
+
     let id = core.view_put("<p>hi</p>".to_string());
     assert_eq!(core.view(&id).as_deref(), Some("<p>hi</p>"));
     assert_eq!(core.view("nope"), None);

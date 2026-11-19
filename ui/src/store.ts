@@ -25,6 +25,7 @@ import {
 export const SETTINGS_TABS = [
     ["appearance", "Appearance"],
     ["sessions", "Sessions"],
+    ["rules", "Rules"],
     ["status", "Status line"],
     ["agents", "Agents"],
     ["mcp", "MCP servers"],

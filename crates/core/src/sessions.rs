@@ -18,6 +18,7 @@ use crate::error::{Error, Result};
 use crate::mcp::{self, McpServer, McpTransport};
 use crate::queue::{self, Queues};
 use crate::secrets::SecretEnv;
+use crate::settings::Settings;
 use crate::store::{Store, Task};
 use crate::terminal::Terminals;
 use crate::toolserver::{
@@ -27,6 +28,10 @@ use crate::toolserver::{
 use crate::{Core, lock, peers, views};
 
 /// How long a session title derived from the first message may be.
+/// What stands above the user's rules where an agent reads them.
+const RULES_HEADING: &str = "The user has set these rules. They apply to everything you do and \
+write in this session, and come before your own defaults:";
+
 const TITLE_CHARS: usize = 60;
 /// How long a title the user typed may be.
 const MAX_TITLE_CHARS: usize = 120;
@@ -575,7 +580,7 @@ impl Core {
         if running.contains_key(&id) {
             return Ok(());
         }
-        let html_views = self.settings()?.html_views;
+        let settings = self.settings()?;
         let mut mcp_servers = self.mcp_servers_for(&session.agent, &task)?;
         let spool = self.paths.view_spool(id);
         // Whatever an earlier run left behind belongs to a conversation that has moved on.
@@ -591,7 +596,7 @@ impl Core {
         let handle = backend.start(SessionSpec {
             mcp_servers,
             env,
-            append_system_prompt: self.guidance(html_views),
+            append_system_prompt: self.guidance(&settings),
             cwd: task.worktree_path,
             model: session.model,
             supervision: session.supervision,
@@ -621,13 +626,19 @@ impl Core {
         Ok(())
     }
 
-    /// What every agent is told by Swarmed, on top of what it knows by itself: about the other
-    /// sessions, when there is a tool server to reach them through, and about showing views,
-    /// when the user has those switched on. `None` if there is nothing to tell.
-    fn guidance(&self, html_views: bool) -> Option<String> {
+    /// What every agent is told by Swarmed, on top of what it knows by itself: the user's own
+    /// rules, if they wrote any; about the other sessions, when there is a tool server to reach
+    /// them through; and about showing views, when the user has those switched on. `None` if
+    /// there is nothing to tell.
+    fn guidance(&self, settings: &Settings) -> Option<String> {
+        let rules = settings.rules.trim();
+        let rules = (!rules.is_empty()).then(|| format!("{RULES_HEADING}\n{rules}"));
         let sessions = self.tool_server.as_ref().map(|_| peers::INSTRUCTIONS);
-        let views = html_views.then_some(views::INSTRUCTIONS);
-        let parts: Vec<&str> = [sessions, views].into_iter().flatten().collect();
+        let views = settings.html_views.then_some(views::INSTRUCTIONS);
+        let parts: Vec<&str> = [rules.as_deref(), sessions, views]
+            .into_iter()
+            .flatten()
+            .collect();
         (!parts.is_empty()).then(|| parts.join("\n\n"))
     }
 
