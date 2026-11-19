@@ -121,6 +121,9 @@ pub enum Error {
     /// A note longer than notes may be.
     #[error("a note can hold at most {0} bytes")]
     NoteTooLong(usize),
+    /// Something one session asked about another was refused.
+    #[error("{0}")]
+    Peers(String),
     /// A message with nothing in it.
     #[error("a message cannot be empty")]
     EmptyMessage,

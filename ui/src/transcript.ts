@@ -5,6 +5,8 @@ import { shownHtml } from "./htmlview";
 
 export type Item =
     | { kind: "user"; key: number; text: string }
+    /** A message another of the user's sessions left for this one. */
+    | { kind: "peer"; key: number; from: number; title: string; text: string }
     /** Something the agent said. `streaming` while its end has not arrived yet. */
     | { kind: "text"; key: number; text: string; streaming: boolean }
     | { kind: "tool"; key: number; name: string; input: unknown; result: ToolResult | null }
@@ -30,6 +32,19 @@ export type Item =
 export interface ToolResult {
     content: string;
     isError: boolean;
+}
+
+/** How the core marks a message one session left for another. */
+const FROM_SESSION =
+    /^Message from session (\d+) \("([^"]*)"\), another agent session of the same user:\n\n([\s\S]*)$/;
+
+/** A message as the transcript shows it: the user's own, or one another session left. */
+function messageItem(text: string, key: number): Item {
+    const left = FROM_SESSION.exec(text);
+    if (!left) {
+        return { kind: "user", key, text };
+    }
+    return { kind: "peer", key, from: Number(left[1]), title: left[2] ?? "", text: left[3] ?? "" };
 }
 
 /** The tool an agent in plan mode asks to use when its plan is ready. Allowing it approves the plan. */
@@ -66,7 +81,7 @@ const CLOSES_REQUESTS = new Set<AgentEvent["type"]>(["user_message", "turn_done"
 function single(event: AgentEvent, key: number): Item | null {
     switch (event.type) {
         case "user_message":
-            return { kind: "user", key, text: event.text };
+            return messageItem(event.text, key);
         case "text":
             return { kind: "text", key, text: event.text, streaming: false };
         // A reply still being written reads like a finished one, and becomes one in place.

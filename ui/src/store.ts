@@ -350,6 +350,11 @@ export function connect(api: Api): () => void {
     inView?.addEventListener("focus", readIfSeen);
     const subscriptions = [
         api.onSessionEvent((event) => {
+            // A session the tree does not know was started by an agent, not from here: the
+            // tree is read again so that it appears.
+            if (!findSession(useStore.getState().projects, event.session_id)) {
+                void refresh(api);
+            }
             apply(event);
             readIfSeen();
         }),

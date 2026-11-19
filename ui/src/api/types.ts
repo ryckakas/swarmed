@@ -18,6 +18,8 @@ export interface Session {
     status: SessionStatus;
     /** Whether its agent finished a turn, or stopped with an error, that nobody has looked at. */
     unread: boolean;
+    /** The session that started this one, if an agent did and not the user. */
+    spawned_by: number | null;
 }
 
 export interface Task {

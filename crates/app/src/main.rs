@@ -13,7 +13,8 @@ use std::sync::Arc;
 
 use swarmed_core::agent::FakeBackend;
 use swarmed_core::{
-    Core, Paths, SessionEvent, TOOL_SERVER_ARG, TerminalOutput, VIEW_POLICY, serve_tools,
+    Core, Paths, SessionEvent, TOOL_SERVER_ARG, TerminalOutput, VIEW_POLICY, serve_session_tools,
+    serve_tools,
 };
 use tauri::http::header::{CONTENT_SECURITY_POLICY, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
 use tauri::http::{HeaderValue, Response, StatusCode};
@@ -157,6 +158,7 @@ fn main() {
     }
     let core =
         Arc::new(open_core().unwrap_or_else(|e| panic!("could not open Swarmed's data: {e}")));
+    let listening = Arc::clone(&core);
     let bus = core.subscribe();
     let terminals = core.subscribe_terminals();
     // The dialog plugin is the native folder picker, for adding a repository.
@@ -166,6 +168,9 @@ fn main() {
                 bus,
                 app.handle().clone(),
             )));
+            // Where the sessions' own tool servers reach the core: to see, message and start
+            // other sessions. If it cannot listen, those tools say so; nothing else depends on it.
+            drop(tauri::async_runtime::spawn(serve_session_tools(listening)));
             drop(tauri::async_runtime::spawn(forward_terminals(
                 terminals,
                 app.handle().clone(),

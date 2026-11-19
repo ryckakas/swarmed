@@ -139,6 +139,13 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   turn end arrives. Agents wrap their calls differently: directly, from a script, from a
   subagent. None of that matters this way. Reading the HTML out of the call's own shape is only
   a fallback for conversations recorded before.
+- **Sessions can see, read, message and start each other** (`peers.rs`), through four tools
+  of Swarmed's own server. The server is a process the agent starts, so it asks the core over
+  a socket in the system's temporary folder (`Paths::tools_socket`; short, since a socket's
+  path is limited), which a front end serves with `serve_session_tools`. A message arrives as
+  a message in the other conversation, queued if that session is busy. A spawned session runs
+  in its parent's task with its settings, cannot spawn itself, and a session can have
+  `MAX_SPAWNED` open. The tools are not on the allow list: in ask mode the user is asked.
 - **Agents other than Claude Code get Swarmed's guidance with their first message**, as a
   second block after the user's words: the protocol has no place for a client's instructions.
 - A view still being written is held back and stood in for (`splitPendingView`), so it appears

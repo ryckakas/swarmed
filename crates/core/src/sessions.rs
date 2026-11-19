@@ -1,6 +1,6 @@
 //! Agent sessions: creating them, running them, and keeping what they said.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -21,9 +21,10 @@ use crate::secrets::SecretEnv;
 use crate::store::{Store, Task};
 use crate::terminal::Terminals;
 use crate::toolserver::{
-    SERVER_NAME, SHOW_HTML_FOR_CLAUDE, TOOL_SERVER_ARG, VIEW_SPOOL_ENV, take_views,
+    SERVER_NAME, SESSION_ENV, SHOW_HTML_FOR_CLAUDE, SOCKET_ENV, TOOL_SERVER_ARG, VIEW_SPOOL_ENV,
+    take_views,
 };
-use crate::{Core, lock, views};
+use crate::{Core, lock, peers, views};
 
 /// How long a session title derived from the first message may be.
 const TITLE_CHARS: usize = 60;
@@ -148,6 +149,8 @@ pub struct Session {
     /// Whether its agent has finished a turn, or stopped with an error, that the user has not
     /// looked at yet. With many sessions, this is what tells the answered from the merely idle.
     pub unread: bool,
+    /// The session that started this one, if an agent did and not the user.
+    pub spawned_by: Option<i64>,
 }
 
 /// What can be changed about a session after it was created.
@@ -176,7 +179,7 @@ pub struct SessionOptions {
     pub effort: Option<Effort>,
 }
 
-const SESSION_SELECT: &str = "SELECT id, task_id, title, agent_session_id, model, supervision, status, agent, effort, unread \
+const SESSION_SELECT: &str = "SELECT id, task_id, title, agent_session_id, model, supervision, status, agent, effort, unread, spawned_by \
      FROM sessions";
 
 fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
@@ -193,11 +196,12 @@ fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
             .get::<_, Option<String>>(8)?
             .and_then(|effort| Effort::parse(&effort)),
         unread: row.get(9)?,
+        spawned_by: row.get(10)?,
     })
 }
 
 impl Store {
-    fn session_insert(&self, task_id: i64, options: &SessionOptions) -> Result<Session> {
+    pub(crate) fn session_insert(&self, task_id: i64, options: &SessionOptions) -> Result<Session> {
         let title = options.title.clone().unwrap_or_default();
         let agent = options.agent.clone().unwrap_or_else(|| CLAUDE.to_string());
         self.conn.execute(
@@ -223,6 +227,7 @@ impl Store {
             effort: options.effort,
             status: SessionStatus::Idle,
             unread: false,
+            spawned_by: None,
         })
     }
 
@@ -361,6 +366,25 @@ impl Store {
             _ => 0,
         };
         Ok(())
+    }
+
+    /// Records that session `id` was started by session `parent`.
+    pub(crate) fn session_set_spawned_by(&self, id: i64, parent: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions SET spawned_by = ?2 WHERE id = ?1",
+            params![id, parent],
+        )?;
+        Ok(())
+    }
+
+    /// How many open sessions were started by session `parent`.
+    pub(crate) fn sessions_spawned_by(&self, parent: i64) -> Result<usize> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM sessions WHERE spawned_by = ?1 AND closed_at IS NULL",
+            params![parent],
+            |row| row.get(0),
+        )?;
+        Ok(usize::try_from(count).unwrap_or(0))
     }
 
     fn session_mark_read(&self, id: i64) -> Result<()> {
@@ -520,7 +544,7 @@ impl Core {
         let spool = self.paths.view_spool(id);
         // Whatever an earlier run left behind belongs to a conversation that has moved on.
         std::fs::remove_dir_all(&spool).ok();
-        mcp_servers.extend(self.own_tools(html_views, &spool));
+        mcp_servers.extend(self.own_tools(id, &spool));
         let env = if session.agent == CLAUDE {
             SecretEnv::default()
         } else {
@@ -530,7 +554,7 @@ impl Core {
         let handle = backend.start(SessionSpec {
             mcp_servers,
             env,
-            append_system_prompt: html_views.then(|| views::INSTRUCTIONS.to_string()),
+            append_system_prompt: self.guidance(html_views),
             cwd: task.worktree_path,
             model: session.model,
             supervision: session.supervision,
@@ -560,20 +584,35 @@ impl Core {
         Ok(())
     }
 
-    /// Swarmed's own tool server, for every agent, when a front end said where it is and the
-    /// user has views switched on: showing HTML is all it does.
-    fn own_tools(&self, html_views: bool, spool: &Path) -> Option<McpServer> {
-        let executable = self.tool_server.as_ref().filter(|_| html_views)?;
+    /// What every agent is told by Swarmed, on top of what it knows by itself: about the other
+    /// sessions, when there is a tool server to reach them through, and about showing views,
+    /// when the user has those switched on. `None` if there is nothing to tell.
+    fn guidance(&self, html_views: bool) -> Option<String> {
+        let sessions = self.tool_server.as_ref().map(|_| peers::INSTRUCTIONS);
+        let views = html_views.then_some(views::INSTRUCTIONS);
+        let parts: Vec<&str> = [sessions, views].into_iter().flatten().collect();
+        (!parts.is_empty()).then(|| parts.join("\n\n"))
+    }
+
+    /// Swarmed's own tool server, for every agent, when a front end said where it is. It is
+    /// told which session it serves, where to leave views, and where the core listens.
+    fn own_tools(&self, session: i64, spool: &Path) -> Option<McpServer> {
+        let executable = self.tool_server.as_ref()?;
+        let socket = self.paths.tools_socket();
+        let env = [
+            (VIEW_SPOOL_ENV, spool.to_string_lossy().into_owned()),
+            (SESSION_ENV, session.to_string()),
+            (SOCKET_ENV, socket.to_string_lossy().into_owned()),
+        ];
         Some(McpServer {
             name: SERVER_NAME.to_string(),
             transport: McpTransport::Stdio {
                 command: executable.to_string_lossy().into_owned(),
                 args: vec![TOOL_SERVER_ARG.to_string()],
-                // Where the tool leaves the views it is given, for this session to pick up.
-                env: BTreeMap::from([(
-                    VIEW_SPOOL_ENV.to_string(),
-                    spool.to_string_lossy().into_owned(),
-                )]),
+                env: env
+                    .into_iter()
+                    .map(|(name, value)| (name.to_string(), value))
+                    .collect(),
             },
         })
     }

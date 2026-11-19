@@ -105,6 +105,16 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
                     <span className="mono">{summarize(item.input)}</span>
                 </p>
             );
+        case "peer":
+            return (
+                <div className="said said-peer">
+                    <p className="said-from">
+                        From session {item.from}
+                        {item.title && `, ${item.title}`}
+                    </p>
+                    <Markdown text={item.text} />
+                </div>
+            );
         case "view":
             return <HtmlView html={item.html} />;
         case "terminal":

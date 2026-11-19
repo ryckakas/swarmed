@@ -1,6 +1,10 @@
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
+
+/// What the name of every socket of Swarmed's starts with.
+pub(crate) const SOCKET_PREFIX: &str = "swarmed-";
 
 /// Where Swarmed keeps its own files. Nothing is ever written into a project's repo.
 #[derive(Debug, Clone)]
@@ -71,6 +75,24 @@ impl Paths {
             Some(task) => notes.join("tasks").join(format!("{task}.txt")),
             None => notes.join("note.txt"),
         }
+    }
+
+    /// The socket this process answers its sessions' tool servers on.
+    ///
+    /// It is in the system's temporary folder and not in the data directory, because a socket's
+    /// path may be about a hundred characters at most and a data directory can be deeper than
+    /// that. The name carries the process, so the app and a command line running at once do
+    /// not take each other's, and the data directory, so two cores in one process do not either.
+    #[must_use]
+    pub fn tools_socket(&self) -> PathBuf {
+        let mut hasher = DefaultHasher::new();
+        self.data_dir.hash(&mut hasher);
+        let name = format!(
+            "{SOCKET_PREFIX}{}-{:08x}.sock",
+            std::process::id(),
+            hasher.finish() & 0xffff_ffff
+        );
+        std::env::temp_dir().join(name)
     }
 
     /// The folder a session's tool server leaves the views it is given in.

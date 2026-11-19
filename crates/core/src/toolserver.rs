@@ -7,7 +7,8 @@
 //! and shows it. It exists because an agent asked for something visual goes looking for a tool,
 //! and should find one that puts the result in the conversation.
 
-use std::io::{BufRead, Write};
+use std::io::{BufRead, BufReader, Write};
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -27,6 +28,22 @@ pub(crate) const SHOW_HTML_FOR_CLAUDE: &str = "mcp__swarmed__show_html";
 /// whichever way the agent came to call the tool: directly, from a script, or from a subagent.
 pub(crate) const VIEW_SPOOL_ENV: &str = "SWARMED_VIEW_SPOOL";
 const VIEW_EXTENSION: &str = "html";
+/// The environment variables that tell the server which session it serves, and where the core
+/// that session belongs to is listening.
+pub(crate) const SESSION_ENV: &str = "SWARMED_SESSION";
+pub(crate) const SOCKET_ENV: &str = "SWARMED_SOCKET";
+
+/// What ties this server to the core: the session whose agent started it, and how to reach
+/// the core on its behalf.
+#[derive(Debug, Default)]
+struct Link {
+    /// Where views are left for the core to pick up; nowhere, if the core named no place.
+    spool: Option<PathBuf>,
+    /// The socket the core answers session tools on.
+    socket: PathBuf,
+    /// The session this server's agent runs.
+    session: i64,
+}
 
 /// The protocol revision answered with when the agent names none.
 const PROTOCOL: &str = "2025-06-18";
@@ -59,6 +76,62 @@ fn tools() -> Value {
             },
             "required": ["html"],
         },
+    }, {
+        "name": "list_sessions",
+        "title": "List the user's other agent sessions",
+        "description": "Lists the agent sessions the user has open in this project, yours \
+            included: each one's id, whether it is idle, working or waiting for the user, the \
+            task (worktree) it is in, and its title. Use it to see who else is at work before \
+            reading from or writing to another session.",
+        "inputSchema": { "type": "object", "properties": {} },
+    }, {
+        "name": "read_session",
+        "title": "Read another session's latest messages",
+        "description": "Returns what was last said in another session, by the user and by \
+            its agent, oldest first. Tool calls and their output are left out.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session_id": { "type": "integer", "description": "The session to read." },
+                "messages": {
+                    "type": "integer",
+                    "description": "How many of its latest messages; 12 if left out.",
+                },
+            },
+            "required": ["session_id"],
+        },
+    }, {
+        "name": "send_message",
+        "title": "Send a message to another session",
+        "description": "Leaves another session a message, which arrives in its conversation \
+            marked as coming from you: at once if that session is idle, else when its current \
+            turn ends. Its agent then acts on it. Say what you need or what you found in full: \
+            the other session does not see your conversation.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session_id": { "type": "integer", "description": "The session to write to." },
+                "text": { "type": "string", "description": "The message." },
+            },
+            "required": ["session_id", "text"],
+        },
+    }, {
+        "name": "spawn_session",
+        "title": "Start a new session beside you",
+        "description": "Starts a new agent session in your own task and worktree, on the same \
+            agent and settings as you, and gives it your prompt. It works at the same time as \
+            you and on the same files, so give it a part of the work that does not collide \
+            with yours, and everything it needs to know: it starts with no knowledge of your \
+            conversation. It reports back to you with a message when it is done. A session \
+            that was itself spawned cannot spawn, and you can have a few open at a time.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "prompt": { "type": "string", "description": "What the new session is to do." },
+                "title": { "type": "string", "description": "A few words naming it." },
+            },
+            "required": ["prompt"],
+        },
     }])
 }
 
@@ -80,25 +153,57 @@ fn deliver(spool: &Path, params: &Value) -> std::io::Result<()> {
     std::fs::rename(unfinished, spool.join(format!("{name}.{VIEW_EXTENSION}")))
 }
 
+/// Asks the core, which this server's agent belongs to, to carry out a session tool. The
+/// answer is what the agent is told, and whether it is an error.
+fn ask_core(link: &Link, tool: &str, arguments: &Value) -> std::io::Result<(String, bool)> {
+    let mut stream = UnixStream::connect(&link.socket)?;
+    let request = json!({ "session": link.session, "tool": tool, "arguments": arguments });
+    writeln!(stream, "{request}")?;
+    let mut answer = String::new();
+    BufReader::new(stream).read_line(&mut answer)?;
+    let reply: Value = serde_json::from_str(&answer).unwrap_or_default();
+    let text = reply
+        .get("text")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let ok = reply.get("ok").and_then(Value::as_bool).unwrap_or(false);
+    Ok((text.to_string(), !ok))
+}
+
+/// Shows a view: leaves its HTML for the core and says whether that worked.
+fn show_html(params: &Value, link: &Link) -> (String, bool) {
+    let delivered = link
+        .spool
+        .as_deref()
+        .is_none_or(|spool| deliver(spool, params).is_ok());
+    if delivered {
+        let shown = "Shown to the user in the conversation. Do not repeat the HTML in your reply.";
+        return (shown.to_string(), false);
+    }
+    let lost = "The view could not be handed to Swarmed, so the user does not see it.";
+    (lost.to_string(), true)
+}
+
 /// What calling a tool returns to the agent.
-fn call(params: &Value, spool: Option<&Path>) -> Value {
-    let known = params.get("name").and_then(Value::as_str) == Some(SHOW_HTML);
-    let delivered = match spool.filter(|_| known) {
-        Some(spool) => deliver(spool, params).is_ok(),
-        None => true,
+fn call(params: &Value, link: &Link) -> Value {
+    let name = params
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let arguments = params.get("arguments").unwrap_or(&Value::Null);
+    let (text, is_error) = if name == SHOW_HTML {
+        show_html(params, link)
+    } else {
+        ask_core(link, name, arguments).unwrap_or_else(|_| {
+            let down = "Swarmed is not answering, so this tool is not available right now.";
+            (down.to_string(), true)
+        })
     };
-    let text = match (known, delivered) {
-        (false, _) => "Swarmed has no such tool.",
-        (true, true) => {
-            "Shown to the user in the conversation. Do not repeat the HTML in your reply."
-        }
-        (true, false) => "The view could not be handed to Swarmed, so the user does not see it.",
-    };
-    json!({ "content": [{ "type": "text", "text": text }], "isError": !(known && delivered) })
+    json!({ "content": [{ "type": "text", "text": text }], "isError": is_error })
 }
 
 /// The answer to one request, or `None` for a notification, which gets none.
-fn answer(message: &Value, spool: Option<&Path>) -> Option<Value> {
+fn answer(message: &Value, link: &Link) -> Option<Value> {
     let id = message.get("id")?;
     let params = message.get("params").unwrap_or(&Value::Null);
     let result = match message.get("method").and_then(Value::as_str)? {
@@ -112,7 +217,7 @@ fn answer(message: &Value, spool: Option<&Path>) -> Option<Value> {
         }
         "ping" => json!({}),
         "tools/list" => json!({ "tools": tools() }),
-        "tools/call" => call(params, spool),
+        "tools/call" => call(params, link),
         method => {
             let error = json!({ "code": METHOD_NOT_FOUND, "message": format!("no `{method}`") });
             return Some(json!({ "jsonrpc": "2.0", "id": id, "error": error }));
@@ -126,14 +231,21 @@ fn answer(message: &Value, spool: Option<&Path>) -> Option<Value> {
 /// A line that is not JSON is passed over, as the protocol has no one to report it to. Views
 /// are handed to the core through the folder its environment names, when the core set one.
 pub fn serve_tools(input: impl BufRead, output: impl Write) -> std::io::Result<()> {
-    let spool = std::env::var_os(VIEW_SPOOL_ENV).map(PathBuf::from);
-    serve(input, output, spool.as_deref())
+    let link = Link {
+        spool: std::env::var_os(VIEW_SPOOL_ENV).map(PathBuf::from),
+        socket: std::env::var_os(SOCKET_ENV).map_or_else(PathBuf::new, PathBuf::from),
+        session: std::env::var(SESSION_ENV)
+            .ok()
+            .and_then(|id| id.parse().ok())
+            .unwrap_or(0),
+    };
+    serve(input, output, &link)
 }
 
-fn serve(input: impl BufRead, mut output: impl Write, spool: Option<&Path>) -> std::io::Result<()> {
+fn serve(input: impl BufRead, mut output: impl Write, link: &Link) -> std::io::Result<()> {
     for line in input.lines() {
         let message = serde_json::from_str::<Value>(&line?).ok();
-        if let Some(reply) = message.as_ref().and_then(|message| answer(message, spool)) {
+        if let Some(reply) = message.as_ref().and_then(|message| answer(message, link)) {
             writeln!(output, "{reply}")?;
             output.flush()?;
         }
@@ -170,7 +282,7 @@ mod tests {
         let lines: Vec<String> = lines.iter().map(Value::to_string).collect();
         let input = lines.join("\n");
         let mut output = Vec::new();
-        serve(input.as_bytes(), &mut output, None).expect("serves");
+        serve(input.as_bytes(), &mut output, &Link::default()).expect("serves");
         let text = String::from_utf8(output).expect("text");
         text.lines()
             .map(|line| serde_json::from_str(line).expect("json"))
@@ -210,7 +322,7 @@ mod tests {
     fn a_line_that_is_not_json_is_passed_over() {
         let mut output = Vec::new();
         let input = "not json\n{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n";
-        serve(input.as_bytes(), &mut output, None).expect("serves");
+        serve(input.as_bytes(), &mut output, &Link::default()).expect("serves");
         let text = String::from_utf8(output).expect("text");
         assert_eq!(text.lines().count(), 1);
         assert_eq!(
@@ -233,7 +345,11 @@ mod tests {
             show(2, "<p>second</p>")
         );
         let mut output = Vec::new();
-        serve(input.as_bytes(), &mut output, Some(&spool)).expect("serves");
+        let link = Link {
+            spool: Some(spool.clone()),
+            ..Link::default()
+        };
+        serve(input.as_bytes(), &mut output, &link).expect("serves");
         assert_eq!(
             String::from_utf8(output)
                 .expect("text")

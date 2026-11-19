@@ -673,6 +673,12 @@ code {
     white-space: nowrap;
 }
 
+/* A session an agent started, marked as hanging off another. */
+.session-spawned {
+    flex: none;
+    color: var(--faint);
+}
+
 .session-line[data-unread="true"] .session-title {
     color: var(--bright);
     font-weight: 650;
@@ -1093,6 +1099,19 @@ code {
     font-size: var(--text-md);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+}
+
+/* What another session left here: set like a message, but not in the user's own colour. */
+.said-peer {
+    border-left-color: var(--lilac);
+    white-space: normal;
+}
+
+.said-from {
+    margin-bottom: var(--space-1);
+    color: var(--lilac);
+    font-size: var(--text-xs);
+    font-weight: 600;
 }
 
 .prose {
