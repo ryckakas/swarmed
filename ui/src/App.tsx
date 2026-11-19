@@ -7,6 +7,8 @@ import { connect, useStore } from "./store";
 export function App() {
     useEffect(() => connect(api), []);
     const load = useStore((state) => state.load);
+    const problem = useStore((state) => state.problem);
+    const dismissProblem = useStore((state) => state.dismissProblem);
 
     return (
         <div className="app">
@@ -14,6 +16,14 @@ export function App() {
             <main className="main">
                 {/* The window has no title bar; this strip is what the user drags it by. */}
                 <div className="drag-strip" data-tauri-drag-region />
+                {problem && (
+                    <div className="problem" role="alert">
+                        <span>{problem}</span>
+                        <button type="button" className="button" onClick={dismissProblem}>
+                            Dismiss
+                        </button>
+                    </div>
+                )}
                 {typeof load === "object" ? <LoadError message={load.error} /> : <SessionPane />}
             </main>
         </div>

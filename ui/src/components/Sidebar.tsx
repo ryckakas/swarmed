@@ -1,4 +1,5 @@
 import type { KeyboardEvent } from "react";
+import { api } from "../api";
 import type { Project, Session, Task } from "../api/types";
 import { useStore } from "../store";
 import { countWaiting } from "../tree";
@@ -60,19 +61,40 @@ function ProjectGroup({ project }: { project: Project }) {
             <h2 className="project-name">{project.name}</h2>
             {tasks.length === 0 && <p className="hint">No tasks</p>}
             {tasks.map((task) => (
-                <TaskGroup key={task.id} task={task} />
+                <TaskGroup key={task.id} project={project.name} task={task} />
             ))}
         </section>
     );
 }
 
-function TaskGroup({ task }: { task: Task }) {
+function TaskGroup({ project, task }: { project: string; task: Task }) {
+    const newSession = async () => {
+        const { refresh, open, report } = useStore.getState();
+        try {
+            const session = await api.sessionNew(project, task.name);
+            await refresh(api);
+            await open(api, session.id);
+        } catch (error) {
+            report(error);
+        }
+    };
     return (
         <div className="task">
-            <h3 className="task-name">
-                {task.name}
-                {task.setup === "failed" && <span className="task-flag">setup failed</span>}
-            </h3>
+            <div className="task-head">
+                <h3 className="task-name">
+                    {task.name}
+                    {task.setup === "failed" && <span className="task-flag">setup failed</span>}
+                </h3>
+                <button
+                    type="button"
+                    className="task-add"
+                    aria-label={`New session in ${task.name}`}
+                    title="New session"
+                    onClick={() => void newSession()}
+                >
+                    +
+                </button>
+            </div>
             {task.sessions.length === 0 && <p className="hint">No sessions</p>}
             <ul className="sessions">
                 {task.sessions.map((session) => (
@@ -87,13 +109,13 @@ function TaskGroup({ task }: { task: Task }) {
 
 function SessionRow({ session }: { session: Session }) {
     const selected = useStore((state) => state.selectedSessionId === session.id);
-    const select = useStore((state) => state.select);
+    const open = useStore((state) => state.open);
     return (
         <button
             type="button"
             className={`session-row status-${session.status}`}
             aria-current={selected ? "true" : undefined}
-            onClick={() => select(session.id)}
+            onClick={() => void open(api, session.id)}
         >
             <StatusMark status={session.status} />
             <span className="session-title">{session.title || "New session"}</span>

@@ -3,8 +3,9 @@
 Parallel Claude Code sessions, each in its own git worktree with a fully isolated dev stack.
 A personal tool with a Rust core; the desktop app (Tauri) comes later.
 
-Status: early. The core and CLI work. The desktop app opens and shows projects, tasks and
-sessions with live status; the transcript is not built yet.
+Status: early. The core and CLI work. In the desktop app you can start sessions, talk to the
+agent, answer its permission requests and stop a turn. Tasks are still created from the CLI, and
+there is no view of the changes yet.
 
 ## Layout
 

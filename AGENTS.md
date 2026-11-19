@@ -64,8 +64,12 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **The UI talks to the app through `Api`** (`ui/src/api/client.ts`). `tauri.ts` is the real one;
   `mock.ts` serves sample data when the UI runs in a plain browser. `types.ts` mirrors what the
   core serialises by hand, with the core's snake_case field names: change both together.
-- **UI logic lives in pure functions** (`ui/src/tree.ts`) with tests; components and the store
-  stay thin.
+- **UI logic lives in pure functions** with tests: `tree.ts` for the sidebar, `transcript.ts`
+  for turning a session's events into what the transcript shows. Components and the store stay
+  thin.
+- **Check UI changes in a browser** with `pnpm dev`. The mock agent answers plain text, asks
+  permission for `run: <command>`, and runs until stopped for `slow`; one sample session has
+  2,000 messages for checking scroll speed.
 - **Swarmed never handles Claude.ai credentials.** It only shapes the child's environment (`Auth`).
 - **Session events are stored as JSON** (`AgentEvent`), so its variants and fields are only added,
   never renamed.

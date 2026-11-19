@@ -8,8 +8,24 @@ export function withSessionStatus(
     sessionId: number,
     status: SessionStatus,
 ): Project[] {
-    const inSession = (session: Session) =>
-        session.id === sessionId ? { ...session, status } : session;
+    return mapSession(projects, sessionId, (session) => ({ ...session, status }));
+}
+
+/** How long a title taken from a message may be; the same limit the core uses. */
+const TITLE_CHARS = 60;
+
+/** The title the core gives a session from its first message: the first line, shortened. */
+export function titleFrom(message: string): string {
+    const line = (message.split("\n")[0] ?? "").trim();
+    return line.length <= TITLE_CHARS ? line : `${line.slice(0, TITLE_CHARS - 1)}…`;
+}
+
+function mapSession(
+    projects: Project[],
+    sessionId: number,
+    change: (session: Session) => Session,
+): Project[] {
+    const inSession = (session: Session) => (session.id === sessionId ? change(session) : session);
     const inTask = (task: Task) =>
         task.sessions.some((session) => session.id === sessionId)
             ? { ...task, sessions: task.sessions.map(inSession) }
@@ -21,11 +37,22 @@ export function withSessionStatus(
     return projects.map(inProject);
 }
 
-/** Applies what a published event means for the sidebar. */
+/**
+ * Applies what a published event means for the sidebar: the session's new status, and, for
+ * the first message of an untitled session, the title the core has just given it.
+ */
 export function applySessionEvent(projects: Project[], published: SessionEvent): Project[] {
-    return published.status === null
-        ? projects
-        : withSessionStatus(projects, published.session_id, published.status);
+    const { session_id: id, status, event } = published;
+    const firstMessage = event.type === "user_message" ? event.text : null;
+    if (status === null && firstMessage === null) {
+        return projects;
+    }
+    return mapSession(projects, id, (session) => ({
+        ...session,
+        status: status ?? session.status,
+        title:
+            session.title === "" && firstMessage !== null ? titleFrom(firstMessage) : session.title,
+    }));
 }
 
 export function findSession(projects: Project[], sessionId: number | null): Session | undefined {

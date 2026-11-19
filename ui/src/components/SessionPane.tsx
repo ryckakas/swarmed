@@ -1,6 +1,9 @@
+import type { Session, Task } from "../api/types";
 import { useStore } from "../store";
 import { findSession, findSessionHome } from "../tree";
+import { Composer } from "./Composer";
 import { StatusMark, statusLabel } from "./StatusMark";
+import { Transcript } from "./Transcript";
 
 const SUPERVISION = {
     ask: "Edits allowed, commands ask",
@@ -8,10 +11,13 @@ const SUPERVISION = {
     bypass: "Nothing asks",
 };
 
-/** The centre of the window: the selected session. The transcript itself comes later. */
+/** The centre of the window: the selected session's conversation. */
 export function SessionPane() {
     const projects = useStore((state) => state.projects);
     const selectedSessionId = useStore((state) => state.selectedSessionId);
+    const events = useStore((state) =>
+        selectedSessionId === null ? undefined : state.events[selectedSessionId],
+    );
     const session = findSession(projects, selectedSessionId);
     const home = session && findSessionHome(projects, session);
 
@@ -35,16 +41,39 @@ export function SessionPane() {
                     {statusLabel(session.status)}
                 </p>
             </header>
+            {events === undefined && <p className="aside loading">Loading the conversation…</p>}
+            {events?.length === 0 && <Facts session={session} task={home.task} />}
+            {events !== undefined && events.length > 0 && (
+                <Transcript
+                    key={`transcript-${session.id}`}
+                    sessionId={session.id}
+                    events={events}
+                />
+            )}
+            <Composer
+                key={`composer-${session.id}`}
+                sessionId={session.id}
+                status={session.status}
+            />
+        </article>
+    );
+}
+
+/** What a session that has not said anything yet will work with. */
+function Facts({ session, task }: { session: Session; task: Task }) {
+    return (
+        <div className="facts-wrap">
+            <p>Nothing has been said yet. The agent starts with your first message.</p>
             <dl className="facts">
                 <dt>Worktree</dt>
-                <dd className="mono">{home.task.worktree_path}</dd>
+                <dd className="mono">{task.worktree_path}</dd>
                 <dt>Branch</dt>
-                <dd className="mono">{home.task.branch}</dd>
+                <dd className="mono">{task.branch}</dd>
                 <dt>Supervision</dt>
                 <dd>{SUPERVISION[session.supervision]}</dd>
                 <dt>Model</dt>
                 <dd>{session.model ?? "Claude Code's default"}</dd>
             </dl>
-        </article>
+        </div>
     );
 }
