@@ -155,6 +155,11 @@ code {
     border-bottom: 1px solid var(--line);
 }
 
+.panel-close {
+    float: right;
+    margin: -4px calc(var(--space-2) * -1) 0 var(--space-2);
+}
+
 .panel-head h2 {
     font-size: var(--text-md);
     font-weight: 650;
@@ -646,6 +651,44 @@ code {
     color: var(--text);
 }
 
+/* A button that is only an icon; its label shows when the pointer rests on it. */
+.icon-button {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--muted);
+}
+
+.icon-button svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentcolor;
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.icon-button:hover,
+.icon-button:focus-visible {
+    background: var(--raised);
+    color: var(--text);
+}
+
+.icon-button-danger {
+    color: var(--clay);
+}
+
+.icon-button-danger:hover,
+.icon-button-danger:focus-visible {
+    background: color-mix(in srgb, var(--clay) 16%, transparent);
+    color: var(--clay);
+}
+
 /* Status marks: a shape per status, so colour is never the only signal. */
 
 .mark {
@@ -773,6 +816,14 @@ code {
     display: flex;
     flex-direction: column;
     min-height: 0;
+}
+
+/* The session's own buttons sit in its top right corner, level with the crumbs. */
+.session-actions {
+    float: right;
+    display: flex;
+    gap: var(--space-1);
+    margin: -4px calc(var(--space-2) * -1) 0 var(--space-3);
 }
 
 .session-head {
