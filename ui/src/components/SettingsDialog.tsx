@@ -137,21 +137,23 @@ function StatusLineSettings({ settings }: { settings: Settings }) {
                     </label>
                 ))}
             </div>
-            <Row
-                label="Custom script"
-                hint="Replaces the pieces above. Runs with sh -c in the task's worktree, gets the session, task and project as JSON on standard input, and its first line of output is shown."
-            >
-                <input
-                    type="text"
-                    className="key-input settings-command"
-                    aria-label="Status line script"
-                    placeholder="~/.config/swarmed/statusline.sh"
+            <label className="settings-script">
+                <span className="settings-label">Custom script</span>
+                <span className="settings-hint">
+                    Replaces the pieces above. Runs with sh -c in the task's worktree and gets the
+                    session, task and project as JSON on standard input. Its first line of output is
+                    shown; values separated by | become badges.
+                </span>
+                <textarea
+                    className="key-input"
+                    rows={4}
+                    placeholder={"jq -r '\"\\(.task.branch) | \\(.session.model)\"'"}
                     spellCheck={false}
                     value={command}
                     onChange={(event) => setCommand(event.target.value)}
                     onBlur={() => void change(api, { status_command: command.trim() })}
                 />
-            </Row>
+            </label>
         </section>
     );
 }

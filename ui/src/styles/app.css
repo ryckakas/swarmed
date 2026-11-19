@@ -635,6 +635,11 @@ code {
     text-align: left;
 }
 
+/* The two buttons at the foot of the sidebar share its width, each with its label in the middle. */
+.quiet-button-centred {
+    text-align: center;
+}
+
 .quiet-button:hover,
 .quiet-button:focus-visible {
     background: var(--raised);
@@ -1383,6 +1388,7 @@ code {
 /* The status line: one quiet row under the message box, which folds away to its toggle. */
 
 .status-line {
+    position: relative;
     flex: none;
     display: flex;
     align-items: center;
@@ -1463,6 +1469,17 @@ code {
     color: var(--sky);
 }
 
+.status-context {
+    flex: none;
+    border: 0;
+    color: var(--moss);
+    font: inherit;
+}
+
+.status-context:focus-visible {
+    outline: 1px solid var(--focus);
+}
+
 .status-cost,
 .status-nth-3 {
     color: var(--sand);
@@ -1487,6 +1504,65 @@ code {
 
 .status-failed {
     color: var(--clay);
+}
+
+/* What fills the context window, shown over the status line while its badge is pointed at. */
+.context-card {
+    position: absolute;
+    bottom: 100%;
+    left: var(--space-8);
+    z-index: 4;
+    width: min(34ch, 100% - 2 * var(--space-8));
+    padding: var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--raised);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: var(--text-xs);
+}
+
+.context-title {
+    display: grid;
+    gap: 2px;
+    font-weight: 650;
+}
+
+.context-title span,
+.context-none {
+    color: var(--muted);
+    font-weight: 400;
+}
+
+.context-bar {
+    height: 4px;
+    margin: var(--space-2) 0;
+    border-radius: 2px;
+    background: var(--line);
+    overflow: hidden;
+}
+
+.context-bar div {
+    height: 100%;
+    background: var(--moss);
+}
+
+.context-part {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding: 1px 0;
+}
+
+.context-part dd {
+    font-family: var(--font-mono);
+}
+
+.context-buffer,
+.context-free,
+.context-deferred {
+    color: var(--faint);
 }
 
 /* Suggestions for a message that starts with a slash; they open upwards, over the transcript. */
@@ -1746,11 +1822,19 @@ code {
     gap: 6px;
 }
 
-.settings-command {
-    flex: none;
-    width: 45%;
+/* The script has room of its own under its explanation, and can be dragged taller. */
+.settings-script {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-2) 0;
+}
+
+.settings-script textarea {
+    min-height: 4.5em;
     font-family: var(--font-mono);
     font-size: var(--text-xs);
+    line-height: 1.5;
+    resize: vertical;
 }
 
 .key-row {

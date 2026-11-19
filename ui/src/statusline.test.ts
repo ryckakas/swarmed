@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { sampleProjects } from "./api/mock";
 import type { AgentEvent } from "./api/types";
-import { type StatusSource, statusParts, withItem } from "./statusline";
+import {
+    contextBreakdown,
+    contextUsage,
+    formatTokens,
+    type StatusSource,
+    statusParts,
+    withItem,
+} from "./statusline";
 
 function source(extra: Partial<StatusSource> = {}): StatusSource {
     const task = sampleProjects()[0]?.tasks[0];
@@ -60,6 +67,55 @@ describe("statusParts", () => {
             slash_commands: [],
         };
         expect(statusParts(["model"], source({ events: [init] }))[0]?.text).toBe("claude-opus-5-5");
+    });
+});
+
+describe("the context window", () => {
+    const usage = (used: number): AgentEvent => ({
+        type: "context_usage",
+        used,
+        max: 1_000_000,
+        categories: [
+            { name: "Free space", tokens: 937_371, kind: "free" },
+            { name: "Skills", tokens: 9904, kind: "used" },
+            { name: "MCP tools (deferred)", tokens: 129_532, kind: "deferred" },
+            { name: "Messages", tokens: 9171, kind: "used" },
+            { name: "Nothing", tokens: 0, kind: "used" },
+            { name: "Autocompact buffer", tokens: 33_000, kind: "buffer" },
+        ],
+    });
+
+    it("is shown as a share of the window, and stands out when nearly full", () => {
+        const calm = statusParts(["context"], source({ events: [usage(29_629)] }));
+        expect(calm[0]?.text).toBe("3% of 1M");
+        expect(calm[0]?.runs[0]).toEqual(["3%", "plain"]);
+        const full = statusParts(["context"], source({ events: [usage(29_629), usage(850_000)] }));
+        expect(full[0]?.runs[0]).toEqual(["85%", "removed"]);
+    });
+
+    it("is left out until the agent has reported it", () => {
+        expect(statusParts(["context"], source())).toEqual([]);
+    });
+
+    it("lists what is used first, largest first, then the buffer, the free space, the rest", () => {
+        const latest = contextUsage([usage(29_629)]);
+        expect(latest && contextBreakdown(latest).map((category) => category.name)).toEqual([
+            "Skills",
+            "Messages",
+            "Autocompact buffer",
+            "Free space",
+            "MCP tools (deferred)",
+        ]);
+    });
+
+    it("writes token counts the short way", () => {
+        expect([937, 9171, 29_629, 129_532, 1_000_000].map(formatTokens)).toEqual([
+            "937",
+            "9.2k",
+            "29.6k",
+            "130k",
+            "1M",
+        ]);
     });
 });
 

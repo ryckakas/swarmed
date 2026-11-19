@@ -1,7 +1,16 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { AgentEvent, FileChange, Session, Task } from "../api/types";
-import { STATUS_ITEM_LABELS, statusParts } from "../statusline";
+import {
+    type ContextUsage,
+    contextBreakdown,
+    contextPercent,
+    contextUsage,
+    formatTokens,
+    STATUS_ITEM_LABELS,
+    type StatusPart,
+    statusParts,
+} from "../statusline";
 import { useStore } from "../store";
 
 interface Props {
@@ -66,22 +75,77 @@ function BuiltIn({ project, task, session, events }: Props) {
     }, [project, task.name, wanted, tick]);
 
     const parts = statusParts(items, { session, task, events, changes });
+    const usage = contextUsage(events);
+    const [detail, setDetail] = useState(false);
     return (
-        <p className="status-text">
-            {parts.map((part) => (
-                <span
-                    key={part.item}
-                    className={`status-part status-${part.item}`}
-                    title={STATUS_ITEM_LABELS[part.item]}
-                >
-                    {part.runs.map(([text, tone]) => (
-                        <span key={`${tone}-${text}`} className={`status-run-${tone}`}>
-                            {text}
+        <>
+            <p className="status-text">
+                {parts.map((part) =>
+                    part.item === "context" ? (
+                        // A button, so the keyboard reaches the overview too: it shows on
+                        // hover and on focus, and a click keeps it open until the next one.
+                        <button
+                            key={part.item}
+                            type="button"
+                            className="status-part status-context"
+                            aria-expanded={detail}
+                            aria-label={`Context window: ${part.text}`}
+                            onMouseEnter={() => setDetail(true)}
+                            onMouseLeave={() => setDetail(false)}
+                            onFocus={() => setDetail(true)}
+                            onBlur={() => setDetail(false)}
+                        >
+                            <Runs part={part} />
+                        </button>
+                    ) : (
+                        <span
+                            key={part.item}
+                            className={`status-part status-${part.item}`}
+                            title={STATUS_ITEM_LABELS[part.item]}
+                        >
+                            <Runs part={part} />
                         </span>
-                    ))}
+                    ),
+                )}
+            </p>
+            {detail && usage && <ContextCard usage={usage} />}
+        </>
+    );
+}
+
+function Runs({ part }: { part: StatusPart }) {
+    return part.runs.map(([text, tone]) => (
+        <span key={`${tone}-${text}`} className={`status-run-${tone}`}>
+            {text}
+        </span>
+    ));
+}
+
+/** What fills the context window, part by part, shown over the status line. */
+function ContextCard({ usage }: { usage: ContextUsage }) {
+    const percent = contextPercent(usage);
+    const parts = contextBreakdown(usage);
+    return (
+        <div className="context-card" role="tooltip">
+            <p className="context-title">
+                Context window
+                <span>
+                    {formatTokens(usage.used)} of {formatTokens(usage.max)} tokens, {percent}%
                 </span>
-            ))}
-        </p>
+            </p>
+            <div className="context-bar">
+                <div style={{ width: `${Math.min(percent, 100)}%` }} />
+            </div>
+            {parts.length === 0 && <p className="context-none">The agent gave no breakdown.</p>}
+            <dl className="context-parts">
+                {parts.map((part) => (
+                    <div key={part.name} className={`context-part context-${part.kind}`}>
+                        <dt>{part.name}</dt>
+                        <dd>{formatTokens(part.tokens)}</dd>
+                    </div>
+                ))}
+            </dl>
+        </div>
     );
 }
 

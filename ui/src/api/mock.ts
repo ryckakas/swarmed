@@ -270,6 +270,21 @@ class MockTerminal {
     }
 }
 
+const SAMPLE_CONTEXT: AgentEvent = {
+    type: "context_usage",
+    used: 29_629,
+    max: 1_000_000,
+    categories: [
+        { name: "System prompt", tokens: 3338, kind: "used" },
+        { name: "System tools", tokens: 3317, kind: "used" },
+        { name: "MCP tools (deferred)", tokens: 129_532, kind: "deferred" },
+        { name: "Skills", tokens: 9904, kind: "used" },
+        { name: "Messages", tokens: 9171, kind: "used" },
+        { name: "Autocompact buffer", tokens: 33_000, kind: "buffer" },
+        { name: "Free space", tokens: 937_371, kind: "free" },
+    ],
+};
+
 class MockAgent {
     readonly projects = sampleProjects();
     readonly events = new Map<number, AgentEvent[]>();
@@ -338,6 +353,7 @@ class MockAgent {
             });
             this.later(id, { type: "text", text: reply }, "working");
             this.later(id, done, "idle", 2);
+            this.later(id, SAMPLE_CONTEXT, null, 3);
         }
     }
 
@@ -451,7 +467,7 @@ export function createMockApi(): Api {
         theme: "system",
         text_scale: 100,
         html_views: true,
-        status_items: ["branch", "changes", "model", "cost"],
+        status_items: ["branch", "changes", "model", "context", "cost"],
         status_command: "",
     };
     return {

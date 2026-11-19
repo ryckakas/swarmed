@@ -117,6 +117,17 @@ pub struct McpServerInfo {
     pub status: String,
 }
 
+/// One part of what fills an agent's context window.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextCategory {
+    /// What the part is, as the agent names it: "Messages", "Skills", "System prompt".
+    pub name: String,
+    /// How many tokens it takes.
+    pub tokens: u64,
+    /// The agent's word for what kind of part it is: `used`, `free`, `buffer` or `deferred`.
+    pub kind: String,
+}
+
 /// What an agent session reports.
 ///
 /// Events are stored as JSON, so variants and fields are only ever added, never renamed.
@@ -209,6 +220,15 @@ pub enum AgentEvent {
     TerminalShared {
         /// The terminal's output as plain text.
         text: String,
+    },
+    /// How full the agent's context window is, reported after a turn.
+    ContextUsage {
+        /// Tokens in use.
+        used: u64,
+        /// The size of the window.
+        max: u64,
+        /// What the tokens are spent on, if the agent says. Empty otherwise.
+        categories: Vec<ContextCategory>,
     },
     /// Usage-limit state.
     RateLimit {

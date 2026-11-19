@@ -76,6 +76,7 @@ impl SessionStatus {
             AgentEvent::Exited { .. } => Some(Self::Errored),
             AgentEvent::Init { .. }
             | AgentEvent::Renamed { .. }
+            | AgentEvent::ContextUsage { .. }
             | AgentEvent::TerminalShared { .. }
             | AgentEvent::TextDelta { .. }
             | AgentEvent::RateLimit { .. }

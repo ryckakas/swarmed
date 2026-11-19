@@ -63,7 +63,7 @@ export interface ApiKeyInfo {
 export type Theme = "system" | "dark" | "light";
 
 /** One built-in piece of the status line. */
-export type StatusItem = "branch" | "changes" | "model" | "cost" | "agent" | "worktree";
+export type StatusItem = "branch" | "changes" | "model" | "context" | "cost" | "agent" | "worktree";
 
 /** The user's own preferences. */
 export interface Settings {
@@ -94,6 +94,14 @@ export interface McpServerInfo {
     status: string;
 }
 
+/** One part of what fills an agent's context window. */
+export interface ContextCategory {
+    name: string;
+    tokens: number;
+    /** `used`, `free`, `buffer` or `deferred`, in the agent's words. */
+    kind: string;
+}
+
 export type AgentEvent =
     | { type: "user_message"; text: string }
     | {
@@ -119,6 +127,8 @@ export type AgentEvent =
           input: unknown;
           description: string | null;
       }
+    /** How full the agent's context window is, reported after a turn. */
+    | { type: "context_usage"; used: number; max: number; categories: ContextCategory[] }
     /** The session got a new title, from the user or from the model that names sessions. */
     | { type: "renamed"; title: string }
     /** What happened in the session's terminal, as given to the agent with the next message. */

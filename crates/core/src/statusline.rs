@@ -31,6 +31,8 @@ pub enum StatusItem {
     Changes,
     /// The model the session runs on.
     Model,
+    /// How full the agent's context window is.
+    Context,
     /// What the session has cost since its agent last started.
     Cost,
     /// The agent that runs the session.
@@ -43,7 +45,13 @@ impl StatusItem {
     /// What a status line shows until the user chooses.
     #[must_use]
     pub fn defaults() -> Vec<Self> {
-        vec![Self::Branch, Self::Changes, Self::Model, Self::Cost]
+        vec![
+            Self::Branch,
+            Self::Changes,
+            Self::Model,
+            Self::Context,
+            Self::Cost,
+        ]
     }
 }
 
@@ -92,7 +100,8 @@ impl Core {
     /// configured and the built-in items apply.
     ///
     /// The script runs with `sh -c` in the task's worktree and gets a JSON object on standard
-    /// input: `session`, `task` and `project`, with the model and cost last reported.
+    /// input: `session`, `task` and `project`, with the model, cost and context window use
+    /// last reported.
     pub async fn status_line(&self, session_id: i64) -> Result<Option<String>> {
         let settings = self.settings()?;
         let command = settings.status_command.trim();
@@ -118,11 +127,15 @@ impl Core {
             Some(AgentEvent::TurnDone { cost_usd, .. }) => cost_usd,
             _ => None,
         };
+        let context = match store.latest_event(session_id, "context_usage")? {
+            Some(AgentEvent::ContextUsage { used, max, .. }) => json!({ "used": used, "max": max }),
+            _ => Value::Null,
+        };
         let input = json!({
             "session": {
                 "id": session.id, "title": session.title, "agent": session.agent,
                 "model": model, "supervision": session.supervision, "status": session.status,
-                "cost_usd": cost,
+                "cost_usd": cost, "context": context,
             },
             "task": { "name": task.name, "branch": task.branch, "worktree": task.worktree_path },
             "project": project.map(|p| json!({ "name": p.name, "repo": p.repo_path })),

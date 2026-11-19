@@ -36,14 +36,14 @@ export function Sidebar() {
                 <div className="sidebar-bottom">
                     <button
                         type="button"
-                        className="quiet-button"
+                        className="quiet-button quiet-button-centred"
                         onClick={() => void addProject()}
                     >
                         Add repository
                     </button>
                     <button
                         type="button"
-                        className="quiet-button"
+                        className="quiet-button quiet-button-centred"
                         onClick={() => showSettings(true)}
                     >
                         Settings

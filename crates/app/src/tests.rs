@@ -262,7 +262,8 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
         json!({
             "editor": "code", "auto_title": true, "theme": "system", "text_scale": 100,
             "html_views": true,
-            "status_items": ["branch", "changes", "model", "cost"], "status_command": "",
+            "status_items": ["branch", "changes", "model", "context", "cost"],
+            "status_command": "",
         })
     );
 

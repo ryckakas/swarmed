@@ -6,6 +6,7 @@ export const STATUS_ITEM_LABELS: Record<StatusItem, string> = {
     branch: "Branch",
     changes: "Changes",
     model: "Model",
+    context: "Context window",
     cost: "Cost",
     agent: "Agent",
     worktree: "Worktree",
@@ -39,6 +40,57 @@ function model({ session, events }: StatusSource): string | null {
     return (init?.type === "init" ? init.model : null) || session.model;
 }
 
+export type ContextUsage = Extract<AgentEvent, { type: "context_usage" }>;
+
+/** How full the context window was when the agent last said. */
+export function contextUsage(events: AgentEvent[]): ContextUsage | null {
+    const latest = events.findLast((event) => event.type === "context_usage");
+    return latest?.type === "context_usage" ? latest : null;
+}
+
+/** A token count as people say it: 937, 29.6k, 1M. */
+export function formatTokens(tokens: number): string {
+    const short = (value: number, unit: string) =>
+        `${value >= 100 ? Math.round(value) : Number(value.toFixed(1))}${unit}`;
+    if (tokens >= 1_000_000) {
+        return short(tokens / 1_000_000, "M");
+    }
+    return tokens >= 1000 ? short(tokens / 1000, "k") : String(tokens);
+}
+
+/** How much of the window is in use, as a whole percentage. */
+export function contextPercent(usage: ContextUsage): number {
+    return usage.max > 0 ? Math.round((usage.used / usage.max) * 100) : 0;
+}
+
+/** From this share on the window is close to full and the badge says so by its colour. */
+export const CONTEXT_NEARLY_FULL = 80;
+
+function context({ events }: StatusSource): StatusPart["runs"] | null {
+    const usage = contextUsage(events);
+    if (usage === null) {
+        return null;
+    }
+    const percent = contextPercent(usage);
+    const tone: StatusTone = percent >= CONTEXT_NEARLY_FULL ? "removed" : "plain";
+    return [
+        [`${percent}%`, tone],
+        [` of ${formatTokens(usage.max)}`, "plain"],
+    ];
+}
+
+/**
+ * The parts of the window worth a line each: what is in use, largest first, then what is set
+ * aside, then what is free. Parts that are listed but not loaded come last.
+ */
+export function contextBreakdown(usage: ContextUsage): ContextUsage["categories"] {
+    const order = ["used", "buffer", "free", "deferred"];
+    const rank = (kind: string) => (order.includes(kind) ? order.indexOf(kind) : 0);
+    return usage.categories
+        .filter((category) => category.tokens > 0)
+        .toSorted((a, b) => rank(a.kind) - rank(b.kind) || b.tokens - a.tokens);
+}
+
 /** What the session has cost since its agent last started, as the agent last reported it. */
 function cost({ events }: StatusSource): string | null {
     const done = events.findLast((event) => event.type === "turn_done" && event.cost_usd !== null);
@@ -69,6 +121,7 @@ const RUNS: Record<StatusItem, (source: StatusSource) => StatusPart["runs"] | nu
     branch: ({ task }) => plain(task.branch),
     changes: changeRuns,
     model: (source) => plain(model(source)),
+    context,
     cost: (source) => plain(cost(source)),
     agent: ({ session }) => plain(session.agent),
     worktree: ({ task }) => plain(task.worktree_path),
