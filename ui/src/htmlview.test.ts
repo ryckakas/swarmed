@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
     htmlOf,
+    INITIAL_FRAME,
     isShowHtmlTool,
     needsNetwork,
+    nextFrameSize,
     requestedHeight,
     splitPendingView,
     viewDocument,
@@ -103,5 +105,32 @@ describe("the tool that shows HTML", () => {
         expect(isShowHtmlTool("Bash")).toBe(false);
         expect(htmlOf({ html: "<p>hi</p>", title: "t" })).toBe("<p>hi</p>");
         expect(htmlOf({})).toBe("");
+    });
+});
+
+describe("nextFrameSize", () => {
+    const grow = (heights: number[]) =>
+        heights.reduce((size, wanted) => nextFrameSize(size, wanted, 12_000), INITIAL_FRAME);
+
+    it("follows a view as its content grows and shrinks", () => {
+        expect(grow([400]).height).toBe(400);
+        expect(grow([400, 900, 650]).height).toBe(650);
+        expect(grow([400, 99_999]).height).toBe(12_000);
+    });
+
+    it("stops following a view that keeps asking for the same bit more", () => {
+        // Content sized by the frame plus 24 pixels of padding: every answer provokes the next.
+        const chased = grow([1976, 2000, 2024, 2048, 2072, 2096]);
+        expect(chased.height).toBe(2024);
+        // Uneven growth, as from rows being added, is followed all the way.
+        expect(grow([300, 340, 400, 430, 500]).height).toBe(500);
+    });
+});
+
+describe("the script that measures a view", () => {
+    it("takes frame-relative heights out of the layout before it measures", () => {
+        const shown = viewDocument("<p>hi</p>", theme);
+        expect(shown).toContain('style.minHeight = "0"');
+        expect(shown).toContain("vh|vmin|vmax");
     });
 });
