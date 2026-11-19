@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CloudTask } from "./api/types";
-import { cloudTitle, cloudTone, isUnfinished } from "./cloud";
+import { cloudProvider, cloudTitle, cloudTone, cloudTooltip, isUnfinished } from "./cloud";
 
 const task = (status: string, prompt = "Tidy the docs\nand the rest"): CloudTask => ({
     id: 1,
@@ -27,5 +27,18 @@ describe("a cloud task in the sidebar", () => {
         expect(cloudTone(task("error"))).toBe("failed");
         expect(isUnfinished(task("pending"))).toBe(true);
         expect(isUnfinished(task("ready"))).toBe(false);
+    });
+
+    it("says of a Claude Code session only that it was sent, and is not asked about again", () => {
+        const sent: CloudTask = { ...task("sent"), provider: "claude", branch: "" };
+        expect(cloudTone(sent)).toBe("sent");
+        expect(isUnfinished(sent)).toBe(false);
+        expect(cloudProvider("claude")).toEqual({ name: "Claude Code", agent: "claude" });
+        expect(cloudTooltip(sent)).toBe(
+            "Tidy the docs\nIn Claude Code's cloud: sent, and Claude Code does not say how it is getting on. Opens at Claude Code.",
+        );
+        expect(cloudTooltip(task("ready"))).toBe(
+            "Tidy the docs\nIn Codex's cloud, from main: ready. Opens at Codex.",
+        );
     });
 });

@@ -48,7 +48,7 @@ pub use agents::{AgentInfo, CLAUDE};
 pub use attach::{ATTACHED_FILES, with_files};
 
 pub use changes::{ChangeKind, FileChange, FileDiff};
-pub use cloud::{CloudOrigin, CloudTask, MAX_DELEGATED};
+pub use cloud::{CloudOrigin, CloudProvider, CloudTask, MAX_DELEGATED};
 pub use config::{Hooks, ProjectConfig};
 pub use environments::Environment;
 pub use error::{Error, Result};

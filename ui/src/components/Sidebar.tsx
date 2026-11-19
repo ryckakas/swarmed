@@ -2,7 +2,7 @@ import { type KeyboardEvent, useEffect, useState } from "react";
 import { addProject, newSession } from "../actions";
 import { api } from "../api";
 import type { CloudTask, Project, Session, Task } from "../api/types";
-import { cloudTitle, cloudTone, isUnfinished } from "../cloud";
+import { cloudProvider, cloudTitle, cloudTone, cloudTooltip, isUnfinished } from "../cloud";
 import { taskTooltip } from "../environments";
 import { agentName, iconForAgent } from "../providerIcons";
 import { useStore } from "../store";
@@ -242,12 +242,16 @@ function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] })
                     <button
                         type="button"
                         className="cloud-row"
-                        title={`${cloudTitle(task)}\nIn Codex's cloud, from ${task.branch}: ${task.status}. Opens at Codex.`}
+                        title={cloudTooltip(task)}
                         onClick={() => void api.cloudTaskOpen(task.id).catch(report)}
                     >
                         <CloudIcon />
                         <span className="session-title">{cloudTitle(task)}</span>
                         <span className="cloud-status">{task.status}</span>
+                        <ProviderMark
+                            icon={iconForAgent(cloudProvider(task.provider).agent)}
+                            label={cloudProvider(task.provider).name}
+                        />
                     </button>
                     <button
                         type="button"

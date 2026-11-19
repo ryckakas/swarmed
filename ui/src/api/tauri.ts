@@ -59,8 +59,8 @@ export const tauriApi: Api = {
         invoke<TaskNaming | null>("task_name_for", { project, prompt }),
     taskNew: (project, name, branch, environment) =>
         invoke<Task>("task_new", { project, name, branch, environment }),
-    cloudDelegate: (project, prompt, task) =>
-        invoke<CloudTask>("cloud_delegate", { project, prompt, task }),
+    cloudDelegate: (project, prompt, task, provider) =>
+        invoke<CloudTask>("cloud_delegate", { project, prompt, task, provider }),
     cloudTasks: (project, refresh) => invoke<CloudTask[]>("cloud_tasks", { project, refresh }),
     cloudTaskForget: (id) => invoke<void>("cloud_task_forget", { id }),
     cloudTaskOpen: (id) => invoke<void>("cloud_task_open", { id }),

@@ -4,6 +4,7 @@ import type {
     AgentEvent,
     AgentSetup,
     ApiKeyInfo,
+    CloudProvider,
     CloudTask,
     Environment,
     FileChange,
@@ -285,6 +286,32 @@ function noteApi(projects: () => Project[]): Pick<Api, "note" | "setNote"> {
     };
 }
 
+/** A cloud task as each provider would have started it. */
+function sampleCloudTask(projectId: number, prompt: string, provider: CloudProvider): CloudTask {
+    const id = Date.now();
+    const started = {
+        codex: {
+            remote_id: `task_${id}`,
+            url: `https://chatgpt.com/codex/tasks/task_${id}`,
+            status: "pending",
+        },
+        claude: {
+            remote_id: `session_${id}`,
+            url: `https://claude.ai/code/session_${id}`,
+            status: "sent",
+        },
+    }[provider];
+    return {
+        id,
+        project_id: projectId,
+        provider,
+        prompt,
+        branch: "main",
+        session_id: null,
+        ...started,
+    };
+}
+
 /** Delegating to the cloud: the sample has an environment for `hero` and for nothing else. */
 function cloudApi(
     projects: () => Project[],
@@ -297,32 +324,23 @@ function cloudApi(
         return project;
     };
     return {
-        cloudDelegate: async (name, prompt) => {
+        cloudDelegate: async (name, prompt, _task, provider) => {
             const project = find(name);
-            if (name !== "hero") {
+            if (provider === "codex" && name !== "hero") {
                 throw new Error(
                     `you/${name} has no Codex cloud environment. Create one for it at https://chatgpt.com/codex, under Environments, then delegate again`,
                 );
             }
-            const id = Date.now();
-            const task: CloudTask = {
-                id,
-                project_id: project.id,
-                provider: "codex",
-                remote_id: `task_${id}`,
-                url: `https://chatgpt.com/codex/tasks/task_${id}`,
-                prompt,
-                branch: "main",
-                status: "pending",
-                session_id: null,
-            };
+            const task = sampleCloudTask(project.id, prompt, provider);
             project.cloud = [task, ...project.cloud];
             return task;
         },
         cloudTasks: async (name, refresh) => {
             const project = find(name);
             if (refresh) {
-                project.cloud = project.cloud.map((task) => ({ ...task, status: "ready" }));
+                project.cloud = project.cloud.map((task) =>
+                    task.provider === "codex" ? { ...task, status: "ready" } : task,
+                );
             }
             return project.cloud;
         },

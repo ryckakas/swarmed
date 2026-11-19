@@ -6,7 +6,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use common::{core_with_project, fixture, git};
-use swarmed_core::{CloudOrigin, Core, Error, MAX_DELEGATED};
+use swarmed_core::{CloudOrigin, CloudProvider, Core, Error, MAX_DELEGATED};
 
 /// A `codex` that knows one environment, `acme/tool`, starts tasks in it, and leaves a log
 /// behind the way the real one does.
@@ -167,4 +167,72 @@ async fn a_session_delegates_only_so_much() {
     core.cloud_delegate("demo", "the user's", CloudOrigin::default())
         .await
         .expect("delegates");
+}
+
+/// Puts a stand-in `claude` that runs `script` beside the stand-in `codex`.
+fn claude_that(fx: &common::Fixture, script: &str) {
+    let claude = fx.paths.data_dir.join("tools").join("claude");
+    std::fs::write(&claude, format!("#!/bin/sh\n{script}\n")).expect("writes");
+    let mut permissions = std::fs::metadata(&claude).expect("exists").permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&claude, permissions).expect("sets");
+}
+
+#[tokio::test]
+async fn work_is_handed_to_a_claude_code_cloud_session() {
+    let fx = fixture();
+    let core = core_with_codex(&fx).await;
+    let claude = CloudOrigin {
+        provider: CloudProvider::Claude,
+        ..CloudOrigin::default()
+    };
+    // The same rule as for Codex: a cloud agent works on what GitHub has.
+    let local = refusal(core.cloud_delegate("demo", "tidy up", claude).await);
+    assert!(local.contains("not on GitHub"), "{local}");
+    // No Codex environment is needed for it: Claude Code has a default one of its own.
+    git(
+        &fx.repo,
+        &["remote", "add", "origin", "git@github.com:acme/other.git"],
+    );
+
+    // Asked something only the user may answer, it creates nothing, and that is said.
+    claude_that(
+        &fx,
+        "echo 'Error: could not reach GitHub for acme/other'; exit 1",
+    );
+    let failed = refusal(core.cloud_delegate("demo", "tidy up", claude).await);
+    assert!(
+        failed.starts_with("Claude Code did not start a cloud session"),
+        "{failed}"
+    );
+    assert!(
+        failed.ends_with("could not reach GitHub for acme/other"),
+        "{failed}"
+    );
+
+    // What it says once it has created one, as seen from the real one, with the folder it
+    // was run in and what it was asked.
+    let creates = r#"echo "$PWD|$1|$2" > "$(dirname "$0")/asked"
+printf 'Created cloud session: Tidy up\r\nView: https://claude.ai/code/session_01ABC?from=cli&m=0\r\nResume with: claude --teleport session_01ABC\r\n'"#;
+    claude_that(&fx, creates);
+    let task = core
+        .cloud_delegate("demo", "tidy up", claude)
+        .await
+        .expect("delegates");
+    assert_eq!(task.url, "https://claude.ai/code/session_01ABC");
+    assert_eq!(task.remote_id, "session_01ABC");
+    // Its status cannot be asked for, so it is only ever known to have been sent.
+    assert_eq!(
+        (task.provider.as_str(), task.status.as_str()),
+        ("claude", "sent")
+    );
+    assert_eq!(task.branch, head_branch(&fx.repo));
+    let asked = asked(&fx);
+    assert!(asked.ends_with("|--cloud|tidy up"), "{asked}");
+    // Run in the repository's own folder, the one the user has told Claude Code to trust.
+    let folder = std::fs::canonicalize(&fx.repo).expect("exists");
+    let ran_in = std::fs::canonicalize(asked.split('|').next().expect("a folder")).expect("exists");
+    assert_eq!(ran_in, folder);
+    let listed = core.cloud_tasks("demo", true).await.expect("lists");
+    assert_eq!(listed[0].status, "sent");
 }

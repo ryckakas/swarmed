@@ -11,8 +11,8 @@ use clap::{Parser, Subcommand, ValueEnum};
 use session::SessionCommand;
 use swarmed_core::agent::FakeBackend;
 use swarmed_core::{
-    AgentSetup, ApiKeyInfo, CloudOrigin, CloudTask, Core, McpServerView, NewTaskOptions, Paths,
-    RemoveOptions, Settings, SetupStatus, Task,
+    AgentSetup, ApiKeyInfo, CloudOrigin, CloudProvider, CloudTask, Core, McpServerView,
+    NewTaskOptions, Paths, RemoveOptions, Settings, SetupStatus, Task,
 };
 
 /// Swarmed: parallel Claude Code sessions in isolated git worktrees.
@@ -108,6 +108,9 @@ enum CloudCommand {
         /// Start from this task's branch, if it has been pushed; else from the base branch.
         #[arg(long)]
         task: Option<String>,
+        /// Whose cloud: `codex` or `claude`.
+        #[arg(long, default_value = "codex")]
+        provider: String,
     },
     /// List the cloud tasks delegated from a project, with their statuses as of now.
     List { project: String },
@@ -318,7 +321,8 @@ fn note(core: &Core, project: &str, task: Option<&str>, set: bool) -> Result<()>
 async fn cloud(core: &Core, command: CloudCommand) -> Result<()> {
     let row = |task: &CloudTask| {
         say(&format!(
-            "{}\t{}\t{}\t{}",
+            "{}\t{}\t{}\t{}\t{}",
+            task.provider,
             task.status,
             task.branch,
             task.url,
@@ -330,10 +334,14 @@ async fn cloud(core: &Core, command: CloudCommand) -> Result<()> {
             project,
             prompt,
             task,
+            provider,
         } => {
+            let provider = CloudProvider::parse(&provider)
+                .ok_or_else(|| anyhow::anyhow!("there is no cloud provider `{provider}`"))?;
             let origin = CloudOrigin {
                 task: task.as_deref(),
                 session: None,
+                provider,
             };
             row(&core.cloud_delegate(&project, &prompt, origin).await?);
         }

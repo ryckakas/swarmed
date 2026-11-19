@@ -11,10 +11,10 @@ use std::sync::Arc;
 use serde::Serialize;
 use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
-    AgentInfo, AgentSetup, ApiKeyInfo, BranchChoices, CloudOrigin, CloudTask, Core, Environment,
-    FileChange, FileDiff, McpServerInput, McpServerView, NewTaskOptions, Project, ProjectOverview,
-    QueuedMessage, RemoveOptions, Session, SessionOptions, SessionSettings, Settings, Task,
-    TaskNaming, Usage, with_files,
+    AgentInfo, AgentSetup, ApiKeyInfo, BranchChoices, CloudOrigin, CloudProvider, CloudTask, Core,
+    Environment, FileChange, FileDiff, McpServerInput, McpServerView, NewTaskOptions, Project,
+    ProjectOverview, QueuedMessage, RemoveOptions, Session, SessionOptions, SessionSettings,
+    Settings, Task, TaskNaming, Usage, with_files,
 };
 use tauri::{AppHandle, Emitter, Runtime, State};
 
@@ -218,10 +218,12 @@ pub(crate) async fn cloud_delegate(
     project: String,
     prompt: String,
     task: Option<String>,
+    provider: CloudProvider,
 ) -> Command<CloudTask> {
     let origin = CloudOrigin {
         task: task.as_deref(),
         session: None,
+        provider,
     };
     Ok(core.cloud_delegate(&project, &prompt, origin).await?)
 }

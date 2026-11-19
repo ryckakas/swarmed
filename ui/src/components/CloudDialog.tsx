@@ -1,6 +1,7 @@
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import type { NoteTarget } from "../api/types";
+import type { CloudProvider, NoteTarget } from "../api/types";
+import { CLOUD_PROVIDERS, cloudProvider } from "../cloud";
 import { useStore } from "../store";
 
 /** Hands a piece of work to a cloud agent, from a repository or from one of its tasks. */
@@ -12,10 +13,18 @@ export function CloudDialog() {
     return <Delegate key={`${target.project}/${target.task ?? ""}`} target={target} />;
 }
 
+/** What is particular to each provider, said before anything is sent. */
+const PROVIDER_NOTES: Record<CloudProvider, string> = {
+    codex: "Runs in the Codex cloud environment set up for this repository, and is refused if there is none. From a task, it starts from the task's branch if that has been pushed, else from the base branch. Its status shows here.",
+    claude: "Runs in your default Claude Code cloud environment, on the repository as its own folder has it checked out. Claude Code has to trust that folder first. Its progress does not show here, only its link.",
+};
+
 function Delegate({ target }: { target: NoteTarget }) {
     const close = () => useStore.getState().askToDelegate(null);
     const dialog = useRef<HTMLDialogElement>(null);
     const [prompt, setPrompt] = useState("");
+    const [provider, setProvider] = useState<CloudProvider>("codex");
+    const { name } = cloudProvider(provider);
     const [sending, setSending] = useState(false);
     // Why it was refused, in the core's own words: they say what to do about it.
     const [problem, setProblem] = useState<string | null>(null);
@@ -31,7 +40,7 @@ function Delegate({ target }: { target: NoteTarget }) {
         setSending(true);
         setProblem(null);
         try {
-            await api.cloudDelegate(target.project, prompt.trim(), target.task);
+            await api.cloudDelegate(target.project, prompt.trim(), target.task, provider);
             await useStore.getState().refresh(api);
             close();
         } catch (error) {
@@ -50,13 +59,26 @@ function Delegate({ target }: { target: NoteTarget }) {
         <dialog ref={dialog} className="confirm note" aria-labelledby="cloud-title" onClose={close}>
             <h2 id="cloud-title">Delegate to the cloud from {target.task ?? target.project}</h2>
             <p>
-                A Codex agent works on this in the cloud, on the repository as it is on GitHub
-                {target.task
-                    ? ": from this task's branch if it has been pushed, else from the base branch."
-                    : ", from its base branch."}{" "}
-                It does not see what is only on this Mac, and it carries on when Swarmed is closed.
-                You follow it at Codex.
+                An agent works on this in the cloud, on the repository as it is on GitHub. It does
+                not see what is only on this Mac, and it carries on when Swarmed is closed. You
+                follow it at {name}.
             </p>
+            <fieldset className="cloud-providers">
+                <legend>Whose cloud</legend>
+                {CLOUD_PROVIDERS.map(([id, label]) => (
+                    <label key={id}>
+                        <input
+                            type="radio"
+                            name="cloud-provider"
+                            checked={provider === id}
+                            disabled={sending}
+                            onChange={() => setProvider(id)}
+                        />
+                        {label}
+                    </label>
+                ))}
+            </fieldset>
+            <p className="settings-hint">{PROVIDER_NOTES[provider]}</p>
             <textarea
                 className="note-text"
                 aria-label="What the cloud agent is to do"
