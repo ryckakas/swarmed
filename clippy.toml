@@ -1,0 +1,4 @@
+# `excessive_nesting` is silent until a threshold is set; 3 is the value its own documentation uses.
+excessive-nesting-threshold = 3
+# `cognitive_complexity` defaults to 25; 15 is the usual ceiling for a function read in one go.
+cognitive-complexity-threshold = 15

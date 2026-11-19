@@ -1,0 +1,33 @@
+[package]
+name = "swarmed-core"
+description = "Headless core of Swarmed: projects, tasks, worktrees and agent sessions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = [
+    "fs",
+    "io-util",
+    "macros",
+    "process",
+    "rt-multi-thread",
+    "sync",
+] }
+toml = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["time"] }
+tempfile = { workspace = true }

@@ -1,0 +1,90 @@
+[workspace]
+resolver = "3"
+members = ["crates/cli", "crates/core"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+# An application, not a library others build on, so it tracks current stable.
+rust-version = "1.100"
+license = "MIT"
+repository = "https://github.com/ryckakas/swarmed"
+readme = "README.md"
+keywords = ["agents", "claude", "git-worktree", "orchestrator"]
+categories = ["development-tools"]
+
+[workspace.dependencies]
+swarmed-core = { path = "crates/core", version = "0.0.1" }
+anyhow = "1.0.104"
+clap = { version = "4.6.8", features = ["derive"] }
+rusqlite = { version = "0.43.0", features = ["bundled"] }
+serde_json = "1.0.154"
+serde = { version = "1.0.229", features = ["derive"] }
+tempfile = "3.27.0"
+thiserror = "2.0.21"
+tokio = "1.54.1"
+toml = "1.2.1"
+
+# The same lint policy as bonsai-lint. Group lints carry a lower priority so the individual
+# entries below can override them.
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+missing_docs = "warn"
+unreachable_pub = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+let_underscore_drop = "warn"
+meta_variable_misuse = "warn"
+redundant_imports = "warn"
+redundant_lifetimes = "warn"
+single_use_lifetimes = "warn"
+trivial_casts = "warn"
+trivial_numeric_casts = "warn"
+unit_bindings = "warn"
+unnameable_types = "warn"
+unused_import_braces = "warn"
+unused_lifetimes = "warn"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+# Complexity is denied, not warned: restructure instead of loosening. Thresholds: clippy.toml.
+excessive_nesting = "deny"
+too_many_lines = "deny"
+cognitive_complexity = "deny"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+# From `restriction`, which is a menu rather than a group to enable. `print_stdout` is there
+# because `println!` panics on a closed pipe; `exit` would skip destructors.
+allow_attributes_without_reason = "warn"
+clone_on_ref_ptr = "warn"
+dbg_macro = "warn"
+exit = "warn"
+format_push_string = "warn"
+get_unwrap = "warn"
+infinite_loop = "warn"
+let_underscore_must_use = "warn"
+let_underscore_untyped = "warn"
+mem_forget = "warn"
+mixed_read_write_in_expression = "warn"
+panic_in_result_fn = "warn"
+print_stdout = "warn"
+rest_pat_in_fully_bound_structs = "warn"
+todo = "warn"
+try_err = "warn"
+unimplemented = "warn"
+unwrap_in_result = "warn"
+unwrap_used = "warn"
+verbose_file_reads = "warn"
+# From `nursery`, whose lints are too unsettled to take as a group.
+needless_collect = "warn"
+or_fun_call = "warn"
+too_long_first_doc_paragraph = "warn"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
