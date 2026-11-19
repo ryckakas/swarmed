@@ -67,6 +67,21 @@ pub(crate) async fn default_base(repo: &Path) -> Result<String> {
     git(repo, &["symbolic-ref", "--short", "HEAD"]).await
 }
 
+/// Gives a repository that has no commit yet a first, empty one on its current branch, so
+/// that tasks have something in common to branch from. One that has commits is left alone.
+///
+/// The commit is made directly from an empty tree: whatever is in the working tree or staged
+/// there stays exactly as it is, and is not swept into the commit.
+pub(crate) async fn ensure_first_commit(repo: &Path) -> Result<()> {
+    if ref_exists(repo, "HEAD").await {
+        return Ok(());
+    }
+    let branch = git(repo, &["symbolic-ref", "HEAD"]).await?;
+    let tree = git(repo, &["hash-object", "-t", "tree", "/dev/null"]).await?;
+    let commit = git(repo, &["commit-tree", &tree, "-m", "Initial commit"]).await?;
+    git(repo, &["update-ref", &branch, &commit]).await.map(drop)
+}
+
 /// Whether `name` resolves to a commit.
 pub(crate) async fn ref_exists(repo: &Path, name: &str) -> bool {
     git(

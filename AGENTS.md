@@ -55,7 +55,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **Everything lands in `core` first** and is driven from the CLI before any UI touches it. The
   core exposes typed operations and knows nothing about its front ends.
 - **Nothing is written into a user's repository.** Config and state live in the data directory
-  (`Paths`); worktrees live under `~/swarmed/<project>/<task>`.
+  (`Paths`); worktrees live under `~/swarmed/<project>/<task>`. The one exception: a repository
+  with no commits is given an empty first commit when its first task is created, because a
+  branch needs a commit to start from. Its files and index are not touched.
 - **Agents sit behind `AgentBackend`** (`agent/`), and a session records which agent runs it.
   `agents.rs` holds the registry: Claude Code, plus the ACP agents listed in the user's
   `agents.toml`. `AcpBackend` (`agent/acp.rs`) speaks the Agent Client Protocol to any of them;

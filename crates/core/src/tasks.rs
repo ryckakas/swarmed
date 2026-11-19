@@ -89,6 +89,8 @@ impl Core {
         let repo = &project.repo_path;
 
         git::fetch(repo).await?;
+        // A brand new repository has nothing to branch from until it has a commit.
+        git::ensure_first_commit(repo).await?;
         let base = if config.base_branch.is_empty() {
             git::default_base(repo).await?
         } else {

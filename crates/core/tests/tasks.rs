@@ -42,6 +42,54 @@ async fn project_add_rejects_a_directory_that_is_not_a_repo() {
 }
 
 #[tokio::test]
+async fn a_task_in_a_repository_without_commits_gets_an_empty_first_commit() {
+    let fx = fixture();
+    let core = Core::open(fx.paths.clone()).expect("test setup");
+    let fresh = fx.repo.parent().expect("test setup").join("fresh");
+    std::fs::create_dir(&fresh).expect("test setup");
+    git(&fresh, &["init", "--quiet", "-b", "main"]);
+    git(&fresh, &["config", "user.name", "Test"]);
+    git(&fresh, &["config", "user.email", "test@example.com"]);
+    // Work that is there already, staged and not, must come through untouched.
+    std::fs::write(fresh.join("staged.txt"), "staged\n").expect("test setup");
+    std::fs::write(fresh.join("loose.txt"), "loose\n").expect("test setup");
+    git(&fresh, &["add", "staged.txt"]);
+    core.project_add(&fresh, None).await.expect("adds");
+    let choices = core.branch_choices("fresh").await.expect("reads");
+    assert_eq!(choices.base, "main");
+
+    let task = core
+        .task_new("fresh", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates the task");
+    assert_eq!(task.base_ref, "main");
+    assert!(task.worktree_path.join(".git").exists());
+
+    let output = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&fresh)
+            .args(args)
+            .output()
+            .expect("git runs");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    // One commit, with nothing in it; the staged file is still only staged.
+    assert_eq!(output(&["rev-list", "--count", "main"]), "1");
+    assert_eq!(output(&["ls-tree", "--name-only", "main"]), "");
+    assert_eq!(
+        output(&["status", "--porcelain"]),
+        "A  staged.txt\n?? loose.txt".trim()
+    );
+
+    // A second task starts from the same commit instead of making another.
+    core.task_new("fresh", "two", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates the task");
+    assert_eq!(output(&["rev-list", "--count", "--all"]), "1");
+}
+
+#[tokio::test]
 async fn task_new_creates_branch_worktree_and_runs_setup_with_variables() {
     let fx = fixture();
     write_config(
