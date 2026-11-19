@@ -14,6 +14,7 @@ import type {
     SessionSetup,
     Settings,
     Task,
+    TaskNaming,
     TerminalOutput,
 } from "./types";
 
@@ -39,6 +40,12 @@ export interface Api {
     taskRemove(project: string, name: string, force: boolean): Promise<void>;
     /** What a new task in the project can start from. */
     branchChoices(project: string): Promise<BranchChoices>;
+    /**
+     * A name for a task that starts with `prompt`, and a title for its first session, from the
+     * model that names sessions. `null` if naming is off or no answer came in time: the task is
+     * then named after the prompt's first words.
+     */
+    taskNameFor(project: string, prompt: string): Promise<TaskNaming | null>;
     /**
      * Creates a task: a worktree on a new branch, or on `branch` if one is given, then the
      * project's `setup` hook. This can take a while.
@@ -79,6 +86,8 @@ export interface Api {
     sessionQueueEdit(id: number, message: number, text: string): Promise<QueuedMessage[]>;
     /** Sends the first waiting message now, for a queue a stopped turn left standing. */
     sessionSendQueued(id: number): Promise<void>;
+    /** Says the user has looked at the session, so it is no longer unread. */
+    sessionMarkRead(id: number): Promise<void>;
     sessionAllow(id: number, requestId: string): Promise<void>;
     sessionDeny(id: number, requestId: string, reason: string): Promise<void>;
     /** Stops the current turn; the session stays usable. */

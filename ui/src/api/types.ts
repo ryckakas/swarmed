@@ -16,6 +16,8 @@ export interface Session {
     /** How hard the model thinks; `null` is the agent's default. */
     effort: Effort | null;
     status: SessionStatus;
+    /** Whether its agent finished a turn, or stopped with an error, that nobody has looked at. */
+    unread: boolean;
 }
 
 export interface Task {
@@ -103,6 +105,14 @@ export type RemoveTarget = NoteTarget;
 export interface QueuedMessage {
     id: number;
     text: string;
+}
+
+/** What a new task and its first session are called, as a model named them. */
+export interface TaskNaming {
+    /** The task's name: free in its project, and fit for a branch and a folder. */
+    name: string;
+    /** The first session's title. */
+    title: string;
 }
 
 /** What a note is kept on: a repository, or one of its tasks. */

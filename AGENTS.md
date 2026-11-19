@@ -95,6 +95,15 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   one call to Claude Code's smallest model, with none of the user's settings, tools or MCP
   servers) then suggests a better one, unless `auto_title` is off or the user renamed the session
   first. Every change of title is an event, `Renamed`, so all front ends follow.
+- **A new task is named before it exists** (`naming.rs`): the same `Namer` is asked, with a
+  short timeout, and its answer is both the first session's title and, as lower-case words
+  joined by dashes, the task's name. With no answer the front end names the task after the
+  prompt. A task is never renamed later: its folder and branch are where the agent works.
+- **A session is unread** (`Session::unread`) from when its agent ends a turn, or stops with an
+  error, until a front end calls `session_mark_read` or the user writes to it. It is a flag
+  beside the status, not a status: the UI shows it for idle sessions only, since busy, waiting
+  and failed already say more. The UI marks the session on screen as read when its answer
+  arrives, if the window has focus, and otherwise when the window gets it.
 - **Each session can have a terminal** (`terminal.rs`): the user's shell on a pseudo-terminal in
   the task's worktree, shown in place of the message box. Its output is published on its own
   channel (`Core::subscribe_terminals`) and not stored. What it printed since the agent's last

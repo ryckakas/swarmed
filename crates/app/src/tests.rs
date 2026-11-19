@@ -183,6 +183,13 @@ fn the_ui_can_go_from_an_empty_app_to_an_answered_permission_request() {
     let result = app.wait_for_event(id, "tool_result");
     assert_eq!(result["is_error"], false);
     app.wait_for_event(id, "turn_done");
+
+    // The finished turn is unread until the UI says the user has seen it.
+    let unread =
+        |app: &App| app.ok("overview", json!({}))[0]["tasks"][1]["sessions"][0]["unread"].clone();
+    assert_eq!(unread(&app), true);
+    app.ok("session_mark_read", json!({ "id": id }));
+    assert_eq!(unread(&app), false);
 }
 
 #[test]
@@ -355,6 +362,22 @@ fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
     assert_eq!(app.ok("session_queue", json!({ "id": id })), json!([]));
     // With nothing waiting, sending the next one is not an error.
     app.ok("session_send_queued", json!({ "id": id }));
+}
+
+#[test]
+fn the_ui_can_ask_for_a_task_name_and_is_told_when_there_is_none() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    // The scripted agent comes without anything that names, so the UI names the task itself.
+    let asked = json!({ "project": "demo", "prompt": "fix the login redirect" });
+    assert_eq!(app.ok("task_name_for", asked), json!(null));
+    assert_eq!(
+        app.invoke(
+            "task_name_for",
+            json!({ "project": "nowhere", "prompt": "x" })
+        ),
+        Err(json!("project `nowhere` not found"))
+    );
 }
 
 #[test]

@@ -141,6 +141,9 @@ pub struct Session {
     pub effort: Option<Effort>,
     /// What the session is doing.
     pub status: SessionStatus,
+    /// Whether its agent has finished a turn, or stopped with an error, that the user has not
+    /// looked at yet. With many sessions, this is what tells the answered from the merely idle.
+    pub unread: bool,
 }
 
 /// What can be changed about a session after it was created.
@@ -169,7 +172,7 @@ pub struct SessionOptions {
     pub effort: Option<Effort>,
 }
 
-const SESSION_SELECT: &str = "SELECT id, task_id, title, agent_session_id, model, supervision, status, agent, effort \
+const SESSION_SELECT: &str = "SELECT id, task_id, title, agent_session_id, model, supervision, status, agent, effort, unread \
      FROM sessions";
 
 fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
@@ -185,6 +188,7 @@ fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
         effort: row
             .get::<_, Option<String>>(8)?
             .and_then(|effort| Effort::parse(&effort)),
+        unread: row.get(9)?,
     })
 }
 
@@ -214,6 +218,7 @@ impl Store {
             supervision: options.supervision,
             effort: options.effort,
             status: SessionStatus::Idle,
+            unread: false,
         })
     }
 
@@ -331,13 +336,35 @@ impl Store {
                 "UPDATE sessions SET agent_session_id = ?2 WHERE id = ?1",
                 params![session_id, agent_session_id],
             )?,
+            // Whoever writes to a session has seen where it stood.
             AgentEvent::UserMessage { text } => self.conn.execute(
-                "UPDATE sessions SET title = ?2 WHERE id = ?1 AND title = ''",
+                "UPDATE sessions SET unread = 0, title = CASE WHEN title = '' THEN ?2 ELSE title END \
+                 WHERE id = ?1",
                 params![session_id, title_from(text)],
+            )?,
+            _ if leaves_something_to_read(event) => self.conn.execute(
+                "UPDATE sessions SET unread = 1 WHERE id = ?1",
+                params![session_id],
             )?,
             _ => 0,
         };
         Ok(())
+    }
+
+    fn session_mark_read(&self, id: i64) -> Result<()> {
+        self.conn
+            .execute("UPDATE sessions SET unread = 0 WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+}
+
+/// Whether `event` is the agent handing the conversation back: a turn that ended, or an agent
+/// that stopped with an error. Until the user looks, the session is unread.
+fn leaves_something_to_read(event: &AgentEvent) -> bool {
+    match event {
+        AgentEvent::TurnDone { .. } => true,
+        AgentEvent::Exited { code, .. } => !matches!(code, None | Some(0)),
+        _ => false,
     }
 }
 
@@ -350,6 +377,11 @@ fn event_from_json(text: &str) -> AgentEvent {
 
 fn title_from(message: &str) -> String {
     shortened(message, TITLE_CHARS)
+}
+
+/// A namer's answer as a session title.
+pub(crate) fn title_of(answer: &str) -> String {
+    shortened(answer, TITLE_CHARS)
 }
 
 /// The first line of `text`, without surrounding space or quotes, at most `limit` characters.
@@ -673,6 +705,12 @@ impl Core {
             self.live.note(&self.store, id, changed)?;
         }
         self.session(id)
+    }
+
+    /// Notes that the user has looked at the session, so it no longer counts as unread.
+    pub fn session_mark_read(&self, id: i64) -> Result<()> {
+        self.session(id)?;
+        self.store().session_mark_read(id)
     }
 
     /// Stops a session's agent and takes the session out of every list. Its history is kept.

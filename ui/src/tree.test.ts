@@ -3,10 +3,12 @@ import { sampleProjects } from "./api/mock";
 import type { Project, SessionEvent } from "./api/types";
 import {
     applySessionEvent,
+    countUnread,
     countWaiting,
     findSession,
     findSessionHome,
     projectStatus,
+    projectUnread,
     taskNameForPrompt,
     taskNameFrom,
     taskStatus,
@@ -14,6 +16,7 @@ import {
     toggledId,
     uniqueTaskName,
     withoutSession,
+    withRead,
     withSession,
     withSessionStatus,
 } from "./tree";
@@ -194,5 +197,34 @@ describe("a change of supervision", () => {
         });
         expect(findSession(changed, 1)?.supervision).toBe("plan");
         expect(findSession(changed, 2)?.supervision).toBe("ask");
+    });
+});
+
+describe("unread sessions", () => {
+    const done: SessionEvent = {
+        session_id: 3,
+        status: "idle",
+        event: { type: "turn_done", is_error: false, result: null, cost_usd: null },
+    };
+
+    it("are those whose agent finished a turn, until the user writes or looks", () => {
+        const before = sampleProjects();
+        expect(findSession(before, 3)?.unread).toBe(false);
+        const answered = applySessionEvent(before, done);
+        expect(findSession(answered, 3)?.unread).toBe(true);
+        expect(countUnread(answered)).toBe(countUnread(before) + 1);
+
+        expect(findSession(withRead(answered, 3), 3)?.unread).toBe(false);
+        const written = applySessionEvent(answered, {
+            session_id: 3,
+            status: "working",
+            event: { type: "user_message", text: "and now?" },
+        });
+        expect(findSession(written, 3)?.unread).toBe(false);
+    });
+
+    it("show on a folded repository", () => {
+        const [hero] = applySessionEvent(sampleProjects(), done);
+        expect(hero && projectUnread(hero)).toBe(true);
     });
 });

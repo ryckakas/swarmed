@@ -66,7 +66,7 @@ export const HOTKEYS: Hotkey[] = [
     {
         id: "next-waiting",
         keys: "cmd+shift+a",
-        label: "Go to the next session that needs you",
+        label: "Go to the next session that needs you or has an unread reply",
         group: "Sessions",
     },
     ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map(session),

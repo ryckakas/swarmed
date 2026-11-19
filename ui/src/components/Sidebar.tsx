@@ -3,7 +3,7 @@ import { addProject, newSession } from "../actions";
 import { api } from "../api";
 import type { Project, Session, Task } from "../api/types";
 import { useStore } from "../store";
-import { countWaiting, projectStatus } from "../tree";
+import { countUnread, countWaiting, projectStatus, projectUnread } from "../tree";
 import { StatusMark } from "./StatusMark";
 
 export function Sidebar() {
@@ -12,6 +12,7 @@ export function Sidebar() {
     const startNew = useStore((state) => state.startNew);
     const showSettings = useStore((state) => state.showSettings);
     const waiting = countWaiting(projects);
+    const unread = countUnread(projects);
 
     return (
         <nav className="sidebar" aria-label="Projects, tasks and sessions" onKeyDown={moveFocus}>
@@ -21,6 +22,7 @@ export function Sidebar() {
                         {waiting === 1 ? "1 session needs you" : `${waiting} sessions need you`}
                     </span>
                 )}
+                {unread > 0 && <span className="unread-count">{unread} unread</span>}
             </div>
             {projects.length > 0 && (
                 <button type="button" className="new-task-button" onClick={() => startNew()}>
@@ -108,7 +110,7 @@ function ProjectGroup({ project }: { project: Project }) {
                             <path d="M3.5 1.5 7 5 3.5 8.5" />
                         </svg>
                         <span className="project-title">{project.name}</span>
-                        {status && <StatusMark status={status} />}
+                        {status && <StatusMark status={status} unread={projectUnread(project)} />}
                         {folded && <span className="project-count">{tasks.length}</span>}
                     </button>
                 </h2>
@@ -215,7 +217,11 @@ function SessionRow({ session }: { session: Session }) {
     const askToClose = useStore((state) => state.askToClose);
     const title = session.title || "New session";
     return (
-        <div className={`session-line status-${session.status}`} data-current={selected}>
+        <div
+            className={`session-line status-${session.status}`}
+            data-current={selected}
+            data-unread={session.unread}
+        >
             <button
                 type="button"
                 className="session-row"
@@ -224,7 +230,7 @@ function SessionRow({ session }: { session: Session }) {
                 aria-current={selected ? "true" : undefined}
                 onClick={() => void open(api, session.id)}
             >
-                <StatusMark status={session.status} />
+                <StatusMark status={session.status} unread={session.unread} />
                 <span className="session-title">{title}</span>
             </button>
             <button

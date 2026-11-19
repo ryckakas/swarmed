@@ -12,7 +12,7 @@ use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
     AgentInfo, ApiKeyInfo, BranchChoices, Core, FileChange, FileDiff, NewTaskOptions, Project,
     ProjectOverview, QueuedMessage, RemoveOptions, Session, SessionOptions, SessionSettings,
-    Settings, Task,
+    Settings, Task, TaskNaming,
 };
 use tauri::{AppHandle, Emitter, Runtime, State};
 
@@ -93,6 +93,17 @@ pub(crate) async fn project_remove<R: Runtime>(
 #[tauri::command]
 pub(crate) async fn branch_choices(core: CoreState<'_>, project: String) -> Command<BranchChoices> {
     Ok(core.branch_choices(&project).await?)
+}
+
+/// A name for a new task and a title for its first session, or nothing if the UI is to name
+/// the task itself.
+#[tauri::command]
+pub(crate) async fn task_name_for(
+    core: CoreState<'_>,
+    project: String,
+    prompt: String,
+) -> Command<Option<TaskNaming>> {
+    Ok(core.task_name_for(&project, &prompt).await?)
 }
 
 #[tauri::command]
@@ -259,6 +270,11 @@ pub(crate) fn session_queue_edit(
 pub(crate) async fn session_send_queued(core: CoreState<'_>, id: i64) -> Command<()> {
     core.session_start(id, Auth::Subscription)?;
     Ok(core.session_send_queued(id)?)
+}
+
+#[tauri::command]
+pub(crate) fn session_mark_read(core: CoreState<'_>, id: i64) -> Command<()> {
+    Ok(core.session_mark_read(id)?)
 }
 
 #[tauri::command]
