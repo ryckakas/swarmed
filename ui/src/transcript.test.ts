@@ -88,7 +88,31 @@ describe("toItems", () => {
                 skills: 89,
             },
         ]);
-        expect(item).toMatchObject({ login: "subscription", mcp: "1 of 2", skills: 89 });
+        expect(item).toMatchObject({
+            login: "subscription",
+            mcp: "1 of 2 MCP servers connected",
+            skills: 89,
+        });
+    });
+});
+
+describe("a session on another agent", () => {
+    it("says how many MCP servers it was given, since nothing reports which connected", () => {
+        const [item] = toItems([
+            {
+                type: "init",
+                agent_session_id: "acp-1",
+                model: "openrouter/some/model",
+                permission_mode: "ask",
+                api_key_source: "agent",
+                mcp_servers: [
+                    { name: "context7", status: "passed" },
+                    { name: "files", status: "passed" },
+                ],
+                skills: 0,
+            },
+        ]);
+        expect(item).toMatchObject({ login: "agent", mcp: "2 MCP servers passed to the agent" });
     });
 });
 

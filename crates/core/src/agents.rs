@@ -40,11 +40,27 @@ struct AgentConfig {
     /// Model names to offer for it.
     #[serde(default)]
     models: Vec<String>,
+    /// Whether to give it the MCP servers configured for Claude Code. On unless set to false.
+    #[serde(default = "yes")]
+    claude_code_mcp_servers: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 /// The agents by id, each with the backend that runs it.
 #[derive(Debug, Clone)]
-pub(crate) struct Agents(BTreeMap<String, (AgentInfo, Arc<dyn AgentBackend>)>);
+pub(crate) struct Agents(BTreeMap<String, Agent>);
+
+#[derive(Debug, Clone)]
+struct Agent {
+    info: AgentInfo,
+    backend: Arc<dyn AgentBackend>,
+    /// Whether sessions on it are given the MCP servers configured for Claude Code. Claude Code
+    /// itself is not: it reads them on its own.
+    gets_claude_code_mcp_servers: bool,
+}
 
 fn claude_info() -> AgentInfo {
     let models = ["opus", "sonnet", "haiku", "fable"]
@@ -60,10 +76,12 @@ fn claude_info() -> AgentInfo {
 impl Agents {
     /// Claude Code on `claude`, and nothing else.
     pub(crate) fn only_claude(claude: Arc<dyn AgentBackend>) -> Self {
-        Self(BTreeMap::from([(
-            CLAUDE.to_string(),
-            (claude_info(), claude),
-        )]))
+        let agent = Agent {
+            info: claude_info(),
+            backend: claude,
+            gets_claude_code_mcp_servers: false,
+        };
+        Self(BTreeMap::from([(CLAUDE.to_string(), agent)]))
     }
 
     /// Claude Code plus the ACP agents in `agents.toml`, if that file exists.
@@ -103,31 +121,48 @@ impl Agents {
             args: entry.args,
             env: entry.env.into_iter().collect(),
         };
-        self.0.insert(id, (info, Arc::new(backend)));
+        let agent = Agent {
+            info,
+            backend: Arc::new(backend),
+            gets_claude_code_mcp_servers: entry.claude_code_mcp_servers,
+        };
+        self.0.insert(id, agent);
     }
 
     /// Registers an agent directly; how the tests add ones that are not in a file.
     pub(crate) fn insert(&mut self, info: AgentInfo, backend: Arc<dyn AgentBackend>) {
-        self.0.insert(info.id.clone(), (info, backend));
+        let agent = Agent {
+            info,
+            backend,
+            gets_claude_code_mcp_servers: true,
+        };
+        self.0.insert(agent.info.id.clone(), agent);
     }
 
     pub(crate) fn infos(&self) -> Vec<AgentInfo> {
         // Claude Code first, the rest by id.
         let (claude, others): (Vec<_>, Vec<_>) =
-            self.0.values().partition(|(info, _)| info.id == CLAUDE);
+            self.0.values().partition(|agent| agent.info.id == CLAUDE);
         claude
             .into_iter()
             .chain(others)
-            .map(|(info, _)| info.clone())
+            .map(|agent| agent.info.clone())
             .collect()
     }
 
-    pub(crate) fn backend(&self, id: &str) -> Result<Arc<dyn AgentBackend>> {
-        let (_, backend) = self
-            .0
+    fn agent(&self, id: &str) -> Result<&Agent> {
+        self.0
             .get(id)
-            .ok_or_else(|| Error::AgentNotFound(id.to_string()))?;
-        Ok(Arc::clone(backend))
+            .ok_or_else(|| Error::AgentNotFound(id.to_string()))
+    }
+
+    pub(crate) fn backend(&self, id: &str) -> Result<Arc<dyn AgentBackend>> {
+        Ok(Arc::clone(&self.agent(id)?.backend))
+    }
+
+    /// Whether sessions on this agent are given the MCP servers configured for Claude Code.
+    pub(crate) fn gets_claude_code_mcp_servers(&self, id: &str) -> Result<bool> {
+        Ok(self.agent(id)?.gets_claude_code_mcp_servers)
     }
 }
 
@@ -167,6 +202,22 @@ OPENCODE_CONFIG = "/tmp/x"
         .expect("loads");
         let info = agents.infos().pop().expect("two agents");
         assert_eq!((info.name.as_str(), info.models.len()), ("OpenCode", 1));
+    }
+
+    #[test]
+    fn other_agents_get_claude_codes_mcp_servers_unless_told_not_to() {
+        let agents =
+            load("[a]\ncommand = \"a\"\n[b]\ncommand = \"b\"\nclaude_code_mcp_servers = false\n");
+        let gets = |id: &str| {
+            agents
+                .as_ref()
+                .ok()
+                .and_then(|agents| agents.gets_claude_code_mcp_servers(id).ok())
+        };
+        assert_eq!(
+            (gets("a"), gets("b"), gets("claude")),
+            (Some(true), Some(false), Some(false))
+        );
     }
 
     #[test]

@@ -78,6 +78,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **Check UI changes in a browser** with `pnpm dev`. The mock agent answers plain text, asks
   permission for `run: <command>`, and runs until stopped for `slow`; one sample session has
   2,000 messages for checking scroll speed.
+- **MCP servers are read from Claude Code's configuration** (`mcp.rs`) and handed to every agent
+  that does not read it itself. The definitions hold secrets: they are passed on and never
+  logged, and their `Debug` output leaves values out. Keep it that way.
 - **Swarmed never handles Claude.ai credentials.** It only shapes the child's environment (`Auth`).
 - **Session events are stored as JSON** (`AgentEvent`), so its variants and fields are only added,
   never renamed.

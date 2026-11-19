@@ -16,8 +16,11 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
 use tokio::sync::mpsc;
 
-use super::{AgentBackend, AgentCommand, AgentEvent, AgentHandle, SessionSpec, Supervision};
+use super::{
+    AgentBackend, AgentCommand, AgentEvent, AgentHandle, McpServerInfo, SessionSpec, Supervision,
+};
 use crate::error::{Error, Result};
+use crate::mcp::{McpServer, McpTransport};
 
 /// How much of the process's stderr is kept for [`AgentEvent::Exited`].
 const STDERR_TAIL_CHARS: usize = 2000;
@@ -101,6 +104,8 @@ struct Conversation {
     permissions: HashMap<String, PendingPermission>,
     /// Tool calls announced without their arguments yet, by id; some agents send those later.
     unannounced: HashMap<String, Value>,
+    /// The MCP servers given to the agent, by name, in ACP's shape.
+    passed: Vec<(String, Value)>,
     /// While an old conversation is loaded the agent replays it; Swarmed has it stored already.
     replaying: bool,
     /// Set when the agent could not be set up; the reason is what the user is shown.
@@ -125,6 +130,7 @@ impl Conversation {
             cost: None,
             permissions: HashMap::new(),
             unannounced: HashMap::new(),
+            passed: Vec::new(),
             replaying: false,
             failure: None,
         }
@@ -166,11 +172,20 @@ impl Conversation {
     /// Opens the conversation: a new one, or the earlier one by whichever way the agent offers.
     async fn open_session(&mut self, capabilities: &Value) {
         let cwd = self.spec.cwd.to_string_lossy().into_owned();
+        let takes_http = capabilities
+            .pointer("/mcpCapabilities/http")
+            .and_then(Value::as_bool);
+        self.passed = acp_servers(&self.spec.mcp_servers, takes_http.unwrap_or(false));
+        let servers: Vec<&Value> = self
+            .passed
+            .iter()
+            .map(|(_, definition)| definition)
+            .collect();
         let Some(earlier) = self.spec.resume.clone() else {
-            let params = json!({ "cwd": cwd, "mcpServers": [] });
+            let params = json!({ "cwd": cwd, "mcpServers": servers });
             return self.call(Call::OpenSession, "session/new", params).await;
         };
-        let params = json!({ "sessionId": earlier, "cwd": cwd, "mcpServers": [] });
+        let params = json!({ "sessionId": earlier, "cwd": cwd, "mcpServers": servers });
         let can_resume = capabilities
             .pointer("/sessionCapabilities/resume")
             .is_some();
@@ -204,7 +219,7 @@ impl Conversation {
                 .unwrap_or_else(|| current_model(result)),
             permission_mode: self.spec.supervision.as_str().to_string(),
             api_key_source: "agent".to_string(),
-            mcp_servers: vec![],
+            mcp_servers: self.passed_servers(),
             skills: 0,
         });
         if let Some(model) = self.spec.model.clone() {
@@ -227,6 +242,16 @@ impl Conversation {
         let params =
             json!({ "sessionId": session_id, "prompt": [{ "type": "text", "text": text }] });
         self.call(Call::Prompt, "session/prompt", params).await;
+    }
+
+    /// What the session reports about its MCP servers. Whether the agent connected to them is
+    /// not something ACP tells the client, so they are reported as passed, not connected.
+    fn passed_servers(&self) -> Vec<McpServerInfo> {
+        let info = |(name, _): &(String, Value)| McpServerInfo {
+            name: name.clone(),
+            status: "passed".into(),
+        };
+        self.passed.iter().map(info).collect()
     }
 
     fn flush_text(&mut self) {
@@ -478,6 +503,29 @@ async fn step(
     true
 }
 
+/// The servers in ACP's shape, by name. Every ACP agent takes stdio servers; HTTP ones only go
+/// to an agent that says it takes them.
+fn acp_servers(servers: &[McpServer], takes_http: bool) -> Vec<(String, Value)> {
+    let pairs = |map: &std::collections::BTreeMap<String, String>| -> Vec<Value> {
+        map.iter()
+            .map(|(name, value)| json!({ "name": name, "value": value }))
+            .collect()
+    };
+    let definition = |server: &McpServer| match &server.transport {
+        McpTransport::Stdio { command, args, env } => Some(
+            json!({ "name": server.name, "command": command, "args": args, "env": pairs(env) }),
+        ),
+        McpTransport::Http { url, headers } if takes_http => Some(
+            json!({ "type": "http", "name": server.name, "url": url, "headers": pairs(headers) }),
+        ),
+        McpTransport::Http { .. } => None,
+    };
+    servers
+        .iter()
+        .filter_map(|server| Some((server.name.clone(), definition(server)?)))
+        .collect()
+}
+
 fn str_of<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
@@ -640,6 +688,42 @@ mod tests {
         );
         assert!(has_arguments(&known));
         assert_eq!(known["title"], "Terminal");
+    }
+
+    #[test]
+    fn http_servers_only_go_to_agents_that_take_them() {
+        let pair = |name: &str, value: &str| {
+            std::collections::BTreeMap::from([(name.to_string(), value.to_string())])
+        };
+        let servers = [
+            McpServer {
+                name: "db".into(),
+                transport: McpTransport::Stdio {
+                    command: "npx".into(),
+                    args: vec!["db".into()],
+                    env: pair("A", "1"),
+                },
+            },
+            McpServer {
+                name: "docs".into(),
+                transport: McpTransport::Http {
+                    url: "https://x/mcp".into(),
+                    headers: pair("Key", "secret"),
+                },
+            },
+        ];
+        let all = acp_servers(&servers, true);
+        assert_eq!(
+            all[0].1,
+            json!({ "name": "db", "command": "npx", "args": ["db"], "env": [{ "name": "A", "value": "1" }] })
+        );
+        let http = json!({ "type": "http", "name": "docs", "url": "https://x/mcp", "headers": [{ "name": "Key", "value": "secret" }] });
+        assert_eq!(all[1].1, http);
+        let stdio_only: Vec<String> = acp_servers(&servers, false)
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(stdio_only, ["db"]);
     }
 
     #[test]

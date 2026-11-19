@@ -9,6 +9,7 @@ mod config;
 mod error;
 mod git;
 pub mod hooks;
+pub mod mcp;
 mod overview;
 mod paths;
 mod sessions;

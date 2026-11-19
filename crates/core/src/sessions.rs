@@ -12,7 +12,8 @@ use tokio::sync::{broadcast, mpsc};
 use crate::agent::{AgentCommand, AgentEvent, Auth, SessionSpec, Supervision};
 use crate::agents::CLAUDE;
 use crate::error::{Error, Result};
-use crate::store::Store;
+use crate::mcp::{self, McpServer};
+use crate::store::{Store, Task};
 use crate::{Core, lock};
 
 /// How long a session title derived from the first message may be.
@@ -296,7 +297,9 @@ impl Core {
         if running.contains_key(&id) {
             return Ok(());
         }
+        let mcp_servers = self.mcp_servers_for(&session.agent, &task)?;
         let handle = self.agents.backend(&session.agent)?.start(SessionSpec {
+            mcp_servers,
             cwd: task.worktree_path,
             model: session.model,
             supervision: session.supervision,
@@ -314,6 +317,24 @@ impl Core {
             (id, run),
         )));
         Ok(())
+    }
+
+    /// The MCP servers Swarmed hands the agent: the ones configured for Claude Code, for every
+    /// agent that does not read that configuration itself.
+    fn mcp_servers_for(&self, agent: &str, task: &Task) -> Result<Vec<McpServer>> {
+        if !self.agents.gets_claude_code_mcp_servers(agent)? {
+            return Ok(vec![]);
+        }
+        let repo = self
+            .store()
+            .project_by_id(task.project_id)?
+            .map(|project| project.repo_path);
+        let repo = repo.unwrap_or_else(|| task.worktree_path.clone());
+        Ok(mcp::claude_code_servers(
+            &self.paths.claude_config,
+            &repo,
+            &task.worktree_path,
+        ))
     }
 
     /// Starts a turn with `text` in a running session.

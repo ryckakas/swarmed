@@ -3,7 +3,7 @@
 use anyhow::{Context, Result};
 use clap::{Subcommand, ValueEnum};
 use serde_json::Value;
-use swarmed_core::agent::{AgentEvent, Auth, Supervision};
+use swarmed_core::agent::{AgentEvent, Auth, McpServerInfo, Supervision};
 use swarmed_core::{Core, SessionEvent, SessionOptions};
 use tokio::io::{AsyncBufReadExt, BufReader, Lines, Stdin};
 use tokio::sync::broadcast::Receiver;
@@ -194,19 +194,15 @@ fn describe(event: &AgentEvent) -> Option<String> {
             skills,
             ..
         } => {
-            let connected = mcp_servers
-                .iter()
-                .filter(|s| s.status == "connected")
-                .count();
             let login = if api_key_source == "none" {
                 "subscription"
             } else {
                 api_key_source
             };
+            let servers = mcp_summary(mcp_servers);
             Some(format!(
-                "[{model} · {permission_mode} · login: {login} · MCP servers: {connected} of {} \
-                 connected · skills: {skills}]",
-                mcp_servers.len()
+                "[{model} · {permission_mode} · login: {login} · MCP servers: {servers} · \
+                 skills: {skills}]"
             ))
         }
         AgentEvent::Text { text } => Some(text.clone()),
@@ -242,6 +238,21 @@ fn describe(event: &AgentEvent) -> Option<String> {
             stderr,
         } if *code != 0 => Some(format!("agent exited with code {code}: {}", stderr.trim())),
         _ => None,
+    }
+}
+
+/// How many MCP servers a session has. Claude Code reports which connected; other agents are
+/// only known to have been given them.
+fn mcp_summary(servers: &[McpServerInfo]) -> String {
+    let count = |status: &str| {
+        servers
+            .iter()
+            .filter(|server| server.status == status)
+            .count()
+    };
+    match count("passed") {
+        0 => format!("{} of {} connected", count("connected"), servers.len()),
+        passed => format!("{passed} passed to the agent"),
     }
 }
 
@@ -294,6 +305,23 @@ mod tests {
             raw: json!({}),
         };
         assert_eq!(describe(&allowed), None);
+    }
+
+    #[test]
+    fn mcp_servers_are_counted_as_connected_or_as_passed() {
+        let server = |status: &str| McpServerInfo {
+            name: "x".into(),
+            status: status.into(),
+        };
+        assert_eq!(
+            mcp_summary(&[server("connected"), server("failed")]),
+            "1 of 2 connected"
+        );
+        assert_eq!(
+            mcp_summary(&[server("passed"), server("passed")]),
+            "2 passed to the agent"
+        );
+        assert_eq!(mcp_summary(&[]), "0 of 0 connected");
     }
 
     #[test]

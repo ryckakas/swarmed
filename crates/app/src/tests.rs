@@ -57,6 +57,7 @@ fn app() -> App {
     let paths = Paths {
         data_dir: root.join("data"),
         worktrees_root: root.join("worktrees"),
+        claude_config: root.join("claude.json"),
     };
     let core = Core::with_backend(paths, Arc::new(FakeBackend::default())).expect("core opens");
     let app = with_core(mock_builder(), Arc::new(core))

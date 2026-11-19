@@ -4,7 +4,8 @@
 - plain text: streams "echo: <text>" in two chunks;
 - "run: <command>": reports a tool call, asks permission, then reports the outcome;
 - "slow": works until the turn is cancelled;
-- "fail": answers the prompt with an error.
+- "fail": answers the prompt with an error;
+- "mcp": names the MCP servers it was given.
 
 Set FAKE_ACP_LOAD_ONLY=1 to offer only session/load, which replays a history first.
 """
@@ -38,7 +39,10 @@ def on_prompt(request_id, params):
     session = params["sessionId"]
     text = params["prompt"][0]["text"]
     state["pending_prompt"] = request_id
-    if text == "slow":
+    if text == "mcp":
+        chunk(session, "servers: " + ", ".join(state.get("servers", [])))
+        finish()
+    elif text == "slow":
         chunk(session, "working")
     elif text == "fail":
         send({"id": request_id, "error": {"code": -32000, "message": "auth_required"}})
@@ -80,7 +84,14 @@ def on_permission_answer(result):
     finish()
 
 
+def describe(server):
+    kind = server.get("type", "stdio")
+    secrets = server.get("headers") or server.get("env") or []
+    return "%s(%s, %d set)" % (server["name"], kind, len(secrets))
+
+
 def open_session(request_id, method, params):
+    state["servers"] = [describe(server) for server in params.get("mcpServers", [])]
     if method == "session/new":
         if not os.path.isdir(params["cwd"]):
             return send({"id": request_id, "error": {"code": -32602, "message": "no such directory"}})
@@ -99,6 +110,8 @@ for line in sys.stdin:
     params = message.get("params", {})
     if method == "initialize":
         capabilities = {"loadSession": True} if LOAD_ONLY else {"sessionCapabilities": {"resume": {}}}
+        if os.environ.get("FAKE_ACP_NO_HTTP") != "1":
+            capabilities["mcpCapabilities"] = {"http": True}
         send({"id": request_id, "result": {"protocolVersion": 1, "agentCapabilities": capabilities}})
     elif method in ("session/new", "session/load", "session/resume"):
         open_session(request_id, method, params)

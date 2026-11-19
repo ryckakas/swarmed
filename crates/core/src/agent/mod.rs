@@ -19,6 +19,7 @@ pub use self::acp::AcpBackend;
 pub use self::claude::ClaudeBackend;
 pub use self::fake::FakeBackend;
 use crate::error::Result;
+use crate::mcp::McpServer;
 
 /// How much the agent may do without asking.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -98,8 +99,8 @@ pub struct SessionSpec {
     pub disallowed_tools: Vec<String>,
     /// Extra instructions appended to the agent's system prompt.
     pub append_system_prompt: Option<String>,
-    /// Extra MCP servers for this session: a map from server name to its config.
-    pub mcp_servers: Option<Value>,
+    /// MCP servers to give the agent, on top of any it finds in its own configuration.
+    pub mcp_servers: Vec<McpServer>,
 }
 
 /// One MCP server a session loaded, and whether it connected.

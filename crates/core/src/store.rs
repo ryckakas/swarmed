@@ -173,6 +173,14 @@ impl Store {
             .optional()?)
     }
 
+    pub(crate) fn project_by_id(&self, id: i64) -> Result<Option<Project>> {
+        let sql = "SELECT id, name, repo_path FROM projects WHERE id = ?1";
+        Ok(self
+            .conn
+            .query_row(sql, params![id], project_from_row)
+            .optional()?)
+    }
+
     pub(crate) fn projects(&self) -> Result<Vec<Project>> {
         let mut stmt = self
             .conn

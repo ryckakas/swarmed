@@ -62,7 +62,18 @@ models = ["openrouter/openai/gpt-5.6"]   # offered in the model menu
 
 The agent keeps its own credentials: sign in with the agent's own command first (for OpenCode,
 `opencode auth login`). It then appears in the app's agent menu and as `--agent opencode` in the
-CLI. Such sessions do not use Claude Code's skills, hooks or connectors.
+CLI.
+
+What such a session gets:
+
+- **MCP servers:** Swarmed reads the servers configured for Claude Code (your own, the
+  repository's `.mcp.json`, and yours for that repository) and hands them to the agent. Set
+  `claude_code_mcp_servers = false` on an agent to turn that off. HTTP servers only go to agents
+  that accept them.
+- **Skills:** nothing to do for agents that read `~/.claude/skills` and `.claude/skills`
+  themselves, which OpenCode and Goose do.
+- **Not available:** claude.ai connectors, which are signed in through your Anthropic account,
+  and Claude Code's hooks.
 
 ## Development
 

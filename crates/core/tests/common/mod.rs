@@ -46,6 +46,7 @@ pub fn fixture() -> Fixture {
     let paths = Paths {
         data_dir: root.join("data"),
         worktrees_root: root.join("worktrees"),
+        claude_config: root.join("claude.json"),
     };
     Fixture {
         _dir: dir,

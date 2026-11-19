@@ -305,3 +305,51 @@ async fn an_agent_that_cannot_be_started_is_an_error_not_a_hang() {
     ));
     assert_eq!(core.running_sessions(), [0_i64; 0]);
 }
+
+/// Writes a Claude Code config with one server of each kind, as the fixture's `claude.json`.
+fn write_claude_config(fx: &common::Fixture) {
+    let config = json!({ "mcpServers": {
+        "context7": { "type": "http", "url": "https://example.test/mcp", "headers": { "API_KEY": "secret" } },
+        "files": { "command": "npx", "args": ["-y", "files"], "env": { "ROOT": "/tmp", "MODE": "ro" } },
+    }});
+    std::fs::write(&fx.paths.claude_config, config.to_string()).expect("writes");
+}
+
+#[tokio::test]
+async fn the_agent_is_given_the_mcp_servers_configured_for_claude_code() {
+    let fx = fixture();
+    write_claude_config(&fx);
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+
+    core.session_send(id, "mcp").expect("sends");
+    let events = turn(&mut bus, id).await;
+    assert_eq!(
+        events.get(2),
+        Some(&text("servers: context7(http, 1 set), files(stdio, 2 set)"))
+    );
+    let Some(AgentEvent::Init { mcp_servers, .. }) = events.get(1) else {
+        panic!("no init: {events:?}")
+    };
+    let reported: Vec<_> = mcp_servers
+        .iter()
+        .map(|s| (s.name.as_str(), s.status.as_str()))
+        .collect();
+    assert_eq!(reported, [("context7", "passed"), ("files", "passed")]);
+}
+
+#[tokio::test]
+async fn an_agent_that_does_not_take_http_servers_gets_only_the_others() {
+    let fx = fixture();
+    write_claude_config(&fx);
+    let core = core_with(&fx, scripted_agent(&[("FAKE_ACP_NO_HTTP", "1")])).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+
+    core.session_send(id, "mcp").expect("sends");
+    assert_eq!(
+        turn(&mut bus, id).await.get(2),
+        Some(&text("servers: files(stdio, 2 set)"))
+    );
+}
