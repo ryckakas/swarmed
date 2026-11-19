@@ -74,6 +74,8 @@ export interface Settings {
     theme: Theme;
     /** The size of the app's text, in percent of its normal size. */
     text_scale: number;
+    /** How much a new session's agent may do without asking, unless chosen otherwise. */
+    default_supervision: Supervision;
     /** Whether agents may answer with small HTML views, and those are shown. */
     html_views: boolean;
     /** The built-in pieces of the status line under the message box, in order. */

@@ -23,7 +23,10 @@ export function NewTask({ projects }: { projects: Project[] }) {
     const hookLine = useStore((state) => state.hookLine);
     const [chosen, setChosen] = useState<string | null>(null);
     const [branch, setBranch] = useState(NEW_BRANCH);
-    const [supervision, setSupervision] = useState<Supervision>("ask");
+    // The menu starts on the default from the settings and keeps what the user picks.
+    const defaultSupervision = useStore((state) => state.settings?.default_supervision);
+    const [pickedSupervision, setSupervision] = useState<Supervision | null>(null);
+    const supervision = pickedSupervision ?? defaultSupervision ?? "auto";
     const [agentId, setAgentId] = useState(CLAUDE);
     const [model, setModel] = useState("");
     const agents = useAgents();

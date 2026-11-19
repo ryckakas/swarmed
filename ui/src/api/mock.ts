@@ -466,6 +466,7 @@ export function createMockApi(): Api {
         auto_title: true,
         theme: "system",
         text_scale: 100,
+        default_supervision: "auto",
         html_views: true,
         status_items: ["branch", "changes", "model", "context", "cost"],
         status_command: "",

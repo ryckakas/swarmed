@@ -28,8 +28,11 @@ pub(crate) enum SessionCommand {
         #[arg(long)]
         model: Option<String>,
         /// Let Claude Code's auto mode decide which actions are safe, instead of asking.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "ask")]
         auto: bool,
+        /// Ask before commands. Without either flag, the default from the settings applies.
+        #[arg(long)]
+        ask: bool,
         #[arg(long, value_enum, default_value_t)]
         auth: AuthMode,
     },
@@ -96,13 +99,15 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             agent,
             model,
             auto,
+            ask,
             auth,
         } => {
+            let chosen = (auto || ask).then(|| supervision(auto));
             let options = SessionOptions {
                 agent,
                 title: None,
                 model,
-                supervision: supervision(auto),
+                supervision: chosen.unwrap_or(core.settings()?.default_supervision),
             };
             let session = core.session_new(&project, &task, &options)?;
             say(&format!("session {}", session.id));

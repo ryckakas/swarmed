@@ -149,7 +149,7 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
             const session = await api.sessionNew(project, task.name, {
                 agent: null,
                 model: null,
-                supervision: "ask",
+                supervision: useStore.getState().settings?.default_supervision ?? "auto",
             });
             await refresh(api);
             await open(api, session.id);

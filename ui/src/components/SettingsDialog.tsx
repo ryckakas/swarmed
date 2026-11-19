@@ -1,10 +1,10 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import type { Settings, Theme } from "../api/types";
+import type { Settings, Supervision, Theme } from "../api/types";
 import { STATUS_ITEM_LABELS, STATUS_ITEMS, withItem } from "../statusline";
 import { useStore } from "../store";
 import { ApiKeys } from "./ApiKeys";
-import { editorChoices, TEXT_SCALES, THEMES } from "./options";
+import { editorChoices, supervisionChoices, TEXT_SCALES, THEMES } from "./options";
 import { Picker } from "./Picker";
 
 /** The user's preferences. Every change takes effect, and is saved, at once. */
@@ -81,6 +81,19 @@ function Sessions({ settings }: { settings: Settings }) {
                     value={settings.editor}
                     onChange={(editor) => void change(api, { editor })}
                     options={editorChoices(settings.editor)}
+                />
+            </Row>
+            <Row
+                label="New sessions start in"
+                hint="Auto mode lets the agent decide which actions are safe. It can be changed per session under the message box."
+            >
+                <Picker
+                    label="Supervision of new sessions"
+                    value={settings.default_supervision}
+                    onChange={(value) =>
+                        void change(api, { default_supervision: value as Supervision })
+                    }
+                    options={supervisionChoices(settings.default_supervision)}
                 />
             </Row>
             <Row
