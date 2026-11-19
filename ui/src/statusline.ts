@@ -40,17 +40,24 @@ function model({ session, events }: StatusSource): string | null {
     return (init?.type === "init" ? init.model : null) || session.model;
 }
 
-/** The model, then the effort it was asked for, if one was chosen: `opus | high`. */
+/** The agent whose sessions have an effort. */
+const CLAUDE = "claude";
+
+/**
+ * The model, then the effort it is asked for: `opus | high`. Without a choice it says
+ * `default`, since Claude Code does not report which effort its own default is. Other agents
+ * take no effort, so theirs is left out.
+ */
 function modelRuns(source: StatusSource): StatusPart["runs"] | null {
     const name = model(source);
-    const { effort } = source.session;
-    if (!(name && effort)) {
-        return plain(name || effort);
+    const { effort, agent } = source.session;
+    if (!name || agent !== CLAUDE) {
+        return plain(name);
     }
     return [
         [name, "plain"],
         [" | ", "quiet"],
-        [effort, "plain"],
+        [effort ?? "default", "plain"],
     ];
 }
 
