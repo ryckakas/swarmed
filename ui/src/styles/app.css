@@ -924,6 +924,24 @@ code {
     white-space: nowrap;
 }
 
+/* Shown while the projects are read, which is usually too short to notice. */
+
+.splash {
+    flex: 1;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: var(--space-3);
+    padding-bottom: 12vh;
+    color: var(--muted);
+    font-size: var(--text-lg);
+    font-weight: 650;
+}
+
+.splash img {
+    border-radius: 28px;
+}
+
 /* Buttons */
 
 .button {
