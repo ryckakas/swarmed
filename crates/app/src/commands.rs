@@ -12,7 +12,7 @@ use swarmed_core::agent::{AgentEvent, Auth, Supervision};
 use swarmed_core::{
     Core, NewTaskOptions, Project, ProjectOverview, RemoveOptions, Session, SessionOptions, Task,
 };
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Runtime, State};
 
 /// The event a hook's output lines are emitted as while a task is created or removed.
 pub(crate) const HOOK_OUTPUT: &str = "hook-output";
@@ -39,7 +39,11 @@ struct HookOutput<'a> {
 }
 
 /// A sink for [`Core::task_new`] and [`Core::task_remove`] that shows hook output in the UI.
-fn hook_sink<'a>(app: &'a AppHandle, project: &'a str, task: &'a str) -> impl Fn(&str) + 'a {
+fn hook_sink<'a, R: Runtime>(
+    app: &'a AppHandle<R>,
+    project: &'a str,
+    task: &'a str,
+) -> impl Fn(&str) + 'a {
     move |line| {
         // A window that has gone away is no reason to fail the hook.
         app.emit(
@@ -69,8 +73,8 @@ pub(crate) async fn project_add(
 }
 
 #[tauri::command]
-pub(crate) async fn task_new(
-    app: AppHandle,
+pub(crate) async fn task_new<R: Runtime>(
+    app: AppHandle<R>,
     core: CoreState<'_>,
     project: String,
     name: String,
@@ -84,8 +88,8 @@ pub(crate) async fn task_new(
 }
 
 #[tauri::command]
-pub(crate) async fn task_remove(
-    app: AppHandle,
+pub(crate) async fn task_remove<R: Runtime>(
+    app: AppHandle<R>,
     core: CoreState<'_>,
     project: String,
     name: String,

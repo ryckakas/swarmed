@@ -6,6 +6,7 @@ import {
     countWaiting,
     findSession,
     findSessionHome,
+    taskNameFrom,
     taskStatus,
     titleFrom,
     withSessionStatus,
@@ -95,5 +96,16 @@ describe("lookups", () => {
         const [hero, bonsai] = sampleProjects();
         expect(hero?.tasks.map(taskStatus)).toEqual(["waiting", "idle", null]);
         expect(bonsai?.tasks.map(taskStatus)).toEqual(["errored"]);
+    });
+});
+
+describe("taskNameFrom", () => {
+    it("turns typed text into a name the core accepts", () => {
+        expect(taskNameFrom("Fix the Login redirect!")).toBe("fix-the-login-redirect");
+        expect(taskNameFrom("PM-16037")).toBe("pm-16037");
+        expect(taskNameFrom("  ../up  ")).toBe("up");
+        expect(taskNameFrom("v1..2")).toBe("v1.2");
+        expect(taskNameFrom("???")).toBe("");
+        expect(taskNameFrom("x".repeat(100))).toHaveLength(64);
     });
 });

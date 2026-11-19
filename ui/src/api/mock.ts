@@ -1,5 +1,13 @@
 import type { Api } from "./client";
-import type { AgentEvent, Project, Session, SessionEvent, SessionStatus, Task } from "./types";
+import type {
+    AgentEvent,
+    HookOutput,
+    Project,
+    Session,
+    SessionEvent,
+    SessionStatus,
+    Task,
+} from "./types";
 
 // Sample data and a scripted agent, for working on the UI in a browser where there is no Tauri
 // shell. The agent behaves like the core's FakeBackend: plain text is echoed, `run: <command>`
@@ -285,8 +293,38 @@ class MockAgent {
 export function createMockApi(): Api {
     const agent = new MockAgent();
     const tasks = () => agent.projects.flatMap((project) => project.tasks);
+    const hookListeners = new Set<(output: HookOutput) => void>();
     return {
         overview: async () => structuredClone(agent.projects),
+        pickFolder: async () => "/Users/you/code/new-repo",
+        projectAdd: async (path) => {
+            const name = path.split("/").pop() ?? "repo";
+            if (agent.projects.some((project) => project.name === name)) {
+                throw new Error(`project \`${name}\` already exists`);
+            }
+            const project = { id: agent.projects.length + 1, name, repo_path: path, tasks: [] };
+            agent.projects.push(project);
+            return project;
+        },
+        taskNew: async (projectName, name) => {
+            const project = agent.projects.find((candidate) => candidate.name === projectName);
+            if (!project) {
+                throw new Error(`project \`${projectName}\` not found`);
+            }
+            for (const line of ["Installing dependencies", "Seeding the database"]) {
+                for (const listener of hookListeners) {
+                    listener({ project: projectName, task: name, line });
+                }
+                await new Promise((resolve) => setTimeout(resolve, PACE * 2));
+            }
+            const created = task(Date.now(), project.id, name, []);
+            project.tasks.push(created);
+            return created;
+        },
+        onHookOutput: async (listener) => {
+            hookListeners.add(listener);
+            return () => hookListeners.delete(listener);
+        },
         sessionNew: async (_project, taskName) => {
             const home = tasks().find((candidate) => candidate.name === taskName);
             if (!home) {

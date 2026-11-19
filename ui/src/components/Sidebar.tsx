@@ -1,8 +1,8 @@
-import type { KeyboardEvent } from "react";
+import { type FormEvent, type KeyboardEvent, useState } from "react";
 import { api } from "../api";
 import type { Project, Session, Task } from "../api/types";
 import { useStore } from "../store";
-import { countWaiting } from "../tree";
+import { countWaiting, taskNameFrom } from "../tree";
 import { StatusMark } from "./StatusMark";
 
 export function Sidebar() {
@@ -25,6 +25,17 @@ export function Sidebar() {
                     <ProjectGroup key={project.id} project={project} />
                 ))}
             </div>
+            {projects.length > 0 && (
+                <div className="sidebar-bottom">
+                    <button
+                        type="button"
+                        className="quiet-button"
+                        onClick={() => void addProject()}
+                    >
+                        Add repository
+                    </button>
+                </div>
+            )}
         </nav>
     );
 }
@@ -32,7 +43,7 @@ export function Sidebar() {
 /** Up and down move between session rows, as in a list, without leaving Tab order behind. */
 function moveFocus(event: KeyboardEvent<HTMLElement>) {
     const step = { ArrowDown: 1, ArrowUp: -1 }[event.key];
-    if (step === undefined) {
+    if (step === undefined || event.target instanceof HTMLInputElement) {
         return;
     }
     const rows = [...event.currentTarget.querySelectorAll<HTMLButtonElement>(".session-row")];
@@ -44,26 +55,118 @@ function moveFocus(event: KeyboardEvent<HTMLElement>) {
     }
 }
 
+/** Asks for a folder and registers the repository it is in. */
+async function addProject() {
+    const { refresh, report } = useStore.getState();
+    try {
+        const path = await api.pickFolder();
+        if (path !== null) {
+            await api.projectAdd(path);
+            await refresh(api);
+        }
+    } catch (error) {
+        report(error);
+    }
+}
+
+/** Creates a task and its first session, then opens that session. */
+async function createTask(project: string, name: string) {
+    const { refresh, open } = useStore.getState();
+    await api.taskNew(project, name);
+    const session = await api.sessionNew(project, name);
+    await refresh(api);
+    await open(api, session.id);
+}
+
 function NoProjects() {
     return (
         <div className="sidebar-empty">
-            <p>No projects yet.</p>
-            <p>Add a repository from a terminal:</p>
-            <code>swarmed project add ~/code/my-repo</code>
+            <p>No repositories yet.</p>
+            <p>Add one to start a task in it. Swarmed never writes into the repository itself.</p>
+            <button
+                type="button"
+                className="button button-primary"
+                onClick={() => void addProject()}
+            >
+                Add repository
+            </button>
         </div>
     );
 }
 
 function ProjectGroup({ project }: { project: Project }) {
+    const [adding, setAdding] = useState(false);
     const tasks = project.tasks.filter((task) => !task.archived);
     return (
         <section className="project">
-            <h2 className="project-name">{project.name}</h2>
-            {tasks.length === 0 && <p className="hint">No tasks</p>}
+            <div className="row-head">
+                <h2 className="project-name">{project.name}</h2>
+                <button
+                    type="button"
+                    className="row-add"
+                    aria-label={`New task in ${project.name}`}
+                    title="New task"
+                    onClick={() => setAdding(true)}
+                >
+                    +
+                </button>
+            </div>
+            {adding && <NewTask project={project.name} onClose={() => setAdding(false)} />}
+            {tasks.length === 0 && !adding && <p className="hint">No tasks</p>}
             {tasks.map((task) => (
                 <TaskGroup key={task.id} project={project.name} task={task} />
             ))}
         </section>
+    );
+}
+
+/** A one-line form for a new task's name. Shows the hook's progress while the task is set up. */
+function NewTask({ project, onClose }: { project: string; onClose: () => void }) {
+    const [typed, setTyped] = useState("");
+    const [busy, setBusy] = useState(false);
+    const hookLine = useStore((state) => state.hookLine);
+    const name = taskNameFrom(typed);
+
+    const submit = async (event: FormEvent) => {
+        event.preventDefault();
+        if (name === "" || busy) {
+            return;
+        }
+        setBusy(true);
+        useStore.setState({ hookLine: null });
+        try {
+            await createTask(project, name);
+            onClose();
+        } catch (error) {
+            // A task whose setup failed still exists; show it, so it can be inspected.
+            const { refresh, report } = useStore.getState();
+            report(error);
+            await refresh(api);
+            setBusy(false);
+        }
+    };
+
+    if (busy) {
+        return (
+            <p className="hint new-task-progress" aria-live="polite">
+                Setting up {name}… {hookLine}
+            </p>
+        );
+    }
+    return (
+        <form className="new-task" onSubmit={(event) => void submit(event)}>
+            <input
+                // biome-ignore lint/a11y/noAutofocus: the field appears because the user asked for it
+                autoFocus
+                aria-label={`Name of the new task in ${project}`}
+                placeholder="Task name, e.g. fix-login"
+                value={typed}
+                onChange={(event) => setTyped(event.target.value)}
+                onKeyDown={(event) => event.key === "Escape" && onClose()}
+                onBlur={() => typed === "" && onClose()}
+            />
+            {name !== "" && name !== typed && <p className="hint">Will be created as {name}</p>}
+        </form>
     );
 }
 
@@ -80,14 +183,14 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
     };
     return (
         <div className="task">
-            <div className="task-head">
+            <div className="row-head">
                 <h3 className="task-name">
                     {task.name}
                     {task.setup === "failed" && <span className="task-flag">setup failed</span>}
                 </h3>
                 <button
                     type="button"
-                    className="task-add"
+                    className="row-add"
                     aria-label={`New session in ${task.name}`}
                     title="New session"
                     onClick={() => void newSession()}

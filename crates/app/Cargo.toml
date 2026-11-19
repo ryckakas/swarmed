@@ -20,4 +20,10 @@ tauri-build = { workspace = true }
 swarmed-core = { workspace = true }
 serde = { workspace = true }
 tauri = { workspace = true }
+tauri-plugin-dialog = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+tauri = { workspace = true, features = ["test"] }
+tempfile = { workspace = true }

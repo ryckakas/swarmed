@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use swarmed_core::agent::FakeBackend;
 use swarmed_core::{Core, Paths, SessionEvent};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Builder, Emitter, Runtime};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
 
@@ -31,7 +31,7 @@ fn open_core() -> swarmed_core::Result<Core> {
 }
 
 /// Passes every session event on to the UI until the core goes away.
-async fn forward_events(mut bus: Receiver<SessionEvent>, app: AppHandle) {
+async fn forward_events<R: Runtime>(mut bus: Receiver<SessionEvent>, app: AppHandle<R>) {
     loop {
         // An emit only fails when there is no window to receive it, which is not an error here.
         match bus.recv().await {
@@ -42,17 +42,11 @@ async fn forward_events(mut bus: Receiver<SessionEvent>, app: AppHandle) {
     }
 }
 
-fn main() {
-    tauri::Builder::default()
-        .setup(|app| {
-            let core = Arc::new(open_core()?);
-            drop(tauri::async_runtime::spawn(forward_events(
-                core.subscribe(),
-                app.handle().clone(),
-            )));
-            app.manage(core);
-            Ok(())
-        })
+/// Gives a Tauri app the core and the commands that reach it. Generic over the runtime, so the
+/// tests can drive the same commands without a window.
+fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
+    builder
+        .manage(core)
         .invoke_handler(tauri::generate_handler![
             commands::overview,
             commands::project_add,
@@ -66,6 +60,24 @@ fn main() {
             commands::session_interrupt,
             commands::session_stop,
         ])
+}
+
+fn main() {
+    let core =
+        Arc::new(open_core().unwrap_or_else(|e| panic!("could not open Swarmed's data: {e}")));
+    let bus = core.subscribe();
+    // The dialog plugin is the native folder picker, for adding a repository.
+    with_core(Builder::default().plugin(tauri_plugin_dialog::init()), core)
+        .setup(move |app| {
+            drop(tauri::async_runtime::spawn(forward_events(
+                bus,
+                app.handle().clone(),
+            )));
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| panic!("could not start Swarmed: {e}"));
 }
+
+#[cfg(test)]
+mod tests;

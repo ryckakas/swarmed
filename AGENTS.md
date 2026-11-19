@@ -61,6 +61,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   `Core::subscribe`. Events are stored before they are published.
 - **The app crate holds no logic.** A command in `crates/app/src/commands.rs` calls one core
   function. If the UI needs something new, it is added to the core and tested there first.
+- **`crates/app/src/tests.rs` calls every command the way the UI does,** by name with JSON
+  arguments, on Tauri's mock runtime. Nobody can look inside the native window from CI, so a
+  new or changed command gets a call there, with the argument names `ui/src/api/tauri.ts` sends.
 - **The UI talks to the app through `Api`** (`ui/src/api/client.ts`). `tauri.ts` is the real one;
   `mock.ts` serves sample data when the UI runs in a plain browser. `types.ts` mirrors what the
   core serialises by hand, with the core's snake_case field names: change both together.

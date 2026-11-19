@@ -10,6 +10,8 @@ interface State {
     selectedSessionId: number | null;
     /** The events of every session whose transcript has been opened. */
     events: Record<number, AgentEvent[]>;
+    /** The latest line a hook printed while a task is being set up or removed. */
+    hookLine: string | null;
     /** The last thing that went wrong when acting on a session, shown until dismissed. */
     problem: string | null;
     refresh(api: Api): Promise<void>;
@@ -53,6 +55,7 @@ export const useStore = create<State>((set, get) => ({
     load: "loading",
     selectedSessionId: null,
     events: {},
+    hookLine: null,
     problem: null,
     refresh: async (api) => {
         try {
@@ -105,6 +108,7 @@ export function connect(api: Api): () => void {
     const subscriptions = [
         api.onSessionEvent((event) => apply(event)),
         api.onEventsLagged(() => reload()),
+        api.onHookOutput((output) => useStore.setState({ hookLine: output.line })),
     ];
     return () => {
         for (const subscription of subscriptions) {

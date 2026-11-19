@@ -89,3 +89,16 @@ export function taskStatus(task: Task): SessionStatus | null {
     const urgency: SessionStatus[] = ["waiting", "errored", "working", "idle"];
     return urgency.find((status) => task.sessions.some((s) => s.status === status)) ?? null;
 }
+
+/**
+ * Turns what someone types into a task name the core accepts: lowercase letters, digits,
+ * `-`, `_` and `.`, starting with a letter or digit. Anything else becomes a dash.
+ */
+export function taskNameFrom(typed: string): string {
+    return typed
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]+/g, "-")
+        .replace(/\.{2,}/g, ".")
+        .replace(/^[-_.]+|[-_.]+$/g, "")
+        .slice(0, 64);
+}

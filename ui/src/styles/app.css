@@ -108,7 +108,9 @@ code {
 }
 
 .project-name {
-    padding: var(--space-1) var(--space-4);
+    flex: 1;
+    min-width: 0;
+    padding: var(--space-1) var(--space-2) var(--space-1) var(--space-4);
     font-size: var(--text-sm);
     font-weight: 700;
     letter-spacing: 0.01em;
@@ -118,12 +120,12 @@ code {
     margin-top: var(--space-1);
 }
 
-.task-head {
+.row-head {
     display: flex;
     align-items: center;
 }
 
-.task-add {
+.row-add {
     flex: none;
     width: 22px;
     height: 22px;
@@ -137,8 +139,8 @@ code {
     line-height: 1;
 }
 
-.task-add:hover,
-.task-add:focus-visible {
+.row-add:hover,
+.row-add:focus-visible {
     background: var(--raised);
     color: var(--text);
 }
@@ -218,10 +220,60 @@ code {
     color: var(--muted);
 }
 
-.sidebar-empty code {
+/* Adding things */
+
+.sidebar-bottom {
+    flex: none;
+    padding: var(--space-2) var(--space-3);
+    border-top: 1px solid var(--line);
+}
+
+.quiet-button {
+    width: 100%;
+    padding: 5px var(--space-2);
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    text-align: left;
+}
+
+.quiet-button:hover,
+.quiet-button:focus-visible {
+    background: var(--raised);
     color: var(--text);
+}
+
+.new-task {
+    padding: 2px var(--space-3) var(--space-1) calc(var(--space-4) + var(--space-3) - 6px);
+}
+
+.new-task input {
+    width: 100%;
+    padding: 4px 6px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--dusk);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
     user-select: text;
-    overflow-wrap: anywhere;
+}
+
+.new-task input::placeholder {
+    color: var(--faint);
+    font-family: var(--font-ui);
+}
+
+.new-task .hint {
+    padding: 2px 0 0;
+}
+
+.new-task-progress {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* Status marks: a shape per status, so colour is never the only signal. */
@@ -631,4 +683,9 @@ code {
 
 .notice .button {
     margin-top: var(--space-4);
+}
+
+.add-first {
+    justify-self: start;
+    margin-top: var(--space-2);
 }

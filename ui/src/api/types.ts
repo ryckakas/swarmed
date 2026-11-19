@@ -73,3 +73,10 @@ export interface SessionEvent {
     status: SessionStatus | null;
     event: AgentEvent;
 }
+
+/** One line a hook printed, with the task it belongs to. */
+export interface HookOutput {
+    project: string;
+    task: string;
+    line: string;
+}
