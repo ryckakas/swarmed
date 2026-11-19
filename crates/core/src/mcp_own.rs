@@ -16,6 +16,7 @@ use crate::agent::AgentEvent;
 use crate::agents::CLAUDE;
 use crate::error::{Error, Result};
 use crate::mcp::{self, McpServer, McpTransport};
+use crate::mcp_codex;
 use crate::toolserver::SERVER_NAME;
 
 /// One entry of `mcp.toml`.
@@ -45,7 +46,8 @@ type OwnServers = BTreeMap<String, OwnServer>;
 pub struct McpServerView {
     /// The name its tools appear under.
     pub name: String,
-    /// Whose it is: `swarmed` for one set up here, `claude` for one of Claude Code's own.
+    /// Whose it is: `swarmed` for one set up here, `claude` for one of Claude Code's own,
+    /// `codex` for one of Codex's own.
     pub origin: String,
     /// `stdio` for a program, `http` for an address, empty if Swarmed cannot tell.
     pub kind: String,
@@ -55,7 +57,8 @@ pub struct McpServerView {
     pub secrets: Vec<String>,
     /// Whether sessions are given it.
     pub enabled: bool,
-    /// What Claude Code last said of it, such as `connected` or `failed`, if it has.
+    /// What Claude Code last said of it, such as `connected` or `failed`, if it has. Other
+    /// agents do not say.
     pub status: Option<String>,
 }
 
@@ -127,7 +130,7 @@ fn words(line: &str) -> Vec<String> {
 }
 
 /// A word as it has to be written to come back as itself from [`words`].
-fn quoted(word: &str) -> String {
+pub(crate) fn quoted(word: &str) -> String {
     if word.is_empty() || word.chars().any(char::is_whitespace) {
         format!("\"{word}\"")
     } else {
@@ -235,6 +238,7 @@ impl Core {
             })
             .collect();
         views.extend(self.claude_views(&status, &own));
+        views.extend(mcp_codex::codex_views(&self.paths.codex_config));
         Ok(views)
     }
 

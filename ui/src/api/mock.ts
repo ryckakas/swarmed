@@ -116,6 +116,19 @@ function mcpApi(): Pick<Api, "mcpServers" | "mcpSave" | "mcpRemove"> {
         claude("context7", "connected", "https://mcp.context7.com/mcp"),
         claude("playwright", "connected", "npx @playwright/mcp@latest"),
         claude("claude.ai Slack", "needs-auth", ""),
+        // Codex's own, from its configuration: it does not say whether they connect.
+        {
+            ...claude("linear", "", "npx -y @acme/linear-mcp"),
+            origin: "codex",
+            status: null,
+            secrets: ["LINEAR_TOKEN"],
+        },
+        {
+            ...claude("docs", "", "https://example.com/mcp"),
+            origin: "codex",
+            status: null,
+            enabled: false,
+        },
     ];
     let own: McpServerView[] = [];
     const all = () => [...own, ...fromClaude];
