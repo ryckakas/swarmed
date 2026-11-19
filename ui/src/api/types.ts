@@ -115,6 +115,22 @@ export interface TaskNaming {
     title: string;
 }
 
+/** An agent that can be set up from the settings, and how far along it is. */
+export interface AgentSetup {
+    id: string;
+    name: string;
+    /** One sentence on what it is for. */
+    about: string;
+    /** Where its program was found; `null` if it is not installed. */
+    installed: string | null;
+    /** Whether sessions can run on it. */
+    configured: boolean;
+    /** The models offered for it. */
+    models: string[];
+    /** The command that installs it, shown before it is run. */
+    install_command: string;
+}
+
 /** What a note is kept on: a repository, or one of its tasks. */
 export interface NoteTarget {
     project: string;

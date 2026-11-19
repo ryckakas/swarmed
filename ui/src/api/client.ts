@@ -1,6 +1,7 @@
 import type {
     AgentEvent,
     AgentInfo,
+    AgentSetup,
     ApiKeyInfo,
     BranchChoices,
     FileChange,
@@ -26,6 +27,14 @@ export interface Api {
     overview(): Promise<Project[]>;
     /** The agents a session can run on, Claude Code first. */
     agents(): Promise<AgentInfo[]>;
+    /** The agents that can be set up from the settings, and how far along each is. */
+    agentSetups(): Promise<AgentSetup[]>;
+    /** Installs a known agent and configures it. Its installer's output comes as hook output. */
+    agentInstall(id: string): Promise<AgentSetup>;
+    /** Makes an installed agent usable, offering `models` if given, else keeping its own. */
+    agentConfigure(id: string, models: string[] | null): Promise<AgentSetup>;
+    /** Every model OpenRouter offers right now, named as agents take them. */
+    openrouterModels(): Promise<string[]>;
     /** Lets the user choose a folder; `null` if they cancelled. */
     pickFolder(): Promise<string | null>;
     /** Registers the git repository containing `path`. */

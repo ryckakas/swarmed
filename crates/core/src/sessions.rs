@@ -431,7 +431,7 @@ impl Core {
     ) -> Result<Session> {
         let (_, task) = self.task(project, task)?;
         if let Some(agent) = &options.agent {
-            self.agents.backend(agent)?;
+            self.agents_now().backend(agent)?;
         }
         self.store().session_insert(task.id, options)
     }
@@ -511,7 +511,8 @@ impl Core {
         } else {
             self.key_env()?
         };
-        let handle = self.agents.backend(&session.agent)?.start(SessionSpec {
+        let backend = self.agents_now().backend(&session.agent)?;
+        let handle = backend.start(SessionSpec {
             mcp_servers,
             env,
             append_system_prompt: html_views.then(|| views::INSTRUCTIONS.to_string()),
@@ -557,7 +558,7 @@ impl Core {
     /// The MCP servers Swarmed hands the agent: the ones configured for Claude Code, for every
     /// agent that does not read that configuration itself.
     fn mcp_servers_for(&self, agent: &str, task: &Task) -> Result<Vec<McpServer>> {
-        if !self.agents.gets_claude_code_mcp_servers(agent)? {
+        if !self.agents_now().gets_claude_code_mcp_servers(agent)? {
             return Ok(vec![]);
         }
         let repo = self

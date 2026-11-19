@@ -4,6 +4,7 @@
 //! UI dependency.
 
 pub mod agent;
+mod agent_setup;
 mod agents;
 mod changes;
 mod config;
@@ -29,9 +30,10 @@ mod vars;
 mod views;
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
 
 use agent::{AgentBackend, ClaudeNamer, Namer};
+pub use agent_setup::{AgentSetup, openrouter_models};
 use agents::Agents;
 pub use agents::{AgentInfo, CLAUDE};
 
@@ -65,7 +67,10 @@ use views::ViewStore;
 pub struct Core {
     paths: Paths,
     store: Arc<Mutex<Store>>,
-    agents: Agents,
+    /// The agents sessions can run on. Behind a lock, since setting one up changes them.
+    agents: RwLock<Agents>,
+    /// Where programs such as agents and their installers are looked for.
+    tool_dirs: Vec<PathBuf>,
     live: Arc<Live>,
     /// What gives new sessions their titles, if anything does.
     namer: Option<Arc<dyn Namer>>,
@@ -106,7 +111,8 @@ impl Core {
         Ok(Self {
             paths,
             store: Arc::new(Mutex::new(store)),
-            agents,
+            agents: RwLock::new(agents),
+            tool_dirs: agent_setup::default_tool_dirs(),
             live: Arc::default(),
             namer: None,
             // Nothing outside this process until `open` says where keys really live.
@@ -124,6 +130,23 @@ impl Core {
         self.tool_server = Some(executable);
     }
 
+    /// Looks for agents and their installers in `dirs` only, instead of on the `PATH`.
+    pub fn set_tool_dirs(&mut self, dirs: Vec<PathBuf>) {
+        self.tool_dirs = dirs;
+    }
+
+    /// The agents as they are now. A panic while the lock was held cannot leave them half
+    /// changed, so a poisoned lock is still usable.
+    fn agents_now(&self) -> RwLockReadGuard<'_, Agents> {
+        self.agents.read().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn agents_mut(&mut self) -> &mut Agents {
+        self.agents
+            .get_mut()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
     /// Lets `namer` give new sessions their titles, where the user's settings allow it.
     pub fn set_namer(&mut self, namer: Arc<dyn Namer>) {
         self.namer = Some(namer);
@@ -131,13 +154,13 @@ impl Core {
 
     /// Adds an agent that runs on `backend`, replacing one with the same id.
     pub fn add_agent(&mut self, info: AgentInfo, backend: Arc<dyn AgentBackend>) {
-        self.agents.insert(info, backend);
+        self.agents_mut().insert(info, backend);
     }
 
     /// The agents a session can run on, Claude Code first.
     #[must_use]
     pub fn agents(&self) -> Vec<AgentInfo> {
-        self.agents.infos()
+        self.agents_now().infos()
     }
 
     /// The locations this core reads and writes.

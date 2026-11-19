@@ -2,3 +2,5 @@
 excessive-nesting-threshold = 3
 # `cognitive_complexity` defaults to 25; 15 is the usual ceiling for a function read in one go.
 cognitive-complexity-threshold = 15
+# Product names written in CamelCase are names, not identifiers that want backticks.
+doc-valid-idents = ["OpenRouter", "OpenCode", ".."]

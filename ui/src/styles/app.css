@@ -2362,6 +2362,75 @@ kbd {
     border-color: var(--faint);
 }
 
+/* An agent in the settings: what it is, its state, and the models it offers. */
+.agent-ask {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-left: 2px solid var(--pollen);
+    background: var(--pollen-wash);
+}
+
+.agent-ask p {
+    flex: 1;
+    margin: 0;
+    color: var(--text);
+}
+
+.agent-output {
+    margin: 0;
+    padding: var(--space-1) var(--space-3);
+    color: var(--muted);
+    font-size: var(--text-xs);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agent-models {
+    display: grid;
+    gap: var(--space-1);
+    padding-bottom: var(--space-2);
+}
+
+.model-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.model-chip {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 1px 2px 1px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: var(--text-xs);
+}
+
+.model-chip button {
+    width: 18px;
+    height: 18px;
+    border: 0;
+    border-radius: 50%;
+    background: none;
+    color: var(--faint);
+    font: inherit;
+    line-height: 1;
+}
+
+.model-chip button:hover,
+.model-chip button:focus-visible {
+    background: var(--line);
+    color: var(--text);
+}
+
 /* Buttons */
 
 .button {

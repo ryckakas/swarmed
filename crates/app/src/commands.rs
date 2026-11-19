@@ -10,9 +10,9 @@ use std::sync::Arc;
 use serde::Serialize;
 use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
-    AgentInfo, ApiKeyInfo, BranchChoices, Core, FileChange, FileDiff, NewTaskOptions, Project,
-    ProjectOverview, QueuedMessage, RemoveOptions, Session, SessionOptions, SessionSettings,
-    Settings, Task, TaskNaming,
+    AgentInfo, AgentSetup, ApiKeyInfo, BranchChoices, Core, FileChange, FileDiff, NewTaskOptions,
+    Project, ProjectOverview, QueuedMessage, RemoveOptions, Session, SessionOptions,
+    SessionSettings, Settings, Task, TaskNaming,
 };
 use tauri::{AppHandle, Emitter, Runtime, State};
 
@@ -68,6 +68,39 @@ pub(crate) fn agents(core: CoreState<'_>) -> Vec<AgentInfo> {
 #[tauri::command]
 pub(crate) fn overview(core: CoreState<'_>) -> Command<Vec<ProjectOverview>> {
     Ok(core.overview()?)
+}
+
+/// The agents that can be set up from the settings, and how far along each is.
+#[tauri::command]
+pub(crate) fn agent_setups(core: CoreState<'_>) -> Command<Vec<AgentSetup>> {
+    Ok(core.agent_setups()?)
+}
+
+/// Installs a known agent. What the installer prints reaches the UI the way hook output does.
+#[tauri::command]
+pub(crate) async fn agent_install<R: Runtime>(
+    app: AppHandle<R>,
+    core: CoreState<'_>,
+    id: String,
+) -> Command<AgentSetup> {
+    let sink = hook_sink(&app, "", &id);
+    Ok(core.agent_install(&id, &sink).await?)
+}
+
+/// Writes a known agent's entry, with these models to offer if any are given.
+#[tauri::command]
+pub(crate) fn agent_configure(
+    core: CoreState<'_>,
+    id: String,
+    models: Option<Vec<String>>,
+) -> Command<AgentSetup> {
+    Ok(core.agent_configure(&id, models)?)
+}
+
+/// Every model OpenRouter offers right now, for choosing from.
+#[tauri::command]
+pub(crate) async fn openrouter_models() -> Command<Vec<String>> {
+    Ok(swarmed_core::openrouter_models().await?)
 }
 
 #[tauri::command]

@@ -73,6 +73,9 @@ interface State {
     askToRemove(target: RemoveTarget | null): void;
     /** Notes that the user has looked at a session, here and in the core. */
     markRead(api: Api, sessionId: number): void;
+    /** Goes up whenever the agents or their models change, so menus read them again. */
+    agentsVersion: number;
+    agentsChanged(): void;
     /** Per session, the messages waiting for its agent to finish. */
     queues: Record<number, QueuedMessage[]>;
     setQueue(sessionId: number, messages: QueuedMessage[]): void;
@@ -255,6 +258,8 @@ export const useStore = create<State>((set, get) => ({
         set((state) => ({ projects: withRead(state.projects, sessionId) }));
         api.sessionMarkRead(sessionId).catch(get().report);
     },
+    agentsVersion: 0,
+    agentsChanged: () => set((state) => ({ agentsVersion: state.agentsVersion + 1 })),
     queues: {},
     setQueue: (sessionId, messages) =>
         set((state) => ({ queues: { ...state.queues, [sessionId]: messages } })),

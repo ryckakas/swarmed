@@ -100,6 +100,10 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         })
         .invoke_handler(tauri::generate_handler![
             commands::agents,
+            commands::agent_setups,
+            commands::agent_install,
+            commands::agent_configure,
+            commands::openrouter_models,
             commands::overview,
             commands::project_add,
             commands::project_remove,

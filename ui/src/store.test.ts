@@ -201,3 +201,23 @@ describe("opening a session", () => {
         expect(stored?.unread).toBe(false);
     });
 });
+
+describe("setting up an agent", () => {
+    it("installs it, then lets its models be chosen", async () => {
+        const api = createMockApi();
+        const [before] = await api.agentSetups();
+        expect(before?.installed).toBeNull();
+        const installed = await api.agentInstall("opencode");
+        expect(installed.configured).toBe(true);
+        const chosen = await api.agentConfigure("opencode", ["openrouter/x-ai/grok-4.7"]);
+        expect(chosen.models).toEqual(["openrouter/x-ai/grok-4.7"]);
+        // Asked again without naming models, the choice stands.
+        expect((await api.agentConfigure("opencode", null)).models).toEqual(chosen.models);
+    });
+
+    it("tells the menus to read the agents again", () => {
+        const before = useStore.getState().agentsVersion;
+        useStore.getState().agentsChanged();
+        expect(useStore.getState().agentsVersion).toBe(before + 1);
+    });
+});

@@ -380,6 +380,35 @@ fn the_ui_can_ask_for_a_task_name_and_is_told_when_there_is_none() {
     );
 }
 
+// `agent_install` and `openrouter_models` are not called here: one would install software on
+// whoever runs the tests and the other needs the network. The core tests them with stand-ins.
+#[test]
+fn the_ui_can_see_which_agents_can_be_set_up_and_choose_their_models() {
+    let app = app();
+    let setups = app.ok("agent_setups", json!({}));
+    assert_eq!(setups[0]["id"], "opencode");
+    assert_eq!(setups[0]["configured"], false);
+
+    let chosen = json!({ "id": "opencode", "models": ["openrouter/x-ai/grok-4.7"] });
+    let setup = app.ok("agent_configure", chosen);
+    assert_eq!(setup["configured"], true);
+    assert_eq!(setup["models"], json!(["openrouter/x-ai/grok-4.7"]));
+    // The agent menu has it at once.
+    let agents = app.ok("agents", json!({}));
+    assert_eq!(agents[1]["id"], "opencode");
+    assert_eq!(agents[1]["models"], json!(["openrouter/x-ai/grok-4.7"]));
+
+    let kept = app.ok(
+        "agent_configure",
+        json!({ "id": "opencode", "models": null }),
+    );
+    assert_eq!(kept["models"], json!(["openrouter/x-ai/grok-4.7"]));
+    assert_eq!(
+        app.invoke("agent_configure", json!({ "id": "nope", "models": null })),
+        Err(json!("agent `nope` is not configured"))
+    );
+}
+
 #[test]
 fn the_ui_can_keep_a_note_on_a_project_and_on_a_task() {
     let app = app();

@@ -5,6 +5,7 @@ import type { Api } from "./client";
 import type {
     AgentEvent,
     AgentInfo,
+    AgentSetup,
     ApiKeyInfo,
     BranchChoices,
     FileChange,
@@ -24,6 +25,10 @@ import type {
 export const tauriApi: Api = {
     overview: () => invoke<Project[]>("overview"),
     agents: () => invoke<AgentInfo[]>("agents"),
+    agentSetups: () => invoke<AgentSetup[]>("agent_setups"),
+    agentInstall: (id) => invoke<AgentSetup>("agent_install", { id }),
+    agentConfigure: (id, models) => invoke<AgentSetup>("agent_configure", { id, models }),
+    openrouterModels: () => invoke<string[]>("openrouter_models"),
     pickFolder: () => open({ directory: true, multiple: false, title: "Add a repository" }),
     projectAdd: (path) => invoke<Project>("project_add", { path, name: null }),
     projectRemove: (name, force) => invoke("project_remove", { name, force }),

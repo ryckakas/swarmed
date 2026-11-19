@@ -11,7 +11,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use session::SessionCommand;
 use swarmed_core::agent::FakeBackend;
 use swarmed_core::{
-    ApiKeyInfo, Core, NewTaskOptions, Paths, RemoveOptions, Settings, SetupStatus, Task,
+    AgentSetup, ApiKeyInfo, Core, NewTaskOptions, Paths, RemoveOptions, Settings, SetupStatus, Task,
 };
 
 /// Swarmed: parallel Claude Code sessions in isolated git worktrees.
@@ -35,6 +35,9 @@ enum Command {
     Session(SessionCommand),
     /// List the agents sessions can run on.
     Agents,
+    /// Set up an agent other than Claude Code: install it, or choose the models it offers.
+    #[command(subcommand)]
+    Agent(AgentCommand),
     /// Serve Swarmed's own tools to an agent over standard input and output. Agents start
     /// this themselves.
     #[command(name = swarmed_core::TOOL_SERVER_ARG, hide = true)]
@@ -62,6 +65,16 @@ enum Command {
         #[arg(value_enum)]
         state: Option<Switch>,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum AgentCommand {
+    /// List the agents that can be set up, and whether each is installed and configured.
+    Status,
+    /// Install an agent with Homebrew and configure it.
+    Install { id: String },
+    /// Configure an installed agent; with MODELS, offer those in its model menu.
+    Configure { id: String, models: Vec<String> },
 }
 
 #[derive(Debug, Subcommand)]
@@ -196,6 +209,7 @@ async fn main() -> Result<()> {
         Command::Session(command) => session::session(&core, command).await,
         // Answered above, before anything was opened.
         Command::ToolServer => Ok(()),
+        Command::Agent(command) => agent(&core, command).await,
         Command::Agents => {
             agents(&core);
             Ok(())
@@ -262,6 +276,34 @@ fn auto_title(core: &Core, state: Option<Switch>) -> Result<()> {
     } else {
         "off"
     });
+    Ok(())
+}
+
+async fn agent(core: &Core, command: AgentCommand) -> Result<()> {
+    let row = |setup: &AgentSetup| {
+        let installed = setup.installed.as_ref().map_or_else(
+            || format!("not installed ({})", setup.install_command),
+            |path| path.display().to_string(),
+        );
+        let configured = if setup.configured {
+            "configured"
+        } else {
+            "not configured"
+        };
+        say(&format!(
+            "{}\t{installed}\t{configured}\t{}",
+            setup.id,
+            setup.models.join(", ")
+        ));
+    };
+    match command {
+        AgentCommand::Status => core.agent_setups()?.iter().for_each(row),
+        AgentCommand::Install { id } => row(&core.agent_install(&id, &hook_line).await?),
+        AgentCommand::Configure { id, models } => {
+            let models = (!models.is_empty()).then_some(models);
+            row(&core.agent_configure(&id, models)?);
+        }
+    }
     Ok(())
 }
 
