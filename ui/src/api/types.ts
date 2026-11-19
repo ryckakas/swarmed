@@ -105,6 +105,14 @@ export interface QueuedMessage {
     text: string;
 }
 
+/** What a new task and its first session are called, as a model named them. */
+export interface TaskNaming {
+    /** The task's name: free in its project, and fit for a branch and a folder. */
+    name: string;
+    /** The first session's title. */
+    title: string;
+}
+
 /** What a note is kept on: a repository, or one of its tasks. */
 export interface NoteTarget {
     project: string;

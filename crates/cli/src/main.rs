@@ -117,6 +117,8 @@ enum TaskCommand {
         #[arg(long)]
         branch: Option<String>,
     },
+    /// Suggest a name for a task that starts with PROMPT, as the app names new tasks.
+    Name { project: String, prompt: String },
     /// List a project's tasks.
     List {
         project: String,
@@ -319,6 +321,13 @@ async fn project(core: &Core, command: ProjectCommand) -> Result<()> {
 
 async fn task(core: &Core, command: TaskCommand) -> Result<()> {
     match command {
+        TaskCommand::Name { project, prompt } => {
+            let naming = core.task_name_for(&project, &prompt).await?;
+            say(&naming.map_or_else(
+                || "no name: naming is off, or no answer came in time".to_string(),
+                |naming| format!("{}\t{}", naming.name, naming.title),
+            ));
+        }
         TaskCommand::New {
             project,
             name,

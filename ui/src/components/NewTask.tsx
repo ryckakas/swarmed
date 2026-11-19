@@ -7,6 +7,7 @@ import type {
     Project,
     SessionSetup,
     Supervision,
+    TaskNaming,
 } from "../api/types";
 import { useStore } from "../store";
 import { taskNameForPrompt, taskNameFrom, uniqueTaskName } from "../tree";
@@ -59,12 +60,18 @@ export function NewTask({ projects }: { projects: Project[] }) {
         if (!canSend) {
             return;
         }
-        setCreating(name);
+        setCreating(NAMING);
         useStore.setState({ hookLine: null });
         try {
+            // A task on a new branch is named for what it is about; one on an existing branch
+            // keeps that branch's name.
+            const naming = branch === NEW_BRANCH ? await named(project.name, prompt.trim()) : null;
+            const chosen = naming ? uniqueTaskName(naming.name, taken) : name;
+            setCreating(chosen);
             await startTask({
                 project: project.name,
-                name,
+                name: chosen,
+                title: naming?.title ?? null,
                 branch: branch === NEW_BRANCH ? null : branch,
                 setup: setupFor(agentId, model, supervision, effort),
                 prompt: prompt.trim(),
@@ -132,27 +139,46 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 />
             </ComposerBox>
             <p className="new-task-note" aria-live="polite">
-                {creating === null
-                    ? prompt.trim() !== "" && `Creates the task ${name} in its own worktree.`
-                    : `Setting up ${creating}… ${hookLine ?? ""}`}
+                {note(creating, prompt, hookLine)}
             </p>
         </div>
     );
 }
 
+/** Stands for the task's name while it is still being thought of. */
+const NAMING = "";
+
+/** The line under the box: what sending will do, or what is being done. */
+function note(creating: string | null, prompt: string, hookLine: string | null) {
+    if (creating === null) {
+        return prompt.trim() !== "" && "Creates a task for this in its own worktree.";
+    }
+    return creating === NAMING ? "Naming the task…" : `Setting up ${creating}… ${hookLine ?? ""}`;
+}
+
+/** What a model calls the task, or `null` to name it after the prompt. Never fails a send. */
+async function named(project: string, prompt: string): Promise<TaskNaming | null> {
+    return api.taskNameFor(project, prompt).catch(() => null);
+}
+
 interface Start {
     project: string;
     name: string;
+    /** The first session's title, if the task was named by a model. */
+    title: string | null;
     branch: string | null;
     setup: SessionSetup;
     prompt: string;
 }
 
 /** Creates the task and its first session, opens it, and sends the prompt. */
-async function startTask({ project, name, branch, setup, prompt }: Start) {
+async function startTask({ project, name, title, branch, setup, prompt }: Start) {
     const { refresh, open } = useStore.getState();
     await api.taskNew(project, name, branch);
     const session = await api.sessionNew(project, name, setup);
+    if (title) {
+        await api.sessionRename(session.id, title);
+    }
     await refresh(api);
     await open(api, session.id);
     await api.sessionSend(session.id, prompt);

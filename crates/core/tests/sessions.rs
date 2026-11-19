@@ -803,3 +803,61 @@ async fn a_stopped_turn_leaves_the_queue_for_the_user_to_send() {
     ));
     assert_eq!(core.session_queue(session.id).expect("reads").len(), 1);
 }
+
+#[tokio::test]
+async fn a_new_task_is_named_by_the_namer_and_its_session_keeps_that_title() {
+    let fx = fixture();
+    let mut core = core_with_task(&fx).await;
+    // Nothing to ask yet: the caller names the task itself.
+    assert_eq!(core.task_name_for("demo", "x").await.expect("asks"), None);
+
+    core.set_namer(Arc::new(FixedNamer("\"Fix Login Redirect\"")));
+    let naming = core
+        .task_name_for("demo", "users get stuck after logging in, please fix")
+        .await
+        .expect("asks")
+        .expect("names");
+    assert_eq!(naming.name, "fix-login-redirect");
+    assert_eq!(naming.title, "Fix Login Redirect");
+
+    // A name already taken gets a number.
+    core.task_new(
+        "demo",
+        &naming.name,
+        NewTaskOptions::default(),
+        &hooks::discard,
+    )
+    .await
+    .expect("creates");
+    let again = core
+        .task_name_for("demo", "same again")
+        .await
+        .expect("asks");
+    assert_eq!(again.expect("names").name, "fix-login-redirect-2");
+
+    // The session takes the title, and its first message does not ask for another.
+    let mut bus = core.subscribe();
+    let session = core
+        .session_new("demo", &naming.name, &SessionOptions::default())
+        .expect("creates");
+    core.session_rename(session.id, &naming.title)
+        .expect("titles");
+    core.session_start(session.id, Auth::Subscription)
+        .expect("starts");
+    core.session_send(session.id, "hello").expect("sends");
+    turn(&mut bus, session.id).await;
+    let title = core.session(session.id).expect("exists").title;
+    assert_eq!(title, "Fix Login Redirect");
+
+    // Switched off, nothing is asked.
+    let off = Settings {
+        auto_title: false,
+        ..Settings::default()
+    };
+    core.set_settings(&off).expect("saves");
+    assert_eq!(core.task_name_for("demo", "x").await.expect("asks"), None);
+    assert!(matches!(
+        core.task_name_for("nowhere", "x").await,
+        Err(Error::ProjectNotFound(_))
+    ));
+}

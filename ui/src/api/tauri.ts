@@ -16,6 +16,7 @@ import type {
     SessionEvent,
     Settings,
     Task,
+    TaskNaming,
     TerminalOutput,
 } from "./types";
 
@@ -29,6 +30,8 @@ export const tauriApi: Api = {
     taskRemove: (project, name, force) =>
         invoke("task_remove", { project, name, force, deleteBranch: false }),
     branchChoices: (project) => invoke<BranchChoices>("branch_choices", { project }),
+    taskNameFor: (project, prompt) =>
+        invoke<TaskNaming | null>("task_name_for", { project, prompt }),
     taskNew: (project, name, branch) => invoke<Task>("task_new", { project, name, branch }),
     taskChanges: (project, name) => invoke<FileChange[]>("task_changes", { project, name }),
     taskDiff: (project, name, path) => invoke<FileDiff>("task_diff", { project, name, path }),

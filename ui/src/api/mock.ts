@@ -635,6 +635,8 @@ export function createMockApi(): Api {
             base: "origin/main",
             existing: projectName === "hero" ? ["feature/vat-export", "pm-16001-invoices"] : [],
         }),
+        // The sample data has no model to ask, so tasks are named after their prompts.
+        taskNameFor: async () => null,
         taskNew: async (projectName, name, branch) => {
             const project = agent.projects.find((candidate) => candidate.name === projectName);
             if (!project) {

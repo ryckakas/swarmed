@@ -358,6 +358,22 @@ fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
 }
 
 #[test]
+fn the_ui_can_ask_for_a_task_name_and_is_told_when_there_is_none() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    // The scripted agent comes without anything that names, so the UI names the task itself.
+    let asked = json!({ "project": "demo", "prompt": "fix the login redirect" });
+    assert_eq!(app.ok("task_name_for", asked), json!(null));
+    assert_eq!(
+        app.invoke(
+            "task_name_for",
+            json!({ "project": "nowhere", "prompt": "x" })
+        ),
+        Err(json!("project `nowhere` not found"))
+    );
+}
+
+#[test]
 fn the_ui_can_keep_a_note_on_a_project_and_on_a_task() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));

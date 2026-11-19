@@ -352,6 +352,11 @@ fn title_from(message: &str) -> String {
     shortened(message, TITLE_CHARS)
 }
 
+/// A namer's answer as a session title.
+pub(crate) fn title_of(answer: &str) -> String {
+    shortened(answer, TITLE_CHARS)
+}
+
 /// The first line of `text`, without surrounding space or quotes, at most `limit` characters.
 fn shortened(text: &str, limit: usize) -> String {
     let line = text.trim().lines().next().unwrap_or_default();
