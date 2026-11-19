@@ -5,7 +5,7 @@ mod common;
 use common::{core_with_project, fixture, next, turn};
 use std::sync::Arc;
 
-use swarmed_core::agent::{AgentEvent, Auth, Effort, Namer, Naming, Supervision};
+use swarmed_core::agent::{AgentEvent, Auth, Effort, Namer, Naming, PLAN_TOOL, Supervision};
 use swarmed_core::{
     Core, Error, NewTaskOptions, Session, SessionEvent, SessionOptions, SessionSettings,
     SessionStatus, Settings, TerminalOutput, hooks,
@@ -649,4 +649,74 @@ async fn the_overview_nests_tasks_and_sessions_and_marks_the_running_ones() {
     assert_eq!(json["tasks"][0]["setup"], "ok");
     assert_eq!(json["tasks"][0]["sessions"][0]["status"], "idle");
     assert_eq!(json["tasks"][0]["sessions"][0]["supervision"], "ask");
+}
+
+/// A new session in plan mode, with its agent running.
+fn planning_session(core: &Core) -> Session {
+    let options = SessionOptions {
+        supervision: Supervision::Plan,
+        ..SessionOptions::default()
+    };
+    let session = core
+        .session_new("demo", "one", &options)
+        .expect("test setup");
+    core.session_start(session.id, Auth::Subscription)
+        .expect("starts");
+    session
+}
+
+#[tokio::test]
+async fn an_approved_plan_ends_plan_mode_and_a_refused_one_keeps_it() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = planning_session(&core);
+
+    // Refused: the agent keeps planning.
+    core.session_send(session.id, "add a login page")
+        .expect("sends");
+    let (request_id, tool_name) = permission_request(&mut bus).await;
+    assert_eq!(tool_name, PLAN_TOOL);
+    core.session_deny(session.id, &request_id, "Not yet.")
+        .expect("sends");
+    let events = turn(&mut bus, session.id).await;
+    assert!(events.contains(&text("still planning")));
+    let still = core.session(session.id).expect("exists");
+    assert_eq!(still.supervision, Supervision::Plan);
+
+    // Approved: the session goes on the way new sessions start, and every front end is told.
+    core.session_send(session.id, "add a login page")
+        .expect("sends");
+    let (request_id, _) = permission_request(&mut bus).await;
+    core.session_allow(session.id, &request_id).expect("sends");
+    let events = turn(&mut bus, session.id).await;
+    let default = Settings::default().default_supervision;
+    assert!(events.contains(&AgentEvent::SupervisionChanged {
+        supervision: default
+    }));
+    assert!(events.contains(&text("carrying out the plan")));
+    let after = core.session(session.id).expect("exists");
+    assert_eq!(after.supervision, default);
+
+    // Out of plan mode, the agent acts again instead of planning.
+    core.session_send(session.id, "hello").expect("sends");
+    let events = turn(&mut bus, session.id).await;
+    assert!(events.contains(&text("echo: hello")));
+}
+
+#[tokio::test]
+async fn allowing_an_ordinary_request_leaves_plan_mode_alone() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+    core.session_send(session.id, "run: ls").expect("sends");
+    let (request_id, _) = permission_request(&mut bus).await;
+    core.session_allow(session.id, &request_id).expect("sends");
+    let events = turn(&mut bus, session.id).await;
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::SupervisionChanged { .. }))
+    );
 }

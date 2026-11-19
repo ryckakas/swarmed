@@ -112,6 +112,7 @@ fn permission_mode(supervision: Supervision) -> &'static str {
         Supervision::Ask => "acceptEdits",
         Supervision::Auto => "auto",
         Supervision::Bypass => "bypassPermissions",
+        Supervision::Plan => "plan",
     }
 }
 
@@ -690,6 +691,8 @@ mod tests {
             mode.get("request"),
             Some(&json!({ "subtype": "set_permission_mode", "mode": "auto" }))
         );
+        let plan = line(AgentCommand::SetSupervision(Supervision::Plan));
+        assert_eq!(plan["request"]["mode"], "plan");
         assert_eq!(mode.get("request_id"), Some(&json!("swarmed-3")));
     }
 

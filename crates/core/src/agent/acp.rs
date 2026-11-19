@@ -327,7 +327,11 @@ impl Conversation {
                 .await;
         }
         let pending = pending_permission(id, params);
-        if self.spec.supervision != Supervision::Ask {
+        // Plan mode is Claude Code's own; here it asks, which is the closest there is.
+        if matches!(
+            self.spec.supervision,
+            Supervision::Auto | Supervision::Bypass
+        ) {
             return self.answer(&pending, true).await;
         }
         let tool = params.get("toolCall").unwrap_or(&Value::Null);

@@ -5,14 +5,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde_json::json;
 use tokio::sync::mpsc;
 
-use super::{AgentBackend, AgentCommand, AgentEvent, AgentHandle, SessionSpec};
+use super::{
+    AgentBackend, AgentCommand, AgentEvent, AgentHandle, PLAN_TOOL, SessionSpec, Supervision,
+};
 use crate::error::Result;
 
 /// A stand-in agent whose replies depend only on the user's message.
 ///
 /// - plain text: replies `echo: <text>` and ends the turn;
 /// - `run: <command>`: asks permission for a `Bash` tool call, then reports the outcome;
-/// - `slow`: starts a turn that only ends when interrupted.
+/// - `slow`: starts a turn that only ends when interrupted;
+/// - in plan mode, anything: presents a plan and waits for it to be approved.
 #[derive(Debug, Default)]
 pub struct FakeBackend {
     sessions: AtomicU64,
@@ -75,8 +78,13 @@ impl Script {
             });
             return Next::Stop;
         };
-        let AgentCommand::UserMessage(message) = command else {
-            return Next::Continue;
+        let message = match command {
+            AgentCommand::UserMessage(message) => message,
+            AgentCommand::SetSupervision(supervision) => {
+                self.spec.supervision = supervision;
+                return Next::Continue;
+            }
+            _ => return Next::Continue,
         };
         if !self.initialised {
             self.initialised = true;
@@ -122,6 +130,7 @@ impl Script {
             return next;
         }
         let next = match message.strip_prefix("run:") {
+            _ if self.spec.supervision == Supervision::Plan => self.plan(message).await,
             Some(shell) => self.run_tool(shell.trim()).await,
             None => self.echo(message),
         };
@@ -138,34 +147,52 @@ impl Script {
 
     /// Asks permission for a `Bash` call and reports what the decision led to.
     async fn run_tool(&mut self, shell: &str) -> Next {
+        let input = json!({ "command": shell });
+        let Some(allowed) = self.ask("Bash", input).await else {
+            return Next::Stop;
+        };
+        self.text(if allowed { "ran it" } else { "not allowed" });
+        Next::Continue
+    }
+
+    /// Presents a plan for what was asked and reports whether it was approved.
+    async fn plan(&mut self, message: &str) -> Next {
+        let plan = format!("1. Look into: {message}\n2. Do it.");
+        let Some(approved) = self.ask(PLAN_TOOL, json!({ "plan": plan })).await else {
+            return Next::Stop;
+        };
+        self.text(if approved {
+            "carrying out the plan"
+        } else {
+            "still planning"
+        });
+        Next::Continue
+    }
+
+    /// Calls a tool after asking for permission. `None` if the front end went away meanwhile.
+    async fn ask(&mut self, tool: &str, input: serde_json::Value) -> Option<bool> {
         self.requests += 1;
         let request_id = format!("req-{}", self.requests);
         let tool_use_id = format!("tool-{}", self.requests);
-        let input = json!({ "command": shell });
         self.emit(AgentEvent::ToolUse {
             id: tool_use_id.clone(),
-            name: "Bash".to_string(),
+            name: tool.to_string(),
             input: input.clone(),
         });
         self.emit(AgentEvent::PermissionRequest {
             request_id: request_id.clone(),
-            tool_name: "Bash".to_string(),
+            tool_name: tool.to_string(),
             input,
             description: None,
         });
-        let decision = wait_for(&mut self.commands, |c| decides(c, &request_id)).await;
-        let Some(decision) = decision else {
-            return Next::Stop;
-        };
+        let decision = wait_for(&mut self.commands, |c| decides(c, &request_id)).await?;
         let allowed = matches!(decision, AgentCommand::Allow { .. });
-        let content = if allowed { "ok" } else { "denied" }.to_string();
         self.emit(AgentEvent::ToolResult {
             tool_use_id,
-            content,
+            content: if allowed { "ok" } else { "denied" }.to_string(),
             is_error: !allowed,
         });
-        self.text(if allowed { "ran it" } else { "not allowed" });
-        Next::Continue
+        Some(allowed)
     }
 }
 

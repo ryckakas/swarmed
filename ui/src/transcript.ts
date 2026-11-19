@@ -29,6 +29,16 @@ export interface ToolResult {
     isError: boolean;
 }
 
+/** The tool an agent in plan mode asks to use when its plan is ready. Allowing it approves the plan. */
+export const PLAN_TOOL = "ExitPlanMode";
+
+/** The plan an agent presents with [`PLAN_TOOL`], as Markdown; empty if it gave none. */
+export function planOf(input: unknown): string {
+    const plan =
+        typeof input === "object" && input !== null ? (input as { plan?: unknown }).plan : "";
+    return typeof plan === "string" ? plan : "";
+}
+
 /** How long a tool call's arguments may be when shown on one line. */
 const SUMMARY_CHARS = 120;
 const TELLING_ARGUMENTS = ["command", "file_path", "pattern", "url", "query"];
@@ -228,5 +238,8 @@ export function activity(events: AgentEvent[]): string {
         turn.flatMap((event) => (event.type === "tool_result" ? [event.tool_use_id] : [])),
     );
     const running = turn.findLast((event) => event.type === "tool_use" && !finished.has(event.id));
-    return running?.type === "tool_use" ? `Running ${running.name}` : "Thinking";
+    if (running?.type !== "tool_use") {
+        return "Thinking";
+    }
+    return running.name === PLAN_TOOL ? "Presenting its plan" : `Running ${running.name}`;
 }

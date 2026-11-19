@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentEvent } from "./api/types";
-import { activity, summarize, toItems } from "./transcript";
+import { activity, planOf, summarize, toItems } from "./transcript";
 
 const toolUse = (id: string, command: string): AgentEvent => ({
     type: "tool_use",
@@ -173,5 +173,13 @@ describe("summarize", () => {
         expect(summarize({ a: 1 })).toBe('{"a":1}');
         expect(summarize({ command: "x".repeat(500) })).toHaveLength(120);
         expect(summarize(null)).toBe("null");
+    });
+});
+
+describe("planOf", () => {
+    it("reads the plan an agent presents, and is empty for anything else", () => {
+        expect(planOf({ plan: "1. Do it" })).toBe("1. Do it");
+        expect(planOf({ plan: 3 })).toBe("");
+        expect(planOf(null)).toBe("");
     });
 });

@@ -1,3 +1,4 @@
+import { PLAN_TOOL } from "../transcript";
 import type { Api } from "./client";
 import type {
     AgentEvent,
@@ -378,6 +379,8 @@ class MockAgent {
             this.interrupts.set(id, () =>
                 this.publish(id, { ...done, is_error: true, result: "interrupted" }, "idle"),
             );
+        } else if (this.configure(id, {}).supervision === "plan") {
+            this.presentPlan(id, text, done);
         } else if (text.startsWith("run:")) {
             this.askPermission(id, text.slice(4).trim(), done);
         } else {
@@ -393,18 +396,46 @@ class MockAgent {
         }
     }
 
-    private askPermission(id: number, command: string, done: AgentEvent) {
-        const input = { command };
+    /** In plan mode the agent only proposes; approving the plan ends plan mode. */
+    private presentPlan(id: number, text: string, done: AgentEvent) {
+        const plan = `## ${text}\n\n1. Read the code this touches.\n2. Make the change in \`src/\`.\n3. Run the tests.\n\nNothing is changed until you approve.`;
+        const toolId = this.ask(id, PLAN_TOOL, { plan });
+        this.decisions.set(id, (approved) => {
+            const content = approved ? "ok" : "The user wants changes to the plan.";
+            const result: AgentEvent = {
+                type: "tool_result",
+                tool_use_id: toolId,
+                content,
+                is_error: !approved,
+            };
+            this.later(id, result, "working");
+            if (approved) {
+                this.configure(id, { supervision: "auto" });
+                this.later(id, { type: "supervision_changed", supervision: "auto" }, null);
+            }
+            const reply = approved ? "Starting on the plan." : "What should I change?";
+            this.later(id, { type: "text", text: reply }, "working", 2);
+            this.later(id, done, "idle", 3);
+        });
+    }
+
+    /** Calls a tool and asks for permission; returns the call's id. */
+    private ask(id: number, toolName: string, input: unknown): string {
         const toolId = `tool-${this.nextId++}`;
-        this.later(id, { type: "tool_use", id: toolId, name: "Bash", input }, "working");
+        this.later(id, { type: "tool_use", id: toolId, name: toolName, input }, "working");
         const request: AgentEvent = {
             type: "permission_request",
             request_id: `request-${toolId}`,
-            tool_name: "Bash",
+            tool_name: toolName,
             input,
             description: null,
         };
         this.later(id, request, "waiting", 2);
+        return toolId;
+    }
+
+    private askPermission(id: number, command: string, done: AgentEvent) {
+        const toolId = this.ask(id, "Bash", { command });
         this.decisions.set(id, (allowed) => {
             const content = allowed ? "ok" : "The user declined this action.";
             const result: AgentEvent = {

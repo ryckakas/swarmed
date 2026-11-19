@@ -183,3 +183,16 @@ describe("uniqueTaskName", () => {
         expect(uniqueTaskName("fix", ["fix", "fix-2"])).toBe("fix-3");
     });
 });
+
+describe("a change of supervision", () => {
+    it("reaches the session in the tree", () => {
+        const projects = sampleProjects();
+        const changed = applySessionEvent(projects, {
+            session_id: 1,
+            status: null,
+            event: { type: "supervision_changed", supervision: "plan" },
+        });
+        expect(findSession(changed, 1)?.supervision).toBe("plan");
+        expect(findSession(changed, 2)?.supervision).toBe("ask");
+    });
+});

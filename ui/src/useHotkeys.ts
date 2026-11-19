@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { addProject, newSession } from "./actions";
 import { api } from "./api";
 import type { Project } from "./api/types";
+import { afterPlan, CLAUDE } from "./components/options";
 import { type HotkeyId, matchHotkey, stepThrough } from "./hotkeys";
 import { useStore } from "./store";
 import { toItems } from "./transcript";
@@ -70,6 +71,18 @@ function answer(allow: boolean) {
     sent.catch(report);
 }
 
+/** Puts the open session into plan mode, or back to how new sessions start. */
+function togglePlan() {
+    const open = current();
+    if (!open || open.session.agent !== CLAUDE) {
+        return;
+    }
+    const { settings, configure } = useStore.getState();
+    const { id, model, effort, supervision: now } = open.session;
+    const supervision = now === "plan" ? afterPlan(settings?.default_supervision) : "plan";
+    void configure(api, id, { model, effort, supervision });
+}
+
 function resize(by: number | null) {
     const { settings, changeSettings } = useStore.getState();
     const now = settings?.text_scale ?? 100;
@@ -135,6 +148,7 @@ const ACTIONS: Partial<Record<HotkeyId, () => void>> = {
     "next-waiting": nextWaiting,
     "focus-message": focusMessage,
     "toggle-terminal": () => current() && useStore.getState().toggleTerminal(),
+    "toggle-plan": togglePlan,
     allow: () => answer(true),
     deny: () => answer(false),
     "toggle-panel": () => useStore.getState().togglePanel(),

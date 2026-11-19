@@ -15,8 +15,7 @@ import {
     CLAUDE,
     EFFORT_CHOICES,
     modelChoices,
-    SUPERVISION_CHOICES,
-    SUPERVISION_LABELS,
+    supervisionChoices,
     useAgents,
     useSlashCommands,
 } from "./options";
@@ -117,10 +116,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
                     label="Supervision"
                     value={supervision}
                     onChange={(value) => setSupervision(value as Supervision)}
-                    options={SUPERVISION_CHOICES.map((choice) => [
-                        choice,
-                        SUPERVISION_LABELS[choice],
-                    ])}
+                    options={supervisionChoices(supervision, agentId)}
                 />
                 <AgentPickers
                     agents={agents}

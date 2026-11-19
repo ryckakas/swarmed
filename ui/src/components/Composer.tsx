@@ -118,7 +118,7 @@ function SessionPickers({ session }: { session: Session }) {
                 onChange={(value) =>
                     void configure(api, id, { ...current, supervision: value as Supervision })
                 }
-                options={supervisionChoices(supervision)}
+                options={supervisionChoices(supervision, session.agent)}
             />
             {session.agent !== CLAUDE && (
                 <span className="option-label">{agent?.name ?? session.agent}</span>

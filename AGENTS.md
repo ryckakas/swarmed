@@ -115,6 +115,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **Notes** (`notes.rs`) are the user's own: one text file per project and per task, under
   `notes/` in the data directory, readable by the user alone. They may hold credentials, so
   they are never logged and never handed to an agent, and a removed task takes its note along.
+- **Plan mode** is a value of `Supervision`. Claude Code is started in, or switched to, its own
+  plan mode, and presents its plan by asking to use `PLAN_TOOL`. Allowing that request approves
+  the plan: the core then puts the session back to how new sessions are supervised and tells the
+  agent, which by itself would fall back to asking about everything. Every change of
+  supervision is an event, `SupervisionChanged`. Other agents have no plan mode and ask instead.
 - **Swarmed never handles Claude.ai credentials.** It only shapes the child's environment (`Auth`).
 - **Session events are stored as JSON** (`AgentEvent`), so its variants and fields are only added,
   never renamed.

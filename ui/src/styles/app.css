@@ -1328,6 +1328,22 @@ code {
     background: var(--pollen-wash);
 }
 
+/* A plan: the agent's proposal, set apart from what it says and does. */
+.plan {
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--line);
+    border-left: 2px solid var(--sky);
+    border-radius: 0 8px 8px 0;
+    background: var(--panel);
+}
+
+.plan-title {
+    margin-bottom: var(--space-1);
+    color: var(--sky);
+    font-size: var(--text-xs);
+    font-weight: 700;
+}
+
 .permission {
     display: grid;
     gap: var(--space-2);

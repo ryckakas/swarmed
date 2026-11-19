@@ -21,6 +21,7 @@ export type HotkeyId =
     | "session-9"
     | "focus-message"
     | "toggle-terminal"
+    | "toggle-plan"
     | "allow"
     | "deny"
     | "toggle-panel"
@@ -74,6 +75,12 @@ export const HOTKEYS: Hotkey[] = [
         id: "toggle-terminal",
         keys: "ctrl+`",
         label: "Switch between message box and terminal",
+        group: "In a session",
+    },
+    {
+        id: "toggle-plan",
+        keys: "cmd+shift+p",
+        label: "Switch plan mode on or off",
         group: "In a session",
     },
     { id: "allow", keys: "cmd+enter", label: "Allow the pending request", group: "In a session" },

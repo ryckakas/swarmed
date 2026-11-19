@@ -60,6 +60,10 @@ export function applySessionEvent(projects: Project[], published: SessionEvent):
     if (event.type === "renamed") {
         return mapSession(projects, id, (session) => ({ ...session, title: event.title }));
     }
+    if (event.type === "supervision_changed") {
+        const { supervision } = event;
+        return mapSession(projects, id, (session) => ({ ...session, supervision }));
+    }
     const firstMessage = event.type === "user_message" ? event.text : null;
     if (status === null && firstMessage === null) {
         return projects;
