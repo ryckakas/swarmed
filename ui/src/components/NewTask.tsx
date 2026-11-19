@@ -1,11 +1,19 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import type { AgentInfo, BranchChoices, Project, SessionSetup, Supervision } from "../api/types";
+import type {
+    AgentInfo,
+    BranchChoices,
+    Effort,
+    Project,
+    SessionSetup,
+    Supervision,
+} from "../api/types";
 import { useStore } from "../store";
 import { taskNameForPrompt, taskNameFrom, uniqueTaskName } from "../tree";
 import { ComposerBox } from "./ComposerBox";
 import {
     CLAUDE,
+    EFFORT_CHOICES,
     modelChoices,
     SUPERVISION_CHOICES,
     SUPERVISION_LABELS,
@@ -23,9 +31,13 @@ export function NewTask({ projects }: { projects: Project[] }) {
     const hookLine = useStore((state) => state.hookLine);
     const [chosen, setChosen] = useState<string | null>(null);
     const [branch, setBranch] = useState(NEW_BRANCH);
-    const [supervision, setSupervision] = useState<Supervision>("ask");
+    // The menu starts on the default from the settings and keeps what the user picks.
+    const defaultSupervision = useStore((state) => state.settings?.default_supervision);
+    const [pickedSupervision, setSupervision] = useState<Supervision | null>(null);
+    const supervision = pickedSupervision ?? defaultSupervision ?? "auto";
     const [agentId, setAgentId] = useState(CLAUDE);
     const [model, setModel] = useState("");
+    const [effort, setEffort] = useState<Effort | null>(null);
     const agents = useAgents();
     const commands = useSlashCommands(null);
     const [prompt, setPrompt] = useState("");
@@ -55,11 +67,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 project: project.name,
                 name,
                 branch: branch === NEW_BRANCH ? null : branch,
-                setup: {
-                    agent: agentId === CLAUDE ? null : agentId,
-                    model: model || null,
-                    supervision,
-                },
+                setup: setupFor(agentId, model, supervision, effort),
                 prompt: prompt.trim(),
             });
         } catch (error) {
@@ -123,6 +131,8 @@ export function NewTask({ projects }: { projects: Project[] }) {
                         setModel("");
                     }}
                     onModel={setModel}
+                    effort={effort}
+                    onEffort={setEffort}
                 />
             </ComposerBox>
             <p className="new-task-note" aria-live="polite">
@@ -158,10 +168,29 @@ interface AgentPickersProps {
     model: string;
     onAgent(id: string): void;
     onModel(model: string): void;
+    effort: Effort | null;
+    onEffort(effort: Effort | null): void;
+}
+
+/** What the session is created with. Only Claude Code takes an effort. */
+function setupFor(
+    agentId: string,
+    model: string,
+    supervision: Supervision,
+    effort: Effort | null,
+): SessionSetup {
+    const claude = agentId === CLAUDE;
+    return {
+        agent: claude ? null : agentId,
+        model: model || null,
+        supervision,
+        effort: claude ? effort : null,
+    };
 }
 
 /** The agent menu, shown only when there is a choice, and the models of the chosen agent. */
-function AgentPickers({ agents, agentId, model, onAgent, onModel }: AgentPickersProps) {
+function AgentPickers(props: AgentPickersProps) {
+    const { agents, agentId, model, onAgent, onModel, effort, onEffort } = props;
     const agent = agents.find((candidate) => candidate.id === agentId);
     return (
         <>
@@ -174,6 +203,14 @@ function AgentPickers({ agents, agentId, model, onAgent, onModel }: AgentPickers
                 />
             )}
             <Picker label="Model" value={model} onChange={onModel} options={modelChoices(agent)} />
+            {agentId === CLAUDE && (
+                <Picker
+                    label="Effort"
+                    value={effort ?? ""}
+                    onChange={(value) => onEffort((value || null) as Effort | null)}
+                    options={EFFORT_CHOICES}
+                />
+            )}
         </>
     );
 }

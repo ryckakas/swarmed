@@ -155,6 +155,11 @@ code {
     border-bottom: 1px solid var(--line);
 }
 
+.panel-close {
+    float: right;
+    margin: -4px calc(var(--space-2) * -1) 0 var(--space-2);
+}
+
 .panel-head h2 {
     font-size: var(--text-md);
     font-weight: 650;
@@ -635,10 +640,53 @@ code {
     text-align: left;
 }
 
+/* The two buttons at the foot of the sidebar share its width, each with its label in the middle. */
+.quiet-button-centred {
+    text-align: center;
+}
+
 .quiet-button:hover,
 .quiet-button:focus-visible {
     background: var(--raised);
     color: var(--text);
+}
+
+/* A button that is only an icon; its label shows when the pointer rests on it. */
+.icon-button {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--muted);
+}
+
+.icon-button svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentcolor;
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.icon-button:hover,
+.icon-button:focus-visible {
+    background: var(--raised);
+    color: var(--text);
+}
+
+.icon-button-danger {
+    color: var(--clay);
+}
+
+.icon-button-danger:hover,
+.icon-button-danger:focus-visible {
+    background: color-mix(in srgb, var(--clay) 16%, transparent);
+    color: var(--clay);
 }
 
 /* Status marks: a shape per status, so colour is never the only signal. */
@@ -768,6 +816,14 @@ code {
     display: flex;
     flex-direction: column;
     min-height: 0;
+}
+
+/* The session's own buttons sit in its top right corner, level with the crumbs. */
+.session-actions {
+    float: right;
+    display: flex;
+    gap: var(--space-1);
+    margin: -4px calc(var(--space-2) * -1) 0 var(--space-3);
 }
 
 .session-head {
@@ -1383,6 +1439,7 @@ code {
 /* The status line: one quiet row under the message box, which folds away to its toggle. */
 
 .status-line {
+    position: relative;
     flex: none;
     display: flex;
     align-items: center;
@@ -1431,7 +1488,7 @@ code {
 .status-text {
     min-width: 0;
     display: flex;
-    gap: var(--space-4);
+    gap: 6px;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -1439,12 +1496,124 @@ code {
 }
 
 .status-part {
+    padding: 1px var(--space-2);
+    border-radius: 999px;
+    /* A wash of the badge's own colour, whichever that is. */
+    background: color-mix(in srgb, currentcolor 13%, transparent);
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
+/* Each value is a badge in its own colour, so the eye finds it without reading the line. */
+.status-branch,
+.status-nth-0 {
+    color: var(--lilac);
+}
+
+.status-changes,
+.status-nth-1 {
+    color: var(--muted);
+}
+
+.status-model,
+.status-nth-2 {
+    color: var(--sky);
+}
+
+.status-context {
+    flex: none;
+    border: 0;
+    color: var(--moss);
+    font: inherit;
+}
+
+.status-context:focus-visible {
+    outline: 1px solid var(--focus);
+}
+
+.status-cost,
+.status-nth-3 {
+    color: var(--sand);
+}
+
+.status-agent,
+.status-nth-4 {
+    color: var(--teal);
+}
+
+.status-worktree {
+    color: var(--muted);
+}
+
+.status-run-added {
+    color: var(--moss);
+}
+
+.status-run-removed {
+    color: var(--clay);
+}
+
 .status-failed {
     color: var(--clay);
+}
+
+/* What fills the context window, shown over the status line while its badge is pointed at. */
+.context-card {
+    position: absolute;
+    bottom: 100%;
+    left: var(--space-8);
+    z-index: 4;
+    width: min(34ch, 100% - 2 * var(--space-8));
+    padding: var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--raised);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: var(--text-xs);
+}
+
+.context-title {
+    display: grid;
+    gap: 2px;
+    font-weight: 650;
+}
+
+.context-title span,
+.context-none {
+    color: var(--muted);
+    font-weight: 400;
+}
+
+.context-bar {
+    height: 4px;
+    margin: var(--space-2) 0;
+    border-radius: 2px;
+    background: var(--line);
+    overflow: hidden;
+}
+
+.context-bar div {
+    height: 100%;
+    background: var(--moss);
+}
+
+.context-part {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding: 1px 0;
+}
+
+.context-part dd {
+    font-family: var(--font-mono);
+}
+
+.context-buffer,
+.context-free,
+.context-deferred {
+    color: var(--faint);
 }
 
 /* Suggestions for a message that starts with a slash; they open upwards, over the transcript. */
@@ -1704,11 +1873,60 @@ code {
     gap: 6px;
 }
 
-.settings-command {
-    flex: none;
-    width: 45%;
+/* The script has room of its own under its explanation, and can be dragged taller. */
+.settings-script {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-2) 0;
+}
+
+.settings-script textarea {
+    min-height: 4.5em;
     font-family: var(--font-mono);
     font-size: var(--text-xs);
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.settings .shortcut-group {
+    margin-top: var(--space-3);
+    color: var(--muted);
+    font-size: var(--text-xs);
+}
+
+/* Two columns of shortcuts where there is room for them. */
+.shortcuts {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(26ch, 1fr));
+    gap: 0 var(--space-6);
+}
+
+.shortcut {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: 3px 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent);
+}
+
+.shortcut dd {
+    flex: none;
+    display: flex;
+    gap: 3px;
+}
+
+kbd {
+    min-width: 1.7em;
+    padding: 1px 5px;
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    border-radius: 5px;
+    background: var(--panel);
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: var(--text-xs);
+    text-align: center;
 }
 
 .key-row {

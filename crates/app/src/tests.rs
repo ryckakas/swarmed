@@ -153,7 +153,7 @@ fn the_ui_can_go_from_an_empty_app_to_an_answered_permission_request() {
     );
     let session = app.ok(
         "session_new",
-        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "ask" }),
+        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "ask", "effort": null }),
     );
     let id = &session["id"];
 
@@ -190,7 +190,7 @@ fn the_ui_can_deny_interrupt_stop_and_remove() {
     );
     let session = app.ok(
         "session_new",
-        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "auto" }),
+        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "auto", "effort": "high" }),
     );
     let id = &session["id"];
     assert_eq!(session["supervision"], "auto");
@@ -204,7 +204,8 @@ fn the_ui_can_deny_interrupt_stop_and_remove() {
 
     app.ok("session_send", json!({ "id": id, "text": "slow" }));
     app.wait_for_event(id, "text");
-    let settings = json!({ "id": id, "model": "opus", "supervision": "ask" });
+    assert_eq!(session["effort"], "high");
+    let settings = json!({ "id": id, "model": "opus", "supervision": "ask", "effort": "high" });
     let changed = app.ok("session_configure", settings);
     assert_eq!(
         (&changed["model"], &changed["supervision"]),
@@ -261,8 +262,9 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
         app.ok("settings", json!({})),
         json!({
             "editor": "code", "auto_title": true, "theme": "system", "text_scale": 100,
-            "html_views": true,
-            "status_items": ["branch", "changes", "model", "cost"], "status_command": "",
+            "html_views": true, "default_supervision": "auto",
+            "status_items": ["branch", "changes", "model", "context", "cost"],
+            "status_command": "",
         })
     );
 
@@ -283,7 +285,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
 
     let chosen = json!({ "settings": {
         "editor": "swarmed-no-such-editor", "auto_title": false, "theme": "light", "text_scale": 110,
-        "html_views": false, "status_items": ["cost"], "status_command": "",
+        "html_views": false, "default_supervision": "ask", "status_items": ["cost"], "status_command": "",
     } });
     app.ok("set_settings", chosen);
     let target = json!({ "project": "demo", "name": "one" });

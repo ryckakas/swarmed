@@ -4,6 +4,7 @@ import { PANEL_WIDTH } from "../resize";
 import { useStore } from "../store";
 import { findSession, findSessionHome } from "../tree";
 import { Changes } from "./Changes";
+import { CloseIcon, IconButton } from "./IconButton";
 import { editorChoices, editorName } from "./options";
 import { Picker } from "./Picker";
 import { Resizer } from "./Resizer";
@@ -46,8 +47,14 @@ function TaskHead({ project, task }: { project: Project; task: Task }) {
     const report = useStore((state) => state.report);
     const editor = useStore((state) => state.settings?.editor ?? "code");
     const changeSettings = useStore((state) => state.changeSettings);
+    const togglePanel = useStore((state) => state.togglePanel);
     return (
         <header className="panel-head">
+            <div className="panel-close">
+                <IconButton label="Hide the task panel" onClick={togglePanel}>
+                    <CloseIcon />
+                </IconButton>
+            </div>
             <h2>{task.name}</h2>
             <p className="mono panel-branch" title={task.worktree_path}>
                 {task.branch}

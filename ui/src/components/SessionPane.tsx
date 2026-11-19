@@ -2,6 +2,7 @@ import type { AgentEvent, Session, Task } from "../api/types";
 import { useStore } from "../store";
 import { findSession, findSessionHome } from "../tree";
 import { Composer } from "./Composer";
+import { EndIcon, IconButton, PanelIcon } from "./IconButton";
 import { NewTask } from "./NewTask";
 import { SessionTitle } from "./SessionTitle";
 import { StatusLine } from "./StatusLine";
@@ -36,6 +37,20 @@ export function SessionPane() {
     return (
         <article className="session">
             <header className="session-head">
+                <div className="session-actions">
+                    <IconButton
+                        label="Close session: stops the agent and removes it from the sidebar"
+                        danger
+                        onClick={() => askToClose(session.id)}
+                    >
+                        <EndIcon />
+                    </IconButton>
+                    {!panelOpen && (
+                        <IconButton label="Show the task panel" onClick={togglePanel}>
+                            <PanelIcon />
+                        </IconButton>
+                    )}
+                </div>
                 <p className="crumbs">
                     {home.project.name} / {home.task.name}
                 </p>
@@ -45,22 +60,6 @@ export function SessionPane() {
                         <StatusMark status={session.status} />
                         {statusLabel(session.status)}
                     </p>
-                    <button
-                        type="button"
-                        className="quiet-button"
-                        aria-pressed={panelOpen}
-                        onClick={togglePanel}
-                    >
-                        {panelOpen ? "Hide task panel" : "Show task panel"}
-                    </button>
-                    <button
-                        type="button"
-                        className="quiet-button"
-                        title="Stops the agent and removes the session from the sidebar"
-                        onClick={() => askToClose(session.id)}
-                    >
-                        Close session
-                    </button>
                 </div>
             </header>
             {events === undefined && <p className="aside loading">Loading the conversation…</p>}

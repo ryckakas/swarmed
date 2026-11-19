@@ -1,10 +1,11 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import type { Settings, Theme } from "../api/types";
+import type { Settings, Supervision, Theme } from "../api/types";
+import { keyCaps, LOCAL_HOTKEYS, listedHotkeys } from "../hotkeys";
 import { STATUS_ITEM_LABELS, STATUS_ITEMS, withItem } from "../statusline";
 import { useStore } from "../store";
 import { ApiKeys } from "./ApiKeys";
-import { editorChoices, TEXT_SCALES, THEMES } from "./options";
+import { editorChoices, supervisionChoices, TEXT_SCALES, THEMES } from "./options";
 import { Picker } from "./Picker";
 
 /** The user's preferences. Every change takes effect, and is saved, at once. */
@@ -36,6 +37,7 @@ export function SettingsDialog() {
             <Sessions settings={settings} />
             <StatusLineSettings settings={settings} />
             <ApiKeys />
+            <Shortcuts />
             <div className="confirm-actions">
                 <button type="button" className="button" onClick={() => showSettings(false)}>
                     Done
@@ -81,6 +83,19 @@ function Sessions({ settings }: { settings: Settings }) {
                     value={settings.editor}
                     onChange={(editor) => void change(api, { editor })}
                     options={editorChoices(settings.editor)}
+                />
+            </Row>
+            <Row
+                label="New sessions start in"
+                hint="Auto mode lets the agent decide which actions are safe. It can be changed per session under the message box."
+            >
+                <Picker
+                    label="Supervision of new sessions"
+                    value={settings.default_supervision}
+                    onChange={(value) =>
+                        void change(api, { default_supervision: value as Supervision })
+                    }
+                    options={supervisionChoices(settings.default_supervision)}
                 />
             </Row>
             <Row
@@ -137,22 +152,68 @@ function StatusLineSettings({ settings }: { settings: Settings }) {
                     </label>
                 ))}
             </div>
-            <Row
-                label="Custom script"
-                hint="Replaces the pieces above. Runs with sh -c in the task's worktree, gets the session, task and project as JSON on standard input, and its first line of output is shown."
-            >
-                <input
-                    type="text"
-                    className="key-input settings-command"
-                    aria-label="Status line script"
-                    placeholder="~/.config/swarmed/statusline.sh"
+            <label className="settings-script">
+                <span className="settings-label">Custom script</span>
+                <span className="settings-hint">
+                    Replaces the pieces above. Runs with sh -c in the task's worktree and gets the
+                    session, task and project as JSON on standard input. Its first line of output is
+                    shown; values separated by | become badges.
+                </span>
+                <textarea
+                    className="key-input"
+                    rows={4}
+                    placeholder={"jq -r '\"\\(.task.branch) | \\(.session.model)\"'"}
                     spellCheck={false}
                     value={command}
                     onChange={(event) => setCommand(event.target.value)}
                     onBlur={() => void change(api, { status_command: command.trim() })}
                 />
-            </Row>
+            </label>
         </section>
+    );
+}
+
+const SHORTCUT_GROUPS = ["Sessions", "In a session", "Task", "Window"] as const;
+
+/** Every keyboard shortcut, by where it applies. */
+function Shortcuts() {
+    return (
+        <section className="settings-group" id="shortcuts" aria-label="Keyboard shortcuts">
+            <h3>Keyboard shortcuts</h3>
+            {SHORTCUT_GROUPS.map((group) => (
+                <ShortcutList
+                    key={group}
+                    title={group}
+                    shortcuts={listedHotkeys().filter((hotkey) => hotkey.group === group)}
+                />
+            ))}
+            <ShortcutList title="While typing or in the sidebar" shortcuts={LOCAL_HOTKEYS} />
+        </section>
+    );
+}
+
+interface ShortcutListProps {
+    title: string;
+    shortcuts: { keys: string; label: string }[];
+}
+
+function ShortcutList({ title, shortcuts }: ShortcutListProps) {
+    return (
+        <>
+            <p className="shortcut-group">{title}</p>
+            <dl className="shortcuts">
+                {shortcuts.map((shortcut) => (
+                    <div key={shortcut.keys} className="shortcut">
+                        <dt>{shortcut.label}</dt>
+                        <dd>
+                            {keyCaps(shortcut.keys).map((cap) => (
+                                <kbd key={cap}>{cap}</kbd>
+                            ))}
+                        </dd>
+                    </div>
+                ))}
+            </dl>
+        </>
     );
 }
 

@@ -46,6 +46,12 @@ interface State {
     /** Whether the status line under the message box is shown, or folded away. */
     statusOpen: boolean;
     toggleStatus(): void;
+    /** Whether the terminal is shown in place of the message box. */
+    terminalOpen: boolean;
+    toggleTerminal(): void;
+    /** Goes up each time the user asks to rename the open session, from wherever. */
+    renameAsked: number;
+    askToRename(): void;
     /** Whether the settings are on screen. */
     settingsOpen: boolean;
     showSettings(open: boolean): void;
@@ -207,6 +213,10 @@ export const useStore = create<State>((set, get) => ({
         writeFlag(STATUS_OPEN, statusOpen);
         set({ statusOpen });
     },
+    terminalOpen: false,
+    toggleTerminal: () => set((state) => ({ terminalOpen: !state.terminalOpen })),
+    renameAsked: 0,
+    askToRename: () => set((state) => ({ renameAsked: state.renameAsked + 1 })),
     settingsOpen: false,
     showSettings: (open) => set({ settingsOpen: open }),
     rename: (api, sessionId, title) =>

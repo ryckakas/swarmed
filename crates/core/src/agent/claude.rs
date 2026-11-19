@@ -16,8 +16,8 @@ use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
 use tokio::sync::mpsc;
 
 use super::{
-    AgentBackend, AgentCommand, AgentEvent, AgentHandle, Auth, McpServerInfo, Namer, Naming,
-    SessionSpec, Supervision,
+    AgentBackend, AgentCommand, AgentEvent, AgentHandle, Auth, ContextCategory, McpServerInfo,
+    Namer, Naming, SessionSpec, Supervision,
 };
 use crate::error::{Error, Result};
 use crate::mcp::{McpServer, McpTransport};
@@ -140,6 +140,10 @@ fn args(spec: &SessionSpec) -> Vec<String> {
     };
     let joined = |rules: &[String]| (!rules.is_empty()).then(|| rules.join(","));
     flag("--model", spec.model.clone());
+    flag(
+        "--effort",
+        spec.effort.map(|effort| effort.as_str().to_string()),
+    );
     flag("--resume", spec.resume.clone());
     flag("--allowedTools", joined(&spec.allowed_tools));
     flag("--disallowedTools", joined(&spec.disallowed_tools));
@@ -208,13 +212,19 @@ impl AgentBackend for ClaudeBackend {
         let (event_tx, events) = mpsc::unbounded_channel();
         let (commands, command_rx) = mpsc::unbounded_channel();
         let pending = Pending::default();
+        // Requests of Swarmed's own, which the reading side raises and the writing side sends.
+        let (asks, ask_rx) = mpsc::unbounded_channel();
         drop(tokio::spawn(write_commands(
             stdin,
-            command_rx,
+            (command_rx, ask_rx),
             pending.clone(),
         )));
         drop(tokio::spawn(read_events(
-            child, stdout, stderr, event_tx, pending,
+            child,
+            (stdout, stderr),
+            event_tx,
+            pending,
+            asks,
         )));
         Ok(AgentHandle { events, commands })
     }
@@ -223,10 +233,10 @@ impl AgentBackend for ClaudeBackend {
 /// Forwards the process's output as events until it exits, then reports the exit.
 async fn read_events(
     mut child: Child,
-    stdout: ChildStdout,
-    mut stderr: ChildStderr,
+    (stdout, mut stderr): (ChildStdout, ChildStderr),
     events: mpsc::UnboundedSender<AgentEvent>,
     pending: Pending,
+    asks: mpsc::UnboundedSender<Value>,
 ) {
     let stderr_text = tokio::spawn(async move {
         let mut text = String::new();
@@ -236,6 +246,10 @@ async fn read_events(
     let mut lines = BufReader::new(stdout).lines();
     while let Ok(Some(line)) = lines.next_line().await {
         let parsed = serde_json::from_str::<Value>(&line).ok();
+        // A finished turn is the moment to ask how full the context window has become.
+        if parsed.as_ref().and_then(|m| kind_of(m, "type")) == Some("result") {
+            asks.send(context_request()).ok();
+        }
         let new_events = parsed.map_or_else(Vec::new, |message| parse_message(&message, &pending));
         if new_events
             .into_iter()
@@ -254,19 +268,58 @@ async fn read_events(
 /// command channel is dropped.
 async fn write_commands(
     mut stdin: ChildStdin,
-    mut commands: mpsc::UnboundedReceiver<AgentCommand>,
+    (mut commands, mut asks): (
+        mpsc::UnboundedReceiver<AgentCommand>,
+        mpsc::UnboundedReceiver<Value>,
+    ),
     pending: Pending,
 ) {
     let mut requests = 0_u64;
-    while let Some(command) = commands.recv().await {
-        let mut bytes = command_line(command, &pending, &mut requests)
-            .to_string()
-            .into_bytes();
+    loop {
+        let line = tokio::select! {
+            command = commands.recv() => command.map(|c| command_line(c, &pending, &mut requests)),
+            Some(ask) = asks.recv() => Some(ask),
+        };
+        let Some(line) = line else {
+            break;
+        };
+        let mut bytes = line.to_string().into_bytes();
         bytes.push(b'\n');
         if stdin.write_all(&bytes).await.is_err() || stdin.flush().await.is_err() {
             break;
         }
     }
+}
+
+/// The id of the request that asks how full the context window is.
+const CONTEXT_REQUEST: &str = "swarmed-context";
+
+fn context_request() -> Value {
+    json!({
+        "type": "control_request",
+        "request_id": CONTEXT_REQUEST,
+        "request": { "subtype": "get_context_usage" },
+    })
+}
+
+/// The answer to [`context_request`], if `message` is one.
+fn parse_context(message: &Value) -> Option<AgentEvent> {
+    let response = message.get("response")?;
+    if kind_of(response, "request_id") != Some(CONTEXT_REQUEST) {
+        return None;
+    }
+    let usage = response.get("response")?;
+    let categories = usage.get("categories").and_then(Value::as_array);
+    let category = |c: &Value| ContextCategory {
+        name: str_of(c, "name"),
+        tokens: c.get("tokens").and_then(Value::as_u64).unwrap_or(0),
+        kind: str_of(c, "kind"),
+    };
+    Some(AgentEvent::ContextUsage {
+        used: usage.get("totalTokens").and_then(Value::as_u64)?,
+        max: usage.get("maxTokens").and_then(Value::as_u64)?,
+        categories: categories.map_or_else(Vec::new, |c| c.iter().map(category).collect()),
+    })
 }
 
 fn command_line(command: AgentCommand, pending: &Pending, requests: &mut u64) -> Value {
@@ -356,8 +409,9 @@ fn parse_message(message: &Value, pending: &Pending) -> Vec<AgentEvent> {
             result: kind_of(message, "result").map(String::from),
             cost_usd: message.get("total_cost_usd").and_then(Value::as_f64),
         }],
-        // Replies to our own control requests (interrupt) carry nothing we need.
-        "system" | "control_response" => vec![],
+        // Of the replies to our own control requests, only the context window's is of use.
+        "control_response" => parse_context(message).into_iter().collect(),
+        "system" => vec![],
         _ => vec![AgentEvent::Other {
             raw: message.clone(),
         }],
@@ -660,6 +714,42 @@ mod tests {
     }
 
     #[test]
+    fn the_context_windows_state_is_read_from_the_answer_to_our_own_request() {
+        let answer = |request_id: &str| {
+            json!({ "type": "control_response", "response": {
+                "subtype": "success", "request_id": request_id,
+                "response": {
+                    "totalTokens": 29_629, "maxTokens": 1_000_000, "percentage": 3,
+                    "categories": [
+                        { "id": "messages", "name": "Messages", "tokens": 9171, "kind": "used" },
+                        { "id": "free_space", "name": "Free space", "tokens": 937_371, "kind": "free" },
+                    ],
+                },
+            }})
+        };
+        let category = |name: &str, tokens, kind: &str| ContextCategory {
+            name: name.into(),
+            tokens,
+            kind: kind.into(),
+        };
+        let usage = AgentEvent::ContextUsage {
+            used: 29_629,
+            max: 1_000_000,
+            categories: vec![
+                category("Messages", 9171, "used"),
+                category("Free space", 937_371, "free"),
+            ],
+        };
+        assert_eq!(parse(&answer(CONTEXT_REQUEST)), vec![usage]);
+        // The answer to an interrupt, or to anything else, is not shown.
+        assert_eq!(parse(&answer("swarmed-1")), vec![]);
+        assert_eq!(
+            context_request().pointer("/request/subtype"),
+            Some(&json!("get_context_usage"))
+        );
+    }
+
+    #[test]
     fn a_cancelled_request_is_withdrawn_once() {
         let pending = Pending::default();
         pending.insert("r1".into(), json!({}));
@@ -685,6 +775,7 @@ mod tests {
     fn ask_supervision_maps_to_accept_edits_and_passes_rules() {
         let spec = SessionSpec {
             model: Some("haiku".into()),
+            effort: Some(crate::agent::Effort::High),
             resume: Some("abc".into()),
             allowed_tools: vec!["Bash(git add:*)".into(), "Bash(git commit:*)".into()],
             disallowed_tools: vec!["Bash(git push --force:*)".into()],
@@ -699,7 +790,10 @@ mod tests {
         };
         let args = args(&spec).join(" ");
         assert!(args.contains("--permission-mode acceptEdits"), "{args}");
-        assert!(args.contains("--model haiku --resume abc"), "{args}");
+        assert!(
+            args.contains("--model haiku --effort high --resume abc"),
+            "{args}"
+        );
         assert!(
             args.contains("--allowedTools Bash(git add:*),Bash(git commit:*)"),
             "{args}"

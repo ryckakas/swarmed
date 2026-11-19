@@ -13,6 +13,8 @@ export interface Session {
     agent_session_id: string | null;
     model: string | null;
     supervision: Supervision;
+    /** How hard the model thinks; `null` is the agent's default. */
+    effort: Effort | null;
     status: SessionStatus;
 }
 
@@ -63,7 +65,7 @@ export interface ApiKeyInfo {
 export type Theme = "system" | "dark" | "light";
 
 /** One built-in piece of the status line. */
-export type StatusItem = "branch" | "changes" | "model" | "cost" | "agent" | "worktree";
+export type StatusItem = "branch" | "changes" | "model" | "context" | "cost" | "agent" | "worktree";
 
 /** The user's own preferences. */
 export interface Settings {
@@ -74,6 +76,8 @@ export interface Settings {
     theme: Theme;
     /** The size of the app's text, in percent of its normal size. */
     text_scale: number;
+    /** How much a new session's agent may do without asking, unless chosen otherwise. */
+    default_supervision: Supervision;
     /** Whether agents may answer with small HTML views, and those are shown. */
     html_views: boolean;
     /** The built-in pieces of the status line under the message box, in order. */
@@ -92,6 +96,14 @@ export interface Project {
 export interface McpServerInfo {
     name: string;
     status: string;
+}
+
+/** One part of what fills an agent's context window. */
+export interface ContextCategory {
+    name: string;
+    tokens: number;
+    /** `used`, `free`, `buffer` or `deferred`, in the agent's words. */
+    kind: string;
 }
 
 export type AgentEvent =
@@ -119,6 +131,8 @@ export type AgentEvent =
           input: unknown;
           description: string | null;
       }
+    /** How full the agent's context window is, reported after a turn. */
+    | { type: "context_usage"; used: number; max: number; categories: ContextCategory[] }
     /** The session got a new title, from the user or from the model that names sessions. */
     | { type: "renamed"; title: string }
     /** What happened in the session's terminal, as given to the agent with the next message. */
@@ -173,7 +187,15 @@ export interface SessionSettings {
     /** A model name the agent accepts, or `null` for its default. */
     model: string | null;
     supervision: Supervision;
+    /**
+     * How hard the model thinks, or `null` for the agent's default. An agent takes it when it
+     * starts, so a running one is restarted between turns and carries on the conversation.
+     */
+    effort: Effort | null;
 }
+
+/** How hard the model thinks before it answers. */
+export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface SessionSetup {
     /** An agent id, or `null` for Claude Code. */
@@ -181,4 +203,5 @@ export interface SessionSetup {
     /** A model name the agent accepts, or `null` for its default. */
     model: string | null;
     supervision: Supervision;
+    effort: Effort | null;
 }

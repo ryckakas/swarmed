@@ -103,6 +103,8 @@ struct Conversation {
     /// The agent's reply so far; ACP streams it in pieces and Swarmed shows whole blocks.
     text: String,
     cost: Option<f64>,
+    /// Tokens used and the window's size, as last reported and not yet passed on.
+    context: Option<(u64, u64)>,
     permissions: HashMap<String, PendingPermission>,
     /// Tool calls announced without their arguments yet, by id; some agents send those later.
     unannounced: HashMap<String, Value>,
@@ -130,6 +132,7 @@ impl Conversation {
             queued: VecDeque::new(),
             text: String::new(),
             cost: None,
+            context: None,
             permissions: HashMap::new(),
             unannounced: HashMap::new(),
             passed: Vec::new(),
@@ -300,6 +303,13 @@ impl Conversation {
                 text: format!("The agent reported an error: {error}"),
             });
         }
+        if let Some((used, max)) = self.context.take() {
+            self.emit(AgentEvent::ContextUsage {
+                used,
+                max,
+                categories: vec![],
+            });
+        }
         let finished = error.is_none() && str_of(result, "stopReason") == Some("end_turn");
         self.emit(AgentEvent::TurnDone {
             is_error: !finished,
@@ -389,17 +399,22 @@ impl Conversation {
         }
     }
 
+    /// What the turn has cost and how full the context window is, reported when the turn ends.
+    fn on_usage(&mut self, update: &Value) {
+        self.cost = update
+            .pointer("/cost/amount")
+            .and_then(Value::as_f64)
+            .or(self.cost);
+        let tokens = |key: &str| update.get(key).and_then(Value::as_u64);
+        self.context = tokens("used").zip(tokens("size")).or(self.context);
+    }
+
     /// One `session/update` notification: a piece of what the agent is doing.
     fn on_update(&mut self, update: &Value) {
         match str_of(update, "sessionUpdate").unwrap_or_default() {
             "agent_message_chunk" => self.on_chunk(update),
             "tool_call" | "tool_call_update" => self.on_tool(update),
-            "usage_update" => {
-                self.cost = update
-                    .pointer("/cost/amount")
-                    .and_then(Value::as_f64)
-                    .or(self.cost);
-            }
+            "usage_update" => self.on_usage(update),
             // Thoughts, plans, mode and command lists are not shown yet.
             _ => {}
         }

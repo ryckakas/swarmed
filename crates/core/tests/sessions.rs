@@ -5,7 +5,7 @@ mod common;
 use common::{core_with_project, fixture, next, turn};
 use std::sync::Arc;
 
-use swarmed_core::agent::{AgentEvent, Auth, Namer, Naming, Supervision};
+use swarmed_core::agent::{AgentEvent, Auth, Effort, Namer, Naming, Supervision};
 use swarmed_core::{
     Core, Error, NewTaskOptions, Session, SessionEvent, SessionOptions, SessionSettings,
     SessionStatus, Settings, TerminalOutput, hooks,
@@ -455,6 +455,7 @@ async fn settings_can_change_while_running_and_apply_to_the_next_start() {
     let settings = SessionSettings {
         model: Some("opus".into()),
         supervision: Supervision::Auto,
+        effort: None,
     };
     let changed = core
         .session_configure(session.id, &settings)
@@ -479,6 +480,50 @@ async fn settings_can_change_while_running_and_apply_to_the_next_start() {
     ));
     let unknown = core.session_configure(404, &settings);
     assert!(matches!(unknown, Err(Error::SessionNotFound(404))));
+}
+
+#[tokio::test]
+async fn a_new_effort_restarts_the_agent_between_turns_and_keeps_the_conversation() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+    core.session_send(session.id, "first").expect("sends");
+    turn(&mut bus, session.id).await;
+
+    // Between turns: the agent is stopped at once.
+    let high = SessionSettings {
+        effort: Some(Effort::High),
+        ..SessionSettings::default()
+    };
+    let changed = core.session_configure(session.id, &high).expect("changes");
+    assert_eq!(changed.effort, Some(Effort::High));
+    assert!(matches!(
+        next(&mut bus).await.event,
+        AgentEvent::Exited { .. }
+    ));
+    assert_eq!(core.running_sessions(), [0_i64; 0]);
+    core.session_start(session.id, Auth::Subscription)
+        .expect("restarts");
+
+    // During a turn: it is stopped when the turn is over, not before.
+    core.session_send(session.id, "slow").expect("sends");
+    let max = SessionSettings {
+        effort: Some(Effort::Max),
+        ..SessionSettings::default()
+    };
+    core.session_configure(session.id, &max).expect("changes");
+    assert_eq!(core.running_sessions(), [session.id]);
+    core.session_interrupt(session.id).expect("interrupts");
+    turn(&mut bus, session.id).await;
+    assert!(matches!(
+        next(&mut bus).await.event,
+        AgentEvent::Exited { .. }
+    ));
+    assert_eq!(
+        core.session(session.id).expect("exists").effort,
+        Some(Effort::Max)
+    );
 }
 
 #[tokio::test]

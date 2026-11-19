@@ -108,7 +108,12 @@ async fn a_turn_joins_the_streamed_pieces_into_one_reply() {
     let said = AgentEvent::UserMessage {
         text: "hello".into(),
     };
-    assert_eq!(events, [said, init, text("echo: hello"), done]);
+    let context = AgentEvent::ContextUsage {
+        used: 1,
+        max: 2,
+        categories: vec![],
+    };
+    assert_eq!(events, [said, init, text("echo: hello"), context, done]);
     assert_eq!(
         core.session(id)
             .expect("exists")

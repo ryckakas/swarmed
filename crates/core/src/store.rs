@@ -131,6 +131,9 @@ const MIGRATIONS: &[&str] = &[
     "
     ALTER TABLE sessions ADD COLUMN closed_at TEXT;
 ",
+    "
+    ALTER TABLE sessions ADD COLUMN effort TEXT;
+",
 ];
 
 const TASK_SELECT: &str = "SELECT id, project_id, name, branch, base_ref, worktree_path, slot, \
