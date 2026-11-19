@@ -3,10 +3,12 @@
 mod common;
 
 use common::{core_with_project, fixture, next, turn};
-use swarmed_core::agent::{AgentEvent, Auth, Supervision};
+use std::sync::Arc;
+
+use swarmed_core::agent::{AgentEvent, Auth, Namer, Naming, Supervision};
 use swarmed_core::{
     Core, Error, NewTaskOptions, Session, SessionEvent, SessionOptions, SessionSettings,
-    SessionStatus, hooks,
+    SessionStatus, Settings, hooks,
 };
 use tokio::sync::broadcast::Receiver;
 
@@ -208,6 +210,91 @@ async fn two_sessions_run_side_by_side() {
         core.session(second.id).expect("exists").status,
         SessionStatus::Idle
     );
+}
+
+/// Names every conversation the same, after a moment, as a model would.
+#[derive(Debug)]
+struct FixedNamer(&'static str);
+
+impl Namer for FixedNamer {
+    fn name(&self, _prompt: String) -> Naming {
+        let title = self.0.to_string();
+        Box::pin(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            Some(title)
+        })
+    }
+}
+
+/// Skips ahead to the next change of title.
+async fn renamed(bus: &mut Receiver<SessionEvent>) -> String {
+    loop {
+        if let AgentEvent::Renamed { title } = next(bus).await.event {
+            return title;
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_session_is_named_after_its_first_message_and_can_be_renamed() {
+    let fx = fixture();
+    let mut core = core_with_task(&fx).await;
+    core.set_namer(Arc::new(FixedNamer("\"Greeting the agent\"")));
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    core.session_send(session.id, "hello there").expect("sends");
+    assert_eq!(
+        core.session(session.id).expect("exists").title,
+        "hello there"
+    );
+    assert_eq!(renamed(&mut bus).await, "Greeting the agent");
+    assert_eq!(
+        core.session(session.id).expect("exists").title,
+        "Greeting the agent"
+    );
+
+    let by_hand = core
+        .session_rename(session.id, "  My own name\nsecond line ")
+        .expect("renames");
+    assert_eq!(by_hand.title, "My own name");
+    assert_eq!(renamed(&mut bus).await, "My own name");
+    // Only the first message names a session.
+    core.session_send(session.id, "another").expect("sends");
+    turn(&mut bus, session.id).await;
+    assert_eq!(
+        core.session(session.id).expect("exists").title,
+        "My own name"
+    );
+    assert!(matches!(
+        core.session_rename(session.id, "  "),
+        Err(Error::EmptyTitle)
+    ));
+}
+
+#[tokio::test]
+async fn a_title_chosen_before_the_suggestion_arrives_is_kept_and_naming_can_be_off() {
+    let fx = fixture();
+    let mut core = core_with_task(&fx).await;
+    core.set_namer(Arc::new(FixedNamer("Suggested")));
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+    core.session_send(session.id, "hello").expect("sends");
+    core.session_rename(session.id, "Mine").expect("renames");
+    turn(&mut bus, session.id).await;
+    tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+    assert_eq!(core.session(session.id).expect("exists").title, "Mine");
+
+    let off = Settings {
+        auto_title: false,
+        ..Settings::default()
+    };
+    core.set_settings(&off).expect("saves");
+    let quiet = started_session(&core);
+    core.session_send(quiet.id, "hello again").expect("sends");
+    turn(&mut bus, quiet.id).await;
+    tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+    assert_eq!(core.session(quiet.id).expect("exists").title, "hello again");
 }
 
 #[tokio::test]

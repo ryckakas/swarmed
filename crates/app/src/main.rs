@@ -69,6 +69,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
             commands::session_stop,
             commands::session_configure,
             commands::slash_commands,
+            commands::session_rename,
             commands::session_close,
         ])
 }

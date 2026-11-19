@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -15,8 +16,8 @@ use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
 use tokio::sync::mpsc;
 
 use super::{
-    AgentBackend, AgentCommand, AgentEvent, AgentHandle, Auth, McpServerInfo, SessionSpec,
-    Supervision,
+    AgentBackend, AgentCommand, AgentEvent, AgentHandle, Auth, McpServerInfo, Namer, Naming,
+    SessionSpec, Supervision,
 };
 use crate::error::{Error, Result};
 use crate::mcp::{McpServer, McpTransport};
@@ -38,6 +39,51 @@ impl Default for ClaudeBackend {
         Self {
             program: program.map_or_else(|| PathBuf::from("claude"), PathBuf::from),
         }
+    }
+}
+
+/// How long naming a conversation may take before the title from the prompt is kept.
+const NAMING_TIMEOUT: Duration = Duration::from_secs(30);
+
+const NAMING_INSTRUCTIONS: &str = "You name conversations. Reply with a title of three to six \
+    words for the request you are given: plain text, no quotes, no full stop, in the language \
+    of the request. Never answer the request itself.";
+
+/// Names conversations with one short call to Claude Code's smallest model.
+///
+/// The call uses the CLI's stored login and nothing else of the user's setup: no settings, no
+/// MCP servers, no tools, and no session is saved.
+#[derive(Debug, Clone, Default)]
+pub struct ClaudeNamer {
+    backend: ClaudeBackend,
+}
+
+impl ClaudeNamer {
+    fn command(&self, prompt: &str) -> Command {
+        let mut command = Command::new(&self.backend.program);
+        command
+            .args(["-p", "--model", "haiku", "--output-format", "text"])
+            .args(["--setting-sources", "", "--strict-mcp-config"])
+            .args(["--no-session-persistence", "--tools", ""])
+            .args(["--system-prompt", NAMING_INSTRUCTIONS])
+            .arg(prompt)
+            .current_dir(std::env::temp_dir())
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+        apply_auth(&mut command, &Auth::Subscription);
+        command
+    }
+}
+
+impl Namer for ClaudeNamer {
+    fn name(&self, prompt: String) -> Naming {
+        let mut command = self.command(&prompt);
+        Box::pin(async move {
+            let output = tokio::time::timeout(NAMING_TIMEOUT, command.output()).await;
+            let output = output.ok()?.ok().filter(|o| o.status.success())?;
+            Some(String::from_utf8_lossy(&output.stdout).into_owned())
+        })
     }
 }
 
@@ -554,6 +600,24 @@ mod tests {
             Some(&json!({ "behavior": "allow", "updatedInput": { "command": "git push" } }))
         );
         assert_eq!(pending.take("r1"), None);
+    }
+
+    #[test]
+    fn naming_uses_the_small_model_and_none_of_the_users_setup() {
+        let namer = ClaudeNamer::default();
+        let command = namer.command("fix the login");
+        let args: Vec<_> = command
+            .as_std()
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        let line = args.join(" ");
+        assert!(line.starts_with("-p --model haiku"), "{line}");
+        assert!(
+            line.contains("--strict-mcp-config --no-session-persistence"),
+            "{line}"
+        );
+        assert_eq!(args.last().map(String::as_str), Some("fix the login"));
     }
 
     #[test]

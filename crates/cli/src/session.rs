@@ -54,6 +54,8 @@ pub(crate) enum SessionCommand {
         #[arg(long)]
         auto: bool,
     },
+    /// Give a session a new title.
+    Rename { id: i64, title: String },
     /// Take a session out of the lists. Its history is kept.
     Close { id: i64 },
 }
@@ -132,6 +134,10 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
                 supervision: supervision(auto),
             };
             core.session_configure(id, &settings)?;
+            Ok(())
+        }
+        SessionCommand::Rename { id, title } => {
+            say(&core.session_rename(id, &title)?.title);
             Ok(())
         }
         SessionCommand::Close { id } => Ok(core.session_close(id)?),

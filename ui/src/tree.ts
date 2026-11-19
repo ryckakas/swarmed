@@ -57,6 +57,9 @@ function mapSession(
  */
 export function applySessionEvent(projects: Project[], published: SessionEvent): Project[] {
     const { session_id: id, status, event } = published;
+    if (event.type === "renamed") {
+        return mapSession(projects, id, (session) => ({ ...session, title: event.title }));
+    }
     const firstMessage = event.type === "user_message" ? event.text : null;
     if (status === null && firstMessage === null) {
         return projects;

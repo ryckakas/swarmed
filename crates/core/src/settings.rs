@@ -12,6 +12,9 @@ use crate::error::{Error, Result};
 pub struct Settings {
     /// The command that opens a folder in the user's code editor, such as `code` or `zed`.
     pub editor: String,
+    /// Whether a new session is given a short title by a model once its first message is sent.
+    /// Without it, the title stays the start of that message.
+    pub auto_title: bool,
 }
 
 impl Default for Settings {
@@ -19,6 +22,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             editor: "code".to_string(),
+            auto_title: true,
         }
     }
 }
@@ -63,6 +67,7 @@ mod tests {
 
         let chosen = Settings {
             editor: "zed --new".to_string(),
+            auto_title: false,
         };
         chosen.save(&path).expect("saves");
         assert_eq!(Settings::load(&path).expect("loads"), chosen);

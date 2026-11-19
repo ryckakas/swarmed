@@ -359,13 +359,20 @@ class MockAgent {
         return this.projects.flatMap((project) => project.tasks);
     }
 
-    configure(id: number, settings: SessionSettings): Session {
+    configure(id: number, settings: Partial<SessionSettings>): Session {
         const sessions = this.tasks().flatMap((task) => task.sessions);
         const found = sessions.find((candidate) => candidate.id === id);
         if (!found) {
             throw new Error(`session ${id} not found`);
         }
         return Object.assign(found, settings);
+    }
+
+    rename(id: number, title: string): Session {
+        const renamed = this.configure(id, {}) as Session;
+        renamed.title = title.trim();
+        this.publish(id, { type: "renamed", title: renamed.title }, null);
+        return renamed;
     }
 
     close(id: number) {
@@ -386,7 +393,7 @@ export function createMockApi(): Api {
     const agent = new MockAgent();
     const tasks = () => agent.projects.flatMap((project) => project.tasks);
     const hookListeners = new Set<(output: HookOutput) => void>();
-    let settings: Settings = { editor: "code" };
+    let settings: Settings = { editor: "code", auto_title: true };
     return {
         overview: async () => structuredClone(agent.projects),
         agents: async () => [
@@ -472,6 +479,7 @@ export function createMockApi(): Api {
             "tdd",
         ],
         sessionConfigure: async (id, settings) => agent.configure(id, settings),
+        sessionRename: async (id, title) => agent.rename(id, title),
         sessionClose: async (id) => agent.close(id),
         onSessionEvent: async (listener) => {
             agent.listeners.add(listener);

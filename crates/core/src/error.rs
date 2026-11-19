@@ -92,6 +92,9 @@ pub enum Error {
     /// No agent is configured under this id.
     #[error("agent `{0}` is not configured")]
     AgentNotFound(String),
+    /// A session title with nothing in it.
+    #[error("a session title cannot be empty")]
+    EmptyTitle,
     /// No session has this id.
     #[error("session {0} not found")]
     SessionNotFound(i64),

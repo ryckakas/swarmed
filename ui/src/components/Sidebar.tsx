@@ -170,6 +170,8 @@ function SessionRow({ session }: { session: Session }) {
             <button
                 type="button"
                 className="session-row"
+                // The row cuts a long title short; this shows all of it.
+                title={title}
                 aria-current={selected ? "true" : undefined}
                 onClick={() => void open(api, session.id)}
             >

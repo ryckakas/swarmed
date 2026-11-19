@@ -384,7 +384,11 @@ async fn the_editor_is_started_with_the_worktree() {
     std::fs::write(&script, body).expect("writes");
     make_executable(&script);
     let editor = script.to_string_lossy().into_owned();
-    core.set_settings(&Settings { editor }).expect("saves");
+    let settings = Settings {
+        editor,
+        ..Settings::default()
+    };
+    core.set_settings(&settings).expect("saves");
 
     core.task_open_editor("demo", "one").expect("starts");
     let written = wait_for_file(&opened).await;

@@ -32,6 +32,8 @@ interface State {
     panelOpen: boolean;
     togglePanel(): void;
     setEditor(api: Api, editor: string): Promise<void>;
+    /** Gives a session a new title. The tree follows when the app confirms it. */
+    rename(api: Api, sessionId: number, title: string): Promise<void>;
     /** The session the user asked to close, until they confirm or change their mind. */
     closing: number | null;
     /** Asks before closing: `null` withdraws the question. */
@@ -150,9 +152,14 @@ export const useStore = create<State>((set, get) => ({
     },
     setEditor: (api, editor) =>
         reporting(async () => {
-            const settings = { ...get().settings, editor };
+            const current = get().settings ?? (await api.settings());
+            const settings = { ...current, editor };
             await api.setSettings(settings);
             set({ settings });
+        }),
+    rename: (api, sessionId, title) =>
+        reporting(async () => {
+            await api.sessionRename(sessionId, title);
         }),
     closing: null,
     askToClose: (sessionId) => set({ closing: sessionId }),

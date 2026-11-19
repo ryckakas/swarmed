@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use session::SessionCommand;
 use swarmed_core::agent::FakeBackend;
 use swarmed_core::{Core, NewTaskOptions, Paths, RemoveOptions, Settings, SetupStatus, Task};
@@ -38,6 +38,17 @@ enum Command {
         /// The new command, such as `code`, `zed` or `cursor`.
         command: Option<String>,
     },
+    /// Show whether new sessions are named by a model after their first message, or set it.
+    AutoTitle {
+        #[arg(value_enum)]
+        state: Option<Switch>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum Switch {
+    On,
+    Off,
 }
 
 #[derive(Debug, Subcommand)]
@@ -136,14 +147,35 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Editor { command } => editor(&core, command),
+        Command::AutoTitle { state } => auto_title(&core, state),
     }
 }
 
 fn editor(core: &Core, command: Option<String>) -> Result<()> {
     if let Some(editor) = command {
-        core.set_settings(&Settings { editor })?;
+        let settings = Settings {
+            editor,
+            ..core.settings()?
+        };
+        core.set_settings(&settings)?;
     }
     say(&core.settings()?.editor);
+    Ok(())
+}
+
+fn auto_title(core: &Core, state: Option<Switch>) -> Result<()> {
+    if let Some(state) = state {
+        let settings = Settings {
+            auto_title: state == Switch::On,
+            ..core.settings()?
+        };
+        core.set_settings(&settings)?;
+    }
+    say(if core.settings()?.auto_title {
+        "on"
+    } else {
+        "off"
+    });
     Ok(())
 }
 

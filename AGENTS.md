@@ -82,6 +82,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **MCP servers are read from Claude Code's configuration** (`mcp.rs`) and handed to every agent
   that does not read it itself. The definitions hold secrets: they are passed on and never
   logged, and their `Debug` output leaves values out. Keep it that way.
+- **A session's title** starts as the first line of its first message. A `Namer` (`ClaudeNamer`:
+  one call to Claude Code's smallest model, with none of the user's settings, tools or MCP
+  servers) then suggests a better one, unless `auto_title` is off or the user renamed the session
+  first. Every change of title is an event, `Renamed`, so all front ends follow.
 - **Swarmed never handles Claude.ai credentials.** It only shapes the child's environment (`Auth`).
 - **Session events are stored as JSON** (`AgentEvent`), so its variants and fields are only added,
   never renamed.

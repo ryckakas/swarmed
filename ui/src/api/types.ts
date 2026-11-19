@@ -54,6 +54,8 @@ export interface FileDiff {
 export interface Settings {
     /** The command that opens a folder in the user's code editor. */
     editor: string;
+    /** Whether a model names a new session once its first message is sent. */
+    auto_title: boolean;
 }
 
 export interface Project {
@@ -93,6 +95,8 @@ export type AgentEvent =
           input: unknown;
           description: string | null;
       }
+    /** The session got a new title, from the user or from the model that names sessions. */
+    | { type: "renamed"; title: string }
     | { type: "permission_answered"; request_id: string; allowed: boolean }
     | { type: "permission_withdrawn"; request_id: string }
     | { type: "rate_limit"; status: string; resets_at: number | null; raw: unknown }

@@ -23,7 +23,7 @@ mod vars;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use agent::AgentBackend;
+use agent::{AgentBackend, ClaudeNamer, Namer};
 use agents::Agents;
 pub use agents::{AgentInfo, CLAUDE};
 
@@ -49,6 +49,8 @@ pub struct Core {
     store: Arc<Mutex<Store>>,
     agents: Agents,
     live: Arc<Live>,
+    /// What gives new sessions their titles, if anything does.
+    namer: Option<Arc<dyn Namer>>,
 }
 
 /// The store is only ever locked for one short query, never across an `.await`. A panic while
@@ -62,7 +64,9 @@ impl Core {
     /// installed Claude Code CLI, or on an ACP agent listed in `agents.toml`.
     pub fn open(paths: Paths) -> Result<Self> {
         let agents = Agents::load(&paths.agents_config())?;
-        Self::with_agents(paths, agents)
+        let mut core = Self::with_agents(paths, agents)?;
+        core.set_namer(Arc::new(ClaudeNamer::default()));
+        Ok(core)
     }
 
     /// Like [`Core::open`], with `backend` standing in for Claude Code and no other agents.
@@ -77,7 +81,13 @@ impl Core {
             store: Arc::new(Mutex::new(store)),
             agents,
             live: Arc::default(),
+            namer: None,
         })
+    }
+
+    /// Lets `namer` give new sessions their titles, where the user's settings allow it.
+    pub fn set_namer(&mut self, namer: Arc<dyn Namer>) {
+        self.namer = Some(namer);
     }
 
     /// Adds an agent that runs on `backend`, replacing one with the same id.

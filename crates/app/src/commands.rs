@@ -228,6 +228,11 @@ pub(crate) fn session_configure(
 }
 
 #[tauri::command]
+pub(crate) fn session_rename(core: CoreState<'_>, id: i64, title: String) -> Command<Session> {
+    Ok(core.session_rename(id, &title)?)
+}
+
+#[tauri::command]
 pub(crate) fn session_close(core: CoreState<'_>, id: i64) -> Command<()> {
     Ok(core.session_close(id)?)
 }

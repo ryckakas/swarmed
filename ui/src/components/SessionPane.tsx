@@ -3,6 +3,7 @@ import { useStore } from "../store";
 import { findSession, findSessionHome } from "../tree";
 import { Composer } from "./Composer";
 import { NewTask } from "./NewTask";
+import { SessionTitle } from "./SessionTitle";
 import { StatusMark, statusLabel } from "./StatusMark";
 import { Transcript } from "./Transcript";
 
@@ -34,7 +35,7 @@ export function SessionPane() {
                 <p className="crumbs">
                     {home.project.name} / {home.task.name}
                 </p>
-                <h1>{session.title || "New session"}</h1>
+                <SessionTitle key={session.id} session={session} />
                 <div className="session-meta">
                     <p className={`session-status status-${session.status}`}>
                         <StatusMark status={session.status} />

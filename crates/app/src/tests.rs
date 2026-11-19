@@ -213,6 +213,16 @@ fn the_ui_can_deny_interrupt_stop_and_remove() {
     app.ok("session_interrupt", json!({ "id": id }));
     app.ok("session_stop", json!({ "id": id }));
     app.wait_for_event(id, "exited");
+    let renamed = app.ok(
+        "session_rename",
+        json!({ "id": id, "title": "  Slow test  " }),
+    );
+    assert_eq!(renamed["title"], "Slow test");
+    assert_eq!(app.wait_for_event(id, "renamed")["title"], "Slow test");
+    assert_eq!(
+        app.invoke("session_rename", json!({ "id": id, "title": " " })),
+        Err(json!("a session title cannot be empty"))
+    );
     app.ok("session_close", json!({ "id": id }));
     assert_eq!(
         app.ok("overview", json!({}))[0]["tasks"][0]["sessions"],
@@ -237,7 +247,10 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
         app.ok("overview", json!({}))[0]["tasks"][0]["url"],
         json!(null)
     );
-    assert_eq!(app.ok("settings", json!({})), json!({ "editor": "code" }));
+    assert_eq!(
+        app.ok("settings", json!({})),
+        json!({ "editor": "code", "auto_title": true })
+    );
 
     let worktree = app.ok("overview", json!({}))[0]["tasks"][0]["worktree_path"].clone();
     let worktree = Path::new(worktree.as_str().expect("a path"));
@@ -254,7 +267,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
             .is_some_and(|text| text.ends_with("+one\n"))
     );
 
-    let chosen = json!({ "settings": { "editor": "swarmed-no-such-editor" } });
+    let chosen = json!({ "settings": { "editor": "swarmed-no-such-editor", "auto_title": true } });
     app.ok("set_settings", chosen);
     let target = json!({ "project": "demo", "name": "one" });
     let failed = app.invoke("task_open_editor", target.clone());

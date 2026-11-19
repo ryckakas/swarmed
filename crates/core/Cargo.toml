@@ -25,9 +25,9 @@ tokio = { workspace = true, features = [
     "process",
     "rt-multi-thread",
     "sync",
+    "time",
 ] }
 toml = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["time"] }
 tempfile = { workspace = true }

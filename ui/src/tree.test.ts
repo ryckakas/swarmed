@@ -44,6 +44,18 @@ describe("withSession and withoutSession", () => {
     });
 });
 
+describe("a renamed session", () => {
+    it("takes its new title whatever it was called before", () => {
+        const renamed: SessionEvent = {
+            session_id: 2,
+            status: null,
+            event: { type: "renamed", title: "Regression test" },
+        };
+        const after = applySessionEvent(sampleProjects(), renamed);
+        expect(findSession(after, 2)?.title).toBe("Regression test");
+    });
+});
+
 describe("withSessionStatus", () => {
     it("replaces one session's status and leaves other branches untouched", () => {
         const before = sampleProjects();

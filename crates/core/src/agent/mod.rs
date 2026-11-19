@@ -10,13 +10,14 @@ mod fake;
 
 use std::fmt;
 use std::path::PathBuf;
+use std::pin::Pin;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::mpsc;
 
 pub use self::acp::AcpBackend;
-pub use self::claude::ClaudeBackend;
+pub use self::claude::{ClaudeBackend, ClaudeNamer};
 pub use self::fake::FakeBackend;
 use crate::error::Result;
 use crate::mcp::McpServer;
@@ -194,6 +195,11 @@ pub enum AgentEvent {
         /// The request that was taken back.
         request_id: String,
     },
+    /// The session got a new title, from the user or from a [`Namer`]. Recorded by the core.
+    Renamed {
+        /// The new title.
+        title: String,
+    },
     /// Usage-limit state.
     RateLimit {
         /// `allowed`, or the agent's word for a limit that was hit.
@@ -259,6 +265,15 @@ pub struct AgentHandle {
     pub events: mpsc::UnboundedReceiver<AgentEvent>,
     /// The way to talk to the session.
     pub commands: mpsc::UnboundedSender<AgentCommand>,
+}
+
+/// What a [`Namer`] returns: a title, or `None` if it could not think of one in time.
+pub type Naming = Pin<Box<dyn Future<Output = Option<String>> + Send>>;
+
+/// Something that can give a conversation a short title from its first message.
+pub trait Namer: fmt::Debug + Send + Sync {
+    /// A title of a few words for a conversation that starts with `prompt`.
+    fn name(&self, prompt: String) -> Naming;
 }
 
 /// Something that can run agent sessions.
