@@ -87,6 +87,7 @@ impl SessionStatus {
             | AgentEvent::Renamed { .. }
             | AgentEvent::SupervisionChanged { .. }
             | AgentEvent::Applied { .. }
+            | AgentEvent::Suggestion { .. }
             | AgentEvent::View { .. }
             | AgentEvent::Queue { .. }
             | AgentEvent::ContextUsage { .. }

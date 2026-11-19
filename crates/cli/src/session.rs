@@ -297,6 +297,7 @@ fn describe(event: &AgentEvent) -> Option<String> {
             ))
         }
         AgentEvent::Text { text } => Some(text.clone()),
+        AgentEvent::Suggestion { text } => Some(format!("↳ suggested next: {text}")),
         // The plan is printed in full with the question that follows.
         AgentEvent::ToolUse { name, .. } if name == PLAN_TOOL => None,
         AgentEvent::ToolUse { name, input, .. } => Some(format!("▸ {name} {}", summary(input))),

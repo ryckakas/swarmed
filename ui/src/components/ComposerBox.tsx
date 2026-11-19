@@ -11,6 +11,7 @@ import { api } from "../api";
 import { type Edit, editFor } from "../editing";
 import { slashMatches, slashQuery, stepActive, withCommand } from "../slash";
 import { useStore } from "../store";
+import { takesSuggestion } from "../suggestion";
 import { FileChips } from "./FileChips";
 
 interface Props {
@@ -29,6 +30,8 @@ interface Props {
     /** The files the message points the agent at. */
     files: string[];
     onFiles(files: string[]): void;
+    /** The message the agent suggests next: shown in the empty box, and taken with Tab. */
+    suggestion?: string | null;
     /** What sits under the text, left of the button: pickers or labels. */
     children?: ReactNode;
 }
@@ -37,6 +40,7 @@ interface Props {
 export function ComposerBox(props: Props) {
     const { value, onChange, onSend, onStop, canSend, placeholder, children } = props;
     const { files, onFiles } = props;
+    const offered = value === "" && !props.disabled ? props.suggestion : null;
     const own = useRef<HTMLTextAreaElement>(null);
     const menu = useSlashMenu(value, props.commands ?? [], onChange);
     const attach = useAttaching(files, onFiles);
@@ -52,21 +56,8 @@ export function ComposerBox(props: Props) {
     }, [value]);
 
     const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-        if (menu.onKeyDown(event)) {
-            return;
-        }
-        const box = event.currentTarget;
-        const edit = editFor(event, value, box.selectionStart, box.selectionEnd);
-        if (edit) {
-            event.preventDefault();
-            return applyEdit(edit, box, onChange);
-        }
-        // Enter sends; Shift+Enter is a new line. Enter that confirms an IME candidate is neither.
-        if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-            event.preventDefault();
-            onSend();
-        } else if (event.key === "Escape") {
-            onStop?.();
+        if (!menu.onKeyDown(event)) {
+            typed(event, { value, offered, onChange, onSend, onStop });
         }
     };
 
@@ -108,13 +99,14 @@ export function ComposerBox(props: Props) {
                 aria-label="Message"
                 rows={1}
                 value={value}
-                placeholder={placeholder}
+                placeholder={offered || placeholder}
                 disabled={props.disabled}
                 // biome-ignore lint/a11y/noAutofocus: the screen exists to type into this box
                 autoFocus={props.autoFocus}
                 onChange={(event) => onChange(event.target.value)}
                 onKeyDown={onKeyDown}
             />
+            <SuggestionHint shown={Boolean(offered)} />
             <div className="composer-row">
                 <div className="composer-options">
                     <button
@@ -130,31 +122,73 @@ export function ComposerBox(props: Props) {
                     </button>
                     {children}
                 </div>
-                {onStop ? (
-                    <button
-                        type="button"
-                        className="round-button"
-                        aria-label="Stop"
-                        onClick={onStop}
-                    >
-                        <svg viewBox="0 0 16 16" aria-hidden="true">
-                            <rect x="4.5" y="4.5" width="7" height="7" rx="1" />
-                        </svg>
-                    </button>
-                ) : (
-                    <button
-                        type="submit"
-                        className="round-button round-button-send"
-                        aria-label="Send"
-                        disabled={!canSend}
-                    >
-                        <svg viewBox="0 0 16 16" aria-hidden="true">
-                            <path d="M8 12.5v-9M4 7.5l4-4 4 4" />
-                        </svg>
-                    </button>
-                )}
+                <ActionButton onStop={onStop} canSend={canSend} />
             </div>
         </form>
+    );
+}
+
+/** What the box and its owner make of a key the command list did not take. */
+interface Typing {
+    value: string;
+    offered: string | null | undefined;
+    onChange(value: string): void;
+    onSend(): void;
+    onStop: (() => void) | undefined;
+}
+
+function typed(event: KeyboardEvent<HTMLTextAreaElement>, typing: Typing) {
+    const { value, offered, onChange } = typing;
+    if (takesSuggestion(event, value, offered)) {
+        event.preventDefault();
+        return onChange(offered);
+    }
+    const box = event.currentTarget;
+    const edit = editFor(event, value, box.selectionStart, box.selectionEnd);
+    if (edit) {
+        event.preventDefault();
+        return applyEdit(edit, box, onChange);
+    }
+    // Enter sends; Shift+Enter is a new line. Enter that confirms an IME candidate is neither.
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+        event.preventDefault();
+        typing.onSend();
+    } else if (event.key === "Escape") {
+        typing.onStop?.();
+    }
+}
+
+/** How to take the suggestion that stands in the empty box. */
+function SuggestionHint({ shown }: { shown: boolean }) {
+    return shown ? (
+        <p className="composer-suggestion">
+            <kbd>Tab</kbd> to use the suggestion
+        </p>
+    ) : null;
+}
+
+/** The round button: Stop while the agent works, Send otherwise. */
+function ActionButton(props: { onStop: (() => void) | undefined; canSend: boolean }) {
+    if (props.onStop) {
+        return (
+            <button type="button" className="round-button" aria-label="Stop" onClick={props.onStop}>
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                    <rect x="4.5" y="4.5" width="7" height="7" rx="1" />
+                </svg>
+            </button>
+        );
+    }
+    return (
+        <button
+            type="submit"
+            className="round-button round-button-send"
+            aria-label="Send"
+            disabled={!props.canSend}
+        >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M8 12.5v-9M4 7.5l4-4 4 4" />
+            </svg>
+        </button>
     );
 }
 

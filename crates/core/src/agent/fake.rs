@@ -15,6 +15,7 @@ use crate::error::Result;
 /// - plain text: replies `echo: <text>` and ends the turn;
 /// - `run: <command>`: asks permission for a `Bash` tool call, then reports the outcome;
 /// - `slow`: starts a turn that only ends when interrupted;
+/// - `suggest: <text>`: replies as to plain text, then offers `<text>` as the next message;
 /// - in plan mode, anything: presents a plan and waits for it to be approved.
 #[derive(Debug, Default)]
 pub struct FakeBackend {
@@ -140,8 +141,18 @@ impl Script {
         };
         if next == Next::Continue {
             self.emit(done(false, None));
+            self.suggest(message);
         }
         next
+    }
+
+    /// Offers what follows `suggest:` as the user's next message.
+    fn suggest(&self, message: &str) {
+        if let Some(text) = message.strip_prefix("suggest:") {
+            self.emit(AgentEvent::Suggestion {
+                text: text.trim().to_string(),
+            });
+        }
     }
 
     fn echo(&self, message: &str) -> Next {

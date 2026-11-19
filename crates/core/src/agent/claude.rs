@@ -126,6 +126,8 @@ fn args(spec: &SessionSpec) -> Vec<String> {
         "--verbose",
         // Replies arrive piece by piece, as well as whole once finished.
         "--include-partial-messages",
+        // After a turn, what the user is likely to say next, if Claude Code has a guess.
+        "--prompt-suggestions",
         "--permission-prompt-tool",
         "stdio",
         // Always explicit: the user's own default mode must not override the task's setting.
@@ -329,6 +331,14 @@ fn settings_request() -> Value {
     })
 }
 
+/// The next message Claude Code suggests, unless it is blank.
+fn parse_suggestion(message: &Value) -> Option<AgentEvent> {
+    let text = kind_of(message, "suggestion")?.trim();
+    (!text.is_empty()).then(|| AgentEvent::Suggestion {
+        text: text.to_string(),
+    })
+}
+
 /// The answer to [`settings_request`], if `message` is one.
 ///
 /// Only the model and the effort are read. The rest of the answer is the user's whole Claude
@@ -463,6 +473,7 @@ fn parse_message(message: &Value, pending: &Pending) -> Vec<AgentEvent> {
             result: kind_of(message, "result").map(String::from),
             cost_usd: message.get("total_cost_usd").and_then(Value::as_f64),
         }],
+        "prompt_suggestion" => parse_suggestion(message).into_iter().collect(),
         // Of the replies to our own control requests, these two are of use.
         "control_response" => parse_context(message)
             .or_else(|| parse_applied(message))
@@ -773,6 +784,19 @@ mod tests {
     }
 
     #[test]
+    fn a_suggested_next_message_is_read_unless_it_is_blank() {
+        let suggested = |text: &str| {
+            parse(&json!({ "type": "prompt_suggestion", "suggestion": text, "uuid": "u" }))
+        };
+        let expected = AgentEvent::Suggestion {
+            text: "run the tests".into(),
+        };
+        assert_eq!(suggested(" run the tests\n"), vec![expected]);
+        assert_eq!(suggested("  "), vec![]);
+        assert_eq!(parse(&json!({ "type": "prompt_suggestion" })), vec![]);
+    }
+
+    #[test]
     fn the_model_and_effort_in_use_are_read_from_the_settings_answer_and_nothing_else() {
         let answer = |request_id: &str| {
             json!({ "type": "control_response", "response": {
@@ -880,6 +904,7 @@ mod tests {
         };
         let args = args(&spec).join(" ");
         assert!(args.contains("--permission-mode acceptEdits"), "{args}");
+        assert!(args.contains("--prompt-suggestions"), "{args}");
         assert!(
             args.contains("--model haiku --effort high --resume abc"),
             "{args}"

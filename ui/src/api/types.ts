@@ -231,6 +231,8 @@ export type AgentEvent =
     | { type: "view"; html: string }
     /** What the agent says it actually runs with, defaults resolved. */
     | { type: "applied"; model: string; effort: string | null }
+    /** What the agent expects the user to say next, offered after a turn. */
+    | { type: "suggestion"; text: string }
     /** What the session's queue of waiting messages now holds. Never part of the history. */
     | { type: "queue"; messages: QueuedMessage[] }
     /** The session's supervision changed: by choice, or because its plan was approved. */
