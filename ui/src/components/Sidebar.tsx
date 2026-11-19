@@ -109,6 +109,7 @@ function ProjectGroup({ project }: { project: Project }) {
                         <svg className="fold-chevron" viewBox="0 0 10 10" aria-hidden="true">
                             <path d="M3.5 1.5 7 5 3.5 8.5" />
                         </svg>
+                        <RepositoryIcon />
                         <span className="project-title">{project.name}</span>
                         {status && <StatusMark status={status} unread={projectUnread(project)} />}
                         {folded && <span className="project-count">{tasks.length}</span>}
@@ -137,8 +138,9 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
     return (
         <div className="task">
             <div className="row-head">
-                <h3 className="task-name">
-                    {task.name}
+                <h3 className="task-name" title={`Worktree ${task.name}, on ${task.branch}`}>
+                    <WorktreeIcon />
+                    <span className="task-title">{task.name}</span>
                     {task.setup === "failed" && <span className="task-flag">setup failed</span>}
                 </h3>
                 <NoteButton project={project} task={task.name} has={task.has_note} />
@@ -191,6 +193,28 @@ function NoteButton({
                 <path d="M6.5 7.5h4M6.5 10.5h4" />
             </svg>
         </button>
+    );
+}
+
+/** A repository: a bound book with a marker, as code hosts draw one. */
+function RepositoryIcon() {
+    return (
+        <svg className="row-icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M4.5 1.8h8v9.4h-8a1.6 1.6 0 0 0 0 3.2h8v-3.2" />
+            <path d="M4.5 1.8a1.6 1.6 0 0 0-1.6 1.6v9.4M6.5 4.6h3.5" />
+        </svg>
+    );
+}
+
+/** A worktree: a branch leaving the trunk. */
+function WorktreeIcon() {
+    return (
+        <svg className="row-icon" viewBox="0 0 16 16" aria-hidden="true">
+            <circle cx="4.5" cy="3.2" r="1.6" />
+            <circle cx="4.5" cy="12.8" r="1.6" />
+            <circle cx="11.5" cy="5.2" r="1.6" />
+            <path d="M4.5 4.8v6.4M11.5 6.8c0 2.6-3.2 2.4-7 3.6" />
+        </svg>
     );
 }
 
