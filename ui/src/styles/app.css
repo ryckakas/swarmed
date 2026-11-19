@@ -2233,7 +2233,8 @@ code {
     flex-direction: column;
     justify-content: center;
     gap: var(--space-4);
-    width: min(76ch, 100% - 2 * var(--space-8));
+    /* Wide enough for every picker under the box to sit in one row. */
+    width: min(112ch, 100% - 2 * var(--space-8));
     margin: 0 auto;
     /* Sits a little above the middle, where the eye rests. */
     padding-bottom: 12vh;
