@@ -1,4 +1,5 @@
 import {
+    type ClipboardEvent,
     type KeyboardEvent,
     type ReactNode,
     type Ref,
@@ -9,6 +10,7 @@ import {
 } from "react";
 import { api } from "../api";
 import { type Edit, editFor } from "../editing";
+import { isLargePaste, tokenFor, withToken } from "../pastes";
 import { slashMatches, slashQuery, stepActive, withCommand } from "../slash";
 import { useStore } from "../store";
 import { takesSuggestion } from "../suggestion";
@@ -104,6 +106,7 @@ export function ComposerBox(props: Props) {
                 // biome-ignore lint/a11y/noAutofocus: the screen exists to type into this box
                 autoFocus={props.autoFocus}
                 onChange={(event) => onChange(event.target.value)}
+                onPaste={(event) => onPaste(event, onChange)}
                 onKeyDown={onKeyDown}
             />
             <SuggestionHint shown={Boolean(offered)} />
@@ -221,9 +224,41 @@ function useAttaching(files: string[], onFiles: (files: string[]) => void) {
 function applyEdit(edit: Edit, box: HTMLTextAreaElement, onChange: (value: string) => void) {
     if (edit.kind === "clear") {
         onChange("");
+    } else if (edit.kind === "remove") {
+        replaceIn(box, edit.start, edit.end, "", onChange);
     } else {
         box.setSelectionRange(edit.start, edit.end, edit.direction);
     }
+}
+
+/**
+ * Puts `text` in place of what stands between `start` and `end` in the box, and the caret
+ * after it once the box has been drawn again with its new text.
+ */
+function replaceIn(
+    box: HTMLTextAreaElement,
+    start: number,
+    end: number,
+    text: string,
+    onChange: (value: string) => void,
+) {
+    const changed = withToken(box.value, start, end, text);
+    onChange(changed.value);
+    requestAnimationFrame(() => box.setSelectionRange(changed.caret, changed.caret));
+}
+
+/**
+ * A large paste goes into the box as a short token that stands for it; the text itself is
+ * sent with the message. Anything smaller is pasted as it always is.
+ */
+function onPaste(event: ClipboardEvent<HTMLTextAreaElement>, onChange: (value: string) => void) {
+    const pasted = event.clipboardData.getData("text/plain");
+    if (!isLargePaste(pasted)) {
+        return;
+    }
+    event.preventDefault();
+    const box = event.currentTarget;
+    replaceIn(box, box.selectionStart, box.selectionEnd, tokenFor(pasted), onChange);
 }
 
 function assign<T>(ref: Ref<T> | undefined, value: T | null) {

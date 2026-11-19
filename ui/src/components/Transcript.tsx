@@ -1,5 +1,6 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
 import type { AgentEvent } from "../api/types";
+import { messageParts } from "../pastes";
 import { activity, type Item, PLAN_TOOL, summarize, toItems } from "../transcript";
 import { FileChips } from "./FileChips";
 import { HtmlView } from "./HtmlView";
@@ -78,12 +79,33 @@ export function Transcript({ sessionId, events, working }: Props) {
     );
 }
 
+/**
+ * What the user wrote, with anything they pasted large folded away under a line that says how
+ * much there is of it.
+ */
+function Said({ text }: { text: string }) {
+    return messageParts(text).map((part, index) =>
+        part.kind === "text" ? (
+            // biome-ignore lint/suspicious/noArrayIndexKey: the parts of a sent message never change
+            <span key={index}>{part.text}</span>
+        ) : (
+            // biome-ignore lint/suspicious/noArrayIndexKey: the parts of a sent message never change
+            <details key={index} className="pasted">
+                <summary>
+                    Pasted text, {part.lines} {part.lines === 1 ? "line" : "lines"}
+                </summary>
+                <pre>{part.text}</pre>
+            </details>
+        ),
+    );
+}
+
 function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
     switch (item.kind) {
         case "user":
             return (
                 <div className="said">
-                    {item.text}
+                    <Said text={item.text} />
                     <FileChips files={item.files} />
                 </div>
             );
