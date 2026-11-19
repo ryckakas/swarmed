@@ -1,0 +1,23 @@
+[package]
+name = "swarmed-app"
+description = "The Swarmed desktop app: a Tauri shell over swarmed-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[build-dependencies]
+tauri-build = { workspace = true }
+
+[dependencies]
+swarmed-core = { workspace = true }
+serde = { workspace = true }
+tauri = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }

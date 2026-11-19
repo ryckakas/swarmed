@@ -1,0 +1,44 @@
+{
+    "$schema": "https://biomejs.dev/schemas/2.6.8/schema.json",
+    "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+    "files": { "includes": ["ui/**", "*.json", "*.ts", "!ui/dist", "!crates"] },
+    "formatter": { "indentStyle": "space", "indentWidth": 4, "lineWidth": 100 },
+    "linter": {
+        "rules": {
+            "preset": "recommended",
+            "complexity": {
+                "noExcessiveCognitiveComplexity": {
+                    "level": "error",
+                    "options": { "maxAllowedComplexity": 15 }
+                },
+                "noExcessiveNestedTestSuites": "error",
+                "noForEach": "error",
+                "useSimplifiedLogicExpression": "error"
+            },
+            "correctness": {
+                "noUnusedImports": "error",
+                "noUnusedVariables": "error",
+                "useExhaustiveDependencies": "error",
+                "useHookAtTopLevel": "error"
+            },
+            "style": {
+                "noDefaultExport": "error",
+                "noNonNullAssertion": "error",
+                "noParameterAssign": "error",
+                "useConsistentArrayType": "error",
+                "useImportType": "error",
+                "useNamingConvention": "off"
+            },
+            "suspicious": {
+                "noConsole": "error",
+                "noExplicitAny": "error"
+            }
+        }
+    },
+    "overrides": [
+        {
+            "includes": ["vite.config.ts"],
+            "linter": { "rules": { "style": { "noDefaultExport": "off" } } }
+        }
+    ]
+}

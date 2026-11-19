@@ -5,15 +5,33 @@ all-features = true
 
 [advisories]
 yanked = "deny"
+ignore = [
+    # A build-time macro helper in the GTK bindings Tauri uses on Linux. It is unmaintained, not
+    # vulnerable, and only Tauri can replace it.
+    { id = "RUSTSEC-2024-0370", reason = "transitive through Tauri's Linux GTK bindings" },
+]
 
 [licenses]
 # What the dependency tree uses today. A dependency under anything else fails until it is added.
-allow = ["Apache-2.0", "MIT", "Unicode-3.0", "Zlib"]
+# MPL-2.0, BSD-3-Clause and the LLVM exception all arrive with Tauri: Servo's HTML and CSS parsers,
+# and Wasmtime-family crates. MPL-2.0 is file-level copyleft and those crates are used unmodified.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Zlib",
+]
 
 [bans]
 # A second copy of a crate costs compile time and binary size, so it has to be chosen.
 multiple-versions = "deny"
 wildcards = "deny"
+# Tauri and its build tooling bring their own duplicates, which cannot be chosen away here. Every
+# other dependency is still checked.
+skip-tree = [{ crate = "tauri" }, { crate = "tauri-build" }]
 
 [sources]
 unknown-registry = "deny"

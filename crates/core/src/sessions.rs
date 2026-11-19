@@ -74,7 +74,7 @@ impl SessionStatus {
 }
 
 /// One conversation with an agent, in a task's worktree.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Session {
     /// The database id.
     pub id: i64,
@@ -150,6 +150,14 @@ impl Store {
             .conn
             .prepare(&format!("{SESSION_SELECT} WHERE task_id = ?1 ORDER BY id"))?;
         let rows = stmt.query_map(params![task_id], session_from_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub(crate) fn sessions_all(&self) -> Result<Vec<Session>> {
+        let mut stmt = self
+            .conn
+            .prepare(&format!("{SESSION_SELECT} ORDER BY id"))?;
+        let rows = stmt.query_map([], session_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 

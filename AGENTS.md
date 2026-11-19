@@ -21,7 +21,20 @@ typos                                               # spelling: _typos.toml
 taplo fmt --check                                   # TOML formatting: .taplo.toml
 zizmor .github                                      # workflow security
 actionlint                                          # workflows, shellcheck on run: blocks too
+
+pnpm install                                        # once; pnpm comes from Corepack
+pnpm lint                                           # Biome: format and lint (biome.json)
+pnpm typecheck                                      # tsc, strict
+pnpm complexity                                     # bonsai-lint ui/src, threshold 15
+pnpm test                                           # Vitest
+pnpm build                                          # type check, then the UI into ui/dist
+pnpm dev                                            # the UI alone in a browser, on sample data
+pnpm app                                            # the desktop app (tauri dev)
 ```
+
+The Rust app crate embeds `ui/dist` at compile time, so `cargo clippy` and `cargo test` on the
+whole workspace need that directory: run `pnpm build` once, or `mkdir -p ui/dist && touch
+ui/dist/index.html`.
 
 CI (`.github/workflows/ci.yml`) runs exactly these. Match them locally before pushing.
 
@@ -30,7 +43,9 @@ CI (`.github/workflows/ci.yml`) runs exactly these. Match them locally before pu
 ```
 crates/
 ├── core/   swarmed-core: projects, tasks, worktrees, hooks, sessions, store. No UI dependency.
-└── cli/    the `swarmed` binary, a thin front end over the core.
+├── cli/    the `swarmed` binary, a thin front end over the core.
+└── app/    swarmed-app: the Tauri shell. Commands forward to the core; events are passed on.
+ui/         the front end: React and TypeScript, built by Vite from the repository root.
 ```
 
 - **Everything lands in `core` first** and is driven from the CLI before any UI touches it. The
@@ -44,6 +59,13 @@ crates/
 - **Running sessions live in the core** (`sessions.rs`). Front ends call `session_start`,
   `session_send` and the like by session id and read every session's events from one stream,
   `Core::subscribe`. Events are stored before they are published.
+- **The app crate holds no logic.** A command in `crates/app/src/commands.rs` calls one core
+  function. If the UI needs something new, it is added to the core and tested there first.
+- **The UI talks to the app through `Api`** (`ui/src/api/client.ts`). `tauri.ts` is the real one;
+  `mock.ts` serves sample data when the UI runs in a plain browser. `types.ts` mirrors what the
+  core serialises by hand, with the core's snake_case field names: change both together.
+- **UI logic lives in pure functions** (`ui/src/tree.ts`) with tests; components and the store
+  stay thin.
 - **Swarmed never handles Claude.ai credentials.** It only shapes the child's environment (`Auth`).
 - **Session events are stored as JSON** (`AgentEvent`), so its variants and fields are only added,
   never renamed.
@@ -61,6 +83,12 @@ crates/
 - Private items get a comment only for the "why".
 - No `unwrap()`; tests use `expect("…")`.
 - No `println!`: it panics on a closed pipe. The CLI writes through its `say` helper.
+- Tauri's dependency tree is exempt from the duplicate-version rules, in `deny.toml` and with one
+  `#![allow]` in the app crate. Nothing else is.
+
+The UI is held to the same bar: Biome's recommended rules plus cognitive complexity at 15, no
+`any`, no non-null assertions, no default exports and no `console`; TypeScript in strict mode with
+`noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`; and bonsai-lint over `ui/src`.
 
 ## Conventions
 

@@ -281,3 +281,41 @@ async fn unknown_sessions_and_tasks_are_errors() {
     let missing = core.session_new("demo", "nope", &SessionOptions::default());
     assert!(matches!(missing, Err(Error::TaskNotFound { .. })));
 }
+
+#[tokio::test]
+async fn the_overview_nests_tasks_and_sessions_and_marks_the_running_ones() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    core.task_new("demo", "two", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    let running = started_session(&core);
+    let idle = core
+        .session_new("demo", "one", &SessionOptions::default())
+        .expect("test setup");
+
+    let overview = core.overview().expect("reads");
+    let [project] = overview.as_slice() else {
+        panic!("one project expected: {overview:?}")
+    };
+    assert_eq!(project.project.name, "demo");
+    let [one, two] = project.tasks.as_slice() else {
+        panic!("two tasks expected")
+    };
+    assert_eq!(
+        (one.task.name.as_str(), two.task.name.as_str()),
+        ("one", "two")
+    );
+    assert_eq!(
+        one.sessions.iter().map(|s| s.id).collect::<Vec<_>>(),
+        [running.id, idle.id]
+    );
+    assert_eq!(one.running, [running.id]);
+    assert_eq!(two.sessions, []);
+
+    let json = serde_json::to_value(project).expect("serialises");
+    assert_eq!(json["name"], "demo");
+    assert_eq!(json["tasks"][0]["setup"], "ok");
+    assert_eq!(json["tasks"][0]["sessions"][0]["status"], "idle");
+    assert_eq!(json["tasks"][0]["sessions"][0]["supervision"], "ask");
+}
