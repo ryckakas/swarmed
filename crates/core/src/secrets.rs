@@ -29,6 +29,68 @@ pub trait SecretStore: fmt::Debug + Send + Sync {
     fn set(&self, name: &str, value: &str) -> Result<()>;
     /// Removes the secret stored under `name`. Not an error if there is none.
     fn delete(&self, name: &str) -> Result<()>;
+    /// Whether a secret is stored under `name`. A store that can tell without reading the
+    /// secret does so, since on macOS reading is what the user gets asked about.
+    fn has(&self, name: &str) -> Result<bool> {
+        Ok(self.get(name)?.is_some())
+    }
+}
+
+/// A store that reads each secret from `inner` at most once for as long as the app runs.
+///
+/// Every read of the keychain can put a password prompt in front of the user, so what was
+/// read is kept in memory, where it would end up anyway: in the environment of the agents.
+/// Whoever else changes the keychain meanwhile is noticed the next time the app starts.
+pub struct Remembered<S> {
+    inner: S,
+    read: Mutex<BTreeMap<String, Option<String>>>,
+}
+
+impl<S> Remembered<S> {
+    /// Wraps `inner`, having read nothing yet.
+    pub fn new(inner: S) -> Self {
+        Self {
+            inner,
+            read: Mutex::new(BTreeMap::new()),
+        }
+    }
+}
+
+impl<S> fmt::Debug for Remembered<S> {
+    /// Never prints the secrets.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Remembered(<redacted>)")
+    }
+}
+
+impl<S: SecretStore> SecretStore for Remembered<S> {
+    fn get(&self, name: &str) -> Result<Option<String>> {
+        if let Some(known) = lock(&self.read).get(name) {
+            return Ok(known.clone());
+        }
+        let value = self.inner.get(name)?;
+        lock(&self.read).insert(name.to_string(), value.clone());
+        Ok(value)
+    }
+
+    fn set(&self, name: &str, value: &str) -> Result<()> {
+        self.inner.set(name, value)?;
+        lock(&self.read).insert(name.to_string(), Some(value.to_string()));
+        Ok(())
+    }
+
+    fn delete(&self, name: &str) -> Result<()> {
+        self.inner.delete(name)?;
+        lock(&self.read).insert(name.to_string(), None);
+        Ok(())
+    }
+
+    fn has(&self, name: &str) -> Result<bool> {
+        if let Some(known) = lock(&self.read).get(name) {
+            return Ok(known.is_some());
+        }
+        self.inner.has(name)
+    }
 }
 
 /// Secrets held in memory until the process ends: for tests, and for platforms without a
@@ -67,6 +129,7 @@ pub struct Keychain;
 #[cfg(target_os = "macos")]
 mod keychain {
     use security_framework::base::Error as KeychainError;
+    use security_framework::item::{ItemClass, ItemSearchOptions};
     use security_framework::passwords::{
         delete_generic_password, get_generic_password, set_generic_password,
     };
@@ -104,6 +167,18 @@ mod keychain {
         fn delete(&self, name: &str) -> Result<()> {
             found(delete_generic_password(SERVICE, name)).map(drop)
         }
+
+        /// Looks the entry up by its attributes alone. The secret is not read, so macOS has
+        /// nothing to ask the user about.
+        fn has(&self, name: &str) -> Result<bool> {
+            let mut search = ItemSearchOptions::new();
+            search
+                .class(ItemClass::generic_password())
+                .service(SERVICE)
+                .account(name)
+                .load_attributes(true);
+            Ok(found(search.search())?.is_some_and(|entries| !entries.is_empty()))
+        }
     }
 }
 
@@ -111,7 +186,7 @@ mod keychain {
 #[must_use]
 pub fn platform_store() -> Box<dyn SecretStore> {
     #[cfg(target_os = "macos")]
-    return Box::new(Keychain);
+    return Box::new(Remembered::new(Keychain));
     #[cfg(not(target_os = "macos"))]
     return Box::new(MemorySecrets::default());
 }
@@ -153,7 +228,7 @@ impl Core {
             Ok(ApiKeyInfo {
                 name: (*name).to_string(),
                 provider: (*provider).to_string(),
-                stored: self.secrets.get(name)?.is_some(),
+                stored: self.secrets.has(name)?,
             })
         };
         PROVIDERS.iter().map(info).collect()
@@ -188,6 +263,74 @@ impl Core {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Counts how often it is read, and holds one secret.
+    #[derive(Debug, Default)]
+    struct Counting {
+        reads: Mutex<u32>,
+        held: MemorySecrets,
+    }
+
+    impl SecretStore for Counting {
+        fn get(&self, name: &str) -> Result<Option<String>> {
+            *lock(&self.reads) += 1;
+            self.held.get(name)
+        }
+
+        fn set(&self, name: &str, value: &str) -> Result<()> {
+            self.held.set(name, value)
+        }
+
+        fn delete(&self, name: &str) -> Result<()> {
+            self.held.delete(name)
+        }
+
+        /// Told without reading, as the keychain can.
+        fn has(&self, name: &str) -> Result<bool> {
+            Ok(lock(&self.held.0).contains_key(name))
+        }
+    }
+
+    #[test]
+    fn a_secret_is_read_from_the_store_once_and_never_to_see_whether_it_is_there() {
+        let inner = Counting::default();
+        inner.set("a", "sk-one").expect("stores");
+        let store = Remembered::new(inner);
+        let reads = |store: &Remembered<Counting>| *lock(&store.inner.reads);
+
+        // Asking whether it is there reads nothing.
+        assert!(store.has("a").expect("looks"));
+        assert!(!store.has("b").expect("looks"));
+        assert_eq!(reads(&store), 0);
+        // Reading it, and reading that another is missing, happens once each.
+        for _ in 0..3 {
+            assert_eq!(store.get("a").expect("reads").as_deref(), Some("sk-one"));
+            assert_eq!(store.get("b").expect("reads"), None);
+        }
+        assert_eq!(reads(&store), 2);
+        // What is written or removed through it is known without reading again.
+        store.set("b", "sk-two").expect("stores");
+        store.delete("a").expect("deletes");
+        assert_eq!(store.get("b").expect("reads").as_deref(), Some("sk-two"));
+        assert_eq!(store.get("a").expect("reads"), None);
+        assert!(!store.has("a").expect("looks"));
+        assert_eq!(reads(&store), 2);
+        assert!(!format!("{store:?}").contains("sk-"));
+    }
+
+    /// Touches the real keychain, so it is run by hand: `cargo test -- --ignored keychain`.
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "writes to the login keychain of whoever runs it"]
+    fn the_keychain_says_whether_an_entry_is_there_without_reading_it() {
+        let name = "swarmed-test-entry";
+        Keychain.delete(name).expect("deletes");
+        assert!(!Keychain.has(name).expect("looks"));
+        Keychain.set(name, "nothing secret").expect("stores");
+        assert!(Keychain.has(name).expect("looks"));
+        Keychain.delete(name).expect("deletes");
+        assert!(!Keychain.has(name).expect("looks"));
+    }
 
     #[test]
     fn secret_environments_print_names_only() {
