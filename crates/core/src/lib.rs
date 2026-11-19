@@ -4,6 +4,7 @@
 //! UI dependency.
 
 pub mod agent;
+mod agents;
 mod config;
 mod error;
 mod git;
@@ -18,7 +19,9 @@ mod vars;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use agent::{AgentBackend, ClaudeBackend};
+use agent::AgentBackend;
+use agents::Agents;
+pub use agents::{AgentInfo, CLAUDE};
 
 pub use config::{Hooks, ProjectConfig};
 pub use error::{Error, Result};
@@ -36,7 +39,7 @@ pub use tasks::{BranchChoices, NewTaskOptions, RemoveOptions};
 pub struct Core {
     paths: Paths,
     store: Arc<Mutex<Store>>,
-    backend: Arc<dyn AgentBackend>,
+    agents: Agents,
     live: Arc<Live>,
 }
 
@@ -48,20 +51,36 @@ fn lock(store: &Mutex<Store>) -> MutexGuard<'_, Store> {
 
 impl Core {
     /// Opens the data directory, creating the database on first use. Sessions run on the
-    /// installed Claude Code CLI.
+    /// installed Claude Code CLI, or on an ACP agent listed in `agents.toml`.
     pub fn open(paths: Paths) -> Result<Self> {
-        Self::with_backend(paths, Arc::new(ClaudeBackend::default()))
+        let agents = Agents::load(&paths.agents_config())?;
+        Self::with_agents(paths, agents)
     }
 
-    /// Like [`Core::open`], with sessions running on `backend`.
+    /// Like [`Core::open`], with `backend` standing in for Claude Code and no other agents.
     pub fn with_backend(paths: Paths, backend: Arc<dyn AgentBackend>) -> Result<Self> {
+        Self::with_agents(paths, Agents::only_claude(backend))
+    }
+
+    fn with_agents(paths: Paths, agents: Agents) -> Result<Self> {
         let store = Store::open(&paths.db_file())?;
         Ok(Self {
             paths,
             store: Arc::new(Mutex::new(store)),
-            backend,
+            agents,
             live: Arc::default(),
         })
+    }
+
+    /// Adds an agent that runs on `backend`, replacing one with the same id.
+    pub fn add_agent(&mut self, info: AgentInfo, backend: Arc<dyn AgentBackend>) {
+        self.agents.insert(info, backend);
+    }
+
+    /// The agents a session can run on, Claude Code first.
+    #[must_use]
+    pub fn agents(&self) -> Vec<AgentInfo> {
+        self.agents.infos()
     }
 
     /// The locations this core reads and writes.

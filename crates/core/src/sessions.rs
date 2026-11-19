@@ -10,6 +10,7 @@ use serde_json::Value;
 use tokio::sync::{broadcast, mpsc};
 
 use crate::agent::{AgentCommand, AgentEvent, Auth, SessionSpec, Supervision};
+use crate::agents::CLAUDE;
 use crate::error::{Error, Result};
 use crate::store::Store;
 use crate::{Core, lock};
@@ -80,6 +81,8 @@ pub struct Session {
     pub id: i64,
     /// The task whose worktree the session runs in.
     pub task_id: i64,
+    /// The id of the agent that runs the session.
+    pub agent: String,
     /// A short label; taken from the first message unless one was given.
     pub title: String,
     /// The agent's own id for the conversation, known once it has started.
@@ -95,6 +98,8 @@ pub struct Session {
 /// Options for [`Core::session_new`].
 #[derive(Debug, Clone, Default)]
 pub struct SessionOptions {
+    /// The id of the agent to run on; `None` is Claude Code.
+    pub agent: Option<String>,
     /// A label; without one, the first message is used.
     pub title: Option<String>,
     /// The model to run on; `None` leaves the agent's default.
@@ -104,7 +109,7 @@ pub struct SessionOptions {
 }
 
 const SESSION_SELECT: &str =
-    "SELECT id, task_id, title, agent_session_id, model, supervision, status FROM sessions";
+    "SELECT id, task_id, title, agent_session_id, model, supervision, status, agent FROM sessions";
 
 fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
     Ok(Session {
@@ -115,19 +120,29 @@ fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
         model: row.get(4)?,
         supervision: Supervision::parse(&row.get::<_, String>(5)?).unwrap_or_default(),
         status: SessionStatus::parse(&row.get::<_, String>(6)?),
+        agent: row.get(7)?,
     })
 }
 
 impl Store {
     fn session_insert(&self, task_id: i64, options: &SessionOptions) -> Result<Session> {
         let title = options.title.clone().unwrap_or_default();
+        let agent = options.agent.clone().unwrap_or_else(|| CLAUDE.to_string());
         self.conn.execute(
-            "INSERT INTO sessions (task_id, title, model, supervision) VALUES (?1, ?2, ?3, ?4)",
-            params![task_id, title, options.model, options.supervision.as_str()],
+            "INSERT INTO sessions (task_id, title, model, supervision, agent) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                task_id,
+                title,
+                options.model,
+                options.supervision.as_str(),
+                agent
+            ],
         )?;
         Ok(Session {
             id: self.conn.last_insert_rowid(),
             task_id,
+            agent,
             title,
             agent_session_id: None,
             model: options.model.clone(),
@@ -225,6 +240,9 @@ impl Core {
         options: &SessionOptions,
     ) -> Result<Session> {
         let (_, task) = self.task(project, task)?;
+        if let Some(agent) = &options.agent {
+            self.agents.backend(agent)?;
+        }
         self.store().session_insert(task.id, options)
     }
 
@@ -278,7 +296,7 @@ impl Core {
         if running.contains_key(&id) {
             return Ok(());
         }
-        let handle = self.backend.start(SessionSpec {
+        let handle = self.agents.backend(&session.agent)?.start(SessionSpec {
             cwd: task.worktree_path,
             model: session.model,
             supervision: session.supervision,

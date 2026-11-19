@@ -130,6 +130,7 @@ fn wait_for_event(app: &App, id: &Value, kind: &str) -> Value {
 fn the_ui_can_go_from_an_empty_app_to_an_answered_permission_request() {
     let app = app();
     assert_eq!(app.ok("overview", json!({})), json!([]));
+    assert_eq!(app.ok("agents", json!({}))[0]["id"], "claude");
 
     let project = app.ok("project_add", json!({ "path": app.repo, "name": null }));
     assert_eq!(project["name"], "demo");
@@ -151,7 +152,7 @@ fn the_ui_can_go_from_an_empty_app_to_an_answered_permission_request() {
     );
     let session = app.ok(
         "session_new",
-        json!({ "project": "demo", "task": "one", "model": null, "supervision": "ask" }),
+        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "ask" }),
     );
     let id = &session["id"];
 
@@ -180,7 +181,7 @@ fn the_ui_can_deny_interrupt_stop_and_remove() {
     );
     let session = app.ok(
         "session_new",
-        json!({ "project": "demo", "task": "one", "model": null, "supervision": "auto" }),
+        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "auto" }),
     );
     let id = &session["id"];
     assert_eq!(session["supervision"], "auto");

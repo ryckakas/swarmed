@@ -31,6 +31,12 @@ impl Paths {
         self.data_dir.join("swarmed.db")
     }
 
+    /// The file that lists the ACP agents sessions can run on, besides Claude Code.
+    #[must_use]
+    pub fn agents_config(&self) -> PathBuf {
+        self.data_dir.join("agents.toml")
+    }
+
     /// The local config file of `project`.
     #[must_use]
     pub fn project_config(&self, project: &str) -> PathBuf {

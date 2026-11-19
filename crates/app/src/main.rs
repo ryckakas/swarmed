@@ -48,6 +48,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
     builder
         .manage(core)
         .invoke_handler(tauri::generate_handler![
+            commands::agents,
             commands::overview,
             commands::project_add,
             commands::branch_choices,

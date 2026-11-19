@@ -75,6 +75,9 @@ pub enum Error {
     /// The user's home directory is unknown, so the default locations cannot be derived.
     #[error("could not determine the home directory")]
     NoHome,
+    /// No agent is configured under this id.
+    #[error("agent `{0}` is not configured")]
+    AgentNotFound(String),
     /// No session has this id.
     #[error("session {0} not found")]
     SessionNotFound(i64),

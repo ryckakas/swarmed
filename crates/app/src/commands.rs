@@ -10,8 +10,8 @@ use std::sync::Arc;
 use serde::Serialize;
 use swarmed_core::agent::{AgentEvent, Auth, Supervision};
 use swarmed_core::{
-    BranchChoices, Core, NewTaskOptions, Project, ProjectOverview, RemoveOptions, Session,
-    SessionOptions, Task,
+    AgentInfo, BranchChoices, Core, NewTaskOptions, Project, ProjectOverview, RemoveOptions,
+    Session, SessionOptions, Task,
 };
 use tauri::{AppHandle, Emitter, Runtime, State};
 
@@ -57,6 +57,11 @@ fn hook_sink<'a, R: Runtime>(
         )
         .ok();
     }
+}
+
+#[tauri::command]
+pub(crate) fn agents(core: CoreState<'_>) -> Vec<AgentInfo> {
+    core.agents()
 }
 
 #[tauri::command]
@@ -115,10 +120,12 @@ pub(crate) fn session_new(
     core: CoreState<'_>,
     project: String,
     task: String,
+    agent: Option<String>,
     model: Option<String>,
     supervision: Supervision,
 ) -> Command<Session> {
     let options = SessionOptions {
+        agent,
         title: None,
         model,
         supervision,

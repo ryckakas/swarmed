@@ -2,9 +2,7 @@
 
 mod common;
 
-use std::time::Duration;
-
-use common::{core_with_project, fixture};
+use common::{core_with_project, fixture, next, turn};
 use swarmed_core::agent::{AgentEvent, Auth, Supervision};
 use swarmed_core::{
     Core, Error, NewTaskOptions, Session, SessionEvent, SessionOptions, SessionStatus, hooks,
@@ -27,30 +25,6 @@ fn started_session(core: &Core) -> Session {
     core.session_start(session.id, Auth::Subscription)
         .expect("starts");
     session
-}
-
-/// The next published event, failing the test instead of hanging if the agent goes quiet.
-async fn next(bus: &mut Receiver<SessionEvent>) -> SessionEvent {
-    tokio::time::timeout(Duration::from_secs(5), bus.recv())
-        .await
-        .expect("the agent went quiet")
-        .expect("the event stream closed")
-}
-
-/// One session's events up to and including the end of the turn.
-async fn turn(bus: &mut Receiver<SessionEvent>, session_id: i64) -> Vec<AgentEvent> {
-    let mut events = vec![];
-    loop {
-        let published = next(bus).await;
-        if published.session_id != session_id {
-            continue;
-        }
-        let done = matches!(published.event, AgentEvent::TurnDone { .. });
-        events.push(published.event);
-        if done {
-            return events;
-        }
-    }
 }
 
 /// Skips ahead to the next permission request; returns its id and the tool it is for.

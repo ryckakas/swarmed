@@ -125,6 +125,9 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX session_events_by_session ON session_events(session_id, id);
 ",
+    "
+    ALTER TABLE sessions ADD COLUMN agent TEXT NOT NULL DEFAULT 'claude';
+",
 ];
 
 const TASK_SELECT: &str = "SELECT id, project_id, name, branch, base_ref, worktree_path, slot, \

@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import type { BranchChoices, Project, Supervision } from "../api/types";
+import type { AgentInfo, BranchChoices, Project, SessionSetup, Supervision } from "../api/types";
 import { useStore } from "../store";
 import { taskNameForPrompt, taskNameFrom, uniqueTaskName } from "../tree";
 import { ComposerBox } from "./ComposerBox";
-import { MODEL_LABELS, SUPERVISION_CHOICES, SUPERVISION_LABELS } from "./options";
+import { CLAUDE, modelLabel, SUPERVISION_CHOICES, SUPERVISION_LABELS } from "./options";
 
 /** The value of the branch picker that means "create a new branch". */
 const NEW_BRANCH = "";
@@ -16,7 +16,9 @@ export function NewTask({ projects }: { projects: Project[] }) {
     const [chosen, setChosen] = useState<string | null>(null);
     const [branch, setBranch] = useState(NEW_BRANCH);
     const [supervision, setSupervision] = useState<Supervision>("ask");
+    const [agentId, setAgentId] = useState(CLAUDE);
     const [model, setModel] = useState("");
+    const agents = useAgents();
     const [prompt, setPrompt] = useState("");
     const [creating, setCreating] = useState<string | null>(null);
 
@@ -44,7 +46,11 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 project: project.name,
                 name,
                 branch: branch === NEW_BRANCH ? null : branch,
-                setup: { model: model || null, supervision },
+                setup: {
+                    agent: agentId === CLAUDE ? null : agentId,
+                    model: model || null,
+                    supervision,
+                },
                 prompt: prompt.trim(),
             });
         } catch (error) {
@@ -98,11 +104,15 @@ export function NewTask({ projects }: { projects: Project[] }) {
                         SUPERVISION_LABELS[choice],
                     ])}
                 />
-                <Picker
-                    label="Model"
-                    value={model}
-                    onChange={setModel}
-                    options={Object.entries(MODEL_LABELS)}
+                <AgentPickers
+                    agents={agents}
+                    agentId={agentId}
+                    model={model}
+                    onAgent={(value) => {
+                        setAgentId(value);
+                        setModel("");
+                    }}
+                    onModel={setModel}
                 />
             </ComposerBox>
             <p className="new-task-note" aria-live="polite">
@@ -118,7 +128,7 @@ interface Start {
     project: string;
     name: string;
     branch: string | null;
-    setup: { model: string | null; supervision: Supervision };
+    setup: SessionSetup;
     prompt: string;
 }
 
@@ -130,6 +140,50 @@ async function startTask({ project, name, branch, setup, prompt }: Start) {
     await refresh(api);
     await open(api, session.id);
     await api.sessionSend(session.id, prompt);
+}
+
+interface AgentPickersProps {
+    agents: AgentInfo[];
+    agentId: string;
+    model: string;
+    onAgent(id: string): void;
+    onModel(model: string): void;
+}
+
+/** The agent menu, shown only when there is a choice, and the models of the chosen agent. */
+function AgentPickers({ agents, agentId, model, onAgent, onModel }: AgentPickersProps) {
+    const agent = agents.find((candidate) => candidate.id === agentId);
+    return (
+        <>
+            {agents.length > 1 && (
+                <Picker
+                    label="Agent"
+                    value={agentId}
+                    onChange={onAgent}
+                    options={agents.map((candidate) => [candidate.id, candidate.name])}
+                />
+            )}
+            <Picker label="Model" value={model} onChange={onModel} options={modelChoices(agent)} />
+        </>
+    );
+}
+
+/** The agent's default, then the models it offers. */
+function modelChoices(agent: AgentInfo | undefined): [string, string][] {
+    const models = agent?.models ?? [];
+    return [
+        ["", modelLabel(null)],
+        ...models.map((model): [string, string] => [model, modelLabel(model)]),
+    ];
+}
+
+/** The agents sessions can run on; empty until they are read. */
+function useAgents(): AgentInfo[] {
+    const [agents, setAgents] = useState<AgentInfo[]>([]);
+    useEffect(() => {
+        api.agents().then(setAgents).catch(useStore.getState().report);
+    }, []);
+    return agents;
 }
 
 /** The branches a task in `project` can start from; `null` until they are read. */

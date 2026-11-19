@@ -19,3 +19,11 @@ export const MODEL_LABELS: Record<string, string> = {
     haiku: "Haiku",
     fable: "Fable",
 };
+
+/** The id of the agent every installation has. */
+export const CLAUDE = "claude";
+
+/** A model name as shown: Claude Code's short names get labels, other names are shown as they are. */
+export function modelLabel(model: string | null): string {
+    return MODEL_LABELS[model ?? ""] ?? model ?? "";
+}

@@ -1,5 +1,6 @@
 import type {
     AgentEvent,
+    AgentInfo,
     BranchChoices,
     HookOutput,
     Project,
@@ -15,6 +16,8 @@ export type Unsubscribe = () => void;
 /** Everything the UI asks of the app. The Tauri shell implements it; so does the mock. */
 export interface Api {
     overview(): Promise<Project[]>;
+    /** The agents a session can run on, Claude Code first. */
+    agents(): Promise<AgentInfo[]>;
     /** Lets the user choose a folder; `null` if they cancelled. */
     pickFolder(): Promise<string | null>;
     /** Registers the git repository containing `path`. */

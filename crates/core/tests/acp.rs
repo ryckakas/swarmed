@@ -1,0 +1,307 @@
+//! The ACP backend against a scripted ACP agent (`fixtures/fake_acp_agent.py`).
+
+mod common;
+
+use std::path::Path;
+use std::sync::Arc;
+
+use common::{fixture, next, turn};
+use serde_json::json;
+use swarmed_core::agent::{AcpBackend, AgentEvent, Auth, FakeBackend, Supervision};
+use swarmed_core::{
+    AgentInfo, Core, Error, NewTaskOptions, SessionEvent, SessionOptions, SessionStatus, hooks,
+};
+use tokio::sync::broadcast::Receiver;
+
+const AGENT: &str = "scripted";
+
+fn scripted_agent(env: &[(&str, &str)]) -> AcpBackend {
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_acp_agent.py");
+    AcpBackend {
+        program: "python3".into(),
+        args: vec![script.to_string_lossy().into_owned()],
+        env: env
+            .iter()
+            .map(|(name, value)| ((*name).to_string(), (*value).to_string()))
+            .collect(),
+    }
+}
+
+/// A core with one task and the scripted ACP agent registered next to (fake) Claude Code.
+async fn core_with(fx: &common::Fixture, backend: AcpBackend) -> Core {
+    let mut core =
+        Core::with_backend(fx.paths.clone(), Arc::new(FakeBackend::default())).expect("opens");
+    let info = AgentInfo {
+        id: AGENT.into(),
+        name: "Scripted".into(),
+        models: vec![],
+    };
+    core.add_agent(info, Arc::new(backend));
+    core.project_add(&fx.repo, None).await.expect("test setup");
+    core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    core
+}
+
+/// A started session on the scripted agent.
+fn started(core: &Core, supervision: Supervision) -> i64 {
+    let options = SessionOptions {
+        agent: Some(AGENT.into()),
+        supervision,
+        ..Default::default()
+    };
+    let session = core.session_new("demo", "one", &options).expect("creates");
+    assert_eq!(session.agent, AGENT);
+    core.session_start(session.id, Auth::Subscription)
+        .expect("starts");
+    session.id
+}
+
+fn text(text: &str) -> AgentEvent {
+    AgentEvent::Text {
+        text: text.to_string(),
+    }
+}
+
+async fn permission_request(bus: &mut Receiver<SessionEvent>) -> String {
+    loop {
+        if let AgentEvent::PermissionRequest {
+            request_id,
+            tool_name,
+            input,
+            ..
+        } = next(bus).await.event
+        {
+            assert_eq!(
+                (tool_name.as_str(), &input),
+                ("Terminal", &json!({ "command": "ls" }))
+            );
+            return request_id;
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_turn_joins_the_streamed_pieces_into_one_reply() {
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+
+    core.session_send(id, "hello").expect("sends");
+    let events = turn(&mut bus, id).await;
+    let init = AgentEvent::Init {
+        agent_session_id: "acp-1".into(),
+        model: "fake/default".into(),
+        permission_mode: "ask".into(),
+        api_key_source: "agent".into(),
+        mcp_servers: vec![],
+        skills: 0,
+    };
+    let done = AgentEvent::TurnDone {
+        is_error: false,
+        result: None,
+        cost_usd: Some(0.5),
+    };
+    let said = AgentEvent::UserMessage {
+        text: "hello".into(),
+    };
+    assert_eq!(events, [said, init, text("echo: hello"), done]);
+    assert_eq!(
+        core.session(id)
+            .expect("exists")
+            .agent_session_id
+            .as_deref(),
+        Some("acp-1")
+    );
+}
+
+#[tokio::test]
+async fn a_permission_request_is_answered_with_the_matching_option() {
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+
+    core.session_send(id, "run: ls").expect("sends");
+    let request = permission_request(&mut bus).await;
+    assert_eq!(
+        core.session(id).expect("exists").status,
+        SessionStatus::Waiting
+    );
+    core.session_allow(id, &request).expect("sends");
+    let rest = turn(&mut bus, id).await;
+    let ok = AgentEvent::ToolResult {
+        tool_use_id: "call-1".into(),
+        content: "ok".into(),
+        is_error: false,
+    };
+    assert_eq!(rest.first(), Some(&ok));
+    assert!(rest.contains(&text("ran it")));
+
+    core.session_send(id, "run: ls").expect("sends");
+    let request = permission_request(&mut bus).await;
+    core.session_deny(id, &request, "no").expect("sends");
+    let rest = turn(&mut bus, id).await;
+    assert!(matches!(
+        rest.first(),
+        Some(AgentEvent::ToolResult { is_error: true, .. })
+    ));
+    assert!(rest.contains(&text("not allowed")));
+}
+
+#[tokio::test]
+async fn auto_supervision_allows_without_asking() {
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Auto);
+
+    core.session_send(id, "run: ls").expect("sends");
+    let events = turn(&mut bus, id).await;
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::PermissionRequest { .. }))
+    );
+    assert!(events.iter().any(|event| matches!(
+        event,
+        AgentEvent::ToolResult {
+            is_error: false,
+            ..
+        }
+    )));
+    let tool_use = events
+        .iter()
+        .find(|event| matches!(event, AgentEvent::ToolUse { .. }));
+    let expected = AgentEvent::ToolUse {
+        id: "call-1".into(),
+        name: "Terminal".into(),
+        input: json!({ "command": "ls" }),
+    };
+    assert_eq!(tool_use, Some(&expected));
+}
+
+#[tokio::test]
+async fn an_interrupt_cancels_the_turn_and_an_agent_error_ends_it() {
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+
+    core.session_send(id, "slow").expect("sends");
+    while !matches!(next(&mut bus).await.event, AgentEvent::Init { .. }) {}
+    core.session_interrupt(id).expect("sends");
+    let rest = turn(&mut bus, id).await;
+    let stopped = AgentEvent::TurnDone {
+        is_error: true,
+        result: None,
+        cost_usd: None,
+    };
+    assert_eq!(rest, [text("working"), stopped]);
+
+    core.session_send(id, "fail").expect("sends");
+    let rest = turn(&mut bus, id).await;
+    assert_eq!(
+        rest.get(1),
+        Some(&text("The agent reported an error: auth_required"))
+    );
+    assert!(matches!(
+        rest.last(),
+        Some(AgentEvent::TurnDone { is_error: true, .. })
+    ));
+}
+
+/// Runs a turn, stops the agent, starts it again and runs another; returns the second turn.
+async fn turn_after_restart(core: &Core, bus: &mut Receiver<SessionEvent>) -> Vec<AgentEvent> {
+    let id = started(core, Supervision::Ask);
+    core.session_send(id, "first").expect("sends");
+    turn(bus, id).await;
+    core.session_stop(id);
+    while !matches!(next(bus).await.event, AgentEvent::Exited { .. }) {}
+
+    core.session_start(id, Auth::Subscription)
+        .expect("restarts");
+    core.session_send(id, "second").expect("sends");
+    turn(bus, id).await
+}
+
+#[tokio::test]
+async fn a_restarted_session_continues_the_agents_conversation() {
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    let events = turn_after_restart(&core, &mut bus).await;
+    assert!(matches!(
+        events.get(1),
+        Some(AgentEvent::Init { agent_session_id, .. }) if agent_session_id == "acp-1"
+    ));
+    assert_eq!(events.get(2), Some(&text("echo: second")));
+}
+
+#[tokio::test]
+async fn history_an_agent_replays_while_loading_is_not_recorded_twice() {
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[("FAKE_ACP_LOAD_ONLY", "1")])).await;
+    let mut bus = core.subscribe();
+    let events = turn_after_restart(&core, &mut bus).await;
+    assert_eq!(events.get(2), Some(&text("echo: second")));
+    assert!(!events.contains(&text("replayed history")));
+}
+
+#[tokio::test]
+async fn a_session_can_name_its_model_and_only_a_configured_agent() {
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    let options = SessionOptions {
+        agent: Some(AGENT.into()),
+        model: Some("openrouter/some/model".into()),
+        ..Default::default()
+    };
+    let session = core.session_new("demo", "one", &options).expect("creates");
+    core.session_start(session.id, Auth::Subscription)
+        .expect("starts");
+    core.session_send(session.id, "hi").expect("sends");
+    let events = turn(&mut bus, session.id).await;
+    assert!(matches!(
+        events.get(1),
+        Some(AgentEvent::Init { model, .. }) if model == "openrouter/some/model"
+    ));
+
+    let unknown = SessionOptions {
+        agent: Some("nope".into()),
+        ..Default::default()
+    };
+    let refused = core.session_new("demo", "one", &unknown);
+    assert!(matches!(refused, Err(Error::AgentNotFound(id)) if id == "nope"));
+    assert_eq!(
+        core.agents()
+            .iter()
+            .map(|a| a.id.as_str())
+            .collect::<Vec<_>>(),
+        ["claude", AGENT]
+    );
+}
+
+#[tokio::test]
+async fn an_agent_that_cannot_be_started_is_an_error_not_a_hang() {
+    let fx = fixture();
+    let missing = AcpBackend {
+        program: "/nonexistent/agent".into(),
+        args: vec![],
+        env: vec![],
+    };
+    let core = core_with(&fx, missing).await;
+    let options = SessionOptions {
+        agent: Some(AGENT.into()),
+        ..Default::default()
+    };
+    let session = core.session_new("demo", "one", &options).expect("creates");
+    assert!(matches!(
+        core.session_start(session.id, Auth::Subscription),
+        Err(Error::Io(_))
+    ));
+    assert_eq!(core.running_sessions(), [0_i64; 0]);
+}

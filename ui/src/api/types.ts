@@ -7,6 +7,8 @@ export type SetupStatus = "pending" | "ok" | "failed";
 export interface Session {
     id: number;
     task_id: number;
+    /** The id of the agent that runs the session. */
+    agent: string;
     title: string;
     agent_session_id: string | null;
     model: string | null;
@@ -89,9 +91,19 @@ export interface BranchChoices {
     existing: string[];
 }
 
+/** An agent sessions can run on. */
+export interface AgentInfo {
+    id: string;
+    name: string;
+    /** Model names worth offering for it. */
+    models: string[];
+}
+
 /** How a new session should run. */
 export interface SessionSetup {
-    /** A model name Claude Code accepts, or `null` for its default. */
+    /** An agent id, or `null` for Claude Code. */
+    agent: string | null;
+    /** A model name the agent accepts, or `null` for its default. */
     model: string | null;
     supervision: Supervision;
 }

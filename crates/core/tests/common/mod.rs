@@ -5,10 +5,12 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
+use std::time::Duration;
 
-use swarmed_core::agent::FakeBackend;
-use swarmed_core::{Core, Paths};
+use swarmed_core::agent::{AgentEvent, FakeBackend};
+use swarmed_core::{Core, Paths, SessionEvent};
 use tempfile::TempDir;
+use tokio::sync::broadcast::Receiver;
 
 /// A temporary directory holding a git repository called `demo` and Swarmed's own directories.
 pub struct Fixture {
@@ -63,4 +65,28 @@ pub async fn core_with_project(fx: &Fixture) -> Core {
         Core::with_backend(fx.paths.clone(), Arc::new(FakeBackend::default())).expect("test setup");
     core.project_add(&fx.repo, None).await.expect("test setup");
     core
+}
+
+/// The next published event, failing the test instead of hanging if the agent goes quiet.
+pub async fn next(bus: &mut Receiver<SessionEvent>) -> SessionEvent {
+    tokio::time::timeout(Duration::from_secs(5), bus.recv())
+        .await
+        .expect("the agent went quiet")
+        .expect("the event stream closed")
+}
+
+/// One session's events up to and including the end of the turn.
+pub async fn turn(bus: &mut Receiver<SessionEvent>, session_id: i64) -> Vec<AgentEvent> {
+    let mut events = vec![];
+    loop {
+        let published = next(bus).await;
+        if published.session_id != session_id {
+            continue;
+        }
+        let done = matches!(published.event, AgentEvent::TurnDone { .. });
+        events.push(published.event);
+        if done {
+            return events;
+        }
+    }
 }

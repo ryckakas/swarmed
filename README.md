@@ -43,6 +43,27 @@ pnpm app            # builds and opens the app
 pnpm dev            # the UI alone in a browser, on sample data
 ```
 
+## Other agents
+
+Sessions run on Claude Code unless told otherwise. Any agent that speaks the
+[Agent Client Protocol](https://agentclientprotocol.com) can be added in `agents.toml` in the data
+directory (`swarmed agents` prints its path):
+
+```toml
+[opencode]
+name = "OpenCode"
+command = "opencode"
+args = ["acp"]
+models = ["openrouter/openai/gpt-5.6"]   # offered in the model menu
+
+[opencode.env]                           # optional extra environment for the agent
+# OPENROUTER_API_KEY = "..."
+```
+
+The agent keeps its own credentials: sign in with the agent's own command first (for OpenCode,
+`opencode auth login`). It then appears in the app's agent menu and as `--agent opencode` in the
+CLI. Such sessions do not use Claude Code's skills, hooks or connectors.
+
 ## Development
 
 ```sh

@@ -52,7 +52,12 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   core exposes typed operations and knows nothing about its front ends.
 - **Nothing is written into a user's repository.** Config and state live in the data directory
   (`Paths`); worktrees live under `~/swarmed/<project>/<task>`.
-- **Agents sit behind `AgentBackend`** (`agent/`). `ClaudeBackend` drives the installed `claude`
+- **Agents sit behind `AgentBackend`** (`agent/`), and a session records which agent runs it.
+  `agents.rs` holds the registry: Claude Code, plus the ACP agents listed in the user's
+  `agents.toml`. `AcpBackend` (`agent/acp.rs`) speaks the Agent Client Protocol to any of them;
+  its tests run against a scripted agent in `tests/fixtures/fake_acp_agent.py`. Anything that
+  only Claude Code has (allow rules, appended instructions, its config) must not be assumed for
+  other agents. `ClaudeBackend` drives the installed `claude`
   CLI over its line-delimited JSON protocol, which has no specification: `agent/claude.rs` is the
   only file that knows its shapes, and it must tolerate unknown messages. `FakeBackend` is the
   scripted agent the tests use; `SWARMED_FAKE_AGENT=1` selects it in the CLI.

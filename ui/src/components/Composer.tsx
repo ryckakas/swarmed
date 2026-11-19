@@ -3,7 +3,7 @@ import { api } from "../api";
 import type { Session } from "../api/types";
 import { useStore } from "../store";
 import { ComposerBox } from "./ComposerBox";
-import { MODEL_LABELS, SUPERVISION_LABELS } from "./options";
+import { CLAUDE, modelLabel, SUPERVISION_LABELS } from "./options";
 
 const PLACEHOLDER: Record<Session["status"], string> = {
     idle: "Reply to the agent",
@@ -50,9 +50,8 @@ export function Composer({ session }: { session: Session }) {
                 inputRef={input}
             >
                 <span className="option-label">{SUPERVISION_LABELS[session.supervision]}</span>
-                <span className="option-label">
-                    {MODEL_LABELS[session.model ?? ""] ?? session.model}
-                </span>
+                {session.agent !== CLAUDE && <span className="option-label">{session.agent}</span>}
+                <span className="option-label">{modelLabel(session.model)}</span>
             </ComposerBox>
         </div>
     );

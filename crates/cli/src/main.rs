@@ -31,6 +31,8 @@ enum Command {
     /// Run agent sessions in a task's worktree.
     #[command(subcommand)]
     Session(SessionCommand),
+    /// List the agents sessions can run on.
+    Agents,
 }
 
 #[derive(Debug, Subcommand)]
@@ -109,7 +111,26 @@ async fn main() -> Result<()> {
         Command::Project(command) => project(&core, command).await,
         Command::Task(command) => task(&core, command).await,
         Command::Session(command) => session::session(&core, command).await,
+        Command::Agents => {
+            agents(&core);
+            Ok(())
+        }
     }
+}
+
+fn agents(core: &Core) {
+    for agent in core.agents() {
+        say(&format!(
+            "{}\t{}\t{}",
+            agent.id,
+            agent.name,
+            agent.models.join(", ")
+        ));
+    }
+    say(&format!(
+        "configure more in {}",
+        core.paths().agents_config().display()
+    ));
 }
 
 async fn project(core: &Core, command: ProjectCommand) -> Result<()> {

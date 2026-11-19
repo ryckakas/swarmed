@@ -121,6 +121,7 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
         const { refresh, open, report } = useStore.getState();
         try {
             const session = await api.sessionNew(project, task.name, {
+                agent: null,
                 model: null,
                 supervision: "ask",
             });

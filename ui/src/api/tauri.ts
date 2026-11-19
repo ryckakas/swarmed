@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type { Api } from "./client";
 import type {
     AgentEvent,
+    AgentInfo,
     BranchChoices,
     HookOutput,
     Project,
@@ -15,6 +16,7 @@ import type {
 /** The real app: commands and events of the Tauri shell in crates/app. */
 export const tauriApi: Api = {
     overview: () => invoke<Project[]>("overview"),
+    agents: () => invoke<AgentInfo[]>("agents"),
     pickFolder: () => open({ directory: true, multiple: false, title: "Add a repository" }),
     projectAdd: (path) => invoke<Project>("project_add", { path, name: null }),
     branchChoices: (project) => invoke<BranchChoices>("branch_choices", { project }),

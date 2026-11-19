@@ -17,6 +17,7 @@ function session(id: number, taskId: number, title: string, status: SessionStatu
     return {
         id,
         task_id: taskId,
+        agent: "claude",
         title,
         agent_session_id: `mock-${id}`,
         model: null,
@@ -296,6 +297,14 @@ export function createMockApi(): Api {
     const hookListeners = new Set<(output: HookOutput) => void>();
     return {
         overview: async () => structuredClone(agent.projects),
+        agents: async () => [
+            { id: "claude", name: "Claude Code", models: ["opus", "sonnet", "haiku", "fable"] },
+            {
+                id: "opencode",
+                name: "OpenCode",
+                models: ["openrouter/openai/gpt-5.6", "openrouter/google/gemini-3-pro"],
+            },
+        ],
         pickFolder: async () => "/Users/you/code/new-repo",
         projectAdd: async (path) => {
             const name = path.split("/").pop() ?? "repo";
@@ -337,7 +346,11 @@ export function createMockApi(): Api {
             if (!home) {
                 throw new Error(`task \`${taskName}\` not found`);
             }
-            const created = { ...agent.newSession(home.id), ...setup };
+            const created = {
+                ...agent.newSession(home.id),
+                ...setup,
+                agent: setup.agent ?? "claude",
+            };
             home.sessions.push(created);
             return created;
         },

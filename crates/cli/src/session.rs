@@ -21,7 +21,10 @@ pub(crate) enum SessionCommand {
         project: String,
         task: String,
         prompt: String,
-        /// The model to run on; defaults to Claude Code's own default.
+        /// The agent to run on, by its id from `swarmed agents`; defaults to Claude Code.
+        #[arg(long)]
+        agent: Option<String>,
+        /// The model to run on; defaults to the agent's own default.
         #[arg(long)]
         model: Option<String>,
         /// Let Claude Code's auto mode decide which actions are safe, instead of asking.
@@ -74,6 +77,7 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             project,
             task,
             prompt,
+            agent,
             model,
             auto,
             auth,
@@ -84,6 +88,7 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
                 Supervision::Ask
             };
             let options = SessionOptions {
+                agent,
                 title: None,
                 model,
                 supervision,
