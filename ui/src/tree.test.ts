@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { sampleProjects } from "./api/mock";
-import type { Project, SessionEvent } from "./api/types";
+import type { Project, Session, SessionEvent } from "./api/types";
 import {
     applySessionEvent,
     countUnread,
     countWaiting,
     findSession,
     findSessionHome,
+    nestedSessions,
     projectStatus,
     projectUnread,
     taskNameForPrompt,
@@ -226,5 +227,38 @@ describe("unread sessions", () => {
     it("show on a folded repository", () => {
         const [hero] = applySessionEvent(sampleProjects(), done);
         expect(hero && projectUnread(hero)).toBe(true);
+    });
+});
+
+describe("nestedSessions", () => {
+    const [hero] = sampleProjects();
+    const base = hero?.tasks[0]?.sessions[0] as Session;
+    const session = (id: number, spawnedBy: number | null): Session => ({
+        ...base,
+        id,
+        spawned_by: spawnedBy,
+    });
+
+    it("lists a session an agent started right after the one that started it", () => {
+        const listed = nestedSessions([
+            session(1, null),
+            session(2, null),
+            session(3, 1),
+            session(4, 1),
+        ]);
+        expect(listed.map(({ session: s, nested }) => [s.id, nested])).toEqual([
+            [1, false],
+            [3, true],
+            [4, true],
+            [2, false],
+        ]);
+    });
+
+    it("keeps one in line whose starter is not in the task any more", () => {
+        const listed = nestedSessions([session(2, null), session(5, 1)]);
+        expect(listed.map(({ session: s, nested }) => [s.id, nested])).toEqual([
+            [2, false],
+            [5, false],
+        ]);
     });
 });

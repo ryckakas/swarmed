@@ -673,6 +673,11 @@ code {
     white-space: nowrap;
 }
 
+/* A session an agent started sits under its starter, one step in. */
+.sessions li[data-nested="true"] .session-row {
+    padding-left: calc(var(--space-4) + var(--space-3) + var(--space-4));
+}
+
 /* A session an agent started, marked as hanging off another. */
 .session-spawned {
     flex: none;

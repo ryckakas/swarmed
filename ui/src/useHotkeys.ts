@@ -6,7 +6,7 @@ import { afterPlan, CLAUDE } from "./components/options";
 import { type HotkeyId, matchHotkey, stepThrough } from "./hotkeys";
 import { useStore } from "./store";
 import { toItems } from "./transcript";
-import { findSession, findSessionHome } from "./tree";
+import { findSession, findSessionHome, nestedSessions } from "./tree";
 
 /** Text sizes the shortcuts step through, in percent; the same range the settings allow. */
 const TEXT_STEP = 10;
@@ -17,8 +17,8 @@ function sessionIds(projects: Project[]): number[] {
     return projects
         .flatMap((project) => project.tasks)
         .filter((task) => !task.archived)
-        .flatMap((task) => task.sessions)
-        .map((session) => session.id);
+        .flatMap((task) => nestedSessions(task.sessions))
+        .map(({ session }) => session.id);
 }
 
 function openSession(id: number | null) {

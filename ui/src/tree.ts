@@ -77,6 +77,24 @@ export function applySessionEvent(projects: Project[], published: SessionEvent):
     }));
 }
 
+/**
+ * A task's sessions in the order the sidebar lists them: each session an agent started comes
+ * right after the session that started it, marked as `nested`, instead of at the end where its
+ * age alone would put it. One whose starter is gone, closed or in another task, stays in line.
+ */
+export function nestedSessions(sessions: Session[]): { session: Session; nested: boolean }[] {
+    const here = new Set(sessions.map((session) => session.id));
+    const startedHere = (session: Session) =>
+        session.spawned_by !== null && here.has(session.spawned_by);
+    const startedBy = (id: number) => sessions.filter((session) => session.spawned_by === id);
+    return sessions
+        .filter((session) => !startedHere(session))
+        .flatMap((session) => [
+            { session, nested: false },
+            ...startedBy(session.id).map((child) => ({ session: child, nested: true })),
+        ]);
+}
+
 /** Whether `event` is the agent handing the conversation back: a turn over, or an error. */
 export function endsTurn({ event, status }: SessionEvent): boolean {
     return event.type === "turn_done" || (event.type === "exited" && status === "errored");

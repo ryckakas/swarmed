@@ -3,7 +3,7 @@ import { addProject, newSession } from "../actions";
 import { api } from "../api";
 import type { Project, Session, Task } from "../api/types";
 import { useStore } from "../store";
-import { countUnread, countWaiting, projectStatus, projectUnread } from "../tree";
+import { countUnread, countWaiting, nestedSessions, projectStatus, projectUnread } from "../tree";
 import { StatusMark } from "./StatusMark";
 
 export function Sidebar() {
@@ -157,8 +157,8 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
             </div>
             {task.sessions.length === 0 && <p className="hint">No sessions</p>}
             <ul className="sessions">
-                {task.sessions.map((session) => (
-                    <li key={session.id}>
+                {nestedSessions(task.sessions).map(({ session, nested }) => (
+                    <li key={session.id} data-nested={nested}>
                         <SessionRow session={session} />
                     </li>
                 ))}
