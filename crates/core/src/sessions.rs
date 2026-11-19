@@ -88,6 +88,7 @@ impl SessionStatus {
             | AgentEvent::SupervisionChanged { .. }
             | AgentEvent::Applied { .. }
             | AgentEvent::Suggestion { .. }
+            | AgentEvent::Closed
             | AgentEvent::View { .. }
             | AgentEvent::Queue { .. }
             | AgentEvent::ContextUsage { .. }
@@ -292,6 +293,37 @@ impl Store {
             params![id],
         )?;
         Ok(())
+    }
+
+    fn session_reopen(&self, id: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions SET closed_at = NULL WHERE id = ?1",
+            params![id],
+        )?;
+        Ok(())
+    }
+
+    /// A task's closed sessions, the one closed last first.
+    fn sessions_closed(&self, task_id: i64) -> Result<Vec<Session>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "{SESSION_SELECT} WHERE task_id = ?1 AND closed_at IS NOT NULL \
+             ORDER BY closed_at DESC, id DESC"
+        ))?;
+        let rows = stmt.query_map(params![task_id], session_from_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// How many closed sessions each task has, by task id. Tasks with none are left out.
+    pub(crate) fn closed_counts(&self) -> Result<HashMap<i64, usize>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT task_id, COUNT(*) FROM sessions WHERE closed_at IS NOT NULL GROUP BY task_id",
+        )?;
+        let count = |row: &Row<'_>| {
+            let closed: i64 = row.get(1)?;
+            Ok((row.get(0)?, usize::try_from(closed).unwrap_or(0)))
+        };
+        let rows = stmt.query_map([], count)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     /// The newest record of an agent starting, in this session if there is one, else in any
@@ -782,13 +814,28 @@ impl Core {
         self.store().session_mark_read(id)
     }
 
+    /// A task's closed sessions, the one closed last first.
+    pub fn sessions_closed(&self, project: &str, task: &str) -> Result<Vec<Session>> {
+        let (_, task) = self.task(project, task)?;
+        self.store().sessions_closed(task.id)
+    }
+
+    /// Puts a closed session back in the lists, as it was: its conversation was kept, and its
+    /// agent starts again with the next message.
+    pub fn session_reopen(&self, id: i64) -> Result<Session> {
+        self.session(id)?;
+        self.store().session_reopen(id)?;
+        self.session(id)
+    }
+
     /// Stops a session's agent and takes the session out of every list. Its history is kept.
     pub fn session_close(&self, id: i64) -> Result<()> {
         self.session(id)?;
         self.session_stop(id);
         self.terminal_close(id);
         self.live.queues.clear(id);
-        self.store().session_close(id)
+        self.store().session_close(id)?;
+        self.live.note(&self.store, id, AgentEvent::Closed)
     }
 }
 

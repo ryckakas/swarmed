@@ -184,6 +184,53 @@ async fn a_session_starts_others_beside_itself_within_limits() {
 }
 
 #[tokio::test]
+async fn a_session_closes_only_what_it_started_and_only_when_that_is_done() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let (parent, stranger) = (new_session(&core), new_session(&core));
+    let child = core.peer_spawn(parent.id, "slow", None).expect("spawns");
+    // The child's turn only ends when it is interrupted: it is at work.
+    next(&mut bus).await;
+    assert!(matches!(
+        core.peer_close(parent.id, child.id),
+        Err(Error::Peers(reason)) if reason.contains("still at work")
+    ));
+    core.session_interrupt(child.id).expect("interrupts");
+    turn(&mut bus, child.id).await;
+
+    // Not the user's sessions, not another agent's, not its own starter.
+    for (from, target) in [
+        (parent.id, stranger.id),
+        (stranger.id, child.id),
+        (child.id, parent.id),
+    ] {
+        assert!(matches!(
+            core.peer_close(from, target),
+            Err(Error::Peers(reason)) if reason.contains("not yours")
+        ));
+    }
+
+    core.peer_close(parent.id, child.id).expect("closes");
+    let open: Vec<i64> = core
+        .sessions("demo", "one")
+        .expect("lists")
+        .iter()
+        .map(|session| session.id)
+        .collect();
+    assert_eq!(open, [parent.id, stranger.id]);
+    // Put away, not thrown away: it is listed as closed, counted, and comes back whole.
+    let closed = core.sessions_closed("demo", "one").expect("lists");
+    assert_eq!(closed.iter().map(|s| s.id).collect::<Vec<_>>(), [child.id]);
+    assert_eq!(core.overview().expect("reads")[0].tasks[0].closed, 1);
+    let back = core.session_reopen(child.id).expect("reopens");
+    assert_eq!(back.spawned_by, Some(parent.id));
+    assert_eq!(core.sessions("demo", "one").expect("lists").len(), 3);
+    assert_eq!(core.overview().expect("reads")[0].tasks[0].closed, 0);
+    assert_ne!(core.session_events(child.id).expect("reads").len(), 0);
+}
+
+#[tokio::test]
 async fn the_tool_server_reaches_the_core_over_its_socket() {
     let fx = fixture();
     let core = Arc::new(core_with_task(&fx).await);

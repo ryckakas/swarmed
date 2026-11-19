@@ -150,6 +150,10 @@ export interface Api {
     statusLine(id: number): Promise<string | null>;
     /** Gives the session a title of the user's choosing. Every front end hears of it as an event. */
     sessionRename(id: number, title: string): Promise<Session>;
+    /** A task's closed sessions, the one closed last first. */
+    sessionsClosed(project: string, task: string): Promise<Session[]>;
+    /** Puts a closed session back in the tree, with its conversation as it was. */
+    sessionReopen(id: number): Promise<Session>;
     /** Stops the session's agent and takes the session out of the tree. Its history is kept. */
     sessionClose(id: number): Promise<void>;
     /** Calls `listener` for every event of every running session, from now on. */

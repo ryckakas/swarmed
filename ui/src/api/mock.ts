@@ -55,6 +55,7 @@ function task(id: number, projectId: number, name: string, sessions: Session[]):
         running: sessions.filter((s) => s.status !== "idle").map((s) => s.id),
         url: `http://localhost:${3000 + id * 100}`,
         has_note: id === 1,
+        closed: 0,
     };
 }
 
@@ -683,17 +684,56 @@ class MockAgent {
         return renamed;
     }
 
+    /** The sessions that were closed, by the id of their task, the one closed last first. */
+    private readonly closedSessions = new Map<number, Session[]>();
+
     close(id: number) {
         this.interrupt(id);
         for (const task of this.tasks()) {
+            const closing = task.sessions.filter((candidate) => candidate.id === id);
             task.sessions = task.sessions.filter((candidate) => candidate.id !== id);
+            this.closedSessions.set(task.id, [...closing, ...this.closed(task.id)]);
+            task.closed = this.closed(task.id).length;
         }
+    }
+
+    closed(taskId: number): Session[] {
+        return this.closedSessions.get(taskId) ?? [];
+    }
+
+    reopen(id: number): Session {
+        for (const task of this.tasks()) {
+            const back = this.closed(task.id).find((candidate) => candidate.id === id);
+            if (back) {
+                this.closedSessions.set(
+                    task.id,
+                    this.closed(task.id).filter((candidate) => candidate.id !== id),
+                );
+                task.sessions = [...task.sessions, back].sort((a, b) => a.id - b.id);
+                task.closed = this.closed(task.id).length;
+                return back;
+            }
+        }
+        throw new Error(`session ${id} not found`);
     }
 
     interrupt(id: number) {
         this.interrupts.get(id)?.();
         this.interrupts.delete(id);
     }
+}
+
+/** Closing sessions, listing the closed ones of a task, and reopening one. */
+function closingApi(
+    agent: MockAgent,
+): Pick<Api, "sessionClose" | "sessionsClosed" | "sessionReopen"> {
+    const taskNamed = (name: string) =>
+        agent.projects.flatMap((project) => project.tasks).find((task) => task.name === name);
+    return {
+        sessionClose: async (id) => agent.close(id),
+        sessionsClosed: async (_project, name) => agent.closed(taskNamed(name)?.id ?? -1),
+        sessionReopen: async (id) => agent.reopen(id),
+    };
 }
 
 /** An in-memory stand-in for the app. */
@@ -847,7 +887,7 @@ export function createMockApi(): Api {
         },
         statusLine: async (id) => scriptedStatus(settings.status_command, id),
         sessionRename: async (id, title) => agent.rename(id, title),
-        sessionClose: async (id) => agent.close(id),
+        ...closingApi(agent),
         onSessionEvent: async (listener) => {
             agent.listeners.add(listener);
             return () => agent.listeners.delete(listener);

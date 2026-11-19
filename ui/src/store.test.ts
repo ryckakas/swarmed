@@ -250,3 +250,25 @@ describe("MCP servers", () => {
         expect(await api.mcpRemove("tracker")).toEqual(before);
     });
 });
+
+describe("closed sessions", () => {
+    it("are counted on their task, listed, and come back when reopened", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        await useStore.getState().close(api, 3);
+        const task = () =>
+            useStore
+                .getState()
+                .projects.flatMap((project) => project.tasks)
+                .find((candidate) => candidate.name === "invoice-export");
+        expect(task()?.closed).toBe(1);
+        expect(task()?.sessions).toEqual([]);
+        const closed = await api.sessionsClosed("hero", "invoice-export");
+        expect(closed.map((session) => session.id)).toEqual([3]);
+
+        await api.sessionReopen(3);
+        await useStore.getState().refresh(api);
+        expect(task()?.closed).toBe(0);
+        expect(task()?.sessions.map((session) => session.id)).toEqual([3]);
+    });
+});

@@ -277,6 +277,9 @@ pub enum AgentEvent {
         /// What it is from now on.
         supervision: Supervision,
     },
+    /// The session was closed, by the user or by the session that started it. Recorded by the
+    /// core, so that every front end takes it out of its lists.
+    Closed,
     /// HTML the agent showed the user through Swarmed's own tool. Recorded by the core, which
     /// gets it from the tool and not from the shape of the agent's call.
     View {

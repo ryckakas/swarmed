@@ -269,7 +269,10 @@ impl Core {
         }
         // Swarmed's own tools and the servers set up here are listed where they belong.
         views.retain(|name, _| name != SERVER_NAME && !own.contains_key(name));
-        views.into_values().collect()
+        let mut views: Vec<McpServerView> = views.into_values().collect();
+        // The ones that work first, then by name, which they already are in.
+        views.sort_by_key(|view| usability(view.status.as_deref()));
+        views
     }
 
     /// Adds a server, or replaces the one of that name. A secret given a value has it stored;
@@ -371,6 +374,16 @@ fn described(transport: &McpTransport) -> (&'static str, String, Vec<String>) {
     }
 }
 
+/// Where a server stands in the list by what was last said of it: usable ones first, then
+/// those not seen in any session yet, then those that failed or want signing in.
+fn usability(status: Option<&str>) -> u8 {
+    match status {
+        Some("connected" | "passed") => 0,
+        None => 1,
+        Some(_) => 2,
+    }
+}
+
 fn claude_view(
     name: &str,
     kind: &str,
@@ -439,5 +452,15 @@ mod tests {
                 "{wrong:?}"
             );
         }
+    }
+
+    #[test]
+    fn servers_that_work_are_listed_before_those_that_do_not() {
+        let mut said = vec![Some("needs-auth"), None, Some("connected"), Some("failed")];
+        said.sort_by_key(|status| usability(*status));
+        assert_eq!(
+            said,
+            [Some("connected"), None, Some("needs-auth"), Some("failed")]
+        );
     }
 }
