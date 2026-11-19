@@ -81,7 +81,7 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
         case "user":
             return <p className="said">{item.text}</p>;
         case "text":
-            return <Markdown text={item.text} />;
+            return <Markdown text={item.text} streaming={item.streaming} />;
         case "tool":
             return <ToolCall name={item.name} input={item.input} result={item.result} />;
         case "permission":

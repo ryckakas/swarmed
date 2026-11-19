@@ -392,6 +392,35 @@ async fn what_happens_in_the_terminal_travels_with_the_next_message() {
 }
 
 #[tokio::test]
+async fn agents_are_told_about_html_views_unless_the_user_turned_them_off() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+    core.session_send(session.id, "instructions")
+        .expect("sends");
+    let told = turn(&mut bus, session.id).await;
+    assert!(
+        told.iter()
+            .any(|e| matches!(e, AgentEvent::Text { text } if text.contains("`html-view`"))),
+        "{told:?}"
+    );
+
+    let off = Settings {
+        html_views: false,
+        ..Settings::default()
+    };
+    core.set_settings(&off).expect("saves");
+    let quiet = started_session(&core);
+    core.session_send(quiet.id, "instructions").expect("sends");
+    assert!(turn(&mut bus, quiet.id).await.contains(&text("none")));
+
+    let id = core.view_put("<p>hi</p>".to_string());
+    assert_eq!(core.view(&id).as_deref(), Some("<p>hi</p>"));
+    assert_eq!(core.view("nope"), None);
+}
+
+#[tokio::test]
 async fn slash_commands_come_from_the_last_start_of_the_session_or_of_another() {
     let fx = fixture();
     let core = core_with_task(&fx).await;

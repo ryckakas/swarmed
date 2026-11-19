@@ -94,6 +94,17 @@ function Sessions({ settings }: { settings: Settings }) {
                     onChange={(event) => void change(api, { auto_title: event.target.checked })}
                 />
             </Row>
+            <Row
+                label="HTML views"
+                hint="Agents are told they may answer with a small interactive view, such as a sortable table. It runs in a sandboxed frame with no access to the app or the network. Applies to sessions started from now on."
+            >
+                <input
+                    type="checkbox"
+                    aria-label="Show HTML views from agents"
+                    checked={settings.html_views}
+                    onChange={(event) => void change(api, { html_views: event.target.checked })}
+                />
+            </Row>
         </section>
     );
 }

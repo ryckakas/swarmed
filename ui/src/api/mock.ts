@@ -450,6 +450,7 @@ export function createMockApi(): Api {
         auto_title: true,
         theme: "system",
         text_scale: 100,
+        html_views: true,
         status_items: ["branch", "changes", "model", "cost"],
         status_command: "",
     };
@@ -541,6 +542,9 @@ export function createMockApi(): Api {
             "tdd",
         ],
         sessionConfigure: async (id, settings) => agent.configure(id, settings),
+        // A browser has no custom scheme; a blob address is enough to see the view.
+        viewUrl: async (document) =>
+            URL.createObjectURL(new Blob([document], { type: "text/html" })),
         terminalOpen: async (id) => terminal.open(id),
         terminalWrite: async (id, data) => terminal.type(id, data),
         terminalResize: async () => undefined,

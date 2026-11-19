@@ -46,6 +46,10 @@ export const tauriApi: Api = {
     sessionInterrupt: (id) => invoke("session_interrupt", { id }),
     slashCommands: (id) => invoke<string[]>("slash_commands", { id }),
     sessionConfigure: (id, settings) => invoke<Session>("session_configure", { id, ...settings }),
+    viewUrl: async (document) => {
+        const id = await invoke<string>("view_put", { document });
+        return `swarmed-view://localhost/${id}`;
+    },
     terminalOpen: (id, cols, rows) => invoke<string>("terminal_open", { id, cols, rows }),
     terminalWrite: (id, data) => invoke("terminal_write", { id, data }),
     terminalResize: (id, cols, rows) => invoke("terminal_resize", { id, cols, rows }),

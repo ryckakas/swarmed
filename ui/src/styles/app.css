@@ -1351,6 +1351,35 @@ code {
     font-size: var(--text-xs);
 }
 
+/* A view an agent wrote: framed and labelled, so it is never mistaken for part of the app. */
+
+.html-view {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    overflow: hidden;
+}
+
+.html-view-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 2px var(--space-2) 2px var(--space-3);
+    border-bottom: 1px solid var(--line);
+    color: var(--faint);
+    font-size: var(--text-xs);
+}
+
+.html-view-frame {
+    display: block;
+    width: 100%;
+    border: 0;
+}
+
+.html-view .tool-body {
+    margin: var(--space-2);
+}
+
 /* The status line: one quiet row under the message box, which folds away to its toggle. */
 
 .status-line {

@@ -15,7 +15,7 @@ use crate::error::{Error, Result};
 use crate::mcp::{self, McpServer};
 use crate::secrets::SecretEnv;
 use crate::store::{Store, Task};
-use crate::{Core, lock};
+use crate::{Core, lock, views};
 
 /// How long a session title derived from the first message may be.
 const TITLE_CHARS: usize = 60;
@@ -452,9 +452,11 @@ impl Core {
         } else {
             self.key_env()?
         };
+        let html_views = self.settings()?.html_views;
         let handle = self.agents.backend(&session.agent)?.start(SessionSpec {
             mcp_servers,
             env,
+            append_system_prompt: html_views.then(|| views::INSTRUCTIONS.to_string()),
             cwd: task.worktree_path,
             model: session.model,
             supervision: session.supervision,

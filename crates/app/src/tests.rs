@@ -261,6 +261,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
         app.ok("settings", json!({})),
         json!({
             "editor": "code", "auto_title": true, "theme": "system", "text_scale": 100,
+            "html_views": true,
             "status_items": ["branch", "changes", "model", "cost"], "status_command": "",
         })
     );
@@ -282,7 +283,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
 
     let chosen = json!({ "settings": {
         "editor": "swarmed-no-such-editor", "auto_title": false, "theme": "light", "text_scale": 110,
-        "status_items": ["cost"], "status_command": "",
+        "html_views": false, "status_items": ["cost"], "status_command": "",
     } });
     app.ok("set_settings", chosen);
     let target = json!({ "project": "demo", "name": "one" });
@@ -336,6 +337,35 @@ fn the_ui_can_store_and_remove_a_key_without_ever_reading_it() {
         ),
         Err(json!("an API key cannot be empty"))
     );
+}
+
+#[test]
+fn an_agents_html_is_served_from_its_own_origin_under_its_own_policy() {
+    let dir = TempDir::new().expect("temp dir");
+    let paths = Paths {
+        data_dir: dir.path().join("data"),
+        worktrees_root: dir.path().join("worktrees"),
+        claude_config: dir.path().join("claude.json"),
+    };
+    let core = Core::with_backend(paths, Arc::new(FakeBackend::default())).expect("core opens");
+    let id = core.view_put("<p>sorted</p>".to_string());
+
+    let found = crate::view_response(&core, &format!("/{id}"));
+    assert_eq!(found.status(), 200);
+    assert_eq!(found.body().as_ref(), b"<p>sorted</p>");
+    let policy = found.headers()["content-security-policy"]
+        .to_str()
+        .expect("text");
+    assert!(policy.starts_with("default-src 'none'"), "{policy}");
+    assert!(!policy.contains("connect-src"), "{policy}");
+    assert_eq!(crate::view_response(&core, "/missing").status(), 404);
+}
+
+#[test]
+fn the_ui_can_hand_over_html_for_a_frame() {
+    let app = app();
+    let id = app.ok("view_put", json!({ "document": "<p>hi</p>" }));
+    assert_eq!(id.as_str().map(str::len), Some(16));
 }
 
 #[test]

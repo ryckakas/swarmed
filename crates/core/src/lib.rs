@@ -22,6 +22,7 @@ mod store;
 mod tasks;
 mod terminal;
 mod vars;
+mod views;
 
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -49,6 +50,7 @@ pub use store::{Project, SetupStatus, Task};
 pub use tasks::{BranchChoices, NewTaskOptions, RemoveOptions};
 pub use terminal::TerminalOutput;
 use terminal::Terminals;
+use views::ViewStore;
 
 /// The entry point: one value per data directory, shared by everything a front end does.
 #[derive(Debug)]
@@ -63,6 +65,8 @@ pub struct Core {
     secrets: Box<dyn SecretStore>,
     /// The sessions' terminals.
     terminals: Arc<Terminals>,
+    /// HTML the agents wrote, waiting to be shown.
+    views: ViewStore,
 }
 
 /// The store is only ever locked for one short query, never across an `.await`. A panic while
@@ -98,6 +102,7 @@ impl Core {
             // Nothing outside this process until `open` says where keys really live.
             secrets: Box::new(MemorySecrets::default()),
             terminals: Arc::default(),
+            views: ViewStore::default(),
         })
     }
 

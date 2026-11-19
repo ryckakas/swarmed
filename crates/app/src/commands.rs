@@ -242,6 +242,12 @@ pub(crate) fn session_configure(
     Ok(core.session_configure(id, &settings)?)
 }
 
+/// Hands over an HTML document for a sandboxed frame and returns the id the frame loads it by.
+#[tauri::command]
+pub(crate) fn view_put(core: CoreState<'_>, document: String) -> String {
+    core.view_put(document)
+}
+
 /// Async so that it runs on the runtime the core spawns the terminal's tasks on.
 #[tauri::command]
 pub(crate) async fn terminal_open(

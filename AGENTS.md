@@ -91,6 +91,13 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   channel (`Core::subscribe_terminals`) and not stored. What it printed since the agent's last
   turn is appended, as plain text, to the user's next message and recorded as `TerminalShared`.
   The agent cannot type into the terminal.
+- **Agents may answer with HTML views**: a fenced block with the language `html-view`, which
+  they are told about through `views::INSTRUCTIONS`. The UI wraps the fragment in a document
+  (`ui/src/htmlview.ts`), hands it to the core (`views.rs`), and shows it in a sandboxed frame
+  loaded from `swarmed-view://`, a scheme the app serves with a policy of its own
+  (`view_response` in the app crate). That origin has no capability, so it cannot call a
+  command. Never show agent HTML in the app's own origin, and never loosen the app's policy
+  for it.
 - **The status line** under the message box is drawn by the UI from built-in pieces
   (`ui/src/statusline.ts`) chosen in the settings. A `status_command` replaces them: the core
   runs it (`statusline.rs`) with the session as JSON on standard input and shows its first line.

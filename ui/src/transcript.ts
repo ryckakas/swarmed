@@ -4,7 +4,8 @@ import type { AgentEvent } from "./api/types";
 
 export type Item =
     | { kind: "user"; key: number; text: string }
-    | { kind: "text"; key: number; text: string }
+    /** Something the agent said. `streaming` while its end has not arrived yet. */
+    | { kind: "text"; key: number; text: string; streaming: boolean }
     | { kind: "tool"; key: number; name: string; input: unknown; result: ToolResult | null }
     /** A request nobody has decided yet. It leaves the transcript once it is. */
     | {
@@ -53,9 +54,10 @@ function single(event: AgentEvent, key: number): Item | null {
         case "user_message":
             return { kind: "user", key, text: event.text };
         case "text":
+            return { kind: "text", key, text: event.text, streaming: false };
         // A reply still being written reads like a finished one, and becomes one in place.
         case "text_delta":
-            return { kind: "text", key, text: event.text };
+            return { kind: "text", key, text: event.text, streaming: true };
         case "terminal_shared":
             return { kind: "terminal", key, text: event.text };
         case "init":
