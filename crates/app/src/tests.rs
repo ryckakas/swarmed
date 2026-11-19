@@ -59,6 +59,7 @@ fn app() -> App {
         worktrees_root: root.join("worktrees"),
         claude_config: root.join("claude.json"),
         codex_config: root.join("codex.toml"),
+        opencode_config_dir: root.join("opencode"),
     };
     let core = Core::with_backend(paths, Arc::new(FakeBackend::default())).expect("core opens");
     let app = with_core(mock_builder(), Arc::new(core))
@@ -599,6 +600,7 @@ fn an_agents_html_is_served_from_its_own_origin_under_its_own_policy() {
         worktrees_root: dir.path().join("worktrees"),
         claude_config: dir.path().join("claude.json"),
         codex_config: dir.path().join("codex.toml"),
+        opencode_config_dir: dir.path().join("opencode"),
     };
     let core = Core::with_backend(paths, Arc::new(FakeBackend::default())).expect("core opens");
     let id = core.view_put("<p>sorted</p>".to_string());

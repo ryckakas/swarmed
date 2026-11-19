@@ -17,11 +17,13 @@ pub struct Paths {
     pub claude_config: PathBuf,
     /// Codex's own config file, which is only ever read, to show the MCP servers it lists.
     pub codex_config: PathBuf,
+    /// OpenCode's own configuration directory, which is only ever read, for the same reason.
+    pub opencode_config_dir: PathBuf,
 }
 
 impl Paths {
     /// The default locations, overridable with `SWARMED_DATA_DIR`, `SWARMED_WORKTREES_DIR`,
-    /// `SWARMED_CLAUDE_CONFIG` and `SWARMED_CODEX_CONFIG`.
+    /// `SWARMED_CLAUDE_CONFIG`, `SWARMED_CODEX_CONFIG` and `SWARMED_OPENCODE_CONFIG_DIR`.
     pub fn from_env() -> Result<Self> {
         let home = std::env::home_dir().ok_or(Error::NoHome)?;
         let data_dir = std::env::var_os("SWARMED_DATA_DIR")
@@ -32,11 +34,14 @@ impl Paths {
             .map_or_else(|| home.join(".claude.json"), PathBuf::from);
         let codex_config = std::env::var_os("SWARMED_CODEX_CONFIG")
             .map_or_else(|| home.join(".codex/config.toml"), PathBuf::from);
+        let opencode_config_dir = std::env::var_os("SWARMED_OPENCODE_CONFIG_DIR")
+            .map_or_else(|| home.join(".config/opencode"), PathBuf::from);
         Ok(Self {
             data_dir,
             worktrees_root,
             claude_config,
             codex_config,
+            opencode_config_dir,
         })
     }
 

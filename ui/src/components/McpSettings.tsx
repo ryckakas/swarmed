@@ -127,6 +127,12 @@ const AGENT_GROUPS = [
         about: "The servers in Codex's own configuration. They are managed in Codex, and only Codex uses them.",
         none: "None found in Codex's configuration.",
     },
+    {
+        origin: "opencode",
+        name: "OpenCode",
+        about: "The servers in OpenCode's own configuration. They are managed in OpenCode. It is also given Swarmed's servers and the ones of Claude Code's that Swarmed can read.",
+        none: "None found in OpenCode's configuration. It is still given Swarmed's servers and the ones of Claude Code's that Swarmed can read.",
+    },
 ] as const;
 
 /** How many of an agent's servers there are, and how many of them are in working order. */

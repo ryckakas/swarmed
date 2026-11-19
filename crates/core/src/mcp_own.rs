@@ -17,6 +17,7 @@ use crate::agents::CLAUDE;
 use crate::error::{Error, Result};
 use crate::mcp::{self, McpServer, McpTransport};
 use crate::mcp_codex;
+use crate::mcp_opencode;
 use crate::toolserver::SERVER_NAME;
 
 /// One entry of `mcp.toml`.
@@ -47,7 +48,7 @@ pub struct McpServerView {
     /// The name its tools appear under.
     pub name: String,
     /// Whose it is: `swarmed` for one set up here, `claude` for one of Claude Code's own,
-    /// `codex` for one of Codex's own.
+    /// `codex` or `opencode` for one of that agent's own.
     pub origin: String,
     /// `stdio` for a program, `http` for an address, empty if Swarmed cannot tell.
     pub kind: String,
@@ -239,6 +240,9 @@ impl Core {
             .collect();
         views.extend(self.claude_views(&status, &own));
         views.extend(mcp_codex::codex_views(&self.paths.codex_config));
+        views.extend(mcp_opencode::opencode_views(
+            &self.paths.opencode_config_dir,
+        ));
         Ok(views)
     }
 
