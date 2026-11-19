@@ -364,10 +364,14 @@ async fn an_agent_that_cannot_be_started_is_an_error_not_a_hang() {
         ..Default::default()
     };
     let session = core.session_new("demo", "one", &options).expect("creates");
-    assert!(matches!(
-        core.session_start(session.id, Auth::Subscription),
-        Err(Error::Io(_))
-    ));
+    // And the error names the program and what to do, not just the system's "No such file".
+    let failed = core.session_start(session.id, Auth::Subscription);
+    assert!(
+        matches!(&failed, Err(Error::AgentMissing(program)) if program == "/nonexistent/agent"),
+        "{failed:?}"
+    );
+    let said = failed.expect_err("fails").to_string();
+    assert!(said.contains("Settings, under Agents"), "{said}");
     assert_eq!(core.running_sessions(), [0_i64; 0]);
 }
 

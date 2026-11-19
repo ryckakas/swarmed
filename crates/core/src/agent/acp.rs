@@ -42,6 +42,17 @@ fn missing_pipe() -> Error {
     Error::Io(std::io::Error::other("the agent's pipes are missing"))
 }
 
+impl AcpBackend {
+    /// Why the agent's program could not be started, said so that the user can act on it: a
+    /// bare "No such file or directory" does not say which file, or what to do.
+    fn not_started(&self, error: std::io::Error) -> Error {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            return Error::AgentMissing(self.program.to_string_lossy().into_owned());
+        }
+        error.into()
+    }
+}
+
 impl AgentBackend for AcpBackend {
     fn start(&self, spec: SessionSpec) -> Result<AgentHandle> {
         let mut child = Command::new(&self.program)
@@ -54,7 +65,8 @@ impl AgentBackend for AcpBackend {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true)
-            .spawn()?;
+            .spawn()
+            .map_err(|error| self.not_started(error))?;
         let pid = child.id();
         let stdin = child.stdin.take().ok_or_else(missing_pipe)?;
         let stdout = child.stdout.take().ok_or_else(missing_pipe)?;

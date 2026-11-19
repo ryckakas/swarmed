@@ -97,6 +97,13 @@ pub enum Error {
         /// Why it did not work.
         reason: String,
     },
+    /// An agent's program is not where its configuration says, usually because it is not
+    /// installed.
+    #[error(
+        "the agent's program `{0}` was not found. It is probably not installed: install it \
+         from Settings, under Agents, or correct its path in agents.toml"
+    )]
+    AgentMissing(String),
     /// No agent is configured under this id.
     #[error("agent `{0}` is not configured")]
     AgentNotFound(String),
