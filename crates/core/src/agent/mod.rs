@@ -1,9 +1,10 @@
 //! The interface between the core and whatever runs an agent session.
 //!
 //! The rest of the core only sees [`AgentEvent`]s coming out and [`AgentCommand`]s going in.
-//! [`ClaudeBackend`] drives the real Claude Code CLI; [`FakeBackend`] is a scripted stand-in
-//! for tests and front-end work.
+//! [`ClaudeBackend`] drives the Claude Code CLI, [`AcpBackend`] any agent that speaks the Agent
+//! Client Protocol, and [`FakeBackend`] is a scripted stand-in for tests and front-end work.
 
+mod acp;
 mod claude;
 mod fake;
 
@@ -14,9 +15,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::mpsc;
 
+pub use self::acp::AcpBackend;
 pub use self::claude::ClaudeBackend;
 pub use self::fake::FakeBackend;
 use crate::error::Result;
+use crate::mcp::McpServer;
 
 /// How much the agent may do without asking.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -96,8 +99,8 @@ pub struct SessionSpec {
     pub disallowed_tools: Vec<String>,
     /// Extra instructions appended to the agent's system prompt.
     pub append_system_prompt: Option<String>,
-    /// Extra MCP servers for this session: a map from server name to its config.
-    pub mcp_servers: Option<Value>,
+    /// MCP servers to give the agent, on top of any it finds in its own configuration.
+    pub mcp_servers: Vec<McpServer>,
 }
 
 /// One MCP server a session loaded, and whether it connected.

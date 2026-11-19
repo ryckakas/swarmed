@@ -81,8 +81,7 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
         case "session":
             return (
                 <p className="aside">
-                    {item.model}, {item.login} login, {item.mcp} MCP servers connected,{" "}
-                    {item.skills} skills
+                    {item.model}, {item.login} login, {item.mcp}, {item.skills} skills
                 </p>
             );
         case "turn":

@@ -1,0 +1,221 @@
+//! Calls the app's commands the way the UI does, by name with JSON arguments, on Tauri's mock
+//! runtime. The argument names here are the ones `ui/src/api/tauri.ts` sends: if a command's
+//! parameters are renamed, this is where it shows.
+
+use std::path::Path;
+use std::process::Command;
+use std::sync::Arc;
+use std::time::Duration;
+
+use serde_json::{Value, json};
+use swarmed_core::agent::FakeBackend;
+use swarmed_core::{Core, Paths};
+use tauri::http::HeaderMap;
+use tauri::ipc::{CallbackFn, InvokeBody};
+use tauri::test::{
+    INVOKE_KEY, MockRuntime, get_ipc_response, mock_builder, mock_context, noop_assets,
+};
+use tauri::webview::InvokeRequest;
+use tauri::{Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tempfile::TempDir;
+
+use crate::with_core;
+
+struct App {
+    _dir: TempDir,
+    repo: std::path::PathBuf,
+    window: WebviewWindow<MockRuntime>,
+    /// The page the commands are called from; Tauri checks it against what it serves.
+    origin: Url,
+}
+
+fn git(dir: &Path, args: &[&str]) {
+    let status = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .env("GIT_AUTHOR_NAME", "Test")
+        .env("GIT_AUTHOR_EMAIL", "test@example.com")
+        .env("GIT_COMMITTER_NAME", "Test")
+        .env("GIT_COMMITTER_EMAIL", "test@example.com")
+        .status()
+        .expect("git runs");
+    assert!(status.success(), "git {args:?} failed");
+}
+
+/// The app on the mock runtime, over a core with the scripted agent and one git repository.
+fn app() -> App {
+    let dir = TempDir::new().expect("temp dir");
+    let root = dir.path().canonicalize().expect("temp dir resolves");
+    let repo = root.join("demo");
+    std::fs::create_dir(&repo).expect("repo dir");
+    git(&repo, &["init", "--quiet", "-b", "main"]);
+    std::fs::write(repo.join("README.md"), "demo\n").expect("readme");
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "--quiet", "-m", "init"]);
+
+    let paths = Paths {
+        data_dir: root.join("data"),
+        worktrees_root: root.join("worktrees"),
+        claude_config: root.join("claude.json"),
+    };
+    let core = Core::with_backend(paths, Arc::new(FakeBackend::default())).expect("core opens");
+    let app = with_core(mock_builder(), Arc::new(core))
+        .build(mock_context(noop_assets()))
+        .expect("app builds");
+    let window = WebviewWindowBuilder::new(&app, "main", WebviewUrl::default())
+        .build()
+        .expect("window builds");
+    // The address Tauri serves the app from; a call from anywhere else counts as remote and is
+    // refused. It differs by platform.
+    let local = if cfg!(windows) {
+        "http://tauri.localhost"
+    } else {
+        "tauri://localhost"
+    };
+    let origin = local.parse().expect("url parses");
+    App {
+        _dir: dir,
+        repo,
+        window,
+        origin,
+    }
+}
+
+impl App {
+    /// Invokes a command as the UI would; `Err` holds the error the UI would be shown.
+    fn invoke(&self, command: &str, arguments: Value) -> Result<Value, Value> {
+        let request = InvokeRequest {
+            cmd: command.to_string(),
+            callback: CallbackFn(0),
+            error: CallbackFn(1),
+            url: self.origin.clone(),
+            body: InvokeBody::Json(arguments),
+            headers: HeaderMap::default(),
+            invoke_key: INVOKE_KEY.to_string(),
+        };
+        let body = get_ipc_response(&self.window, request)?;
+        body.deserialize::<Value>()
+            .map_err(|e| json!(e.to_string()))
+    }
+
+    fn ok(&self, command: &str, arguments: Value) -> Value {
+        self.invoke(command, arguments)
+            .unwrap_or_else(|error| panic!("`{command}` failed: {error}"))
+    }
+
+    /// Waits for the session to report an event of this type and returns it.
+    fn wait_for_event(&self, id: &Value, kind: &str) -> Value {
+        wait_for_event(self, id, kind)
+    }
+}
+
+fn wait_for_event(app: &App, id: &Value, kind: &str) -> Value {
+    for _ in 0..200 {
+        let events = app.ok("session_events", json!({ "id": id }));
+        let found = events
+            .as_array()
+            .into_iter()
+            .flatten()
+            .rev()
+            .find(|e| e["type"] == kind);
+        if let Some(event) = found {
+            return event.clone();
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("session {id} never reported `{kind}`");
+}
+
+#[test]
+fn the_ui_can_go_from_an_empty_app_to_an_answered_permission_request() {
+    let app = app();
+    assert_eq!(app.ok("overview", json!({})), json!([]));
+    assert_eq!(app.ok("agents", json!({}))[0]["id"], "claude");
+
+    let project = app.ok("project_add", json!({ "path": app.repo, "name": null }));
+    assert_eq!(project["name"], "demo");
+    git(&app.repo, &["branch", "feature/existing"]);
+    let choices = app.ok("branch_choices", json!({ "project": "demo" }));
+    assert_eq!(
+        choices,
+        json!({ "base": "main", "existing": ["feature/existing"] })
+    );
+    let on_branch = json!({ "project": "demo", "name": "two", "branch": "feature/existing" });
+    assert_eq!(app.ok("task_new", on_branch)["branch"], "feature/existing");
+    let task = app.ok(
+        "task_new",
+        json!({ "project": "demo", "name": "one", "branch": null }),
+    );
+    assert_eq!(
+        (&task["name"], &task["setup"]),
+        (&json!("one"), &json!("ok"))
+    );
+    let session = app.ok(
+        "session_new",
+        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "ask" }),
+    );
+    let id = &session["id"];
+
+    app.ok("session_send", json!({ "id": id, "text": "run: ls" }));
+    let request = app.wait_for_event(id, "permission_request");
+    let overview = app.ok("overview", json!({}));
+    assert_eq!(overview[0]["tasks"][1]["running"], json!([id]));
+    assert_eq!(overview[0]["tasks"][1]["sessions"][0]["title"], "run: ls");
+
+    app.ok(
+        "session_allow",
+        json!({ "id": id, "requestId": request["request_id"] }),
+    );
+    let result = app.wait_for_event(id, "tool_result");
+    assert_eq!(result["is_error"], false);
+    app.wait_for_event(id, "turn_done");
+}
+
+#[test]
+fn the_ui_can_deny_interrupt_stop_and_remove() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    app.ok(
+        "task_new",
+        json!({ "project": "demo", "name": "one", "branch": null }),
+    );
+    let session = app.ok(
+        "session_new",
+        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "auto" }),
+    );
+    let id = &session["id"];
+    assert_eq!(session["supervision"], "auto");
+
+    app.ok("session_send", json!({ "id": id, "text": "run: rm -rf /" }));
+    let request = app.wait_for_event(id, "permission_request");
+    let deny = json!({ "id": id, "requestId": request["request_id"], "reason": "no" });
+    app.ok("session_deny", deny);
+    assert_eq!(app.wait_for_event(id, "tool_result")["is_error"], true);
+    app.wait_for_event(id, "turn_done");
+
+    app.ok("session_send", json!({ "id": id, "text": "slow" }));
+    app.wait_for_event(id, "text");
+    app.ok("session_interrupt", json!({ "id": id }));
+    app.ok("session_stop", json!({ "id": id }));
+    app.wait_for_event(id, "exited");
+
+    let remove = json!({ "project": "demo", "name": "one", "force": false, "deleteBranch": true });
+    app.ok("task_remove", remove);
+    assert_eq!(
+        app.ok("overview", json!({}))[0]["tasks"][0]["archived"],
+        true
+    );
+}
+
+#[test]
+fn a_core_error_reaches_the_ui_as_its_message() {
+    let app = app();
+    let missing = app.invoke(
+        "task_new",
+        json!({ "project": "nope", "name": "one", "branch": null }),
+    );
+    assert_eq!(missing, Err(json!("project `nope` not found")));
+    let not_running = app.invoke("session_interrupt", json!({ "id": 7 }));
+    assert_eq!(not_running, Err(json!("session 7 is not running")));
+}

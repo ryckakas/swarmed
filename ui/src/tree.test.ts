@@ -6,8 +6,11 @@ import {
     countWaiting,
     findSession,
     findSessionHome,
+    taskNameForPrompt,
+    taskNameFrom,
     taskStatus,
     titleFrom,
+    uniqueTaskName,
     withSessionStatus,
 } from "./tree";
 
@@ -95,5 +98,38 @@ describe("lookups", () => {
         const [hero, bonsai] = sampleProjects();
         expect(hero?.tasks.map(taskStatus)).toEqual(["waiting", "idle", null]);
         expect(bonsai?.tasks.map(taskStatus)).toEqual(["errored"]);
+    });
+});
+
+describe("taskNameFrom", () => {
+    it("turns typed text into a name the core accepts", () => {
+        expect(taskNameFrom("Fix the Login redirect!")).toBe("fix-the-login-redirect");
+        expect(taskNameFrom("PM-16037")).toBe("pm-16037");
+        expect(taskNameFrom("  ../up  ")).toBe("up");
+        expect(taskNameFrom("v1..2")).toBe("v1.2");
+        expect(taskNameFrom("???")).toBe("");
+        expect(taskNameFrom("x".repeat(100))).toHaveLength(64);
+    });
+});
+
+describe("taskNameForPrompt", () => {
+    it("names a task after the first line of its prompt, cut at a word", () => {
+        expect(taskNameForPrompt("Fix the login redirect\nUsers get stuck")).toBe(
+            "fix-the-login-redirect",
+        );
+        const long = taskNameForPrompt(
+            "Investigate why the nightly export job drops the VAT column",
+        );
+        expect(long).toBe("investigate-why-the-nightly-export-job");
+        expect(taskNameForPrompt("x".repeat(100))).toHaveLength(40);
+        expect(taskNameForPrompt("???")).toBe("task");
+    });
+});
+
+describe("uniqueTaskName", () => {
+    it("adds a number only when the name is taken", () => {
+        expect(uniqueTaskName("fix", [])).toBe("fix");
+        expect(uniqueTaskName("fix", ["fix"])).toBe("fix-2");
+        expect(uniqueTaskName("fix", ["fix", "fix-2"])).toBe("fix-3");
     });
 });

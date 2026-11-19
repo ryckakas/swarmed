@@ -108,7 +108,9 @@ code {
 }
 
 .project-name {
-    padding: var(--space-1) var(--space-4);
+    flex: 1;
+    min-width: 0;
+    padding: var(--space-1) var(--space-2) var(--space-1) var(--space-4);
     font-size: var(--text-sm);
     font-weight: 700;
     letter-spacing: 0.01em;
@@ -118,12 +120,12 @@ code {
     margin-top: var(--space-1);
 }
 
-.task-head {
+.row-head {
     display: flex;
     align-items: center;
 }
 
-.task-add {
+.row-add {
     flex: none;
     width: 22px;
     height: 22px;
@@ -137,8 +139,8 @@ code {
     line-height: 1;
 }
 
-.task-add:hover,
-.task-add:focus-visible {
+.row-add:hover,
+.row-add:focus-visible {
     background: var(--raised);
     color: var(--text);
 }
@@ -146,14 +148,14 @@ code {
 .task-name {
     flex: 1;
     min-width: 0;
-    display: flex;
-    align-items: baseline;
-    gap: var(--space-2);
     padding: var(--space-1) var(--space-2) 2px calc(var(--space-4) + var(--space-3));
     color: var(--muted);
     font-family: var(--font-mono);
     font-size: var(--text-xs);
     font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .task-flag {
@@ -218,10 +220,46 @@ code {
     color: var(--muted);
 }
 
-.sidebar-empty code {
+/* Adding things */
+
+.new-task-button {
+    flex: none;
+    margin: 0 var(--space-3) var(--space-2);
+    padding: 6px var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--raised);
     color: var(--text);
-    user-select: text;
-    overflow-wrap: anywhere;
+    font: inherit;
+    font-weight: 600;
+    text-align: left;
+}
+
+.new-task-button:hover {
+    border-color: var(--faint);
+}
+
+.sidebar-bottom {
+    flex: none;
+    padding: var(--space-2) var(--space-3);
+    border-top: 1px solid var(--line);
+}
+
+.quiet-button {
+    width: 100%;
+    padding: 5px var(--space-2);
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    text-align: left;
+}
+
+.quiet-button:hover,
+.quiet-button:focus-visible {
+    background: var(--raised);
+    color: var(--text);
 }
 
 /* Status marks: a shape per status, so colour is never the only signal. */
@@ -573,34 +611,155 @@ code {
     gap: var(--space-2);
 }
 
-/* Composer */
+/* Composer: one rounded box holding the text, the options and a single round button. */
 
 .composer {
     flex: none;
-    display: flex;
-    align-items: flex-end;
-    gap: var(--space-2);
-    padding: var(--space-3) var(--space-8) var(--space-4);
-    border-top: 1px solid var(--line);
+    padding: var(--space-2) var(--space-8) var(--space-4);
 }
 
-.composer textarea {
-    flex: 1;
+.composer-box {
+    display: flex;
+    flex-direction: column;
     max-width: 76ch;
-    padding: var(--space-2) var(--space-3);
     border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: 14px;
     background: var(--panel);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+}
+
+.composer-box:focus-within {
+    border-color: var(--faint);
+}
+
+.composer-box textarea {
+    min-height: 2.9em;
+    max-height: 40vh;
+    padding: var(--space-3) var(--space-4) var(--space-1);
+    border: 0;
+    background: none;
     color: var(--text);
     font: inherit;
     font-size: var(--text-md);
     line-height: 1.45;
     resize: none;
+    outline: none;
     user-select: text;
 }
 
-.composer textarea::placeholder {
+.composer-box textarea::placeholder {
     color: var(--faint);
+}
+
+.composer-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-2) var(--space-2) var(--space-3);
+}
+
+.composer-options {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.option-label {
+    padding: 3px var(--space-2);
+    color: var(--faint);
+    font-size: var(--text-xs);
+}
+
+.picker {
+    max-width: 30ch;
+    /* Room on the right for the chevron that marks it as a menu. */
+    padding: 3px 20px 3px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6' fill='none' stroke='%23878d9c' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E")
+        no-repeat right 7px center / 8px;
+    color: var(--muted);
+    font: inherit;
+    font-size: var(--text-xs);
+    text-overflow: ellipsis;
+    appearance: none;
+}
+
+.picker:hover,
+.picker:focus-visible {
+    border-color: var(--faint);
+    color: var(--text);
+}
+
+.round-button {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    background: var(--raised);
+    color: var(--text);
+}
+
+.round-button svg {
+    width: 16px;
+    height: 16px;
+    fill: currentcolor;
+    stroke: none;
+}
+
+.round-button-send svg {
+    fill: none;
+    stroke: currentcolor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.round-button-send:not(:disabled) {
+    border-color: var(--text);
+    background: var(--text);
+    color: var(--dusk);
+}
+
+.round-button:disabled {
+    color: var(--faint);
+}
+
+/* New task: the same box, in the middle of an otherwise empty window. */
+
+.new-task {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: var(--space-4);
+    width: min(76ch, 100% - 2 * var(--space-8));
+    margin: 0 auto;
+    /* Sits a little above the middle, where the eye rests. */
+    padding-bottom: 12vh;
+}
+
+.new-task h1 {
+    font-size: var(--text-xl);
+    font-weight: 650;
+    letter-spacing: -0.01em;
+}
+
+.new-task-note {
+    min-height: 1.5em;
+    padding-left: var(--space-4);
+    color: var(--faint);
+    font-size: var(--text-xs);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* Buttons */
@@ -631,4 +790,9 @@ code {
 
 .notice .button {
     margin-top: var(--space-4);
+}
+
+.add-first {
+    justify-self: start;
+    margin-top: var(--space-2);
 }

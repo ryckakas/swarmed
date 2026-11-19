@@ -125,6 +125,9 @@ const MIGRATIONS: &[&str] = &[
     );
     CREATE INDEX session_events_by_session ON session_events(session_id, id);
 ",
+    "
+    ALTER TABLE sessions ADD COLUMN agent TEXT NOT NULL DEFAULT 'claude';
+",
 ];
 
 const TASK_SELECT: &str = "SELECT id, project_id, name, branch, base_ref, worktree_path, slot, \
@@ -167,6 +170,14 @@ impl Store {
                 params![name],
                 project_from_row,
             )
+            .optional()?)
+    }
+
+    pub(crate) fn project_by_id(&self, id: i64) -> Result<Option<Project>> {
+        let sql = "SELECT id, name, repo_path FROM projects WHERE id = ?1";
+        Ok(self
+            .conn
+            .query_row(sql, params![id], project_from_row)
             .optional()?)
     }
 

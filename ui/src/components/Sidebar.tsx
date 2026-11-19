@@ -8,6 +8,7 @@ import { StatusMark } from "./StatusMark";
 export function Sidebar() {
     const projects = useStore((state) => state.projects);
     const load = useStore((state) => state.load);
+    const startNew = useStore((state) => state.startNew);
     const waiting = countWaiting(projects);
 
     return (
@@ -19,12 +20,28 @@ export function Sidebar() {
                     </span>
                 )}
             </div>
+            {projects.length > 0 && (
+                <button type="button" className="new-task-button" onClick={() => startNew()}>
+                    New task
+                </button>
+            )}
             <div className="sidebar-scroll">
                 {load === "ready" && projects.length === 0 && <NoProjects />}
                 {projects.map((project) => (
                     <ProjectGroup key={project.id} project={project} />
                 ))}
             </div>
+            {projects.length > 0 && (
+                <div className="sidebar-bottom">
+                    <button
+                        type="button"
+                        className="quiet-button"
+                        onClick={() => void addProject()}
+                    >
+                        Add repository
+                    </button>
+                </div>
+            )}
         </nav>
     );
 }
@@ -44,21 +61,53 @@ function moveFocus(event: KeyboardEvent<HTMLElement>) {
     }
 }
 
+/** Asks for a folder and registers the repository it is in. */
+async function addProject() {
+    const { refresh, report } = useStore.getState();
+    try {
+        const path = await api.pickFolder();
+        if (path !== null) {
+            await api.projectAdd(path);
+            await refresh(api);
+        }
+    } catch (error) {
+        report(error);
+    }
+}
+
 function NoProjects() {
     return (
         <div className="sidebar-empty">
-            <p>No projects yet.</p>
-            <p>Add a repository from a terminal:</p>
-            <code>swarmed project add ~/code/my-repo</code>
+            <p>No repositories yet.</p>
+            <p>Add one to start a task in it. Swarmed never writes into the repository itself.</p>
+            <button
+                type="button"
+                className="button button-primary"
+                onClick={() => void addProject()}
+            >
+                Add repository
+            </button>
         </div>
     );
 }
 
 function ProjectGroup({ project }: { project: Project }) {
+    const startNew = useStore((state) => state.startNew);
     const tasks = project.tasks.filter((task) => !task.archived);
     return (
         <section className="project">
-            <h2 className="project-name">{project.name}</h2>
+            <div className="row-head">
+                <h2 className="project-name">{project.name}</h2>
+                <button
+                    type="button"
+                    className="row-add"
+                    aria-label={`New task in ${project.name}`}
+                    title="New task"
+                    onClick={() => startNew(project.name)}
+                >
+                    +
+                </button>
+            </div>
             {tasks.length === 0 && <p className="hint">No tasks</p>}
             {tasks.map((task) => (
                 <TaskGroup key={task.id} project={project.name} task={task} />
@@ -71,7 +120,11 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
     const newSession = async () => {
         const { refresh, open, report } = useStore.getState();
         try {
-            const session = await api.sessionNew(project, task.name);
+            const session = await api.sessionNew(project, task.name, {
+                agent: null,
+                model: null,
+                supervision: "ask",
+            });
             await refresh(api);
             await open(api, session.id);
         } catch (error) {
@@ -80,14 +133,14 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
     };
     return (
         <div className="task">
-            <div className="task-head">
+            <div className="row-head">
                 <h3 className="task-name">
                     {task.name}
                     {task.setup === "failed" && <span className="task-flag">setup failed</span>}
                 </h3>
                 <button
                     type="button"
-                    className="task-add"
+                    className="row-add"
                     aria-label={`New session in ${task.name}`}
                     title="New session"
                     onClick={() => void newSession()}

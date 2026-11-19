@@ -4,8 +4,9 @@ Parallel Claude Code sessions, each in its own git worktree with a fully isolate
 A personal tool with a Rust core; the desktop app (Tauri) comes later.
 
 Status: early. The core and CLI work. In the desktop app you can start sessions, talk to the
-agent, answer its permission requests and stop a turn. Tasks are still created from the CLI, and
-there is no view of the changes yet.
+agent, answer its permission requests and stop a turn. Add a repository from the sidebar, then
+start a task by typing what you want done and choosing the repository, branch, supervision and
+model under the message box. There is no view of the changes yet.
 
 ## Layout
 
@@ -41,6 +42,38 @@ corepack enable && pnpm install
 pnpm app            # builds and opens the app
 pnpm dev            # the UI alone in a browser, on sample data
 ```
+
+## Other agents
+
+Sessions run on Claude Code unless told otherwise. Any agent that speaks the
+[Agent Client Protocol](https://agentclientprotocol.com) can be added in `agents.toml` in the data
+directory (`swarmed agents` prints its path):
+
+```toml
+[opencode]
+name = "OpenCode"
+command = "opencode"
+args = ["acp"]
+models = ["openrouter/openai/gpt-5.6"]   # offered in the model menu
+
+[opencode.env]                           # optional extra environment for the agent
+# OPENROUTER_API_KEY = "..."
+```
+
+The agent keeps its own credentials: sign in with the agent's own command first (for OpenCode,
+`opencode auth login`). It then appears in the app's agent menu and as `--agent opencode` in the
+CLI.
+
+What such a session gets:
+
+- **MCP servers:** Swarmed reads the servers configured for Claude Code (your own, the
+  repository's `.mcp.json`, and yours for that repository) and hands them to the agent. Set
+  `claude_code_mcp_servers = false` on an agent to turn that off. HTTP servers only go to agents
+  that accept them.
+- **Skills:** nothing to do for agents that read `~/.claude/skills` and `.claude/skills`
+  themselves, which OpenCode and Goose do.
+- **Not available:** claude.ai connectors, which are signed in through your Anthropic account,
+  and Claude Code's hooks.
 
 ## Development
 

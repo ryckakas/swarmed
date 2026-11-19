@@ -7,6 +7,8 @@ export type SetupStatus = "pending" | "ok" | "failed";
 export interface Session {
     id: number;
     task_id: number;
+    /** The id of the agent that runs the session. */
+    agent: string;
     title: string;
     agent_session_id: string | null;
     model: string | null;
@@ -72,4 +74,36 @@ export interface SessionEvent {
     /** The session's status after this event, if the event changed it. */
     status: SessionStatus | null;
     event: AgentEvent;
+}
+
+/** One line a hook printed, with the task it belongs to. */
+export interface HookOutput {
+    project: string;
+    task: string;
+    line: string;
+}
+
+/** What a new task in a project can start from. */
+export interface BranchChoices {
+    /** The ref a new branch would be created from. */
+    base: string;
+    /** Existing branches a task could check out instead. */
+    existing: string[];
+}
+
+/** An agent sessions can run on. */
+export interface AgentInfo {
+    id: string;
+    name: string;
+    /** Model names worth offering for it. */
+    models: string[];
+}
+
+/** How a new session should run. */
+export interface SessionSetup {
+    /** An agent id, or `null` for Claude Code. */
+    agent: string | null;
+    /** A model name the agent accepts, or `null` for its default. */
+    model: string | null;
+    supervision: Supervision;
 }

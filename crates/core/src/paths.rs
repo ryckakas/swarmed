@@ -9,19 +9,25 @@ pub struct Paths {
     pub data_dir: PathBuf,
     /// Parent of all task worktrees: `<worktrees_root>/<project>/<task>`.
     pub worktrees_root: PathBuf,
+    /// Claude Code's own config file, which is only ever read: it lists the user's MCP servers.
+    pub claude_config: PathBuf,
 }
 
 impl Paths {
-    /// The default locations, overridable with `SWARMED_DATA_DIR` and `SWARMED_WORKTREES_DIR`.
+    /// The default locations, overridable with `SWARMED_DATA_DIR`, `SWARMED_WORKTREES_DIR` and
+    /// `SWARMED_CLAUDE_CONFIG`.
     pub fn from_env() -> Result<Self> {
         let home = std::env::home_dir().ok_or(Error::NoHome)?;
         let data_dir = std::env::var_os("SWARMED_DATA_DIR")
             .map_or_else(|| default_data_dir(&home), PathBuf::from);
         let worktrees_root = std::env::var_os("SWARMED_WORKTREES_DIR")
             .map_or_else(|| home.join("swarmed"), PathBuf::from);
+        let claude_config = std::env::var_os("SWARMED_CLAUDE_CONFIG")
+            .map_or_else(|| home.join(".claude.json"), PathBuf::from);
         Ok(Self {
             data_dir,
             worktrees_root,
+            claude_config,
         })
     }
 
@@ -29,6 +35,12 @@ impl Paths {
     #[must_use]
     pub fn db_file(&self) -> PathBuf {
         self.data_dir.join("swarmed.db")
+    }
+
+    /// The file that lists the ACP agents sessions can run on, besides Claude Code.
+    #[must_use]
+    pub fn agents_config(&self) -> PathBuf {
+        self.data_dir.join("agents.toml")
     }
 
     /// The local config file of `project`.

@@ -1,19 +1,23 @@
-import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import type { SessionStatus } from "../api/types";
+import type { Session } from "../api/types";
 import { useStore } from "../store";
+import { ComposerBox } from "./ComposerBox";
+import { CLAUDE, modelLabel, SUPERVISION_LABELS } from "./options";
 
-const PLACEHOLDER: Record<SessionStatus, string> = {
-    idle: "Message the agent",
+const PLACEHOLDER: Record<Session["status"], string> = {
+    idle: "Reply to the agent",
     working: "The agent is working. Press Esc to stop it.",
     waiting: "Answer the request above first",
     errored: "Send a message to start the agent again",
 };
 
-export function Composer({ sessionId, status }: { sessionId: number; status: SessionStatus }) {
+/** The message box of an existing session. */
+export function Composer({ session }: { session: Session }) {
     const [text, setText] = useState("");
     const report = useStore((state) => state.report);
     const input = useRef<HTMLTextAreaElement>(null);
+    const { id, status } = session;
     const busy = status === "working" || status === "waiting";
     const canSend = !busy && text.trim() !== "";
 
@@ -29,49 +33,26 @@ export function Composer({ sessionId, status }: { sessionId: number; status: Ses
     const send = () => {
         if (canSend) {
             setText("");
-            api.sessionSend(sessionId, text.trim()).catch(report);
+            api.sessionSend(id, text.trim()).catch(report);
         }
     };
-    const stop = () => api.sessionInterrupt(sessionId).catch(report);
-
-    const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-        // Enter sends; Shift+Enter is a new line. Enter that confirms an IME candidate is neither.
-        if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-            event.preventDefault();
-            send();
-        } else if (event.key === "Escape" && status === "working") {
-            void stop();
-        }
-    };
+    const stop = () => void api.sessionInterrupt(id).catch(report);
 
     return (
-        <form
-            className="composer"
-            onSubmit={(event) => {
-                event.preventDefault();
-                send();
-            }}
-        >
-            <textarea
-                ref={input}
-                aria-label="Message"
-                rows={3}
+        <div className="composer">
+            <ComposerBox
                 value={text}
+                onChange={setText}
+                onSend={send}
+                onStop={status === "working" ? stop : undefined}
+                canSend={canSend}
                 placeholder={PLACEHOLDER[status]}
-                onChange={(event) => setText(event.target.value)}
-                onKeyDown={onKeyDown}
-            />
-            <div className="composer-actions">
-                {status === "working" ? (
-                    <button type="button" className="button" onClick={stop}>
-                        Stop
-                    </button>
-                ) : (
-                    <button type="submit" className="button button-primary" disabled={!canSend}>
-                        Send
-                    </button>
-                )}
-            </div>
-        </form>
+                inputRef={input}
+            >
+                <span className="option-label">{SUPERVISION_LABELS[session.supervision]}</span>
+                {session.agent !== CLAUDE && <span className="option-label">{session.agent}</span>}
+                <span className="option-label">{modelLabel(session.model)}</span>
+            </ComposerBox>
+        </div>
     );
 }

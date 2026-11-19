@@ -19,6 +19,7 @@ use super::{
     Supervision,
 };
 use crate::error::{Error, Result};
+use crate::mcp::{McpServer, McpTransport};
 
 /// How much of the process's stderr is kept for [`AgentEvent::Exited`].
 const STDERR_TAIL_CHARS: usize = 2000;
@@ -95,13 +96,25 @@ fn args(spec: &SessionSpec) -> Vec<String> {
     flag("--allowedTools", joined(&spec.allowed_tools));
     flag("--disallowedTools", joined(&spec.disallowed_tools));
     flag("--append-system-prompt", spec.append_system_prompt.clone());
-    flag(
-        "--mcp-config",
-        spec.mcp_servers
-            .as_ref()
-            .map(|s| json!({ "mcpServers": s }).to_string()),
-    );
+    flag("--mcp-config", mcp_config(&spec.mcp_servers));
     args
+}
+
+/// The servers as the `--mcp-config` JSON Claude Code takes, or `None` if there are none.
+fn mcp_config(servers: &[McpServer]) -> Option<String> {
+    let definition = |server: &McpServer| match &server.transport {
+        McpTransport::Stdio { command, args, env } => {
+            json!({ "type": "stdio", "command": command, "args": args, "env": env })
+        }
+        McpTransport::Http { url, headers } => {
+            json!({ "type": "http", "url": url, "headers": headers })
+        }
+    };
+    let by_name: serde_json::Map<String, Value> = servers
+        .iter()
+        .map(|server| (server.name.clone(), definition(server)))
+        .collect();
+    (!by_name.is_empty()).then(|| json!({ "mcpServers": by_name }).to_string())
 }
 
 /// Shapes the child's environment for the chosen credentials.
@@ -391,6 +404,8 @@ fn tail(text: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
 
     fn parse(value: &Value) -> Vec<AgentEvent> {
@@ -515,9 +530,13 @@ mod tests {
             resume: Some("abc".into()),
             allowed_tools: vec!["Bash(git add:*)".into(), "Bash(git commit:*)".into()],
             disallowed_tools: vec!["Bash(git push --force:*)".into()],
-            mcp_servers: Some(
-                json!({ "swarmed": { "type": "http", "url": "http://127.0.0.1:1" } }),
-            ),
+            mcp_servers: vec![McpServer {
+                name: "swarmed".into(),
+                transport: McpTransport::Http {
+                    url: "http://127.0.0.1:1".into(),
+                    headers: BTreeMap::new(),
+                },
+            }],
             ..SessionSpec::default()
         };
         let args = args(&spec).join(" ");

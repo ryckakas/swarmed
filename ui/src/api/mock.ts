@@ -1,5 +1,13 @@
 import type { Api } from "./client";
-import type { AgentEvent, Project, Session, SessionEvent, SessionStatus, Task } from "./types";
+import type {
+    AgentEvent,
+    HookOutput,
+    Project,
+    Session,
+    SessionEvent,
+    SessionStatus,
+    Task,
+} from "./types";
 
 // Sample data and a scripted agent, for working on the UI in a browser where there is no Tauri
 // shell. The agent behaves like the core's FakeBackend: plain text is echoed, `run: <command>`
@@ -9,6 +17,7 @@ function session(id: number, taskId: number, title: string, status: SessionStatu
     return {
         id,
         task_id: taskId,
+        agent: "claude",
         title,
         agent_session_id: `mock-${id}`,
         model: null,
@@ -285,14 +294,63 @@ class MockAgent {
 export function createMockApi(): Api {
     const agent = new MockAgent();
     const tasks = () => agent.projects.flatMap((project) => project.tasks);
+    const hookListeners = new Set<(output: HookOutput) => void>();
     return {
         overview: async () => structuredClone(agent.projects),
-        sessionNew: async (_project, taskName) => {
+        agents: async () => [
+            { id: "claude", name: "Claude Code", models: ["opus", "sonnet", "haiku", "fable"] },
+            {
+                id: "opencode",
+                name: "OpenCode",
+                models: ["openrouter/openai/gpt-5.6", "openrouter/google/gemini-3-pro"],
+            },
+        ],
+        pickFolder: async () => "/Users/you/code/new-repo",
+        projectAdd: async (path) => {
+            const name = path.split("/").pop() ?? "repo";
+            if (agent.projects.some((project) => project.name === name)) {
+                throw new Error(`project \`${name}\` already exists`);
+            }
+            const project = { id: agent.projects.length + 1, name, repo_path: path, tasks: [] };
+            agent.projects.push(project);
+            return project;
+        },
+        branchChoices: async (projectName) => ({
+            base: "origin/main",
+            existing: projectName === "hero" ? ["feature/vat-export", "pm-16001-invoices"] : [],
+        }),
+        taskNew: async (projectName, name, branch) => {
+            const project = agent.projects.find((candidate) => candidate.name === projectName);
+            if (!project) {
+                throw new Error(`project \`${projectName}\` not found`);
+            }
+            for (const line of ["Installing dependencies", "Seeding the database"]) {
+                for (const listener of hookListeners) {
+                    listener({ project: projectName, task: name, line });
+                }
+                await new Promise((resolve) => setTimeout(resolve, PACE * 2));
+            }
+            const created = {
+                ...task(Date.now(), project.id, name, []),
+                ...(branch ? { branch } : {}),
+            };
+            project.tasks.push(created);
+            return created;
+        },
+        onHookOutput: async (listener) => {
+            hookListeners.add(listener);
+            return () => hookListeners.delete(listener);
+        },
+        sessionNew: async (_project, taskName, setup) => {
             const home = tasks().find((candidate) => candidate.name === taskName);
             if (!home) {
                 throw new Error(`task \`${taskName}\` not found`);
             }
-            const created = agent.newSession(home.id);
+            const created = {
+                ...agent.newSession(home.id),
+                ...setup,
+                agent: setup.agent ?? "claude",
+            };
             home.sessions.push(created);
             return created;
         },

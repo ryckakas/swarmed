@@ -62,13 +62,20 @@ function single(event: AgentEvent, key: number): Item | null {
 }
 
 function sessionItem(event: Extract<AgentEvent, { type: "init" }>, key: number): Item {
-    const connected = event.mcp_servers.filter((server) => server.status === "connected").length;
+    const count = (status: string) =>
+        event.mcp_servers.filter((server) => server.status === status).length;
+    // Claude Code says which servers connected. Other agents are only known to have been given them.
+    const passed = count("passed");
+    const mcp =
+        passed > 0
+            ? `${passed} MCP servers passed to the agent`
+            : `${count("connected")} of ${event.mcp_servers.length} MCP servers connected`;
     return {
         kind: "session",
         key,
         model: event.model,
         login: event.api_key_source === "none" ? "subscription" : event.api_key_source,
-        mcp: `${connected} of ${event.mcp_servers.length}`,
+        mcp,
         skills: event.skills,
     };
 }

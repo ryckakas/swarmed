@@ -52,7 +52,12 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   core exposes typed operations and knows nothing about its front ends.
 - **Nothing is written into a user's repository.** Config and state live in the data directory
   (`Paths`); worktrees live under `~/swarmed/<project>/<task>`.
-- **Agents sit behind `AgentBackend`** (`agent/`). `ClaudeBackend` drives the installed `claude`
+- **Agents sit behind `AgentBackend`** (`agent/`), and a session records which agent runs it.
+  `agents.rs` holds the registry: Claude Code, plus the ACP agents listed in the user's
+  `agents.toml`. `AcpBackend` (`agent/acp.rs`) speaks the Agent Client Protocol to any of them;
+  its tests run against a scripted agent in `tests/fixtures/fake_acp_agent.py`. Anything that
+  only Claude Code has (allow rules, appended instructions, its config) must not be assumed for
+  other agents. `ClaudeBackend` drives the installed `claude`
   CLI over its line-delimited JSON protocol, which has no specification: `agent/claude.rs` is the
   only file that knows its shapes, and it must tolerate unknown messages. `FakeBackend` is the
   scripted agent the tests use; `SWARMED_FAKE_AGENT=1` selects it in the CLI.
@@ -61,6 +66,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   `Core::subscribe`. Events are stored before they are published.
 - **The app crate holds no logic.** A command in `crates/app/src/commands.rs` calls one core
   function. If the UI needs something new, it is added to the core and tested there first.
+- **`crates/app/src/tests.rs` calls every command the way the UI does,** by name with JSON
+  arguments, on Tauri's mock runtime. Nobody can look inside the native window from CI, so a
+  new or changed command gets a call there, with the argument names `ui/src/api/tauri.ts` sends.
 - **The UI talks to the app through `Api`** (`ui/src/api/client.ts`). `tauri.ts` is the real one;
   `mock.ts` serves sample data when the UI runs in a plain browser. `types.ts` mirrors what the
   core serialises by hand, with the core's snake_case field names: change both together.
@@ -70,6 +78,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **Check UI changes in a browser** with `pnpm dev`. The mock agent answers plain text, asks
   permission for `run: <command>`, and runs until stopped for `slow`; one sample session has
   2,000 messages for checking scroll speed.
+- **MCP servers are read from Claude Code's configuration** (`mcp.rs`) and handed to every agent
+  that does not read it itself. The definitions hold secrets: they are passed on and never
+  logged, and their `Debug` output leaves values out. Keep it that way.
 - **Swarmed never handles Claude.ai credentials.** It only shapes the child's environment (`Auth`).
 - **Session events are stored as JSON** (`AgentEvent`), so its variants and fields are only added,
   never renamed.
