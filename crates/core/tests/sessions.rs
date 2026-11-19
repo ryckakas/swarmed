@@ -608,6 +608,8 @@ async fn a_closed_session_stops_and_leaves_the_lists_but_keeps_its_history() {
     turn(&mut bus, session.id).await;
 
     core.session_close(session.id).expect("closes");
+    // Every front end is told, so the session leaves their lists too; then its agent exits.
+    assert_eq!(next(&mut bus).await.event, AgentEvent::Closed);
     assert!(matches!(
         next(&mut bus).await.event,
         AgentEvent::Exited { .. }
@@ -616,7 +618,7 @@ async fn a_closed_session_stops_and_leaves_the_lists_but_keeps_its_history() {
     assert_eq!(core.sessions("demo", "one").expect("lists"), vec![]);
     let overview = core.overview().expect("reads");
     assert_eq!(overview[0].tasks[0].sessions, vec![]);
-    assert_eq!(core.session_events(session.id).expect("kept").len(), 5);
+    assert_eq!(core.session_events(session.id).expect("kept").len(), 6);
     assert!(matches!(
         core.session_close(404),
         Err(Error::SessionNotFound(404))

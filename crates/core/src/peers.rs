@@ -42,6 +42,8 @@ conversation, at once if it is idle, else when its turn ends.
 of the work that can go on beside you. It shares your files, so give it a part that does not \
 collide with what you are editing. It is told to report back to you with `send_message` when \
 it is done; you do not have to wait for it.
+- `close_session`: put away a session you spawned, once it is done and you have what you need \
+from it. You cannot close any other session.
 
 Use these when they help the user's task, not as a matter of course. A session you spawn costs \
 the user money like any other.";
@@ -229,6 +231,25 @@ impl Core {
         self.session(child.id)
     }
 
+    /// Closes session `id` on behalf of session `from`, which has to be the one that started
+    /// it, and only once it is idle. A session the user started, or another agent's, is not an
+    /// agent's to put away; and closing one in the middle of a turn would throw its work away.
+    pub fn peer_close(&self, from: i64, id: i64) -> Result<()> {
+        self.session(from)?;
+        let session = self.session(id)?;
+        if session.spawned_by != Some(from) {
+            return Err(refused(
+                "a session can only close sessions it started itself; this one is not yours",
+            ));
+        }
+        if is_busy(&session) {
+            return Err(refused(
+                "that session is still at work; wait until it is done before closing it",
+            ));
+        }
+        self.session_close(id)
+    }
+
     /// Answers one request of the tool server: `tool` called by session `from` with
     /// `arguments`. The answer is text for the agent; a refusal is an error, also as text.
     fn peer_call(&self, from: i64, tool: &str, arguments: &Value) -> Result<String> {
@@ -253,6 +274,13 @@ impl Core {
                     "Started session {}. It works beside you in this worktree and will report \
                      back with a message when it is done.",
                     session.id
+                ))
+            }
+            "close_session" => {
+                let closed = other()?;
+                self.peer_close(from, closed)?;
+                Ok(format!(
+                    "Closed session {closed}. The user can reopen it from the sidebar."
                 ))
             }
             _ => Err(refused(format!("Swarmed has no tool called `{tool}`"))),

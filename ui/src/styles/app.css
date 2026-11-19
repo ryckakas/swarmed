@@ -703,6 +703,54 @@ code {
     white-space: nowrap;
 }
 
+/* A task's closed sessions: one quiet line that unfolds into them. */
+.closed-toggle {
+    margin-left: calc(var(--space-4) + var(--space-3) - 2px);
+    padding: 1px var(--space-2);
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--faint);
+    font: inherit;
+    font-size: var(--text-xs);
+}
+
+.closed-toggle:hover,
+.closed-toggle:focus-visible {
+    background: var(--raised);
+    color: var(--text);
+}
+
+.closed-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 2px var(--space-2) 2px calc(var(--space-4) + var(--space-3) + var(--space-2));
+    color: var(--faint);
+}
+
+.closed-row .session-title {
+    flex: 1;
+    min-width: 0;
+}
+
+.closed-reopen {
+    flex: none;
+    padding: 0 var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: var(--text-xs);
+}
+
+.closed-reopen:hover,
+.closed-reopen:focus-visible {
+    border-color: var(--faint);
+    color: var(--text);
+}
+
 /* A session an agent started sits under its starter, one step in. */
 .sessions li[data-nested="true"] .session-row {
     padding-left: calc(9px + var(--space-4));
