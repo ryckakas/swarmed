@@ -255,6 +255,16 @@ function SessionRow({ session }: { session: Session }) {
                 onClick={() => void open(api, session.id)}
             >
                 <StatusMark status={session.status} unread={session.unread} />
+                {session.spawned_by !== null && (
+                    <span
+                        className="session-spawned"
+                        title={`Started by session ${session.spawned_by}`}
+                        aria-label={`Started by session ${session.spawned_by}`}
+                        role="img"
+                    >
+                        ↳
+                    </span>
+                )}
                 <span className="session-title">{title}</span>
             </button>
             <button

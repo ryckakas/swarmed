@@ -222,3 +222,21 @@ describe("views handed over by the tool", () => {
         expect(items.map((item) => item.kind)).toEqual(["tool"]);
     });
 });
+
+describe("a message from another session", () => {
+    it("is shown as that, with its sender, and not as the user's own", () => {
+        const left: AgentEvent = {
+            type: "user_message",
+            text: 'Message from session 4 ("Tests"), another agent session of the same user:\n\nAll green.\nTwo files changed.',
+        };
+        const own: AgentEvent = { type: "user_message", text: "Message from session 4 is late" };
+        const items = toItems([left, own]);
+        expect(items[0]).toMatchObject({
+            kind: "peer",
+            from: 4,
+            title: "Tests",
+            text: "All green.\nTwo files changed.",
+        });
+        expect(items[1]).toMatchObject({ kind: "user" });
+    });
+});

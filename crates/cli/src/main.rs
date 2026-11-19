@@ -204,23 +204,36 @@ async fn main() -> Result<()> {
         let served = swarmed_core::serve_tools(std::io::stdin().lock(), std::io::stdout().lock());
         return Ok(served?);
     }
-    let core = open_core()?;
-    match cli.command {
-        Command::Project(command) => project(&core, command).await,
-        Command::Task(command) => task(&core, command).await,
-        Command::Session(command) => session::session(&core, command).await,
+    let core = Arc::new(open_core()?);
+    // A session run from here gets the same tools for reaching other sessions as in the app.
+    if matches!(cli.command, Command::Session(_)) {
+        drop(tokio::spawn(swarmed_core::serve_session_tools(Arc::clone(
+            &core,
+        ))));
+    }
+    let done = run(&core, cli.command).await;
+    // The socket is this process's own; nothing is left to answer on it.
+    std::fs::remove_file(core.paths().tools_socket()).ok();
+    done
+}
+
+async fn run(core: &Core, command: Command) -> Result<()> {
+    match command {
+        Command::Project(command) => project(core, command).await,
+        Command::Task(command) => task(core, command).await,
+        Command::Session(command) => session::session(core, command).await,
         // Answered above, before anything was opened.
         Command::ToolServer => Ok(()),
-        Command::Agent(command) => agent(&core, command).await,
-        Command::Usage => usage(&core).await,
+        Command::Agent(command) => agent(core, command).await,
+        Command::Usage => usage(core).await,
         Command::Agents => {
-            agents(&core);
+            agents(core);
             Ok(())
         }
-        Command::Editor { command } => editor(&core, command),
-        Command::AutoTitle { state } => auto_title(&core, state),
-        Command::Key(command) => key(&core, command),
-        Command::Note { project, task, set } => note(&core, &project, task.as_deref(), set),
+        Command::Editor { command } => editor(core, command),
+        Command::AutoTitle { state } => auto_title(core, state),
+        Command::Key(command) => key(core, command),
+        Command::Note { project, task, set } => note(core, &project, task.as_deref(), set),
     }
 }
 
