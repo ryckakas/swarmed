@@ -121,6 +121,12 @@ pub(crate) fn agent_configure(
     Ok(core.agent_configure(&id, models)?)
 }
 
+/// Asks an agent that knows its own models which ones it offers, and offers those.
+#[tauri::command]
+pub(crate) async fn agent_models_refresh(core: CoreState<'_>, id: String) -> Command<AgentSetup> {
+    Ok(core.agent_models_refresh(&id).await?)
+}
+
 /// Every model OpenRouter offers right now, for choosing from.
 #[tauri::command]
 pub(crate) async fn openrouter_models() -> Command<Vec<String>> {

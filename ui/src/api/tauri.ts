@@ -35,6 +35,7 @@ export const tauriApi: Api = {
     agentSetups: () => invoke<AgentSetup[]>("agent_setups"),
     agentInstall: (id) => invoke<AgentSetup>("agent_install", { id }),
     agentConfigure: (id, models) => invoke<AgentSetup>("agent_configure", { id, models }),
+    agentModelsRefresh: (id) => invoke<AgentSetup>("agent_models_refresh", { id }),
     openrouterModels: () => invoke<string[]>("openrouter_models"),
     pickFiles: async () => {
         const chosen = await open({ multiple: true, title: "Point the agent at files" });

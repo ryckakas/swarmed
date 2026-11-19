@@ -119,11 +119,62 @@ function AgentRow({ setup, onChange }: { setup: AgentSetup; onChange(setup: Agen
                 </div>
             )}
             {installing && <p className="agent-output mono">{printed ?? "Starting…"}</p>}
-            {setup.configured && !setup.built_in && (
+            {setup.configured && setup.model_source === "agent" && (
+                <OwnModels setup={setup} onChange={onChange} />
+            )}
+            {setup.configured && setup.model_source === "openrouter" && (
                 <Models models={setup.models} onChange={(models) => void configure(models)} />
             )}
         </div>
     );
+}
+
+/**
+ * The models of an agent that knows them itself: read from the agent, not typed in. Asked
+ * for by itself the first time, and again whenever the user wants the list brought up to date.
+ */
+function OwnModels({ setup, onChange }: { setup: AgentSetup; onChange(setup: AgentSetup): void }) {
+    const report = useStore((state) => state.report);
+    const [asking, setAsking] = useState(false);
+    const ask = () => {
+        setAsking(true);
+        api.agentModelsRefresh(setup.id)
+            .then(onChange)
+            .catch(report)
+            .finally(() => setAsking(false));
+    };
+    const unknown = setup.models.length === 0;
+    // biome-ignore lint/correctness/useExhaustiveDependencies: asked once, when nothing is known yet
+    useEffect(() => {
+        if (unknown) {
+            ask();
+        }
+    }, []);
+    return (
+        <div className="agent-models">
+            <p className="settings-hint">{ownModelsLine(setup, asking)}</p>
+            <ul className="model-chips">
+                {setup.models.map((model) => (
+                    <li key={model} className="model-chip mono">
+                        {model}
+                    </li>
+                ))}
+            </ul>
+            <button type="button" className="button" disabled={asking} onClick={ask}>
+                {asking ? "Asking…" : "Read the models again"}
+            </button>
+        </div>
+    );
+}
+
+/** What stands above the models an agent told Swarmed about. */
+export function ownModelsLine(setup: AgentSetup, asking: boolean): string {
+    if (setup.models.length > 0) {
+        return `Models ${setup.name} offers on your account. Its own default is used unless you pick one:`;
+    }
+    return asking
+        ? `Asking ${setup.name} which models it offers…`
+        : `${setup.name} has not said which models it offers. Its own default is used.`;
 }
 
 /** The models an agent's menu offers: taken out one by one, added from OpenRouter's own list. */

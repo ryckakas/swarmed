@@ -185,6 +185,8 @@ export interface AgentSetup {
     sign_in: string;
     /** Whether it is Claude Code: nothing to set up beyond installing, and no models to choose. */
     built_in: boolean;
+    /** Where its models come from: built in, picked from OpenRouter's list, or told by the agent. */
+    model_source: "built_in" | "openrouter" | "agent";
 }
 
 /** What a note is kept on: a repository, or one of its tasks. */
