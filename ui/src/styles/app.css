@@ -705,7 +705,7 @@ code {
 
 /* A task's closed sessions: one quiet line that unfolds into them. */
 .closed-toggle {
-    margin-left: calc(var(--space-4) + var(--space-3) - 2px);
+    margin-left: 41px;
     padding: 1px var(--space-2);
     border: 0;
     border-radius: 4px;
@@ -725,7 +725,7 @@ code {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    padding: 2px var(--space-2) 2px calc(var(--space-4) + var(--space-3) + var(--space-2));
+    padding: 2px var(--space-2) 2px 49px;
     color: var(--faint);
 }
 
