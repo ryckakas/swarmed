@@ -9,6 +9,8 @@ import type {
     AgentSetup,
     ApiKeyInfo,
     BranchChoices,
+    CloudTask,
+    Environment,
     FileChange,
     FileDiff,
     HookOutput,
@@ -55,7 +57,17 @@ export const tauriApi: Api = {
     branchChoices: (project) => invoke<BranchChoices>("branch_choices", { project }),
     taskNameFor: (project, prompt) =>
         invoke<TaskNaming | null>("task_name_for", { project, prompt }),
-    taskNew: (project, name, branch) => invoke<Task>("task_new", { project, name, branch }),
+    taskNew: (project, name, branch, environment) =>
+        invoke<Task>("task_new", { project, name, branch, environment }),
+    cloudDelegate: (project, prompt, task) =>
+        invoke<CloudTask>("cloud_delegate", { project, prompt, task }),
+    cloudTasks: (project, refresh) => invoke<CloudTask[]>("cloud_tasks", { project, refresh }),
+    cloudTaskForget: (id) => invoke<void>("cloud_task_forget", { id }),
+    cloudTaskOpen: (id) => invoke<void>("cloud_task_open", { id }),
+    environments: (project) => invoke<Record<string, Environment>>("environments", { project }),
+    environmentSave: (project, name, environment) =>
+        invoke<void>("environment_save", { project, name, environment }),
+    environmentRemove: (project, name) => invoke<void>("environment_remove", { project, name }),
     taskChanges: (project, name) => invoke<FileChange[]>("task_changes", { project, name }),
     taskDiff: (project, name, path) => invoke<FileDiff>("task_diff", { project, name, path }),
     taskOpenEditor: (project, name) => invoke("task_open_editor", { project, name }),

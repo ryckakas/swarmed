@@ -14,6 +14,7 @@ use crate::error::Result;
 ///
 /// - plain text: replies `echo: <text>` and ends the turn;
 /// - `run: <command>`: asks permission for a `Bash` tool call, then reports the outcome;
+/// - `env: <NAME>`: replies with the value of that variable as given for the session, or `unset`;
 /// - `slow`: starts a turn that only ends when interrupted;
 /// - `suggest: <text>`: replies as to plain text, then offers `<text>` as the next message;
 /// - in plan mode, anything: presents a plan and waits for it to be approved.
@@ -121,6 +122,21 @@ impl Script {
             result: result.map(String::from),
             cost_usd: Some(0.0),
         };
+        if let Some(name) = message.strip_prefix("env:") {
+            let found = self
+                .spec
+                .env
+                .0
+                .iter()
+                .find(|(known, _)| known == name.trim());
+            self.text(
+                found
+                    .map_or("unset", |(_, value)| value.as_str())
+                    .to_string(),
+            );
+            self.emit(done(false, None));
+            return Next::Continue;
+        }
         if message == "instructions" {
             let told = self.spec.append_system_prompt.clone();
             self.text(told.unwrap_or_else(|| "none".to_string()));

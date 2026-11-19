@@ -20,6 +20,9 @@ pub const TOOL_SERVER_ARG: &str = "tool-server";
 pub const SERVER_NAME: &str = "swarmed";
 /// The tool that shows HTML to the user in the conversation. Its input has the HTML as `html`.
 pub const SHOW_HTML: &str = "show_html";
+/// The tool that hands work to a cloud agent. Answered by the core, as the session tools are,
+/// but not at once: the provider is asked first.
+pub(crate) const DELEGATE_TO_CLOUD: &str = "delegate_to_cloud";
 /// That tool as Claude Code names it: by server, then by tool.
 pub(crate) const SHOW_HTML_FOR_CLAUDE: &str = "mcp__swarmed__show_html";
 
@@ -50,6 +53,15 @@ const PROTOCOL: &str = "2025-06-18";
 const METHOD_NOT_FOUND: i64 = -32601;
 
 fn tools() -> Value {
+    let mut tools = local_tools();
+    if let Some(tools) = tools.as_array_mut() {
+        tools.push(cloud_tool());
+    }
+    tools
+}
+
+/// The tools about what happens on this machine: showing views, and the other sessions.
+fn local_tools() -> Value {
     json!([{
         "name": SHOW_HTML,
         "title": "Show HTML in the conversation",
@@ -148,6 +160,30 @@ fn tools() -> Value {
             "required": ["session_id"],
         },
     }])
+}
+
+/// The tool that hands work to a cloud agent.
+fn cloud_tool() -> Value {
+    json!({
+    "name": DELEGATE_TO_CLOUD,
+    "title": "Hand work to a cloud agent",
+    "description": "Hands a self-contained piece of work to a Codex agent that runs in the \
+        cloud, on its own copy of this repository taken from GitHub. Use it for work that \
+        can go on without this machine and without you, when the user asks for something \
+        to be delegated or run in the cloud. The cloud agent sees only what has been \
+        pushed: commits and changes that exist only in this worktree are not there, so \
+        push first if it needs them. It starts with no knowledge of your conversation, so \
+        the prompt has to say everything. It does not report back to you: you get the \
+        address where the user follows it. Refused if the repository is not on GitHub or \
+        has no cloud environment yet; pass that on to the user as it is.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "prompt": { "type": "string", "description": "What the cloud agent is to do." },
+        },
+        "required": ["prompt"],
+    },
+    })
 }
 
 /// Hands the HTML of a `show_html` call to the core, by leaving it as a file in `spool`. The

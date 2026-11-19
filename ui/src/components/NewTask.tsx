@@ -44,6 +44,8 @@ export function NewTask({ projects }: { projects: Project[] }) {
     const project =
         projects.find((candidate) => candidate.name === (chosen ?? draftProject)) ?? projects[0];
     const choices = useBranchChoices(project?.name);
+    const environments = useEnvironments(project?.name);
+    const [environment, setEnvironment] = useState("");
     if (!project) {
         return null;
     }
@@ -70,6 +72,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 name: chosen,
                 title: naming?.title ?? null,
                 branch: branch === NEW_BRANCH ? null : branch,
+                environment: chosenEnvironment(environments, environment),
                 setup: setupFor(agentId, model, supervision, effort),
                 prompt: prompt.trim(),
                 files,
@@ -119,6 +122,11 @@ export function NewTask({ projects }: { projects: Project[] }) {
                         ]),
                     ]}
                 />
+                <EnvironmentPicker
+                    names={environments}
+                    value={environment}
+                    onChange={setEnvironment}
+                />
                 <ModePicker value={supervision} agentId={agentId} onChange={setSupervision} />
                 <AgentPickers
                     agents={agents}
@@ -163,6 +171,8 @@ interface Start {
     /** The first session's title, if the task was named by a model. */
     title: string | null;
     branch: string | null;
+    /** The environment of the project to set the task up in, if one was chosen. */
+    environment: string | null;
     setup: SessionSetup;
     prompt: string;
     /** The files the first message points the agent at. */
@@ -170,9 +180,10 @@ interface Start {
 }
 
 /** Creates the task and its first session, opens it, and sends the prompt. */
-async function startTask({ project, name, title, branch, setup, prompt, files }: Start) {
+async function startTask(start: Start) {
+    const { project, name, title, setup, prompt, files } = start;
     const { refresh, open } = useStore.getState();
-    await api.taskNew(project, name, branch);
+    await api.taskNew(project, name, start.branch, start.environment);
     const session = await api.sessionNew(project, name, setup);
     if (title) {
         await api.sessionRename(session.id, title);
@@ -229,6 +240,56 @@ function AgentPickers(props: AgentPickersProps) {
 }
 
 /** The branches a task in `project` can start from; `null` until they are read. */
+/** The environment picked, as long as the project still has it; `null` for the default setup. */
+function chosenEnvironment(names: string[], picked: string): string | null {
+    return names.includes(picked) ? picked : null;
+}
+
+/** The menu of a project's environments. A project without any has no menu. */
+function EnvironmentPicker(props: {
+    names: string[];
+    value: string;
+    onChange(value: string): void;
+}) {
+    if (props.names.length === 0) {
+        return null;
+    }
+    return (
+        <Picker
+            label="Environment"
+            value={chosenEnvironment(props.names, props.value) ?? ""}
+            onChange={props.onChange}
+            options={[
+                ["", "Default setup"],
+                ...props.names.map((name): [string, string] => [name, name]),
+            ]}
+        />
+    );
+}
+
+/** The names of the project's environments, read again whenever they may have been edited. */
+function useEnvironments(project: string | undefined): string[] {
+    const [names, setNames] = useState<string[]>([]);
+    // The dialog that edits them closing is when they may have changed.
+    const editing = useStore((state) => state.environmentsOf);
+    // biome-ignore lint/correctness/useExhaustiveDependencies: editing exists to trigger a re-read
+    useEffect(() => {
+        setNames([]);
+        if (project === undefined) {
+            return;
+        }
+        let current = true;
+        api.environments(project)
+            .then((read) => current && setNames(Object.keys(read)))
+            // Without them a task is simply set up the default way.
+            .catch(() => undefined);
+        return () => {
+            current = false;
+        };
+    }, [project, editing]);
+    return names;
+}
+
 function useBranchChoices(project: string | undefined): BranchChoices | null {
     const [choices, setChoices] = useState<BranchChoices | null>(null);
     useEffect(() => {

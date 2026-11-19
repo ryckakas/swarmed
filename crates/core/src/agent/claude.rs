@@ -228,6 +228,11 @@ impl AgentBackend for ClaudeBackend {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        // The task's own variables, except any that would decide what Claude Code signs in
+        // with or how it behaves: those stay as `auth` and the user's own setup have them.
+        let reserved = |name: &str| name.starts_with("ANTHROPIC_") || name.starts_with("CLAUDE");
+        let given = spec.env.0.iter().filter(|(name, _)| !reserved(name));
+        command.envs(given.map(|(name, value)| (name, value)));
         apply_auth(&mut command, &spec.auth);
 
         let mut child = command.spawn().map_err(|error| self.not_started(error))?;

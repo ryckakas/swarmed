@@ -15,6 +15,8 @@ use crate::{Settings, open};
 pub struct NewTaskOptions<'a> {
     /// Check out this existing branch instead of creating one from the base.
     pub existing_branch: Option<&'a str>,
+    /// The project's environment to set the task up in; `None` for the project's own setup.
+    pub environment: Option<&'a str>,
 }
 
 /// What a new task in a project can start from.
@@ -85,7 +87,10 @@ impl Core {
                 task: name.to_string(),
             });
         }
-        let config = self.project_config(&project.name)?;
+        if let Some(environment) = options.environment {
+            self.require_environment(&project.name, environment)?;
+        }
+        let config = self.config_in(&project.name, options.environment)?;
         let repo = &project.repo_path;
 
         git::fetch(repo).await?;
@@ -116,6 +121,7 @@ impl Core {
             base_ref: &base,
             worktree_path: &worktree,
             slot: 0,
+            environment: options.environment,
         };
         let task = match self.insert_in_free_slot(new) {
             Ok(task) => task,
@@ -145,7 +151,7 @@ impl Core {
         sink: OutputSink<'_>,
     ) -> Result<Task> {
         let (project, task) = self.task(project, name)?;
-        let config = self.project_config(&project.name)?;
+        let config = self.config_in(&project.name, task.environment.as_deref())?;
         self.run_setup(&project, &config, task, sink).await
     }
 
@@ -239,7 +245,7 @@ impl Core {
         if !force {
             ensure_clean(task).await?;
         }
-        let config = self.project_config(&project.name)?;
+        let config = self.config_in(&project.name, task.environment.as_deref())?;
         let teardown = &config.hooks.teardown;
         match self
             .run_hook("teardown", teardown, project, &config, task, sink)
@@ -254,7 +260,7 @@ impl Core {
     /// Where the task's running stack is reached in a browser, if its project says so.
     pub fn task_url(&self, project: &str, task: &str) -> Result<Option<String>> {
         let (project, task) = self.task(project, task)?;
-        let config = self.project_config(&project.name)?;
+        let config = self.config_in(&project.name, task.environment.as_deref())?;
         self.url_of(&project, &config, &task)
     }
 
@@ -311,6 +317,18 @@ impl Core {
             vars.set(format!("port.{name}"), port.to_string());
         }
         Ok(vars)
+    }
+
+    /// The variables the task's environment sets, with their values worked out: the project's
+    /// own and, on top, those of the environment the task was created in.
+    pub(crate) fn task_env(&self, task: &Task) -> Result<Vec<(String, String)>> {
+        let Some(project) = self.store().project_by_id(task.project_id)? else {
+            return Ok(vec![]);
+        };
+        let config = self.config_in(&project.name, task.environment.as_deref())?;
+        let vars = self.task_vars(&project, &config, task)?;
+        let rendered = |(name, value): (&String, &String)| Ok((name.clone(), vars.render(value)?));
+        config.env.iter().map(rendered).collect()
     }
 
     /// Renders and runs one hook in the task's worktree. Every variable is also exported as

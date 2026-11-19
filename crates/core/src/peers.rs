@@ -14,9 +14,11 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 
 use crate::agent::{AgentEvent, Auth};
+use crate::cloud::CloudOrigin;
 use crate::error::{Error, Result};
 use crate::paths::SOCKET_PREFIX;
 use crate::sessions::{Session, SessionOptions, SessionStatus};
+use crate::toolserver::DELEGATE_TO_CLOUD;
 use crate::{Core, Task};
 
 /// How many sessions one session may have started that are still open. A runaway agent stops
@@ -44,6 +46,9 @@ collide with what you are editing. It is told to report back to you with `send_m
 it is done; you do not have to wait for it.
 - `close_session`: put away a session you spawned, once it is done and you have what you need \
 from it. You cannot close any other session.
+- `delegate_to_cloud`: hand a self-contained piece of work to an agent in the cloud, when the \
+user wants something delegated or run there. It works on what is pushed to GitHub, not on \
+your worktree, and does not report back to you.
 
 Use these when they help the user's task, not as a matter of course. A session you spawn costs \
 the user money like any other.";
@@ -252,6 +257,34 @@ impl Core {
 
     /// Answers one request of the tool server: `tool` called by session `from` with
     /// `arguments`. The answer is text for the agent; a refusal is an error, also as text.
+    /// Hands a part of the work of session `from` to a cloud agent, on the repository its
+    /// task belongs to, and says where that went.
+    async fn peer_delegate(&self, from: i64, arguments: &Value) -> Result<String> {
+        let prompt = arguments.get("prompt").and_then(Value::as_str);
+        let session = self.session(from)?;
+        let task = self
+            .store()
+            .task_by_id(session.task_id)?
+            .ok_or(Error::SessionNotFound(from))?;
+        let project = self
+            .store()
+            .project_by_id(task.project_id)?
+            .ok_or(Error::SessionNotFound(from))?;
+        let origin = CloudOrigin {
+            task: Some(&task.name),
+            session: Some(from),
+        };
+        let delegated = self
+            .cloud_delegate(&project.name, prompt.unwrap_or_default(), origin)
+            .await?;
+        Ok(format!(
+            "Delegated to a Codex cloud agent, starting from the branch `{}` as it is on \
+             GitHub: {}. It works on its own copy and does not report back here; the user \
+             follows it at that address.",
+            delegated.branch, delegated.url
+        ))
+    }
+
     fn peer_call(&self, from: i64, tool: &str, arguments: &Value) -> Result<String> {
         let number = |key: &str| arguments.get(key).and_then(Value::as_i64);
         let word = |key: &str| arguments.get(key).and_then(Value::as_str);
@@ -300,7 +333,12 @@ async fn answer(core: Arc<Core>, stream: UnixStream) -> std::io::Result<()> {
         .and_then(Value::as_str)
         .unwrap_or_default();
     let arguments = request.get("arguments").unwrap_or(&Value::Null);
-    let reply = match core.peer_call(from, tool, arguments) {
+    let called = if tool == DELEGATE_TO_CLOUD {
+        core.peer_delegate(from, arguments).await
+    } else {
+        core.peer_call(from, tool, arguments)
+    };
+    let reply = match called {
         Ok(text) => json!({ "ok": true, "text": text }),
         Err(error) => json!({ "ok": false, "text": error.to_string() }),
     };

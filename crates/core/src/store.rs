@@ -71,6 +71,8 @@ pub struct Task {
     pub setup: SetupStatus,
     /// Whether the task was removed. Archived tasks keep their record but have no worktree.
     pub archived: bool,
+    /// The project's environment the task was created in, if it was created in one.
+    pub environment: Option<String>,
 }
 
 pub(crate) struct NewTask<'a> {
@@ -80,6 +82,7 @@ pub(crate) struct NewTask<'a> {
     pub(crate) base_ref: &'a str,
     pub(crate) worktree_path: &'a Path,
     pub(crate) slot: u32,
+    pub(crate) environment: Option<&'a str>,
 }
 
 /// One entry per schema change, applied in order and never edited afterwards.
@@ -140,10 +143,27 @@ const MIGRATIONS: &[&str] = &[
     "
     ALTER TABLE sessions ADD COLUMN spawned_by INTEGER;
 ",
+    "
+    ALTER TABLE tasks ADD COLUMN environment TEXT;
+",
+    "
+    CREATE TABLE cloud_tasks (
+        id         INTEGER PRIMARY KEY,
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        provider   TEXT NOT NULL,
+        remote_id  TEXT NOT NULL,
+        url        TEXT NOT NULL,
+        prompt     TEXT NOT NULL,
+        branch     TEXT NOT NULL,
+        status     TEXT NOT NULL,
+        session_id INTEGER,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+",
 ];
 
 const TASK_SELECT: &str = "SELECT id, project_id, name, branch, base_ref, worktree_path, slot, \
-                           setup_status, archived_at IS NOT NULL FROM tasks";
+                           setup_status, archived_at IS NOT NULL, environment FROM tasks";
 
 #[derive(Debug)]
 pub(crate) struct Store {
@@ -210,15 +230,16 @@ impl Store {
 
     pub(crate) fn task_insert(&self, new: &NewTask<'_>) -> Result<Task> {
         self.conn.execute(
-            "INSERT INTO tasks (project_id, name, branch, base_ref, worktree_path, slot)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO tasks (project_id, name, branch, base_ref, worktree_path, slot, environment)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 new.project_id,
                 new.name,
                 new.branch,
                 new.base_ref,
                 new.worktree_path.to_string_lossy(),
-                new.slot
+                new.slot,
+                new.environment
             ],
         )?;
         Ok(Task {
@@ -231,6 +252,7 @@ impl Store {
             slot: new.slot,
             setup: SetupStatus::Pending,
             archived: false,
+            environment: new.environment.map(String::from),
         })
     }
 
@@ -324,6 +346,7 @@ fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
         slot: row.get(6)?,
         setup: SetupStatus::parse(&row.get::<_, String>(7)?),
         archived: row.get(8)?,
+        environment: row.get(9)?,
     })
 }
 

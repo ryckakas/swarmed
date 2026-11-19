@@ -20,6 +20,17 @@ pub enum Error {
         /// The task name that was asked for.
         task: String,
     },
+    /// The project has no environment with this name.
+    #[error("project `{project}` has no environment `{environment}`")]
+    EnvironmentNotFound {
+        /// The project that was searched.
+        project: String,
+        /// The environment that was asked for.
+        environment: String,
+    },
+    /// A name that cannot be an environment variable's.
+    #[error("`{0}` cannot be the name of a variable: use letters, digits and underscores")]
+    InvalidVariable(String),
     /// The project already has an active task with this name.
     #[error("task `{task}` already exists in project `{project}`")]
     TaskExists {
@@ -138,6 +149,9 @@ pub enum Error {
     /// A note longer than notes may be.
     #[error("a note can hold at most {0} bytes")]
     NoteTooLong(usize),
+    /// Work could not be handed to a cloud agent. Says why, and what to do about it.
+    #[error("{0}")]
+    Cloud(String),
     /// Something one session asked about another was refused.
     #[error("{0}")]
     Peers(String),

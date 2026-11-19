@@ -4,6 +4,8 @@ import type {
     AgentSetup,
     ApiKeyInfo,
     BranchChoices,
+    CloudTask,
+    Environment,
     FileChange,
     FileDiff,
     HookOutput,
@@ -76,7 +78,29 @@ export interface Api {
      * Creates a task: a worktree on a new branch, or on `branch` if one is given, then the
      * project's `setup` hook. This can take a while.
      */
-    taskNew(project: string, name: string, branch: string | null): Promise<Task>;
+    taskNew(
+        project: string,
+        name: string,
+        branch: string | null,
+        environment: string | null,
+    ): Promise<Task>;
+    /**
+     * Hands a prompt to a cloud agent working on the project's repository, from the branch of
+     * `task` if one is named and it has been pushed. Rejects, saying what to do, if the
+     * repository is not on GitHub or has no cloud environment.
+     */
+    cloudDelegate(project: string, prompt: string, task: string | null): Promise<CloudTask>;
+    /** The project's cloud tasks; with `refresh`, their statuses are asked for again first. */
+    cloudTasks(project: string, refresh: boolean): Promise<CloudTask[]>;
+    /** Takes a cloud task off the list, without stopping it. */
+    cloudTaskForget(id: number): Promise<void>;
+    /** Opens a cloud task's page at its provider. */
+    cloudTaskOpen(id: number): Promise<void>;
+    /** A project's environments, by name. */
+    environments(project: string): Promise<Record<string, Environment>>;
+    /** Adds an environment to a project, or replaces the one of that name. */
+    environmentSave(project: string, name: string, environment: Environment): Promise<void>;
+    environmentRemove(project: string, name: string): Promise<void>;
     /** The files the task has changed since its branch left its base, uncommitted ones included. */
     taskChanges(project: string, name: string): Promise<FileChange[]>;
     /** One changed file's diff. */

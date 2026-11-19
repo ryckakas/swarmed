@@ -1,7 +1,9 @@
 import { type KeyboardEvent, useEffect, useState } from "react";
 import { addProject, newSession } from "../actions";
 import { api } from "../api";
-import type { Project, Session, Task } from "../api/types";
+import type { CloudTask, Project, Session, Task } from "../api/types";
+import { cloudTitle, cloudTone, isUnfinished } from "../cloud";
+import { taskTooltip } from "../environments";
 import { agentName, iconForAgent } from "../providerIcons";
 import { useStore } from "../store";
 import { countUnread, countWaiting, nestedSessions, projectStatus, projectUnread } from "../tree";
@@ -117,6 +119,8 @@ function ProjectGroup({ project }: { project: Project }) {
                         {folded && <span className="project-count">{tasks.length}</span>}
                     </button>
                 </h2>
+                <CloudButton project={project.name} task={null} />
+                <EnvironmentsButton project={project.name} />
                 <NoteButton project={project.name} task={null} has={project.has_note} />
                 <button
                     type="button"
@@ -132,6 +136,7 @@ function ProjectGroup({ project }: { project: Project }) {
             {!folded && tasks.length === 0 && <p className="hint">No tasks</p>}
             {!folded &&
                 tasks.map((task) => <TaskGroup key={task.id} project={project.name} task={task} />)}
+            {!folded && <CloudTasks project={project.name} tasks={project.cloud} />}
         </section>
     );
 }
@@ -140,11 +145,12 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
     return (
         <div className="task">
             <div className="row-head">
-                <h3 className="task-name" title={`Worktree ${task.name}, on ${task.branch}`}>
+                <h3 className="task-name" title={taskTooltip(task)}>
                     <WorktreeIcon />
                     <span className="task-title">{task.name}</span>
                     {task.setup === "failed" && <span className="task-flag">setup failed</span>}
                 </h3>
+                <CloudButton project={project} task={task.name} />
                 <NoteButton project={project} task={task.name} has={task.has_note} />
                 <button
                     type="button"
@@ -173,6 +179,111 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
 }
 
 /** Opens the note on a repository or a task. It stays in view once there is something noted. */
+/** A cloud, drawn as one line. */
+function CloudIcon() {
+    return (
+        <svg className="row-icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M4.5 12.5a3 3 0 0 1-.4-5.97 4 4 0 0 1 7.7-.9A3.4 3.4 0 0 1 11.5 12.5z" />
+        </svg>
+    );
+}
+
+/** Opens the form that hands work to a cloud agent, from a repository or one of its tasks. */
+function CloudButton({ project, task }: { project: string; task: string | null }) {
+    const askToDelegate = useStore((state) => state.askToDelegate);
+    const label = `Delegate to the cloud from ${task ?? project}`;
+    return (
+        <button
+            type="button"
+            className="row-note"
+            aria-label={label}
+            title={label}
+            onClick={() => askToDelegate({ project, task })}
+        >
+            <CloudIcon />
+        </button>
+    );
+}
+
+/** How often the statuses of unfinished cloud tasks are asked for again. */
+const CLOUD_POLL_MS = 45_000;
+
+/**
+ * The tasks handed to cloud agents from a repository: each opens at its provider. While any is
+ * unfinished, their statuses are asked for again from time to time.
+ */
+function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] }) {
+    const refresh = useStore((state) => state.refresh);
+    const report = useStore((state) => state.report);
+    const waiting = tasks.some(isUnfinished);
+    // biome-ignore lint/correctness/useExhaustiveDependencies: restarted when the waiting starts or ends
+    useEffect(() => {
+        if (!waiting) {
+            return;
+        }
+        const ask = () =>
+            api
+                .cloudTasks(project, true)
+                .then(() => refresh(api))
+                // Not hearing back is no reason to interrupt anyone.
+                .catch(() => undefined);
+        const timer = setInterval(ask, CLOUD_POLL_MS);
+        return () => clearInterval(timer);
+    }, [waiting, project]);
+    const forget = (id: number) =>
+        api
+            .cloudTaskForget(id)
+            .then(() => refresh(api))
+            .catch(report);
+    return (
+        <ul className="cloud-tasks">
+            {tasks.map((task) => (
+                <li key={task.id} className="cloud-line" data-tone={cloudTone(task)}>
+                    <button
+                        type="button"
+                        className="cloud-row"
+                        title={`${cloudTitle(task)}\nIn Codex's cloud, from ${task.branch}: ${task.status}. Opens at Codex.`}
+                        onClick={() => void api.cloudTaskOpen(task.id).catch(report)}
+                    >
+                        <CloudIcon />
+                        <span className="session-title">{cloudTitle(task)}</span>
+                        <span className="cloud-status">{task.status}</span>
+                    </button>
+                    <button
+                        type="button"
+                        className="row-close"
+                        aria-label={`Take ${cloudTitle(task)} off the list`}
+                        title="Take off the list. The task itself is not stopped."
+                        onClick={() => void forget(task.id)}
+                    >
+                        ×
+                    </button>
+                </li>
+            ))}
+        </ul>
+    );
+}
+
+/** Opens the repository's environments: the ways its tasks can be set up. */
+function EnvironmentsButton({ project }: { project: string }) {
+    const askForEnvironments = useStore((state) => state.askForEnvironments);
+    const label = `Environments of ${project}`;
+    return (
+        <button
+            type="button"
+            className="row-note"
+            aria-label={label}
+            title={label}
+            onClick={() => askForEnvironments(project)}
+        >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M8 2 2 5l6 3 6-3z" />
+                <path d="M2 8l6 3 6-3M2 11l6 3 6-3" />
+            </svg>
+        </button>
+    );
+}
+
 function NoteButton({
     project,
     task,
