@@ -105,7 +105,11 @@ function focusMessage() {
 function showShortcuts() {
     useStore.getState().showSettings(true);
     requestAnimationFrame(() => {
-        document.getElementById("shortcuts")?.scrollIntoView({ block: "start" });
+        const list = document.getElementById("shortcuts");
+        if (list instanceof HTMLDetailsElement) {
+            list.open = true;
+        }
+        list?.scrollIntoView({ block: "start" });
     });
 }
 
