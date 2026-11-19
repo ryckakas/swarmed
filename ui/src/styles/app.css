@@ -22,6 +22,11 @@ body {
     overflow: hidden;
 }
 
+/* Anything that can be pressed says so under the pointer. */
+:is(button, select, summary, a):not(:disabled) {
+    cursor: pointer;
+}
+
 h1,
 h2,
 h3,
@@ -426,8 +431,25 @@ code {
     contain-intrinsic-size: auto 3em;
 }
 
+/*
+ * What the agent did sits in a box of its own, so it cannot be mistaken for what it said.
+ * Calls that follow each other share one box.
+ */
+.item-tool {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+}
+
 .item-tool + .item-tool {
-    margin-top: calc(var(--space-2) * -1);
+    margin-top: calc(var(--space-3) * -1 - 1px);
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+}
+
+.item-tool:has(+ .item-tool) {
+    border-bottom-right-radius: 0;
+    border-bottom-left-radius: 0;
 }
 
 .said {
@@ -505,12 +527,11 @@ code {
     display: flex;
     align-items: baseline;
     gap: var(--space-2);
-    padding: 2px 0;
+    padding: 5px var(--space-3);
     color: var(--muted);
     font-family: var(--font-mono);
     font-size: var(--text-sm);
     list-style: none;
-    cursor: default;
 }
 
 .tool summary::-webkit-details-marker {
@@ -540,6 +561,7 @@ code {
 
 .tool-state {
     flex: none;
+    margin-left: auto;
     font-family: var(--font-ui);
     font-size: var(--text-xs);
 }
@@ -548,12 +570,36 @@ code {
     color: var(--moss);
 }
 
+.tool-running .tool-state::before {
+    content: "";
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-right: 5px;
+    border-radius: 50%;
+    background: currentcolor;
+    animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    50% {
+        opacity: 0.25;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tool-running .tool-state::before {
+        animation: none;
+    }
+}
+
 .tool-failed .tool-state {
     color: var(--clay);
 }
 
 .tool-body {
-    margin-top: var(--space-1);
+    margin: 0 var(--space-3) var(--space-2);
+    background: var(--dusk);
     max-height: 24em;
     white-space: pre-wrap;
     overflow-wrap: anywhere;

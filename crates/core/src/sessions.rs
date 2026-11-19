@@ -1,6 +1,6 @@
 //! Agent sessions: creating them, running them, and keeping what they said.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -54,14 +54,17 @@ impl SessionStatus {
         }
     }
 
-    /// The status an event leads to, or `None` if it changes nothing.
-    fn after(event: &AgentEvent) -> Option<Self> {
+    /// The status an event leads to, or `None` if it changes nothing. `waiting` says whether a
+    /// permission request is still open once the event has happened.
+    fn after(event: &AgentEvent, waiting: bool) -> Option<Self> {
         match event {
-            AgentEvent::UserMessage { .. }
-            | AgentEvent::Text { .. }
+            AgentEvent::UserMessage { .. } => Some(Self::Working),
+            AgentEvent::Text { .. }
             | AgentEvent::ToolUse { .. }
-            | AgentEvent::ToolResult { .. } => Some(Self::Working),
-            AgentEvent::PermissionRequest { .. } => Some(Self::Waiting),
+            | AgentEvent::ToolResult { .. }
+            | AgentEvent::PermissionRequest { .. }
+            | AgentEvent::PermissionAnswered { .. }
+            | AgentEvent::PermissionWithdrawn { .. } => Some(Self::busy(waiting)),
             AgentEvent::TurnDone { .. }
             | AgentEvent::Exited {
                 code: None | Some(0),
@@ -72,6 +75,33 @@ impl SessionStatus {
                 None
             }
         }
+    }
+
+    fn busy(waiting: bool) -> Self {
+        if waiting {
+            Self::Waiting
+        } else {
+            Self::Working
+        }
+    }
+}
+
+/// Applies an event to a session's open permission requests.
+fn track(open: &mut HashSet<String>, event: &AgentEvent) {
+    match event {
+        AgentEvent::PermissionRequest { request_id, .. } => {
+            open.insert(request_id.clone());
+        }
+        AgentEvent::PermissionAnswered { request_id, .. }
+        | AgentEvent::PermissionWithdrawn { request_id } => {
+            open.remove(request_id);
+        }
+        AgentEvent::UserMessage { .. }
+        | AgentEvent::TurnDone { .. }
+        | AgentEvent::Exited { .. } => {
+            open.clear();
+        }
+        _ => {}
     }
 }
 
@@ -187,12 +217,17 @@ impl Store {
     }
 
     /// Stores an event and applies what it means for the session's row.
-    fn record(&self, session_id: i64, event: &AgentEvent) -> Result<()> {
+    fn record(
+        &self,
+        session_id: i64,
+        event: &AgentEvent,
+        status: Option<SessionStatus>,
+    ) -> Result<()> {
         self.conn.execute(
             "INSERT INTO session_events (session_id, event) VALUES (?1, ?2)",
             params![session_id, serde_json::to_string(event)?],
         )?;
-        if let Some(status) = SessionStatus::after(event) {
+        if let Some(status) = status {
             self.conn.execute(
                 "UPDATE sessions SET status = ?2 WHERE id = ?1",
                 params![session_id, status.as_str()],
@@ -343,28 +378,44 @@ impl Core {
         let event = AgentEvent::UserMessage {
             text: text.to_string(),
         };
-        self.store().record(id, &event)?;
-        self.live.publish(id, event);
+        self.live.note(&self.store, id, event)?;
         commands
             .send(AgentCommand::UserMessage(text.to_string()))
             .map_err(|_| Error::SessionNotRunning(id))
     }
 
-    /// Lets a pending permission request go ahead.
+    /// Lets a pending permission request go ahead. Does nothing if it is no longer pending.
     pub fn session_allow(&self, id: i64, request_id: &str) -> Result<()> {
-        self.live.command(
-            id,
-            AgentCommand::Allow {
-                request_id: request_id.to_string(),
-            },
-        )
+        let request_id = request_id.to_string();
+        self.decide(id, true, AgentCommand::Allow { request_id })
     }
 
-    /// Refuses a pending permission request; the agent is shown `reason`.
+    /// Refuses a pending permission request; the agent is shown `reason`. Does nothing if it
+    /// is no longer pending.
     pub fn session_deny(&self, id: i64, request_id: &str, reason: &str) -> Result<()> {
         let (request_id, reason) = (request_id.to_string(), reason.to_string());
-        self.live
-            .command(id, AgentCommand::Deny { request_id, reason })
+        self.decide(id, false, AgentCommand::Deny { request_id, reason })
+    }
+
+    /// Records the decision, so every front end sees it at once, then passes it to the agent.
+    fn decide(&self, id: i64, allowed: bool, command: AgentCommand) -> Result<()> {
+        let commands = self.live.sender(id)?;
+        let (AgentCommand::Allow { request_id } | AgentCommand::Deny { request_id, .. }) = &command
+        else {
+            return Ok(());
+        };
+        if !self.live.is_open(id, request_id) {
+            return Ok(());
+        }
+        let request_id = request_id.clone();
+        let answered = AgentEvent::PermissionAnswered {
+            request_id,
+            allowed,
+        };
+        self.live.note(&self.store, id, answered)?;
+        commands
+            .send(command)
+            .map_err(|_| Error::SessionNotRunning(id))
     }
 
     /// Stops the current turn. The session stays running.
@@ -401,6 +452,8 @@ type Commands = HashMap<i64, (u64, mpsc::UnboundedSender<AgentCommand>)>;
 #[derive(Debug)]
 pub(crate) struct Live {
     commands: Mutex<Commands>,
+    /// The permission requests of each session that nobody has decided yet.
+    open_requests: Mutex<HashMap<i64, HashSet<String>>>,
     runs: AtomicU64,
     bus: broadcast::Sender<SessionEvent>,
 }
@@ -409,6 +462,7 @@ impl Default for Live {
     fn default() -> Self {
         Self {
             commands: Mutex::default(),
+            open_requests: Mutex::default(),
             runs: AtomicU64::new(0),
             bus: broadcast::Sender::new(EVENT_BUFFER),
         }
@@ -433,8 +487,28 @@ impl Live {
             .map_err(|_| Error::SessionNotRunning(id))
     }
 
-    fn publish(&self, session_id: i64, event: AgentEvent) {
-        let status = SessionStatus::after(&event);
+    fn is_open(&self, id: i64, request_id: &str) -> bool {
+        let open = lock(&self.open_requests);
+        open.get(&id).is_some_and(|ids| ids.contains(request_id))
+    }
+
+    /// The session's status after `event`, once its open permission requests reflect it.
+    fn status_after(&self, id: i64, event: &AgentEvent) -> Option<SessionStatus> {
+        let mut open = lock(&self.open_requests);
+        let requests = open.entry(id).or_default();
+        track(requests, event);
+        let waiting = !requests.is_empty();
+        if waiting {
+            return SessionStatus::after(event, true);
+        }
+        open.remove(&id);
+        SessionStatus::after(event, false)
+    }
+
+    /// Stores an event, then publishes it to every subscriber.
+    fn note(&self, store: &Mutex<Store>, session_id: i64, event: AgentEvent) -> Result<()> {
+        let status = self.status_after(session_id, &event);
+        let stored = lock(store).record(session_id, &event, status);
         // An error only means nobody is subscribed right now.
         self.bus
             .send(SessionEvent {
@@ -443,6 +517,7 @@ impl Live {
                 event,
             })
             .ok();
+        stored
     }
 
     /// Forgets a session whose agent has exited, unless it was restarted in the meantime.
@@ -468,10 +543,9 @@ async fn record_and_publish(
     (id, run): (i64, u64),
 ) {
     while let Some(event) = events.recv().await {
-        // A full disk must not cut the user off from a running agent, so a failed write is
-        // skipped and the event is still published.
-        lock(&store).record(id, &event).ok();
-        live.publish(id, event);
+        // A full disk must not cut the user off from a running agent: the event is published
+        // even if storing it failed.
+        live.note(&store, id, event).ok();
     }
     live.forget(id, run);
 }
@@ -496,17 +570,50 @@ mod tests {
             stderr: String::new(),
         };
         assert_eq!(
-            SessionStatus::after(&exited(Some(0))),
+            SessionStatus::after(&exited(Some(0)), false),
             Some(SessionStatus::Idle)
         );
         assert_eq!(
-            SessionStatus::after(&exited(None)),
+            SessionStatus::after(&exited(None), false),
             Some(SessionStatus::Idle)
         );
         assert_eq!(
-            SessionStatus::after(&exited(Some(1))),
+            SessionStatus::after(&exited(Some(1)), false),
             Some(SessionStatus::Errored)
         );
+    }
+
+    #[test]
+    fn a_session_waits_until_every_request_is_decided() {
+        let live = Live::default();
+        let request = |id: &str| AgentEvent::PermissionRequest {
+            request_id: id.into(),
+            tool_name: "Bash".into(),
+            input: Value::Null,
+            description: None,
+        };
+        let answered = |id: &str| AgentEvent::PermissionAnswered {
+            request_id: id.into(),
+            allowed: true,
+        };
+        let result = AgentEvent::ToolResult {
+            tool_use_id: "t1".into(),
+            content: String::new(),
+            is_error: false,
+        };
+        let statuses: Vec<_> = [
+            request("a"),
+            request("b"),
+            answered("a"),
+            result,
+            answered("b"),
+        ]
+        .iter()
+        .map(|event| live.status_after(1, event))
+        .collect();
+        let (waiting, working) = (Some(SessionStatus::Waiting), Some(SessionStatus::Working));
+        assert_eq!(statuses, [waiting, waiting, waiting, waiting, working]);
+        assert!(!live.is_open(1, "b"));
     }
 
     #[test]

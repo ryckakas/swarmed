@@ -137,7 +137,7 @@ async fn a_permission_request_is_answered_with_the_matching_option() {
         content: "ok".into(),
         is_error: false,
     };
-    assert_eq!(rest.first(), Some(&ok));
+    assert_eq!(rest.get(1), Some(&ok));
     assert!(rest.contains(&text("ran it")));
 
     core.session_send(id, "run: ls").expect("sends");
@@ -145,7 +145,7 @@ async fn a_permission_request_is_answered_with_the_matching_option() {
     core.session_deny(id, &request, "no").expect("sends");
     let rest = turn(&mut bus, id).await;
     assert!(matches!(
-        rest.first(),
+        rest.get(1),
         Some(AgentEvent::ToolResult { is_error: true, .. })
     ));
     assert!(rest.contains(&text("not allowed")));

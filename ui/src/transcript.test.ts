@@ -40,12 +40,36 @@ describe("toItems", () => {
         expect(toItems([toolUse("a", "sleep 60")])[0]).toMatchObject({ result: null });
     });
 
-    it("keeps a permission request pending until the agent moves on", () => {
-        const pending = toItems([toolUse("a", "git push"), request("r1")]);
-        expect(pending[1]).toMatchObject({ kind: "permission", requestId: "r1", pending: true });
+    const answered = (requestId: string, allowed: boolean): AgentEvent => ({
+        type: "permission_answered",
+        request_id: requestId,
+        allowed,
+    });
+    const kinds = (events: AgentEvent[]) => toItems(events).map((item) => item.kind);
 
-        const answered = toItems([toolUse("a", "git push"), request("r1"), toolResult("a", "ok")]);
-        expect(answered[1]).toMatchObject({ pending: false });
+    it("shows a permission request until it is answered, not until some tool finishes", () => {
+        const asked = [toolUse("a", "ls"), request("r1"), toolUse("b", "pwd"), request("r2")];
+        expect(kinds(asked)).toEqual(["tool", "permission", "tool", "permission"]);
+
+        // The first command finished; the second request still needs its answer.
+        const oneDone = [...asked, answered("r1", true), toolResult("a", "ok")];
+        expect(kinds(oneDone)).toEqual(["tool", "tool", "permission"]);
+        expect(toItems(oneDone)[2]).toMatchObject({ requestId: "r2" });
+    });
+
+    it("leaves nothing behind for an allowed request and one line for a denied one", () => {
+        const asked = [toolUse("a", "git push"), request("r1")];
+        expect(kinds([...asked, answered("r1", true)])).toEqual(["tool"]);
+        expect(kinds([...asked, { type: "permission_withdrawn", request_id: "r1" }])).toEqual([
+            "tool",
+        ]);
+        const denied = toItems([...asked, answered("r1", false)]);
+        expect(denied[1]).toMatchObject({ kind: "denied", toolName: "Bash", key: 2 });
+    });
+
+    it("treats a request as settled once the turn is over, as old histories need", () => {
+        const done: AgentEvent = { type: "turn_done", is_error: false, result: null, cost_usd: 0 };
+        expect(kinds([request("r1"), done])).toEqual(["turn"]);
     });
 
     it("leaves out what is not worth a line", () => {

@@ -96,6 +96,7 @@ describe("connect", () => {
         const before = useStore.getState().events[1]?.length ?? 0;
         await api.sessionAllow(1, "sample-request");
 
-        expect(useStore.getState().events[1]).toHaveLength(before + 1);
+        // The answer and the tool's result, each delivered once.
+        expect(useStore.getState().events[1]).toHaveLength(before + 2);
     });
 });

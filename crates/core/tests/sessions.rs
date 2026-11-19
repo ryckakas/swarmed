@@ -113,6 +113,17 @@ async fn a_permission_request_waits_for_the_decision() {
     );
 
     core.session_allow(session.id, &request_id).expect("sends");
+    // A second answer to the same request, from a double click, changes nothing.
+    core.session_allow(session.id, &request_id).expect("sends");
+    let answered = next(&mut bus).await;
+    let allowed = AgentEvent::PermissionAnswered {
+        request_id,
+        allowed: true,
+    };
+    assert_eq!(
+        (answered.event, answered.status),
+        (allowed, Some(SessionStatus::Working))
+    );
     let rest = turn(&mut bus, session.id).await;
     assert!(matches!(
         rest.first(),
@@ -135,6 +146,10 @@ async fn a_permission_request_waits_for_the_decision() {
     let rest = turn(&mut bus, session.id).await;
     assert!(matches!(
         rest.first(),
+        Some(AgentEvent::PermissionAnswered { allowed: false, .. })
+    ));
+    assert!(matches!(
+        rest.get(1),
         Some(AgentEvent::ToolResult { is_error: true, .. })
     ));
     assert!(rest.contains(&text("not allowed")));

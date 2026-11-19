@@ -253,19 +253,27 @@ class MockAgent {
                 content,
                 is_error: !allowed,
             };
-            this.publish(id, result, "working");
+            // The command takes a while, as real ones do.
+            this.later(id, result, "working", 3);
             this.later(
                 id,
                 { type: "text", text: allowed ? "Done." : "I won't run that." },
                 "working",
+                4,
             );
-            this.later(id, done, "idle", 2);
+            this.later(id, done, "idle", 5);
         });
     }
 
-    decide(id: number, allowed: boolean) {
+    decide(id: number, requestId: string, allowed: boolean) {
         const decision = this.decisions.get(id);
         this.decisions.delete(id);
+        const answered: AgentEvent = {
+            type: "permission_answered",
+            request_id: requestId,
+            allowed,
+        };
+        this.publish(id, answered, "working");
         if (decision) {
             decision(allowed);
         } else {
@@ -356,8 +364,8 @@ export function createMockApi(): Api {
         },
         sessionEvents: async (id) => [...agent.history(id)],
         sessionSend: async (id, text) => agent.send(id, text),
-        sessionAllow: async (id) => agent.decide(id, true),
-        sessionDeny: async (id) => agent.decide(id, false),
+        sessionAllow: async (id, requestId) => agent.decide(id, requestId, true),
+        sessionDeny: async (id, requestId) => agent.decide(id, requestId, false),
         sessionInterrupt: async (id) => agent.interrupt(id),
         onSessionEvent: async (listener) => {
             agent.listeners.add(listener);

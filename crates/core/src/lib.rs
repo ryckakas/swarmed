@@ -46,8 +46,8 @@ pub struct Core {
 
 /// The store is only ever locked for one short query, never across an `.await`. A panic while
 /// it was held cannot leave SQLite half-written, so a poisoned lock is still usable.
-fn lock(store: &Mutex<Store>) -> MutexGuard<'_, Store> {
-    store.lock().unwrap_or_else(PoisonError::into_inner)
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 impl Core {

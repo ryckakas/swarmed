@@ -172,6 +172,19 @@ pub enum AgentEvent {
         /// The agent's own summary of the action, if it gave one.
         description: Option<String>,
     },
+    /// The user decided a [`AgentEvent::PermissionRequest`]. Recorded by the core, not produced by
+    /// a backend.
+    PermissionAnswered {
+        /// The request that was decided.
+        request_id: String,
+        /// Whether it was allowed.
+        allowed: bool,
+    },
+    /// The agent no longer needs a decision on a [`AgentEvent::PermissionRequest`].
+    PermissionWithdrawn {
+        /// The request that was taken back.
+        request_id: String,
+    },
     /// Usage-limit state.
     RateLimit {
         /// `allowed`, or the agent's word for a limit that was hit.

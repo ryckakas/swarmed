@@ -283,6 +283,7 @@ fn parse_message(message: &Value, pending: &Pending) -> Vec<AgentEvent> {
             .filter_map(parse_tool_result)
             .collect(),
         "control_request" => vec![parse_control_request(message, pending)],
+        "control_cancel_request" => withdraw(message, pending),
         "rate_limit_event" => vec![parse_rate_limit(message)],
         "result" => vec![AgentEvent::TurnDone {
             is_error: message
@@ -360,6 +361,14 @@ fn parse_control_request(message: &Value, pending: &Pending) -> AgentEvent {
         input,
         description: kind_of(request, "description").map(String::from),
     }
+}
+
+/// The CLI takes back a permission request, for example because the turn was interrupted.
+fn withdraw(message: &Value, pending: &Pending) -> Vec<AgentEvent> {
+    let request_id = str_of(message, "request_id");
+    let known = pending.take(&request_id).is_some();
+    let withdrawn = AgentEvent::PermissionWithdrawn { request_id };
+    known.then_some(withdrawn).into_iter().collect()
 }
 
 fn parse_rate_limit(message: &Value) -> AgentEvent {
@@ -511,6 +520,18 @@ mod tests {
             Some(&json!({ "behavior": "allow", "updatedInput": { "command": "git push" } }))
         );
         assert_eq!(pending.take("r1"), None);
+    }
+
+    #[test]
+    fn a_cancelled_request_is_withdrawn_once() {
+        let pending = Pending::default();
+        pending.insert("r1".into(), json!({}));
+        let cancel = json!({ "type": "control_cancel_request", "request_id": "r1" });
+        let withdrawn = AgentEvent::PermissionWithdrawn {
+            request_id: "r1".into(),
+        };
+        assert_eq!(parse_message(&cancel, &pending), vec![withdrawn]);
+        assert_eq!(parse_message(&cancel, &pending), vec![]);
     }
 
     #[test]

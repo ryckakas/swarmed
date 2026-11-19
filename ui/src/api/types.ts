@@ -64,6 +64,8 @@ export type AgentEvent =
           input: unknown;
           description: string | null;
       }
+    | { type: "permission_answered"; request_id: string; allowed: boolean }
+    | { type: "permission_withdrawn"; request_id: string }
     | { type: "rate_limit"; status: string; resets_at: number | null; raw: unknown }
     | { type: "turn_done"; is_error: boolean; result: string | null; cost_usd: number | null }
     | { type: "exited"; code: number | null; stderr: string }
