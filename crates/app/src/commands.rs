@@ -329,6 +329,22 @@ pub(crate) async fn session_send_queued(core: CoreState<'_>, id: i64) -> Command
     Ok(core.session_send_queued(id)?)
 }
 
+/// A task's closed sessions, the one closed last first.
+#[tauri::command]
+pub(crate) fn sessions_closed(
+    core: CoreState<'_>,
+    project: String,
+    task: String,
+) -> Command<Vec<Session>> {
+    Ok(core.sessions_closed(&project, &task)?)
+}
+
+/// Puts a closed session back in the lists.
+#[tauri::command]
+pub(crate) fn session_reopen(core: CoreState<'_>, id: i64) -> Command<Session> {
+    Ok(core.session_reopen(id)?)
+}
+
 #[tauri::command]
 pub(crate) fn session_mark_read(core: CoreState<'_>, id: i64) -> Command<()> {
     Ok(core.session_mark_read(id)?)

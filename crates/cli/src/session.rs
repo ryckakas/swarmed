@@ -75,6 +75,8 @@ pub(crate) enum SessionCommand {
     Rename { id: i64, title: String },
     /// Take a session out of the lists. Its history is kept.
     Close { id: i64 },
+    /// Put a closed session back in the lists.
+    Reopen { id: i64 },
 }
 
 /// Where the agent's credentials come from.
@@ -172,6 +174,10 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             Ok(())
         }
         SessionCommand::Close { id } => Ok(core.session_close(id)?),
+        SessionCommand::Reopen { id } => {
+            say(&core.session_reopen(id)?.title);
+            Ok(())
+        }
     }
 }
 

@@ -334,6 +334,8 @@ export const useStore = create<State>((set, get) => ({
         reporting(async () => {
             await api.sessionClose(sessionId);
             set((state) => closed(state, sessionId));
+            // The task now counts one more closed session.
+            await get().refresh(api);
         }),
     report: (problem) => set({ problem: String(problem) }),
     dismissProblem: () => set({ problem: null }),
@@ -371,7 +373,9 @@ export function connect(api: Api): () => void {
         api.onSessionEvent((event) => {
             // A session the tree does not know was started by an agent, not from here: the
             // tree is read again so that it appears.
-            if (!findSession(useStore.getState().projects, event.session_id)) {
+            const unknown = !findSession(useStore.getState().projects, event.session_id);
+            // Closed by an agent, or from another window: the tree is read again here too.
+            if (unknown || event.event.type === "closed") {
                 void refresh(api);
             }
             apply(event);

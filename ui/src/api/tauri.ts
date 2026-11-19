@@ -85,6 +85,8 @@ export const tauriApi: Api = {
     statusLine: (id) => invoke<string | null>("status_line", { id }),
     sessionRename: (id, title) => invoke<Session>("session_rename", { id, title }),
     sessionClose: (id) => invoke("session_close", { id }),
+    sessionsClosed: (project, task) => invoke<Session[]>("sessions_closed", { project, task }),
+    sessionReopen: (id) => invoke<Session>("session_reopen", { id }),
     onSessionEvent: (listener) =>
         listen<SessionEvent>("session-event", (event) => listener(event.payload)),
     onEventsLagged: (listener) => listen("session-events-lagged", () => listener()),

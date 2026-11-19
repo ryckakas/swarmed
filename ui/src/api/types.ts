@@ -39,6 +39,8 @@ export interface Task {
     url: string | null;
     /** Whether the user keeps a note on the task. */
     has_note: boolean;
+    /** How many closed sessions the task has, which can be listed and reopened. */
+    closed: number;
 }
 
 /** One file a task has changed since its branch left its base. */
@@ -227,6 +229,8 @@ export type AgentEvent =
     | { type: "context_usage"; used: number; max: number; categories: ContextCategory[] }
     /** The session got a new title, from the user or from the model that names sessions. */
     | { type: "renamed"; title: string }
+    /** The session was closed, by the user or by the session that started it. */
+    | { type: "closed" }
     /** HTML the agent showed through Swarmed's own tool, handed over by the tool itself. */
     | { type: "view"; html: string }
     /** What the agent says it actually runs with, defaults resolved. */

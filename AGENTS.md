@@ -153,6 +153,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   a message in the other conversation, queued if that session is busy. A spawned session runs
   in its parent's task with its settings, cannot spawn itself, and a session can have
   `MAX_SPAWNED` open. The tools are not on the allow list: in ask mode the user is asked.
+  A session can close only sessions it started, and only idle ones (`peer_close`).
+- **A closed session is put away, not deleted.** Closing is an event, `Closed`, so every front
+  end drops it from its lists. Its task counts its closed sessions, they can be listed
+  (`sessions_closed`) and put back (`session_reopen`) with their conversation as it was.
 - **Agents other than Claude Code get Swarmed's guidance with their first message**, as a
   second block after the user's words: the protocol has no place for a client's instructions.
 - A view still being written is held back and stood in for (`splitPendingView`), so it appears

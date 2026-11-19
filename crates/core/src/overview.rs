@@ -33,15 +33,22 @@ pub struct TaskOverview {
     pub url: Option<String>,
     /// Whether the user keeps a note on the task.
     pub has_note: bool,
+    /// How many closed sessions the task has, which can be listed and reopened.
+    pub closed: usize,
 }
 
 impl Core {
     /// Every project with its tasks and their sessions, archived tasks included.
     pub fn overview(&self) -> Result<Vec<ProjectOverview>> {
         // Three queries under one lock, so the tree is consistent.
-        let (projects, tasks, sessions) = {
+        let (projects, tasks, sessions, closed) = {
             let store = self.store();
-            (store.projects()?, store.tasks_all()?, store.sessions_all()?)
+            (
+                store.projects()?,
+                store.tasks_all()?,
+                store.sessions_all()?,
+                store.closed_counts()?,
+            )
         };
         let running = self.running_sessions();
         let task_overview = |task: Task| {
@@ -56,11 +63,12 @@ impl Core {
                 .filter(|id| running.contains(id))
                 .collect();
             TaskOverview {
-                task,
                 sessions,
                 running,
                 url: None,
                 has_note: false,
+                closed: closed.get(&task.id).copied().unwrap_or(0),
+                task,
             }
         };
         let mut tasks: Vec<TaskOverview> = tasks.into_iter().map(task_overview).collect();
