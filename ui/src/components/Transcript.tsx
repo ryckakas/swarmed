@@ -1,6 +1,7 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
 import type { AgentEvent } from "../api/types";
 import { activity, type Item, PLAN_TOOL, summarize, toItems } from "../transcript";
+import { HtmlView } from "./HtmlView";
 import { Markdown } from "./Markdown";
 import { PermissionPrompt } from "./PermissionPrompt";
 import { ToolCall } from "./ToolCall";
@@ -104,6 +105,8 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
                     <span className="mono">{summarize(item.input)}</span>
                 </p>
             );
+        case "view":
+            return <HtmlView html={item.html} />;
         case "terminal":
             return (
                 <details className="shared-terminal">

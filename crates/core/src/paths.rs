@@ -73,6 +73,12 @@ impl Paths {
         }
     }
 
+    /// The folder a session's tool server leaves the views it is given in.
+    #[must_use]
+    pub fn view_spool(&self, session: i64) -> PathBuf {
+        self.data_dir.join("spool").join(session.to_string())
+    }
+
     /// The worktree directory of `task` in `project`.
     #[must_use]
     pub fn worktree(&self, project: &str, task: &str) -> PathBuf {

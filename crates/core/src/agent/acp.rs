@@ -270,8 +270,14 @@ impl Conversation {
         if self.calls.values().any(|call| *call == Call::OpenSession) {
             return self.queued.push_back(text);
         }
-        let params =
-            json!({ "sessionId": session_id, "prompt": [{ "type": "text", "text": text }] });
+        let mut prompt = vec![json!({ "type": "text", "text": text })];
+        // The protocol has nowhere to put instructions of the client's own, so what Claude Code
+        // is given as part of its system prompt goes along with the first message instead:
+        // after the user's own words, once for each time the agent is started.
+        if let Some(guidance) = self.spec.append_system_prompt.take() {
+            prompt.push(json!({ "type": "text", "text": guidance_block(&guidance) }));
+        }
+        let params = json!({ "sessionId": session_id, "prompt": prompt });
         self.call(Call::Prompt, "session/prompt", params).await;
     }
 
@@ -579,6 +585,16 @@ fn acp_servers(servers: &[McpServer], takes_http: bool) -> Vec<(String, Value)> 
         .iter()
         .filter_map(|server| Some((server.name.clone(), definition(server)?)))
         .collect()
+}
+
+/// Swarmed's guidance as it is handed to an agent with a message: marked as coming from the
+/// app the conversation is shown in, and not from the user.
+fn guidance_block(guidance: &str) -> String {
+    format!(
+        "<swarmed-guidance>\nThe following is from Swarmed, the app this conversation is shown \
+         in, not from the user. It holds for the whole conversation.\n\n{guidance}\n\
+         </swarmed-guidance>"
+    )
 }
 
 fn str_of<'a>(value: &'a Value, key: &str) -> Option<&'a str> {

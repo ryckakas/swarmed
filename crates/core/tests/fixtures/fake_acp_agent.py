@@ -4,6 +4,7 @@
 - plain text: streams "echo: <text>" in two chunks;
 - "run: <command>": reports a tool call, asks permission, then reports the outcome;
 - "slow": works until the turn is cancelled;
+- "guidance": says whether Swarmed's guidance came along with the message;
 - "fail": answers the prompt with an error;
 - "mcp": names the MCP servers it was given.
 
@@ -39,7 +40,12 @@ def on_prompt(request_id, params):
     session = params["sessionId"]
     text = params["prompt"][0]["text"]
     state["pending_prompt"] = request_id
-    if text == "mcp":
+    if text == "guidance":
+        # Whatever came with the message besides the user's own words.
+        extra = [block["text"] for block in params["prompt"][1:]]
+        chunk(session, "guidance: " + ("yes" if any("html-view" in e for e in extra) else "none"))
+        finish()
+    elif text == "mcp":
         chunk(session, "servers: " + ", ".join(state.get("servers", [])))
         finish()
     elif text == "key":

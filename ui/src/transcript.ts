@@ -19,6 +19,8 @@ export type Item =
       }
     /** A request the user refused. An allowed one shows as the tool call it let through. */
     | { kind: "denied"; key: number; toolName: string; input: unknown }
+    /** HTML the agent showed the user through Swarmed's tool. */
+    | { kind: "view"; key: number; html: string }
     /** What happened in the terminal, as the agent was told with the message before it. */
     | { kind: "terminal"; key: number; text: string }
     | { kind: "session"; key: number; model: string; login: string; mcp: string; skills: number }
@@ -42,7 +44,8 @@ export function planOf(input: unknown): string {
 
 /** How long a tool call's arguments may be when shown on one line. */
 const SUMMARY_CHARS = 120;
-const TELLING_ARGUMENTS = ["command", "file_path", "pattern", "url", "query"];
+// Agents name the same thing differently: a file is `file_path` to one and `path` to another.
+const TELLING_ARGUMENTS = ["command", "file_path", "path", "pattern", "url", "query", "cwd"];
 
 /** The one argument that says what a tool call does, or the arguments as compact JSON. */
 export function summarize(input: unknown): string {
@@ -71,6 +74,8 @@ function single(event: AgentEvent, key: number): Item | null {
             return { kind: "text", key, text: event.text, streaming: true };
         case "terminal_shared":
             return { kind: "terminal", key, text: event.text };
+        case "view":
+            return { kind: "view", key, html: event.html };
         case "init":
             return sessionItem(event, key);
         case "turn_done":
@@ -142,7 +147,12 @@ export function toItems(events: AgentEvent[]): Item[] {
     events.forEach((event, key) => {
         add(draft, event, key);
     });
-    return draft.items.filter((item) => !draft.settled.has(item));
+    // A view the tool handed over stands for the call that showed it. The call itself is only
+    // drawn as a view where no such handover was recorded, as in conversations from before.
+    const handed = new Set(events.flatMap((event) => (event.type === "view" ? [event.html] : [])));
+    const shownTwice = (item: Item) =>
+        item.kind === "tool" && handed.has(shownHtml(item.name, item.input));
+    return draft.items.filter((item) => !(draft.settled.has(item) || shownTwice(item)));
 }
 
 function add(draft: Draft, event: AgentEvent, key: number) {

@@ -351,6 +351,28 @@ async fn a_session_can_name_its_model_and_only_a_configured_agent() {
 }
 
 #[tokio::test]
+async fn an_acp_agent_is_given_swarmeds_guidance_once_with_its_first_message() {
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+
+    core.session_send(id, "guidance").expect("sends");
+    let first = turn(&mut bus, id).await;
+    assert!(first.contains(&text("guidance: yes")), "{first:?}");
+    // The user's own message is recorded as they wrote it.
+    assert_eq!(
+        first.first(),
+        Some(&AgentEvent::UserMessage {
+            text: "guidance".into()
+        })
+    );
+    core.session_send(id, "guidance").expect("sends");
+    let second = turn(&mut bus, id).await;
+    assert!(second.contains(&text("guidance: none")), "{second:?}");
+}
+
+#[tokio::test]
 async fn an_agent_that_cannot_be_started_is_an_error_not_a_hang() {
     let fx = fixture();
     let missing = AcpBackend {

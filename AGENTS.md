@@ -135,6 +135,14 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   `tool-server`, and tells the core so with `set_tool_server`. The tool does nothing: its call
   is in the conversation, where the UI shows the HTML like an `html-view` block. It is there
   because agents asked for something visual look for a tool.
+- **A view reaches the conversation from the tool, not from the call.** The tool server
+  leaves the HTML in the session's own folder (`Paths::view_spool`, named to it by an
+  environment variable), and the core records it as a `View` event when the next tool result or
+  turn end arrives. Agents wrap their calls differently: directly, from a script, from a
+  subagent. None of that matters this way. Reading the HTML out of the call's own shape is only
+  a fallback for conversations recorded before.
+- **Agents other than Claude Code get Swarmed's guidance with their first message**, as a
+  second block after the user's words: the protocol has no place for a client's instructions.
 - A view still being written is held back and stood in for (`splitPendingView`), so it appears
   whole instead of as streaming source.
 - **The message box handles a few keys itself** (`ui/src/editing.ts`): Home and End move within

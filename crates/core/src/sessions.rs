@@ -1,6 +1,7 @@
 //! Agent sessions: creating them, running them, and keeping what they said.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -19,7 +20,9 @@ use crate::queue::{self, Queues};
 use crate::secrets::SecretEnv;
 use crate::store::{Store, Task};
 use crate::terminal::Terminals;
-use crate::toolserver::{SERVER_NAME, SHOW_HTML_FOR_CLAUDE, TOOL_SERVER_ARG};
+use crate::toolserver::{
+    SERVER_NAME, SHOW_HTML_FOR_CLAUDE, TOOL_SERVER_ARG, VIEW_SPOOL_ENV, take_views,
+};
 use crate::{Core, lock, views};
 
 /// How long a session title derived from the first message may be.
@@ -83,6 +86,7 @@ impl SessionStatus {
             | AgentEvent::Renamed { .. }
             | AgentEvent::SupervisionChanged { .. }
             | AgentEvent::Applied { .. }
+            | AgentEvent::View { .. }
             | AgentEvent::Queue { .. }
             | AgentEvent::ContextUsage { .. }
             | AgentEvent::TerminalShared { .. }
@@ -513,7 +517,10 @@ impl Core {
         }
         let html_views = self.settings()?.html_views;
         let mut mcp_servers = self.mcp_servers_for(&session.agent, &task)?;
-        mcp_servers.extend(self.own_tools(html_views));
+        let spool = self.paths.view_spool(id);
+        // Whatever an earlier run left behind belongs to a conversation that has moved on.
+        std::fs::remove_dir_all(&spool).ok();
+        mcp_servers.extend(self.own_tools(html_views, &spool));
         let env = if session.agent == CLAUDE {
             SecretEnv::default()
         } else {
@@ -543,6 +550,7 @@ impl Core {
             store: Arc::clone(&self.store),
             live: Arc::clone(&self.live),
             terminals: Arc::clone(&self.terminals),
+            spool,
         };
         drop(tokio::spawn(record_and_publish(
             handle.events,
@@ -554,14 +562,18 @@ impl Core {
 
     /// Swarmed's own tool server, for every agent, when a front end said where it is and the
     /// user has views switched on: showing HTML is all it does.
-    fn own_tools(&self, html_views: bool) -> Option<McpServer> {
+    fn own_tools(&self, html_views: bool, spool: &Path) -> Option<McpServer> {
         let executable = self.tool_server.as_ref().filter(|_| html_views)?;
         Some(McpServer {
             name: SERVER_NAME.to_string(),
             transport: McpTransport::Stdio {
                 command: executable.to_string_lossy().into_owned(),
                 args: vec![TOOL_SERVER_ARG.to_string()],
-                env: BTreeMap::new(),
+                // Where the tool leaves the views it is given, for this session to pick up.
+                env: BTreeMap::from([(
+                    VIEW_SPOOL_ENV.to_string(),
+                    spool.to_string_lossy().into_owned(),
+                )]),
             },
         })
     }
@@ -935,11 +947,20 @@ impl Live {
 ///
 /// Takes only the event half of the agent's handle: holding a command sender here would keep
 /// the agent's input open, and [`Core::session_stop`] could never end it.
+/// Records and publishes the views the session's tool server was given since last time.
+fn show_views(store: &Mutex<Store>, live: &Live, id: i64, spool: &Path) {
+    for html in take_views(spool) {
+        live.note(store, id, AgentEvent::View { html }).ok();
+    }
+}
+
 /// What the task following one agent's events needs of the core.
 struct Shared {
     store: Arc<Mutex<Store>>,
     live: Arc<Live>,
     terminals: Arc<Terminals>,
+    /// Where the session's tool server leaves the views it is given.
+    spool: PathBuf,
 }
 
 async fn record_and_publish(
@@ -951,6 +972,7 @@ async fn record_and_publish(
         store,
         live,
         terminals,
+        spool,
     } = shared;
     while let Some(event) = events.recv().await {
         // A turn that ended well makes room for the next message the user left waiting. One
@@ -964,7 +986,16 @@ async fn record_and_publish(
         );
         // A full disk must not cut the user off from a running agent: the event is published
         // even if storing it failed.
+        // A tool has answered or the turn is over: time to show what the agent handed to
+        // Swarmed's own tool meanwhile, however it came to call it.
+        let settled = matches!(
+            event,
+            AgentEvent::ToolResult { .. } | AgentEvent::TurnDone { .. }
+        );
         live.note(&store, id, event).ok();
+        if settled {
+            show_views(&store, &live, id, &spool);
+        }
         if finished {
             queue::send_next(&store, &live, &terminals, id).ok();
         }

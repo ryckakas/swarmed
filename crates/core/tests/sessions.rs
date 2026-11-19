@@ -132,6 +132,46 @@ async fn a_finished_turn_is_unread_until_the_user_looks_or_writes() {
 }
 
 #[tokio::test]
+async fn a_view_handed_to_the_tool_is_shown_when_the_call_returns() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    // What an earlier run left behind is not this conversation's to show.
+    let session = core
+        .session_new("demo", "one", &SessionOptions::default())
+        .expect("creates");
+    let spool = fx.paths.view_spool(session.id);
+    std::fs::create_dir_all(&spool).expect("dir");
+    std::fs::write(spool.join("0-stale.html"), "<p>stale</p>").expect("writes");
+    core.session_start(session.id, Auth::Subscription)
+        .expect("starts");
+
+    // The tool server leaves the view while the agent's call is running; however the agent
+    // made that call, the view follows its result.
+    core.session_send(session.id, "run: ls").expect("sends");
+    let (request_id, _) = permission_request(&mut bus).await;
+    std::fs::create_dir_all(&spool).expect("dir");
+    std::fs::write(spool.join("1-view.html"), "<p>chart</p>").expect("writes");
+    core.session_allow(session.id, &request_id).expect("sends");
+    let events = turn(&mut bus, session.id).await;
+    let views: Vec<&AgentEvent> = events
+        .iter()
+        .filter(|event| matches!(event, AgentEvent::View { .. }))
+        .collect();
+    let chart = AgentEvent::View {
+        html: "<p>chart</p>".into(),
+    };
+    assert_eq!(views, [&chart]);
+    // It is part of the conversation, and it is handed over once.
+    assert!(
+        core.session_events(session.id)
+            .expect("reads")
+            .contains(&chart)
+    );
+    assert!(!spool.join("1-view.html").exists());
+}
+
+#[tokio::test]
 async fn a_permission_request_waits_for_the_decision() {
     let fx = fixture();
     let core = core_with_task(&fx).await;

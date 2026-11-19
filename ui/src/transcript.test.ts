@@ -183,3 +183,42 @@ describe("planOf", () => {
         expect(planOf(null)).toBe("");
     });
 });
+
+describe("views handed over by the tool", () => {
+    const call = (name: string, input: unknown): AgentEvent => ({
+        type: "tool_use",
+        id: "v1",
+        name,
+        input,
+    });
+    const result: AgentEvent = {
+        type: "tool_result",
+        tool_use_id: "v1",
+        content: "ok",
+        is_error: false,
+    };
+
+    it("stand for the call that showed them, however the agent made it", () => {
+        const script = {
+            code: "const H = `<p>hi</p>`; return tools.swarmed.show_html({ html: H });",
+        };
+        const items = toItems([
+            call("execute", script),
+            result,
+            { type: "view", html: "<p>hi</p>" },
+        ]);
+        expect(items.map((item) => item.kind)).toEqual(["view"]);
+        // Also when the call cannot be read at all: the view is shown, the call stays a call.
+        const opaque = toItems([
+            call("execute", { code: "tools.swarmed.show_html({ html: build() })" }),
+            result,
+            { type: "view", html: "<p>built</p>" },
+        ]);
+        expect(opaque.map((item) => item.kind)).toEqual(["tool", "view"]);
+    });
+
+    it("are not needed for a conversation recorded before they existed", () => {
+        const items = toItems([call("mcp__swarmed__show_html", { html: "<p>old</p>" }), result]);
+        expect(items.map((item) => item.kind)).toEqual(["tool"]);
+    });
+});
