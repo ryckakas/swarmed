@@ -2668,6 +2668,43 @@ kbd {
     padding: 0;
 }
 
+/* One agent's own servers: a heading that unfolds into the list. */
+.mcp-group {
+    margin-top: var(--space-4);
+    border-top: 1px solid var(--line);
+}
+
+.mcp-group summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) 0;
+    color: var(--text);
+    font-weight: 600;
+    cursor: default;
+    list-style: none;
+}
+
+.mcp-group summary::-webkit-details-marker {
+    display: none;
+}
+
+.mcp-group-fold {
+    width: 1ch;
+    color: var(--faint);
+    transition: transform 120ms;
+}
+
+.mcp-group[open] .mcp-group-fold {
+    transform: rotate(90deg);
+}
+
+.mcp-group-count {
+    color: var(--faint);
+    font-size: var(--text-xs);
+    font-weight: 400;
+}
+
 .mcp-list {
     margin: 0;
     padding: 0;

@@ -14,6 +14,8 @@ mod error;
 mod git;
 pub mod hooks;
 pub mod mcp;
+mod mcp_codex;
+mod mcp_opencode;
 mod mcp_own;
 mod naming;
 mod notes;

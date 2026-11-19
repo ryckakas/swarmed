@@ -47,6 +47,8 @@ pub fn fixture() -> Fixture {
         data_dir: root.join("data"),
         worktrees_root: root.join("worktrees"),
         claude_config: root.join("claude.json"),
+        codex_config: root.join("codex.toml"),
+        opencode_config_dir: root.join("opencode"),
     };
     Fixture {
         _dir: dir,

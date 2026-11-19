@@ -1,7 +1,9 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { api } from "../api";
 import type { McpServerInput, McpServerView } from "../api/types";
+import { iconForAgent } from "../providerIcons";
 import { useStore } from "../store";
+import { ProviderMark } from "./ProviderMark";
 
 /** A server as the form holds it while it is being written. */
 interface Draft {
@@ -49,8 +51,8 @@ function inputOf(draft: Draft): McpServerInput {
 }
 
 /**
- * MCP servers: the ones set up here, which every agent Swarmed runs is given, and Claude
- * Code's own, which are only shown. Secrets are typed in and never shown again.
+ * MCP servers: the ones set up here, which every agent Swarmed runs is given, and each
+ * agent's own, which are only shown. Secrets are typed in and never shown again.
  */
 export function McpSettings() {
     const report = useStore((state) => state.report);
@@ -62,7 +64,6 @@ export function McpSettings() {
     }, []);
 
     const own = servers.filter((server) => server.origin === "swarmed");
-    const claude = servers.filter((server) => server.origin !== "swarmed");
     const save = (input: McpServerInput) =>
         api
             .mcpSave(input)
@@ -101,31 +102,87 @@ export function McpSettings() {
                     Add a server
                 </button>
             )}
-            <h3 className="settings-subhead">From Claude Code</h3>
-            <p className="settings-hint">
-                {claude.length === 0
-                    ? "None found. Claude Code's own servers and connectors show here once a session has run."
-                    : "Claude Code's own servers and the connectors of your Claude account. They are managed in Claude Code; other agents are given the ones Swarmed can read."}
-            </p>
+            {AGENT_GROUPS.map((group) => (
+                <AgentServers
+                    key={group.origin}
+                    group={group}
+                    servers={servers.filter((server) => server.origin === group.origin)}
+                />
+            ))}
+        </section>
+    );
+}
+
+/** The agents whose own servers are shown, each under a heading that folds its list away. */
+const AGENT_GROUPS = [
+    {
+        origin: "claude",
+        name: "Claude Code",
+        about: "Claude Code's own servers and the connectors of your Claude account. They are managed in Claude Code. Agents that keep no list of their own are given the ones Swarmed can read.",
+        none: "None found. Claude Code's own servers and connectors show here once a session has run.",
+    },
+    {
+        origin: "codex",
+        name: "Codex",
+        about: "The servers in Codex's own configuration. They are managed in Codex, and only Codex uses them.",
+        none: "None found in Codex's configuration.",
+    },
+    {
+        origin: "opencode",
+        name: "OpenCode",
+        about: "The servers in OpenCode's own configuration. They are managed in OpenCode. It is also given Swarmed's servers and the ones of Claude Code's that Swarmed can read.",
+        none: "None found in OpenCode's configuration. It is still given Swarmed's servers and the ones of Claude Code's that Swarmed can read.",
+    },
+] as const;
+
+/** How many of an agent's servers there are, and how many of them are in working order. */
+export function serverCount(servers: McpServerView[]): string {
+    const working = servers.filter(
+        (server) => server.status === "connected" || server.status === "passed",
+    ).length;
+    return working > 0 ? `${servers.length}, ${working} connected` : `${servers.length}`;
+}
+
+/** One agent's own servers: a heading with their number, which unfolds into the list. */
+function AgentServers(props: { group: (typeof AGENT_GROUPS)[number]; servers: McpServerView[] }) {
+    const { group, servers } = props;
+    return (
+        <details className="mcp-group">
+            <summary>
+                <span className="mcp-group-fold" aria-hidden="true">
+                    ›
+                </span>
+                <ProviderMark icon={iconForAgent(group.origin)} />
+                <span className="mcp-group-name">{group.name}</span>
+                <span className="mcp-group-count">{serverCount(servers)}</span>
+            </summary>
+            <p className="settings-hint">{servers.length === 0 ? group.none : group.about}</p>
             <ul className="mcp-list">
-                {claude.map((server) => (
+                {servers.map((server) => (
                     <li key={server.name} className="mcp-row">
                         <span className="mcp-name">{server.name}</span>
-                        <Status status={server.status} />
+                        <Status server={server} />
                         <span className="mcp-target mono" title={server.target}>
                             {server.target}
                         </span>
                     </li>
                 ))}
             </ul>
-        </section>
+        </details>
     );
 }
 
-/** What Claude Code last said of a server, coloured by whether it is usable. */
-function Status({ status }: { status: string | null }) {
+/**
+ * What is known of a server's state: what Claude Code last said of it, coloured by whether it
+ * is usable; for an agent that does not say, only whether the server is switched off.
+ */
+function Status({ server }: { server: McpServerView }) {
+    const { status } = server;
+    if (!server.enabled) {
+        return <span className="mcp-status mcp-status-off">disabled</span>;
+    }
     if (status === null) {
-        return <span className="mcp-status">not seen yet</span>;
+        return server.origin === "claude" ? <span className="mcp-status">not seen yet</span> : null;
     }
     const tone = status === "connected" || status === "passed" ? "good" : "off";
     return <span className={`mcp-status mcp-status-${tone}`}>{status}</span>;
@@ -143,7 +200,7 @@ function OwnRow({ server, onEdit, onToggle, onRemove }: OwnRowProps) {
         <div className="settings-row">
             <div className="mcp-own">
                 <p className="settings-label">
-                    {server.name} <Status status={server.status} />
+                    {server.name} <Status server={server} />
                 </p>
                 <p className="settings-hint mono">{server.target}</p>
                 {server.secrets.length > 0 && (

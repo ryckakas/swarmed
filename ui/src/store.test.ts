@@ -238,7 +238,7 @@ describe("MCP servers", () => {
     it("set up here come first, are named by their secrets only, and can be removed", async () => {
         const api = createMockApi();
         const before = await api.mcpServers();
-        expect(before.every((server) => server.origin === "claude")).toBe(true);
+        expect(before.every((server) => server.origin !== "swarmed")).toBe(true);
         const listed = await api.mcpSave({
             name: "tracker",
             command: "npx -y tracker",
