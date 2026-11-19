@@ -98,11 +98,11 @@ impl Core {
     /// Fills in where each task's stack is reached. A config that cannot be read, or a URL that
     /// cannot be rendered, leaves a task without one instead of failing the whole overview.
     fn add_urls(&self, project: &Project, tasks: &mut [TaskOverview]) {
-        let Ok(config) = self.project_config(&project.name) else {
-            return;
-        };
         for task in tasks.iter_mut().filter(|t| !t.task.archived) {
-            task.url = self.url_of(project, &config, &task.task).ok().flatten();
+            let environment = task.task.environment.as_deref();
+            let config = self.config_in(&project.name, environment);
+            let url = config.and_then(|config| self.url_of(project, &config, &task.task));
+            task.url = url.ok().flatten();
         }
     }
 }

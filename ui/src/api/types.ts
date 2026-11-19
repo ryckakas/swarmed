@@ -41,6 +41,23 @@ export interface Task {
     has_note: boolean;
     /** How many closed sessions the task has, which can be listed and reopened. */
     closed: number;
+    /** The environment of its project the task was set up in, if any. */
+    environment: string | null;
+}
+
+/**
+ * One way of setting a project's tasks up on this machine. Whatever is left empty is as the
+ * project's own configuration has it.
+ */
+export interface Environment {
+    /** Runs once after a task's worktree is created. */
+    setup: string;
+    /** Runs before a task's worktree is removed. */
+    teardown: string;
+    /** Where a task's running stack is reached in a browser. */
+    open_url: string;
+    /** Variables for the hooks and for the agents working in the task. */
+    env: Record<string, string>;
 }
 
 /** One file a task has changed since its branch left its base. */

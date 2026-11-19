@@ -97,6 +97,10 @@ interface State {
     /** Per session, the messages waiting for its agent to finish. */
     queues: Record<number, QueuedMessage[]>;
     setQueue(sessionId: number, messages: QueuedMessage[]): void;
+    /** The repository whose environments are being edited. */
+    environmentsOf: string | null;
+    /** Opens a repository's environments; `null` puts them away. */
+    askForEnvironments(project: string | null): void;
     /** The repository or task whose note is being edited. */
     noting: NoteTarget | null;
     /** Opens a note; `null` puts it away. */
@@ -283,6 +287,8 @@ export const useStore = create<State>((set, get) => ({
     queues: {},
     setQueue: (sessionId, messages) =>
         set((state) => ({ queues: { ...state.queues, [sessionId]: messages } })),
+    environmentsOf: null,
+    askForEnvironments: (project) => set({ environmentsOf: project }),
     noting: null,
     askForNote: (target) => set({ noting: target }),
     closing: null,

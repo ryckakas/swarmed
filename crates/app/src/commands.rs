@@ -4,15 +4,17 @@
     reason = "Tauri hands commands their arguments, `State` included, by value"
 )]
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::Serialize;
 use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
-    AgentInfo, AgentSetup, ApiKeyInfo, BranchChoices, Core, FileChange, FileDiff, McpServerInput,
-    McpServerView, NewTaskOptions, Project, ProjectOverview, QueuedMessage, RemoveOptions, Session,
-    SessionOptions, SessionSettings, Settings, Task, TaskNaming, Usage, with_files,
+    AgentInfo, AgentSetup, ApiKeyInfo, BranchChoices, Core, Environment, FileChange, FileDiff,
+    McpServerInput, McpServerView, NewTaskOptions, Project, ProjectOverview, QueuedMessage,
+    RemoveOptions, Session, SessionOptions, SessionSettings, Settings, Task, TaskNaming, Usage,
+    with_files,
 };
 use tauri::{AppHandle, Emitter, Runtime, State};
 
@@ -176,9 +178,11 @@ pub(crate) async fn task_new<R: Runtime>(
     project: String,
     name: String,
     branch: Option<String>,
+    environment: Option<String>,
 ) -> Command<Task> {
     let options = NewTaskOptions {
         existing_branch: branch.as_deref(),
+        environment: environment.as_deref(),
     };
     let sink = hook_sink(&app, &project, &name);
     Ok(core.task_new(&project, &name, options, &sink).await?)
@@ -204,6 +208,36 @@ pub(crate) async fn task_remove<R: Runtime>(
 #[tauri::command]
 pub(crate) fn task_open_editor(core: CoreState<'_>, project: String, name: String) -> Command<()> {
     Ok(core.task_open_editor(&project, &name)?)
+}
+
+/// A project's environments, by name.
+#[tauri::command]
+pub(crate) fn environments(
+    core: CoreState<'_>,
+    project: String,
+) -> Command<BTreeMap<String, Environment>> {
+    Ok(core.environments(&project)?)
+}
+
+/// Adds an environment to a project, or replaces the one of that name.
+#[tauri::command]
+pub(crate) fn environment_save(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+    environment: Environment,
+) -> Command<()> {
+    Ok(core.environment_save(&project, &name, &environment)?)
+}
+
+/// Removes an environment from a project.
+#[tauri::command]
+pub(crate) fn environment_remove(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+) -> Command<()> {
+    Ok(core.environment_remove(&project, &name)?)
 }
 
 #[tauri::command]

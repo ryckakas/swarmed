@@ -10,6 +10,7 @@ mod agents;
 mod attach;
 mod changes;
 mod config;
+mod environments;
 mod error;
 mod git;
 pub mod hooks;
@@ -47,6 +48,7 @@ pub use attach::{ATTACHED_FILES, with_files};
 
 pub use changes::{ChangeKind, FileChange, FileDiff};
 pub use config::{Hooks, ProjectConfig};
+pub use environments::Environment;
 pub use error::{Error, Result};
 pub use hooks::OutputSink;
 pub use mcp_own::{McpServerInput, McpServerView};

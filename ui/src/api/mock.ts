@@ -4,6 +4,7 @@ import type {
     AgentEvent,
     AgentSetup,
     ApiKeyInfo,
+    Environment,
     FileChange,
     FileDiff,
     HookOutput,
@@ -59,6 +60,7 @@ function task(id: number, projectId: number, name: string, sessions: Session[]):
         url: `http://localhost:${3000 + id * 100}`,
         has_note: id === 1,
         closed: 0,
+        environment: null,
     };
 }
 
@@ -278,6 +280,37 @@ function noteApi(projects: () => Project[]): Pick<Api, "note" | "setNote"> {
             const kept = text.trim() === "" ? "" : text;
             notes.set(noteKey(project, task), kept);
             markNote(projects(), project, task, kept !== "");
+        },
+    };
+}
+
+/** Environments, kept per repository for as long as the page is open. */
+function environmentApi(): Pick<Api, "environments" | "environmentSave" | "environmentRemove"> {
+    const kept = new Map<string, Record<string, Environment>>([
+        [
+            "hero",
+            {
+                staging: {
+                    setup: "npm ci && npm run db:seed -- --staging",
+                    teardown: "",
+                    open_url: "",
+                    env: { APP_ENV: "staging", DATABASE_URL: "postgres://localhost/{{task}}" },
+                },
+            },
+        ],
+    ]);
+    const of = (project: string) => kept.get(project) ?? {};
+    return {
+        environments: async (project) => ({ ...of(project) }),
+        environmentSave: async (project, name, environment) => {
+            if (!/^[a-z0-9][a-z0-9._-]*$/.test(name)) {
+                throw new Error(`invalid name \`${name}\``);
+            }
+            kept.set(project, { ...of(project), [name]: environment });
+        },
+        environmentRemove: async (project, name) => {
+            const { [name]: _removed, ...rest } = of(project);
+            kept.set(project, rest);
         },
     };
 }
@@ -870,7 +903,8 @@ export function createMockApi(): Api {
         }),
         // The sample data has no model to ask, so tasks are named after their prompts.
         taskNameFor: async () => null,
-        taskNew: async (projectName, name, branch) => {
+        ...environmentApi(),
+        taskNew: async (projectName, name, branch, environment) => {
             const project = agent.projects.find((candidate) => candidate.name === projectName);
             if (!project) {
                 throw new Error(`project \`${projectName}\` not found`);
@@ -884,6 +918,7 @@ export function createMockApi(): Api {
             const created = {
                 ...task(Date.now(), project.id, name, []),
                 ...(branch ? { branch } : {}),
+                environment,
             };
             project.tasks.push(created);
             return created;

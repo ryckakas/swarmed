@@ -1,0 +1,264 @@
+import { useEffect, useRef, useState } from "react";
+import { api } from "../api";
+import type { Environment } from "../api/types";
+import { EMPTY_ENVIRONMENT, envFromText, envToText } from "../environments";
+import { useStore } from "../store";
+
+/** A repository's environments, opened from the sidebar. */
+export function EnvironmentsDialog() {
+    const project = useStore((state) => state.environmentsOf);
+    if (project === null) {
+        return null;
+    }
+    // A key per repository, so one's environments never show under another's name.
+    return <Editor key={project} project={project} />;
+}
+
+/** An environment as the form holds it while it is being written. */
+interface Draft {
+    /** The environment being changed; `null` for a new one. */
+    editing: string | null;
+    name: string;
+    setup: string;
+    teardown: string;
+    openUrl: string;
+    /** The variables, as lines of `NAME=value`. */
+    variables: string;
+}
+
+const NEW: Draft = { editing: null, name: "", setup: "", teardown: "", openUrl: "", variables: "" };
+
+function draftOf(name: string, environment: Environment): Draft {
+    return {
+        editing: name,
+        name,
+        setup: environment.setup,
+        teardown: environment.teardown,
+        openUrl: environment.open_url,
+        variables: envToText(environment.env),
+    };
+}
+
+/** What is saved for a draft. Throws, naming the line, if a variable is not written as one. */
+function environmentOf(draft: Draft): Environment {
+    return {
+        ...EMPTY_ENVIRONMENT,
+        setup: draft.setup.trim(),
+        teardown: draft.teardown.trim(),
+        open_url: draft.openUrl.trim(),
+        env: envFromText(draft.variables),
+    };
+}
+
+function Editor({ project }: { project: string }) {
+    const close = () => useStore.getState().askForEnvironments(null);
+    const dialog = useRef<HTMLDialogElement>(null);
+    const [environments, setEnvironments] = useState<Record<string, Environment>>({});
+    const [draft, setDraft] = useState<Draft | null>(null);
+    const [problem, setProblem] = useState<string | null>(null);
+    const failed = (error: unknown) => setProblem(String(error));
+    const read = () => api.environments(project).then(setEnvironments, failed);
+
+    // biome-ignore lint/correctness/useExhaustiveDependencies: read once, when the dialog opens
+    useEffect(() => {
+        dialog.current?.showModal();
+        void read();
+    }, []);
+
+    const save = async (saved: Draft) => {
+        try {
+            await api.environmentSave(project, saved.name.trim(), environmentOf(saved));
+            // Saved under a new name, the old one goes: it was renamed, not copied.
+            if (saved.editing !== null && saved.editing !== saved.name.trim()) {
+                await api.environmentRemove(project, saved.editing);
+            }
+            setProblem(null);
+            setDraft(null);
+            await read();
+        } catch (error) {
+            failed(error);
+        }
+    };
+    const remove = (name: string) =>
+        api
+            .environmentRemove(project, name)
+            .then(() => setDraft(null))
+            .then(read, failed);
+    const names = Object.keys(environments);
+
+    return (
+        <dialog
+            ref={dialog}
+            className="confirm environments"
+            aria-labelledby="environments-title"
+            onClose={close}
+        >
+            <h2 id="environments-title">Environments of {project}</h2>
+            <p>
+                Different ways of setting a task up on this Mac: what runs when its worktree is
+                made, and the variables its hooks and agents get. One is chosen when a task is
+                started. Whatever an environment leaves empty is as the repository's own config has
+                it.
+            </p>
+            {draft === null ? (
+                <Listing
+                    names={names}
+                    onEdit={(name) => {
+                        const found = environments[name];
+                        setDraft(found ? draftOf(name, found) : NEW);
+                    }}
+                    onNew={() => setDraft(NEW)}
+                />
+            ) : (
+                <Form
+                    draft={draft}
+                    onChange={setDraft}
+                    onSave={() => void save(draft)}
+                    onRemove={draft.editing === null ? null : () => void remove(draft.name)}
+                    onCancel={() => setDraft(null)}
+                />
+            )}
+            {problem && <p className="note-problem">{problem}</p>}
+            {draft === null && (
+                <div className="confirm-actions">
+                    <button type="button" className="button button-primary" onClick={close}>
+                        Done
+                    </button>
+                </div>
+            )}
+        </dialog>
+    );
+}
+
+function Listing(props: { names: string[]; onEdit(name: string): void; onNew(): void }) {
+    return (
+        <div className="environment-list">
+            {props.names.length === 0 && (
+                <p className="settings-hint">
+                    None yet. Tasks are set up the way the repository's own config says.
+                </p>
+            )}
+            {props.names.map((name) => (
+                <button
+                    key={name}
+                    type="button"
+                    className="environment-name mono"
+                    onClick={() => props.onEdit(name)}
+                >
+                    {name}
+                </button>
+            ))}
+            <button type="button" className="button" onClick={props.onNew}>
+                Add an environment
+            </button>
+        </div>
+    );
+}
+
+interface FormProps {
+    draft: Draft;
+    onChange(draft: Draft): void;
+    onSave(): void;
+    /** `null` for an environment that is not saved yet. */
+    onRemove: (() => void) | null;
+    onCancel(): void;
+}
+
+function Form({ draft, onChange, onSave, onRemove, onCancel }: FormProps) {
+    const set = (change: Partial<Draft>) => onChange({ ...draft, ...change });
+    return (
+        <form
+            className="environment-form"
+            onSubmit={(event) => {
+                event.preventDefault();
+                onSave();
+            }}
+        >
+            <label>
+                <span className="settings-label">Name</span>
+                <input
+                    className="key-input mono"
+                    aria-label="Name of the environment"
+                    placeholder="staging"
+                    spellCheck={false}
+                    required
+                    value={draft.name}
+                    onChange={(event) => set({ name: event.target.value })}
+                />
+            </label>
+            <Script
+                label="Setup"
+                hint="Runs once in a new task's worktree, in place of the repository's setup hook."
+                placeholder="npm ci && npm run db:seed"
+                value={draft.setup}
+                onChange={(setup) => set({ setup })}
+            />
+            <Script
+                label="Variables"
+                hint="One NAME=value per line, for the hooks and for the agents working in the task. Kept in a file on this Mac that only you can read."
+                placeholder={"DATABASE_URL=postgres://localhost/{{task}}\nAPP_ENV=staging"}
+                value={draft.variables}
+                onChange={(variables) => set({ variables })}
+            />
+            <Script
+                label="Teardown"
+                hint="Runs before a task's worktree is removed, in place of the repository's teardown hook."
+                placeholder="docker compose down -v"
+                value={draft.teardown}
+                onChange={(teardown) => set({ teardown })}
+            />
+            <label>
+                <span className="settings-label">Address</span>
+                <span className="settings-hint">What "Open in browser" opens for a task.</span>
+                <input
+                    className="key-input mono"
+                    aria-label="Address of the running task"
+                    placeholder="http://localhost:{{port.web}}"
+                    spellCheck={false}
+                    value={draft.openUrl}
+                    onChange={(event) => set({ openUrl: event.target.value })}
+                />
+            </label>
+            <div className="confirm-actions">
+                {onRemove && (
+                    <button type="button" className="button environment-remove" onClick={onRemove}>
+                        Remove
+                    </button>
+                )}
+                <button type="button" className="button" onClick={onCancel}>
+                    Cancel
+                </button>
+                <button type="submit" className="button button-primary">
+                    Save environment
+                </button>
+            </div>
+        </form>
+    );
+}
+
+interface ScriptProps {
+    label: string;
+    hint: string;
+    placeholder: string;
+    value: string;
+    onChange(value: string): void;
+}
+
+/** A few lines of commands or variables, in the type they are run in. */
+function Script({ label, hint, placeholder, value, onChange }: ScriptProps) {
+    return (
+        <label>
+            <span className="settings-label">{label}</span>
+            <span className="settings-hint">{hint}</span>
+            <textarea
+                className="key-input mono"
+                aria-label={label}
+                rows={3}
+                spellCheck={false}
+                placeholder={placeholder}
+                value={value}
+                onChange={(event) => onChange(event.target.value)}
+            />
+        </label>
+    );
+}

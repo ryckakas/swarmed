@@ -588,11 +588,13 @@ impl Core {
         std::fs::remove_dir_all(&spool).ok();
         mcp_servers.extend(self.own_mcp_servers()?);
         mcp_servers.extend(self.own_tools(id, &spool));
-        let env = if session.agent == CLAUDE {
+        let mut env = if session.agent == CLAUDE {
             SecretEnv::default()
         } else {
             self.key_env()?
         };
+        // What the task's environment sets for its hooks, the agent working in it gets too.
+        env.0.extend(self.task_env(&task)?);
         let backend = self.agents_now().backend(&session.agent)?;
         let handle = backend.start(SessionSpec {
             mcp_servers,

@@ -3,6 +3,7 @@ import { api } from "./api";
 import { applyAppearance } from "./appearance";
 import icon from "./assets/icon.jpg";
 import { CloseSessionDialog } from "./components/CloseSessionDialog";
+import { EnvironmentsDialog } from "./components/EnvironmentsDialog";
 import { NoteDialog } from "./components/NoteDialog";
 import { RemoveDialog } from "./components/RemoveDialog";
 import { Resizer, useStoredWidth } from "./components/Resizer";
@@ -63,6 +64,7 @@ export function App() {
             />
             <CloseSessionDialog />
             <NoteDialog />
+            <EnvironmentsDialog />
             <RemoveDialog />
             <SettingsDialog />
         </div>

@@ -52,6 +52,9 @@ enum Command {
         /// The new command, such as `code`, `zed` or `cursor`.
         command: Option<String>,
     },
+    /// List a project's environments: the ways a task can be set up in it. They are edited
+    /// in the app.
+    Environment { project: String },
     /// Print the note kept on a project or on one of its tasks, or replace it.
     Note {
         project: String,
@@ -144,6 +147,9 @@ enum TaskCommand {
         /// Check out this existing branch instead of creating a new one.
         #[arg(long)]
         branch: Option<String>,
+        /// Set the task up in this environment of the project; see `swarmed environment`.
+        #[arg(long)]
+        environment: Option<String>,
     },
     /// Suggest a name for a task that starts with PROMPT, as the app names new tasks.
     Name { project: String, prompt: String },
@@ -248,6 +254,7 @@ async fn run(core: &Core, command: Command) -> Result<()> {
         Command::AutoTitle { state } => auto_title(core, state),
         Command::Key(command) => key(core, command),
         Command::Note { project, task, set } => note(core, &project, task.as_deref(), set),
+        Command::Environment { project } => environments(core, &project),
         Command::Rules { set } => rules(core, set),
     }
 }
@@ -286,6 +293,19 @@ fn note(core: &Core, project: &str, task: Option<&str>, set: bool) -> Result<()>
         return Ok(core.set_note(project, task, &text)?);
     }
     say(core.note(project, task)?.trim_end());
+    Ok(())
+}
+
+/// One line per environment: its name, what it sets up with, and the names of its variables.
+fn environments(core: &Core, project: &str) -> Result<()> {
+    for (name, environment) in core.environments(project)? {
+        let variables: Vec<&str> = environment.env.keys().map(String::as_str).collect();
+        say(&format!(
+            "{name}\t{}\t{}",
+            environment.setup,
+            variables.join(", ")
+        ));
+    }
     Ok(())
 }
 
@@ -481,9 +501,11 @@ async fn task(core: &Core, command: TaskCommand) -> Result<()> {
             project,
             name,
             branch,
+            environment,
         } => {
             let options = NewTaskOptions {
                 existing_branch: branch.as_deref(),
+                environment: environment.as_deref(),
             };
             let task = core.task_new(&project, &name, options, &hook_line).await?;
             say(&format!(

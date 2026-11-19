@@ -2,6 +2,7 @@ import { type KeyboardEvent, useEffect, useState } from "react";
 import { addProject, newSession } from "../actions";
 import { api } from "../api";
 import type { Project, Session, Task } from "../api/types";
+import { taskTooltip } from "../environments";
 import { agentName, iconForAgent } from "../providerIcons";
 import { useStore } from "../store";
 import { countUnread, countWaiting, nestedSessions, projectStatus, projectUnread } from "../tree";
@@ -117,6 +118,7 @@ function ProjectGroup({ project }: { project: Project }) {
                         {folded && <span className="project-count">{tasks.length}</span>}
                     </button>
                 </h2>
+                <EnvironmentsButton project={project.name} />
                 <NoteButton project={project.name} task={null} has={project.has_note} />
                 <button
                     type="button"
@@ -140,7 +142,7 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
     return (
         <div className="task">
             <div className="row-head">
-                <h3 className="task-name" title={`Worktree ${task.name}, on ${task.branch}`}>
+                <h3 className="task-name" title={taskTooltip(task)}>
                     <WorktreeIcon />
                     <span className="task-title">{task.name}</span>
                     {task.setup === "failed" && <span className="task-flag">setup failed</span>}
@@ -173,6 +175,26 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
 }
 
 /** Opens the note on a repository or a task. It stays in view once there is something noted. */
+/** Opens the repository's environments: the ways its tasks can be set up. */
+function EnvironmentsButton({ project }: { project: string }) {
+    const askForEnvironments = useStore((state) => state.askForEnvironments);
+    const label = `Environments of ${project}`;
+    return (
+        <button
+            type="button"
+            className="row-note"
+            aria-label={label}
+            title={label}
+            onClick={() => askForEnvironments(project)}
+        >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M8 2 2 5l6 3 6-3z" />
+                <path d="M2 8l6 3 6-3M2 11l6 3 6-3" />
+            </svg>
+        </button>
+    );
+}
+
 function NoteButton({
     project,
     task,

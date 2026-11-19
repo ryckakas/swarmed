@@ -4,6 +4,7 @@ import type {
     AgentSetup,
     ApiKeyInfo,
     BranchChoices,
+    Environment,
     FileChange,
     FileDiff,
     HookOutput,
@@ -76,7 +77,17 @@ export interface Api {
      * Creates a task: a worktree on a new branch, or on `branch` if one is given, then the
      * project's `setup` hook. This can take a while.
      */
-    taskNew(project: string, name: string, branch: string | null): Promise<Task>;
+    taskNew(
+        project: string,
+        name: string,
+        branch: string | null,
+        environment: string | null,
+    ): Promise<Task>;
+    /** A project's environments, by name. */
+    environments(project: string): Promise<Record<string, Environment>>;
+    /** Adds an environment to a project, or replaces the one of that name. */
+    environmentSave(project: string, name: string, environment: Environment): Promise<void>;
+    environmentRemove(project: string, name: string): Promise<void>;
     /** The files the task has changed since its branch left its base, uncommitted ones included. */
     taskChanges(project: string, name: string): Promise<FileChange[]>;
     /** One changed file's diff. */

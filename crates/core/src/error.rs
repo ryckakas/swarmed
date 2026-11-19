@@ -20,6 +20,17 @@ pub enum Error {
         /// The task name that was asked for.
         task: String,
     },
+    /// The project has no environment with this name.
+    #[error("project `{project}` has no environment `{environment}`")]
+    EnvironmentNotFound {
+        /// The project that was searched.
+        project: String,
+        /// The environment that was asked for.
+        environment: String,
+    },
+    /// A name that cannot be an environment variable's.
+    #[error("`{0}` cannot be the name of a variable: use letters, digits and underscores")]
+    InvalidVariable(String),
     /// The project already has an active task with this name.
     #[error("task `{task}` already exists in project `{project}`")]
     TaskExists {

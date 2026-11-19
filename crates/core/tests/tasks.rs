@@ -5,9 +5,10 @@ mod common;
 use std::sync::Mutex;
 
 use common::{core_with_project, fixture, git, write_config};
+use swarmed_core::agent::{AgentEvent, Auth};
 use swarmed_core::{
-    ChangeKind, Core, Error, NewTaskOptions, ProjectConfig, RemoveOptions, Settings, SetupStatus,
-    hooks,
+    ChangeKind, Core, Environment, Error, NewTaskOptions, ProjectConfig, RemoveOptions,
+    SessionOptions, Settings, SetupStatus, hooks,
 };
 
 #[tokio::test]
@@ -286,12 +287,105 @@ async fn remove_runs_teardown_and_refuses_when_it_fails() {
 }
 
 #[tokio::test]
+async fn a_task_is_set_up_in_the_environment_it_was_created_in() {
+    let fx = fixture();
+    write_config(
+        &fx,
+        "open_url = \"http://plain\"\n[hooks]\nsetup = \"echo plain > how.txt\"\n[env]\nMODE = \"plain\"\nSHARED = \"{{task}}\"\n",
+    );
+    let core = core_with_project(&fx).await;
+    let staging = Environment {
+        setup: "echo \"$MODE $SHARED\" > how.txt".to_string(),
+        open_url: "http://staging/{{task}}".to_string(),
+        env: [("MODE".to_string(), "staging".to_string())].into(),
+        ..Environment::default()
+    };
+    core.environment_save("demo", "staging", &staging)
+        .expect("saves");
+    assert_eq!(
+        core.environments("demo").expect("lists")["staging"],
+        staging
+    );
+    // Its variables may be credentials: the file is the user's alone.
+    let file = fx.paths.project_environments("demo");
+    let mode = std::os::unix::fs::PermissionsExt::mode(
+        &std::fs::metadata(&file).expect("exists").permissions(),
+    );
+    assert_eq!(mode & 0o777, 0o600);
+
+    let options = |environment| NewTaskOptions {
+        environment,
+        ..NewTaskOptions::default()
+    };
+    let how = |task: &swarmed_core::Task| {
+        std::fs::read_to_string(task.worktree_path.join("how.txt")).expect("set up")
+    };
+    let plain = core
+        .task_new("demo", "one", options(None), &hooks::discard)
+        .await
+        .expect("creates");
+    let staged = core
+        .task_new("demo", "two", options(Some("staging")), &hooks::discard)
+        .await
+        .expect("creates");
+    assert_eq!(
+        (how(&plain).trim(), plain.environment.as_deref()),
+        ("plain", None)
+    );
+    // The environment's setup ran, with its variable over the project's and the rest kept.
+    assert_eq!(how(&staged).trim(), "staging two");
+    assert_eq!(staged.environment.as_deref(), Some("staging"));
+    assert_eq!(
+        core.task_url("demo", "one").expect("reads").as_deref(),
+        Some("http://plain")
+    );
+    assert_eq!(
+        core.task_url("demo", "two").expect("reads").as_deref(),
+        Some("http://staging/two")
+    );
+
+    // The agent working in the task gets the same variables.
+    let mut bus = core.subscribe();
+    let session = core
+        .session_new("demo", "two", &SessionOptions::default())
+        .expect("creates");
+    core.session_start(session.id, Auth::Subscription)
+        .expect("starts");
+    core.session_send(session.id, "env: MODE").expect("sends");
+    let said = common::turn(&mut bus, session.id).await;
+    let staging_mode = AgentEvent::Text {
+        text: "staging".into(),
+    };
+    assert!(said.contains(&staging_mode), "{said:?}");
+
+    // One that is not there is refused; one that goes leaves its tasks on the project's own.
+    let missing = core
+        .task_new("demo", "three", options(Some("nope")), &hooks::discard)
+        .await;
+    assert!(matches!(missing, Err(Error::EnvironmentNotFound { .. })));
+    core.environment_remove("demo", "staging").expect("removes");
+    assert_eq!(
+        core.task_url("demo", "two").expect("reads").as_deref(),
+        Some("http://plain")
+    );
+    let bad = Environment {
+        env: [("NOT-A-NAME".to_string(), "x".to_string())].into(),
+        ..Environment::default()
+    };
+    assert!(matches!(
+        core.environment_save("demo", "bad", &bad),
+        Err(Error::InvalidVariable(_))
+    ));
+}
+
+#[tokio::test]
 async fn task_new_can_check_out_an_existing_branch() {
     let fx = fixture();
     git(&fx.repo, &["branch", "feature/existing"]);
     let core = core_with_project(&fx).await;
     let options = NewTaskOptions {
         existing_branch: Some("feature/existing"),
+        ..NewTaskOptions::default()
     };
     let task = core
         .task_new("demo", "existing", options, &hooks::discard)
@@ -381,6 +475,7 @@ async fn branch_choices_offer_the_base_and_branches_no_worktree_holds() {
 
     let options = NewTaskOptions {
         existing_branch: Some("feature/a"),
+        ..NewTaskOptions::default()
     };
     core.task_new("demo", "a", options, &hooks::discard)
         .await
