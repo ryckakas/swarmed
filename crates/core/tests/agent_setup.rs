@@ -42,15 +42,21 @@ fn an_installed_agent_is_configured_without_editing_the_file() {
     // Something the user wrote by hand must survive.
     let config = fx.paths.agents_config();
     std::fs::write(&config, "[goose]\ncommand = \"goose\"\nargs = [\"acp\"]\n").expect("writes");
+    // Configured, but with no program to start: not something to offer.
+    let ids = |core: &Core| -> Vec<String> { core.agents().into_iter().map(|a| a.id).collect() };
+    assert_eq!(ids(&core), ["claude"]);
     executable(&tools.join("opencode"), "exit 0");
+    executable(&tools.join("goose"), "exit 0");
 
     let setup = core.agent_configure("opencode", None).expect("configures");
     assert_eq!(setup.installed, Some(tools.join("opencode")));
     assert!(setup.configured);
     assert_ne!(setup.models, Vec::<String>::new());
     // It is usable at once, started by its whole path, and the other entry is still there.
-    let ids: Vec<String> = core.agents().into_iter().map(|agent| agent.id).collect();
-    assert_eq!(ids, ["claude", "goose", "opencode"]);
+    assert_eq!(ids(&core), ["claude", "goose", "opencode"]);
+    // Uninstalled again, it leaves the menu, though its entry stays.
+    std::fs::remove_file(tools.join("goose")).expect("removes");
+    assert_eq!(ids(&core), ["claude", "opencode"]);
     let written = std::fs::read_to_string(&config).expect("reads");
     assert!(written.contains(&format!(
         "command = \"{}\"",

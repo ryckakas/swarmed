@@ -70,7 +70,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **Known agents can be set up from the settings** (`agent_setup.rs`): found on the machine,
   installed with Homebrew by a command the user is shown first, and written into `agents.toml`
   with their whole path and the models to offer. The registry is behind a lock and read again
-  after every change, so nothing needs a restart. The list of OpenRouter's models is fetched
+  after every change, so nothing needs a restart. An agent is only offered for a session while
+  its program is found on the machine: configured but not installed, it is in the settings and
+  not in the agent menu. The list of OpenRouter's models is fetched
   with `curl` from its public address, with no key and nothing of the user's in the request.
 - **What Swarmed takes up** (`usage.rs`) is measured on request: the database and notes by
   their files, each worktree with `du`, and memory and processor time with `ps`, summed over
