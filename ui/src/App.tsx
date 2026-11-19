@@ -6,7 +6,7 @@ import { Resizer, useStoredWidth } from "./components/Resizer";
 import { SessionPane } from "./components/SessionPane";
 import { Sidebar } from "./components/Sidebar";
 import { TaskPanel } from "./components/TaskPanel";
-import { PANEL_WIDTH, SIDEBAR_WIDTH } from "./resize";
+import { PANEL_WIDTH, SIDEBAR_WIDTH, widestPanel } from "./resize";
 import { connect, useStore } from "./store";
 
 export function App() {
@@ -46,7 +46,13 @@ export function App() {
                 {load === "ready" && <SessionPane />}
                 {typeof load === "object" && <LoadError message={load.error} />}
             </main>
-            <TaskPanel width={panelWidth} onResize={setPanelWidth} />
+            <TaskPanel
+                width={Math.min(panelWidth, widestPanel(window.innerWidth, sidebarWidth))}
+                // Stop where the panel stops growing, so dragging back takes effect at once.
+                onResize={(width) =>
+                    setPanelWidth(Math.min(width, widestPanel(window.innerWidth, sidebarWidth)))
+                }
+            />
             <CloseSessionDialog />
         </div>
     );

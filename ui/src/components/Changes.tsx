@@ -16,13 +16,33 @@ export function Changes({ project, task }: Props) {
     const [manual, setManual] = useState(0);
     const version = edits + manual;
     const changes = useChanges(project.name, task.name, version);
-    const [open, setOpen] = useState<string | null>(null);
+    const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+    const files = Array.isArray(changes) ? changes : [];
+    const toggle = (path: string) => setOpen((current) => toggled(current, path));
 
     return (
         <section className="changes" aria-label="Changes">
             <div className="changes-head">
                 <h3>Changes</h3>
                 {Array.isArray(changes) && <Totals changes={changes} />}
+                {files.length > 0 && (
+                    <>
+                        <button
+                            type="button"
+                            className="changes-refresh"
+                            onClick={() => setOpen(new Set(files.map((file) => file.path)))}
+                        >
+                            Expand all
+                        </button>
+                        <button
+                            type="button"
+                            className="changes-refresh"
+                            onClick={() => setOpen(new Set())}
+                        >
+                            Collapse all
+                        </button>
+                    </>
+                )}
                 <button
                     type="button"
                     className="changes-refresh"
@@ -46,14 +66,23 @@ export function Changes({ project, task }: Props) {
                         <FileRow
                             key={change.path}
                             change={change}
-                            open={open === change.path}
-                            onToggle={() => setOpen(open === change.path ? null : change.path)}
+                            open={open.has(change.path)}
+                            onToggle={() => toggle(change.path)}
                             target={{ project: project.name, task: task.name, version }}
                         />
                     ))}
             </div>
         </section>
     );
+}
+
+/** `open` with `path` added if it was missing, removed if it was there. */
+function toggled(open: ReadonlySet<string>, path: string): ReadonlySet<string> {
+    const next = new Set(open);
+    if (!next.delete(path)) {
+        next.add(path);
+    }
+    return next;
 }
 
 /** The task's changed files: `null` while first reading, a message if that failed. */
@@ -115,6 +144,9 @@ function FileRow({ change, open, onToggle, target }: FileRowProps) {
     return (
         <div className="change">
             <button type="button" className="change-row" aria-expanded={open} onClick={onToggle}>
+                <svg className="change-chevron" viewBox="0 0 10 10" aria-hidden="true">
+                    <path d="M3.5 1.5 7 5 3.5 8.5" />
+                </svg>
                 <span className={`change-kind change-${change.kind}`} title={change.kind}>
                     {KIND_MARK[change.kind]}
                 </span>
