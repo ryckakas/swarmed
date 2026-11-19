@@ -19,6 +19,8 @@ pub struct Settings {
     pub auto_title: bool,
     /// Whether the app is dark, light, or whatever the system is.
     pub theme: Theme,
+    /// Which set of colours the app is drawn in, in dark and in light alike.
+    pub palette: Palette,
     /// The size of the app's text, in percent of its normal size.
     pub text_scale: u16,
     /// How much a new session's agent may do without asking, unless chosen otherwise.
@@ -51,6 +53,24 @@ pub enum Theme {
     Light,
 }
 
+/// A set of colours for the app's surfaces, text and links. Each has a dark and a light form;
+/// the colours that carry meaning are the same in all of them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Palette {
+    /// Blue-grey, the one Swarmed started with.
+    #[default]
+    Dusk,
+    /// Grey without a tint.
+    Graphite,
+    /// Green-grey.
+    Forest,
+    /// Purple-grey.
+    Plum,
+    /// Warm brown-grey.
+    Ember,
+}
+
 /// The smallest and largest text the app can be set to, in percent.
 const TEXT_SCALE_RANGE: (u16, u16) = (80, 150);
 
@@ -61,6 +81,7 @@ impl Default for Settings {
             editor: "code".to_string(),
             auto_title: true,
             theme: Theme::System,
+            palette: Palette::Dusk,
             text_scale: 100,
             default_supervision: Supervision::Auto,
             html_views: true,
@@ -124,6 +145,7 @@ mod tests {
             editor: "zed --new".to_string(),
             auto_title: false,
             theme: Theme::Light,
+            palette: Palette::Forest,
             text_scale: 110,
             default_supervision: Supervision::Ask,
             html_views: false,

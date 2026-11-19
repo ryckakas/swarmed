@@ -1,0 +1,226 @@
+/*
+ * The palettes the user can choose between in the settings. A palette sets the surfaces, the
+ * text and the colour of links and focus, for dark and for light. The status colours (pollen,
+ * moss, clay) and the other reading colours are the same in all of them: what they mean must
+ * not change with taste.
+ *
+ * Each is written three times, as the base colours in tokens.css are: dark, light because the
+ * system is, and light because the user asked. The selectors match the page's root and any
+ * element carrying `data-palette`, which is how the settings show each palette in its own
+ * colours.
+ */
+
+[data-palette="dusk"] {
+    --dusk: #1b1e26;
+    --panel: #20242e;
+    --raised: #2a2f3c;
+    --line: #333a49;
+    --text: #e6e3da;
+    --muted: #a0a6b4;
+    --faint: #757c8c;
+    --focus: #8fb4ff;
+    --sky: #8fb4ff;
+    --bright: #fbf8ef;
+}
+
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"])[data-palette="dusk"],
+    :root:not([data-theme="dark"]) [data-palette="dusk"] {
+        --dusk: #eceef2;
+        --panel: #f7f8fa;
+        --raised: #ffffff;
+        --line: #d3d8e0;
+        --text: #1c2029;
+        --muted: #535b6b;
+        --faint: #7b8392;
+        --focus: #1f5fd1;
+        --sky: #1f5fd1;
+        --bright: #0b0d12;
+    }
+}
+
+:root[data-theme="light"][data-palette="dusk"],
+:root[data-theme="light"] [data-palette="dusk"] {
+    --dusk: #eceef2;
+    --panel: #f7f8fa;
+    --raised: #ffffff;
+    --line: #d3d8e0;
+    --text: #1c2029;
+    --muted: #535b6b;
+    --faint: #7b8392;
+    --focus: #1f5fd1;
+    --sky: #1f5fd1;
+    --bright: #0b0d12;
+}
+
+[data-palette="graphite"] {
+    --dusk: #1c1c1e;
+    --panel: #222224;
+    --raised: #2c2c2f;
+    --line: #3a3a3e;
+    --text: #e6e4df;
+    --muted: #a3a3a8;
+    --faint: #7a7a80;
+    --focus: #9db8f5;
+    --sky: #9db8f5;
+    --bright: #fafaf7;
+}
+
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"])[data-palette="graphite"],
+    :root:not([data-theme="dark"]) [data-palette="graphite"] {
+        --dusk: #ededed;
+        --panel: #f7f7f7;
+        --raised: #ffffff;
+        --line: #d6d6d8;
+        --text: #1e1e20;
+        --muted: #57575c;
+        --faint: #7e7e84;
+        --focus: #2a5fc4;
+        --sky: #2a5fc4;
+        --bright: #0c0c0d;
+    }
+}
+
+:root[data-theme="light"][data-palette="graphite"],
+:root[data-theme="light"] [data-palette="graphite"] {
+    --dusk: #ededed;
+    --panel: #f7f7f7;
+    --raised: #ffffff;
+    --line: #d6d6d8;
+    --text: #1e1e20;
+    --muted: #57575c;
+    --faint: #7e7e84;
+    --focus: #2a5fc4;
+    --sky: #2a5fc4;
+    --bright: #0c0c0d;
+}
+
+[data-palette="forest"] {
+    --dusk: #18201c;
+    --panel: #1d2621;
+    --raised: #27322c;
+    --line: #33413a;
+    --text: #e3e6dc;
+    --muted: #9faba2;
+    --faint: #74807a;
+    --focus: #8fc4e8;
+    --sky: #8fc4e8;
+    --bright: #f6f9ef;
+}
+
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"])[data-palette="forest"],
+    :root:not([data-theme="dark"]) [data-palette="forest"] {
+        --dusk: #e9eee8;
+        --panel: #f5f8f3;
+        --raised: #ffffff;
+        --line: #cfd9cf;
+        --text: #1b241e;
+        --muted: #4f5d53;
+        --faint: #76847a;
+        --focus: #1d6a8c;
+        --sky: #1d6a8c;
+        --bright: #0a100c;
+    }
+}
+
+:root[data-theme="light"][data-palette="forest"],
+:root[data-theme="light"] [data-palette="forest"] {
+    --dusk: #e9eee8;
+    --panel: #f5f8f3;
+    --raised: #ffffff;
+    --line: #cfd9cf;
+    --text: #1b241e;
+    --muted: #4f5d53;
+    --faint: #76847a;
+    --focus: #1d6a8c;
+    --sky: #1d6a8c;
+    --bright: #0a100c;
+}
+
+[data-palette="plum"] {
+    --dusk: #1f1b26;
+    --panel: #25202e;
+    --raised: #302a3b;
+    --line: #3d3549;
+    --text: #e8e3ea;
+    --muted: #aaa2b4;
+    --faint: #7f778a;
+    --focus: #b7a6ff;
+    --sky: #b7a6ff;
+    --bright: #fbf7fd;
+}
+
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"])[data-palette="plum"],
+    :root:not([data-theme="dark"]) [data-palette="plum"] {
+        --dusk: #eeeaf2;
+        --panel: #f8f6fa;
+        --raised: #ffffff;
+        --line: #d9d2e0;
+        --text: #221c2a;
+        --muted: #5b5268;
+        --faint: #837a90;
+        --focus: #5b3fc4;
+        --sky: #5b3fc4;
+        --bright: #0f0b14;
+    }
+}
+
+:root[data-theme="light"][data-palette="plum"],
+:root[data-theme="light"] [data-palette="plum"] {
+    --dusk: #eeeaf2;
+    --panel: #f8f6fa;
+    --raised: #ffffff;
+    --line: #d9d2e0;
+    --text: #221c2a;
+    --muted: #5b5268;
+    --faint: #837a90;
+    --focus: #5b3fc4;
+    --sky: #5b3fc4;
+    --bright: #0f0b14;
+}
+
+[data-palette="ember"] {
+    --dusk: #211c19;
+    --panel: #28221e;
+    --raised: #332b26;
+    --line: #423831;
+    --text: #ebe4da;
+    --muted: #b0a69a;
+    --faint: #857b70;
+    --focus: #9cc0e8;
+    --sky: #9cc0e8;
+    --bright: #fdf8ef;
+}
+
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"])[data-palette="ember"],
+    :root:not([data-theme="dark"]) [data-palette="ember"] {
+        --dusk: #f1ece5;
+        --panel: #faf7f2;
+        --raised: #ffffff;
+        --line: #ddd3c6;
+        --text: #2a221b;
+        --muted: #62574b;
+        --faint: #8a7e71;
+        --focus: #1f5fa8;
+        --sky: #1f5fa8;
+        --bright: #120d08;
+    }
+}
+
+:root[data-theme="light"][data-palette="ember"],
+:root[data-theme="light"] [data-palette="ember"] {
+    --dusk: #f1ece5;
+    --panel: #faf7f2;
+    --raised: #ffffff;
+    --line: #ddd3c6;
+    --text: #2a221b;
+    --muted: #62574b;
+    --faint: #8a7e71;
+    --focus: #1f5fa8;
+    --sky: #1f5fa8;
+    --bright: #120d08;
+}

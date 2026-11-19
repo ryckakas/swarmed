@@ -1,6 +1,7 @@
 import "@fontsource-variable/atkinson-hyperlegible-next";
 import "@fontsource-variable/atkinson-hyperlegible-mono";
 import "./styles/tokens.css";
+import "./styles/palettes.css";
 import "./styles/app.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";

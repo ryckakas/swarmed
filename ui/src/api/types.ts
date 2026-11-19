@@ -88,6 +88,8 @@ export interface ApiKeyInfo {
 
 /** The colours the app is drawn in: the system's choice, or always one of the two. */
 export type Theme = "system" | "dark" | "light";
+/** A set of colours for the app's surfaces, text and links, each with a dark and a light form. */
+export type Palette = "dusk" | "graphite" | "forest" | "plum" | "ember";
 
 /** One built-in piece of the status line. */
 export type StatusItem = "branch" | "changes" | "model" | "context" | "cost" | "agent" | "worktree";
@@ -99,6 +101,8 @@ export interface Settings {
     /** Whether a model names a new session once its first message is sent. */
     auto_title: boolean;
     theme: Theme;
+    /** Which set of colours the app is drawn in, in dark and in light alike. */
+    palette: Palette;
     /** The size of the app's text, in percent of its normal size. */
     text_scale: number;
     /** How much a new session's agent may do without asking, unless chosen otherwise. */

@@ -2713,6 +2713,59 @@ kbd {
     border-color: var(--faint);
 }
 
+/* The palettes to choose from, each drawn in its own colours. */
+.palettes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.palette {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 5px var(--space-3) 5px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--dusk);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--text-xs);
+}
+
+.palette[aria-checked="true"] {
+    border-color: var(--focus);
+    box-shadow: 0 0 0 1px var(--focus);
+}
+
+.palette-dots {
+    display: flex;
+}
+
+.palette-dots i {
+    width: 12px;
+    height: 12px;
+    margin-left: -3px;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+}
+
+.palette-dots i:first-child {
+    margin-left: 0;
+}
+
+.palette-raised {
+    background: var(--raised);
+}
+
+.palette-accent {
+    background: var(--focus);
+}
+
+.palette-ink {
+    background: var(--text);
+}
+
 .rules-input {
     display: block;
     width: 100%;
