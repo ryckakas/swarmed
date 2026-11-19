@@ -28,6 +28,99 @@ export function htmlOf(input: unknown): string {
     return typeof html === "string" ? html : "";
 }
 
+const ESCAPES: Record<string, string> = {
+    n: "\n",
+    t: "\t",
+    r: "\r",
+    b: "\b",
+    f: "\f",
+    v: "\v",
+    "0": "\0",
+};
+
+/** What the escape starting at `source[at]`, just past its backslash, stands for, and its length. */
+function unescapeAt(source: string, at: number): [text: string, length: number] {
+    const char = source.charAt(at);
+    const hex = (digits: number): [string, number] | null => {
+        const code = Number.parseInt(source.slice(at + 1, at + 1 + digits), 16);
+        return Number.isNaN(code) ? null : [String.fromCharCode(code), 1 + digits];
+    };
+    if (char === "u") {
+        return hex(4) ?? ["u", 1];
+    }
+    if (char === "x") {
+        return hex(2) ?? ["x", 1];
+    }
+    // A backslash before a line break joins the lines; before anything else it is that thing.
+    return [char === "\n" ? "" : (ESCAPES[char] ?? char), 1];
+}
+
+/**
+ * The value of the JavaScript string that starts at `source[at]`, which is its opening quote or
+ * backtick. `null` if it is not a plain string: one with a `${…}` in it, or one that never ends.
+ */
+function stringAt(source: string, at: number): string | null {
+    const quote = source.charAt(at);
+    if (!"`'\"".includes(quote) || quote === "") {
+        return null;
+    }
+    let value = "";
+    let index = at + 1;
+    while (index < source.length) {
+        const char = source.charAt(index);
+        if (char === quote) {
+            return value;
+        }
+        if (quote === "`" && char === "$" && source.charAt(index + 1) === "{") {
+            return null;
+        }
+        if (char === "\\") {
+            const [text, length] = unescapeAt(source, index + 1);
+            value += text;
+            index += 1 + length;
+        } else {
+            value += char;
+            index += 1;
+        }
+    }
+    return null;
+}
+
+/**
+ * The HTML a piece of JavaScript hands to Swarmed's tool. Some agents do not call their tools
+ * directly: they write a short script that does, as `tools.swarmed.show_html({ html: … })`,
+ * with the HTML as a string there or in a constant above it. Empty if it is not found.
+ */
+export function htmlInCode(code: string): string {
+    const call = /show_html\s*\(\s*\{[\s\S]*?\bhtml\s*:\s*/.exec(code);
+    if (!call) {
+        return "";
+    }
+    const at = call.index + call[0].length;
+    const direct = stringAt(code, at);
+    if (direct !== null) {
+        return direct;
+    }
+    const name = /^[A-Za-z_$][\w$]*/.exec(code.slice(at))?.[0];
+    const declared = name
+        ? new RegExp(`\\b${name.replace(/\$/g, "\\$")}\\s*=\\s*`).exec(code)
+        : null;
+    return declared ? (stringAt(code, declared.index + declared[0].length) ?? "") : "";
+}
+
+/**
+ * The HTML a tool call asks to show, whichever way the agent made the call; empty if the call
+ * is not one that shows HTML.
+ */
+export function shownHtml(name: string, input: unknown): string {
+    if (isShowHtmlTool(name)) {
+        return htmlOf(input);
+    }
+    const code =
+        typeof input === "object" && input !== null ? (input as { code?: unknown }).code : "";
+    return typeof code === "string" && code.includes("show_html") ? htmlInCode(code) : "";
+}
+
 const FENCE = /^ {0,3}(`{3,}|~{3,})\s*([^\s`]*)/;
 
 interface OpenFence {

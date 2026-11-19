@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+    htmlInCode,
     htmlOf,
     INITIAL_FRAME,
     isShowHtmlTool,
     needsNetwork,
     nextFrameSize,
     requestedHeight,
+    shownHtml,
     splitPendingView,
     viewDocument,
 } from "./htmlview";
@@ -132,5 +134,37 @@ describe("the script that measures a view", () => {
         const shown = viewDocument("<p>hi</p>", theme);
         expect(shown).toContain('style.minHeight = "0"');
         expect(shown).toContain("vh|vmin|vmax");
+    });
+});
+
+describe("HTML shown from a script", () => {
+    const page = '<!DOCTYPE html>\n<p class="a">It\'s `quoted` and costs $5</p>';
+
+    it("is found in a constant the script hands to the tool", () => {
+        const code = [
+            'const HTML = `<!DOCTYPE html>\\n<p class="a">It\'s \\`quoted\\` and costs $5</p>`;',
+            "",
+            'return await tools.swarmed.show_html({ html: HTML, title: "t" });',
+        ].join("\n");
+        expect(htmlInCode(code)).toBe(page);
+        expect(shownHtml("execute", { code })).toBe(page);
+    });
+
+    it("is found written straight into the call, in either kind of quote", () => {
+        expect(
+            htmlInCode('await tools.swarmed.show_html({ title: "t", html: "<p>\\u00e9</p>" })'),
+        ).toBe("<p>é</p>");
+        expect(htmlInCode("tools.swarmed.show_html({html:'<b>a\\'b</b>'})")).toBe("<b>a'b</b>");
+    });
+
+    it("is left alone where it cannot be read for certain", () => {
+        // Built from pieces: what it comes to is not known without running it.
+        const pieced = ["const h = `<p>$", "{x}</p>`; tools.swarmed.show_html({ html: h })"];
+        expect(htmlInCode(pieced.join(""))).toBe("");
+        expect(htmlInCode("tools.swarmed.show_html({ html: build() })")).toBe("");
+        expect(shownHtml("execute", { code: "console.log(1)" })).toBe("");
+        expect(shownHtml("Bash", { command: "echo show_html" })).toBe("");
+        // The direct call still works as before.
+        expect(shownHtml("mcp__swarmed__show_html", { html: "<p>hi</p>" })).toBe("<p>hi</p>");
     });
 });
