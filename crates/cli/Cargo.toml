@@ -18,4 +18,13 @@ name = "swarmed"
 path = "src/main.rs"
 
 [dependencies]
+swarmed-core = { workspace = true }
+anyhow = { workspace = true }
 clap = { workspace = true }
+tokio = { workspace = true, features = [
+    "io-std",
+    "io-util",
+    "macros",
+    "rt-multi-thread",
+    "signal",
+] }

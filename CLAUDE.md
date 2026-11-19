@@ -29,12 +29,17 @@ CI (`.github/workflows/ci.yml`) runs exactly these. Match them locally before pu
 
 ```
 crates/
-├── core/   swarmed-core: the headless core. No UI dependency.
+├── core/   swarmed-core: projects, tasks, worktrees, hooks, store. No UI dependency.
 └── cli/    the `swarmed` binary, a thin front end over the core.
 ```
 
 - **Everything lands in `core` first** and is driven from the CLI before any UI touches it. The
   core exposes typed operations and knows nothing about its front ends.
+- **Nothing is written into a user's repository.** Config and state live in the data directory
+  (`Paths`); worktrees live under `~/swarmed/<project>/<task>`.
+- **Git is used by shelling out** to the `git` binary (`git.rs`), not through a library.
+- **The store is SQLite** (`store.rs`). Schema changes are appended to `MIGRATIONS` and never
+  edited afterwards.
 
 ## Lint policy
 
@@ -45,7 +50,7 @@ crates/
 - Public items are documented; the first paragraph is one short sentence.
 - Private items get a comment only for the "why".
 - No `unwrap()`; tests use `expect("…")`.
-- No `println!`: it panics on a closed pipe.
+- No `println!`: it panics on a closed pipe. The CLI writes through its `say` helper.
 
 ## Conventions
 
