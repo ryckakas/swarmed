@@ -250,6 +250,30 @@ pub(crate) fn cloud_task_open(core: CoreState<'_>, id: i64) -> Command<()> {
     Ok(core.cloud_task_open(id)?)
 }
 
+/// Starts what a task keeps running, if its project has a `start` command. Says whether it has.
+#[tauri::command]
+pub(crate) fn stack_start(core: CoreState<'_>, project: String, task: String) -> Command<bool> {
+    Ok(core.stack_start(&project, &task)?)
+}
+
+/// Stops what a task keeps running.
+#[tauri::command]
+pub(crate) async fn stack_stop<R: Runtime>(
+    app: AppHandle<R>,
+    core: CoreState<'_>,
+    project: String,
+    task: String,
+) -> Command<()> {
+    let sink = hook_sink(&app, &project, &task);
+    Ok(core.stack_stop(&project, &task, &sink).await?)
+}
+
+/// The end of what a task's stack has printed since it was last started.
+#[tauri::command]
+pub(crate) fn stack_log(core: CoreState<'_>, project: String, task: String) -> Command<String> {
+    Ok(core.stack_log(&project, &task)?)
+}
+
 /// A project's environments, by name.
 #[tauri::command]
 pub(crate) fn environments(

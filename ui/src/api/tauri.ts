@@ -64,6 +64,9 @@ export const tauriApi: Api = {
     cloudTasks: (project, refresh) => invoke<CloudTask[]>("cloud_tasks", { project, refresh }),
     cloudTaskForget: (id) => invoke<void>("cloud_task_forget", { id }),
     cloudTaskOpen: (id) => invoke<void>("cloud_task_open", { id }),
+    stackStart: (project, task) => invoke<boolean>("stack_start", { project, task }),
+    stackStop: (project, task) => invoke<void>("stack_stop", { project, task }),
+    stackLog: (project, task) => invoke<string>("stack_log", { project, task }),
     environments: (project) => invoke<Record<string, Environment>>("environments", { project }),
     environmentSave: (project, name, environment) =>
         invoke<void>("environment_save", { project, name, environment }),

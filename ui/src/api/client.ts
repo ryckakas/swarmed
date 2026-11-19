@@ -102,6 +102,12 @@ export interface Api {
     cloudTaskForget(id: number): Promise<void>;
     /** Opens a cloud task's page at its provider. */
     cloudTaskOpen(id: number): Promise<void>;
+    /** Starts what a task keeps running. Says whether its project has a start command at all. */
+    stackStart(project: string, task: string): Promise<boolean>;
+    /** Stops what a task keeps running. */
+    stackStop(project: string, task: string): Promise<void>;
+    /** The end of what a task's stack has printed since it was last started. */
+    stackLog(project: string, task: string): Promise<string>;
     /** A project's environments, by name. */
     environments(project: string): Promise<Record<string, Environment>>;
     /** Adds an environment to a project, or replaces the one of that name. */

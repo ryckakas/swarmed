@@ -63,6 +63,8 @@ function task(id: number, projectId: number, name: string, sessions: Session[]):
         has_note: id === 1,
         closed: 0,
         environment: null,
+        // One sample task has a dev server to start and stop.
+        stack: id === 1 ? true : null,
     };
 }
 
@@ -353,6 +355,23 @@ function cloudApi(
     };
 }
 
+/** Starting and stopping what a sample task keeps running. */
+function stackApi(projects: () => Project[]): Pick<Api, "stackStart" | "stackStop" | "stackLog"> {
+    const set = (project: string, name: string, running: boolean) => {
+        const tasks = projects().find((candidate) => candidate.name === project)?.tasks ?? [];
+        const task = tasks.find((candidate) => candidate.name === name);
+        if (task && task.stack !== null) {
+            task.stack = running;
+        }
+        return task?.stack ?? null;
+    };
+    return {
+        stackStart: async (project, name) => set(project, name, true) !== null,
+        stackStop: async (project, name) => void set(project, name, false),
+        stackLog: async () => "Starting dev server…\nListening on http://localhost:3100\n",
+    };
+}
+
 /** Environments, kept per repository for as long as the page is open. */
 function environmentApi(): Pick<Api, "environments" | "environmentSave" | "environmentRemove"> {
     const kept = new Map<string, Record<string, Environment>>([
@@ -361,6 +380,8 @@ function environmentApi(): Pick<Api, "environments" | "environmentSave" | "envir
             {
                 staging: {
                     setup: "npm ci && npm run db:seed -- --staging",
+                    start: "npm run dev",
+                    stop: "",
                     teardown: "",
                     open_url: "",
                     env: { APP_ENV: "staging", DATABASE_URL: "postgres://localhost/{{task}}" },
@@ -996,6 +1017,7 @@ export function createMockApi(): Api {
         // The sample data has no model to ask, so tasks are named after their prompts.
         taskNameFor: async () => null,
         ...environmentApi(),
+        ...stackApi(() => agent.projects),
         ...cloudApi(() => agent.projects),
         taskNew: async (projectName, name, branch, environment) => {
             const project = agent.projects.find((candidate) => candidate.name === projectName);

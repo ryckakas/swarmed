@@ -3,7 +3,14 @@
 import type { Environment } from "./api/types";
 
 /** An environment with nothing set: all as the project has it. */
-export const EMPTY_ENVIRONMENT: Environment = { setup: "", teardown: "", open_url: "", env: {} };
+export const EMPTY_ENVIRONMENT: Environment = {
+    setup: "",
+    start: "",
+    stop: "",
+    teardown: "",
+    open_url: "",
+    env: {},
+};
 
 /** Variables as lines of `NAME=value`, the way they are typed. */
 export function envToText(env: Record<string, string>): string {

@@ -29,6 +29,7 @@ mod queue;
 pub mod secrets;
 mod sessions;
 mod settings;
+mod stacks;
 mod statusline;
 mod store;
 mod tasks;

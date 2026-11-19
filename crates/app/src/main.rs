@@ -117,6 +117,9 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
             commands::task_name_for,
             commands::task_new,
             commands::environments,
+            commands::stack_start,
+            commands::stack_stop,
+            commands::stack_log,
             commands::cloud_delegate,
             commands::cloud_tasks,
             commands::cloud_task_forget,
@@ -172,6 +175,7 @@ fn main() {
     let core =
         Arc::new(open_core().unwrap_or_else(|e| panic!("could not open Swarmed's data: {e}")));
     let listening = Arc::clone(&core);
+    let leaving = Arc::clone(&core);
     let bus = core.subscribe();
     let terminals = core.subscribe_terminals();
     // The dialog plugin is the native folder picker, for adding a repository.
@@ -190,8 +194,15 @@ fn main() {
             )));
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .unwrap_or_else(|e| panic!("could not start Swarmed: {e}"));
+        .build(tauri::generate_context!())
+        .unwrap_or_else(|e| panic!("could not start Swarmed: {e}"))
+        .run(move |_app, event| {
+            // What the tasks' `start` commands left running goes with Swarmed: nothing it
+            // started is to carry on unseen.
+            if matches!(event, tauri::RunEvent::Exit) {
+                tauri::async_runtime::block_on(leaving.stacks_stop_all());
+            }
+        });
 }
 
 #[cfg(test)]

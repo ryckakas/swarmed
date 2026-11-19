@@ -43,6 +43,8 @@ export interface Task {
     closed: number;
     /** The environment of its project the task was set up in, if any. */
     environment: string | null;
+    /** Whether what the task keeps running is up; `null` if its project has no start command. */
+    stack: boolean | null;
 }
 
 /**
@@ -50,8 +52,12 @@ export interface Task {
  * project's own configuration has it.
  */
 export interface Environment {
-    /** Runs once after a task's worktree is created. */
+    /** Runs once after a task's worktree is created, and has to finish. */
     setup: string;
+    /** Started once setup is done and left running: a dev server and the like. */
+    start: string;
+    /** Runs when the stack is stopped, before what `start` left running is ended. */
+    stop: string;
     /** Runs before a task's worktree is removed. */
     teardown: string;
     /** Where a task's running stack is reached in a browser. */

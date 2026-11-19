@@ -962,6 +962,8 @@ pub(crate) struct Live {
     pub(crate) queues: Queues,
     /// The process of each session's agent, as of when it was last started.
     pub(crate) pids: Mutex<HashMap<i64, u32>>,
+    /// The stack each task has running, by task: what its `start` command started.
+    pub(crate) stacks: Mutex<HashMap<i64, tokio::process::Child>>,
     runs: AtomicU64,
     bus: broadcast::Sender<SessionEvent>,
 }
@@ -974,6 +976,7 @@ impl Default for Live {
             restarts: Mutex::default(),
             queues: Queues::default(),
             pids: Mutex::default(),
+            stacks: Mutex::default(),
             runs: AtomicU64::new(0),
             bus: broadcast::Sender::new(EVENT_BUFFER),
         }

@@ -183,6 +183,9 @@ enum TaskCommand {
     },
     /// Run the `setup` hook again.
     Setup { project: String, name: String },
+    /// Run the task's `start` command in the foreground until it ends or is interrupted, the
+    /// way the app keeps it running in the background.
+    Start { project: String, name: String },
     /// Run `teardown`, remove the worktree and archive the task.
     Rm {
         project: String,
@@ -252,6 +255,8 @@ async fn main() -> Result<()> {
         ))));
     }
     let done = run(&core, cli.command).await;
+    // A stack a command started lives only as long as this process: it is not left behind.
+    core.stacks_stop_all().await;
     // The socket is this process's own; nothing is left to answer on it.
     std::fs::remove_file(core.paths().tools_socket()).ok();
     done
@@ -349,6 +354,32 @@ async fn cloud(core: &Core, command: CloudCommand) -> Result<()> {
             core.cloud_tasks(&project, true).await?.iter().for_each(row);
         }
     }
+    Ok(())
+}
+
+/// Runs a task's stack until Ctrl-C, printing what it prints, then stops it.
+async fn stack(core: &Core, project: &str, name: &str) -> Result<()> {
+    if !core.stack_start(project, name)? {
+        say("this task's project has no `start` command");
+        return Ok(());
+    }
+    say("started; Ctrl-C stops it");
+    let mut printed = 0;
+    let mut interrupted = Box::pin(tokio::signal::ctrl_c());
+    loop {
+        let log = core.stack_log(project, name)?;
+        if let Some(new) = log.get(printed..).filter(|new| !new.is_empty()) {
+            say(new.trim_end());
+            printed = log.len();
+        }
+        let wait = tokio::time::sleep(std::time::Duration::from_millis(500));
+        tokio::select! {
+            _ = &mut interrupted => break,
+            () = wait => {}
+        }
+    }
+    core.stack_stop(project, name, &hook_line).await?;
+    say("stopped");
     Ok(())
 }
 
@@ -581,6 +612,7 @@ async fn task(core: &Core, command: TaskCommand) -> Result<()> {
             core.task_setup(&project, &name, &hook_line).await?;
             say(&format!("setup finished for `{name}`"));
         }
+        TaskCommand::Start { project, name } => stack(core, &project, &name).await?,
         TaskCommand::Rm {
             project,
             name,
