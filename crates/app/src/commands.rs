@@ -10,8 +10,8 @@ use std::sync::Arc;
 use serde::Serialize;
 use swarmed_core::agent::{AgentEvent, Auth, Supervision};
 use swarmed_core::{
-    AgentInfo, BranchChoices, Core, NewTaskOptions, Project, ProjectOverview, RemoveOptions,
-    Session, SessionOptions, SessionSettings, Settings, Task,
+    AgentInfo, BranchChoices, Core, FileChange, FileDiff, NewTaskOptions, Project, ProjectOverview,
+    RemoveOptions, Session, SessionOptions, SessionSettings, Settings, Task,
 };
 use tauri::{AppHandle, Emitter, Runtime, State};
 
@@ -123,6 +123,25 @@ pub(crate) fn task_open_editor(core: CoreState<'_>, project: String, name: Strin
 #[tauri::command]
 pub(crate) fn task_open_url(core: CoreState<'_>, project: String, name: String) -> Command<()> {
     Ok(core.task_open_url(&project, &name)?)
+}
+
+#[tauri::command]
+pub(crate) async fn task_changes(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+) -> Command<Vec<FileChange>> {
+    Ok(core.task_changes(&project, &name).await?)
+}
+
+#[tauri::command]
+pub(crate) async fn task_diff(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+    path: String,
+) -> Command<FileDiff> {
+    Ok(core.task_diff(&project, &name, &path).await?)
 }
 
 #[tauri::command]

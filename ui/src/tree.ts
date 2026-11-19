@@ -76,6 +76,16 @@ export function findSession(projects: Project[], sessionId: number | null): Sess
         .find((session) => session.id === sessionId);
 }
 
+/** The id of the task a session belongs to. */
+export function taskIdOf(projects: Project[], sessionId: number): number | undefined {
+    return findSession(projects, sessionId)?.task_id;
+}
+
+/** Events after which a task's files may differ: a tool finished, or the turn did. */
+export function mayHaveEdited(event: SessionEvent["event"]): boolean {
+    return event.type === "tool_result" || event.type === "turn_done";
+}
+
 /** The task a session belongs to, with its project. */
 export function findSessionHome(
     projects: Project[],

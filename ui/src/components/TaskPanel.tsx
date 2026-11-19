@@ -3,6 +3,7 @@ import type { Project, Task } from "../api/types";
 import { PANEL_WIDTH } from "../resize";
 import { useStore } from "../store";
 import { findSession, findSessionHome } from "../tree";
+import { Changes } from "./Changes";
 import { editorChoices, editorName } from "./options";
 import { Picker } from "./Picker";
 import { Resizer } from "./Resizer";
@@ -34,6 +35,7 @@ export function TaskPanel({ width, onResize }: Props) {
             <aside className="task-panel" aria-label={`Task ${home.task.name}`}>
                 <div className="drag-strip" data-tauri-drag-region />
                 <TaskHead project={home.project} task={home.task} />
+                <Changes key={home.task.id} project={home.project} task={home.task} />
             </aside>
         </>
     );

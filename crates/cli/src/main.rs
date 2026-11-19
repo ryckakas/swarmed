@@ -86,6 +86,13 @@ enum TaskCommand {
         #[arg(long)]
         delete_branch: bool,
     },
+    /// List the files the task has changed, or print one file's diff.
+    Changes {
+        project: String,
+        name: String,
+        /// Print this file's diff instead of the list.
+        path: Option<String>,
+    },
     /// Open the task's worktree in your editor, or its running stack in the browser.
     Open {
         project: String,
@@ -231,6 +238,18 @@ async fn task(core: &Core, command: TaskCommand) -> Result<()> {
             core.task_remove(&project, &name, options, &hook_line)
                 .await?;
             say(&format!("removed task `{name}`"));
+        }
+        TaskCommand::Changes {
+            project,
+            name,
+            path: Some(path),
+        } => say(&core.task_diff(&project, &name, &path).await?.text),
+        TaskCommand::Changes { project, name, .. } => {
+            for file in core.task_changes(&project, &name).await? {
+                let count = |n: Option<u32>| n.map_or_else(|| "-".to_string(), |n| n.to_string());
+                let (added, removed) = (count(file.added), count(file.removed));
+                say(&format!("+{added}\t-{removed}\t{}", file.path));
+            }
         }
         TaskCommand::Open {
             project,

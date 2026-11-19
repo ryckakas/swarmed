@@ -6,7 +6,8 @@ use std::sync::Mutex;
 
 use common::{core_with_project, fixture, git, write_config};
 use swarmed_core::{
-    Core, Error, NewTaskOptions, ProjectConfig, RemoveOptions, Settings, SetupStatus, hooks,
+    ChangeKind, Core, Error, NewTaskOptions, ProjectConfig, RemoveOptions, Settings, SetupStatus,
+    hooks,
 };
 
 #[tokio::test]
@@ -406,4 +407,59 @@ async fn wait_for_file(path: &std::path::Path) -> String {
         }
     }
     panic!("{} was never written", path.display());
+}
+
+#[tokio::test]
+async fn a_tasks_changes_cover_commits_edits_and_new_files() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    let task = core
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates");
+    let worktree = &task.worktree_path;
+    assert_eq!(core.task_changes("demo", "one").await.expect("reads"), []);
+
+    // One committed change, one uncommitted edit of the same file, and one new file.
+    std::fs::write(worktree.join("README.md"), "demo\ncommitted\n").expect("writes");
+    git(worktree, &["commit", "--quiet", "-am", "more"]);
+    std::fs::write(worktree.join("README.md"), "demo\ncommitted\nedited\n").expect("writes");
+    std::fs::create_dir(worktree.join("src")).expect("mkdir");
+    std::fs::write(worktree.join("src/new.txt"), "one\ntwo\n").expect("writes");
+
+    let changes = core.task_changes("demo", "one").await.expect("reads");
+    let seen: Vec<_> = changes
+        .iter()
+        .map(|c| (c.path.as_str(), c.kind, c.added, c.removed))
+        .collect();
+    assert_eq!(
+        seen,
+        [
+            ("README.md", ChangeKind::Modified, Some(2), Some(0)),
+            ("src/new.txt", ChangeKind::Added, Some(2), Some(0)),
+        ]
+    );
+
+    let readme = core
+        .task_diff("demo", "one", "README.md")
+        .await
+        .expect("diffs");
+    assert!(
+        readme.text.contains("+committed\n+edited"),
+        "{}",
+        readme.text
+    );
+    let new = core
+        .task_diff("demo", "one", "src/new.txt")
+        .await
+        .expect("diffs");
+    assert!(
+        new.text.ends_with("@@ -0,0 +1,2 @@\n+one\n+two\n"),
+        "{}",
+        new.text
+    );
+    assert!(matches!(
+        core.task_diff("demo", "one", "../demo/README.md").await,
+        Err(Error::PathOutsideWorktree(_))
+    ));
 }

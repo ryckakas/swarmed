@@ -1,6 +1,8 @@
 import type { Api } from "./client";
 import type {
     AgentEvent,
+    FileChange,
+    FileDiff,
     HookOutput,
     Project,
     Session,
@@ -180,6 +182,48 @@ type Listener = (event: SessionEvent) => void;
 
 /** How long the mock agent takes between events, in milliseconds. */
 const PACE = 350;
+
+const SAMPLE_CHANGES: FileChange[] = [
+    { path: "public/logo.png", kind: "modified", added: null, removed: null },
+    { path: "src/auth/login.ts", kind: "modified", added: 9, removed: 2 },
+    { path: "src/auth/safe-next.ts", kind: "added", added: 6, removed: 0 },
+    { path: "test/auth/old-redirect.test.ts", kind: "deleted", added: 0, removed: 41 },
+];
+
+const SAMPLE_BINARY_DIFF =
+    "diff --git a/public/logo.png b/public/logo.png\nBinary files a/public/logo.png and b/public/logo.png differ\n";
+
+const SAMPLE_DIFF = `diff --git a/src/auth/login.ts b/src/auth/login.ts
+index 1a2b3c4..5d6e7f8 100644
+--- a/src/auth/login.ts
++++ b/src/auth/login.ts
+@@ -12,9 +12,16 @@ export async function login(request: Request) {
+     const session = await readSession(request);
+     const next = new URL(request.url).searchParams.get("next");
+-    if (!session) {
+-        return redirect(\`/login?next=\${next}\`);
++    if (!session && !isLoginPage(request)) {
++        return redirect(\`/login?next=\${encodeURIComponent(safeNext(next))}\`);
+     }
+     return redirectAfterLogin(next);
+ }
++
++/** Where to go after logging in: never back to the login page itself. */
++export function safeNext(next: string | null): string {
++    if (!next || !next.startsWith("/") || next.startsWith("/login")) {
++        return "/dashboard";
++    }
++    return next;
++}
+`;
+
+async function sampleChanges(_project: string, name: string): Promise<FileChange[]> {
+    return name === "pm-16037" ? [] : SAMPLE_CHANGES;
+}
+
+async function sampleDiff(_project: string, _name: string, path: string): Promise<FileDiff> {
+    return { text: path.endsWith(".png") ? SAMPLE_BINARY_DIFF : SAMPLE_DIFF, truncated: false };
+}
 
 class MockAgent {
     readonly projects = sampleProjects();
@@ -385,6 +429,8 @@ export function createMockApi(): Api {
             project.tasks.push(created);
             return created;
         },
+        taskChanges: sampleChanges,
+        taskDiff: sampleDiff,
         taskOpenEditor: async () => undefined,
         taskOpenUrl: async () => undefined,
         settings: async () => ({ ...settings }),

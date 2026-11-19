@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { Api } from "./api/client";
 import type { AgentEvent, Project, SessionEvent, SessionSettings, Settings } from "./api/types";
-import { applySessionEvent, withoutSession, withSession } from "./tree";
+import { applySessionEvent, mayHaveEdited, taskIdOf, withoutSession, withSession } from "./tree";
 
 interface State {
     projects: Project[];
@@ -12,6 +12,8 @@ interface State {
     draftProject: string | null;
     /** The events of every session whose transcript has been opened. */
     events: Record<number, AgentEvent[]>;
+    /** Per task id, a count that goes up whenever its agents may have changed files. */
+    edits: Record<number, number>;
     /** The latest line a hook printed while a task is being set up or removed. */
     hookLine: string | null;
     /** The last thing that went wrong when acting on a session, shown until dismissed. */
@@ -82,6 +84,15 @@ export function withEvent(events: AgentEvent[], event: AgentEvent): AgentEvent[]
     return [...events.slice(0, -1), next];
 }
 
+/** The edit counts after an event: one more for the task of a session that may have edited. */
+function countEdit(state: State, published: SessionEvent): Record<number, number> {
+    const taskId = taskIdOf(state.projects, published.session_id);
+    if (taskId === undefined || !mayHaveEdited(published.event)) {
+        return state.edits;
+    }
+    return { ...state.edits, [taskId]: (state.edits[taskId] ?? 0) + 1 };
+}
+
 const PANEL_OPEN = "swarmed.panel-open";
 
 /** A yes or no remembered on this machine; `fallback` if nothing, or nothing readable, is stored. */
@@ -127,6 +138,7 @@ export const useStore = create<State>((set, get) => ({
     selectedSessionId: null,
     draftProject: null,
     events: {},
+    edits: {},
     hookLine: null,
     problem: null,
     settings: null,
@@ -172,6 +184,7 @@ export const useStore = create<State>((set, get) => ({
         set((state) => ({
             projects: applySessionEvent(state.projects, published),
             events: appendEvent(state.events, published),
+            edits: countEdit(state, published),
         }));
     },
     configure: (api, sessionId, settings) =>

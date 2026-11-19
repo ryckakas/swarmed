@@ -33,6 +33,23 @@ export interface Task {
     url: string | null;
 }
 
+/** One file a task has changed since its branch left its base. */
+export interface FileChange {
+    /** The path, relative to the worktree. */
+    path: string;
+    kind: "added" | "modified" | "deleted";
+    /** Lines added and removed; `null` for a binary or very large file. */
+    added: number | null;
+    removed: number | null;
+}
+
+/** One file's changes as a unified diff. */
+export interface FileDiff {
+    text: string;
+    /** Whether the diff was too long and its end is missing. */
+    truncated: boolean;
+}
+
 /** The user's own preferences. */
 export interface Settings {
     /** The command that opens a folder in the user's code editor. */

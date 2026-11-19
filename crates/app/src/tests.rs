@@ -239,6 +239,21 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     );
     assert_eq!(app.ok("settings", json!({})), json!({ "editor": "code" }));
 
+    let worktree = app.ok("overview", json!({}))[0]["tasks"][0]["worktree_path"].clone();
+    let worktree = Path::new(worktree.as_str().expect("a path"));
+    std::fs::write(worktree.join("notes.txt"), "one\n").expect("writes");
+    let target = json!({ "project": "demo", "name": "one" });
+    let added = json!([{ "path": "notes.txt", "kind": "added", "added": 1, "removed": 0 }]);
+    assert_eq!(app.ok("task_changes", target), added);
+    let file = json!({ "project": "demo", "name": "one", "path": "notes.txt" });
+    let diff = app.ok("task_diff", file);
+    assert_eq!(diff["truncated"], false);
+    assert!(
+        diff["text"]
+            .as_str()
+            .is_some_and(|text| text.ends_with("+one\n"))
+    );
+
     let chosen = json!({ "settings": { "editor": "swarmed-no-such-editor" } });
     app.ok("set_settings", chosen);
     let target = json!({ "project": "demo", "name": "one" });
