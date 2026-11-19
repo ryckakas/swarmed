@@ -319,3 +319,54 @@ async fn invalid_names_are_rejected() {
         );
     }
 }
+
+#[tokio::test]
+async fn with_a_remote_tasks_branch_from_it_and_pushed_work_can_be_removed() {
+    let fx = fixture();
+    let root = fx.repo.parent().expect("test setup");
+    let remote = root.join("remote.git");
+    git(
+        root,
+        &["init", "--quiet", "--bare", "-b", "main", "remote.git"],
+    );
+    git(
+        &fx.repo,
+        &["remote", "add", "origin", &remote.to_string_lossy()],
+    );
+    git(&fx.repo, &["push", "--quiet", "-u", "origin", "main"]);
+    // A commit that exists only on the remote: the task must start from it, not from local main.
+    let other = root.join("other");
+    git(
+        root,
+        &["clone", "--quiet", &remote.to_string_lossy(), "other"],
+    );
+    std::fs::write(other.join("remote-only.txt"), "x").expect("test setup");
+    git(&other, &["add", "."]);
+    git(&other, &["commit", "--quiet", "-m", "remote work"]);
+    git(&other, &["push", "--quiet"]);
+
+    let core = core_with_project(&fx).await;
+    let task = core
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    assert_eq!(task.base_ref, "origin/main");
+    assert!(task.worktree_path.join("remote-only.txt").exists());
+
+    std::fs::write(task.worktree_path.join("work.txt"), "x").expect("test setup");
+    git(&task.worktree_path, &["add", "."]);
+    git(&task.worktree_path, &["commit", "--quiet", "-m", "work"]);
+    let unpushed = core
+        .task_remove("demo", "one", RemoveOptions::default(), &hooks::discard)
+        .await;
+    assert!(matches!(unpushed, Err(Error::TaskNotClean { .. })));
+
+    git(
+        &task.worktree_path,
+        &["push", "--quiet", "-u", "origin", "HEAD"],
+    );
+    core.task_remove("demo", "one", RemoveOptions::default(), &hooks::discard)
+        .await
+        .expect("pushed work can be removed");
+    assert!(!task.worktree_path.exists());
+}
