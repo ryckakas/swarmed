@@ -1,7 +1,9 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { api } from "../api";
 import type { AgentSetup } from "../api/types";
+import { iconForAgent } from "../providerIcons";
 import { useStore } from "../store";
+import { ProviderMark } from "./ProviderMark";
 
 /**
  * The agents sessions can run on: whether each is installed, a button that installs it, how to
@@ -83,6 +85,7 @@ function AgentRow({ setup, onChange }: { setup: AgentSetup; onChange(setup: Agen
                 <div>
                     <p className="settings-label agent-name">
                         {isReady(setup) && <ReadyMark />}
+                        <ProviderMark icon={iconForAgent(setup.id)} />
                         {setup.name}
                     </p>
                     <p className="settings-hint">{setup.about}</p>

@@ -23,11 +23,14 @@ import type {
 // shell. The agent behaves like the core's FakeBackend: plain text is echoed, `run: <command>`
 // asks permission first, and `slow` runs until interrupted.
 
+const SAMPLE_AGENTS: Record<number, string> = { 2: "codex", 4: "opencode" };
+
 function session(id: number, taskId: number, title: string, status: SessionStatus): Session {
     return {
         id,
         task_id: taskId,
-        agent: "claude",
+        // Not all on one agent, so the sample shows the marks that tell them apart.
+        agent: SAMPLE_AGENTS[id] ?? "claude",
         title,
         agent_session_id: `mock-${id}`,
         model: null,

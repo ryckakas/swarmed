@@ -1,7 +1,9 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { api } from "../api";
 import type { ApiKeyInfo } from "../api/types";
+import { iconForKey } from "../providerIcons";
 import { useStore } from "../store";
+import { ProviderMark } from "./ProviderMark";
 
 /** Keys for the providers that agents other than Claude Code talk to. Write-only by design. */
 export function ApiKeys() {
@@ -42,7 +44,10 @@ function KeyRow({ info, onChange }: { info: ApiKeyInfo; onChange(): void }) {
     return (
         <form className="key-row" onSubmit={save}>
             <div className="key-name">
-                <p className="settings-label">{info.provider}</p>
+                <p className="settings-label agent-name">
+                    <ProviderMark icon={iconForKey(info.name)} />
+                    {info.provider}
+                </p>
                 <p className="settings-hint">{info.stored ? "A key is stored" : "No key"}</p>
             </div>
             <input
