@@ -1,66 +1,11 @@
 //! Task lifecycle against a real temporary git repository.
 
-use std::path::{Path, PathBuf};
-use std::process::Command;
+mod common;
+
 use std::sync::Mutex;
 
-use swarmed_core::{
-    Core, Error, NewTaskOptions, Paths, ProjectConfig, RemoveOptions, SetupStatus, hooks,
-};
-use tempfile::TempDir;
-
-struct Fixture {
-    _dir: TempDir,
-    repo: PathBuf,
-    paths: Paths,
-}
-
-fn git(dir: &Path, args: &[&str]) {
-    let status = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .env("GIT_AUTHOR_NAME", "Test")
-        .env("GIT_AUTHOR_EMAIL", "test@example.com")
-        .env("GIT_COMMITTER_NAME", "Test")
-        .env("GIT_COMMITTER_EMAIL", "test@example.com")
-        .status()
-        .expect("test setup");
-    assert!(status.success(), "git {args:?} failed");
-}
-
-fn fixture() -> Fixture {
-    let dir = TempDir::new().expect("test setup");
-    // macOS temp dirs are symlinks; git reports the resolved path.
-    let root = dir.path().canonicalize().expect("test setup");
-    let repo = root.join("demo");
-    std::fs::create_dir(&repo).expect("test setup");
-    git(&repo, &["init", "--quiet", "-b", "main"]);
-    std::fs::write(repo.join("README.md"), "demo\n").expect("test setup");
-    git(&repo, &["add", "."]);
-    git(&repo, &["commit", "--quiet", "-m", "init"]);
-    let paths = Paths {
-        data_dir: root.join("data"),
-        worktrees_root: root.join("worktrees"),
-    };
-    Fixture {
-        _dir: dir,
-        repo,
-        paths,
-    }
-}
-
-fn write_config(fx: &Fixture, toml: &str) {
-    let path = fx.paths.project_config("demo");
-    std::fs::create_dir_all(path.parent().expect("test setup")).expect("test setup");
-    std::fs::write(path, toml).expect("test setup");
-}
-
-async fn core_with_project(fx: &Fixture) -> Core {
-    let core = Core::open(fx.paths.clone()).expect("test setup");
-    core.project_add(&fx.repo, None).await.expect("test setup");
-    core
-}
+use common::{core_with_project, fixture, git, write_config};
+use swarmed_core::{Core, Error, NewTaskOptions, ProjectConfig, RemoveOptions, SetupStatus, hooks};
 
 #[tokio::test]
 async fn project_add_writes_a_starter_config() {

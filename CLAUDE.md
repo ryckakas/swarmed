@@ -29,7 +29,7 @@ CI (`.github/workflows/ci.yml`) runs exactly these. Match them locally before pu
 
 ```
 crates/
-├── core/   swarmed-core: projects, tasks, worktrees, hooks, store. No UI dependency.
+├── core/   swarmed-core: projects, tasks, worktrees, hooks, sessions, store. No UI dependency.
 └── cli/    the `swarmed` binary, a thin front end over the core.
 ```
 
@@ -37,6 +37,13 @@ crates/
   core exposes typed operations and knows nothing about its front ends.
 - **Nothing is written into a user's repository.** Config and state live in the data directory
   (`Paths`); worktrees live under `~/swarmed/<project>/<task>`.
+- **Agents sit behind `AgentBackend`** (`agent/`). `ClaudeBackend` drives the installed `claude`
+  CLI over its line-delimited JSON protocol, which has no specification: `agent/claude.rs` is the
+  only file that knows its shapes, and it must tolerate unknown messages. `FakeBackend` is the
+  scripted agent the tests use; `SWARMED_FAKE_AGENT=1` selects it in the CLI.
+- **Swarmed never handles Claude.ai credentials.** It only shapes the child's environment (`Auth`).
+- **Session events are stored as JSON** (`AgentEvent`), so its variants and fields are only added,
+  never renamed.
 - **Git is used by shelling out** to the `git` binary (`git.rs`), not through a library.
 - **The store is SQLite** (`store.rs`). Schema changes are appended to `MIGRATIONS` and never
   edited afterwards.

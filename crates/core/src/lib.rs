@@ -3,22 +3,27 @@
 //! Every front end (the CLI, the desktop app) drives this crate and nothing else. It has no
 //! UI dependency.
 
+pub mod agent;
 mod config;
 mod error;
 mod git;
 pub mod hooks;
 mod paths;
+mod sessions;
 mod store;
 mod tasks;
 mod vars;
 
 use std::path::Path;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+
+use agent::{AgentBackend, ClaudeBackend};
 
 pub use config::{Hooks, ProjectConfig};
 pub use error::{Error, Result};
 pub use hooks::OutputSink;
 pub use paths::Paths;
+pub use sessions::{LiveSession, Session, SessionOptions, SessionStatus};
 use store::Store;
 pub use store::{Project, SetupStatus, Task};
 pub use tasks::{NewTaskOptions, RemoveOptions};
@@ -27,16 +32,30 @@ pub use tasks::{NewTaskOptions, RemoveOptions};
 #[derive(Debug)]
 pub struct Core {
     paths: Paths,
-    store: Mutex<Store>,
+    store: Arc<Mutex<Store>>,
+    backend: Arc<dyn AgentBackend>,
+}
+
+/// The store is only ever locked for one short query, never across an `.await`. A panic while
+/// it was held cannot leave SQLite half-written, so a poisoned lock is still usable.
+fn lock(store: &Mutex<Store>) -> MutexGuard<'_, Store> {
+    store.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 impl Core {
-    /// Opens the data directory, creating the database on first use.
+    /// Opens the data directory, creating the database on first use. Sessions run on the
+    /// installed Claude Code CLI.
     pub fn open(paths: Paths) -> Result<Self> {
+        Self::with_backend(paths, Arc::new(ClaudeBackend::default()))
+    }
+
+    /// Like [`Core::open`], with sessions running on `backend`.
+    pub fn with_backend(paths: Paths, backend: Arc<dyn AgentBackend>) -> Result<Self> {
         let store = Store::open(&paths.db_file())?;
         Ok(Self {
             paths,
-            store: Mutex::new(store),
+            store: Arc::new(Mutex::new(store)),
+            backend,
         })
     }
 
@@ -46,10 +65,8 @@ impl Core {
         &self.paths
     }
 
-    /// The store is only ever locked for one short query, never across an `.await`. A panic
-    /// while it was held cannot leave SQLite half-written, so a poisoned lock is still usable.
     fn store(&self) -> MutexGuard<'_, Store> {
-        self.store.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.store)
     }
 
     /// Registers the git repository containing `path` and writes a starter config for it.

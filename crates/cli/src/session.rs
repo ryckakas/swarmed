@@ -1,0 +1,285 @@
+//! The `swarmed session` commands: run a turn in the terminal and read back history.
+
+use anyhow::{Context, Result};
+use clap::{Subcommand, ValueEnum};
+use serde_json::Value;
+use swarmed_core::agent::{AgentEvent, Auth, Supervision};
+use swarmed_core::{Core, LiveSession, SessionOptions};
+use tokio::io::{AsyncBufReadExt, BufReader, Lines, Stdin};
+
+use crate::say;
+
+/// How long a tool call's arguments may be when shown on one line.
+const SUMMARY_CHARS: usize = 120;
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum SessionCommand {
+    /// Start a session in a task and run one turn.
+    Run {
+        project: String,
+        task: String,
+        prompt: String,
+        /// The model to run on; defaults to Claude Code's own default.
+        #[arg(long)]
+        model: Option<String>,
+        /// Let Claude Code's auto mode decide which actions are safe, instead of asking.
+        #[arg(long)]
+        auto: bool,
+        #[arg(long, value_enum, default_value_t)]
+        auth: AuthMode,
+    },
+    /// Continue a session with another turn.
+    Send {
+        id: i64,
+        prompt: String,
+        #[arg(long, value_enum, default_value_t)]
+        auth: AuthMode,
+    },
+    /// List a task's sessions.
+    List { project: String, task: String },
+    /// Print everything a session has said and been told.
+    Show { id: i64 },
+}
+
+/// Where the agent's credentials come from.
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+pub(crate) enum AuthMode {
+    /// Claude Code's own stored login.
+    #[default]
+    Subscription,
+    /// The key in `ANTHROPIC_API_KEY`.
+    ApiKey,
+    /// Pass the environment through unchanged (Bedrock, Vertex).
+    Inherit,
+}
+
+impl AuthMode {
+    fn resolve(self) -> Result<Auth> {
+        Ok(match self {
+            Self::Subscription => Auth::Subscription,
+            Self::Inherit => Auth::Inherit,
+            Self::ApiKey => Auth::ApiKey(
+                std::env::var("ANTHROPIC_API_KEY")
+                    .context("--auth api-key needs ANTHROPIC_API_KEY to be set")?,
+            ),
+        })
+    }
+}
+
+pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> {
+    match command {
+        SessionCommand::Run {
+            project,
+            task,
+            prompt,
+            model,
+            auto,
+            auth,
+        } => {
+            let supervision = if auto {
+                Supervision::Auto
+            } else {
+                Supervision::Ask
+            };
+            let options = SessionOptions {
+                title: None,
+                model,
+                supervision,
+            };
+            let session = core.session_new(&project, &task, &options)?;
+            say(&format!("session {}", session.id));
+            run_turn(core, session.id, &prompt, auth.resolve()?).await
+        }
+        SessionCommand::Send { id, prompt, auth } => {
+            run_turn(core, id, &prompt, auth.resolve()?).await
+        }
+        SessionCommand::List { project, task } => {
+            for s in core.sessions(&project, &task)? {
+                let mode = s.supervision.as_str();
+                say(&format!(
+                    "{}\t{}\t{mode}\t{}",
+                    s.id,
+                    s.status.as_str(),
+                    s.title
+                ));
+            }
+            Ok(())
+        }
+        SessionCommand::Show { id } => {
+            core.session_events(id)?
+                .iter()
+                .filter_map(describe)
+                .for_each(|line| say(&line));
+            Ok(())
+        }
+    }
+}
+
+/// Sends `prompt` and shows the session's events until the turn ends. Permission requests are
+/// answered from stdin; Ctrl-C interrupts the turn instead of killing the session.
+async fn run_turn(core: &Core, id: i64, prompt: &str, auth: Auth) -> Result<()> {
+    let mut live = core.session_open(id, auth)?;
+    live.send(prompt)?;
+    let mut answers = BufReader::new(tokio::io::stdin()).lines();
+    while let Some(event) = next_or_interrupt(&mut live).await? {
+        if let Some(line) = describe(&event) {
+            say(&line);
+        }
+        match event {
+            AgentEvent::PermissionRequest { request_id, .. } => {
+                decide(&live, &mut answers, &request_id).await?;
+            }
+            AgentEvent::TurnDone { .. } => break,
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+async fn next_or_interrupt(live: &mut LiveSession) -> Result<Option<AgentEvent>> {
+    loop {
+        tokio::select! {
+            event = live.next_event() => return Ok(event),
+            _ = tokio::signal::ctrl_c() => live.interrupt()?,
+        }
+    }
+}
+
+/// Reads one line; anything but `y` or `yes` refuses, and so does a closed stdin.
+async fn decide(live: &LiveSession, answers: &mut Lines<BufReader<Stdin>>, id: &str) -> Result<()> {
+    let answer = answers.next_line().await?.unwrap_or_default();
+    if matches!(answer.trim(), "y" | "yes") {
+        live.allow(id)?;
+    } else {
+        live.deny(id, "The user declined this action.")?;
+    }
+    Ok(())
+}
+
+/// The line an event is shown as, or `None` for events not worth a line.
+fn describe(event: &AgentEvent) -> Option<String> {
+    match event {
+        AgentEvent::UserMessage { text } => Some(format!("> {text}")),
+        AgentEvent::Init {
+            model,
+            permission_mode,
+            api_key_source,
+            mcp_servers,
+            skills,
+            ..
+        } => {
+            let connected = mcp_servers
+                .iter()
+                .filter(|s| s.status == "connected")
+                .count();
+            let login = if api_key_source == "none" {
+                "subscription"
+            } else {
+                api_key_source
+            };
+            Some(format!(
+                "[{model} · {permission_mode} · login: {login} · MCP servers: {connected} of {} \
+                 connected · skills: {skills}]",
+                mcp_servers.len()
+            ))
+        }
+        AgentEvent::Text { text } => Some(text.clone()),
+        AgentEvent::ToolUse { name, input, .. } => Some(format!("▸ {name} {}", summary(input))),
+        AgentEvent::ToolResult {
+            content,
+            is_error: true,
+            ..
+        } => Some(format!(
+            "  ✗ {}",
+            content.lines().next().unwrap_or_default()
+        )),
+        AgentEvent::PermissionRequest {
+            tool_name, input, ..
+        } => Some(format!("? allow {tool_name}: {} [y/N]", summary(input))),
+        AgentEvent::RateLimit {
+            status, resets_at, ..
+        } if status != "allowed" => Some(format!(
+            "usage limit: {status}, resets at {}",
+            resets_at.unwrap_or_default()
+        )),
+        AgentEvent::TurnDone {
+            is_error, cost_usd, ..
+        } => {
+            let outcome = if *is_error { "stopped" } else { "done" };
+            Some(cost_usd.map_or_else(
+                || format!("— {outcome}"),
+                |cost| format!("— {outcome} (cost so far ${cost:.4})"),
+            ))
+        }
+        AgentEvent::Exited {
+            code: Some(code),
+            stderr,
+        } if *code != 0 => Some(format!("agent exited with code {code}: {}", stderr.trim())),
+        _ => None,
+    }
+}
+
+/// The one argument that says what a tool call does, or the arguments as compact JSON.
+fn summary(input: &Value) -> String {
+    let named = ["command", "file_path", "pattern", "url", "query"]
+        .iter()
+        .find_map(|key| input.get(key).and_then(Value::as_str));
+    let text = named.map_or_else(|| input.to_string(), String::from);
+    if text.chars().count() <= SUMMARY_CHARS {
+        return text;
+    }
+    let mut short: String = text.chars().take(SUMMARY_CHARS - 1).collect();
+    short.push('…');
+    short
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn tool_calls_are_summarised_by_their_telling_argument() {
+        assert_eq!(
+            summary(&json!({ "command": "ls", "description": "List" })),
+            "ls"
+        );
+        assert_eq!(summary(&json!({ "a": 1 })), r#"{"a":1}"#);
+        assert_eq!(
+            summary(&json!({ "command": "x".repeat(500) }))
+                .chars()
+                .count(),
+            SUMMARY_CHARS
+        );
+    }
+
+    #[test]
+    fn quiet_events_get_no_line() {
+        let ok = AgentEvent::ToolResult {
+            tool_use_id: "t".into(),
+            content: "fine".into(),
+            is_error: false,
+        };
+        assert_eq!(describe(&ok), None);
+        let allowed = AgentEvent::RateLimit {
+            status: "allowed".into(),
+            resets_at: None,
+            raw: json!({}),
+        };
+        assert_eq!(describe(&allowed), None);
+    }
+
+    #[test]
+    fn a_finished_turn_shows_the_cost() {
+        let done = AgentEvent::TurnDone {
+            is_error: false,
+            result: None,
+            cost_usd: Some(0.0123),
+        };
+        assert_eq!(
+            describe(&done).as_deref(),
+            Some("— done (cost so far $0.0123)")
+        );
+    }
+}

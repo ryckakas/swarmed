@@ -75,6 +75,15 @@ pub enum Error {
     /// The user's home directory is unknown, so the default locations cannot be derived.
     #[error("could not determine the home directory")]
     NoHome,
+    /// No session has this id.
+    #[error("session {0} not found")]
+    SessionNotFound(i64),
+    /// The agent process behind a live session is gone.
+    #[error("the session's agent is no longer running")]
+    SessionClosed,
+    /// A stored or outgoing event could not be converted to or from JSON.
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
     /// A filesystem or process error.
     #[error(transparent)]
     Io(#[from] std::io::Error),

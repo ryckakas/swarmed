@@ -1,10 +1,15 @@
 //! The `swarmed` command: a thin front end over `swarmed-core`.
 
+mod session;
+
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use session::SessionCommand;
+use swarmed_core::agent::FakeBackend;
 use swarmed_core::{Core, NewTaskOptions, Paths, RemoveOptions, SetupStatus, Task};
 
 /// Swarmed: parallel Claude Code sessions in isolated git worktrees.
@@ -23,6 +28,9 @@ enum Command {
     /// Manage tasks: one worktree, one branch and one stack each.
     #[command(subcommand)]
     Task(TaskCommand),
+    /// Run agent sessions in a task's worktree.
+    #[command(subcommand)]
+    Session(SessionCommand),
 }
 
 #[derive(Debug, Subcommand)]
@@ -75,7 +83,7 @@ enum TaskCommand {
 
 /// Writes a line to stdout. A closed pipe (`swarmed task list | head`) is not an error worth
 /// reporting, which is why this is not `println!`: that panics instead.
-fn say(line: &str) {
+pub(crate) fn say(line: &str) {
     writeln!(std::io::stdout().lock(), "{line}").ok();
 }
 
@@ -84,13 +92,23 @@ fn hook_line(line: &str) {
     say(&format!("  | {line}"));
 }
 
+/// `SWARMED_FAKE_AGENT` swaps Claude for the scripted agent, to try the CLI without tokens.
+fn open_core() -> Result<Core> {
+    let paths = Paths::from_env()?;
+    if std::env::var_os("SWARMED_FAKE_AGENT").is_some() {
+        return Ok(Core::with_backend(paths, Arc::new(FakeBackend::default()))?);
+    }
+    Ok(Core::open(paths)?)
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let core = Core::open(Paths::from_env()?)?;
+    let core = open_core()?;
     match cli.command {
         Command::Project(command) => project(&core, command).await,
         Command::Task(command) => task(&core, command).await,
+        Command::Session(command) => session::session(&core, command).await,
     }
 }
 

@@ -81,7 +81,8 @@ pub(crate) struct NewTask<'a> {
 }
 
 /// One entry per schema change, applied in order and never edited afterwards.
-const MIGRATIONS: &[&str] = &["
+const MIGRATIONS: &[&str] = &[
+    "
     CREATE TABLE projects (
         id        INTEGER PRIMARY KEY,
         name      TEXT NOT NULL UNIQUE,
@@ -102,14 +103,34 @@ const MIGRATIONS: &[&str] = &["
     );
     CREATE UNIQUE INDEX tasks_active_name ON tasks(project_id, name) WHERE archived_at IS NULL;
     CREATE UNIQUE INDEX tasks_active_slot ON tasks(project_id, slot) WHERE archived_at IS NULL;
-"];
+",
+    "
+    CREATE TABLE sessions (
+        id               INTEGER PRIMARY KEY,
+        task_id          INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        title            TEXT NOT NULL DEFAULT '',
+        agent_session_id TEXT,
+        model            TEXT,
+        supervision      TEXT NOT NULL,
+        status           TEXT NOT NULL DEFAULT 'idle',
+        created_at       TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE session_events (
+        id         INTEGER PRIMARY KEY,
+        session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        event      TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX session_events_by_session ON session_events(session_id, id);
+",
+];
 
 const TASK_SELECT: &str = "SELECT id, project_id, name, branch, base_ref, worktree_path, slot, \
                            setup_status, archived_at IS NOT NULL FROM tasks";
 
 #[derive(Debug)]
 pub(crate) struct Store {
-    conn: Connection,
+    pub(crate) conn: Connection,
 }
 
 impl Store {
@@ -179,6 +200,14 @@ impl Store {
             setup: SetupStatus::Pending,
             archived: false,
         })
+    }
+
+    pub(crate) fn task_by_id(&self, task_id: i64) -> Result<Option<Task>> {
+        let sql = format!("{TASK_SELECT} WHERE id = ?1");
+        Ok(self
+            .conn
+            .query_row(&sql, params![task_id], task_from_row)
+            .optional()?)
     }
 
     /// The active task with this name, if any.
