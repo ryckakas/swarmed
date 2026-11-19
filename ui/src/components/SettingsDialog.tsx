@@ -1,6 +1,7 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { Settings, Supervision, Theme } from "../api/types";
+import { PALETTES } from "../appearance";
 import { keyCaps, LOCAL_HOTKEYS, listedHotkeys } from "../hotkeys";
 import { STATUS_ITEM_LABELS, STATUS_ITEMS, withItem } from "../statusline";
 import { SETTINGS_TABS, type SettingsTab, useStore } from "../store";
@@ -148,6 +149,29 @@ function Appearance({ settings }: { settings: Settings }) {
                     onChange={(theme) => void change(api, { theme: theme as Theme })}
                     options={THEMES}
                 />
+            </Row>
+            <Row label="Palette" hint="Each has a dark and a light form.">
+                <div className="palettes" role="radiogroup" aria-label="Palette">
+                    {PALETTES.map(([palette, name]) => (
+                        // biome-ignore lint/a11y/useSemanticElements: a swatch, drawn in the palette's own colours
+                        <button
+                            key={palette}
+                            type="button"
+                            role="radio"
+                            className="palette"
+                            data-palette={palette}
+                            aria-checked={settings.palette === palette}
+                            onClick={() => void change(api, { palette })}
+                        >
+                            <span className="palette-dots" aria-hidden="true">
+                                <i className="palette-raised" />
+                                <i className="palette-accent" />
+                                <i className="palette-ink" />
+                            </span>
+                            {name}
+                        </button>
+                    ))}
+                </div>
             </Row>
             <Row label="Text size">
                 <Picker

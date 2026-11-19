@@ -65,7 +65,7 @@ use sessions::Live;
 pub use sessions::{
     EVENT_BUFFER, Session, SessionEvent, SessionOptions, SessionSettings, SessionStatus,
 };
-pub use settings::{Settings, Theme};
+pub use settings::{Palette, Settings, Theme};
 pub use statusline::StatusItem;
 use store::Store;
 pub use store::{Project, SetupStatus, Task};

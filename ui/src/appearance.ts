@@ -1,4 +1,4 @@
-import type { Settings } from "./api/types";
+import type { Palette, Settings } from "./api/types";
 
 // How the user's appearance settings reach the page. The stylesheet does the rest.
 
@@ -8,7 +8,19 @@ export function rootFontSize(scale: number | undefined): string {
     return `${usable ? scale : 100}%`;
 }
 
-/** Puts the theme and the text size on the page. Before the settings are read, the defaults. */
+/** The palettes on offer, by what the stylesheet knows them as, with the names to show. */
+export const PALETTES: [Palette, string][] = [
+    ["dusk", "Dusk"],
+    ["graphite", "Graphite"],
+    ["forest", "Forest"],
+    ["plum", "Plum"],
+    ["ember", "Ember"],
+];
+
+/**
+ * Puts the theme, the palette and the text size on the page. Before the settings are read, the
+ * defaults.
+ */
 export function applyAppearance(root: HTMLElement, settings: Settings | null) {
     const theme = settings?.theme ?? "system";
     if (theme === "system") {
@@ -16,5 +28,6 @@ export function applyAppearance(root: HTMLElement, settings: Settings | null) {
     } else {
         root.dataset.theme = theme;
     }
+    root.dataset.palette = settings?.palette ?? "dusk";
     root.style.fontSize = rootFontSize(settings?.text_scale);
 }
