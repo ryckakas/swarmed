@@ -1680,6 +1680,13 @@ code {
     color: var(--faint);
 }
 
+.composer-suggestion {
+    margin: 0;
+    padding: 0 var(--space-3);
+    color: var(--faint);
+    font-size: var(--text-sm);
+}
+
 .composer-row {
     display: flex;
     align-items: center;

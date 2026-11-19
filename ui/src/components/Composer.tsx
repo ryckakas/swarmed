@@ -3,6 +3,7 @@ import { api } from "../api";
 import type { Session } from "../api/types";
 import { appliedEffort } from "../statusline";
 import { useStore } from "../store";
+import { suggestionOf } from "../suggestion";
 import { ComposerBox } from "./ComposerBox";
 import { EffortPicker } from "./EffortPicker";
 import { MessageQueue } from "./MessageQueue";
@@ -34,6 +35,7 @@ export function Composer({ session }: { session: Session }) {
     const { id, status } = session;
     const busy = status === "working" || status === "waiting";
     const commands = useSlashCommands(id, status);
+    const suggestion = useStore((state) => suggestionOf(state.events[id]));
     const canSend = text.trim() !== "" || files.length > 0;
 
     // Answering a permission request removes the button that had focus. Bring it back here, so
@@ -94,6 +96,7 @@ export function Composer({ session }: { session: Session }) {
                         onStop={status === "working" ? stop : undefined}
                         canSend={canSend}
                         placeholder={PLACEHOLDER[status]}
+                        suggestion={busy ? null : suggestion}
                         inputRef={input}
                         commands={commands}
                     >

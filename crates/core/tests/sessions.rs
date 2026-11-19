@@ -82,6 +82,31 @@ async fn a_turn_is_stored_published_and_names_the_session() {
 }
 
 #[tokio::test]
+async fn a_suggested_next_message_follows_the_turn_and_leaves_the_session_idle() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    core.session_send(session.id, "suggest: run the tests")
+        .expect("sends");
+    turn(&mut bus, session.id).await;
+    let after = next(&mut bus).await;
+    let suggested = AgentEvent::Suggestion {
+        text: "run the tests".into(),
+    };
+    assert_eq!(after.event, suggested);
+    // It changes nothing about the session, and is kept with the conversation.
+    assert_eq!(after.status, None);
+    let stored = core.session_events(session.id).expect("exists");
+    assert_eq!(stored.last(), Some(&suggested));
+    assert_eq!(
+        core.session(session.id).expect("exists").status,
+        SessionStatus::Idle
+    );
+}
+
+#[tokio::test]
 async fn published_events_carry_the_status_they_lead_to() {
     let fx = fixture();
     let core = core_with_task(&fx).await;

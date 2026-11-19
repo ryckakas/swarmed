@@ -571,6 +571,9 @@ class MockAgent {
             const { model, effort } = this.configure(id, {});
             const applied = { model: model ?? "claude-opus-5-5", effort: effort ?? "xhigh" };
             this.later(id, { type: "applied", ...applied }, null, 3);
+            if (text.startsWith("suggest:")) {
+                this.later(id, { type: "suggestion", text: text.slice(8).trim() }, null, 4);
+            }
         }
     }
 

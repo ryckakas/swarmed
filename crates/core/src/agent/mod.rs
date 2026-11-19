@@ -294,6 +294,12 @@ pub enum AgentEvent {
         /// How hard it thinks, if the agent has such a setting.
         effort: Option<String>,
     },
+    /// What the agent expects the user to say next, offered after a turn. It stands until the
+    /// conversation moves on.
+    Suggestion {
+        /// The message, ready to be sent as it is.
+        text: String,
+    },
     /// What the session's queue of waiting messages now holds. Published by the core whenever
     /// it changes, and never stored.
     Queue {
