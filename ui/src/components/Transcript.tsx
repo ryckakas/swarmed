@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
 import type { AgentEvent } from "../api/types";
-import { type Item, summarize, toItems } from "../transcript";
+import { activity, type Item, summarize, toItems } from "../transcript";
 import { Markdown } from "./Markdown";
 import { PermissionPrompt } from "./PermissionPrompt";
 import { ToolCall } from "./ToolCall";
@@ -8,7 +8,14 @@ import { ToolCall } from "./ToolCall";
 /** How close to the bottom, in pixels, still counts as "following the conversation". */
 const FOLLOW_DISTANCE = 80;
 
-export function Transcript({ sessionId, events }: { sessionId: number; events: AgentEvent[] }) {
+interface Props {
+    sessionId: number;
+    events: AgentEvent[];
+    /** Whether the agent is busy on a turn; the transcript then ends with what it is doing. */
+    working: boolean;
+}
+
+export function Transcript({ sessionId, events, working }: Props) {
     const items = useMemo(() => toItems(events), [events]);
     const scroller = useRef<HTMLDivElement>(null);
     // Each session gets its own Transcript (keyed by the caller), so this starts out true.
@@ -54,6 +61,16 @@ export function Transcript({ sessionId, events }: { sessionId: number; events: A
                         <ItemView item={item} sessionId={sessionId} />
                     </li>
                 ))}
+                {working && (
+                    <li className="activity" aria-live="polite">
+                        <span className="activity-dots" aria-hidden="true">
+                            <i />
+                            <i />
+                            <i />
+                        </span>
+                        {activity(events)}…
+                    </li>
+                )}
             </ol>
         </div>
     );

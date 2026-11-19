@@ -56,6 +56,7 @@ export function SessionPane() {
                     key={`transcript-${session.id}`}
                     sessionId={session.id}
                     events={events}
+                    working={session.status === "working"}
                 />
             )}
             <Composer key={`composer-${session.id}`} session={session} />

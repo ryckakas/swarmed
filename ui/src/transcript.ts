@@ -203,3 +203,24 @@ function settle(draft: Draft, requestId: string, key: number, allowed: boolean) 
         draft.items.push({ kind: "denied", key, toolName, input });
     }
 }
+
+/**
+ * What a working agent is doing right now, in a word or two, from the events of the turn so far.
+ * It fills the silence between sending a message and the first thing the agent shows.
+ */
+export function activity(events: AgentEvent[]): string {
+    const start = events.findLastIndex((event) => event.type === "user_message");
+    const turn = events.slice(start + 1);
+    const last = turn.at(-1);
+    if (last === undefined || last.type === "init") {
+        return "Starting";
+    }
+    if (last.type === "text_delta") {
+        return "Writing";
+    }
+    const finished = new Set(
+        turn.flatMap((event) => (event.type === "tool_result" ? [event.tool_use_id] : [])),
+    );
+    const running = turn.findLast((event) => event.type === "tool_use" && !finished.has(event.id));
+    return running?.type === "tool_use" ? `Running ${running.name}` : "Thinking";
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentEvent } from "./api/types";
-import { summarize, toItems } from "./transcript";
+import { activity, summarize, toItems } from "./transcript";
 
 const toolUse = (id: string, command: string): AgentEvent => ({
     type: "tool_use",
@@ -139,6 +139,27 @@ describe("a session on another agent", () => {
             },
         ]);
         expect(item).toMatchObject({ login: "agent", mcp: "2 MCP servers passed to the agent" });
+    });
+});
+
+describe("activity", () => {
+    const said: AgentEvent = { type: "user_message", text: "go" };
+    const done: AgentEvent = { type: "turn_done", is_error: false, result: null, cost_usd: 0 };
+    const earlier = [said, toolUse("old", "ls"), done];
+
+    it("says the agent is starting until it has shown anything this turn", () => {
+        expect(activity([...earlier, said])).toBe("Starting");
+    });
+
+    it("names the tool that is running, and thinks between steps", () => {
+        const running = [...earlier, said, toolUse("a", "npm test")];
+        expect(activity(running)).toBe("Running Bash");
+        expect(activity([...running, toolResult("a", "ok")])).toBe("Thinking");
+        expect(activity([said, { type: "text", text: "On it." }])).toBe("Thinking");
+    });
+
+    it("says a reply is being written while its pieces arrive", () => {
+        expect(activity([said, { type: "text_delta", text: "Rain" }])).toBe("Writing");
     });
 });
 
