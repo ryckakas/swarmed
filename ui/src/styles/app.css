@@ -673,6 +673,11 @@ code {
     white-space: nowrap;
 }
 
+/* A session an agent started sits under its starter, one step in. */
+.sessions li[data-nested="true"] .session-row {
+    padding-left: calc(var(--space-4) + var(--space-3) + var(--space-4));
+}
+
 /* A session an agent started, marked as hanging off another. */
 .session-spawned {
     flex: none;
@@ -2413,6 +2418,77 @@ kbd {
 
 .key-input:focus-visible {
     border-color: var(--faint);
+}
+
+/* MCP servers: the form for one of Swarmed's own, and the list of Claude Code's. */
+.settings-subhead {
+    margin-top: var(--space-6);
+}
+
+.mcp-own {
+    flex: 1;
+    min-width: 0;
+}
+
+.mcp-form {
+    display: grid;
+    gap: var(--space-2);
+    margin: var(--space-2) 0;
+    padding: var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+}
+
+.mcp-form .key-row {
+    padding: 0;
+}
+
+.mcp-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.mcp-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    padding: 3px 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent);
+}
+
+.mcp-name {
+    flex: none;
+}
+
+.mcp-target {
+    flex: 1;
+    min-width: 0;
+    color: var(--faint);
+    font-size: var(--text-xs);
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mcp-status {
+    flex: none;
+    padding: 0 var(--space-2);
+    border-radius: 999px;
+    background: color-mix(in srgb, currentcolor 13%, transparent);
+    color: var(--faint);
+    font-size: var(--text-xs);
+    font-weight: 400;
+}
+
+.mcp-status-good {
+    color: var(--moss);
+}
+
+.mcp-status-off {
+    color: var(--pollen);
 }
 
 /* What Swarmed takes up: one figure to a line, the name on the left. */

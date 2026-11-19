@@ -11,6 +11,7 @@ import type {
     FileChange,
     FileDiff,
     HookOutput,
+    McpServerView,
     Project,
     QueuedMessage,
     Session,
@@ -26,6 +27,9 @@ import type {
 export const tauriApi: Api = {
     overview: () => invoke<Project[]>("overview"),
     agents: () => invoke<AgentInfo[]>("agents"),
+    mcpServers: () => invoke<McpServerView[]>("mcp_servers"),
+    mcpSave: (server) => invoke<McpServerView[]>("mcp_save", { server }),
+    mcpRemove: (name) => invoke<McpServerView[]>("mcp_remove", { name }),
     usage: () => invoke<Usage>("usage"),
     agentSetups: () => invoke<AgentSetup[]>("agent_setups"),
     agentInstall: (id) => invoke<AgentSetup>("agent_install", { id }),

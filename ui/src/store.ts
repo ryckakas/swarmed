@@ -27,6 +27,7 @@ export const SETTINGS_TABS = [
     ["sessions", "Sessions"],
     ["status", "Status line"],
     ["agents", "Agents"],
+    ["mcp", "MCP servers"],
     ["keys", "API keys"],
     ["usage", "Storage and activity"],
     ["shortcuts", "Keyboard shortcuts"],

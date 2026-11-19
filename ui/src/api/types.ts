@@ -117,6 +117,30 @@ export interface TaskNaming {
     title: string;
 }
 
+/** An MCP server as the settings show it. Secrets are named, never shown. */
+export interface McpServerView {
+    name: string;
+    /** `swarmed` for one set up here, `claude` for one of Claude Code's own. */
+    origin: string;
+    /** `stdio` for a command, `http` for an address, empty if Swarmed cannot tell. */
+    kind: string;
+    /** The command with its arguments, or the address. */
+    target: string;
+    secrets: string[];
+    enabled: boolean;
+    /** What Claude Code last said of it, such as `connected`; `null` if it has not. */
+    status: string | null;
+}
+
+/** A server as it is saved. A secret whose value is `null` keeps the one stored. */
+export interface McpServerInput {
+    name: string;
+    command: string;
+    url: string;
+    secrets: [name: string, value: string | null][];
+    enabled: boolean;
+}
+
 /** What a group of processes takes right now. */
 export interface ProcessUsage {
     processes: number;

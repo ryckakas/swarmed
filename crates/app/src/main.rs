@@ -102,6 +102,9 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         .invoke_handler(tauri::generate_handler![
             commands::agents,
             commands::usage,
+            commands::mcp_servers,
+            commands::mcp_save,
+            commands::mcp_remove,
             commands::agent_setups,
             commands::agent_install,
             commands::agent_configure,

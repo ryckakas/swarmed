@@ -426,6 +426,40 @@ fn the_ui_can_see_what_swarmed_takes_up() {
 }
 
 #[test]
+fn the_ui_can_set_up_an_mcp_server_and_never_reads_its_secrets_back() {
+    let app = app();
+    assert_eq!(app.ok("mcp_servers", json!({})), json!([]));
+    let server = json!({ "server": {
+        "name": "tracker", "command": "npx -y tracker", "url": "",
+        "secrets": [["TRACKER_TOKEN", "s3cret"]], "enabled": true,
+    } });
+    let listed = app.ok("mcp_save", server);
+    assert_eq!(listed[0]["name"], "tracker");
+    assert_eq!(listed[0]["origin"], "swarmed");
+    assert_eq!(listed[0]["target"], "npx -y tracker");
+    assert_eq!(listed[0]["secrets"], json!(["TRACKER_TOKEN"]));
+    assert!(!listed.to_string().contains("s3cret"));
+
+    // An untouched secret field comes back as null and keeps what is stored.
+    let off = json!({ "server": {
+        "name": "tracker", "command": "npx -y tracker", "url": "",
+        "secrets": [["TRACKER_TOKEN", null]], "enabled": false,
+    } });
+    assert_eq!(app.ok("mcp_save", off)[0]["enabled"], false);
+    assert_eq!(
+        app.invoke(
+            "mcp_save",
+            json!({ "server": { "name": "a b", "command": "x", "enabled": true } })
+        ),
+        Err(json!("a server's name is made of letters, digits, - and _"))
+    );
+    assert_eq!(
+        app.ok("mcp_remove", json!({ "name": "tracker" })),
+        json!([])
+    );
+}
+
+#[test]
 fn the_ui_can_keep_a_note_on_a_project_and_on_a_task() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));

@@ -193,6 +193,17 @@ fn missing_pipe() -> Error {
     Error::Io(std::io::Error::other("the agent's pipes are missing"))
 }
 
+impl ClaudeBackend {
+    /// Why Claude Code could not be started, said so that someone who never installed it knows
+    /// what is missing and what to do.
+    fn not_started(&self, error: std::io::Error) -> Error {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            return Error::ClaudeMissing(self.program.to_string_lossy().into_owned());
+        }
+        error.into()
+    }
+}
+
 impl AgentBackend for ClaudeBackend {
     fn start(&self, spec: SessionSpec) -> Result<AgentHandle> {
         let mut command = Command::new(&self.program);
@@ -205,7 +216,7 @@ impl AgentBackend for ClaudeBackend {
             .kill_on_drop(true);
         apply_auth(&mut command, &spec.auth);
 
-        let mut child = command.spawn()?;
+        let mut child = command.spawn().map_err(|error| self.not_started(error))?;
         let pid = child.id();
         let stdin = child.stdin.take().ok_or_else(missing_pipe)?;
         let stdout = child.stdout.take().ok_or_else(missing_pipe)?;
@@ -886,5 +897,23 @@ mod tests {
             "{args}"
         );
         assert!(!args.contains("--append-system-prompt"), "{args}");
+    }
+
+    #[tokio::test]
+    async fn a_missing_claude_code_says_what_to_install() {
+        let backend = ClaudeBackend {
+            program: "/nonexistent/claude".into(),
+        };
+        let error = backend
+            .start(SessionSpec::default())
+            .expect_err("started without a program");
+        assert!(
+            matches!(&error, Error::ClaudeMissing(program) if program == "/nonexistent/claude")
+        );
+        let said = error.to_string();
+        assert!(
+            said.contains("claude.com/claude-code") && said.contains("sign in"),
+            "{said}"
+        );
     }
 }

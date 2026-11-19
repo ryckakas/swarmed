@@ -10,9 +10,9 @@ use std::sync::Arc;
 use serde::Serialize;
 use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
-    AgentInfo, AgentSetup, ApiKeyInfo, BranchChoices, Core, FileChange, FileDiff, NewTaskOptions,
-    Project, ProjectOverview, QueuedMessage, RemoveOptions, Session, SessionOptions,
-    SessionSettings, Settings, Task, TaskNaming, Usage,
+    AgentInfo, AgentSetup, ApiKeyInfo, BranchChoices, Core, FileChange, FileDiff, McpServerInput,
+    McpServerView, NewTaskOptions, Project, ProjectOverview, QueuedMessage, RemoveOptions, Session,
+    SessionOptions, SessionSettings, Settings, Task, TaskNaming, Usage,
 };
 use tauri::{AppHandle, Emitter, Runtime, State};
 
@@ -68,6 +68,24 @@ pub(crate) fn agents(core: CoreState<'_>) -> Vec<AgentInfo> {
 #[tauri::command]
 pub(crate) fn overview(core: CoreState<'_>) -> Command<Vec<ProjectOverview>> {
     Ok(core.overview()?)
+}
+
+/// Every MCP server Swarmed knows of, with secrets by name only.
+#[tauri::command]
+pub(crate) fn mcp_servers(core: CoreState<'_>) -> Command<Vec<McpServerView>> {
+    Ok(core.mcp_servers()?)
+}
+
+/// Adds a server set up in Swarmed, or replaces the one of that name.
+#[tauri::command]
+pub(crate) fn mcp_save(core: CoreState<'_>, server: McpServerInput) -> Command<Vec<McpServerView>> {
+    Ok(core.mcp_save(&server)?)
+}
+
+/// Removes a server set up in Swarmed, with its secrets.
+#[tauri::command]
+pub(crate) fn mcp_remove(core: CoreState<'_>, name: String) -> Command<Vec<McpServerView>> {
+    Ok(core.mcp_remove(&name)?)
 }
 
 /// What Swarmed takes up on disk and is using right now. Async: it measures folders.

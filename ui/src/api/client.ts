@@ -7,6 +7,8 @@ import type {
     FileChange,
     FileDiff,
     HookOutput,
+    McpServerInput,
+    McpServerView,
     Project,
     QueuedMessage,
     Session,
@@ -28,6 +30,12 @@ export interface Api {
     overview(): Promise<Project[]>;
     /** The agents a session can run on, Claude Code first. */
     agents(): Promise<AgentInfo[]>;
+    /** Every MCP server Swarmed knows of: those set up here, then Claude Code's own. */
+    mcpServers(): Promise<McpServerView[]>;
+    /** Adds a server set up here, or replaces the one of that name. Returns the new list. */
+    mcpSave(server: McpServerInput): Promise<McpServerView[]>;
+    /** Removes a server set up here, with its secrets. Returns the new list. */
+    mcpRemove(name: string): Promise<McpServerView[]>;
     /** What Swarmed takes up and uses. Measuring the worktrees can take a few seconds. */
     usage(): Promise<Usage>;
     /** The agents that can be set up from the settings, and how far along each is. */
