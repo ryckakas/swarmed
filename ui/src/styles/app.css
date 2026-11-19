@@ -419,6 +419,8 @@ code {
 }
 
 .items {
+    /* An ordered list for what it means, without the numbers. */
+    list-style: none;
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
