@@ -247,9 +247,8 @@ async fn read_events(
     let mut lines = BufReader::new(stdout).lines();
     while let Ok(Some(line)) = lines.next_line().await {
         let parsed = serde_json::from_str::<Value>(&line).ok();
-        // A finished turn is the moment to ask how full the context window has become.
-        if parsed.as_ref().and_then(|m| kind_of(m, "type")) == Some("result") {
-            asks.send(context_request()).ok();
+        for question in parsed.as_ref().map_or_else(Vec::new, questions_after) {
+            asks.send(question).ok();
         }
         let new_events = parsed.map_or_else(Vec::new, |message| parse_message(&message, &pending));
         if new_events
@@ -290,6 +289,44 @@ async fn write_commands(
             break;
         }
     }
+}
+
+/// What to ask the CLI once it has sent `message`. When it starts, which model and effort it
+/// really runs with, since a default says neither. After a turn, that again, as either can have
+/// changed, and how full the context window has become.
+fn questions_after(message: &Value) -> Vec<Value> {
+    match (kind_of(message, "type"), kind_of(message, "subtype")) {
+        (Some("system"), Some("init")) => vec![settings_request()],
+        (Some("result"), _) => vec![context_request(), settings_request()],
+        _ => vec![],
+    }
+}
+
+/// The id of the request that asks which settings the CLI runs with.
+const SETTINGS_REQUEST: &str = "swarmed-settings";
+
+fn settings_request() -> Value {
+    json!({
+        "type": "control_request",
+        "request_id": SETTINGS_REQUEST,
+        "request": { "subtype": "get_settings" },
+    })
+}
+
+/// The answer to [`settings_request`], if `message` is one.
+///
+/// Only the model and the effort are read. The rest of the answer is the user's whole Claude
+/// Code configuration, environment included: it is not kept, passed on or logged.
+fn parse_applied(message: &Value) -> Option<AgentEvent> {
+    let response = message.get("response")?;
+    if kind_of(response, "request_id") != Some(SETTINGS_REQUEST) {
+        return None;
+    }
+    let applied = response.pointer("/response/applied")?;
+    Some(AgentEvent::Applied {
+        model: kind_of(applied, "model")?.to_string(),
+        effort: kind_of(applied, "effort").map(String::from),
+    })
 }
 
 /// The id of the request that asks how full the context window is.
@@ -410,8 +447,11 @@ fn parse_message(message: &Value, pending: &Pending) -> Vec<AgentEvent> {
             result: kind_of(message, "result").map(String::from),
             cost_usd: message.get("total_cost_usd").and_then(Value::as_f64),
         }],
-        // Of the replies to our own control requests, only the context window's is of use.
-        "control_response" => parse_context(message).into_iter().collect(),
+        // Of the replies to our own control requests, these two are of use.
+        "control_response" => parse_context(message)
+            .or_else(|| parse_applied(message))
+            .into_iter()
+            .collect(),
         "system" => vec![],
         _ => vec![AgentEvent::Other {
             raw: message.clone(),
@@ -714,6 +754,37 @@ mod tests {
         assert_eq!(delta(arguments, Value::Null), vec![]);
         let start = json!({ "type": "stream_event", "event": { "type": "message_start" } });
         assert_eq!(parse(&start), vec![]);
+    }
+
+    #[test]
+    fn the_model_and_effort_in_use_are_read_from_the_settings_answer_and_nothing_else() {
+        let answer = |request_id: &str| {
+            json!({ "type": "control_response", "response": {
+                "subtype": "success", "request_id": request_id,
+                "response": {
+                    "effective": { "env": { "SOME_TOKEN": "secret" }, "effortLevel": "xhigh" },
+                    "applied": { "model": "claude-opus-5-5", "effort": "xhigh", "advisor": null },
+                },
+            }})
+        };
+        let applied = AgentEvent::Applied {
+            model: "claude-opus-5-5".into(),
+            effort: Some("xhigh".into()),
+        };
+        let events = parse(&answer(SETTINGS_REQUEST));
+        assert_eq!(events, vec![applied]);
+        assert!(!format!("{events:?}").contains("secret"));
+        // Somebody else's answer, and one without the part we read, are nothing.
+        assert_eq!(parse(&answer("other")), vec![]);
+        let bare = json!({ "type": "control_response", "response": {
+            "subtype": "success", "request_id": SETTINGS_REQUEST, "response": {},
+        }});
+        assert_eq!(parse(&bare), vec![]);
+
+        let asked = |message: Value| questions_after(&message).len();
+        assert_eq!(asked(json!({ "type": "system", "subtype": "init" })), 1);
+        assert_eq!(asked(json!({ "type": "result" })), 2);
+        assert_eq!(asked(json!({ "type": "assistant" })), 0);
     }
 
     #[test]

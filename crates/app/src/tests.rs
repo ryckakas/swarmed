@@ -106,11 +106,16 @@ impl App {
 
     /// Waits for the session to report an event of this type and returns it.
     fn wait_for_event(&self, id: &Value, kind: &str) -> Value {
-        wait_for_event(self, id, kind)
+        wait_for(self, id, kind, |e| e["type"] == kind)
+    }
+
+    /// Waits for the session's agent to say exactly `text` and returns that event.
+    fn wait_for_text(&self, id: &Value, text: &str) -> Value {
+        wait_for(self, id, text, |e| e["type"] == "text" && e["text"] == text)
     }
 }
 
-fn wait_for_event(app: &App, id: &Value, kind: &str) -> Value {
+fn wait_for(app: &App, id: &Value, what: &str, wanted: impl Fn(&Value) -> bool) -> Value {
     for _ in 0..200 {
         let events = app.ok("session_events", json!({ "id": id }));
         let found = events
@@ -118,13 +123,13 @@ fn wait_for_event(app: &App, id: &Value, kind: &str) -> Value {
             .into_iter()
             .flatten()
             .rev()
-            .find(|e| e["type"] == kind);
+            .find(|e| wanted(e));
         if let Some(event) = found {
             return event.clone();
         }
         std::thread::sleep(Duration::from_millis(10));
     }
-    panic!("session {id} never reported `{kind}`");
+    panic!("session {id} never reported `{what}`");
 }
 
 #[test]
@@ -304,6 +309,55 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
 }
 
 #[test]
+fn the_ui_can_remove_a_repository_with_its_tasks() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+    app.ok("project_remove", json!({ "name": "demo", "force": true }));
+    assert_eq!(app.ok("overview", json!({})), json!([]));
+    assert_eq!(
+        app.invoke("project_remove", json!({ "name": "demo", "force": false })),
+        Err(json!("project `demo` not found"))
+    );
+}
+
+#[test]
+fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+    let session = app.ok(
+        "session_new",
+        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "ask", "effort": null }),
+    );
+    let id = &session["id"];
+    app.ok("session_send", json!({ "id": id, "text": "run: ls" }));
+    let request = app.wait_for_event(id, "permission_request");
+
+    let queue = app.ok("session_enqueue", json!({ "id": id, "text": "then" }));
+    assert_eq!(queue[0]["text"], "then");
+    let edited = app.ok(
+        "session_queue_edit",
+        json!({ "id": id, "message": queue[0]["id"], "text": "next" }),
+    );
+    assert_eq!(edited[0]["text"], "next");
+    assert_eq!(app.ok("session_queue", json!({ "id": id })), edited);
+
+    app.ok(
+        "session_allow",
+        json!({ "id": id, "requestId": request["request_id"] }),
+    );
+    // When the turn ends the waiting message goes out by itself.
+    let sent = app.wait_for_text(id, "echo: next");
+    assert_eq!(sent["type"], "text");
+    assert_eq!(app.ok("session_queue", json!({ "id": id })), json!([]));
+    // With nothing waiting, sending the next one is not an error.
+    app.ok("session_send_queued", json!({ "id": id }));
+}
+
+#[test]
 fn the_ui_can_keep_a_note_on_a_project_and_on_a_task() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
@@ -398,6 +452,8 @@ fn an_agents_html_is_served_from_its_own_origin_under_its_own_policy() {
     assert_eq!(crate::view_response(&core, "/missing").status(), 404);
 }
 
+// `view_open` is the one command not called here: it would open a browser on whoever runs the
+// tests. What it writes is tested in the core.
 #[test]
 fn the_ui_can_hand_over_html_for_a_frame() {
     let app = app();

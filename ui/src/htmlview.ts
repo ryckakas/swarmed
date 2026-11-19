@@ -16,6 +16,67 @@ export function needsNetwork(html: string): boolean {
     );
 }
 
+/** Whether `name` is Swarmed's own tool for showing HTML, however the agent prefixes it. */
+export function isShowHtmlTool(name: string): boolean {
+    return /(?:^|_)show_html$/.test(name);
+}
+
+/** The HTML a call of that tool asks to show; empty if it gave none. */
+export function htmlOf(input: unknown): string {
+    const html =
+        typeof input === "object" && input !== null ? (input as { html?: unknown }).html : "";
+    return typeof html === "string" ? html : "";
+}
+
+const FENCE = /^ {0,3}(`{3,}|~{3,})\s*([^\s`]*)/;
+
+interface OpenFence {
+    /** Where its line starts in the text. */
+    at: number;
+    marker: string;
+    language: string;
+}
+
+/** Whether `line` closes a fence opened with `marker`: the same character, at least as many. */
+function closes(line: string, marker: string): boolean {
+    const trimmed = line.trim();
+    return trimmed.startsWith(marker) && trimmed.replaceAll(marker.charAt(0), "") === "";
+}
+
+/** The code fence that is still open where `text` ends, if one is. */
+function openFence(text: string): OpenFence | null {
+    let open: OpenFence | null = null;
+    let at = 0;
+    for (const line of text.split("\n")) {
+        const fence = FENCE.exec(line);
+        if (open === null && fence) {
+            open = { at, marker: fence[1] ?? "", language: fence[2] ?? "" };
+        } else if (open !== null && closes(line, open.marker)) {
+            open = null;
+        }
+        at += line.length + 1;
+    }
+    return open;
+}
+
+/** Whether a fence names the view language, or the start of its name while that is being written. */
+function namesView(language: string): boolean {
+    return language.length > "html".length && VIEW_LANGUAGE.startsWith(language);
+}
+
+/**
+ * A reply that is still being written, cut where a view starts that is not finished yet:
+ * `shown` is everything before it and `pending` says a view is on its way. The half-written
+ * HTML is held back, so the reader sees a view appear whole instead of its source scrolling by.
+ */
+export function splitPendingView(text: string): { shown: string; pending: boolean } {
+    const open = openFence(text);
+    if (open === null || !namesView(open.language)) {
+        return { shown: text, pending: false };
+    }
+    return { shown: text.slice(0, open.at), pending: true };
+}
+
 /** The message a view sends its host when its height changes. */
 export interface HeightMessage {
     swarmedViewHeight: number;

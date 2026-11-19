@@ -42,6 +42,54 @@ async fn project_add_rejects_a_directory_that_is_not_a_repo() {
 }
 
 #[tokio::test]
+async fn a_task_in_a_repository_without_commits_gets_an_empty_first_commit() {
+    let fx = fixture();
+    let core = Core::open(fx.paths.clone()).expect("test setup");
+    let fresh = fx.repo.parent().expect("test setup").join("fresh");
+    std::fs::create_dir(&fresh).expect("test setup");
+    git(&fresh, &["init", "--quiet", "-b", "main"]);
+    git(&fresh, &["config", "user.name", "Test"]);
+    git(&fresh, &["config", "user.email", "test@example.com"]);
+    // Work that is there already, staged and not, must come through untouched.
+    std::fs::write(fresh.join("staged.txt"), "staged\n").expect("test setup");
+    std::fs::write(fresh.join("loose.txt"), "loose\n").expect("test setup");
+    git(&fresh, &["add", "staged.txt"]);
+    core.project_add(&fresh, None).await.expect("adds");
+    let choices = core.branch_choices("fresh").await.expect("reads");
+    assert_eq!(choices.base, "main");
+
+    let task = core
+        .task_new("fresh", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates the task");
+    assert_eq!(task.base_ref, "main");
+    assert!(task.worktree_path.join(".git").exists());
+
+    let output = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&fresh)
+            .args(args)
+            .output()
+            .expect("git runs");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    // One commit, with nothing in it; the staged file is still only staged.
+    assert_eq!(output(&["rev-list", "--count", "main"]), "1");
+    assert_eq!(output(&["ls-tree", "--name-only", "main"]), "");
+    assert_eq!(
+        output(&["status", "--porcelain"]),
+        "A  staged.txt\n?? loose.txt".trim()
+    );
+
+    // A second task starts from the same commit instead of making another.
+    core.task_new("fresh", "two", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates the task");
+    assert_eq!(output(&["rev-list", "--count", "--all"]), "1");
+}
+
+#[tokio::test]
 async fn task_new_creates_branch_worktree_and_runs_setup_with_variables() {
     let fx = fixture();
     write_config(
@@ -547,4 +595,50 @@ async fn a_removed_task_takes_its_note_along() {
         .await
         .expect("test setup");
     assert_eq!(core.note("demo", Some("one")).expect("reads"), "");
+}
+
+#[tokio::test]
+async fn a_removed_project_leaves_swarmed_and_its_repository_stays() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    let task = core
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    core.set_note("demo", None, "for the repository")
+        .expect("writes");
+    core.set_note("demo", Some("one"), "for the task")
+        .expect("writes");
+
+    // Unsaved work in a task stops it, and nothing about the project is gone.
+    std::fs::write(task.worktree_path.join("new.txt"), "x").expect("test setup");
+    let refused = core.project_remove("demo", false, &hooks::discard).await;
+    assert!(matches!(refused, Err(Error::TaskNotClean { .. })));
+    assert_eq!(core.projects().expect("reads").len(), 1);
+    assert_eq!(
+        core.note("demo", None).expect("reads"),
+        "for the repository"
+    );
+
+    core.project_remove("demo", true, &hooks::discard)
+        .await
+        .expect("removes");
+    assert_eq!(core.projects().expect("reads"), vec![]);
+    assert_eq!(core.overview().expect("reads"), vec![]);
+    assert!(!task.worktree_path.exists());
+    assert!(!fx.paths.notes("demo").exists());
+    // The repository is as it was, the task's branch included.
+    assert!(fx.repo.join("README.md").exists());
+    git(
+        &fx.repo,
+        &["rev-parse", "--verify", "--quiet", &task.branch],
+    );
+    assert!(matches!(
+        core.project_remove("demo", false, &hooks::discard).await,
+        Err(Error::ProjectNotFound(_))
+    ));
+
+    // It can be added again, and starts empty.
+    core.project_add(&fx.repo, None).await.expect("adds again");
+    assert_eq!(core.tasks("demo", true).expect("reads"), vec![]);
 }

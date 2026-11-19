@@ -7,6 +7,7 @@ import type {
     FileDiff,
     HookOutput,
     Project,
+    QueuedMessage,
     Session,
     SessionEvent,
     SessionSettings,
@@ -28,6 +29,14 @@ export interface Api {
     pickFolder(): Promise<string | null>;
     /** Registers the git repository containing `path`. */
     projectAdd(path: string): Promise<Project>;
+    /**
+     * Takes a repository out of Swarmed: its tasks' worktrees, its sessions and the notes on it
+     * are deleted, the repository itself is not touched. Without `force` it refuses if a task
+     * holds unsaved work.
+     */
+    projectRemove(name: string, force: boolean): Promise<void>;
+    /** Removes a task's worktree and takes the task out of the tree. Its branch is kept. */
+    taskRemove(project: string, name: string, force: boolean): Promise<void>;
     /** What a new task in the project can start from. */
     branchChoices(project: string): Promise<BranchChoices>;
     /**
@@ -62,6 +71,14 @@ export interface Api {
     sessionEvents(id: number): Promise<AgentEvent[]>;
     /** Starts a turn, starting the session's agent first if it is not running. */
     sessionSend(id: number, text: string): Promise<void>;
+    /** The messages waiting for the session's agent to finish, first to be sent first. */
+    sessionQueue(id: number): Promise<QueuedMessage[]>;
+    /** Adds a message to the queue: it is sent by itself when the agent's turn ends well. */
+    sessionEnqueue(id: number, text: string): Promise<QueuedMessage[]>;
+    /** Rewrites a waiting message; empty text takes it out of the queue. */
+    sessionQueueEdit(id: number, message: number, text: string): Promise<QueuedMessage[]>;
+    /** Sends the first waiting message now, for a queue a stopped turn left standing. */
+    sessionSendQueued(id: number): Promise<void>;
     sessionAllow(id: number, requestId: string): Promise<void>;
     sessionDeny(id: number, requestId: string, reason: string): Promise<void>;
     /** Stops the current turn; the session stays usable. */
@@ -81,6 +98,8 @@ export interface Api {
      * loads it from: an origin of its own, with no access to the app.
      */
     viewUrl(document: string): Promise<string>;
+    /** Opens such a document in the user's browser, under the same restrictions as the frame. */
+    viewOpen(document: string): Promise<void>;
     /**
      * Opens the session's terminal, starting a shell in the task's worktree if none runs, and
      * returns what it has printed so far, to redraw it.

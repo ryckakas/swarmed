@@ -489,6 +489,11 @@ code {
     line-height: 1;
 }
 
+/* Followed by the row's remove button, which brings the gap to the edge. */
+.row-head .row-add {
+    margin-right: 0;
+}
+
 .row-add:hover,
 .row-add:focus-visible {
     background: var(--raised);
@@ -616,11 +621,14 @@ code {
     font: inherit;
     font-size: var(--text-md);
     line-height: 1;
-    opacity: 0;
+    /* Always there to be found, and out of the way until its row is pointed at. */
+    opacity: 0.4;
 }
 
 .session-line:hover .row-close,
-.session-line:focus-within .row-close {
+.session-line:focus-within .row-close,
+.row-head:hover .row-close,
+.row-close:focus-visible {
     opacity: 1;
 }
 
@@ -1380,6 +1388,86 @@ code {
     padding: var(--space-2) var(--space-8) var(--space-4);
 }
 
+/* Messages waiting for the agent to finish, above the box they were written in. */
+.queue {
+    margin-bottom: var(--space-2);
+    border: 1px dashed var(--line);
+    border-radius: 12px;
+    background: var(--panel);
+}
+
+.queue-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-1) var(--space-2) 0 var(--space-3);
+    color: var(--faint);
+    font-size: var(--text-xs);
+}
+
+.queue-list {
+    margin: 0;
+    padding: var(--space-1);
+    list-style: none;
+}
+
+.queue-row {
+    display: flex;
+    align-items: flex-start;
+}
+
+.queue-text {
+    flex: 1;
+    min-width: 0;
+    padding: var(--space-1) var(--space-2);
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    cursor: text;
+}
+
+.queue-text:hover,
+.queue-text:focus-visible {
+    background: var(--raised);
+}
+
+.queue-remove {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    margin-top: 2px;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--faint);
+    font: inherit;
+    font-size: var(--text-md);
+    line-height: 1;
+}
+
+.queue-remove:hover,
+.queue-remove:focus-visible {
+    background: var(--line);
+    color: var(--text);
+}
+
+.queue-edit {
+    display: block;
+    width: 100%;
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--focus);
+    border-radius: 8px;
+    background: var(--dusk);
+    color: var(--text);
+    font: inherit;
+    resize: vertical;
+}
+
 .composer-box {
     position: relative;
     display: flex;
@@ -1477,9 +1565,46 @@ code {
     align-items: center;
     justify-content: space-between;
     padding: 2px var(--space-2) 2px var(--space-3);
-    border-bottom: 1px solid var(--line);
     color: var(--faint);
     font-size: var(--text-xs);
+}
+
+.html-view-head + * {
+    border-top: 1px solid var(--line);
+}
+
+/* The view's name is also what folds it away. */
+.html-view-fold {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-right: auto;
+    padding: 2px 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+}
+
+.html-view-fold:hover {
+    color: var(--text);
+}
+
+.html-view-fold[aria-expanded="true"] .fold-chevron {
+    transform: rotate(90deg);
+}
+
+.html-view-wait {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-4) var(--space-3);
+    color: var(--muted);
+    font-size: var(--text-sm);
+}
+
+.html-view-frame[hidden] {
+    display: none;
 }
 
 .html-view-frame {
@@ -2144,6 +2269,13 @@ kbd {
 .button-primary:not(:disabled) {
     border-color: var(--text);
     background: var(--text);
+    color: var(--dusk);
+}
+
+/* An action that deletes something. */
+.button-danger:not(:disabled) {
+    border-color: var(--clay);
+    background: var(--clay);
     color: var(--dusk);
 }
 

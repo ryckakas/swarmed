@@ -11,7 +11,8 @@ use serde::Serialize;
 use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
     AgentInfo, ApiKeyInfo, BranchChoices, Core, FileChange, FileDiff, NewTaskOptions, Project,
-    ProjectOverview, RemoveOptions, Session, SessionOptions, SessionSettings, Settings, Task,
+    ProjectOverview, QueuedMessage, RemoveOptions, Session, SessionOptions, SessionSettings,
+    Settings, Task,
 };
 use tauri::{AppHandle, Emitter, Runtime, State};
 
@@ -76,6 +77,17 @@ pub(crate) async fn project_add(
     name: Option<String>,
 ) -> Command<Project> {
     Ok(core.project_add(&path, name.as_deref()).await?)
+}
+
+#[tauri::command]
+pub(crate) async fn project_remove<R: Runtime>(
+    app: AppHandle<R>,
+    core: CoreState<'_>,
+    name: String,
+    force: bool,
+) -> Command<()> {
+    let sink = hook_sink(&app, &name, "");
+    Ok(core.project_remove(&name, force, &sink).await?)
 }
 
 #[tauri::command]
@@ -219,6 +231,37 @@ pub(crate) async fn session_send(core: CoreState<'_>, id: i64, text: String) -> 
 }
 
 #[tauri::command]
+pub(crate) fn session_queue(core: CoreState<'_>, id: i64) -> Command<Vec<QueuedMessage>> {
+    Ok(core.session_queue(id)?)
+}
+
+#[tauri::command]
+pub(crate) fn session_enqueue(
+    core: CoreState<'_>,
+    id: i64,
+    text: String,
+) -> Command<Vec<QueuedMessage>> {
+    Ok(core.session_enqueue(id, &text)?)
+}
+
+#[tauri::command]
+pub(crate) fn session_queue_edit(
+    core: CoreState<'_>,
+    id: i64,
+    message: u64,
+    text: String,
+) -> Command<Vec<QueuedMessage>> {
+    Ok(core.session_queue_edit(id, message, &text)?)
+}
+
+/// Async for the same reason as `session_send`, which it is a form of.
+#[tauri::command]
+pub(crate) async fn session_send_queued(core: CoreState<'_>, id: i64) -> Command<()> {
+    core.session_start(id, Auth::Subscription)?;
+    Ok(core.session_send_queued(id)?)
+}
+
+#[tauri::command]
 pub(crate) fn session_allow(core: CoreState<'_>, id: i64, request_id: String) -> Command<()> {
     Ok(core.session_allow(id, &request_id)?)
 }
@@ -268,6 +311,12 @@ pub(crate) fn session_configure(
 #[tauri::command]
 pub(crate) fn view_put(core: CoreState<'_>, document: String) -> String {
     core.view_put(document)
+}
+
+/// Opens an HTML document an agent wrote in the user's browser.
+#[tauri::command]
+pub(crate) fn view_open(core: CoreState<'_>, document: String) -> Command<()> {
+    Ok(core.view_open(&document)?)
 }
 
 /// Async so that it runs on the runtime the core spawns the terminal's tasks on.

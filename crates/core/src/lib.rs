@@ -15,6 +15,7 @@ mod notes;
 mod open;
 mod overview;
 mod paths;
+mod queue;
 pub mod secrets;
 mod sessions;
 mod settings;
@@ -22,10 +23,11 @@ mod statusline;
 mod store;
 mod tasks;
 mod terminal;
+mod toolserver;
 mod vars;
 mod views;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use agent::{AgentBackend, ClaudeNamer, Namer};
@@ -38,6 +40,7 @@ pub use error::{Error, Result};
 pub use hooks::OutputSink;
 pub use overview::{ProjectOverview, TaskOverview};
 pub use paths::Paths;
+pub use queue::QueuedMessage;
 pub use secrets::ApiKeyInfo;
 use secrets::{MemorySecrets, SecretStore};
 use sessions::Live;
@@ -51,6 +54,8 @@ pub use store::{Project, SetupStatus, Task};
 pub use tasks::{BranchChoices, NewTaskOptions, RemoveOptions};
 pub use terminal::TerminalOutput;
 use terminal::Terminals;
+pub use toolserver::{SERVER_NAME, SHOW_HTML, TOOL_SERVER_ARG, serve_tools};
+pub use views::VIEW_POLICY;
 use views::ViewStore;
 
 /// The entry point: one value per data directory, shared by everything a front end does.
@@ -68,6 +73,8 @@ pub struct Core {
     terminals: Arc<Terminals>,
     /// HTML the agents wrote, waiting to be shown.
     views: ViewStore,
+    /// The executable that serves Swarmed's own tools to agents, if a front end named one.
+    tool_server: Option<PathBuf>,
 }
 
 /// The store is only ever locked for one short query, never across an `.await`. A panic while
@@ -104,7 +111,15 @@ impl Core {
             secrets: Box::new(MemorySecrets::default()),
             terminals: Arc::default(),
             views: ViewStore::default(),
+            tool_server: None,
         })
+    }
+
+    /// Gives every agent Swarmed's own tools, served by `executable` when it is started with
+    /// [`TOOL_SERVER_ARG`]. A front end passes its own executable, which answers to that
+    /// argument by calling [`serve_tools`].
+    pub fn set_tool_server(&mut self, executable: PathBuf) {
+        self.tool_server = Some(executable);
     }
 
     /// Lets `namer` give new sessions their titles, where the user's settings allow it.

@@ -66,7 +66,10 @@ describe("statusParts", () => {
             skills: 0,
             slash_commands: [],
         };
-        expect(statusParts(["model"], source({ events: [init] }))[0]?.text).toBe("claude-opus-5-5");
+        expect(statusParts(["model"], source({ events: [init] }))[0]?.runs[0]).toEqual([
+            "claude-opus-5-5",
+            "plain",
+        ]);
     });
 
     it("shows a chosen effort in the model's badge, after a bar", () => {
@@ -80,9 +83,12 @@ describe("statusParts", () => {
             [" | ", "quiet"],
             ["high", "plain"],
         ]);
-        // The agent's default effort is not named.
+        // Without a choice it is what the agent reports its default comes to.
         const unset = { ...base, session: { ...base.session, model: "opus", effort: null } };
         expect(statusParts(["model"], unset)[0]?.text).toBe("opus");
+        const reported: AgentEvent = { type: "applied", model: "claude-opus-5-5", effort: "xhigh" };
+        const told = { ...unset, events: [reported] };
+        expect(statusParts(["model"], told)[0]?.text).toBe("claude-opus-5-5 | xhigh");
     });
 });
 

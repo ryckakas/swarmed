@@ -34,18 +34,29 @@ export interface StatusPart {
     runs: [text: string, tone: StatusTone][];
 }
 
+/** What the agent last said it actually runs with, if it has said. */
+function applied(events: AgentEvent[]) {
+    const latest = events.findLast((event) => event.type === "applied");
+    return latest?.type === "applied" ? latest : null;
+}
+
 /** The model the agent last said it runs on, else the one the session was set to. */
 function model({ session, events }: StatusSource): string | null {
     const init = events.findLast((event) => event.type === "init");
-    return (init?.type === "init" ? init.model : null) || session.model;
+    const reported = applied(events)?.model ?? (init?.type === "init" ? init.model : null);
+    return reported || session.model;
 }
 
-/** The model, then the effort it was asked for, if one was chosen: `opus | high`. */
+/**
+ * The model, then the effort it thinks with: `opus | high`. The effort is the one chosen for
+ * the session, else the one the agent reports its default comes to. An agent that says nothing
+ * of effort shows its model alone.
+ */
 function modelRuns(source: StatusSource): StatusPart["runs"] | null {
     const name = model(source);
-    const { effort } = source.session;
+    const effort = source.session.effort ?? applied(source.events)?.effort;
     if (!(name && effort)) {
-        return plain(name || effort);
+        return plain(name);
     }
     return [
         [name, "plain"],

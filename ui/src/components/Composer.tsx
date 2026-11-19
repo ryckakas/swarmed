@@ -3,6 +3,7 @@ import { api } from "../api";
 import type { Effort, Session, Supervision } from "../api/types";
 import { useStore } from "../store";
 import { ComposerBox } from "./ComposerBox";
+import { MessageQueue } from "./MessageQueue";
 import {
     CLAUDE,
     EFFORT_CHOICES,
@@ -21,8 +22,8 @@ const TerminalBox = lazy(async () => {
 
 const PLACEHOLDER: Record<Session["status"], string> = {
     idle: "Reply to the agent",
-    working: "The agent is working. Press Esc to stop it.",
-    waiting: "Answer the request above first",
+    working: "Write the next message: it waits until the agent is done. Esc stops the agent.",
+    waiting: "Answer the request above. A message written here waits until the agent is done.",
     errored: "Send a message to start the agent again",
 };
 
@@ -36,7 +37,7 @@ export function Composer({ session }: { session: Session }) {
     const { id, status } = session;
     const busy = status === "working" || status === "waiting";
     const commands = useSlashCommands(id, status);
-    const canSend = !busy && text.trim() !== "";
+    const canSend = text.trim() !== "";
 
     // Answering a permission request removes the button that had focus. Bring it back here, so
     // the keyboard is never left pointing at nothing.
@@ -48,10 +49,13 @@ export function Composer({ session }: { session: Session }) {
     }, [status]);
 
     const send = () => {
-        if (canSend) {
-            setText("");
-            api.sessionSend(id, text.trim()).catch(report);
+        if (!canSend) {
+            return;
         }
+        setText("");
+        // A busy agent is not interrupted: the message waits its turn, and can still be changed.
+        const sent = busy ? api.sessionEnqueue(id, text.trim()) : api.sessionSend(id, text.trim());
+        sent.catch(report);
     };
     const stop = () => void api.sessionInterrupt(id).catch(report);
 
@@ -79,26 +83,29 @@ export function Composer({ session }: { session: Session }) {
                     </div>
                 </div>
             ) : (
-                <ComposerBox
-                    value={text}
-                    onChange={setText}
-                    onSend={send}
-                    onStop={status === "working" ? stop : undefined}
-                    canSend={canSend}
-                    placeholder={PLACEHOLDER[status]}
-                    inputRef={input}
-                    commands={commands}
-                >
-                    <SessionPickers session={session} />
-                    <button
-                        type="button"
-                        className="picker picker-plain"
-                        title="A shell in the task's worktree (Ctrl+`)"
-                        onClick={toggleTerminal}
+                <>
+                    <MessageQueue sessionId={id} busy={busy} />
+                    <ComposerBox
+                        value={text}
+                        onChange={setText}
+                        onSend={send}
+                        onStop={status === "working" ? stop : undefined}
+                        canSend={canSend}
+                        placeholder={PLACEHOLDER[status]}
+                        inputRef={input}
+                        commands={commands}
                     >
-                        Terminal
-                    </button>
-                </ComposerBox>
+                        <SessionPickers session={session} />
+                        <button
+                            type="button"
+                            className="picker picker-plain"
+                            title="A shell in the task's worktree (Ctrl+`)"
+                            onClick={toggleTerminal}
+                        >
+                            Terminal
+                        </button>
+                    </ComposerBox>
+                </>
             )}
         </div>
     );

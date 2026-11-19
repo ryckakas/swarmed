@@ -1,5 +1,8 @@
 import { memo } from "react";
+import { htmlOf, isShowHtmlTool } from "../htmlview";
+import { useStore } from "../store";
 import { PLAN_TOOL, planOf, summarize, type ToolResult } from "../transcript";
+import { HtmlView } from "./HtmlView";
 import { Markdown } from "./Markdown";
 
 interface Props {
@@ -10,8 +13,12 @@ interface Props {
 
 /** One tool call on one line; opening it shows the arguments and the result. */
 export const ToolCall = memo(function ToolCall({ name, input, result }: Props) {
+    const views = useStore((state) => state.settings?.html_views ?? false);
     if (name === PLAN_TOOL) {
         return <Plan text={planOf(input)} />;
+    }
+    if (views && isShowHtmlTool(name) && htmlOf(input) !== "") {
+        return <HtmlView html={htmlOf(input)} />;
     }
     const state = result === null ? "running" : result.isError ? "failed" : "done";
     return (

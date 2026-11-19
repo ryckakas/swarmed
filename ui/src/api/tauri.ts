@@ -11,6 +11,7 @@ import type {
     FileDiff,
     HookOutput,
     Project,
+    QueuedMessage,
     Session,
     SessionEvent,
     Settings,
@@ -24,6 +25,9 @@ export const tauriApi: Api = {
     agents: () => invoke<AgentInfo[]>("agents"),
     pickFolder: () => open({ directory: true, multiple: false, title: "Add a repository" }),
     projectAdd: (path) => invoke<Project>("project_add", { path, name: null }),
+    projectRemove: (name, force) => invoke("project_remove", { name, force }),
+    taskRemove: (project, name, force) =>
+        invoke("task_remove", { project, name, force, deleteBranch: false }),
     branchChoices: (project) => invoke<BranchChoices>("branch_choices", { project }),
     taskNew: (project, name, branch) => invoke<Task>("task_new", { project, name, branch }),
     taskChanges: (project, name) => invoke<FileChange[]>("task_changes", { project, name }),
@@ -43,6 +47,11 @@ export const tauriApi: Api = {
         invoke<Session>("session_new", { project, task, ...setup }),
     sessionEvents: (id) => invoke<AgentEvent[]>("session_events", { id }),
     sessionSend: (id, text) => invoke("session_send", { id, text }),
+    sessionQueue: (id) => invoke<QueuedMessage[]>("session_queue", { id }),
+    sessionEnqueue: (id, text) => invoke<QueuedMessage[]>("session_enqueue", { id, text }),
+    sessionQueueEdit: (id, message, text) =>
+        invoke<QueuedMessage[]>("session_queue_edit", { id, message, text }),
+    sessionSendQueued: (id) => invoke("session_send_queued", { id }),
     sessionAllow: (id, requestId) => invoke("session_allow", { id, requestId }),
     sessionDeny: (id, requestId, reason) => invoke("session_deny", { id, requestId, reason }),
     sessionInterrupt: (id) => invoke("session_interrupt", { id }),
@@ -52,6 +61,7 @@ export const tauriApi: Api = {
         const id = await invoke<string>("view_put", { document });
         return `swarmed-view://localhost/${id}`;
     },
+    viewOpen: (document) => invoke("view_open", { document }),
     terminalOpen: (id, cols, rows) => invoke<string>("terminal_open", { id, cols, rows }),
     terminalWrite: (id, data) => invoke("terminal_write", { id, data }),
     terminalResize: (id, cols, rows) => invoke("terminal_resize", { id, cols, rows }),

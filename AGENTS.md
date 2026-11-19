@@ -55,7 +55,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **Everything lands in `core` first** and is driven from the CLI before any UI touches it. The
   core exposes typed operations and knows nothing about its front ends.
 - **Nothing is written into a user's repository.** Config and state live in the data directory
-  (`Paths`); worktrees live under `~/swarmed/<project>/<task>`.
+  (`Paths`); worktrees live under `~/swarmed/<project>/<task>`. The one exception: a repository
+  with no commits is given an empty first commit when its first task is created, because a
+  branch needs a commit to start from. Its files and index are not touched.
 - **Agents sit behind `AgentBackend`** (`agent/`), and a session records which agent runs it.
   `agents.rs` holds the registry: Claude Code, plus the ACP agents listed in the user's
   `agents.toml`. `AcpBackend` (`agent/acp.rs`) speaks the Agent Client Protocol to any of them;
@@ -108,6 +110,13 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   The instructions are deliberately firm that this is the way to show something and needs no
   tool: without that, agents build a file and drive a browser instead. An ordinary `html` block
   stays code, with a button to show it as a view.
+- **Swarmed serves one tool of its own to every agent** (`toolserver.rs`): `show_html`, on an
+  MCP server named `swarmed`. A front end's executable is that server when started with
+  `tool-server`, and tells the core so with `set_tool_server`. The tool does nothing: its call
+  is in the conversation, where the UI shows the HTML like an `html-view` block. It is there
+  because agents asked for something visual look for a tool.
+- A view still being written is held back and stood in for (`splitPendingView`), so it appears
+  whole instead of as streaming source.
 - **The message box handles a few keys itself** (`ui/src/editing.ts`): Home and End move within
   the line, and ⌘⌫ at the very start empties the box.
 - **The status line** under the message box is drawn by the UI from built-in pieces
@@ -125,12 +134,23 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   the plan: the core then puts the session back to how new sessions are supervised and tells the
   agent, which by itself would fall back to asking about everything. Every change of
   supervision is an event, `SupervisionChanged`. Other agents have no plan mode and ask instead.
+- **The model and effort actually in use** are asked of Claude Code (`get_settings`) when it
+  starts and after each turn, and recorded as `Applied`. Only those two values are read: the
+  rest of that answer is the user's whole configuration and is never kept or logged.
+- **Messages can wait in a queue** (`queue.rs`) while a session's agent is busy. The core sends
+  the first one when a turn ends well, as if it had just been typed; a turn that was stopped
+  or failed leaves the queue standing. The queue lives in memory, and its changes are published
+  as `Queue` events that are never stored, like the pieces of a reply.
 - **Swarmed never handles Claude.ai credentials.** It only shapes the child's environment (`Auth`).
 - **Session events are stored as JSON** (`AgentEvent`), so its variants and fields are only added,
   never renamed.
 - **A task's changes are read from git on demand** (`changes.rs`): everything that differs from
   the merge base with the task's base ref, uncommitted and untracked files included. The view is
   read-only. The UI reads again when one of the task's agents finishes a tool call or a turn.
+- **Removing a project** (`project_remove`) removes its tasks as `task_remove` does, keeping
+  their branches, then deletes what Swarmed holds about it: sessions, their history and the
+  notes. The repository is not touched. Removing a task stops its sessions first. In the UI
+  both ask first, and offer to go ahead regardless only after a refusal over unsaved work.
 - **Opening things elsewhere** (`open.rs`) starts the user's editor (`settings.toml`, VS Code by
   default) or the browser and never waits for them.
 - **Git is used by shelling out** to the `git` binary (`git.rs`), not through a library.

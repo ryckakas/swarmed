@@ -35,6 +35,10 @@ enum Command {
     Session(SessionCommand),
     /// List the agents sessions can run on.
     Agents,
+    /// Serve Swarmed's own tools to an agent over standard input and output. Agents start
+    /// this themselves.
+    #[command(name = swarmed_core::TOOL_SERVER_ARG, hide = true)]
+    ToolServer,
     /// Show the command that opens a folder in your editor, or set it.
     Editor {
         /// The new command, such as `code`, `zed` or `cursor`.
@@ -91,6 +95,14 @@ enum ProjectCommand {
     },
     /// List registered projects.
     List,
+    /// Take a project out of Swarmed: its tasks' worktrees, its sessions' history and its notes
+    /// go; the repository and its branches stay.
+    Rm {
+        project: String,
+        /// Also remove tasks that hold uncommitted or unpushed work.
+        #[arg(long)]
+        force: bool,
+    },
     /// Print the path of a project's local config file.
     Config { project: String },
 }
@@ -159,17 +171,29 @@ fn open_core() -> Result<Core> {
     if std::env::var_os("SWARMED_FAKE_AGENT").is_some() {
         return Ok(Core::with_backend(paths, Arc::new(FakeBackend::default()))?);
     }
-    Ok(Core::open(paths)?)
+    let mut core = Core::open(paths)?;
+    // An agent starts this same executable to reach Swarmed's own tools.
+    if let Ok(executable) = std::env::current_exe() {
+        core.set_tool_server(executable);
+    }
+    Ok(core)
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    // Needs no data directory, and must not print anything but the protocol.
+    if matches!(cli.command, Command::ToolServer) {
+        let served = swarmed_core::serve_tools(std::io::stdin().lock(), std::io::stdout().lock());
+        return Ok(served?);
+    }
     let core = open_core()?;
     match cli.command {
         Command::Project(command) => project(&core, command).await,
         Command::Task(command) => task(&core, command).await,
         Command::Session(command) => session::session(&core, command).await,
+        // Answered above, before anything was opened.
+        Command::ToolServer => Ok(()),
         Command::Agents => {
             agents(&core);
             Ok(())
@@ -276,6 +300,10 @@ async fn project(core: &Core, command: ProjectCommand) -> Result<()> {
                     project.repo_path.display()
                 ));
             }
+        }
+        ProjectCommand::Rm { project, force } => {
+            core.project_remove(&project, force, &hook_line).await?;
+            say(&format!("removed project `{project}`"));
         }
         ProjectCommand::Config { project } => {
             let project = core.project(&project)?;

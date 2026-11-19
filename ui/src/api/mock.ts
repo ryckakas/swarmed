@@ -7,6 +7,7 @@ import type {
     FileDiff,
     HookOutput,
     Project,
+    QueuedMessage,
     Session,
     SessionEvent,
     SessionSettings,
@@ -70,6 +71,25 @@ function markNote(projects: Project[], project: string, task: string | null, has
     if (target) {
         target.has_note = has;
     }
+}
+
+/** Removing repositories and tasks from the tree `projects` returns. */
+function removeApi(projects: () => Project[]): Pick<Api, "projectRemove" | "taskRemove"> {
+    return {
+        projectRemove: async (name) => {
+            const at = projects().findIndex((project) => project.name === name);
+            projects().splice(at, at === -1 ? 0 : 1);
+        },
+        taskRemove: async (projectName, name, force) => {
+            // One sample task holds unsaved work, to show what a refusal looks like.
+            if (name === "invoice-export" && !force) {
+                throw new Error("task `invoice-export` has uncommitted changes");
+            }
+            const tasks = projects().find((project) => project.name === projectName)?.tasks ?? [];
+            const at = tasks.findIndex((task) => task.name === name);
+            tasks.splice(at, at === -1 ? 0 : 1);
+        },
+    };
 }
 
 /** Reading and writing notes, over the tree `projects` returns. */
@@ -342,8 +362,51 @@ class MockAgent {
 
     publish(sessionId: number, event: AgentEvent, status: SessionStatus | null) {
         this.history(sessionId).push(event);
+        this.tell(sessionId, event, status);
+        // A turn that ended well makes room for the next waiting message, as in the core.
+        if (event.type === "turn_done" && !event.is_error) {
+            this.sendQueued(sessionId);
+        }
+    }
+
+    private tell(sessionId: number, event: AgentEvent, status: SessionStatus | null) {
         for (const listener of this.listeners) {
             listener({ session_id: sessionId, status, event });
+        }
+    }
+
+    private readonly queues = new Map<number, QueuedMessage[]>();
+
+    queue(id: number): QueuedMessage[] {
+        return [...(this.queues.get(id) ?? [])];
+    }
+
+    /** Replaces a session's queue and tells the listeners, without making it history. */
+    private setQueue(id: number, messages: QueuedMessage[]): QueuedMessage[] {
+        this.queues.set(id, messages);
+        this.tell(id, { type: "queue", messages }, null);
+        return messages;
+    }
+
+    enqueue(id: number, text: string): QueuedMessage[] {
+        return this.setQueue(id, [...this.queue(id), { id: this.nextId++, text }]);
+    }
+
+    editQueued(id: number, message: number, text: string): QueuedMessage[] {
+        const edited = this.queue(id).map((queued) =>
+            queued.id === message ? { ...queued, text } : queued,
+        );
+        return this.setQueue(
+            id,
+            edited.filter((queued) => queued.text.trim() !== ""),
+        );
+    }
+
+    sendQueued(id: number) {
+        const [first, ...rest] = this.queue(id);
+        if (first) {
+            this.setQueue(id, rest);
+            this.send(id, first.text);
         }
     }
 
@@ -393,6 +456,9 @@ class MockAgent {
             this.later(id, { type: "text", text: reply }, "working");
             this.later(id, done, "idle", 2);
             this.later(id, SAMPLE_CONTEXT, null, 3);
+            const { model, effort } = this.configure(id, {});
+            const applied = { model: model ?? "claude-opus-5-5", effort: effort ?? "xhigh" };
+            this.later(id, { type: "applied", ...applied }, null, 3);
         }
     }
 
@@ -564,6 +630,7 @@ export function createMockApi(): Api {
             agent.projects.push(project);
             return project;
         },
+        ...removeApi(() => agent.projects),
         branchChoices: async (projectName) => ({
             base: "origin/main",
             existing: projectName === "hero" ? ["feature/vat-export", "pm-16001-invoices"] : [],
@@ -617,6 +684,10 @@ export function createMockApi(): Api {
         },
         sessionEvents: async (id) => [...agent.history(id)],
         sessionSend: async (id, text) => agent.send(id, text),
+        sessionQueue: async (id) => agent.queue(id),
+        sessionEnqueue: async (id, text) => agent.enqueue(id, text),
+        sessionQueueEdit: async (id, message, text) => agent.editQueued(id, message, text),
+        sessionSendQueued: async (id) => agent.sendQueued(id),
         sessionAllow: async (id, requestId) => agent.decide(id, requestId, true),
         sessionDeny: async (id, requestId) => agent.decide(id, requestId, false),
         sessionInterrupt: async (id) => agent.interrupt(id),
@@ -636,6 +707,9 @@ export function createMockApi(): Api {
         // A browser has no custom scheme; a blob address is enough to see the view.
         viewUrl: async (document) =>
             URL.createObjectURL(new Blob([document], { type: "text/html" })),
+        viewOpen: async (document) => {
+            window.open(URL.createObjectURL(new Blob([document], { type: "text/html" })));
+        },
         terminalOpen: async (id) => terminal.open(id),
         terminalWrite: async (id, data) => terminal.type(id, data),
         terminalResize: async () => undefined,

@@ -135,3 +135,48 @@ describe("notes", () => {
         expect(cleared?.tasks[0]?.has_note).toBe(false);
     });
 });
+
+describe("removing", () => {
+    it("takes a repository out of the tree, and the open session with it", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        await useStore.getState().open(api, 4);
+        await api.projectRemove("bonsai-lint", false);
+        await useStore.getState().refresh(api);
+        const { projects, selectedSessionId } = useStore.getState();
+        expect(projects.map((project) => project.name)).not.toContain("bonsai-lint");
+        expect(selectedSessionId).toBeNull();
+    });
+
+    it("refuses a task with unsaved work until told to remove it anyway", async () => {
+        const api = createMockApi();
+        await expect(api.taskRemove("hero", "invoice-export", false)).rejects.toThrow(
+            "uncommitted changes",
+        );
+        await api.taskRemove("hero", "invoice-export", true);
+        const hero = (await api.overview()).find((project) => project.name === "hero");
+        expect(hero?.tasks.map((task) => task.name)).not.toContain("invoice-export");
+    });
+});
+
+describe("the queue of waiting messages", () => {
+    it("is kept beside the transcript and follows the core's events", () => {
+        useStore.setState({ events: { 1: [text("a")] }, queues: {} });
+        const waiting = [{ id: 7, text: "next" }];
+        useStore.getState().apply(published(1, { type: "queue", messages: waiting }));
+        expect(useStore.getState().queues[1]).toEqual(waiting);
+        expect(useStore.getState().events[1]).toEqual([text("a")]);
+    });
+
+    it("can be rewritten and emptied while it waits", async () => {
+        const api = createMockApi();
+        const [first] = await api.sessionEnqueue(3, "1st");
+        await api.sessionEnqueue(3, "second");
+        const edited = await api.sessionQueueEdit(3, first?.id ?? 0, "first");
+        expect(edited.map((message) => message.text)).toEqual(["first", "second"]);
+        const left = await api.sessionQueueEdit(3, first?.id ?? 0, " ");
+        expect(left.map((message) => message.text)).toEqual(["second"]);
+        await api.sessionSendQueued(3);
+        expect(await api.sessionQueue(3)).toEqual([]);
+    });
+});

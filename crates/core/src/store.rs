@@ -168,6 +168,13 @@ impl Store {
         })
     }
 
+    /// Deletes a project with its tasks, their sessions and those sessions' events.
+    pub(crate) fn project_delete(&self, id: i64) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM projects WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
     pub(crate) fn project_by_name(&self, name: &str) -> Result<Option<Project>> {
         Ok(self
             .conn

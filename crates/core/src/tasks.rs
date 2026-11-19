@@ -89,6 +89,8 @@ impl Core {
         let repo = &project.repo_path;
 
         git::fetch(repo).await?;
+        // A brand new repository has nothing to branch from until it has a commit.
+        git::ensure_first_commit(repo).await?;
         let base = if config.base_branch.is_empty() {
             git::default_base(repo).await?
         } else {
@@ -179,6 +181,11 @@ impl Core {
     ) -> Result<()> {
         let (project, task) = self.task(project, name)?;
         let repo = &project.repo_path;
+        // Nothing may still be running in a directory that is about to go.
+        for session in self.store().sessions(task.id)? {
+            self.session_stop(session.id);
+            self.terminal_close(session.id);
+        }
         if task.worktree_path.exists() {
             self.remove_worktree(&project, &task, options.force, sink)
                 .await?;
@@ -192,6 +199,32 @@ impl Core {
             git::branch_delete(repo, &task.branch).await?;
         }
         Ok(())
+    }
+
+    /// Takes a project out of Swarmed. Its tasks are removed as [`Core::task_remove`] removes
+    /// them, keeping their branches, and then everything Swarmed holds about the project is
+    /// deleted: its sessions' history and the notes on it. The repository itself stays as it
+    /// is, and so does the project's config file, in case the repository is added again.
+    ///
+    /// Without `force` this stops at the first task that holds unsaved work. The tasks before
+    /// it are removed by then; the project and everything else about it are still there.
+    pub async fn project_remove(
+        &self,
+        name: &str,
+        force: bool,
+        sink: OutputSink<'_>,
+    ) -> Result<()> {
+        let project = self.project(name)?;
+        let options = RemoveOptions {
+            force,
+            delete_branch: false,
+        };
+        let tasks = self.store().tasks(project.id, false)?;
+        for task in tasks {
+            self.task_remove(name, &task.name, options, sink).await?;
+        }
+        self.store().project_delete(project.id)?;
+        self.forget_notes(name)
     }
 
     /// Checks for unsaved work, runs `teardown`, then removes the worktree. `force` skips the
