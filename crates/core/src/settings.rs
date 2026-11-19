@@ -5,6 +5,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
+use crate::statusline::StatusItem;
 
 /// The user's own preferences, one TOML file in the data directory.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -19,6 +20,10 @@ pub struct Settings {
     pub theme: Theme,
     /// The size of the app's text, in percent of its normal size.
     pub text_scale: u16,
+    /// The built-in pieces of the status line under the message box, in order.
+    pub status_items: Vec<StatusItem>,
+    /// A command whose first line of output replaces the built-in pieces. Empty for none.
+    pub status_command: String,
 }
 
 /// The colours the app is drawn in.
@@ -45,6 +50,8 @@ impl Default for Settings {
             auto_title: true,
             theme: Theme::System,
             text_scale: 100,
+            status_items: StatusItem::defaults(),
+            status_command: String::new(),
         }
     }
 }
@@ -100,6 +107,8 @@ mod tests {
             auto_title: false,
             theme: Theme::Light,
             text_scale: 110,
+            status_items: vec![StatusItem::Cost],
+            status_command: "~/bin/status".to_string(),
         };
         chosen.save(&path).expect("saves");
         assert_eq!(Settings::load(&path).expect("loads"), chosen);

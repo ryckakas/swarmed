@@ -298,6 +298,31 @@ async fn a_title_chosen_before_the_suggestion_arrives_is_kept_and_naming_can_be_
 }
 
 #[tokio::test]
+async fn a_status_line_script_is_told_about_the_session_it_is_for() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+    core.session_send(session.id, "hello").expect("sends");
+    turn(&mut bus, session.id).await;
+    assert_eq!(core.status_line(session.id).await.expect("no script"), None);
+
+    // Runs in the worktree and reads the model the agent reported from its input.
+    let script = r#"printf '%s on ' "$(basename "$PWD")"; sed -E 's/.*"model":"([^"]*)".*/\1/'"#;
+    let settings = Settings {
+        status_command: script.to_string(),
+        ..Settings::default()
+    };
+    core.set_settings(&settings).expect("saves");
+    let shown = core.status_line(session.id).await.expect("runs");
+    assert_eq!(shown.as_deref(), Some("one on fake"));
+    assert!(matches!(
+        core.status_line(404).await,
+        Err(Error::SessionNotFound(404))
+    ));
+}
+
+#[tokio::test]
 async fn slash_commands_come_from_the_last_start_of_the_session_or_of_another() {
     let fx = fixture();
     let core = core_with_task(&fx).await;

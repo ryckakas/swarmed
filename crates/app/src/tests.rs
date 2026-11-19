@@ -213,6 +213,7 @@ fn the_ui_can_deny_interrupt_stop_and_remove() {
     app.ok("session_interrupt", json!({ "id": id }));
     app.ok("session_stop", json!({ "id": id }));
     app.wait_for_event(id, "exited");
+    assert_eq!(app.ok("status_line", json!({ "id": id })), json!(null));
     let renamed = app.ok(
         "session_rename",
         json!({ "id": id, "title": "  Slow test  " }),
@@ -249,7 +250,10 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     );
     assert_eq!(
         app.ok("settings", json!({})),
-        json!({ "editor": "code", "auto_title": true, "theme": "system", "text_scale": 100 })
+        json!({
+            "editor": "code", "auto_title": true, "theme": "system", "text_scale": 100,
+            "status_items": ["branch", "changes", "model", "cost"], "status_command": "",
+        })
     );
 
     let worktree = app.ok("overview", json!({}))[0]["tasks"][0]["worktree_path"].clone();
@@ -269,6 +273,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
 
     let chosen = json!({ "settings": {
         "editor": "swarmed-no-such-editor", "auto_title": false, "theme": "light", "text_scale": 110,
+        "status_items": ["cost"], "status_command": "",
     } });
     app.ok("set_settings", chosen);
     let target = json!({ "project": "demo", "name": "one" });

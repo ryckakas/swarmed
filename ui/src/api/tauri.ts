@@ -45,6 +45,7 @@ export const tauriApi: Api = {
     sessionInterrupt: (id) => invoke("session_interrupt", { id }),
     slashCommands: (id) => invoke<string[]>("slash_commands", { id }),
     sessionConfigure: (id, settings) => invoke<Session>("session_configure", { id, ...settings }),
+    statusLine: (id) => invoke<string | null>("status_line", { id }),
     sessionRename: (id, title) => invoke<Session>("session_rename", { id, title }),
     sessionClose: (id) => invoke("session_close", { id }),
     onSessionEvent: (listener) =>

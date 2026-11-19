@@ -101,6 +101,9 @@ pub enum Error {
     /// An API key with nothing in it.
     #[error("an API key cannot be empty")]
     EmptyApiKey,
+    /// The user's status line script could not be run, failed, or took too long.
+    #[error("status line: {0}")]
+    StatusLine(String),
     /// A session title with nothing in it.
     #[error("a session title cannot be empty")]
     EmptyTitle,

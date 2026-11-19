@@ -33,6 +33,9 @@ interface State {
     togglePanel(): void;
     /** Changes some of the user's preferences and keeps the rest. */
     changeSettings(api: Api, change: Partial<Settings>): Promise<void>;
+    /** Whether the status line under the message box is shown, or folded away. */
+    statusOpen: boolean;
+    toggleStatus(): void;
     /** Whether the settings are on screen. */
     settingsOpen: boolean;
     showSettings(open: boolean): void;
@@ -100,6 +103,7 @@ function countEdit(state: State, published: SessionEvent): Record<number, number
 }
 
 const PANEL_OPEN = "swarmed.panel-open";
+const STATUS_OPEN = "swarmed.status-open";
 
 /** A yes or no remembered on this machine; `fallback` if nothing, or nothing readable, is stored. */
 function readFlag(key: string, fallback: boolean): boolean {
@@ -162,6 +166,12 @@ export const useStore = create<State>((set, get) => ({
             set({ settings });
             await api.setSettings(settings);
         }),
+    statusOpen: readFlag(STATUS_OPEN, true),
+    toggleStatus: () => {
+        const statusOpen = !get().statusOpen;
+        writeFlag(STATUS_OPEN, statusOpen);
+        set({ statusOpen });
+    },
     settingsOpen: false,
     showSettings: (open) => set({ settingsOpen: open }),
     rename: (api, sessionId, title) =>

@@ -226,6 +226,11 @@ async function sampleDiff(_project: string, _name: string, path: string): Promis
     return { text: path.endsWith(".png") ? SAMPLE_BINARY_DIFF : SAMPLE_DIFF, truncated: false };
 }
 
+/** What a status line script would print: here, just its own name and the session. */
+function scriptedStatus(command: string, id: number): string | null {
+    return command === "" ? null : `${command} (session ${id})`;
+}
+
 function storeKey(keys: ApiKeyInfo[], name: string, stored: boolean) {
     const key = keys.find((candidate) => candidate.name === name);
     if (!key) {
@@ -413,6 +418,8 @@ export function createMockApi(): Api {
         auto_title: true,
         theme: "system",
         text_scale: 100,
+        status_items: ["branch", "changes", "model", "cost"],
+        status_command: "",
     };
     return {
         overview: async () => structuredClone(agent.projects),
@@ -502,6 +509,7 @@ export function createMockApi(): Api {
             "tdd",
         ],
         sessionConfigure: async (id, settings) => agent.configure(id, settings),
+        statusLine: async (id) => scriptedStatus(settings.status_command, id),
         sessionRename: async (id, title) => agent.rename(id, title),
         sessionClose: async (id) => agent.close(id),
         onSessionEvent: async (listener) => {

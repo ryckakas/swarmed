@@ -1,6 +1,7 @@
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { Settings, Theme } from "../api/types";
+import { STATUS_ITEM_LABELS, STATUS_ITEMS, withItem } from "../statusline";
 import { useStore } from "../store";
 import { ApiKeys } from "./ApiKeys";
 import { editorChoices, TEXT_SCALES, THEMES } from "./options";
@@ -33,6 +34,7 @@ export function SettingsDialog() {
             <h2 id="settings-title">Settings</h2>
             <Appearance settings={settings} />
             <Sessions settings={settings} />
+            <StatusLineSettings settings={settings} />
             <ApiKeys />
             <div className="confirm-actions">
                 <button type="button" className="button" onClick={() => showSettings(false)}>
@@ -90,6 +92,53 @@ function Sessions({ settings }: { settings: Settings }) {
                     aria-label="Name new sessions automatically"
                     checked={settings.auto_title}
                     onChange={(event) => void change(api, { auto_title: event.target.checked })}
+                />
+            </Row>
+        </section>
+    );
+}
+
+function StatusLineSettings({ settings }: { settings: Settings }) {
+    const change = useStore((state) => state.changeSettings);
+    const [command, setCommand] = useState(settings.status_command);
+    const scripted = settings.status_command.trim() !== "";
+    return (
+        <section className="settings-group" aria-label="Status line">
+            <h3>Status line</h3>
+            <p className="settings-hint">
+                The line under the message box. Tick what it shows, or let a script of your own
+                decide.
+            </p>
+            <div className="settings-checks" aria-disabled={scripted}>
+                {STATUS_ITEMS.map((item) => (
+                    <label key={item} className="settings-check">
+                        <input
+                            type="checkbox"
+                            disabled={scripted}
+                            checked={settings.status_items.includes(item)}
+                            onChange={(event) => {
+                                const on = event.target.checked;
+                                const items = withItem(settings.status_items, item, on);
+                                void change(api, { status_items: items });
+                            }}
+                        />
+                        {STATUS_ITEM_LABELS[item]}
+                    </label>
+                ))}
+            </div>
+            <Row
+                label="Custom script"
+                hint="Replaces the pieces above. Runs with sh -c in the task's worktree, gets the session, task and project as JSON on standard input, and its first line of output is shown."
+            >
+                <input
+                    type="text"
+                    className="key-input settings-command"
+                    aria-label="Status line script"
+                    placeholder="~/.config/swarmed/statusline.sh"
+                    spellCheck={false}
+                    value={command}
+                    onChange={(event) => setCommand(event.target.value)}
+                    onBlur={() => void change(api, { status_command: command.trim() })}
                 />
             </Row>
         </section>

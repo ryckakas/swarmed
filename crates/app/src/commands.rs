@@ -243,6 +243,11 @@ pub(crate) fn session_configure(
 }
 
 #[tauri::command]
+pub(crate) async fn status_line(core: CoreState<'_>, id: i64) -> Command<Option<String>> {
+    Ok(core.status_line(id).await?)
+}
+
+#[tauri::command]
 pub(crate) fn session_rename(core: CoreState<'_>, id: i64, title: String) -> Command<Session> {
     Ok(core.session_rename(id, &title)?)
 }

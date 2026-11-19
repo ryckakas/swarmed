@@ -1,9 +1,10 @@
-import type { Session, Task } from "../api/types";
+import type { AgentEvent, Session, Task } from "../api/types";
 import { useStore } from "../store";
 import { findSession, findSessionHome } from "../tree";
 import { Composer } from "./Composer";
 import { NewTask } from "./NewTask";
 import { SessionTitle } from "./SessionTitle";
+import { StatusLine } from "./StatusLine";
 import { StatusMark, statusLabel } from "./StatusMark";
 import { Transcript } from "./Transcript";
 
@@ -12,6 +13,9 @@ const SUPERVISION = {
     auto: "Auto mode decides",
     bypass: "Nothing asks",
 };
+
+/** Stands in for a transcript that has not been read, without a new array on every render. */
+const NO_EVENTS: AgentEvent[] = [];
 
 /** The centre of the window: the selected session's conversation. */
 export function SessionPane() {
@@ -70,6 +74,12 @@ export function SessionPane() {
                 />
             )}
             <Composer key={`composer-${session.id}`} session={session} />
+            <StatusLine
+                project={home.project.name}
+                task={home.task}
+                session={session}
+                events={events ?? NO_EVENTS}
+            />
         </article>
     );
 }

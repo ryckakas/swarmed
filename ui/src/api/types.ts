@@ -62,6 +62,9 @@ export interface ApiKeyInfo {
 /** The colours the app is drawn in: the system's choice, or always one of the two. */
 export type Theme = "system" | "dark" | "light";
 
+/** One built-in piece of the status line. */
+export type StatusItem = "branch" | "changes" | "model" | "cost" | "agent" | "worktree";
+
 /** The user's own preferences. */
 export interface Settings {
     /** The command that opens a folder in the user's code editor. */
@@ -71,6 +74,10 @@ export interface Settings {
     theme: Theme;
     /** The size of the app's text, in percent of its normal size. */
     text_scale: number;
+    /** The built-in pieces of the status line under the message box, in order. */
+    status_items: StatusItem[];
+    /** A command whose first line of output replaces the built-in pieces. Empty for none. */
+    status_command: string;
 }
 
 export interface Project {

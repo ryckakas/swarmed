@@ -259,6 +259,19 @@ impl Store {
         Ok(text.map(|text| event_from_json(&text)))
     }
 
+    /// The session's newest event of one type, by the name it is stored under.
+    pub(crate) fn latest_event(&self, session_id: i64, kind: &str) -> Result<Option<AgentEvent>> {
+        // The event's type is the first thing in its JSON, which keeps this a prefix match.
+        let prefix = format!("{{\"type\":\"{kind}\"%");
+        let sql = "SELECT event FROM session_events WHERE session_id = ?1 AND event LIKE ?2 \
+                   ORDER BY id DESC LIMIT 1";
+        let text: Option<String> = self
+            .conn
+            .query_row(sql, params![session_id, prefix], |row| row.get(0))
+            .optional()?;
+        Ok(text.map(|text| event_from_json(&text)))
+    }
+
     fn events(&self, session_id: i64) -> Result<Vec<AgentEvent>> {
         let mut stmt = self
             .conn

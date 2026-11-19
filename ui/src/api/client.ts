@@ -71,6 +71,11 @@ export interface Api {
      * from its next turn, the supervision from its next action.
      */
     sessionConfigure(id: number, settings: SessionSettings): Promise<Session>;
+    /**
+     * What the user's status line script prints for the session, or `null` if no script is
+     * configured and the built-in pieces apply.
+     */
+    statusLine(id: number): Promise<string | null>;
     /** Gives the session a title of the user's choosing. Every front end hears of it as an event. */
     sessionRename(id: number, title: string): Promise<Session>;
     /** Stops the session's agent and takes the session out of the tree. Its history is kept. */
