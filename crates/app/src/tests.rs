@@ -228,6 +228,35 @@ fn the_ui_can_deny_interrupt_stop_and_remove() {
 }
 
 #[test]
+fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+    assert_eq!(
+        app.ok("overview", json!({}))[0]["tasks"][0]["url"],
+        json!(null)
+    );
+    assert_eq!(app.ok("settings", json!({})), json!({ "editor": "code" }));
+
+    let chosen = json!({ "settings": { "editor": "swarmed-no-such-editor" } });
+    app.ok("set_settings", chosen);
+    let target = json!({ "project": "demo", "name": "one" });
+    let failed = app.invoke("task_open_editor", target.clone());
+    let message = failed.expect_err("no such editor");
+    assert!(
+        message
+            .as_str()
+            .is_some_and(|m| m.starts_with("could not open swarmed-no-such-editor")),
+        "{message}"
+    );
+    assert_eq!(
+        app.invoke("task_open_url", target),
+        Err(json!("project `demo` has no `open_url` in its config"))
+    );
+}
+
+#[test]
 fn a_core_error_reaches_the_ui_as_its_message() {
     let app = app();
     let missing = app.invoke(

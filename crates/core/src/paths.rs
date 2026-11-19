@@ -43,6 +43,12 @@ impl Paths {
         self.data_dir.join("agents.toml")
     }
 
+    /// The file with the user's own preferences, such as their editor.
+    #[must_use]
+    pub fn settings(&self) -> PathBuf {
+        self.data_dir.join("settings.toml")
+    }
+
     /// The local config file of `project`.
     #[must_use]
     pub fn project_config(&self, project: &str) -> PathBuf {

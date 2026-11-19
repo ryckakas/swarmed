@@ -10,6 +10,7 @@ import type {
     Project,
     Session,
     SessionEvent,
+    Settings,
     Task,
 } from "./types";
 
@@ -21,6 +22,10 @@ export const tauriApi: Api = {
     projectAdd: (path) => invoke<Project>("project_add", { path, name: null }),
     branchChoices: (project) => invoke<BranchChoices>("branch_choices", { project }),
     taskNew: (project, name, branch) => invoke<Task>("task_new", { project, name, branch }),
+    taskOpenEditor: (project, name) => invoke("task_open_editor", { project, name }),
+    taskOpenUrl: (project, name) => invoke("task_open_url", { project, name }),
+    settings: () => invoke<Settings>("settings"),
+    setSettings: (settings) => invoke("set_settings", { settings }),
     onHookOutput: (listener) =>
         listen<HookOutput>("hook-output", (event) => listener(event.payload)),
     sessionNew: (project, task, setup) =>

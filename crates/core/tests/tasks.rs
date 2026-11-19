@@ -5,7 +5,9 @@ mod common;
 use std::sync::Mutex;
 
 use common::{core_with_project, fixture, git, write_config};
-use swarmed_core::{Core, Error, NewTaskOptions, ProjectConfig, RemoveOptions, SetupStatus, hooks};
+use swarmed_core::{
+    Core, Error, NewTaskOptions, ProjectConfig, RemoveOptions, Settings, SetupStatus, hooks,
+};
 
 #[tokio::test]
 async fn project_add_writes_a_starter_config() {
@@ -339,4 +341,69 @@ async fn branch_choices_offer_the_base_and_branches_no_worktree_holds() {
         .expect("creates");
     let choices = core.branch_choices("demo").await.expect("reads");
     assert_eq!(choices.existing, ["feature/b"]);
+}
+
+#[tokio::test]
+async fn a_task_knows_where_its_stack_is_reached() {
+    let fx = fixture();
+    write_config(
+        &fx,
+        "open_url = \"http://localhost:{{port.web}}/{{task}}\"\n[ports]\nweb = 3000\n",
+    );
+    let core = core_with_project(&fx).await;
+    core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates");
+
+    let url = Some("http://localhost:3100/one".to_string());
+    assert_eq!(core.task_url("demo", "one").expect("renders"), url);
+    assert_eq!(core.overview().expect("reads")[0].tasks[0].url, url);
+
+    write_config(&fx, "");
+    assert_eq!(core.task_url("demo", "one").expect("reads"), None);
+    assert!(matches!(
+        core.task_open_url("demo", "one"),
+        Err(Error::NoOpenUrl(project)) if project == "demo"
+    ));
+}
+
+#[tokio::test]
+async fn the_editor_is_started_with_the_worktree() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    let task = core
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates");
+
+    // An "editor" that writes down what it was asked to open.
+    let opened = fx.paths.data_dir.join("opened");
+    let script = fx.paths.data_dir.join("editor.sh");
+    let body = format!("#!/bin/sh\necho \"$1\" > '{}'\n", opened.display());
+    std::fs::write(&script, body).expect("writes");
+    make_executable(&script);
+    let editor = script.to_string_lossy().into_owned();
+    core.set_settings(&Settings { editor }).expect("saves");
+
+    core.task_open_editor("demo", "one").expect("starts");
+    let written = wait_for_file(&opened).await;
+    assert_eq!(written.trim(), task.worktree_path.to_string_lossy());
+}
+
+#[cfg(unix)]
+fn make_executable(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let permissions = std::fs::Permissions::from_mode(0o755);
+    std::fs::set_permissions(path, permissions).expect("chmod");
+}
+
+/// The file's contents once the launched program has written it.
+async fn wait_for_file(path: &std::path::Path) -> String {
+    for _ in 0..200 {
+        match std::fs::read_to_string(path) {
+            Ok(text) if !text.is_empty() => return text,
+            _ => tokio::time::sleep(std::time::Duration::from_millis(10)).await,
+        }
+    }
+    panic!("{} was never written", path.display());
 }

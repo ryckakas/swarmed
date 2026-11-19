@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { Api } from "./api/client";
-import type { AgentEvent, Project, SessionEvent, SessionSettings } from "./api/types";
+import type { AgentEvent, Project, SessionEvent, SessionSettings, Settings } from "./api/types";
 import { applySessionEvent, withoutSession, withSession } from "./tree";
 
 interface State {
@@ -24,6 +24,12 @@ interface State {
     apply(event: SessionEvent): void;
     /** Changes a session's model and supervision. */
     configure(api: Api, sessionId: number, settings: SessionSettings): Promise<void>;
+    /** The user's preferences; `null` until they are read. */
+    settings: Settings | null;
+    /** Whether the task panel on the right is shown. */
+    panelOpen: boolean;
+    togglePanel(): void;
+    setEditor(api: Api, editor: string): Promise<void>;
     /** The session the user asked to close, until they confirm or change their mind. */
     closing: number | null;
     /** Asks before closing: `null` withdraws the question. */
@@ -76,6 +82,26 @@ export function withEvent(events: AgentEvent[], event: AgentEvent): AgentEvent[]
     return [...events.slice(0, -1), next];
 }
 
+const PANEL_OPEN = "swarmed.panel-open";
+
+/** A yes or no remembered on this machine; `fallback` if nothing, or nothing readable, is stored. */
+function readFlag(key: string, fallback: boolean): boolean {
+    try {
+        const stored = localStorage.getItem(key);
+        return stored === null ? fallback : stored === "true";
+    } catch {
+        return fallback;
+    }
+}
+
+function writeFlag(key: string, value: boolean) {
+    try {
+        localStorage.setItem(key, String(value));
+    } catch {
+        // Without storage the choice just lasts until the window closes.
+    }
+}
+
 /** Runs an action on a session; if it fails, the reason is shown instead of thrown. */
 async function reporting(action: () => Promise<void>) {
     try {
@@ -103,6 +129,19 @@ export const useStore = create<State>((set, get) => ({
     events: {},
     hookLine: null,
     problem: null,
+    settings: null,
+    panelOpen: readFlag(PANEL_OPEN, true),
+    togglePanel: () => {
+        const panelOpen = !get().panelOpen;
+        writeFlag(PANEL_OPEN, panelOpen);
+        set({ panelOpen });
+    },
+    setEditor: (api, editor) =>
+        reporting(async () => {
+            const settings = { ...get().settings, editor };
+            await api.setSettings(settings);
+            set({ settings });
+        }),
     closing: null,
     askToClose: (sessionId) => set({ closing: sessionId }),
     refresh: async (api) => {
@@ -153,6 +192,7 @@ export const useStore = create<State>((set, get) => ({
 export function connect(api: Api): () => void {
     const { refresh, apply } = useStore.getState();
     void refresh(api);
+    void reporting(async () => useStore.setState({ settings: await api.settings() }));
     // After dropped events nothing on screen can be trusted: forget the transcripts and reload.
     const reload = () => {
         const { selectedSessionId, open } = useStore.getState();

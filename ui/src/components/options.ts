@@ -81,3 +81,23 @@ export function useAgents(): AgentInfo[] {
     }, []);
     return agents;
 }
+
+/** Editors offered by name, by the command that opens a folder in them. */
+export const EDITORS: [command: string, name: string][] = [
+    ["code", "VS Code"],
+    ["cursor", "Cursor"],
+    ["zed", "Zed"],
+    ["subl", "Sublime Text"],
+    ["idea", "IntelliJ IDEA"],
+];
+
+/** An editor command as shown: a known editor by its name, any other command as it is. */
+export function editorName(command: string): string {
+    return EDITORS.find(([known]) => known === command)?.[1] ?? command;
+}
+
+/** The editors as menu options, with the configured command even if it is none of them. */
+export function editorChoices(current: string): [string, string][] {
+    const known = EDITORS.some(([command]) => command === current);
+    return known ? EDITORS : [...EDITORS, [current, current]];
+}

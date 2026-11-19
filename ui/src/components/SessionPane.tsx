@@ -20,6 +20,8 @@ export function SessionPane() {
         selectedSessionId === null ? undefined : state.events[selectedSessionId],
     );
     const askToClose = useStore((state) => state.askToClose);
+    const panelOpen = useStore((state) => state.panelOpen);
+    const togglePanel = useStore((state) => state.togglePanel);
     const session = findSession(projects, selectedSessionId);
     const home = session && findSessionHome(projects, session);
 
@@ -38,6 +40,14 @@ export function SessionPane() {
                         <StatusMark status={session.status} />
                         {statusLabel(session.status)}
                     </p>
+                    <button
+                        type="button"
+                        className="quiet-button"
+                        aria-pressed={panelOpen}
+                        onClick={togglePanel}
+                    >
+                        {panelOpen ? "Hide task panel" : "Show task panel"}
+                    </button>
                     <button
                         type="button"
                         className="quiet-button"

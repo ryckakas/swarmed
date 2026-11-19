@@ -7,6 +7,7 @@ import type {
     SessionEvent,
     SessionSettings,
     SessionStatus,
+    Settings,
     Task,
 } from "./types";
 
@@ -40,6 +41,7 @@ function task(id: number, projectId: number, name: string, sessions: Session[]):
         archived: false,
         sessions,
         running: sessions.filter((s) => s.status !== "idle").map((s) => s.id),
+        url: `http://localhost:${3000 + id * 100}`,
     };
 }
 
@@ -340,6 +342,7 @@ export function createMockApi(): Api {
     const agent = new MockAgent();
     const tasks = () => agent.projects.flatMap((project) => project.tasks);
     const hookListeners = new Set<(output: HookOutput) => void>();
+    let settings: Settings = { editor: "code" };
     return {
         overview: async () => structuredClone(agent.projects),
         agents: async () => [
@@ -381,6 +384,12 @@ export function createMockApi(): Api {
             };
             project.tasks.push(created);
             return created;
+        },
+        taskOpenEditor: async () => undefined,
+        taskOpenUrl: async () => undefined,
+        settings: async () => ({ ...settings }),
+        setSettings: async (changed) => {
+            settings = changed;
         },
         onHookOutput: async (listener) => {
             hookListeners.add(listener);

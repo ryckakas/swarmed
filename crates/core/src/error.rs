@@ -72,6 +72,17 @@ pub enum Error {
         /// What is wrong with it.
         message: String,
     },
+    /// The editor or the browser could not be started.
+    #[error("could not open {what}: {reason}")]
+    OpenFailed {
+        /// What was to be opened, or the command that was to open it.
+        what: String,
+        /// Why it did not start.
+        reason: String,
+    },
+    /// The task's project does not say where its dev stack can be reached.
+    #[error("project `{0}` has no `open_url` in its config")]
+    NoOpenUrl(String),
     /// The user's home directory is unknown, so the default locations cannot be derived.
     #[error("could not determine the home directory")]
     NoHome,

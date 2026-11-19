@@ -10,7 +10,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use session::SessionCommand;
 use swarmed_core::agent::FakeBackend;
-use swarmed_core::{Core, NewTaskOptions, Paths, RemoveOptions, SetupStatus, Task};
+use swarmed_core::{Core, NewTaskOptions, Paths, RemoveOptions, Settings, SetupStatus, Task};
 
 /// Swarmed: parallel Claude Code sessions in isolated git worktrees.
 #[derive(Debug, Parser)]
@@ -33,6 +33,11 @@ enum Command {
     Session(SessionCommand),
     /// List the agents sessions can run on.
     Agents,
+    /// Show the command that opens a folder in your editor, or set it.
+    Editor {
+        /// The new command, such as `code`, `zed` or `cursor`.
+        command: Option<String>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -81,6 +86,14 @@ enum TaskCommand {
         #[arg(long)]
         delete_branch: bool,
     },
+    /// Open the task's worktree in your editor, or its running stack in the browser.
+    Open {
+        project: String,
+        name: String,
+        /// Open the project's `open_url` in the browser instead of the editor.
+        #[arg(long)]
+        browser: bool,
+    },
 }
 
 /// Writes a line to stdout. A closed pipe (`swarmed task list | head`) is not an error worth
@@ -115,7 +128,16 @@ async fn main() -> Result<()> {
             agents(&core);
             Ok(())
         }
+        Command::Editor { command } => editor(&core, command),
     }
+}
+
+fn editor(core: &Core, command: Option<String>) -> Result<()> {
+    if let Some(editor) = command {
+        core.set_settings(&Settings { editor })?;
+    }
+    say(&core.settings()?.editor);
+    Ok(())
 }
 
 fn agents(core: &Core) {
@@ -210,6 +232,12 @@ async fn task(core: &Core, command: TaskCommand) -> Result<()> {
                 .await?;
             say(&format!("removed task `{name}`"));
         }
+        TaskCommand::Open {
+            project,
+            name,
+            browser: true,
+        } => core.task_open_url(&project, &name)?,
+        TaskCommand::Open { project, name, .. } => core.task_open_editor(&project, &name)?,
     }
     Ok(())
 }

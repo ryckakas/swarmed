@@ -8,6 +8,7 @@ use crate::hooks::OutputSink;
 use crate::store::{NewTask, Project, SetupStatus, Task};
 use crate::vars::Vars;
 use crate::{Core, git, hooks, paths};
+use crate::{Settings, open};
 
 /// Options for [`Core::task_new`].
 #[derive(Debug, Default, Clone, Copy)]
@@ -214,6 +215,49 @@ impl Core {
             other => other?,
         }
         git::worktree_remove(&project.repo_path, &task.worktree_path).await
+    }
+
+    /// Where the task's running stack is reached in a browser, if its project says so.
+    pub fn task_url(&self, project: &str, task: &str) -> Result<Option<String>> {
+        let (project, task) = self.task(project, task)?;
+        let config = self.project_config(&project.name)?;
+        self.url_of(&project, &config, &task)
+    }
+
+    pub(crate) fn url_of(
+        &self,
+        project: &Project,
+        config: &ProjectConfig,
+        task: &Task,
+    ) -> Result<Option<String>> {
+        if config.open_url.trim().is_empty() {
+            return Ok(None);
+        }
+        let vars = self.task_vars(project, config, task)?;
+        Ok(Some(vars.render(config.open_url.trim())?))
+    }
+
+    /// Opens the task's running stack in the default browser.
+    pub fn task_open_url(&self, project: &str, task: &str) -> Result<()> {
+        let url = self.task_url(project, task)?;
+        let url = url.ok_or_else(|| Error::NoOpenUrl(project.to_string()))?;
+        open::in_browser(&url)
+    }
+
+    /// Opens the task's worktree, with its branch checked out, in the user's editor.
+    pub fn task_open_editor(&self, project: &str, task: &str) -> Result<()> {
+        let (_, task) = self.task(project, task)?;
+        open::in_editor(&self.settings()?.editor, &task.worktree_path)
+    }
+
+    /// The user's own preferences.
+    pub fn settings(&self) -> Result<Settings> {
+        Settings::load(&self.paths.settings())
+    }
+
+    /// Replaces the user's preferences.
+    pub fn set_settings(&self, settings: &Settings) -> Result<()> {
+        settings.save(&self.paths.settings())
     }
 
     /// The variables a task's hooks and environment values can use.

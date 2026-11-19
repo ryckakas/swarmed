@@ -29,6 +29,14 @@ export interface Task {
     sessions: Session[];
     /** Ids of the sessions whose agent is running. */
     running: number[];
+    /** Where the task's running stack is reached in a browser, if its project says so. */
+    url: string | null;
+}
+
+/** The user's own preferences. */
+export interface Settings {
+    /** The command that opens a folder in the user's code editor. */
+    editor: string;
 }
 
 export interface Project {
