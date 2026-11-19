@@ -4,6 +4,7 @@ import type {
     AgentSetup,
     ApiKeyInfo,
     BranchChoices,
+    CloudProvider,
     CloudTask,
     Environment,
     FileChange,
@@ -89,7 +90,12 @@ export interface Api {
      * `task` if one is named and it has been pushed. Rejects, saying what to do, if the
      * repository is not on GitHub or has no cloud environment.
      */
-    cloudDelegate(project: string, prompt: string, task: string | null): Promise<CloudTask>;
+    cloudDelegate(
+        project: string,
+        prompt: string,
+        task: string | null,
+        provider: CloudProvider,
+    ): Promise<CloudTask>;
     /** The project's cloud tasks; with `refresh`, their statuses are asked for again first. */
     cloudTasks(project: string, refresh: boolean): Promise<CloudTask[]>;
     /** Takes a cloud task off the list, without stopping it. */

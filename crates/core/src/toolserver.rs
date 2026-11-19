@@ -167,19 +167,26 @@ fn cloud_tool() -> Value {
     json!({
     "name": DELEGATE_TO_CLOUD,
     "title": "Hand work to a cloud agent",
-    "description": "Hands a self-contained piece of work to a Codex agent that runs in the \
-        cloud, on its own copy of this repository taken from GitHub. Use it for work that \
+    "description": "Hands a self-contained piece of work to an agent that runs in the \
+        cloud (Codex's, or Claude Code's if `provider` says so), on its own copy of this \
+        repository taken from GitHub. Use it for work that \
         can go on without this machine and without you, when the user asks for something \
         to be delegated or run in the cloud. The cloud agent sees only what has been \
         pushed: commits and changes that exist only in this worktree are not there, so \
         push first if it needs them. It starts with no knowledge of your conversation, so \
         the prompt has to say everything. It does not report back to you: you get the \
-        address where the user follows it. Refused if the repository is not on GitHub or \
-        has no cloud environment yet; pass that on to the user as it is.",
+        address where the user follows it. Refused if the repository is not on GitHub, \
+        has no cloud environment yet, or has not been trusted by the user; pass that on \
+        to the user as it is.",
     "inputSchema": {
         "type": "object",
         "properties": {
             "prompt": { "type": "string", "description": "What the cloud agent is to do." },
+            "provider": {
+                "type": "string",
+                "enum": ["codex", "claude"],
+                "description": "Whose cloud: `codex` (the default) or `claude`.",
+            },
         },
         "required": ["prompt"],
     },

@@ -1,27 +1,71 @@
 //! Handing work to an agent that runs in its provider's cloud instead of on this machine.
 //!
-//! For now that is Codex Cloud, driven through the user's own `codex` program and the login
-//! it holds. A delegated task runs on the provider's copy of the repository, taken from
-//! GitHub: it sees what was pushed, not what is only in a worktree here. Swarmed keeps the
-//! task's link and status. What the task produces is read at the provider.
+//! That is Codex Cloud or a Claude Code cloud session, each started through the user's own
+//! `codex` or `claude` program and the login it holds. A delegated task runs on the provider's
+//! copy of the repository, taken from GitHub: it sees what was pushed, not what is only in a
+//! worktree here. Swarmed keeps the task's link, and its status where the provider's program
+//! can be asked for one. What the task produces is read at the provider.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use rusqlite::{Row, params};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::process::Command;
 
 use crate::agent_setup::find_program;
 use crate::error::{Error, Result};
+use crate::store::Project;
 use crate::{Core, git, open};
 
 /// How many cloud tasks one session may have delegated. An agent hands off a part of its
 /// work, not all of it many times over.
 pub const MAX_DELEGATED: usize = 6;
 
-/// The only provider there is so far.
-const CODEX: &str = "codex";
+/// How long Claude Code may take to create a cloud session. It prints the link within
+/// seconds; if it is still there after this, it is waiting for an answer nobody can give.
+const CLAUDE_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// Whose cloud a task is handed to.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CloudProvider {
+    /// Codex Cloud, in the environment the user has set up for the repository.
+    #[default]
+    Codex,
+    /// A Claude Code cloud session, in the user's default cloud environment.
+    Claude,
+}
+
+impl CloudProvider {
+    /// The name it is stored and shown under.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Codex => "codex",
+            Self::Claude => "claude",
+        }
+    }
+
+    /// The provider called `name`, if there is one.
+    #[must_use]
+    pub fn parse(name: &str) -> Option<Self> {
+        [Self::Codex, Self::Claude]
+            .into_iter()
+            .find(|provider| provider.as_str() == name)
+    }
+}
+
+/// A task as its provider started it.
+struct Started {
+    remote_id: String,
+    url: String,
+    branch: String,
+    /// What is known of it at once: `pending` where its status can be asked for later, `sent`
+    /// where it cannot.
+    status: &'static str,
+}
 
 /// A task handed to a cloud agent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -30,7 +74,7 @@ pub struct CloudTask {
     pub id: i64,
     /// The project it was delegated from.
     pub project_id: i64,
-    /// Whose cloud it runs in: `codex`.
+    /// Whose cloud it runs in: `codex` or `claude`.
     pub provider: String,
     /// The provider's id for it.
     pub remote_id: String,
@@ -53,6 +97,8 @@ pub struct CloudOrigin<'a> {
     pub task: Option<&'a str>,
     /// The session asking, if an agent is.
     pub session: Option<i64>,
+    /// Whose cloud to hand the work to.
+    pub provider: CloudProvider,
 }
 
 const SELECT: &str = "SELECT id, project_id, provider, remote_id, url, prompt, branch, status, \
@@ -176,11 +222,43 @@ impl Core {
         let project = self.project(project)?;
         self.within_share(origin.session)?;
         let repo = self.cloud_repo(&project.repo_path).await?;
-        self.require_cloud_environment(&repo).await?;
+        let started = match origin.provider {
+            CloudProvider::Codex => self.start_codex(&project, &repo, prompt, origin).await?,
+            CloudProvider::Claude => self.start_claude(&project, prompt).await?,
+        };
+        let store = self.store();
+        store.conn.execute(
+            "INSERT INTO cloud_tasks (project_id, provider, remote_id, url, prompt, branch, \
+             status, session_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                project.id,
+                origin.provider.as_str(),
+                started.remote_id,
+                started.url,
+                prompt,
+                started.branch,
+                started.status,
+                origin.session
+            ],
+        )?;
+        let sql = format!("{SELECT} WHERE id = ?1");
+        let new = store.conn.last_insert_rowid();
+        Ok(store.conn.query_row(&sql, params![new], from_row)?)
+    }
+
+    /// Starts a Codex Cloud task in the environment of `repo`, which there has to be.
+    async fn start_codex(
+        &self,
+        project: &Project,
+        repo: &str,
+        prompt: &str,
+        origin: CloudOrigin<'_>,
+    ) -> Result<Started> {
+        self.require_cloud_environment(repo).await?;
         let branch = self
             .cloud_branch(&project.name, &project.repo_path, origin.task)
             .await?;
-        let exec = ["cloud", "exec", "--env", &repo, "--branch", &branch, prompt];
+        let exec = ["cloud", "exec", "--env", repo, "--branch", &branch, prompt];
         let ran = self.codex(&exec).await?;
         let url = ran.stdout.lines().find(|line| remote_id(line).is_some());
         let Some((url, id)) = url.and_then(|url| Some((url.trim(), remote_id(url)?))) else {
@@ -189,15 +267,59 @@ impl Core {
                 last_line(&ran.stderr)
             )));
         };
-        let store = self.store();
-        store.conn.execute(
-            "INSERT INTO cloud_tasks (project_id, provider, remote_id, url, prompt, branch, \
-             status, session_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7)",
-            params![project.id, CODEX, id, url, prompt, branch, origin.session],
-        )?;
-        let sql = format!("{SELECT} WHERE id = ?1");
-        let new = store.conn.last_insert_rowid();
-        Ok(store.conn.query_row(&sql, params![new], from_row)?)
+        Ok(Started {
+            remote_id: id.to_string(),
+            url: url.to_string(),
+            branch,
+            status: "pending",
+        })
+    }
+
+    /// Starts a Claude Code cloud session on the repository, as checked out in its own folder.
+    ///
+    /// Claude Code only creates one with a terminal attached, so it is given one. It is run in
+    /// the repository's folder and not in a task's worktree: it asks once per folder whether
+    /// the folder is trusted, a question only the user may answer, and a worktree is a new
+    /// folder every time.
+    async fn start_claude(&self, project: &Project, prompt: &str) -> Result<Started> {
+        let program = find_program("claude", &self.tool_dirs).ok_or_else(|| {
+            refused("Claude Code is not installed: install it from Settings, under Agents")
+        })?;
+        let repo = &project.repo_path;
+        let mut command = with_terminal(&program, &["--cloud", prompt]);
+        command
+            .current_dir(repo)
+            .stdin(std::process::Stdio::null())
+            .kill_on_drop(true);
+        // As for a session here: the user's own login, whatever Swarmed was started from.
+        let inherited = std::env::vars_os().map(|(name, _)| name);
+        for name in inherited.filter(|name| {
+            let name = name.to_string_lossy();
+            name.starts_with("ANTHROPIC_") || name.starts_with("CLAUDE")
+        }) {
+            command.env_remove(name);
+        }
+        let Ok(output) = tokio::time::timeout(CLAUDE_TIMEOUT, command.output()).await else {
+            return Err(refused(format!(
+                "Claude Code did not answer. It is probably asking whether to trust {}: run \
+                 `claude` in that folder once, accept, then delegate again",
+                repo.display()
+            )));
+        };
+        let said = String::from_utf8_lossy(&output?.stdout).into_owned();
+        let Some((url, id)) = claude_session(&said) else {
+            return Err(refused(format!(
+                "Claude Code did not start a cloud session: {}",
+                last_line(&plain(&said))
+            )));
+        };
+        let branch = git::git(repo, &["symbolic-ref", "--short", "HEAD"]).await;
+        Ok(Started {
+            remote_id: id,
+            url,
+            branch: branch.unwrap_or_default(),
+            status: "sent",
+        })
     }
 
     /// Refuses a session that has as many cloud tasks to its name as one may have.
@@ -279,7 +401,8 @@ impl Core {
             .then_some(task.branch))
     }
 
-    /// Asks Codex for the statuses of the project's cloud tasks and keeps them.
+    /// Asks Codex for the statuses of the project's cloud tasks and keeps them. Claude Code
+    /// has no way of being asked, so its sessions stay as they were started.
     async fn refresh_cloud(&self, project: i64, repo: &Path) -> Result<()> {
         let repo = self.cloud_repo(repo).await?;
         let list = ["cloud", "list", "--env", &repo, "--json", "--limit", "20"];
@@ -287,7 +410,8 @@ impl Core {
         let store = self.store();
         for (id, status) in statuses(&ran.stdout) {
             store.conn.execute(
-                "UPDATE cloud_tasks SET status = ?1 WHERE project_id = ?2 AND remote_id = ?3",
+                "UPDATE cloud_tasks SET status = ?1 WHERE project_id = ?2 AND remote_id = ?3 \
+                 AND provider = 'codex'",
                 params![status, project, id],
             )?;
         }
@@ -318,6 +442,47 @@ impl Core {
     }
 }
 
+/// `program` with `args`, run with a terminal of its own where this system has the means.
+/// Elsewhere it is run as it is, which is enough for a stand-in.
+fn with_terminal(program: &Path, args: &[&str]) -> Command {
+    if cfg!(target_os = "macos") {
+        let mut command = Command::new("script");
+        command.args(["-q", "/dev/null"]).arg(program).args(args);
+        return command;
+    }
+    let mut command = Command::new(program);
+    command.args(args);
+    command
+}
+
+/// `text` without the control sequences a terminal program writes around its words.
+fn plain(text: &str) -> String {
+    let mut plain = String::with_capacity(text.len());
+    let mut rest = text.chars();
+    while let Some(c) = rest.next() {
+        if c == '\u{1b}' {
+            // An escape, then everything up to the letter or `~` that ends the sequence.
+            rest.by_ref().find(|c| c.is_ascii_alphabetic() || *c == '~');
+        } else if c == '\n' || !c.is_control() {
+            plain.push(c);
+        }
+    }
+    plain
+}
+
+/// The address and the id of the cloud session Claude Code says it created, from the line
+/// `View: https://claude.ai/code/session_…`. The address is kept without what follows `?`.
+fn claude_session(said: &str) -> Option<(String, String)> {
+    let said = plain(said);
+    let start = said.find("https://claude.ai/code/")?;
+    let address = said[start..]
+        .split(|c: char| c.is_whitespace() || c == '?')
+        .next()?;
+    let id = address.rsplit('/').next()?;
+    let known = id.starts_with("session_") || id.starts_with("cse_");
+    known.then(|| (address.to_string(), id.to_string()))
+}
+
 /// The last line of what a program said went wrong, which is where it says it.
 fn last_line(text: &str) -> &str {
     let said = text.lines().rev().find(|line| !line.trim().is_empty());
@@ -346,6 +511,24 @@ mod tests {
         assert_eq!(remote_id(url), Some("task_b_123"));
         assert_eq!(remote_id("Error: environment not found"), None);
         assert_eq!(remote_id(""), None);
+    }
+
+    #[test]
+    fn the_session_claude_code_created_is_read_off_its_terminal_output() {
+        let said = "\u{4}\u{8}\u{8}\u{1b}7\u{1b}8Created cloud session: Connectivity test\r\n\
+                    View: https://claude.ai/code/session_01TFabc?from=cli&m=0\r\n\
+                    Resume with: claude --teleport session_01TFabc\r\n\u{1b}[>4m\u{1b}[<u";
+        let session = claude_session(said).expect("found");
+        assert_eq!(session.0, "https://claude.ai/code/session_01TFabc");
+        assert_eq!(session.1, "session_01TFabc");
+        // Asked whether the folder is trusted, it has created nothing.
+        let asking = "\u{1b}[1mAccessing workspace:\u{1b}[0m\r\n Yes, I trust this folder";
+        assert_eq!(claude_session(asking), None);
+        assert_eq!(claude_session("see https://claude.ai/code/ for more"), None);
+        assert_eq!(
+            plain("\u{1b}[31mError:\u{1b}[0m no repository\r\n"),
+            "Error: no repository\n"
+        );
     }
 
     #[test]

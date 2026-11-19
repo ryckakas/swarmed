@@ -14,7 +14,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 
 use crate::agent::{AgentEvent, Auth};
-use crate::cloud::CloudOrigin;
+use crate::cloud::{CloudOrigin, CloudProvider};
 use crate::error::{Error, Result};
 use crate::paths::SOCKET_PREFIX;
 use crate::sessions::{Session, SessionOptions, SessionStatus};
@@ -270,18 +270,25 @@ impl Core {
             .store()
             .project_by_id(task.project_id)?
             .ok_or(Error::SessionNotFound(from))?;
+        let named = arguments.get("provider").and_then(Value::as_str);
+        let provider = match named {
+            None => CloudProvider::default(),
+            Some(name) => CloudProvider::parse(name)
+                .ok_or_else(|| refused(format!("there is no cloud provider `{name}`")))?,
+        };
         let origin = CloudOrigin {
             task: Some(&task.name),
             session: Some(from),
+            provider,
         };
         let delegated = self
             .cloud_delegate(&project.name, prompt.unwrap_or_default(), origin)
             .await?;
         Ok(format!(
-            "Delegated to a Codex cloud agent, starting from the branch `{}` as it is on \
-             GitHub: {}. It works on its own copy and does not report back here; the user \
-             follows it at that address.",
-            delegated.branch, delegated.url
+            "Delegated to a {} cloud agent, starting from the branch `{}` as it is on GitHub: \
+             {}. It works on its own copy and does not report back here; the user follows it \
+             at that address.",
+            delegated.provider, delegated.branch, delegated.url
         ))
     }
 

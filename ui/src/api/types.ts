@@ -124,12 +124,15 @@ export interface Project {
     cloud: CloudTask[];
 }
 
+/** Whose cloud a task can be handed to. */
+export type CloudProvider = "codex" | "claude";
+
 /** A task handed to an agent that runs in its provider's cloud. */
 export interface CloudTask {
     id: number;
     project_id: number;
-    /** Whose cloud it runs in: `codex`. */
-    provider: string;
+    /** Whose cloud it runs in. */
+    provider: CloudProvider;
     /** The provider's id for it. */
     remote_id: string;
     /** Where it is looked at in a browser. */
@@ -137,7 +140,10 @@ export interface CloudTask {
     prompt: string;
     /** The branch it started from. */
     branch: string;
-    /** What the provider last said of it, such as `pending`, `ready` or `error`. */
+    /**
+     * What the provider last said of it, such as `pending`, `ready` or `error`; `sent` for one
+     * whose provider cannot be asked.
+     */
     status: string;
     /** The session that delegated it, if an agent did. */
     session_id: number | null;
