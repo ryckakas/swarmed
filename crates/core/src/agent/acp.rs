@@ -91,9 +91,32 @@ impl AgentBackend for AcpBackend {
 enum Call {
     Initialize,
     OpenSession,
-    /// Its answer is not needed: an agent without that model keeps its own.
-    SetModel,
+    /// Its answer is not needed: an agent without that model or mode keeps its own.
+    SetOption,
     Prompt,
+}
+
+/// The agent's own mode that comes closest to `supervision`, among the ones it `offered`.
+/// The names are the ones agents use for these three: asking before anything is changed,
+/// deciding for itself what needs a person, and never asking.
+fn agent_mode(supervision: Supervision, offered: &[String]) -> Option<&str> {
+    let names: &[&str] = match supervision {
+        Supervision::Ask | Supervision::Plan => &["read-only", "ask"],
+        Supervision::Auto => &["agent", "auto"],
+        Supervision::Bypass => &["agent-full-access", "full-access"],
+    };
+    let wanted = |mode: &&String| names.contains(&mode.as_str());
+    offered.iter().find(wanted).map(String::as_str)
+}
+
+/// The values the agent offers for its option `id`, from what it answers to opening a session.
+fn option_values(opened: &Value, id: &str) -> Vec<String> {
+    let options = opened.get("configOptions").and_then(Value::as_array);
+    let named = |option: &&Value| str_of(option, "id") == Some(id);
+    let option = options.and_then(|options| options.iter().find(named));
+    let values = option.and_then(|option| option.get("options")?.as_array());
+    let value = |choice: &Value| str_of(choice, "value").map(String::from);
+    values.map_or_else(Vec::new, |values| values.iter().filter_map(value).collect())
 }
 
 /// A permission request the agent is waiting on.
@@ -131,6 +154,8 @@ struct Conversation {
     replaying: bool,
     /// Set when the agent could not be set up; the reason is what the user is shown.
     failure: Option<String>,
+    /// The modes of its own the agent offers, by id. Empty if it has none.
+    modes: Vec<String>,
 }
 
 impl Conversation {
@@ -155,6 +180,7 @@ impl Conversation {
             passed: Vec::new(),
             replaying: false,
             failure: None,
+            modes: vec![],
         }
     }
 
@@ -245,6 +271,8 @@ impl Conversation {
             skills: 0,
             slash_commands: vec![],
         });
+        self.modes = option_values(result, "mode");
+        self.set_mode().await;
         self.set_model(self.spec.model.clone()).await;
         while let Some(text) = self.queued.pop_front() {
             self.prompt(text).await;
@@ -259,8 +287,31 @@ impl Conversation {
             return;
         };
         let params = json!({ "sessionId": session_id, "configId": "model", "value": model });
-        self.call(Call::SetModel, "session/set_config_option", params)
+        self.call(Call::SetOption, "session/set_config_option", params)
             .await;
+    }
+
+    /// Puts the agent into the mode of its own that matches the session's supervision, if it
+    /// has modes and one of them matches. An agent without modes is supervised from here alone.
+    async fn set_mode(&mut self) {
+        let mode = agent_mode(self.spec.supervision, &self.modes).map(String::from);
+        let (Some(mode), Some(session_id)) = (mode, self.session_id.clone()) else {
+            return;
+        };
+        let params = json!({ "sessionId": session_id, "configId": "mode", "value": mode });
+        self.call(Call::SetOption, "session/set_config_option", params)
+            .await;
+    }
+
+    /// Whether what the agent asks permission for is allowed without showing it to the user.
+    /// An agent with modes of its own has already let through what it finds safe, so in auto
+    /// mode what still reaches Swarmed is what it wants a person to see.
+    fn allows_unasked(&self) -> bool {
+        match self.spec.supervision {
+            Supervision::Bypass => true,
+            Supervision::Auto => agent_mode(Supervision::Auto, &self.modes).is_none(),
+            Supervision::Ask | Supervision::Plan => false,
+        }
     }
 
     async fn prompt(&mut self, text: String) {
@@ -305,7 +356,7 @@ impl Conversation {
         let error = message.get("error").map(error_text);
         let result = message.get("result").unwrap_or(&Value::Null);
         match (call, error) {
-            (Call::SetModel, _) => {}
+            (Call::SetOption, _) => {}
             (Call::Prompt, error) => self.on_turn_end(result, error),
             (Call::Initialize | Call::OpenSession, Some(error)) => self.failure = Some(error),
             (Call::Initialize, None) => {
@@ -351,10 +402,7 @@ impl Conversation {
         }
         let pending = pending_permission(id, params);
         // Plan mode is Claude Code's own; here it asks, which is the closest there is.
-        if matches!(
-            self.spec.supervision,
-            Supervision::Auto | Supervision::Bypass
-        ) {
+        if self.allows_unasked() {
             return self.answer(&pending, true).await;
         }
         let tool = params.get("toolCall").unwrap_or(&Value::Null);
@@ -488,8 +536,11 @@ impl Conversation {
             AgentCommand::Deny { request_id, .. } => self.decide(&request_id, false).await,
             AgentCommand::Interrupt => self.cancel().await,
             AgentCommand::SetModel(model) => self.set_model(model).await,
-            // Supervision is applied here, when the agent asks: nothing to tell the agent.
-            AgentCommand::SetSupervision(supervision) => self.spec.supervision = supervision,
+            // Applied here, when the agent asks, and by the agent itself if it has modes.
+            AgentCommand::SetSupervision(supervision) => {
+                self.spec.supervision = supervision;
+                self.set_mode().await;
+            }
         }
     }
 
@@ -700,6 +751,30 @@ fn tail(text: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn supervision_is_matched_to_a_mode_the_agent_offers() {
+        let opened = json!({ "configOptions": [
+            { "id": "model", "options": [{ "value": "gpt-a" }] },
+            { "id": "mode", "options": [
+                { "value": "read-only" }, { "value": "workspace-write" },
+                { "value": "agent" }, { "value": "agent-full-access" },
+            ]},
+        ]});
+        let modes = option_values(&opened, "mode");
+        assert_eq!(modes.len(), 4);
+        assert_eq!(agent_mode(Supervision::Ask, &modes), Some("read-only"));
+        assert_eq!(agent_mode(Supervision::Plan, &modes), Some("read-only"));
+        assert_eq!(agent_mode(Supervision::Auto, &modes), Some("agent"));
+        assert_eq!(
+            agent_mode(Supervision::Bypass, &modes),
+            Some("agent-full-access")
+        );
+        // An agent with no modes, or none by these names, is left as it is.
+        assert_eq!(option_values(&json!({}), "mode"), Vec::<String>::new());
+        assert_eq!(agent_mode(Supervision::Auto, &[]), None);
+        assert_eq!(agent_mode(Supervision::Ask, &["build".to_string()]), None);
+    }
 
     #[test]
     fn permission_options_are_reduced_to_allow_and_reject() {
