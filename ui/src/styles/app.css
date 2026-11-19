@@ -410,18 +410,27 @@ code {
     height: var(--titlebar-height);
 }
 
-/* Sidebar tree */
+/* Sidebar tree: three levels told apart at a glance. A repository is a section, with a rule
+   above it and the largest, brightest name. A worktree is a labelled band, set in from the
+   repository's name. Its sessions hang off a guide line that starts under the worktree's icon. */
 
 .project + .project {
-    margin-top: var(--space-4);
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--line);
 }
 
 .project-name {
     flex: 1;
     min-width: 0;
-    font-size: var(--text-sm);
+    color: var(--bright);
+    font-size: 0.875rem;
     font-weight: 700;
     letter-spacing: 0.01em;
+}
+
+.project-toggle .row-icon {
+    stroke: var(--text);
 }
 
 /* The repository's name folds its tasks away and brings them back. */
@@ -475,7 +484,22 @@ code {
 }
 
 .task {
-    margin-top: var(--space-1);
+    margin-top: 6px;
+}
+
+/* The worktree's band: marked off from the rows around it, and quieter than a repository. */
+.task > .row-head {
+    margin: 0 6px 0 22px;
+    border-radius: 5px;
+    background: color-mix(in srgb, var(--raised) 55%, transparent);
+}
+
+.task > .row-head .row-close {
+    margin-right: 2px;
+}
+
+.task > .row-head .row-icon {
+    stroke: var(--muted);
 }
 
 .row-head {
@@ -572,11 +596,11 @@ code {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: var(--space-1) var(--space-2) 2px calc(var(--space-4) + var(--space-1));
-    color: var(--muted);
+    padding: var(--space-1) var(--space-2);
+    color: var(--text);
     font-family: var(--font-mono);
     font-size: var(--text-xs);
-    font-weight: 500;
+    font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -588,13 +612,19 @@ code {
 }
 
 .hint {
-    padding: 2px var(--space-4) 2px calc(var(--space-4) + var(--space-3));
+    padding: 2px var(--space-4) 2px 49px;
     color: var(--faint);
     font-size: var(--text-xs);
 }
 
 .project > .hint {
-    padding-left: var(--space-4);
+    padding-left: 39px;
+}
+
+/* The guide line a worktree's sessions hang off, under the worktree's icon. */
+.sessions {
+    margin: 2px 0 0 36px;
+    border-left: 1px solid var(--line);
 }
 
 /* A session's line: the row that opens it, and a close button that shows on approach. */
@@ -630,7 +660,7 @@ code {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    padding: 5px var(--space-2) 5px calc(var(--space-4) + var(--space-3) - 2px);
+    padding: 5px var(--space-2) 5px 9px;
     border: 0;
     background: none;
     color: inherit;
@@ -675,7 +705,7 @@ code {
 
 /* A task's closed sessions: one quiet line that unfolds into them. */
 .closed-toggle {
-    margin-left: calc(var(--space-4) + var(--space-3) - 2px);
+    margin-left: 41px;
     padding: 1px var(--space-2);
     border: 0;
     border-radius: 4px;
@@ -695,7 +725,7 @@ code {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    padding: 2px var(--space-2) 2px calc(var(--space-4) + var(--space-3) + var(--space-2));
+    padding: 2px var(--space-2) 2px 49px;
     color: var(--faint);
 }
 
@@ -723,7 +753,7 @@ code {
 
 /* A session an agent started sits under its starter, one step in. */
 .sessions li[data-nested="true"] .session-row {
-    padding-left: calc(var(--space-4) + var(--space-3) + var(--space-4));
+    padding-left: calc(9px + var(--space-4));
 }
 
 /* A session an agent started, marked as hanging off another. */
