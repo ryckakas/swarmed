@@ -596,3 +596,49 @@ async fn a_removed_task_takes_its_note_along() {
         .expect("test setup");
     assert_eq!(core.note("demo", Some("one")).expect("reads"), "");
 }
+
+#[tokio::test]
+async fn a_removed_project_leaves_swarmed_and_its_repository_stays() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    let task = core
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    core.set_note("demo", None, "for the repository")
+        .expect("writes");
+    core.set_note("demo", Some("one"), "for the task")
+        .expect("writes");
+
+    // Unsaved work in a task stops it, and nothing about the project is gone.
+    std::fs::write(task.worktree_path.join("new.txt"), "x").expect("test setup");
+    let refused = core.project_remove("demo", false, &hooks::discard).await;
+    assert!(matches!(refused, Err(Error::TaskNotClean { .. })));
+    assert_eq!(core.projects().expect("reads").len(), 1);
+    assert_eq!(
+        core.note("demo", None).expect("reads"),
+        "for the repository"
+    );
+
+    core.project_remove("demo", true, &hooks::discard)
+        .await
+        .expect("removes");
+    assert_eq!(core.projects().expect("reads"), vec![]);
+    assert_eq!(core.overview().expect("reads"), vec![]);
+    assert!(!task.worktree_path.exists());
+    assert!(!fx.paths.notes("demo").exists());
+    // The repository is as it was, the task's branch included.
+    assert!(fx.repo.join("README.md").exists());
+    git(
+        &fx.repo,
+        &["rev-parse", "--verify", "--quiet", &task.branch],
+    );
+    assert!(matches!(
+        core.project_remove("demo", false, &hooks::discard).await,
+        Err(Error::ProjectNotFound(_))
+    ));
+
+    // It can be added again, and starts empty.
+    core.project_add(&fx.repo, None).await.expect("adds again");
+    assert_eq!(core.tasks("demo", true).expect("reads"), vec![]);
+}

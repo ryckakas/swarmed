@@ -133,6 +133,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **A task's changes are read from git on demand** (`changes.rs`): everything that differs from
   the merge base with the task's base ref, uncommitted and untracked files included. The view is
   read-only. The UI reads again when one of the task's agents finishes a tool call or a turn.
+- **Removing a project** (`project_remove`) removes its tasks as `task_remove` does, keeping
+  their branches, then deletes what Swarmed holds about it: sessions, their history and the
+  notes. The repository is not touched. Removing a task stops its sessions first. In the UI
+  both ask first, and offer to go ahead regardless only after a refusal over unsaved work.
 - **Opening things elsewhere** (`open.rs`) starts the user's editor (`settings.toml`, VS Code by
   default) or the browser and never waits for them.
 - **Git is used by shelling out** to the `git` binary (`git.rs`), not through a library.

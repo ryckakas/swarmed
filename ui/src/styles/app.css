@@ -489,6 +489,11 @@ code {
     line-height: 1;
 }
 
+/* Followed by the row's remove button, which brings the gap to the edge. */
+.row-head .row-add {
+    margin-right: 0;
+}
+
 .row-add:hover,
 .row-add:focus-visible {
     background: var(--raised);
@@ -616,11 +621,14 @@ code {
     font: inherit;
     font-size: var(--text-md);
     line-height: 1;
-    opacity: 0;
+    /* Always there to be found, and out of the way until its row is pointed at. */
+    opacity: 0.4;
 }
 
 .session-line:hover .row-close,
-.session-line:focus-within .row-close {
+.session-line:focus-within .row-close,
+.row-head:hover .row-close,
+.row-close:focus-visible {
     opacity: 1;
 }
 
@@ -2144,6 +2152,13 @@ kbd {
 .button-primary:not(:disabled) {
     border-color: var(--text);
     background: var(--text);
+    color: var(--dusk);
+}
+
+/* An action that deletes something. */
+.button-danger:not(:disabled) {
+    border-color: var(--clay);
+    background: var(--clay);
     color: var(--dusk);
 }
 

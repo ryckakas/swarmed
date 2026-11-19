@@ -4,12 +4,14 @@ import type {
     AgentEvent,
     NoteTarget,
     Project,
+    RemoveTarget,
     SessionEvent,
     SessionSettings,
     Settings,
 } from "./api/types";
 import {
     applySessionEvent,
+    findSession,
     mayHaveEdited,
     taskIdOf,
     toggledId,
@@ -64,6 +66,9 @@ interface State {
     showSettings(open: boolean): void;
     /** Gives a session a new title. The tree follows when the app confirms it. */
     rename(api: Api, sessionId: number, title: string): Promise<void>;
+    /** The repository or task the user asked to remove, until they confirm or think again. */
+    removing: RemoveTarget | null;
+    askToRemove(target: RemoveTarget | null): void;
     /** The repository or task whose note is being edited. */
     noting: NoteTarget | null;
     /** Opens a note; `null` puts it away. */
@@ -234,13 +239,18 @@ export const useStore = create<State>((set, get) => ({
         reporting(async () => {
             await api.sessionRename(sessionId, title);
         }),
+    removing: null,
+    askToRemove: (target) => set({ removing: target }),
     noting: null,
     askForNote: (target) => set({ noting: target }),
     closing: null,
     askToClose: (sessionId) => set({ closing: sessionId }),
     refresh: async (api) => {
         try {
-            set({ projects: await api.overview(), load: "ready" });
+            const projects = await api.overview();
+            // A session that is gone, with its task or repository, cannot stay in the centre.
+            const selected = findSession(projects, get().selectedSessionId)?.id ?? null;
+            set({ projects, load: "ready", selectedSessionId: selected });
         } catch (error) {
             set({ load: { error: String(error) } });
         }

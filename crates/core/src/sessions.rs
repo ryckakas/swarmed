@@ -221,7 +221,7 @@ impl Store {
         session.ok_or(Error::SessionNotFound(id))
     }
 
-    fn sessions(&self, task_id: i64) -> Result<Vec<Session>> {
+    pub(crate) fn sessions(&self, task_id: i64) -> Result<Vec<Session>> {
         let mut stmt = self.conn.prepare(&format!(
             "{SESSION_SELECT} WHERE task_id = ?1 AND closed_at IS NULL ORDER BY id"
         ))?;

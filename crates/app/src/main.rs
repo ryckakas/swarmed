@@ -100,6 +100,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
             commands::agents,
             commands::overview,
             commands::project_add,
+            commands::project_remove,
             commands::branch_choices,
             commands::task_new,
             commands::task_remove,

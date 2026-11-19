@@ -28,6 +28,14 @@ export interface Api {
     pickFolder(): Promise<string | null>;
     /** Registers the git repository containing `path`. */
     projectAdd(path: string): Promise<Project>;
+    /**
+     * Takes a repository out of Swarmed: its tasks' worktrees, its sessions and the notes on it
+     * are deleted, the repository itself is not touched. Without `force` it refuses if a task
+     * holds unsaved work.
+     */
+    projectRemove(name: string, force: boolean): Promise<void>;
+    /** Removes a task's worktree and takes the task out of the tree. Its branch is kept. */
+    taskRemove(project: string, name: string, force: boolean): Promise<void>;
     /** What a new task in the project can start from. */
     branchChoices(project: string): Promise<BranchChoices>;
     /**

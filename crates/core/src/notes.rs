@@ -56,6 +56,14 @@ impl Core {
         remove(&self.paths.note(project, Some(task)))
     }
 
+    /// Removes every note on a project and on its tasks, along with the project.
+    pub(crate) fn forget_notes(&self, project: &str) -> Result<()> {
+        match std::fs::remove_dir_all(self.paths.notes(project)) {
+            Err(error) if error.kind() != ErrorKind::NotFound => Err(error.into()),
+            _ => Ok(()),
+        }
+    }
+
     /// Where the note is kept, once the project and the task are known to exist.
     fn note_file(&self, project: &str, task: Option<&str>) -> Result<PathBuf> {
         match task {

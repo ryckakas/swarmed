@@ -91,6 +91,14 @@ enum ProjectCommand {
     },
     /// List registered projects.
     List,
+    /// Take a project out of Swarmed: its tasks' worktrees, its sessions' history and its notes
+    /// go; the repository and its branches stay.
+    Rm {
+        project: String,
+        /// Also remove tasks that hold uncommitted or unpushed work.
+        #[arg(long)]
+        force: bool,
+    },
     /// Print the path of a project's local config file.
     Config { project: String },
 }
@@ -276,6 +284,10 @@ async fn project(core: &Core, command: ProjectCommand) -> Result<()> {
                     project.repo_path.display()
                 ));
             }
+        }
+        ProjectCommand::Rm { project, force } => {
+            core.project_remove(&project, force, &hook_line).await?;
+            say(&format!("removed project `{project}`"));
         }
         ProjectCommand::Config { project } => {
             let project = core.project(&project)?;

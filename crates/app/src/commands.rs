@@ -79,6 +79,17 @@ pub(crate) async fn project_add(
 }
 
 #[tauri::command]
+pub(crate) async fn project_remove<R: Runtime>(
+    app: AppHandle<R>,
+    core: CoreState<'_>,
+    name: String,
+    force: bool,
+) -> Command<()> {
+    let sink = hook_sink(&app, &name, "");
+    Ok(core.project_remove(&name, force, &sink).await?)
+}
+
+#[tauri::command]
 pub(crate) async fn branch_choices(core: CoreState<'_>, project: String) -> Command<BranchChoices> {
     Ok(core.branch_choices(&project).await?)
 }

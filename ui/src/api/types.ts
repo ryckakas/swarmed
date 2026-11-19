@@ -97,6 +97,9 @@ export interface Project {
     has_note: boolean;
 }
 
+/** What is being removed: a repository, or one of its tasks. */
+export type RemoveTarget = NoteTarget;
+
 /** What a note is kept on: a repository, or one of its tasks. */
 export interface NoteTarget {
     project: string;

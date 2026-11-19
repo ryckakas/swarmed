@@ -72,6 +72,25 @@ function markNote(projects: Project[], project: string, task: string | null, has
     }
 }
 
+/** Removing repositories and tasks from the tree `projects` returns. */
+function removeApi(projects: () => Project[]): Pick<Api, "projectRemove" | "taskRemove"> {
+    return {
+        projectRemove: async (name) => {
+            const at = projects().findIndex((project) => project.name === name);
+            projects().splice(at, at === -1 ? 0 : 1);
+        },
+        taskRemove: async (projectName, name, force) => {
+            // One sample task holds unsaved work, to show what a refusal looks like.
+            if (name === "invoice-export" && !force) {
+                throw new Error("task `invoice-export` has uncommitted changes");
+            }
+            const tasks = projects().find((project) => project.name === projectName)?.tasks ?? [];
+            const at = tasks.findIndex((task) => task.name === name);
+            tasks.splice(at, at === -1 ? 0 : 1);
+        },
+    };
+}
+
 /** Reading and writing notes, over the tree `projects` returns. */
 function noteApi(projects: () => Project[]): Pick<Api, "note" | "setNote"> {
     return {
@@ -564,6 +583,7 @@ export function createMockApi(): Api {
             agent.projects.push(project);
             return project;
         },
+        ...removeApi(() => agent.projects),
         branchChoices: async (projectName) => ({
             base: "origin/main",
             existing: projectName === "hero" ? ["feature/vat-export", "pm-16001-invoices"] : [],

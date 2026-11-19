@@ -122,6 +122,7 @@ function ProjectGroup({ project }: { project: Project }) {
                 >
                     +
                 </button>
+                <RemoveButton project={project.name} task={null} />
             </div>
             {!folded && tasks.length === 0 && <p className="hint">No tasks</p>}
             {!folded &&
@@ -148,6 +149,7 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
                 >
                     +
                 </button>
+                <RemoveButton project={project} task={task.name} />
             </div>
             {task.sessions.length === 0 && <p className="hint">No sessions</p>}
             <ul className="sessions">
@@ -186,6 +188,23 @@ function NoteButton({
                 <path d="M4 2h6l3 3v9H4z" />
                 <path d="M6.5 7.5h4M6.5 10.5h4" />
             </svg>
+        </button>
+    );
+}
+
+/** Asks to remove a repository or a task. Nothing goes before the question is answered. */
+function RemoveButton({ project, task }: { project: string; task: string | null }) {
+    const askToRemove = useStore((state) => state.askToRemove);
+    const label = task === null ? `Remove ${project} from Swarmed` : `Remove the task ${task}`;
+    return (
+        <button
+            type="button"
+            className="row-close"
+            aria-label={label}
+            title={label}
+            onClick={() => askToRemove({ project, task })}
+        >
+            ×
         </button>
     );
 }

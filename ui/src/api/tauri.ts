@@ -24,6 +24,9 @@ export const tauriApi: Api = {
     agents: () => invoke<AgentInfo[]>("agents"),
     pickFolder: () => open({ directory: true, multiple: false, title: "Add a repository" }),
     projectAdd: (path) => invoke<Project>("project_add", { path, name: null }),
+    projectRemove: (name, force) => invoke("project_remove", { name, force }),
+    taskRemove: (project, name, force) =>
+        invoke("task_remove", { project, name, force, deleteBranch: false }),
     branchChoices: (project) => invoke<BranchChoices>("branch_choices", { project }),
     taskNew: (project, name, branch) => invoke<Task>("task_new", { project, name, branch }),
     taskChanges: (project, name) => invoke<FileChange[]>("task_changes", { project, name }),

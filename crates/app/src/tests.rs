@@ -304,6 +304,20 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
 }
 
 #[test]
+fn the_ui_can_remove_a_repository_with_its_tasks() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+    app.ok("project_remove", json!({ "name": "demo", "force": true }));
+    assert_eq!(app.ok("overview", json!({})), json!([]));
+    assert_eq!(
+        app.invoke("project_remove", json!({ "name": "demo", "force": false })),
+        Err(json!("project `demo` not found"))
+    );
+}
+
+#[test]
 fn the_ui_can_keep_a_note_on_a_project_and_on_a_task() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
