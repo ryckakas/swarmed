@@ -10,7 +10,8 @@ use std::sync::Arc;
 use serde::Serialize;
 use swarmed_core::agent::{AgentEvent, Auth, Supervision};
 use swarmed_core::{
-    Core, NewTaskOptions, Project, ProjectOverview, RemoveOptions, Session, SessionOptions, Task,
+    BranchChoices, Core, NewTaskOptions, Project, ProjectOverview, RemoveOptions, Session,
+    SessionOptions, Task,
 };
 use tauri::{AppHandle, Emitter, Runtime, State};
 
@@ -70,6 +71,11 @@ pub(crate) async fn project_add(
     name: Option<String>,
 ) -> Command<Project> {
     Ok(core.project_add(&path, name.as_deref()).await?)
+}
+
+#[tauri::command]
+pub(crate) async fn branch_choices(core: CoreState<'_>, project: String) -> Command<BranchChoices> {
+    Ok(core.branch_choices(&project).await?)
 }
 
 #[tauri::command]

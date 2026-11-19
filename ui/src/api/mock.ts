@@ -306,7 +306,11 @@ export function createMockApi(): Api {
             agent.projects.push(project);
             return project;
         },
-        taskNew: async (projectName, name) => {
+        branchChoices: async (projectName) => ({
+            base: "origin/main",
+            existing: projectName === "hero" ? ["feature/vat-export", "pm-16001-invoices"] : [],
+        }),
+        taskNew: async (projectName, name, branch) => {
             const project = agent.projects.find((candidate) => candidate.name === projectName);
             if (!project) {
                 throw new Error(`project \`${projectName}\` not found`);
@@ -317,7 +321,10 @@ export function createMockApi(): Api {
                 }
                 await new Promise((resolve) => setTimeout(resolve, PACE * 2));
             }
-            const created = task(Date.now(), project.id, name, []);
+            const created = {
+                ...task(Date.now(), project.id, name, []),
+                ...(branch ? { branch } : {}),
+            };
             project.tasks.push(created);
             return created;
         },
@@ -325,12 +332,12 @@ export function createMockApi(): Api {
             hookListeners.add(listener);
             return () => hookListeners.delete(listener);
         },
-        sessionNew: async (_project, taskName) => {
+        sessionNew: async (_project, taskName, setup) => {
             const home = tasks().find((candidate) => candidate.name === taskName);
             if (!home) {
                 throw new Error(`task \`${taskName}\` not found`);
             }
-            const created = agent.newSession(home.id);
+            const created = { ...agent.newSession(home.id), ...setup };
             home.sessions.push(created);
             return created;
         },

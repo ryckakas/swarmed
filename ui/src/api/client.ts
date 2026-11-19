@@ -1,4 +1,13 @@
-import type { AgentEvent, HookOutput, Project, Session, SessionEvent, Task } from "./types";
+import type {
+    AgentEvent,
+    BranchChoices,
+    HookOutput,
+    Project,
+    Session,
+    SessionEvent,
+    SessionSetup,
+    Task,
+} from "./types";
 
 /** Stops a subscription. */
 export type Unsubscribe = () => void;
@@ -10,12 +19,17 @@ export interface Api {
     pickFolder(): Promise<string | null>;
     /** Registers the git repository containing `path`. */
     projectAdd(path: string): Promise<Project>;
-    /** Creates a task: branch, worktree, then the project's `setup` hook. This can take a while. */
-    taskNew(project: string, name: string): Promise<Task>;
+    /** What a new task in the project can start from. */
+    branchChoices(project: string): Promise<BranchChoices>;
+    /**
+     * Creates a task: a worktree on a new branch, or on `branch` if one is given, then the
+     * project's `setup` hook. This can take a while.
+     */
+    taskNew(project: string, name: string, branch: string | null): Promise<Task>;
     /** Calls `listener` for every line a hook prints while a task is created or removed. */
     onHookOutput(listener: (output: HookOutput) => void): Promise<Unsubscribe>;
     /** Creates a session in a task. Its agent starts with the first message. */
-    sessionNew(project: string, task: string): Promise<Session>;
+    sessionNew(project: string, task: string, setup: SessionSetup): Promise<Session>;
     /** Everything the session has said and been told, oldest first. */
     sessionEvents(id: number): Promise<AgentEvent[]>;
     /** Starts a turn, starting the session's agent first if it is not running. */

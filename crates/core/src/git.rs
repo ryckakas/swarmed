@@ -171,3 +171,38 @@ pub(crate) async fn unpushed_commits(worktree: &Path, base: &str) -> Result<u32>
     let count = git(worktree, &["rev-list", "--count", &range]).await?;
     Ok(count.parse().unwrap_or(0))
 }
+
+/// The branches a new worktree could check out: local branches and remote branches by their
+/// short name, without the ones another worktree already has checked out. Sorted.
+pub(crate) async fn available_branches(repo: &Path) -> Result<Vec<String>> {
+    let local = git(
+        repo,
+        &["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+    )
+    .await?;
+    // `lstrip=3` drops `refs/remotes/<remote>/`, which leaves the name `git worktree add`
+    // resolves to a new tracking branch.
+    let remote = git(
+        repo,
+        &[
+            "for-each-ref",
+            "--format=%(refname:lstrip=3)",
+            "refs/remotes",
+        ],
+    )
+    .await?;
+    let worktrees = git(repo, &["worktree", "list", "--porcelain"]).await?;
+    let taken: Vec<&str> = worktrees
+        .lines()
+        .filter_map(|line| line.strip_prefix("branch refs/heads/"))
+        .collect();
+    let mut branches: Vec<String> = local
+        .lines()
+        .chain(remote.lines())
+        .filter(|name| !name.is_empty() && *name != "HEAD" && !taken.contains(name))
+        .map(String::from)
+        .collect();
+    branches.sort_unstable();
+    branches.dedup();
+    Ok(branches)
+}

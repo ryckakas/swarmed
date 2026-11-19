@@ -6,9 +6,11 @@ import {
     countWaiting,
     findSession,
     findSessionHome,
+    taskNameForPrompt,
     taskNameFrom,
     taskStatus,
     titleFrom,
+    uniqueTaskName,
     withSessionStatus,
 } from "./tree";
 
@@ -107,5 +109,27 @@ describe("taskNameFrom", () => {
         expect(taskNameFrom("v1..2")).toBe("v1.2");
         expect(taskNameFrom("???")).toBe("");
         expect(taskNameFrom("x".repeat(100))).toHaveLength(64);
+    });
+});
+
+describe("taskNameForPrompt", () => {
+    it("names a task after the first line of its prompt, cut at a word", () => {
+        expect(taskNameForPrompt("Fix the login redirect\nUsers get stuck")).toBe(
+            "fix-the-login-redirect",
+        );
+        const long = taskNameForPrompt(
+            "Investigate why the nightly export job drops the VAT column",
+        );
+        expect(long).toBe("investigate-why-the-nightly-export-job");
+        expect(taskNameForPrompt("x".repeat(100))).toHaveLength(40);
+        expect(taskNameForPrompt("???")).toBe("task");
+    });
+});
+
+describe("uniqueTaskName", () => {
+    it("adds a number only when the name is taken", () => {
+        expect(uniqueTaskName("fix", [])).toBe("fix");
+        expect(uniqueTaskName("fix", ["fix"])).toBe("fix-2");
+        expect(uniqueTaskName("fix", ["fix", "fix-2"])).toBe("fix-3");
     });
 });

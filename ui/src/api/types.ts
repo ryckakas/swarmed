@@ -80,3 +80,18 @@ export interface HookOutput {
     task: string;
     line: string;
 }
+
+/** What a new task in a project can start from. */
+export interface BranchChoices {
+    /** The ref a new branch would be created from. */
+    base: string;
+    /** Existing branches a task could check out instead. */
+    existing: string[];
+}
+
+/** How a new session should run. */
+export interface SessionSetup {
+    /** A model name Claude Code accepts, or `null` for its default. */
+    model: string | null;
+    supervision: Supervision;
+}

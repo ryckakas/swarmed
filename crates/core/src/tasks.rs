@@ -1,5 +1,7 @@
 //! Task lifecycle: create, set up, remove.
 
+use serde::Serialize;
+
 use crate::config::ProjectConfig;
 use crate::error::{Error, Result};
 use crate::hooks::OutputSink;
@@ -14,6 +16,15 @@ pub struct NewTaskOptions<'a> {
     pub existing_branch: Option<&'a str>,
 }
 
+/// What a new task in a project can start from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BranchChoices {
+    /// The ref a new branch would be created from.
+    pub base: String,
+    /// Existing branches a task could check out instead, sorted.
+    pub existing: Vec<String>,
+}
+
 /// Options for [`Core::task_remove`].
 #[derive(Debug, Default, Clone, Copy)]
 pub struct RemoveOptions {
@@ -24,6 +35,19 @@ pub struct RemoveOptions {
 }
 
 impl Core {
+    /// What a new task in `project` can start from. Reads local refs only; it does not fetch.
+    pub async fn branch_choices(&self, project: &str) -> Result<BranchChoices> {
+        let project = self.project(project)?;
+        let config = self.project_config(&project.name)?;
+        let base = if config.base_branch.is_empty() {
+            git::default_base(&project.repo_path).await?
+        } else {
+            config.base_branch
+        };
+        let existing = git::available_branches(&project.repo_path).await?;
+        Ok(BranchChoices { base, existing })
+    }
+
     /// The project's tasks, oldest first, archived ones last when included.
     pub fn tasks(&self, project: &str, include_archived: bool) -> Result<Vec<Task>> {
         let project = self.project(project)?;

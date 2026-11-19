@@ -315,3 +315,28 @@ async fn with_a_remote_tasks_branch_from_it_and_pushed_work_can_be_removed() {
         .expect("pushed work can be removed");
     assert!(!task.worktree_path.exists());
 }
+
+#[tokio::test]
+async fn branch_choices_offer_the_base_and_branches_no_worktree_holds() {
+    let fx = fixture();
+    git(&fx.repo, &["branch", "feature/a"]);
+    git(&fx.repo, &["branch", "feature/b"]);
+    let core = core_with_project(&fx).await;
+
+    let choices = core.branch_choices("demo").await.expect("reads");
+    assert_eq!(choices.base, "main");
+    // `main` is checked out in the repository itself, so a task cannot take it.
+    assert_eq!(choices.existing, ["feature/a", "feature/b"]);
+
+    let options = NewTaskOptions {
+        existing_branch: Some("feature/a"),
+    };
+    core.task_new("demo", "a", options, &hooks::discard)
+        .await
+        .expect("creates");
+    core.task_new("demo", "fresh", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates");
+    let choices = core.branch_choices("demo").await.expect("reads");
+    assert_eq!(choices.existing, ["feature/b"]);
+}

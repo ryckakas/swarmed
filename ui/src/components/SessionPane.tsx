@@ -2,6 +2,7 @@ import type { Session, Task } from "../api/types";
 import { useStore } from "../store";
 import { findSession, findSessionHome } from "../tree";
 import { Composer } from "./Composer";
+import { NewTask } from "./NewTask";
 import { StatusMark, statusLabel } from "./StatusMark";
 import { Transcript } from "./Transcript";
 
@@ -22,12 +23,7 @@ export function SessionPane() {
     const home = session && findSessionHome(projects, session);
 
     if (!(session && home)) {
-        return (
-            <div className="notice">
-                <h1>No session selected</h1>
-                <p>Pick a session on the left, or use the arrow keys to move between them.</p>
-            </div>
-        );
+        return <NewTask projects={projects} />;
     }
     return (
         <article className="session">
@@ -50,11 +46,7 @@ export function SessionPane() {
                     events={events}
                 />
             )}
-            <Composer
-                key={`composer-${session.id}`}
-                sessionId={session.id}
-                status={session.status}
-            />
+            <Composer key={`composer-${session.id}`} session={session} />
         </article>
     );
 }

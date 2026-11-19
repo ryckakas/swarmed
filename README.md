@@ -4,8 +4,9 @@ Parallel Claude Code sessions, each in its own git worktree with a fully isolate
 A personal tool with a Rust core; the desktop app (Tauri) comes later.
 
 Status: early. The core and CLI work. In the desktop app you can start sessions, talk to the
-agent, answer its permission requests and stop a turn. Add a repository and create tasks from the
-sidebar. There is no view of the changes yet.
+agent, answer its permission requests and stop a turn. Add a repository from the sidebar, then
+start a task by typing what you want done and choosing the repository, branch, supervision and
+model under the message box. There is no view of the changes yet.
 
 ## Layout
 

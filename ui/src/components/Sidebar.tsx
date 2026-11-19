@@ -1,13 +1,14 @@
-import { type FormEvent, type KeyboardEvent, useState } from "react";
+import type { KeyboardEvent } from "react";
 import { api } from "../api";
 import type { Project, Session, Task } from "../api/types";
 import { useStore } from "../store";
-import { countWaiting, taskNameFrom } from "../tree";
+import { countWaiting } from "../tree";
 import { StatusMark } from "./StatusMark";
 
 export function Sidebar() {
     const projects = useStore((state) => state.projects);
     const load = useStore((state) => state.load);
+    const startNew = useStore((state) => state.startNew);
     const waiting = countWaiting(projects);
 
     return (
@@ -19,6 +20,11 @@ export function Sidebar() {
                     </span>
                 )}
             </div>
+            {projects.length > 0 && (
+                <button type="button" className="new-task-button" onClick={() => startNew()}>
+                    New task
+                </button>
+            )}
             <div className="sidebar-scroll">
                 {load === "ready" && projects.length === 0 && <NoProjects />}
                 {projects.map((project) => (
@@ -43,7 +49,7 @@ export function Sidebar() {
 /** Up and down move between session rows, as in a list, without leaving Tab order behind. */
 function moveFocus(event: KeyboardEvent<HTMLElement>) {
     const step = { ArrowDown: 1, ArrowUp: -1 }[event.key];
-    if (step === undefined || event.target instanceof HTMLInputElement) {
+    if (step === undefined) {
         return;
     }
     const rows = [...event.currentTarget.querySelectorAll<HTMLButtonElement>(".session-row")];
@@ -69,15 +75,6 @@ async function addProject() {
     }
 }
 
-/** Creates a task and its first session, then opens that session. */
-async function createTask(project: string, name: string) {
-    const { refresh, open } = useStore.getState();
-    await api.taskNew(project, name);
-    const session = await api.sessionNew(project, name);
-    await refresh(api);
-    await open(api, session.id);
-}
-
 function NoProjects() {
     return (
         <div className="sidebar-empty">
@@ -95,7 +92,7 @@ function NoProjects() {
 }
 
 function ProjectGroup({ project }: { project: Project }) {
-    const [adding, setAdding] = useState(false);
+    const startNew = useStore((state) => state.startNew);
     const tasks = project.tasks.filter((task) => !task.archived);
     return (
         <section className="project">
@@ -106,13 +103,12 @@ function ProjectGroup({ project }: { project: Project }) {
                     className="row-add"
                     aria-label={`New task in ${project.name}`}
                     title="New task"
-                    onClick={() => setAdding(true)}
+                    onClick={() => startNew(project.name)}
                 >
                     +
                 </button>
             </div>
-            {adding && <NewTask project={project.name} onClose={() => setAdding(false)} />}
-            {tasks.length === 0 && !adding && <p className="hint">No tasks</p>}
+            {tasks.length === 0 && <p className="hint">No tasks</p>}
             {tasks.map((task) => (
                 <TaskGroup key={task.id} project={project.name} task={task} />
             ))}
@@ -120,61 +116,14 @@ function ProjectGroup({ project }: { project: Project }) {
     );
 }
 
-/** A one-line form for a new task's name. Shows the hook's progress while the task is set up. */
-function NewTask({ project, onClose }: { project: string; onClose: () => void }) {
-    const [typed, setTyped] = useState("");
-    const [busy, setBusy] = useState(false);
-    const hookLine = useStore((state) => state.hookLine);
-    const name = taskNameFrom(typed);
-
-    const submit = async (event: FormEvent) => {
-        event.preventDefault();
-        if (name === "" || busy) {
-            return;
-        }
-        setBusy(true);
-        useStore.setState({ hookLine: null });
-        try {
-            await createTask(project, name);
-            onClose();
-        } catch (error) {
-            // A task whose setup failed still exists; show it, so it can be inspected.
-            const { refresh, report } = useStore.getState();
-            report(error);
-            await refresh(api);
-            setBusy(false);
-        }
-    };
-
-    if (busy) {
-        return (
-            <p className="hint new-task-progress" aria-live="polite">
-                Setting up {name}… {hookLine}
-            </p>
-        );
-    }
-    return (
-        <form className="new-task" onSubmit={(event) => void submit(event)}>
-            <input
-                // biome-ignore lint/a11y/noAutofocus: the field appears because the user asked for it
-                autoFocus
-                aria-label={`Name of the new task in ${project}`}
-                placeholder="Task name, e.g. fix-login"
-                value={typed}
-                onChange={(event) => setTyped(event.target.value)}
-                onKeyDown={(event) => event.key === "Escape" && onClose()}
-                onBlur={() => typed === "" && onClose()}
-            />
-            {name !== "" && name !== typed && <p className="hint">Will be created as {name}</p>}
-        </form>
-    );
-}
-
 function TaskGroup({ project, task }: { project: string; task: Task }) {
     const newSession = async () => {
         const { refresh, open, report } = useStore.getState();
         try {
-            const session = await api.sessionNew(project, task.name);
+            const session = await api.sessionNew(project, task.name, {
+                model: null,
+                supervision: "ask",
+            });
             await refresh(api);
             await open(api, session.id);
         } catch (error) {

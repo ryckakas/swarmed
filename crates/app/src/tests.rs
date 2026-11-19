@@ -133,6 +133,14 @@ fn the_ui_can_go_from_an_empty_app_to_an_answered_permission_request() {
 
     let project = app.ok("project_add", json!({ "path": app.repo, "name": null }));
     assert_eq!(project["name"], "demo");
+    git(&app.repo, &["branch", "feature/existing"]);
+    let choices = app.ok("branch_choices", json!({ "project": "demo" }));
+    assert_eq!(
+        choices,
+        json!({ "base": "main", "existing": ["feature/existing"] })
+    );
+    let on_branch = json!({ "project": "demo", "name": "two", "branch": "feature/existing" });
+    assert_eq!(app.ok("task_new", on_branch)["branch"], "feature/existing");
     let task = app.ok(
         "task_new",
         json!({ "project": "demo", "name": "one", "branch": null }),
@@ -150,8 +158,8 @@ fn the_ui_can_go_from_an_empty_app_to_an_answered_permission_request() {
     app.ok("session_send", json!({ "id": id, "text": "run: ls" }));
     let request = app.wait_for_event(id, "permission_request");
     let overview = app.ok("overview", json!({}));
-    assert_eq!(overview[0]["tasks"][0]["running"], json!([id]));
-    assert_eq!(overview[0]["tasks"][0]["sessions"][0]["title"], "run: ls");
+    assert_eq!(overview[0]["tasks"][1]["running"], json!([id]));
+    assert_eq!(overview[0]["tasks"][1]["sessions"][0]["title"], "run: ls");
 
     app.ok(
         "session_allow",

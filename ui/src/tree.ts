@@ -102,3 +102,30 @@ export function taskNameFrom(typed: string): string {
         .replace(/^[-_.]+|[-_.]+$/g, "")
         .slice(0, 64);
 }
+
+/** How long a task name taken from a prompt may be. */
+const PROMPT_NAME_CHARS = 40;
+
+/** A task name for a prompt: its first line as a name, cut at a word where possible. */
+export function taskNameForPrompt(prompt: string): string {
+    const name = taskNameFrom(prompt.split("\n")[0] ?? "");
+    if (name.length <= PROMPT_NAME_CHARS) {
+        return name || "task";
+    }
+    const cut = name.slice(0, PROMPT_NAME_CHARS);
+    const lastDash = cut.lastIndexOf("-");
+    return (lastDash > PROMPT_NAME_CHARS / 2 ? cut.slice(0, lastDash) : cut).replace(/[-_.]+$/, "");
+}
+
+/** `name`, or `name-2`, `name-3` and so on if tasks with that name already exist. */
+export function uniqueTaskName(name: string, taken: string[]): string {
+    if (!taken.includes(name)) {
+        return name;
+    }
+    for (let suffix = 2; ; suffix += 1) {
+        const candidate = `${name}-${suffix}`;
+        if (!taken.includes(candidate)) {
+            return candidate;
+        }
+    }
+}

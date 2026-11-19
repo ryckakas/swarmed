@@ -29,7 +29,7 @@ use sessions::Live;
 pub use sessions::{EVENT_BUFFER, Session, SessionEvent, SessionOptions, SessionStatus};
 use store::Store;
 pub use store::{Project, SetupStatus, Task};
-pub use tasks::{NewTaskOptions, RemoveOptions};
+pub use tasks::{BranchChoices, NewTaskOptions, RemoveOptions};
 
 /// The entry point: one value per data directory, shared by everything a front end does.
 #[derive(Debug)]

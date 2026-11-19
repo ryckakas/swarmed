@@ -8,6 +8,8 @@ interface State {
     /** `loading` until the first read finished; an error message if it failed. */
     load: "loading" | "ready" | { error: string };
     selectedSessionId: number | null;
+    /** The repository preselected on the new-task screen, shown when no session is selected. */
+    draftProject: string | null;
     /** The events of every session whose transcript has been opened. */
     events: Record<number, AgentEvent[]>;
     /** The latest line a hook printed while a task is being set up or removed. */
@@ -17,6 +19,8 @@ interface State {
     refresh(api: Api): Promise<void>;
     /** Selects a session and loads its transcript if it has not been opened yet. */
     open(api: Api, sessionId: number): Promise<void>;
+    /** Shows the new-task screen, for `project` if one is given. */
+    startNew(project?: string): void;
     apply(event: SessionEvent): void;
     report(problem: unknown): void;
     dismissProblem(): void;
@@ -54,6 +58,7 @@ export const useStore = create<State>((set, get) => ({
     projects: [],
     load: "loading",
     selectedSessionId: null,
+    draftProject: null,
     events: {},
     hookLine: null,
     problem: null,
@@ -76,6 +81,7 @@ export const useStore = create<State>((set, get) => ({
             get().report(error);
         }
     },
+    startNew: (project) => set({ selectedSessionId: null, draftProject: project ?? null }),
     apply: (published) => {
         const reading = loading.get(published.session_id);
         if (reading) {
