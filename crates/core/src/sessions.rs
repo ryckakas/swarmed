@@ -126,6 +126,15 @@ pub struct Session {
     pub status: SessionStatus,
 }
 
+/// What can be changed about a session after it was created.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SessionSettings {
+    /// The model to run on; `None` is the agent's default.
+    pub model: Option<String>,
+    /// How much the agent may do without asking.
+    pub supervision: Supervision,
+}
+
 /// Options for [`Core::session_new`].
 #[derive(Debug, Clone, Default)]
 pub struct SessionOptions {
@@ -192,19 +201,35 @@ impl Store {
     }
 
     fn sessions(&self, task_id: i64) -> Result<Vec<Session>> {
-        let mut stmt = self
-            .conn
-            .prepare(&format!("{SESSION_SELECT} WHERE task_id = ?1 ORDER BY id"))?;
+        let mut stmt = self.conn.prepare(&format!(
+            "{SESSION_SELECT} WHERE task_id = ?1 AND closed_at IS NULL ORDER BY id"
+        ))?;
         let rows = stmt.query_map(params![task_id], session_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     pub(crate) fn sessions_all(&self) -> Result<Vec<Session>> {
-        let mut stmt = self
-            .conn
-            .prepare(&format!("{SESSION_SELECT} ORDER BY id"))?;
+        let mut stmt = self.conn.prepare(&format!(
+            "{SESSION_SELECT} WHERE closed_at IS NULL ORDER BY id"
+        ))?;
         let rows = stmt.query_map([], session_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    fn session_configure(&self, id: i64, settings: &SessionSettings) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions SET model = ?2, supervision = ?3 WHERE id = ?1",
+            params![id, settings.model, settings.supervision.as_str()],
+        )?;
+        Ok(())
+    }
+
+    fn session_close(&self, id: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions SET closed_at = CURRENT_TIMESTAMP, status = 'idle' WHERE id = ?1",
+            params![id],
+        )?;
+        Ok(())
     }
 
     fn events(&self, session_id: i64) -> Result<Vec<AgentEvent>> {
@@ -428,6 +453,43 @@ impl Core {
     pub fn session_stop(&self, id: i64) {
         // Dropping the last command sender closes the agent's input, which ends it.
         self.live.commands().remove(&id);
+    }
+
+    /// Changes a session's model and supervision. A running agent is told at once: the model
+    /// applies from its next turn, the supervision from its next action.
+    pub fn session_configure(&self, id: i64, settings: &SessionSettings) -> Result<Session> {
+        let before = self.session(id)?;
+        self.store().session_configure(id, settings)?;
+        // Not running is fine: the session starts with the new settings.
+        if let Ok(commands) = self.live.sender(id) {
+            tell_agent(&commands, &before, settings);
+        }
+        self.session(id)
+    }
+
+    /// Stops a session's agent and takes the session out of every list. Its history is kept.
+    pub fn session_close(&self, id: i64) -> Result<()> {
+        self.session(id)?;
+        self.session_stop(id);
+        self.store().session_close(id)
+    }
+}
+
+/// Passes on the settings that differ from what the session had.
+fn tell_agent(
+    commands: &mpsc::UnboundedSender<AgentCommand>,
+    before: &Session,
+    settings: &SessionSettings,
+) {
+    if before.model != settings.model {
+        commands
+            .send(AgentCommand::SetModel(settings.model.clone()))
+            .ok();
+    }
+    if before.supervision != settings.supervision {
+        commands
+            .send(AgentCommand::SetSupervision(settings.supervision))
+            .ok();
     }
 }
 

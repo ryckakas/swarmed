@@ -237,6 +237,10 @@ pub enum AgentCommand {
     },
     /// Stop the current turn; the session stays usable.
     Interrupt,
+    /// Run on this model from the next turn on; `None` is the agent's default.
+    SetModel(Option<String>),
+    /// Change how much the agent may do without asking, from now on.
+    SetSupervision(Supervision),
 }
 
 /// A running session. Dropping `commands` ends it.

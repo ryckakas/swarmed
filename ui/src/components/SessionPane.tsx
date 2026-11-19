@@ -1,3 +1,4 @@
+import { api } from "../api";
 import type { Session, Task } from "../api/types";
 import { useStore } from "../store";
 import { findSession, findSessionHome } from "../tree";
@@ -19,6 +20,7 @@ export function SessionPane() {
     const events = useStore((state) =>
         selectedSessionId === null ? undefined : state.events[selectedSessionId],
     );
+    const close = useStore((state) => state.close);
     const session = findSession(projects, selectedSessionId);
     const home = session && findSessionHome(projects, session);
 
@@ -32,10 +34,20 @@ export function SessionPane() {
                     {home.project.name} / {home.task.name}
                 </p>
                 <h1>{session.title || "New session"}</h1>
-                <p className={`session-status status-${session.status}`}>
-                    <StatusMark status={session.status} />
-                    {statusLabel(session.status)}
-                </p>
+                <div className="session-meta">
+                    <p className={`session-status status-${session.status}`}>
+                        <StatusMark status={session.status} />
+                        {statusLabel(session.status)}
+                    </p>
+                    <button
+                        type="button"
+                        className="quiet-button"
+                        title="Stops the agent and removes the session from the sidebar"
+                        onClick={() => void close(api, session.id)}
+                    >
+                        Close session
+                    </button>
+                </div>
             </header>
             {events === undefined && <p className="aside loading">Loading the conversation…</p>}
             {events?.length === 0 && <Facts session={session} task={home.task} />}

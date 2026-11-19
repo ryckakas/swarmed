@@ -222,14 +222,22 @@ impl Conversation {
             mcp_servers: self.passed_servers(),
             skills: 0,
         });
-        if let Some(model) = self.spec.model.clone() {
-            let params = json!({ "sessionId": session_id, "configId": "model", "value": model });
-            self.call(Call::SetModel, "session/set_config_option", params)
-                .await;
-        }
+        self.set_model(self.spec.model.clone()).await;
         while let Some(text) = self.queued.pop_front() {
             self.prompt(text).await;
         }
+    }
+
+    /// Switches the open session to `model`. The protocol has no way back to the agent's own
+    /// default, so `None` only applies when the session is next started.
+    async fn set_model(&mut self, model: Option<String>) {
+        self.spec.model.clone_from(&model);
+        let (Some(model), Some(session_id)) = (model, self.session_id.clone()) else {
+            return;
+        };
+        let params = json!({ "sessionId": session_id, "configId": "model", "value": model });
+        self.call(Call::SetModel, "session/set_config_option", params)
+            .await;
     }
 
     async fn prompt(&mut self, text: String) {
@@ -429,6 +437,9 @@ impl Conversation {
             AgentCommand::Allow { request_id } => self.decide(&request_id, true).await,
             AgentCommand::Deny { request_id, .. } => self.decide(&request_id, false).await,
             AgentCommand::Interrupt => self.cancel().await,
+            AgentCommand::SetModel(model) => self.set_model(model).await,
+            // Supervision is applied here, when the agent asks: nothing to tell the agent.
+            AgentCommand::SetSupervision(supervision) => self.spec.supervision = supervision,
         }
     }
 

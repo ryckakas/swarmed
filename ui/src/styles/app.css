@@ -178,38 +178,71 @@ code {
     padding-left: var(--space-4);
 }
 
-.session-row {
+/* A session's line: the row that opens it, and a close button that shows on approach. */
+.session-line {
     display: flex;
     align-items: center;
-    gap: var(--space-2);
-    width: 100%;
-    padding: 5px var(--space-3) 5px calc(var(--space-4) + var(--space-3) - 2px);
-    border: 0;
     /* The bar that turns pollen when a session needs you; transparent holds its place. */
     border-left: 2px solid transparent;
-    background: none;
     color: var(--text);
-    font: inherit;
-    text-align: left;
-    cursor: default;
 }
 
-.session-row:hover {
+.session-line:hover {
     background: color-mix(in srgb, var(--raised) 55%, transparent);
 }
 
-.session-row[aria-current="true"] {
+.session-line[data-current="true"] {
     background: var(--raised);
 }
 
-.session-row.status-idle {
+.session-line.status-idle {
     color: var(--muted);
 }
 
-.session-row.status-waiting {
+.session-line.status-waiting {
     border-left-color: var(--pollen);
     background: var(--pollen-wash);
     font-weight: 600;
+}
+
+.session-row {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 5px var(--space-2) 5px calc(var(--space-4) + var(--space-3) - 2px);
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+}
+
+.row-close {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    margin-right: var(--space-2);
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--faint);
+    font: inherit;
+    font-size: var(--text-md);
+    line-height: 1;
+    opacity: 0;
+}
+
+.session-line:hover .row-close,
+.session-line:focus-within .row-close {
+    opacity: 1;
+}
+
+.row-close:hover,
+.row-close:focus-visible {
+    background: var(--line);
+    color: var(--text);
 }
 
 .session-title {
@@ -361,6 +394,19 @@ code {
     margin-bottom: 2px;
     color: var(--muted);
     font-family: var(--font-mono);
+    font-size: var(--text-xs);
+}
+
+.session-meta {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-4);
+    margin-top: var(--space-1);
+}
+
+.session-meta .quiet-button {
+    width: auto;
     font-size: var(--text-xs);
 }
 

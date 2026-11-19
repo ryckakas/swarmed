@@ -6,6 +6,7 @@ import type {
     Project,
     Session,
     SessionEvent,
+    SessionSettings,
     SessionSetup,
     Task,
 } from "./types";
@@ -41,6 +42,13 @@ export interface Api {
     sessionDeny(id: number, requestId: string, reason: string): Promise<void>;
     /** Stops the current turn; the session stays usable. */
     sessionInterrupt(id: number): Promise<void>;
+    /**
+     * Changes the model and supervision. A running agent is told at once: the model applies
+     * from its next turn, the supervision from its next action.
+     */
+    sessionConfigure(id: number, settings: SessionSettings): Promise<Session>;
+    /** Stops the session's agent and takes the session out of the tree. Its history is kept. */
+    sessionClose(id: number): Promise<void>;
     /** Calls `listener` for every event of every running session, from now on. */
     onSessionEvent(listener: (event: SessionEvent) => void): Promise<Unsubscribe>;
     /** Calls `listener` when events were dropped and anything on screen should be reloaded. */

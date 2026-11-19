@@ -128,6 +128,9 @@ const MIGRATIONS: &[&str] = &[
     "
     ALTER TABLE sessions ADD COLUMN agent TEXT NOT NULL DEFAULT 'claude';
 ",
+    "
+    ALTER TABLE sessions ADD COLUMN closed_at TEXT;
+",
 ];
 
 const TASK_SELECT: &str = "SELECT id, project_id, name, branch, base_ref, worktree_path, slot, \

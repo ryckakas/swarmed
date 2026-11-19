@@ -209,9 +209,9 @@ async fn write_commands(
     mut commands: mpsc::UnboundedReceiver<AgentCommand>,
     pending: Pending,
 ) {
-    let mut interrupts = 0_u64;
+    let mut requests = 0_u64;
     while let Some(command) = commands.recv().await {
-        let mut bytes = command_line(command, &pending, &mut interrupts)
+        let mut bytes = command_line(command, &pending, &mut requests)
             .to_string()
             .into_bytes();
         bytes.push(b'\n');
@@ -221,7 +221,7 @@ async fn write_commands(
     }
 }
 
-fn command_line(command: AgentCommand, pending: &Pending, interrupts: &mut u64) -> Value {
+fn command_line(command: AgentCommand, pending: &Pending, requests: &mut u64) -> Value {
     match command {
         AgentCommand::UserMessage(text) => json!({
             "type": "user",
@@ -241,15 +241,29 @@ fn command_line(command: AgentCommand, pending: &Pending, interrupts: &mut u64) 
                 &json!({ "behavior": "deny", "message": reason }),
             )
         }
-        AgentCommand::Interrupt => {
-            *interrupts += 1;
-            json!({
-                "type": "control_request",
-                "request_id": format!("swarmed-{interrupts}"),
-                "request": { "subtype": "interrupt" },
-            })
+        AgentCommand::Interrupt => control_request(requests, &json!({ "subtype": "interrupt" })),
+        // A null model puts the CLI back on its own default.
+        AgentCommand::SetModel(model) => {
+            control_request(requests, &json!({ "subtype": "set_model", "model": model }))
+        }
+        AgentCommand::SetSupervision(supervision) => {
+            let mode = permission_mode(supervision);
+            control_request(
+                requests,
+                &json!({ "subtype": "set_permission_mode", "mode": mode }),
+            )
         }
     }
+}
+
+/// A request of our own to the CLI; each needs an id it has not seen.
+fn control_request(requests: &mut u64, request: &Value) -> Value {
+    *requests += 1;
+    json!({
+        "type": "control_request",
+        "request_id": format!("swarmed-{requests}"),
+        "request": request,
+    })
 }
 
 fn control_response(request_id: &str, response: &Value) -> Value {
@@ -520,6 +534,25 @@ mod tests {
             Some(&json!({ "behavior": "allow", "updatedInput": { "command": "git push" } }))
         );
         assert_eq!(pending.take("r1"), None);
+    }
+
+    #[test]
+    fn settings_change_through_control_requests() {
+        let mut requests = 0;
+        let mut line = |command| command_line(command, &Pending::default(), &mut requests);
+        let model = line(AgentCommand::SetModel(Some("opus".into())));
+        assert_eq!(
+            model.get("request"),
+            Some(&json!({ "subtype": "set_model", "model": "opus" }))
+        );
+        let default_model = line(AgentCommand::SetModel(None));
+        assert_eq!(default_model.pointer("/request/model"), Some(&Value::Null));
+        let mode = line(AgentCommand::SetSupervision(Supervision::Auto));
+        assert_eq!(
+            mode.get("request"),
+            Some(&json!({ "subtype": "set_permission_mode", "mode": "auto" }))
+        );
+        assert_eq!(mode.get("request_id"), Some(&json!("swarmed-3")));
     }
 
     #[test]

@@ -5,7 +5,8 @@ mod common;
 use common::{core_with_project, fixture, next, turn};
 use swarmed_core::agent::{AgentEvent, Auth, Supervision};
 use swarmed_core::{
-    Core, Error, NewTaskOptions, Session, SessionEvent, SessionOptions, SessionStatus, hooks,
+    Core, Error, NewTaskOptions, Session, SessionEvent, SessionOptions, SessionSettings,
+    SessionStatus, hooks,
 };
 use tokio::sync::broadcast::Receiver;
 
@@ -207,6 +208,68 @@ async fn two_sessions_run_side_by_side() {
         core.session(second.id).expect("exists").status,
         SessionStatus::Idle
     );
+}
+
+#[tokio::test]
+async fn settings_can_change_while_running_and_apply_to_the_next_start() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+    core.session_send(session.id, "slow").expect("sends");
+
+    let settings = SessionSettings {
+        model: Some("opus".into()),
+        supervision: Supervision::Auto,
+    };
+    let changed = core
+        .session_configure(session.id, &settings)
+        .expect("changes while a turn runs");
+    assert_eq!(
+        (changed.model.as_deref(), changed.supervision),
+        (Some("opus"), Supervision::Auto)
+    );
+    core.session_interrupt(session.id).expect("interrupts");
+    turn(&mut bus, session.id).await;
+
+    core.session_stop(session.id);
+    next(&mut bus).await;
+    core.session_start(session.id, Auth::Subscription)
+        .expect("restarts");
+    core.session_send(session.id, "again").expect("sends");
+    let events = turn(&mut bus, session.id).await;
+    assert!(matches!(
+        events.get(1),
+        Some(AgentEvent::Init { model, permission_mode, .. })
+            if model == "opus" && permission_mode == "auto"
+    ));
+    let unknown = core.session_configure(404, &settings);
+    assert!(matches!(unknown, Err(Error::SessionNotFound(404))));
+}
+
+#[tokio::test]
+async fn a_closed_session_stops_and_leaves_the_lists_but_keeps_its_history() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+    core.session_send(session.id, "hello").expect("sends");
+    turn(&mut bus, session.id).await;
+
+    core.session_close(session.id).expect("closes");
+    assert!(matches!(
+        next(&mut bus).await.event,
+        AgentEvent::Exited { .. }
+    ));
+    assert_eq!(core.running_sessions(), [0_i64; 0]);
+    assert_eq!(core.sessions("demo", "one").expect("lists"), vec![]);
+    let overview = core.overview().expect("reads");
+    assert_eq!(overview[0].tasks[0].sessions, vec![]);
+    assert_eq!(core.session_events(session.id).expect("kept").len(), 5);
+    assert!(matches!(
+        core.session_close(404),
+        Err(Error::SessionNotFound(404))
+    ));
 }
 
 #[tokio::test]

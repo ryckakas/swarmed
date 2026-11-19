@@ -102,6 +102,13 @@ export interface AgentInfo {
 }
 
 /** How a new session should run. */
+/** What can be changed about a session after it was created. */
+export interface SessionSettings {
+    /** A model name the agent accepts, or `null` for its default. */
+    model: string | null;
+    supervision: Supervision;
+}
+
 export interface SessionSetup {
     /** An agent id, or `null` for Claude Code. */
     agent: string | null;

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import type { Session } from "../api/types";
+import type { Session, Supervision } from "../api/types";
 import { useStore } from "../store";
 import { ComposerBox } from "./ComposerBox";
-import { CLAUDE, modelLabel, SUPERVISION_LABELS } from "./options";
+import { CLAUDE, modelChoices, supervisionChoices, useAgents } from "./options";
+import { Picker } from "./Picker";
 
 const PLACEHOLDER: Record<Session["status"], string> = {
     idle: "Reply to the agent",
@@ -49,10 +50,36 @@ export function Composer({ session }: { session: Session }) {
                 placeholder={PLACEHOLDER[status]}
                 inputRef={input}
             >
-                <span className="option-label">{SUPERVISION_LABELS[session.supervision]}</span>
-                {session.agent !== CLAUDE && <span className="option-label">{session.agent}</span>}
-                <span className="option-label">{modelLabel(session.model)}</span>
+                <SessionPickers session={session} />
             </ComposerBox>
         </div>
+    );
+}
+
+/** The session's supervision and model, changeable at any time, also while the agent works. */
+function SessionPickers({ session }: { session: Session }) {
+    const configure = useStore((state) => state.configure);
+    const agent = useAgents().find((candidate) => candidate.id === session.agent);
+    const { id, model, supervision } = session;
+    return (
+        <>
+            <Picker
+                label="Supervision"
+                value={supervision}
+                onChange={(value) =>
+                    void configure(api, id, { model, supervision: value as Supervision })
+                }
+                options={supervisionChoices(supervision)}
+            />
+            {session.agent !== CLAUDE && (
+                <span className="option-label">{agent?.name ?? session.agent}</span>
+            )}
+            <Picker
+                label="Model"
+                value={model ?? ""}
+                onChange={(value) => void configure(api, id, { model: value || null, supervision })}
+                options={modelChoices(agent, model)}
+            />
+        </>
     );
 }

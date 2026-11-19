@@ -30,6 +30,8 @@ export const tauriApi: Api = {
     sessionAllow: (id, requestId) => invoke("session_allow", { id, requestId }),
     sessionDeny: (id, requestId, reason) => invoke("session_deny", { id, requestId, reason }),
     sessionInterrupt: (id) => invoke("session_interrupt", { id }),
+    sessionConfigure: (id, settings) => invoke<Session>("session_configure", { id, ...settings }),
+    sessionClose: (id) => invoke("session_close", { id }),
     onSessionEvent: (listener) =>
         listen<SessionEvent>("session-event", (event) => listener(event.payload)),
     onEventsLagged: (listener) => listen("session-events-lagged", () => listener()),

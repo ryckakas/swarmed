@@ -5,6 +5,7 @@ import type {
     Project,
     Session,
     SessionEvent,
+    SessionSettings,
     SessionStatus,
     Task,
 } from "./types";
@@ -292,6 +293,26 @@ class MockAgent {
         }
     }
 
+    private tasks() {
+        return this.projects.flatMap((project) => project.tasks);
+    }
+
+    configure(id: number, settings: SessionSettings): Session {
+        const sessions = this.tasks().flatMap((task) => task.sessions);
+        const found = sessions.find((candidate) => candidate.id === id);
+        if (!found) {
+            throw new Error(`session ${id} not found`);
+        }
+        return Object.assign(found, settings);
+    }
+
+    close(id: number) {
+        this.interrupt(id);
+        for (const task of this.tasks()) {
+            task.sessions = task.sessions.filter((candidate) => candidate.id !== id);
+        }
+    }
+
     interrupt(id: number) {
         this.interrupts.get(id)?.();
         this.interrupts.delete(id);
@@ -367,6 +388,8 @@ export function createMockApi(): Api {
         sessionAllow: async (id, requestId) => agent.decide(id, requestId, true),
         sessionDeny: async (id, requestId) => agent.decide(id, requestId, false),
         sessionInterrupt: async (id) => agent.interrupt(id),
+        sessionConfigure: async (id, settings) => agent.configure(id, settings),
+        sessionClose: async (id) => agent.close(id),
         onSessionEvent: async (listener) => {
             agent.listeners.add(listener);
             return () => agent.listeners.delete(listener);

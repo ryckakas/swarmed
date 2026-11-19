@@ -30,7 +30,9 @@ pub use hooks::OutputSink;
 pub use overview::{ProjectOverview, TaskOverview};
 pub use paths::Paths;
 use sessions::Live;
-pub use sessions::{EVENT_BUFFER, Session, SessionEvent, SessionOptions, SessionStatus};
+pub use sessions::{
+    EVENT_BUFFER, Session, SessionEvent, SessionOptions, SessionSettings, SessionStatus,
+};
 use store::Store;
 pub use store::{Project, SetupStatus, Task};
 pub use tasks::{BranchChoices, NewTaskOptions, RemoveOptions};

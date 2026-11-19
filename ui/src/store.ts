@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { Api } from "./api/client";
-import type { AgentEvent, Project, SessionEvent } from "./api/types";
-import { applySessionEvent } from "./tree";
+import type { AgentEvent, Project, SessionEvent, SessionSettings } from "./api/types";
+import { applySessionEvent, withoutSession, withSession } from "./tree";
 
 interface State {
     projects: Project[];
@@ -22,6 +22,10 @@ interface State {
     /** Shows the new-task screen, for `project` if one is given. */
     startNew(project?: string): void;
     apply(event: SessionEvent): void;
+    /** Changes a session's model and supervision. */
+    configure(api: Api, sessionId: number, settings: SessionSettings): Promise<void>;
+    /** Stops a session and takes it out of the tree. */
+    close(api: Api, sessionId: number): Promise<void>;
     report(problem: unknown): void;
     dismissProblem(): void;
 }
@@ -52,6 +56,24 @@ export function appendEvent(
 ): Record<number, AgentEvent[]> {
     const open = events[published.session_id];
     return open ? { ...events, [published.session_id]: [...open, published.event] } : events;
+}
+
+/** Runs an action on a session; if it fails, the reason is shown instead of thrown. */
+async function reporting(action: () => Promise<void>) {
+    try {
+        await action();
+    } catch (error) {
+        useStore.getState().report(error);
+    }
+}
+
+/** What changes when a session is closed: it leaves the tree, and the centre if it was there. */
+function closed(state: State, sessionId: number): Partial<State> {
+    const selected = state.selectedSessionId;
+    return {
+        projects: withoutSession(state.projects, sessionId),
+        selectedSessionId: selected === sessionId ? null : selected,
+    };
 }
 
 export const useStore = create<State>((set, get) => ({
@@ -92,6 +114,16 @@ export const useStore = create<State>((set, get) => ({
             events: appendEvent(state.events, published),
         }));
     },
+    configure: (api, sessionId, settings) =>
+        reporting(async () => {
+            const session = await api.sessionConfigure(sessionId, settings);
+            set((state) => ({ projects: withSession(state.projects, session) }));
+        }),
+    close: (api, sessionId) =>
+        reporting(async () => {
+            await api.sessionClose(sessionId);
+            set((state) => closed(state, sessionId));
+        }),
     report: (problem) => set({ problem: String(problem) }),
     dismissProblem: () => set({ problem: null }),
 }));

@@ -196,9 +196,20 @@ fn the_ui_can_deny_interrupt_stop_and_remove() {
 
     app.ok("session_send", json!({ "id": id, "text": "slow" }));
     app.wait_for_event(id, "text");
+    let settings = json!({ "id": id, "model": "opus", "supervision": "ask" });
+    let changed = app.ok("session_configure", settings);
+    assert_eq!(
+        (&changed["model"], &changed["supervision"]),
+        (&json!("opus"), &json!("ask"))
+    );
     app.ok("session_interrupt", json!({ "id": id }));
     app.ok("session_stop", json!({ "id": id }));
     app.wait_for_event(id, "exited");
+    app.ok("session_close", json!({ "id": id }));
+    assert_eq!(
+        app.ok("overview", json!({}))[0]["tasks"][0]["sessions"],
+        json!([])
+    );
 
     let remove = json!({ "project": "demo", "name": "one", "force": false, "deleteBranch": true });
     app.ok("task_remove", remove);
