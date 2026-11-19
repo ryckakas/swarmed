@@ -2,9 +2,9 @@ import { type ComponentProps, isValidElement, memo, type ReactNode, useState } f
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
-import { HTML_LANGUAGE, VIEW_LANGUAGE } from "../htmlview";
+import { HTML_LANGUAGE, splitPendingView, VIEW_LANGUAGE } from "../htmlview";
 import { useStore } from "../store";
-import { HtmlView } from "./HtmlView";
+import { HtmlView, ViewPending } from "./HtmlView";
 
 const PLUGINS = [remarkGfm];
 // Colours code blocks that name their language; one that does not is left plain, not guessed.
@@ -19,17 +19,20 @@ interface Props {
 /** The agent's prose. Memoised on the text, so a long transcript re-parses only what is new. */
 export const Markdown = memo(function Markdown({ text, streaming = false }: Props) {
     const views = useStore((state) => state.settings?.html_views ?? false);
-    // A view is built once its block is complete; until then, and with views off, it is code.
-    const components = views && !streaming ? VIEW_COMPONENTS : undefined;
+    // A view still being written is held back and stood in for, so it appears whole. With
+    // views off, a view's block is the code it is.
+    const { shown, pending } =
+        views && streaming ? splitPendingView(text) : { shown: text, pending: false };
     return (
         <div className="prose">
             <ReactMarkdown
                 remarkPlugins={PLUGINS}
                 rehypePlugins={REHYPE_PLUGINS}
-                {...(components ? { components } : {})}
+                {...(views ? { components: VIEW_COMPONENTS } : {})}
             >
-                {text}
+                {shown}
             </ReactMarkdown>
+            {pending && <ViewPending />}
         </div>
     );
 });

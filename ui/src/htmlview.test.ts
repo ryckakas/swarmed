@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { needsNetwork, requestedHeight, viewDocument } from "./htmlview";
+import {
+    htmlOf,
+    isShowHtmlTool,
+    needsNetwork,
+    requestedHeight,
+    splitPendingView,
+    viewDocument,
+} from "./htmlview";
 
 const theme = {
     text: "#eee",
@@ -60,5 +67,41 @@ describe("a whole document as a view", () => {
         expect(shown.indexOf("swarmedViewHeight")).toBeGreaterThan(shown.indexOf("</html>"));
         // Not wrapped a second time.
         expect(shown.match(/<html/g)).toHaveLength(1);
+    });
+});
+
+describe("splitPendingView", () => {
+    it("holds back a view that is still being written", () => {
+        const text = "Here it is.\n\n```html-view\n<h3>Planets</h3>\n<table>";
+        expect(splitPendingView(text)).toEqual({ shown: "Here it is.\n\n", pending: true });
+        // Also while the language itself is still arriving.
+        expect(splitPendingView("Look:\n```html-vi")).toEqual({ shown: "Look:\n", pending: true });
+    });
+
+    it("lets a finished view, other code and plain html through", () => {
+        const done = "```html-view\n<p>hi</p>\n```\nThat is all";
+        expect(splitPendingView(done)).toEqual({ shown: done, pending: false });
+        const code = "```ts\nconst a = 1;";
+        expect(splitPendingView(code)).toEqual({ shown: code, pending: false });
+        expect(splitPendingView("```html\n<p>").pending).toBe(false);
+        expect(splitPendingView("plain words").pending).toBe(false);
+    });
+
+    it("only holds back the last view of several", () => {
+        const text = "```html-view\n<p>one</p>\n```\nand\n```html-view\n<p>tw";
+        const { shown, pending } = splitPendingView(text);
+        expect(pending).toBe(true);
+        expect(shown).toBe("```html-view\n<p>one</p>\n```\nand\n");
+    });
+});
+
+describe("the tool that shows HTML", () => {
+    it("is recognised under any agent's prefix, and gives its HTML", () => {
+        expect(isShowHtmlTool("mcp__swarmed__show_html")).toBe(true);
+        expect(isShowHtmlTool("swarmed_show_html")).toBe(true);
+        expect(isShowHtmlTool("show_html")).toBe(true);
+        expect(isShowHtmlTool("Bash")).toBe(false);
+        expect(htmlOf({ html: "<p>hi</p>", title: "t" })).toBe("<p>hi</p>");
+        expect(htmlOf({})).toBe("");
     });
 });

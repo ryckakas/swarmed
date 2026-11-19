@@ -110,6 +110,13 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   The instructions are deliberately firm that this is the way to show something and needs no
   tool: without that, agents build a file and drive a browser instead. An ordinary `html` block
   stays code, with a button to show it as a view.
+- **Swarmed serves one tool of its own to every agent** (`toolserver.rs`): `show_html`, on an
+  MCP server named `swarmed`. A front end's executable is that server when started with
+  `tool-server`, and tells the core so with `set_tool_server`. The tool does nothing: its call
+  is in the conversation, where the UI shows the HTML like an `html-view` block. It is there
+  because agents asked for something visual look for a tool.
+- A view still being written is held back and stood in for (`splitPendingView`), so it appears
+  whole instead of as streaming source.
 - **The message box handles a few keys itself** (`ui/src/editing.ts`): Home and End move within
   the line, and ⌘⌫ at the very start empties the box.
 - **The status line** under the message box is drawn by the UI from built-in pieces

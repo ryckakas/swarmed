@@ -1594,6 +1594,15 @@ code {
     transform: rotate(90deg);
 }
 
+.html-view-wait {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-4) var(--space-3);
+    color: var(--muted);
+    font-size: var(--text-sm);
+}
+
 .html-view-frame[hidden] {
     display: none;
 }

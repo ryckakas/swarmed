@@ -12,7 +12,9 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use swarmed_core::agent::FakeBackend;
-use swarmed_core::{Core, Paths, SessionEvent, TerminalOutput, VIEW_POLICY};
+use swarmed_core::{
+    Core, Paths, SessionEvent, TOOL_SERVER_ARG, TerminalOutput, VIEW_POLICY, serve_tools,
+};
 use tauri::http::header::{CONTENT_SECURITY_POLICY, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
 use tauri::http::{HeaderValue, Response, StatusCode};
 use tauri::{AppHandle, Builder, Emitter, Runtime};
@@ -34,7 +36,12 @@ fn open_core() -> swarmed_core::Result<Core> {
     if std::env::var_os("SWARMED_FAKE_AGENT").is_some() {
         return Core::with_backend(paths, Arc::new(FakeBackend::default()));
     }
-    Core::open(paths)
+    let mut core = Core::open(paths)?;
+    // An agent starts this same executable to reach Swarmed's own tools.
+    if let Ok(executable) = std::env::current_exe() {
+        core.set_tool_server(executable);
+    }
+    Ok(core)
 }
 
 /// Passes every session event on to the UI until the core goes away.
@@ -136,6 +143,11 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
 }
 
 fn main() {
+    // Started by an agent as Swarmed's tool server: answer it and never open a window.
+    if std::env::args().nth(1).as_deref() == Some(TOOL_SERVER_ARG) {
+        let served = serve_tools(std::io::stdin().lock(), std::io::stdout().lock());
+        return served.unwrap_or_else(|e| panic!("the tool server stopped: {e}"));
+    }
     let core =
         Arc::new(open_core().unwrap_or_else(|e| panic!("could not open Swarmed's data: {e}")));
     let bus = core.subscribe();

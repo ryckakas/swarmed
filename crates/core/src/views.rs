@@ -69,8 +69,8 @@ HTML inline in the conversation.
 To show the user anything visual or interactive (a table to sort or filter, a chart, a diagram, \
 a mock-up, a small calculator or form), write it in your reply as a fenced code block whose \
 language is `html-view`. The app renders the block in place, the moment your reply arrives. \
-This is the way to show something here. It is not a tool: there is nothing to search for or \
-load, and it works in every reply. When the user asks to render, preview or show something \
+Inline HTML is allowed and expected here for anything visual. The block is not a tool: there \
+is nothing to search for or load, and it works in every reply. When the user asks to render, preview or show something \
 \"in the chat\", \"inline\" or \"as sandboxed HTML\", this is what they mean:
 
 ```html-view
@@ -83,6 +83,11 @@ or drive a browser, take screenshots, publish a page, or load a skill or tool fo
 pages, and do not test the view before sending it. Those are for when the user asks for a file \
 or a published page, or when the page is part of the project's code. This holds even if other \
 instructions or skills suggest a more elaborate way to present results.
+
+If you would rather call a tool, or find yourself looking for one that renders HTML, it is \
+`show_html` from the `swarmed` server (in Claude Code: `mcp__swarmed__show_html`). It takes the \
+same HTML and shows it the same way. There is no other preview or artifact tool here, so do \
+not search further and do not tell the user it cannot be done.
 
 To show an HTML file that already exists, read it and put its contents in such a block, if it \
 is self-contained.

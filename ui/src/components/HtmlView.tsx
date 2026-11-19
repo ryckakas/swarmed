@@ -125,3 +125,22 @@ export function HtmlView({ html }: { html: string }) {
         </div>
     );
 }
+
+/** Stands in for a view the agent is still writing, in the place the view will take. */
+export function ViewPending() {
+    return (
+        <div className="html-view html-view-pending" role="status">
+            <div className="html-view-head">
+                <span>View from the agent</span>
+            </div>
+            <p className="html-view-wait">
+                <span className="activity-dots" aria-hidden="true">
+                    <i />
+                    <i />
+                    <i />
+                </span>
+                Building the view…
+            </p>
+        </div>
+    );
+}

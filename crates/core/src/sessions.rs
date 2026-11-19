@@ -1,6 +1,6 @@
 //! Agent sessions: creating them, running them, and keeping what they said.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -14,11 +14,12 @@ use crate::agent::{
 };
 use crate::agents::CLAUDE;
 use crate::error::{Error, Result};
-use crate::mcp::{self, McpServer};
+use crate::mcp::{self, McpServer, McpTransport};
 use crate::queue::{self, Queues};
 use crate::secrets::SecretEnv;
 use crate::store::{Store, Task};
 use crate::terminal::Terminals;
+use crate::toolserver::{SERVER_NAME, SHOW_HTML_FOR_CLAUDE, TOOL_SERVER_ARG};
 use crate::{Core, lock, views};
 
 /// How long a session title derived from the first message may be.
@@ -470,13 +471,14 @@ impl Core {
         if running.contains_key(&id) {
             return Ok(());
         }
-        let mcp_servers = self.mcp_servers_for(&session.agent, &task)?;
+        let html_views = self.settings()?.html_views;
+        let mut mcp_servers = self.mcp_servers_for(&session.agent, &task)?;
+        mcp_servers.extend(self.own_tools(html_views));
         let env = if session.agent == CLAUDE {
             SecretEnv::default()
         } else {
             self.key_env()?
         };
-        let html_views = self.settings()?.html_views;
         let handle = self.agents.backend(&session.agent)?.start(SessionSpec {
             mcp_servers,
             env,
@@ -487,6 +489,8 @@ impl Core {
             effort: session.effort,
             auth,
             resume: session.agent_session_id,
+            // Showing a view changes nothing, so it is never worth a question.
+            allowed_tools: vec![SHOW_HTML_FOR_CLAUDE.to_string()],
             ..SessionSpec::default()
         })?;
         let run = self.live.runs.fetch_add(1, Ordering::Relaxed);
@@ -502,6 +506,20 @@ impl Core {
             (id, run),
         )));
         Ok(())
+    }
+
+    /// Swarmed's own tool server, for every agent, when a front end said where it is and the
+    /// user has views switched on: showing HTML is all it does.
+    fn own_tools(&self, html_views: bool) -> Option<McpServer> {
+        let executable = self.tool_server.as_ref().filter(|_| html_views)?;
+        Some(McpServer {
+            name: SERVER_NAME.to_string(),
+            transport: McpTransport::Stdio {
+                command: executable.to_string_lossy().into_owned(),
+                args: vec![TOOL_SERVER_ARG.to_string()],
+                env: BTreeMap::new(),
+            },
+        })
     }
 
     /// The MCP servers Swarmed hands the agent: the ones configured for Claude Code, for every
