@@ -1,7 +1,7 @@
 //! The agents sessions can run on: Claude Code, plus any ACP agent the user has configured.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -62,6 +62,17 @@ struct Agent {
     gets_claude_code_mcp_servers: bool,
     /// Whether it comes from `agents.toml`, and goes when that file is read again without it.
     from_file: bool,
+    /// The program that has to be on this machine for the agent to start, if Swarmed knows it.
+    program: Option<PathBuf>,
+}
+
+/// Whether `program` can be started: the file it names if it names a path, else a file of
+/// that name in one of `dirs`.
+fn is_installed(program: &Path, dirs: &[PathBuf]) -> bool {
+    if program.components().count() > 1 {
+        return program.is_file();
+    }
+    dirs.iter().any(|dir| dir.join(program).is_file())
 }
 
 fn claude_info() -> AgentInfo {
@@ -83,6 +94,7 @@ impl Agents {
             backend: claude,
             gets_claude_code_mcp_servers: false,
             from_file: false,
+            program: None,
         };
         Self(BTreeMap::from([(CLAUDE.to_string(), agent)]))
     }
@@ -128,6 +140,7 @@ impl Agents {
             name,
             models: entry.models,
         };
+        let program = PathBuf::from(&entry.command);
         let backend = AcpBackend {
             program: entry.command.into(),
             args: entry.args,
@@ -138,6 +151,7 @@ impl Agents {
             backend: Arc::new(backend),
             gets_claude_code_mcp_servers: entry.claude_code_mcp_servers,
             from_file: true,
+            program: Some(program),
         };
         self.0.insert(id, agent);
     }
@@ -149,6 +163,7 @@ impl Agents {
             backend,
             gets_claude_code_mcp_servers: true,
             from_file: false,
+            program: None,
         };
         self.0.insert(agent.info.id.clone(), agent);
     }
@@ -162,6 +177,20 @@ impl Agents {
             .chain(others)
             .map(|agent| agent.info.clone())
             .collect()
+    }
+
+    /// The agents a session can be started on here and now: those whose program is found, by
+    /// its path or by its name in one of `dirs`. One that is configured but not installed
+    /// could only fail, so it is not offered. Claude Code first, the rest by id.
+    pub(crate) fn available(&self, dirs: &[PathBuf]) -> Vec<AgentInfo> {
+        let installed = |info: &AgentInfo| {
+            let program = self
+                .0
+                .get(&info.id)
+                .and_then(|agent| agent.program.as_ref());
+            program.is_none_or(|program| is_installed(program, dirs))
+        };
+        self.infos().into_iter().filter(installed).collect()
     }
 
     fn agent(&self, id: &str) -> Result<&Agent> {

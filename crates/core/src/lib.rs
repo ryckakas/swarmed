@@ -159,10 +159,11 @@ impl Core {
         self.agents_mut().insert(info, backend);
     }
 
-    /// The agents a session can run on, Claude Code first.
+    /// The agents a session can be started on, Claude Code first. An agent that is configured
+    /// but whose program is not on this machine is left out until it is installed.
     #[must_use]
     pub fn agents(&self) -> Vec<AgentInfo> {
-        self.agents_now().infos()
+        self.agents_now().available(&self.tool_dirs)
     }
 
     /// The locations this core reads and writes.
