@@ -393,7 +393,12 @@ export function createMockApi(): Api {
     const agent = new MockAgent();
     const tasks = () => agent.projects.flatMap((project) => project.tasks);
     const hookListeners = new Set<(output: HookOutput) => void>();
-    let settings: Settings = { editor: "code", auto_title: true };
+    let settings: Settings = {
+        editor: "code",
+        auto_title: true,
+        theme: "system",
+        text_scale: 100,
+    };
     return {
         overview: async () => structuredClone(agent.projects),
         agents: async () => [

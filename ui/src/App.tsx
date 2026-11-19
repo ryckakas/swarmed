@@ -1,9 +1,11 @@
 import { type CSSProperties, useEffect } from "react";
 import { api } from "./api";
+import { applyAppearance } from "./appearance";
 import icon from "./assets/icon.jpg";
 import { CloseSessionDialog } from "./components/CloseSessionDialog";
 import { Resizer, useStoredWidth } from "./components/Resizer";
 import { SessionPane } from "./components/SessionPane";
+import { SettingsDialog } from "./components/SettingsDialog";
 import { Sidebar } from "./components/Sidebar";
 import { TaskPanel } from "./components/TaskPanel";
 import { PANEL_WIDTH, SIDEBAR_WIDTH, widestPanel } from "./resize";
@@ -12,6 +14,8 @@ import { connect, useStore } from "./store";
 export function App() {
     useEffect(() => connect(api), []);
     const load = useStore((state) => state.load);
+    const settings = useStore((state) => state.settings);
+    useEffect(() => applyAppearance(document.documentElement, settings), [settings]);
     const problem = useStore((state) => state.problem);
     const dismissProblem = useStore((state) => state.dismissProblem);
     const [sidebarWidth, setSidebarWidth] = useStoredWidth("swarmed.sidebar-width", SIDEBAR_WIDTH);
@@ -54,6 +58,7 @@ export function App() {
                 }
             />
             <CloseSessionDialog />
+            <SettingsDialog />
         </div>
     );
 }

@@ -50,12 +50,18 @@ export interface FileDiff {
     truncated: boolean;
 }
 
+/** The colours the app is drawn in: the system's choice, or always one of the two. */
+export type Theme = "system" | "dark" | "light";
+
 /** The user's own preferences. */
 export interface Settings {
     /** The command that opens a folder in the user's code editor. */
     editor: string;
     /** Whether a model names a new session once its first message is sent. */
     auto_title: boolean;
+    theme: Theme;
+    /** The size of the app's text, in percent of its normal size. */
+    text_scale: number;
 }
 
 export interface Project {

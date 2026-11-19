@@ -249,7 +249,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     );
     assert_eq!(
         app.ok("settings", json!({})),
-        json!({ "editor": "code", "auto_title": true })
+        json!({ "editor": "code", "auto_title": true, "theme": "system", "text_scale": 100 })
     );
 
     let worktree = app.ok("overview", json!({}))[0]["tasks"][0]["worktree_path"].clone();
@@ -267,7 +267,9 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
             .is_some_and(|text| text.ends_with("+one\n"))
     );
 
-    let chosen = json!({ "settings": { "editor": "swarmed-no-such-editor", "auto_title": true } });
+    let chosen = json!({ "settings": {
+        "editor": "swarmed-no-such-editor", "auto_title": false, "theme": "light", "text_scale": 110,
+    } });
     app.ok("set_settings", chosen);
     let target = json!({ "project": "demo", "name": "one" });
     let failed = app.invoke("task_open_editor", target.clone());

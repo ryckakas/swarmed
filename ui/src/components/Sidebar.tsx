@@ -9,6 +9,7 @@ export function Sidebar() {
     const projects = useStore((state) => state.projects);
     const load = useStore((state) => state.load);
     const startNew = useStore((state) => state.startNew);
+    const showSettings = useStore((state) => state.showSettings);
     const waiting = countWaiting(projects);
 
     return (
@@ -39,6 +40,13 @@ export function Sidebar() {
                         onClick={() => void addProject()}
                     >
                         Add repository
+                    </button>
+                    <button
+                        type="button"
+                        className="quiet-button"
+                        onClick={() => showSettings(true)}
+                    >
+                        Settings
                     </button>
                 </div>
             )}

@@ -31,7 +31,11 @@ interface State {
     /** Whether the task panel on the right is shown. */
     panelOpen: boolean;
     togglePanel(): void;
-    setEditor(api: Api, editor: string): Promise<void>;
+    /** Changes some of the user's preferences and keeps the rest. */
+    changeSettings(api: Api, change: Partial<Settings>): Promise<void>;
+    /** Whether the settings are on screen. */
+    settingsOpen: boolean;
+    showSettings(open: boolean): void;
     /** Gives a session a new title. The tree follows when the app confirms it. */
     rename(api: Api, sessionId: number, title: string): Promise<void>;
     /** The session the user asked to close, until they confirm or change their mind. */
@@ -150,13 +154,16 @@ export const useStore = create<State>((set, get) => ({
         writeFlag(PANEL_OPEN, panelOpen);
         set({ panelOpen });
     },
-    setEditor: (api, editor) =>
+    changeSettings: (api, change) =>
         reporting(async () => {
             const current = get().settings ?? (await api.settings());
-            const settings = { ...current, editor };
-            await api.setSettings(settings);
+            const settings = { ...current, ...change };
+            // Shown at once; the app only has to remember it.
             set({ settings });
+            await api.setSettings(settings);
         }),
+    settingsOpen: false,
+    showSettings: (open) => set({ settingsOpen: open }),
     rename: (api, sessionId, title) =>
         reporting(async () => {
             await api.sessionRename(sessionId, title);
