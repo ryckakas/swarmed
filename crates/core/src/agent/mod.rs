@@ -284,6 +284,7 @@ pub enum AgentEvent {
         model: String,
         /// How hard it thinks, if the agent has such a setting.
         effort: Option<String>,
+    },
     /// What the session's queue of waiting messages now holds. Published by the core whenever
     /// it changes, and never stored.
     Queue {

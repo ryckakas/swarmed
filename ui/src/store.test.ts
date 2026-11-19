@@ -156,6 +156,9 @@ describe("removing", () => {
         await api.taskRemove("hero", "invoice-export", true);
         const hero = (await api.overview()).find((project) => project.name === "hero");
         expect(hero?.tasks.map((task) => task.name)).not.toContain("invoice-export");
+    });
+});
+
 describe("the queue of waiting messages", () => {
     it("is kept beside the transcript and follows the core's events", () => {
         useStore.setState({ events: { 1: [text("a")] }, queues: {} });

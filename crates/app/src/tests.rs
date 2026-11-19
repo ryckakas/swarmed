@@ -310,7 +310,6 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
 
 #[test]
 fn the_ui_can_remove_a_repository_with_its_tasks() {
-fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
     let task = json!({ "project": "demo", "name": "one", "branch": null });
@@ -321,6 +320,14 @@ fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
         app.invoke("project_remove", json!({ "name": "demo", "force": false })),
         Err(json!("project `demo` not found"))
     );
+}
+
+#[test]
+fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
     let session = app.ok(
         "session_new",
         json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "ask", "effort": null }),
