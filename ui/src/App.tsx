@@ -10,9 +10,11 @@ import { Sidebar } from "./components/Sidebar";
 import { TaskPanel } from "./components/TaskPanel";
 import { PANEL_WIDTH, SIDEBAR_WIDTH, widestPanel } from "./resize";
 import { connect, useStore } from "./store";
+import { useHotkeys } from "./useHotkeys";
 
 export function App() {
     useEffect(() => connect(api), []);
+    useHotkeys();
     const load = useStore((state) => state.load);
     const settings = useStore((state) => state.settings);
     useEffect(() => applyAppearance(document.documentElement, settings), [settings]);

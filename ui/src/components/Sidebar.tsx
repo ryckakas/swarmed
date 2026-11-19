@@ -1,4 +1,5 @@
 import type { KeyboardEvent } from "react";
+import { addProject, newSession } from "../actions";
 import { api } from "../api";
 import type { Project, Session, Task } from "../api/types";
 import { useStore } from "../store";
@@ -69,20 +70,6 @@ function moveFocus(event: KeyboardEvent<HTMLElement>) {
     }
 }
 
-/** Asks for a folder and registers the repository it is in. */
-async function addProject() {
-    const { refresh, report } = useStore.getState();
-    try {
-        const path = await api.pickFolder();
-        if (path !== null) {
-            await api.projectAdd(path);
-            await refresh(api);
-        }
-    } catch (error) {
-        report(error);
-    }
-}
-
 function NoProjects() {
     return (
         <div className="sidebar-empty">
@@ -143,21 +130,6 @@ function ProjectGroup({ project }: { project: Project }) {
 }
 
 function TaskGroup({ project, task }: { project: string; task: Task }) {
-    const newSession = async () => {
-        const { refresh, open, report } = useStore.getState();
-        try {
-            const session = await api.sessionNew(project, task.name, {
-                agent: null,
-                model: null,
-                supervision: useStore.getState().settings?.default_supervision ?? "auto",
-                effort: null,
-            });
-            await refresh(api);
-            await open(api, session.id);
-        } catch (error) {
-            report(error);
-        }
-    };
     return (
         <div className="task">
             <div className="row-head">
@@ -170,7 +142,7 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
                     className="row-add"
                     aria-label={`New session in ${task.name}`}
                     title="New session"
-                    onClick={() => void newSession()}
+                    onClick={() => void newSession(project, task.name)}
                 >
                     +
                 </button>

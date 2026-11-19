@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { Settings, Supervision, Theme } from "../api/types";
+import { keyCaps, LOCAL_HOTKEYS, listedHotkeys } from "../hotkeys";
 import { STATUS_ITEM_LABELS, STATUS_ITEMS, withItem } from "../statusline";
 import { useStore } from "../store";
 import { ApiKeys } from "./ApiKeys";
@@ -36,6 +37,7 @@ export function SettingsDialog() {
             <Sessions settings={settings} />
             <StatusLineSettings settings={settings} />
             <ApiKeys />
+            <Shortcuts />
             <div className="confirm-actions">
                 <button type="button" className="button" onClick={() => showSettings(false)}>
                     Done
@@ -168,6 +170,50 @@ function StatusLineSettings({ settings }: { settings: Settings }) {
                 />
             </label>
         </section>
+    );
+}
+
+const SHORTCUT_GROUPS = ["Sessions", "In a session", "Task", "Window"] as const;
+
+/** Every keyboard shortcut, by where it applies. */
+function Shortcuts() {
+    return (
+        <section className="settings-group" id="shortcuts" aria-label="Keyboard shortcuts">
+            <h3>Keyboard shortcuts</h3>
+            {SHORTCUT_GROUPS.map((group) => (
+                <ShortcutList
+                    key={group}
+                    title={group}
+                    shortcuts={listedHotkeys().filter((hotkey) => hotkey.group === group)}
+                />
+            ))}
+            <ShortcutList title="While typing or in the sidebar" shortcuts={LOCAL_HOTKEYS} />
+        </section>
+    );
+}
+
+interface ShortcutListProps {
+    title: string;
+    shortcuts: { keys: string; label: string }[];
+}
+
+function ShortcutList({ title, shortcuts }: ShortcutListProps) {
+    return (
+        <>
+            <p className="shortcut-group">{title}</p>
+            <dl className="shortcuts">
+                {shortcuts.map((shortcut) => (
+                    <div key={shortcut.keys} className="shortcut">
+                        <dt>{shortcut.label}</dt>
+                        <dd>
+                            {keyCaps(shortcut.keys).map((cap) => (
+                                <kbd key={cap}>{cap}</kbd>
+                            ))}
+                        </dd>
+                    </div>
+                ))}
+            </dl>
+        </>
     );
 }
 

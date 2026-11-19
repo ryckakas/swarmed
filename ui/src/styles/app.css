@@ -1888,6 +1888,47 @@ code {
     resize: vertical;
 }
 
+.settings .shortcut-group {
+    margin-top: var(--space-3);
+    color: var(--muted);
+    font-size: var(--text-xs);
+}
+
+/* Two columns of shortcuts where there is room for them. */
+.shortcuts {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(26ch, 1fr));
+    gap: 0 var(--space-6);
+}
+
+.shortcut {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: 3px 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent);
+}
+
+.shortcut dd {
+    flex: none;
+    display: flex;
+    gap: 3px;
+}
+
+kbd {
+    min-width: 1.7em;
+    padding: 1px 5px;
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    border-radius: 5px;
+    background: var(--panel);
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: var(--text-xs);
+    text-align: center;
+}
+
 .key-row {
     display: flex;
     align-items: center;

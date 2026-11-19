@@ -1,4 +1,4 @@
-import { type KeyboardEvent, lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { Effort, Session, Supervision } from "../api/types";
 import { useStore } from "../store";
@@ -29,7 +29,8 @@ const PLACEHOLDER: Record<Session["status"], string> = {
 /** The message box of an existing session. */
 export function Composer({ session }: { session: Session }) {
     const [text, setText] = useState("");
-    const [terminal, setTerminal] = useState(false);
+    const terminal = useStore((state) => state.terminalOpen);
+    const toggleTerminal = useStore((state) => state.toggleTerminal);
     const report = useStore((state) => state.report);
     const input = useRef<HTMLTextAreaElement>(null);
     const { id, status } = session;
@@ -55,17 +56,8 @@ export function Composer({ session }: { session: Session }) {
     const stop = () => void api.sessionInterrupt(id).catch(report);
 
     const share = () => api.sessionSend(id, "I ran this in the terminal.").catch(report);
-    // Ctrl+` switches between the message box and the terminal, from either.
-    const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-        if (event.ctrlKey && event.key === "`") {
-            event.preventDefault();
-            setTerminal((shown) => !shown);
-        }
-    };
-
     return (
-        // biome-ignore lint/a11y/noStaticElementInteractions: a shortcut for what the buttons inside do
-        <div className="composer" onKeyDown={onKeyDown}>
+        <div className="composer">
             {terminal ? (
                 <div className="terminal-pane">
                     <Suspense fallback={<div className="terminal-box" />}>
@@ -80,7 +72,7 @@ export function Composer({ session }: { session: Session }) {
                             type="button"
                             className="button"
                             title="Ctrl+`"
-                            onClick={() => setTerminal(false)}
+                            onClick={toggleTerminal}
                         >
                             Back to the message
                         </button>
@@ -102,7 +94,7 @@ export function Composer({ session }: { session: Session }) {
                         type="button"
                         className="picker picker-plain"
                         title="A shell in the task's worktree (Ctrl+`)"
-                        onClick={() => setTerminal(true)}
+                        onClick={toggleTerminal}
                     >
                         Terminal
                     </button>
