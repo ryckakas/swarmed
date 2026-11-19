@@ -3,7 +3,7 @@
 use anyhow::{Context, Result};
 use clap::{Subcommand, ValueEnum};
 use serde_json::Value;
-use swarmed_core::agent::{AgentEvent, Auth, McpServerInfo, Supervision};
+use swarmed_core::agent::{AgentEvent, Auth, Effort, McpServerInfo, Supervision};
 use swarmed_core::{Core, SessionEvent, SessionOptions, SessionSettings};
 use tokio::io::{AsyncBufReadExt, BufReader, Lines, Stdin};
 use tokio::sync::broadcast::Receiver;
@@ -27,9 +27,15 @@ pub(crate) enum SessionCommand {
         /// The model to run on; defaults to the agent's own default.
         #[arg(long)]
         model: Option<String>,
+        /// How hard the model thinks: low, medium, high, xhigh or max.
+        #[arg(long, value_parser = effort)]
+        effort: Option<Effort>,
         /// Let Claude Code's auto mode decide which actions are safe, instead of asking.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "ask")]
         auto: bool,
+        /// Ask before commands. Without either flag, the default from the settings applies.
+        #[arg(long)]
+        ask: bool,
         #[arg(long, value_enum, default_value_t)]
         auth: AuthMode,
     },
@@ -50,6 +56,9 @@ pub(crate) enum SessionCommand {
         /// The model to run on; without it, the agent's own default.
         #[arg(long)]
         model: Option<String>,
+        /// How hard the model thinks; without it, the agent's own default.
+        #[arg(long, value_parser = effort)]
+        effort: Option<Effort>,
         /// Let Claude Code's auto mode decide which actions are safe, instead of asking.
         #[arg(long)]
         auto: bool,
@@ -95,14 +104,18 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             prompt,
             agent,
             model,
+            effort,
             auto,
+            ask,
             auth,
         } => {
+            let chosen = (auto || ask).then(|| supervision(auto));
             let options = SessionOptions {
                 agent,
                 title: None,
                 model,
-                supervision: supervision(auto),
+                supervision: chosen.unwrap_or(core.settings()?.default_supervision),
+                effort,
             };
             let session = core.session_new(&project, &task, &options)?;
             say(&format!("session {}", session.id));
@@ -130,10 +143,16 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
                 .for_each(|line| say(&line));
             Ok(())
         }
-        SessionCommand::Set { id, model, auto } => {
+        SessionCommand::Set {
+            id,
+            model,
+            effort,
+            auto,
+        } => {
             let settings = SessionSettings {
                 model,
                 supervision: supervision(auto),
+                effort,
             };
             core.session_configure(id, &settings)?;
             Ok(())
@@ -149,6 +168,11 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
         }
         SessionCommand::Close { id } => Ok(core.session_close(id)?),
     }
+}
+
+/// Reads `--effort`.
+fn effort(value: &str) -> std::result::Result<Effort, String> {
+    Effort::parse(value).ok_or_else(|| "use low, medium, high, xhigh or max".to_string())
 }
 
 fn supervision(auto: bool) -> Supervision {

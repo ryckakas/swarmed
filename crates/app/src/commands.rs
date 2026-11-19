@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::Serialize;
-use swarmed_core::agent::{AgentEvent, Auth, Supervision};
+use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
     AgentInfo, ApiKeyInfo, BranchChoices, Core, FileChange, FileDiff, NewTaskOptions, Project,
     ProjectOverview, RemoveOptions, Session, SessionOptions, SessionSettings, Settings, Task,
@@ -177,12 +177,14 @@ pub(crate) fn session_new(
     agent: Option<String>,
     model: Option<String>,
     supervision: Supervision,
+    effort: Option<Effort>,
 ) -> Command<Session> {
     let options = SessionOptions {
         agent,
         title: None,
         model,
         supervision,
+        effort,
     };
     Ok(core.session_new(&project, &task, &options)?)
 }
@@ -237,8 +239,13 @@ pub(crate) fn session_configure(
     id: i64,
     model: Option<String>,
     supervision: Supervision,
+    effort: Option<Effort>,
 ) -> Command<Session> {
-    let settings = SessionSettings { model, supervision };
+    let settings = SessionSettings {
+        model,
+        supervision,
+        effort,
+    };
     Ok(core.session_configure(id, &settings)?)
 }
 

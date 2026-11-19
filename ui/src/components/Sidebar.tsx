@@ -1,4 +1,5 @@
 import type { KeyboardEvent } from "react";
+import { addProject, newSession } from "../actions";
 import { api } from "../api";
 import type { Project, Session, Task } from "../api/types";
 import { useStore } from "../store";
@@ -36,14 +37,14 @@ export function Sidebar() {
                 <div className="sidebar-bottom">
                     <button
                         type="button"
-                        className="quiet-button"
+                        className="quiet-button quiet-button-centred"
                         onClick={() => void addProject()}
                     >
                         Add repository
                     </button>
                     <button
                         type="button"
-                        className="quiet-button"
+                        className="quiet-button quiet-button-centred"
                         onClick={() => showSettings(true)}
                     >
                         Settings
@@ -66,20 +67,6 @@ function moveFocus(event: KeyboardEvent<HTMLElement>) {
     if (next) {
         event.preventDefault();
         next.focus();
-    }
-}
-
-/** Asks for a folder and registers the repository it is in. */
-async function addProject() {
-    const { refresh, report } = useStore.getState();
-    try {
-        const path = await api.pickFolder();
-        if (path !== null) {
-            await api.projectAdd(path);
-            await refresh(api);
-        }
-    } catch (error) {
-        report(error);
     }
 }
 
@@ -143,20 +130,6 @@ function ProjectGroup({ project }: { project: Project }) {
 }
 
 function TaskGroup({ project, task }: { project: string; task: Task }) {
-    const newSession = async () => {
-        const { refresh, open, report } = useStore.getState();
-        try {
-            const session = await api.sessionNew(project, task.name, {
-                agent: null,
-                model: null,
-                supervision: "ask",
-            });
-            await refresh(api);
-            await open(api, session.id);
-        } catch (error) {
-            report(error);
-        }
-    };
     return (
         <div className="task">
             <div className="row-head">
@@ -169,7 +142,7 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
                     className="row-add"
                     aria-label={`New session in ${task.name}`}
                     title="New session"
-                    onClick={() => void newSession()}
+                    onClick={() => void newSession(project, task.name)}
                 >
                     +
                 </button>

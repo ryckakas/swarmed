@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import type { AgentInfo, Supervision, Theme } from "../api/types";
+import type { AgentInfo, Effort, Supervision, Theme } from "../api/types";
 import { useStore } from "../store";
 
 // The choices a session is started with, and how they are named in the UI.
@@ -115,4 +115,14 @@ export const TEXT_SCALES: [string, string][] = [
     ["110", "Large"],
     ["125", "Larger"],
     ["140", "Largest"],
+];
+
+/** The efforts a model can be asked for, as menu options. The empty one is the agent's default. */
+export const EFFORT_CHOICES: [value: Effort | "", label: string][] = [
+    ["", "Default effort"],
+    ["low", "Low effort"],
+    ["medium", "Medium effort"],
+    ["high", "High effort"],
+    ["xhigh", "Extra high effort"],
+    ["max", "Maximum effort"],
 ];

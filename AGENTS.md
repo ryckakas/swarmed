@@ -80,6 +80,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **UI logic lives in pure functions** with tests: `tree.ts` for the sidebar, `transcript.ts`
   for turning a session's events into what the transcript shows. Components and the store stay
   thin.
+- **Keyboard shortcuts are one table** (`ui/src/hotkeys.ts`), matched in `useHotkeys.ts` and
+  listed in Settings from the same table. A new action gets its shortcut there, not a key
+  handler of its own. Combinations macOS or the window already use are not taken.
 - **Check UI changes in a browser** with `pnpm dev`. The mock agent answers plain text, asks
   permission for `run: <command>`, and runs until stopped for `slow`; one sample session has
   2,000 messages for checking scroll speed.

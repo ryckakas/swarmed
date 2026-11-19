@@ -6,6 +6,7 @@ export const STATUS_ITEM_LABELS: Record<StatusItem, string> = {
     branch: "Branch",
     changes: "Changes",
     model: "Model",
+    context: "Context window",
     cost: "Cost",
     agent: "Agent",
     worktree: "Worktree",
@@ -22,15 +23,72 @@ export interface StatusSource {
     changes: FileChange[] | null;
 }
 
+/** How a run of text in the status line is coloured: by what it says, not by its piece. */
+export type StatusTone = "plain" | "added" | "removed";
+
 export interface StatusPart {
     item: StatusItem;
+    /** The piece as one string. */
     text: string;
+    /** The same text in runs, where parts of it have a colour of their own. */
+    runs: [text: string, tone: StatusTone][];
 }
 
 /** The model the agent last said it runs on, else the one the session was set to. */
 function model({ session, events }: StatusSource): string | null {
     const init = events.findLast((event) => event.type === "init");
     return (init?.type === "init" ? init.model : null) || session.model;
+}
+
+export type ContextUsage = Extract<AgentEvent, { type: "context_usage" }>;
+
+/** How full the context window was when the agent last said. */
+export function contextUsage(events: AgentEvent[]): ContextUsage | null {
+    const latest = events.findLast((event) => event.type === "context_usage");
+    return latest?.type === "context_usage" ? latest : null;
+}
+
+/** A token count as people say it: 937, 29.6k, 1M. */
+export function formatTokens(tokens: number): string {
+    const short = (value: number, unit: string) =>
+        `${value >= 100 ? Math.round(value) : Number(value.toFixed(1))}${unit}`;
+    if (tokens >= 1_000_000) {
+        return short(tokens / 1_000_000, "M");
+    }
+    return tokens >= 1000 ? short(tokens / 1000, "k") : String(tokens);
+}
+
+/** How much of the window is in use, as a whole percentage. */
+export function contextPercent(usage: ContextUsage): number {
+    return usage.max > 0 ? Math.round((usage.used / usage.max) * 100) : 0;
+}
+
+/** From this share on the window is close to full and the badge says so by its colour. */
+export const CONTEXT_NEARLY_FULL = 80;
+
+function context({ events }: StatusSource): StatusPart["runs"] | null {
+    const usage = contextUsage(events);
+    if (usage === null) {
+        return null;
+    }
+    const percent = contextPercent(usage);
+    const tone: StatusTone = percent >= CONTEXT_NEARLY_FULL ? "removed" : "plain";
+    return [
+        [`${percent}%`, tone],
+        [` of ${formatTokens(usage.max)}`, "plain"],
+    ];
+}
+
+/**
+ * The parts of the window worth a line each: what is in use, largest first, then what is set
+ * aside, then what is free. Parts that are listed but not loaded come last.
+ */
+export function contextBreakdown(usage: ContextUsage): ContextUsage["categories"] {
+    const order = ["used", "buffer", "free", "deferred"];
+    const rank = (kind: string) => (order.includes(kind) ? order.indexOf(kind) : 0);
+    return usage.categories
+        .filter((category) => category.tokens > 0)
+        .toSorted((a, b) => rank(a.kind) - rank(b.kind) || b.tokens - a.tokens);
 }
 
 /** What the session has cost since its agent last started, as the agent last reported it. */
@@ -40,30 +98,41 @@ function cost({ events }: StatusSource): string | null {
     return amount === null ? null : `$${amount.toFixed(2)}`;
 }
 
-function changes({ changes }: StatusSource): string | null {
+/** The task's changes in runs: the file count, then what was added and what was removed. */
+function changeRuns({ changes }: StatusSource): StatusPart["runs"] | null {
     if (changes === null) {
         return null;
     }
     const sum = (pick: (change: FileChange) => number | null) =>
         changes.reduce((total, change) => total + (pick(change) ?? 0), 0);
     const files = changes.length === 1 ? "1 file" : `${changes.length} files`;
-    return `${files} +${sum((c) => c.added)} −${sum((c) => c.removed)}`;
+    return [
+        [`${files} `, "plain"],
+        [`+${sum((c) => c.added)}`, "added"],
+        [" ", "plain"],
+        [`−${sum((c) => c.removed)}`, "removed"],
+    ];
 }
 
-const TEXT: Record<StatusItem, (source: StatusSource) => string | null> = {
-    branch: ({ task }) => task.branch,
-    changes,
-    model,
-    cost,
-    agent: ({ session }) => session.agent,
-    worktree: ({ task }) => task.worktree_path,
+const plain = (text: string | null): StatusPart["runs"] | null =>
+    text === null || text === "" ? null : [[text, "plain"]];
+
+const RUNS: Record<StatusItem, (source: StatusSource) => StatusPart["runs"] | null> = {
+    branch: ({ task }) => plain(task.branch),
+    changes: changeRuns,
+    model: (source) => plain(model(source)),
+    context,
+    cost: (source) => plain(cost(source)),
+    agent: ({ session }) => plain(session.agent),
+    worktree: ({ task }) => plain(task.worktree_path),
 };
 
 /** The chosen pieces that have something to show, in the order chosen. */
 export function statusParts(items: StatusItem[], source: StatusSource): StatusPart[] {
     return items.flatMap((item) => {
-        const text = TEXT[item]?.(source) ?? null;
-        return text === null || text === "" ? [] : [{ item, text }];
+        const runs = RUNS[item]?.(source) ?? null;
+        const text = runs?.map(([run]) => run).join("") ?? "";
+        return runs === null ? [] : [{ item, text, runs }];
     });
 }
 

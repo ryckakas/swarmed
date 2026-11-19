@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::{broadcast, mpsc};
 
-use crate::agent::{AgentCommand, AgentEvent, Auth, Namer, SessionSpec, Supervision};
+use crate::agent::{AgentCommand, AgentEvent, Auth, Effort, Namer, SessionSpec, Supervision};
 use crate::agents::CLAUDE;
 use crate::error::{Error, Result};
 use crate::mcp::{self, McpServer};
@@ -76,6 +76,7 @@ impl SessionStatus {
             AgentEvent::Exited { .. } => Some(Self::Errored),
             AgentEvent::Init { .. }
             | AgentEvent::Renamed { .. }
+            | AgentEvent::ContextUsage { .. }
             | AgentEvent::TerminalShared { .. }
             | AgentEvent::TextDelta { .. }
             | AgentEvent::RateLimit { .. }
@@ -128,6 +129,8 @@ pub struct Session {
     pub model: Option<String>,
     /// How much the agent may do without asking.
     pub supervision: Supervision,
+    /// How hard the model thinks; `None` is the agent's default.
+    pub effort: Option<Effort>,
     /// What the session is doing.
     pub status: SessionStatus,
 }
@@ -139,6 +142,8 @@ pub struct SessionSettings {
     pub model: Option<String>,
     /// How much the agent may do without asking.
     pub supervision: Supervision,
+    /// How hard the model thinks; `None` is the agent's default.
+    pub effort: Option<Effort>,
 }
 
 /// Options for [`Core::session_new`].
@@ -152,10 +157,12 @@ pub struct SessionOptions {
     pub model: Option<String>,
     /// How much the agent may do without asking.
     pub supervision: Supervision,
+    /// How hard the model thinks; `None` leaves the agent's default.
+    pub effort: Option<Effort>,
 }
 
-const SESSION_SELECT: &str =
-    "SELECT id, task_id, title, agent_session_id, model, supervision, status, agent FROM sessions";
+const SESSION_SELECT: &str = "SELECT id, task_id, title, agent_session_id, model, supervision, status, agent, effort \
+     FROM sessions";
 
 fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
     Ok(Session {
@@ -167,6 +174,9 @@ fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
         supervision: Supervision::parse(&row.get::<_, String>(5)?).unwrap_or_default(),
         status: SessionStatus::parse(&row.get::<_, String>(6)?),
         agent: row.get(7)?,
+        effort: row
+            .get::<_, Option<String>>(8)?
+            .and_then(|effort| Effort::parse(&effort)),
     })
 }
 
@@ -175,14 +185,15 @@ impl Store {
         let title = options.title.clone().unwrap_or_default();
         let agent = options.agent.clone().unwrap_or_else(|| CLAUDE.to_string());
         self.conn.execute(
-            "INSERT INTO sessions (task_id, title, model, supervision, agent) \
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO sessions (task_id, title, model, supervision, agent, effort) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 task_id,
                 title,
                 options.model,
                 options.supervision.as_str(),
-                agent
+                agent,
+                options.effort.map(Effort::as_str)
             ],
         )?;
         Ok(Session {
@@ -193,6 +204,7 @@ impl Store {
             agent_session_id: None,
             model: options.model.clone(),
             supervision: options.supervision,
+            effort: options.effort,
             status: SessionStatus::Idle,
         })
     }
@@ -224,8 +236,13 @@ impl Store {
 
     fn session_configure(&self, id: i64, settings: &SessionSettings) -> Result<()> {
         self.conn.execute(
-            "UPDATE sessions SET model = ?2, supervision = ?3 WHERE id = ?1",
-            params![id, settings.model, settings.supervision.as_str()],
+            "UPDATE sessions SET model = ?2, supervision = ?3, effort = ?4 WHERE id = ?1",
+            params![
+                id,
+                settings.model,
+                settings.supervision.as_str(),
+                settings.effort.map(Effort::as_str)
+            ],
         )?;
         Ok(())
     }
@@ -460,6 +477,7 @@ impl Core {
             cwd: task.worktree_path,
             model: session.model,
             supervision: session.supervision,
+            effort: session.effort,
             auth,
             resume: session.agent_session_id,
             ..SessionSpec::default()
@@ -595,14 +613,19 @@ impl Core {
         self.live.commands().remove(&id);
     }
 
-    /// Changes a session's model and supervision. A running agent is told at once: the model
-    /// applies from its next turn, the supervision from its next action.
+    /// Changes a session's model, supervision and effort. A running agent is told at once: the
+    /// model applies from its next turn, the supervision from its next action. An agent takes
+    /// its effort only when it starts, so a running one is stopped once its turn is over and
+    /// continues the conversation, with the new effort, on the next message.
     pub fn session_configure(&self, id: i64, settings: &SessionSettings) -> Result<Session> {
         let before = self.session(id)?;
         self.store().session_configure(id, settings)?;
         // Not running is fine: the session starts with the new settings.
         if let Ok(commands) = self.live.sender(id) {
             tell_agent(&commands, &before, settings);
+        }
+        if before.effort != settings.effort {
+            self.live.restart_when_idle(id, before.status);
         }
         self.session(id)
     }
@@ -657,6 +680,8 @@ pub(crate) struct Live {
     commands: Mutex<Commands>,
     /// The permission requests of each session that nobody has decided yet.
     open_requests: Mutex<HashMap<i64, HashSet<String>>>,
+    /// Sessions whose agent is to be stopped when its turn ends, to start again with new settings.
+    restarts: Mutex<HashSet<i64>>,
     runs: AtomicU64,
     bus: broadcast::Sender<SessionEvent>,
 }
@@ -666,6 +691,7 @@ impl Default for Live {
         Self {
             commands: Mutex::default(),
             open_requests: Mutex::default(),
+            restarts: Mutex::default(),
             runs: AtomicU64::new(0),
             bus: broadcast::Sender::new(EVENT_BUFFER),
         }
@@ -717,6 +743,7 @@ impl Live {
         } else {
             lock(store).record(session_id, &event, status)
         };
+        let turn_over = matches!(event, AgentEvent::TurnDone { .. });
         // An error only means nobody is subscribed right now.
         self.bus
             .send(SessionEvent {
@@ -725,7 +752,24 @@ impl Live {
                 event,
             })
             .ok();
+        if turn_over && lock(&self.restarts).remove(&session_id) {
+            self.commands().remove(&session_id);
+        }
         stored
+    }
+
+    /// Stops the session's agent so it starts again with new settings: at once if it is
+    /// between turns, else when its turn is over. Does nothing if it is not running.
+    fn restart_when_idle(&self, id: i64, status: SessionStatus) {
+        let mut commands = self.commands();
+        if !commands.contains_key(&id) {
+            return;
+        }
+        if matches!(status, SessionStatus::Working | SessionStatus::Waiting) {
+            lock(&self.restarts).insert(id);
+        } else {
+            commands.remove(&id);
+        }
     }
 
     /// Forgets a session whose agent has exited, unless it was restarted in the meantime.

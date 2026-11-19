@@ -59,6 +59,44 @@ impl Supervision {
     }
 }
 
+/// How hard the model thinks before it answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Effort {
+    /// The least thinking: quickest and cheapest.
+    Low,
+    /// A middle course.
+    Medium,
+    /// More thinking.
+    High,
+    /// More still.
+    Xhigh,
+    /// As much as the model can.
+    Max,
+}
+
+impl Effort {
+    /// The value stored in the database and passed to the agent.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Xhigh => "xhigh",
+            Self::Max => "max",
+        }
+    }
+
+    /// The inverse of [`Effort::as_str`].
+    #[must_use]
+    pub fn parse(s: &str) -> Option<Self> {
+        [Self::Low, Self::Medium, Self::High, Self::Xhigh, Self::Max]
+            .into_iter()
+            .find(|effort| effort.as_str() == s)
+    }
+}
+
 /// Where the agent's credentials come from. Swarmed only shapes the child's environment.
 #[derive(Clone, Default)]
 pub enum Auth {
@@ -91,6 +129,8 @@ pub struct SessionSpec {
     pub model: Option<String>,
     /// How much the agent may do without asking.
     pub supervision: Supervision,
+    /// How hard the model thinks; `None` leaves the agent's own default.
+    pub effort: Option<Effort>,
     /// Where the credentials come from.
     pub auth: Auth,
     /// The agent's own session id from an earlier run, to continue that conversation.
@@ -115,6 +155,17 @@ pub struct McpServerInfo {
     pub name: String,
     /// The agent's word for its state, such as `connected`, `failed` or `needs-auth`.
     pub status: String,
+}
+
+/// One part of what fills an agent's context window.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextCategory {
+    /// What the part is, as the agent names it: "Messages", "Skills", "System prompt".
+    pub name: String,
+    /// How many tokens it takes.
+    pub tokens: u64,
+    /// The agent's word for what kind of part it is: `used`, `free`, `buffer` or `deferred`.
+    pub kind: String,
 }
 
 /// What an agent session reports.
@@ -209,6 +260,15 @@ pub enum AgentEvent {
     TerminalShared {
         /// The terminal's output as plain text.
         text: String,
+    },
+    /// How full the agent's context window is, reported after a turn.
+    ContextUsage {
+        /// Tokens in use.
+        used: u64,
+        /// The size of the window.
+        max: u64,
+        /// What the tokens are spent on, if the agent says. Empty otherwise.
+        categories: Vec<ContextCategory>,
     },
     /// Usage-limit state.
     RateLimit {

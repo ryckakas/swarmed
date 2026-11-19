@@ -4,6 +4,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::agent::Supervision;
 use crate::error::{Error, Result};
 use crate::statusline::StatusItem;
 
@@ -20,6 +21,8 @@ pub struct Settings {
     pub theme: Theme,
     /// The size of the app's text, in percent of its normal size.
     pub text_scale: u16,
+    /// How much a new session's agent may do without asking, unless chosen otherwise.
+    pub default_supervision: Supervision,
     /// Whether agents are told they may answer with small HTML views, and those are shown.
     pub html_views: bool,
     /// The built-in pieces of the status line under the message box, in order.
@@ -52,6 +55,7 @@ impl Default for Settings {
             auto_title: true,
             theme: Theme::System,
             text_scale: 100,
+            default_supervision: Supervision::Auto,
             html_views: true,
             status_items: StatusItem::defaults(),
             status_command: String::new(),
@@ -110,6 +114,7 @@ mod tests {
             auto_title: false,
             theme: Theme::Light,
             text_scale: 110,
+            default_supervision: Supervision::Ask,
             html_views: false,
             status_items: vec![StatusItem::Cost],
             status_command: "~/bin/status".to_string(),

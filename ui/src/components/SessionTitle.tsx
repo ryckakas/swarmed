@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useState } from "react";
+import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { Session } from "../api/types";
 import { useStore } from "../store";
@@ -7,6 +7,15 @@ import { useStore } from "../store";
 export function SessionTitle({ session }: { session: Session }) {
     const rename = useStore((state) => state.rename);
     const [draft, setDraft] = useState<string | null>(null);
+    // A rename asked for elsewhere, by its shortcut, starts the same edit as the button here.
+    const asked = useStore((state) => state.renameAsked);
+    const seen = useRef(asked);
+    useEffect(() => {
+        if (asked !== seen.current) {
+            seen.current = asked;
+            setDraft(session.title);
+        }
+    }, [asked, session.title]);
     const title = session.title || "New session";
 
     if (draft === null) {
