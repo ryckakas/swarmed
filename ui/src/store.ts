@@ -24,6 +24,10 @@ interface State {
     apply(event: SessionEvent): void;
     /** Changes a session's model and supervision. */
     configure(api: Api, sessionId: number, settings: SessionSettings): Promise<void>;
+    /** The session the user asked to close, until they confirm or change their mind. */
+    closing: number | null;
+    /** Asks before closing: `null` withdraws the question. */
+    askToClose(sessionId: number | null): void;
     /** Stops a session and takes it out of the tree. */
     close(api: Api, sessionId: number): Promise<void>;
     report(problem: unknown): void;
@@ -85,6 +89,7 @@ async function reporting(action: () => Promise<void>) {
 function closed(state: State, sessionId: number): Partial<State> {
     const selected = state.selectedSessionId;
     return {
+        closing: null,
         projects: withoutSession(state.projects, sessionId),
         selectedSessionId: selected === sessionId ? null : selected,
     };
@@ -98,6 +103,8 @@ export const useStore = create<State>((set, get) => ({
     events: {},
     hookLine: null,
     problem: null,
+    closing: null,
+    askToClose: (sessionId) => set({ closing: sessionId }),
     refresh: async (api) => {
         try {
             set({ projects: await api.overview(), load: "ready" });

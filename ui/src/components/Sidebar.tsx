@@ -163,7 +163,7 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
 function SessionRow({ session }: { session: Session }) {
     const selected = useStore((state) => state.selectedSessionId === session.id);
     const open = useStore((state) => state.open);
-    const close = useStore((state) => state.close);
+    const askToClose = useStore((state) => state.askToClose);
     const title = session.title || "New session";
     return (
         <div className={`session-line status-${session.status}`} data-current={selected}>
@@ -181,7 +181,7 @@ function SessionRow({ session }: { session: Session }) {
                 className="row-close"
                 aria-label={`Close ${title}`}
                 title="Close session"
-                onClick={() => void close(api, session.id)}
+                onClick={() => askToClose(session.id)}
             >
                 ×
             </button>

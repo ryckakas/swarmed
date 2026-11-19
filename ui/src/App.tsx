@@ -1,6 +1,7 @@
 import { type CSSProperties, useEffect } from "react";
 import { api } from "./api";
 import icon from "./assets/icon.jpg";
+import { CloseSessionDialog } from "./components/CloseSessionDialog";
 import { Resizer, useStoredWidth } from "./components/Resizer";
 import { SessionPane } from "./components/SessionPane";
 import { Sidebar } from "./components/Sidebar";
@@ -40,6 +41,7 @@ export function App() {
                 {load === "ready" && <SessionPane />}
                 {typeof load === "object" && <LoadError message={load.error} />}
             </main>
+            <CloseSessionDialog />
         </div>
     );
 }
