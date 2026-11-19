@@ -1917,6 +1917,66 @@ code {
     background-image: none;
 }
 
+/* A chip that shows only an icon: a button, or a menu lying unseen over its own picture. */
+.icon-picker {
+    position: relative;
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: none;
+    color: var(--muted);
+}
+
+.icon-picker svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentcolor;
+    stroke-width: 1.3;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.icon-picker select {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    opacity: 0;
+    appearance: none;
+    cursor: pointer;
+}
+
+.icon-picker:hover,
+.icon-picker:focus-visible,
+.icon-picker:focus-within {
+    border-color: var(--faint);
+    color: var(--text);
+}
+
+/* The mode says how far the agent is trusted, so each has a colour of its own. */
+.icon-picker[data-mode="auto"] {
+    color: var(--moss);
+}
+
+.icon-picker[data-mode="plan"] {
+    color: var(--sky);
+}
+
+.icon-picker[data-mode="ask"] {
+    color: var(--pollen);
+}
+
+.icon-picker[data-mode="bypass"] {
+    color: var(--clay);
+}
+
 .round-button {
     flex: none;
     display: grid;

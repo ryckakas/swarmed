@@ -12,14 +12,8 @@ import type {
 import { useStore } from "../store";
 import { taskNameForPrompt, taskNameFrom, uniqueTaskName } from "../tree";
 import { ComposerBox } from "./ComposerBox";
-import {
-    CLAUDE,
-    EFFORT_CHOICES,
-    modelChoices,
-    supervisionChoices,
-    useAgents,
-    useSlashCommands,
-} from "./options";
+import { ModePicker } from "./ModePicker";
+import { CLAUDE, EFFORT_CHOICES, modelChoices, useAgents, useSlashCommands } from "./options";
 import { Picker } from "./Picker";
 
 /** The value of the branch picker that means "create a new branch". */
@@ -119,12 +113,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
                         ]),
                     ]}
                 />
-                <Picker
-                    label="Supervision"
-                    value={supervision}
-                    onChange={(value) => setSupervision(value as Supervision)}
-                    options={supervisionChoices(supervision, agentId)}
-                />
+                <ModePicker value={supervision} agentId={agentId} onChange={setSupervision} />
                 <AgentPickers
                     agents={agents}
                     agentId={agentId}

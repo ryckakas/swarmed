@@ -1,17 +1,11 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import type { Effort, Session, Supervision } from "../api/types";
+import type { Effort, Session } from "../api/types";
 import { useStore } from "../store";
 import { ComposerBox } from "./ComposerBox";
 import { MessageQueue } from "./MessageQueue";
-import {
-    CLAUDE,
-    EFFORT_CHOICES,
-    modelChoices,
-    supervisionChoices,
-    useAgents,
-    useSlashCommands,
-} from "./options";
+import { ModePicker, TerminalIcon } from "./ModePicker";
+import { CLAUDE, EFFORT_CHOICES, modelChoices, useAgents, useSlashCommands } from "./options";
 import { Picker } from "./Picker";
 
 // The terminal emulator is a large library; it is only fetched when a terminal is first shown.
@@ -98,11 +92,12 @@ export function Composer({ session }: { session: Session }) {
                         <SessionPickers session={session} />
                         <button
                             type="button"
-                            className="picker picker-plain"
-                            title="A shell in the task's worktree (Ctrl+`)"
+                            className="icon-picker"
+                            aria-label="Terminal"
+                            title="Terminal: a shell in the task's worktree (Ctrl+`)"
                             onClick={toggleTerminal}
                         >
-                            Terminal
+                            <TerminalIcon />
                         </button>
                     </ComposerBox>
                 </>
@@ -119,13 +114,10 @@ function SessionPickers({ session }: { session: Session }) {
     const current = { model, supervision, effort };
     return (
         <>
-            <Picker
-                label="Supervision"
+            <ModePicker
                 value={supervision}
-                onChange={(value) =>
-                    void configure(api, id, { ...current, supervision: value as Supervision })
-                }
-                options={supervisionChoices(supervision, session.agent)}
+                agentId={session.agent}
+                onChange={(value) => void configure(api, id, { ...current, supervision: value })}
             />
             {session.agent !== CLAUDE && (
                 <span className="option-label">{agent?.name ?? session.agent}</span>
