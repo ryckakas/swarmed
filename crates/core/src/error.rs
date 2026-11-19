@@ -104,6 +104,13 @@ pub enum Error {
          from Settings, under Agents, or correct its path in agents.toml"
     )]
     AgentMissing(String),
+    /// Claude Code is not installed, or not where Swarmed looks for it.
+    #[error(
+        "Claude Code was not found (`{0}`). Swarmed runs your own Claude Code: install it from \
+         https://claude.com/claude-code, run `claude` once in a terminal to sign in, then try \
+         again. Or pick another agent, set up in Settings under Agents"
+    )]
+    ClaudeMissing(String),
     /// No agent is configured under this id.
     #[error("agent `{0}` is not configured")]
     AgentNotFound(String),
@@ -131,6 +138,9 @@ pub enum Error {
     /// Something one session asked about another was refused.
     #[error("{0}")]
     Peers(String),
+    /// An MCP server could not be saved or found as asked.
+    #[error("{0}")]
+    Mcp(String),
     /// A message with nothing in it.
     #[error("a message cannot be empty")]
     EmptyMessage,

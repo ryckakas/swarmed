@@ -115,6 +115,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   beside the status, not a status: the UI shows it for idle sessions only, since busy, waiting
   and failed already say more. The UI marks the session on screen as read when its answer
   arrives, if the window has focus, and otherwise when the window gets it.
+- **MCP servers can be set up in Swarmed** (`mcp_own.rs`), in `mcp.toml` in the data
+  directory, and are given to every agent it runs, Claude Code included, beside Claude Code's
+  own. A server's secrets are named in the file and kept in the keychain under
+  `mcp:<server>:<name>`; a front end can set one and never read it. Claude Code's servers are
+  shown from its configuration and from what it last reported, and never written.
 - **Each session can have a terminal** (`terminal.rs`): the user's shell on a pseudo-terminal in
   the task's worktree, shown in place of the message box. Its output is published on its own
   channel (`Core::subscribe_terminals`) and not stored. What it printed since the agent's last

@@ -7,6 +7,7 @@ import { SETTINGS_TABS, type SettingsTab, useStore } from "../store";
 import { AgentsSettings } from "./AgentsSettings";
 import { ApiKeys } from "./ApiKeys";
 import { CloseIcon, IconButton } from "./IconButton";
+import { McpSettings } from "./McpSettings";
 import { editorChoices, supervisionChoices, TEXT_SCALES, THEMES } from "./options";
 import { Picker } from "./Picker";
 import { UsageSettings } from "./UsageSettings";
@@ -122,6 +123,8 @@ function Panel({ tab, settings }: { tab: SettingsTab; settings: Settings }) {
             return <StatusLineSettings settings={settings} />;
         case "agents":
             return <AgentsSettings />;
+        case "mcp":
+            return <McpSettings />;
         case "keys":
             return <ApiKeys />;
         case "usage":

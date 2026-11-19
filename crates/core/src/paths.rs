@@ -47,6 +47,12 @@ impl Paths {
         self.data_dir.join("agents.toml")
     }
 
+    /// The file that lists the MCP servers set up in Swarmed itself.
+    #[must_use]
+    pub fn mcp_config(&self) -> PathBuf {
+        self.data_dir.join("mcp.toml")
+    }
+
     /// The file with the user's own preferences, such as their editor.
     #[must_use]
     pub fn settings(&self) -> PathBuf {

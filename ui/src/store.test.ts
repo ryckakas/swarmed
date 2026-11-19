@@ -232,3 +232,21 @@ describe("the settings", () => {
         useStore.getState().showSettings(false, "appearance");
     });
 });
+
+describe("MCP servers", () => {
+    it("set up here come first, are named by their secrets only, and can be removed", async () => {
+        const api = createMockApi();
+        const before = await api.mcpServers();
+        expect(before.every((server) => server.origin === "claude")).toBe(true);
+        const listed = await api.mcpSave({
+            name: "tracker",
+            command: "npx -y tracker",
+            url: "",
+            secrets: [["TRACKER_TOKEN", "s3cret"]],
+            enabled: true,
+        });
+        expect(listed[0]).toMatchObject({ name: "tracker", origin: "swarmed", kind: "stdio" });
+        expect(JSON.stringify(listed)).not.toContain("s3cret");
+        expect(await api.mcpRemove("tracker")).toEqual(before);
+    });
+});

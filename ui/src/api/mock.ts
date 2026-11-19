@@ -7,6 +7,7 @@ import type {
     FileChange,
     FileDiff,
     HookOutput,
+    McpServerView,
     Project,
     QueuedMessage,
     Session,
@@ -92,6 +93,46 @@ function removeApi(projects: () => Project[]): Pick<Api, "projectRemove" | "task
             const tasks = projects().find((project) => project.name === projectName)?.tasks ?? [];
             const at = tasks.findIndex((task) => task.name === name);
             tasks.splice(at, at === -1 ? 0 : 1);
+        },
+    };
+}
+
+/** MCP servers: a few of Claude Code's own to look at, and a list of Swarmed's to fill. */
+function mcpApi(): Pick<Api, "mcpServers" | "mcpSave" | "mcpRemove"> {
+    const claude = (name: string, status: string, target: string): McpServerView => ({
+        name,
+        origin: "claude",
+        kind: target.startsWith("http") ? "http" : "stdio",
+        target,
+        secrets: [],
+        enabled: true,
+        status,
+    });
+    const fromClaude = [
+        claude("context7", "connected", "https://mcp.context7.com/mcp"),
+        claude("playwright", "connected", "npx @playwright/mcp@latest"),
+        claude("claude.ai Slack", "needs-auth", ""),
+    ];
+    let own: McpServerView[] = [];
+    const all = () => [...own, ...fromClaude];
+    return {
+        mcpServers: async () => all(),
+        mcpSave: async (server) => {
+            const view: McpServerView = {
+                name: server.name,
+                origin: "swarmed",
+                kind: server.url === "" ? "stdio" : "http",
+                target: server.url || server.command,
+                secrets: server.secrets.map(([name]) => name),
+                enabled: server.enabled,
+                status: null,
+            };
+            own = [...own.filter((other) => other.name !== server.name), view];
+            return all();
+        },
+        mcpRemove: async (name) => {
+            own = own.filter((server) => server.name !== name);
+            return all();
         },
     };
 }
@@ -676,6 +717,7 @@ export function createMockApi(): Api {
     };
     return {
         overview: async () => structuredClone(agent.projects),
+        ...mcpApi(),
         usage: async () => SAMPLE_USAGE,
         ...setupApi(hookListeners),
         agents: async () => [

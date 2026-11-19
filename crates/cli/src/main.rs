@@ -11,7 +11,8 @@ use clap::{Parser, Subcommand, ValueEnum};
 use session::SessionCommand;
 use swarmed_core::agent::FakeBackend;
 use swarmed_core::{
-    AgentSetup, ApiKeyInfo, Core, NewTaskOptions, Paths, RemoveOptions, Settings, SetupStatus, Task,
+    AgentSetup, ApiKeyInfo, Core, McpServerView, NewTaskOptions, Paths, RemoveOptions, Settings,
+    SetupStatus, Task,
 };
 
 /// Swarmed: parallel Claude Code sessions in isolated git worktrees.
@@ -33,6 +34,8 @@ enum Command {
     /// Run agent sessions in a task's worktree.
     #[command(subcommand)]
     Session(SessionCommand),
+    /// List the MCP servers agents are given: those set up in Swarmed and Claude Code's own.
+    Mcp,
     /// Show what Swarmed takes up on disk, and in memory and processor time right now.
     Usage,
     /// List the agents sessions can run on.
@@ -225,6 +228,7 @@ async fn run(core: &Core, command: Command) -> Result<()> {
         // Answered above, before anything was opened.
         Command::ToolServer => Ok(()),
         Command::Agent(command) => agent(core, command).await,
+        Command::Mcp => mcp(core),
         Command::Usage => usage(core).await,
         Command::Agents => {
             agents(core);
@@ -320,6 +324,19 @@ async fn agent(core: &Core, command: AgentCommand) -> Result<()> {
             row(&core.agent_configure(&id, models)?);
         }
     }
+    Ok(())
+}
+
+fn mcp(core: &Core) -> Result<()> {
+    let row = |server: &McpServerView| {
+        let state = if server.enabled { "on" } else { "off" };
+        let status = server.status.as_deref().unwrap_or("-");
+        say(&format!(
+            "{}\t{}\t{state}\t{status}\t{}",
+            server.name, server.origin, server.target
+        ));
+    };
+    core.mcp_servers()?.iter().for_each(row);
     Ok(())
 }
 

@@ -295,7 +295,11 @@ impl Store {
 
     /// The newest record of an agent starting, in this session if there is one, else in any
     /// session on the same agent.
-    fn latest_init(&self, session_id: Option<i64>, agent: &str) -> Result<Option<AgentEvent>> {
+    pub(crate) fn latest_init(
+        &self,
+        session_id: Option<i64>,
+        agent: &str,
+    ) -> Result<Option<AgentEvent>> {
         // The event's type is the first thing in its JSON, which keeps this a prefix match.
         let sql = "SELECT e.event FROM session_events e JOIN sessions s ON s.id = e.session_id \
                    WHERE s.agent = ?2 AND e.event LIKE '{\"type\":\"init\"%' \
@@ -544,6 +548,7 @@ impl Core {
         let spool = self.paths.view_spool(id);
         // Whatever an earlier run left behind belongs to a conversation that has moved on.
         std::fs::remove_dir_all(&spool).ok();
+        mcp_servers.extend(self.own_mcp_servers()?);
         mcp_servers.extend(self.own_tools(id, &spool));
         let env = if session.agent == CLAUDE {
             SecretEnv::default()

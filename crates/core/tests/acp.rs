@@ -9,7 +9,8 @@ use common::{fixture, next, turn};
 use serde_json::json;
 use swarmed_core::agent::{AcpBackend, AgentEvent, Auth, FakeBackend, Supervision};
 use swarmed_core::{
-    AgentInfo, Core, Error, NewTaskOptions, SessionEvent, SessionOptions, SessionStatus, hooks,
+    AgentInfo, Core, Error, McpServerInput, NewTaskOptions, SessionEvent, SessionOptions,
+    SessionStatus, hooks,
 };
 use tokio::sync::broadcast::Receiver;
 
@@ -428,6 +429,71 @@ async fn the_agent_is_given_the_mcp_servers_configured_for_claude_code() {
         .map(|s| (s.name.as_str(), s.status.as_str()))
         .collect();
     assert_eq!(reported, [("context7", "passed"), ("files", "passed")]);
+}
+
+#[tokio::test]
+async fn servers_set_up_in_swarmed_are_given_with_their_secrets_and_never_show_them() {
+    let fx = fixture();
+    write_claude_config(&fx);
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+
+    let server = |enabled: bool, token: Option<&str>| McpServerInput {
+        name: "tracker".into(),
+        command: "npx -y \"@acme/tracker mcp\"".into(),
+        url: String::new(),
+        secrets: vec![
+            ("TRACKER_TOKEN".into(), token.map(String::from)),
+            ("TRACKER_ORG".into(), None),
+        ],
+        enabled,
+    };
+    let listed = core.mcp_save(&server(true, Some("s3cret"))).expect("saves");
+    // Set up here first, then Claude Code's own, with secrets by name only.
+    let names: Vec<(&str, &str)> = listed
+        .iter()
+        .map(|view| (view.name.as_str(), view.origin.as_str()))
+        .collect();
+    assert_eq!(
+        names,
+        [
+            ("tracker", "swarmed"),
+            ("context7", "claude"),
+            ("files", "claude")
+        ]
+    );
+    assert_eq!(listed[0].target, "npx -y \"@acme/tracker mcp\"");
+    assert_eq!(listed[0].secrets, ["TRACKER_TOKEN", "TRACKER_ORG"]);
+    assert_eq!(listed[1].secrets, ["API_KEY"]);
+    let written = std::fs::read_to_string(fx.paths.mcp_config()).expect("reads");
+    assert!(
+        written.contains("TRACKER_TOKEN") && !written.contains("s3cret"),
+        "{written}"
+    );
+    assert!(!format!("{listed:?}").contains("s3cret"));
+
+    // The agent gets it with the one secret that has a value.
+    let id = started(&core, Supervision::Ask);
+    core.session_send(id, "mcp").expect("sends");
+    let events = turn(&mut bus, id).await;
+    assert_eq!(
+        events.get(2),
+        Some(&text(
+            "servers: context7(http, 1 set), files(stdio, 2 set), tracker(stdio, 1 set)"
+        ))
+    );
+
+    // Saved again without a value the secret stays; switched off, the server is not given.
+    core.mcp_save(&server(false, None)).expect("saves");
+    core.session_stop(id);
+    let again = started(&core, Supervision::Ask);
+    core.session_send(again, "mcp").expect("sends");
+    let events = turn(&mut bus, again).await;
+    assert!(events.contains(&text("servers: context7(http, 1 set), files(stdio, 2 set)")));
+
+    let left = core.mcp_remove("tracker").expect("removes");
+    assert!(left.iter().all(|view| view.origin == "claude"));
+    assert!(matches!(core.mcp_remove("tracker"), Err(Error::Mcp(_))));
 }
 
 #[tokio::test]
