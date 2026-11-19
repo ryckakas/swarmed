@@ -55,6 +55,7 @@ export const tauriApi: Api = {
         const id = await invoke<string>("view_put", { document });
         return `swarmed-view://localhost/${id}`;
     },
+    viewOpen: (document) => invoke("view_open", { document }),
     terminalOpen: (id, cols, rows) => invoke<string>("terminal_open", { id, cols, rows }),
     terminalWrite: (id, data) => invoke("terminal_write", { id, data }),
     terminalResize: (id, cols, rows) => invoke("terminal_resize", { id, cols, rows }),

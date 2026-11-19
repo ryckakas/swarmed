@@ -412,6 +412,8 @@ fn an_agents_html_is_served_from_its_own_origin_under_its_own_policy() {
     assert_eq!(crate::view_response(&core, "/missing").status(), 404);
 }
 
+// `view_open` is the one command not called here: it would open a browser on whoever runs the
+// tests. What it writes is tested in the core.
 #[test]
 fn the_ui_can_hand_over_html_for_a_frame() {
     let app = app();

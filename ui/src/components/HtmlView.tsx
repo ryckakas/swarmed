@@ -3,8 +3,11 @@ import { api } from "../api";
 import { needsNetwork, requestedHeight, type ViewTheme, viewDocument } from "../htmlview";
 import { useStore } from "../store";
 
-/** The tallest a view is shown before it scrolls inside its frame. */
-const MAX_HEIGHT = 720;
+/**
+ * A view is as tall as its content, so it never scrolls inside the conversation. This only
+ * stops one that keeps asking for more, such as content sized to the frame plus a margin.
+ */
+const MAX_HEIGHT = 12_000;
 
 /** The app's current colours and type, for a view to start from. */
 function currentTheme(element: HTMLElement): ViewTheme {
@@ -31,9 +34,11 @@ export function HtmlView({ html }: { html: string }) {
     const holder = useRef<HTMLDivElement>(null);
     const frame = useRef<HTMLIFrameElement>(null);
     const settings = useStore((state) => state.settings);
-    const [address, setAddress] = useState<string | null>(null);
+    // The document as shown, and the address the frame loads it from.
+    const [shown, setShown] = useState<{ document: string; address: string } | null>(null);
     const [height, setHeight] = useState(120);
     const [source, setSource] = useState(false);
+    const [folded, setFolded] = useState(false);
 
     // biome-ignore lint/correctness/useExhaustiveDependencies: built again when the theme or text size changes
     useEffect(() => {
@@ -42,8 +47,9 @@ export function HtmlView({ html }: { html: string }) {
             return;
         }
         let current = true;
-        api.viewUrl(viewDocument(html, currentTheme(element)))
-            .then((url) => current && setAddress(url))
+        const document = viewDocument(html, currentTheme(element));
+        api.viewUrl(document)
+            .then((address) => current && setShown({ document, address }))
             .catch(useStore.getState().report);
         return () => {
             current = false;
@@ -62,33 +68,57 @@ export function HtmlView({ html }: { html: string }) {
         return () => window.removeEventListener("message", onMessage);
     }, []);
 
+    const openInBrowser = () => {
+        if (shown) {
+            api.viewOpen(shown.document).catch(useStore.getState().report);
+        }
+    };
+
     return (
         <div className="html-view" ref={holder}>
             <div className="html-view-head">
-                <span>View from the agent, sandboxed</span>
+                <button
+                    type="button"
+                    className="html-view-fold"
+                    aria-expanded={!folded}
+                    onClick={() => setFolded(!folded)}
+                >
+                    <svg className="fold-chevron" viewBox="0 0 10 10" aria-hidden="true">
+                        <path d="M3.5 1.5 7 5 3.5 8.5" />
+                    </svg>
+                    View from the agent, sandboxed
+                </button>
+                <button type="button" className="changes-refresh" onClick={openInBrowser}>
+                    Open in browser
+                </button>
                 <button
                     type="button"
                     className="changes-refresh"
-                    onClick={() => setSource(!source)}
+                    onClick={() => {
+                        setSource(!source);
+                        setFolded(false);
+                    }}
                 >
                     {source ? "Show the view" : "Show the source"}
                 </button>
             </div>
-            {needsNetwork(html) && (
+            {!folded && needsNetwork(html) && (
                 <p className="html-view-note">
                     This view asks for files from the network, which views cannot reach. Parts of it
                     may be missing.
                 </p>
             )}
-            {source && <pre className="tool-body">{html}</pre>}
-            {!source && address && (
+            {!folded && source && <pre className="tool-body">{html}</pre>}
+            {/* Kept while folded, so a view the user has worked in is as they left it. */}
+            {!source && shown && (
                 <iframe
                     ref={frame}
                     className="html-view-frame"
                     title="View from the agent"
                     sandbox="allow-scripts"
                     referrerPolicy="no-referrer"
-                    src={address}
+                    src={shown.address}
+                    hidden={folded}
                     style={{ height }}
                 />
             )}

@@ -89,6 +89,8 @@ export interface Api {
      * loads it from: an origin of its own, with no access to the app.
      */
     viewUrl(document: string): Promise<string>;
+    /** Opens such a document in the user's browser, under the same restrictions as the frame. */
+    viewOpen(document: string): Promise<void>;
     /**
      * Opens the session's terminal, starting a shell in the task's worktree if none runs, and
      * returns what it has printed so far, to redraw it.

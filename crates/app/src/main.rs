@@ -12,7 +12,7 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use swarmed_core::agent::FakeBackend;
-use swarmed_core::{Core, Paths, SessionEvent, TerminalOutput};
+use swarmed_core::{Core, Paths, SessionEvent, TerminalOutput, VIEW_POLICY};
 use tauri::http::header::{CONTENT_SECURITY_POLICY, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
 use tauri::http::{HeaderValue, Response, StatusCode};
 use tauri::{AppHandle, Builder, Emitter, Runtime};
@@ -60,11 +60,6 @@ async fn forward_terminals<R: Runtime>(mut bus: Receiver<TerminalOutput>, app: A
         };
     }
 }
-
-/// What a frame showing an agent's HTML may do: run its own inline code and styles, and
-/// nothing that reaches outside the frame.
-const VIEW_POLICY: &str = "default-src 'none'; style-src 'unsafe-inline'; \
-    script-src 'unsafe-inline'; img-src data:; font-src data:; form-action 'none'; base-uri 'none'";
 
 /// Answers a frame asking for the HTML document kept under the id in `path`.
 ///
@@ -125,6 +120,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
             commands::session_configure,
             commands::slash_commands,
             commands::view_put,
+            commands::view_open,
             commands::terminal_open,
             commands::terminal_write,
             commands::terminal_resize,

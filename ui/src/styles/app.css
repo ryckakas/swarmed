@@ -1485,9 +1485,37 @@ code {
     align-items: center;
     justify-content: space-between;
     padding: 2px var(--space-2) 2px var(--space-3);
-    border-bottom: 1px solid var(--line);
     color: var(--faint);
     font-size: var(--text-xs);
+}
+
+.html-view-head + * {
+    border-top: 1px solid var(--line);
+}
+
+/* The view's name is also what folds it away. */
+.html-view-fold {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-right: auto;
+    padding: 2px 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+}
+
+.html-view-fold:hover {
+    color: var(--text);
+}
+
+.html-view-fold[aria-expanded="true"] .fold-chevron {
+    transform: rotate(90deg);
+}
+
+.html-view-frame[hidden] {
+    display: none;
 }
 
 .html-view-frame {

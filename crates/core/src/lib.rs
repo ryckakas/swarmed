@@ -51,6 +51,7 @@ pub use store::{Project, SetupStatus, Task};
 pub use tasks::{BranchChoices, NewTaskOptions, RemoveOptions};
 pub use terminal::TerminalOutput;
 use terminal::Terminals;
+pub use views::VIEW_POLICY;
 use views::ViewStore;
 
 /// The entry point: one value per data directory, shared by everything a front end does.

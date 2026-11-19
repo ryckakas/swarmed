@@ -281,6 +281,12 @@ pub(crate) fn view_put(core: CoreState<'_>, document: String) -> String {
     core.view_put(document)
 }
 
+/// Opens an HTML document an agent wrote in the user's browser.
+#[tauri::command]
+pub(crate) fn view_open(core: CoreState<'_>, document: String) -> Command<()> {
+    Ok(core.view_open(&document)?)
+}
+
 /// Async so that it runs on the runtime the core spawns the terminal's tasks on.
 #[tauri::command]
 pub(crate) async fn terminal_open(
