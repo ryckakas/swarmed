@@ -1,5 +1,5 @@
 import type { AgentEvent } from "./api/types";
-import { isShowHtmlTool } from "./htmlview";
+import { shownHtml } from "./htmlview";
 
 // Turns a session's raw events into what the transcript shows. Pure, so it can be tested.
 
@@ -242,7 +242,7 @@ export function activity(events: AgentEvent[]): string {
     if (running?.type !== "tool_use") {
         return "Thinking";
     }
-    if (isShowHtmlTool(running.name)) {
+    if (shownHtml(running.name, running.input) !== "") {
         return "Showing a view";
     }
     return running.name === PLAN_TOOL ? "Presenting its plan" : `Running ${running.name}`;
