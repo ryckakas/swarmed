@@ -2595,6 +2595,31 @@ kbd {
     margin-top: var(--space-2);
 }
 
+.agent-name {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* A ticked green box: the agent is installed and set up. */
+.agent-ready {
+    flex: none;
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.agent-ready rect {
+    fill: var(--moss);
+}
+
+.agent-ready path {
+    stroke: var(--dusk);
+    stroke-width: 1.8;
+}
+
 /* MCP servers: the form for one of Swarmed's own, and the list of Claude Code's. */
 .settings-subhead {
     margin-top: var(--space-6);

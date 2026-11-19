@@ -35,6 +35,21 @@ export function AgentsSettings() {
     );
 }
 
+/** Whether sessions can run on the agent as things are: it is installed and set up. */
+export function isReady(setup: AgentSetup): boolean {
+    return setup.installed !== null && setup.configured;
+}
+
+/** The green tick in front of an agent that is ready to use. */
+function ReadyMark() {
+    return (
+        <svg className="agent-ready" viewBox="0 0 16 16" role="img" aria-label="Ready to use">
+            <rect x="1.5" y="1.5" width="13" height="13" rx="3.5" />
+            <path d="M4.6 8.3l2.3 2.3 4.5-5" />
+        </svg>
+    );
+}
+
 /** What is to be said about an agent's state, and what the user can do next. */
 function stateOf(setup: AgentSetup): string {
     if (setup.installed === null) {
@@ -66,7 +81,10 @@ function AgentRow({ setup, onChange }: { setup: AgentSetup; onChange(setup: Agen
         <div className="agent-row">
             <div className="settings-row">
                 <div>
-                    <p className="settings-label">{setup.name}</p>
+                    <p className="settings-label agent-name">
+                        {isReady(setup) && <ReadyMark />}
+                        {setup.name}
+                    </p>
                     <p className="settings-hint">{setup.about}</p>
                     <p className="settings-hint">{stateOf(setup)}</p>
                     {setup.installed !== null && <p className="settings-hint">{setup.sign_in}</p>}
