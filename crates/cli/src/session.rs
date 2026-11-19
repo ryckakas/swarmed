@@ -4,8 +4,10 @@ use anyhow::{Context, Result};
 use clap::{Subcommand, ValueEnum};
 use serde_json::Value;
 use swarmed_core::agent::{AgentEvent, Auth, Supervision};
-use swarmed_core::{Core, LiveSession, SessionOptions};
+use swarmed_core::{Core, SessionEvent, SessionOptions};
 use tokio::io::{AsyncBufReadExt, BufReader, Lines, Stdin};
+use tokio::sync::broadcast::Receiver;
+use tokio::sync::broadcast::error::RecvError;
 
 use crate::say;
 
@@ -118,40 +120,59 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
 /// Sends `prompt` and shows the session's events until the turn ends. Permission requests are
 /// answered from stdin; Ctrl-C interrupts the turn instead of killing the session.
 async fn run_turn(core: &Core, id: i64, prompt: &str, auth: Auth) -> Result<()> {
-    let mut live = core.session_open(id, auth)?;
-    live.send(prompt)?;
+    let mut bus = core.subscribe();
+    core.session_start(id, auth)?;
+    core.session_send(id, prompt)?;
     let mut answers = BufReader::new(tokio::io::stdin()).lines();
-    while let Some(event) = next_or_interrupt(&mut live).await? {
+    // The user's own message is the first event published; it is on screen already.
+    next_or_interrupt(core, &mut bus, id).await?;
+    while let Some(event) = next_or_interrupt(core, &mut bus, id).await? {
         if let Some(line) = describe(&event) {
             say(&line);
         }
         match event {
             AgentEvent::PermissionRequest { request_id, .. } => {
-                decide(&live, &mut answers, &request_id).await?;
+                decide(core, id, &mut answers, &request_id).await?;
             }
-            AgentEvent::TurnDone { .. } => break,
+            AgentEvent::TurnDone { .. } | AgentEvent::Exited { .. } => break,
             _ => {}
         }
     }
     Ok(())
 }
 
-async fn next_or_interrupt(live: &mut LiveSession) -> Result<Option<AgentEvent>> {
+/// The session's next event, or `None` if the event stream ended. Ctrl-C interrupts the turn
+/// and keeps waiting.
+async fn next_or_interrupt(
+    core: &Core,
+    bus: &mut Receiver<SessionEvent>,
+    id: i64,
+) -> Result<Option<AgentEvent>> {
     loop {
         tokio::select! {
-            event = live.next_event() => return Ok(event),
-            _ = tokio::signal::ctrl_c() => live.interrupt()?,
+            published = bus.recv() => match published {
+                Ok(published) if published.session_id == id => return Ok(Some(published.event)),
+                // Another session's event, or events lost to a full buffer: keep reading.
+                Ok(_) | Err(RecvError::Lagged(_)) => {}
+                Err(RecvError::Closed) => return Ok(None),
+            },
+            _ = tokio::signal::ctrl_c() => core.session_interrupt(id)?,
         }
     }
 }
 
 /// Reads one line; anything but `y` or `yes` refuses, and so does a closed stdin.
-async fn decide(live: &LiveSession, answers: &mut Lines<BufReader<Stdin>>, id: &str) -> Result<()> {
+async fn decide(
+    core: &Core,
+    id: i64,
+    answers: &mut Lines<BufReader<Stdin>>,
+    request_id: &str,
+) -> Result<()> {
     let answer = answers.next_line().await?.unwrap_or_default();
     if matches!(answer.trim(), "y" | "yes") {
-        live.allow(id)?;
+        core.session_allow(id, request_id)?;
     } else {
-        live.deny(id, "The user declined this action.")?;
+        core.session_deny(id, request_id, "The user declined this action.")?;
     }
     Ok(())
 }

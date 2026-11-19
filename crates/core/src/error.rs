@@ -78,9 +78,9 @@ pub enum Error {
     /// No session has this id.
     #[error("session {0} not found")]
     SessionNotFound(i64),
-    /// The agent process behind a live session is gone.
-    #[error("the session's agent is no longer running")]
-    SessionClosed,
+    /// The session's agent has not been started, or has exited.
+    #[error("session {0} is not running")]
+    SessionNotRunning(i64),
     /// A stored or outgoing event could not be converted to or from JSON.
     #[error(transparent)]
     Json(#[from] serde_json::Error),

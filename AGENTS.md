@@ -41,6 +41,9 @@ crates/
   CLI over its line-delimited JSON protocol, which has no specification: `agent/claude.rs` is the
   only file that knows its shapes, and it must tolerate unknown messages. `FakeBackend` is the
   scripted agent the tests use; `SWARMED_FAKE_AGENT=1` selects it in the CLI.
+- **Running sessions live in the core** (`sessions.rs`). Front ends call `session_start`,
+  `session_send` and the like by session id and read every session's events from one stream,
+  `Core::subscribe`. Events are stored before they are published.
 - **Swarmed never handles Claude.ai credentials.** It only shapes the child's environment (`Auth`).
 - **Session events are stored as JSON** (`AgentEvent`), so its variants and fields are only added,
   never renamed.

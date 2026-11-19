@@ -23,7 +23,8 @@ pub use config::{Hooks, ProjectConfig};
 pub use error::{Error, Result};
 pub use hooks::OutputSink;
 pub use paths::Paths;
-pub use sessions::{LiveSession, Session, SessionOptions, SessionStatus};
+use sessions::Live;
+pub use sessions::{EVENT_BUFFER, Session, SessionEvent, SessionOptions, SessionStatus};
 use store::Store;
 pub use store::{Project, SetupStatus, Task};
 pub use tasks::{NewTaskOptions, RemoveOptions};
@@ -34,6 +35,7 @@ pub struct Core {
     paths: Paths,
     store: Arc<Mutex<Store>>,
     backend: Arc<dyn AgentBackend>,
+    live: Arc<Live>,
 }
 
 /// The store is only ever locked for one short query, never across an `.await`. A panic while
@@ -56,6 +58,7 @@ impl Core {
             paths,
             store: Arc::new(Mutex::new(store)),
             backend,
+            live: Arc::default(),
         })
     }
 
