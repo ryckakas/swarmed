@@ -94,14 +94,35 @@ export interface ViewTheme {
     dark: boolean;
 }
 
-// Tells the host how tall the content is, now and whenever it changes, so the frame fits it.
+// Runs inside the view. First it takes the frame's own height out of the view's layout: a rule
+// like "min-height: 100vh" makes the content as tall as the frame, the frame is then made as
+// tall as the content plus its margins, and the two chase each other upwards. Then it tells the
+// host how tall the content is, now and whenever it changes, so the frame fits it.
 const REPORT_HEIGHT = `(() => {
+    const FRAME_UNITS = /\\d\\s*(?:[sld]?vh|vmin|vmax)\\b/;
+    const tame = (style) => {
+        if (FRAME_UNITS.test(style.minHeight)) style.minHeight = "0";
+        if (FRAME_UNITS.test(style.height)) style.height = "auto";
+    };
+    const walk = (rules) => {
+        for (const rule of rules) {
+            if (rule.style) tame(rule.style);
+            if (rule.cssRules) walk(rule.cssRules);
+        }
+    };
+    const tameAll = () => {
+        for (const sheet of document.styleSheets) {
+            try { walk(sheet.cssRules); } catch {}
+        }
+        for (const element of document.querySelectorAll("[style]")) tame(element.style);
+    };
     const report = () => parent.postMessage(
         { swarmedViewHeight: Math.ceil(document.documentElement.getBoundingClientRect().height) },
         "*",
     );
+    tameAll();
     new ResizeObserver(report).observe(document.documentElement);
-    addEventListener("load", report);
+    addEventListener("load", () => { tameAll(); report(); });
     report();
 })();`;
 
@@ -155,6 +176,41 @@ ${html}
 ${report}
 </body>
 </html>`;
+}
+
+/** How a view's frame has been sized so far: its height, and how it last grew. */
+export interface FrameSize {
+    height: number;
+    /** By how much the height last went up, and how many times in a row by that much. */
+    step: number;
+    repeats: number;
+    /** Whether the view was found to be chasing its own frame, and is no longer followed up. */
+    chasing: boolean;
+}
+
+export const INITIAL_FRAME: FrameSize = { height: 120, step: 0, repeats: 0, chasing: false };
+
+/** After this many equal steps upwards a view is taken to be chasing its own frame. */
+const RUNAWAY_STEPS = 3;
+
+/**
+ * The frame's size once its view asks for `wanted`, at most `limit`. A view that keeps asking
+ * for the same little bit more is sizing itself by the frame it is in, so each answer only
+ * provokes the next request: after a few of those the frame is not made taller again.
+ */
+export function nextFrameSize(size: FrameSize, wanted: number, limit: number): FrameSize {
+    const height = Math.min(wanted, limit);
+    const step = height - size.height;
+    if (step <= 0) {
+        return { ...size, height, step: 0, repeats: 0 };
+    }
+    if (size.chasing) {
+        return size;
+    }
+    const repeats = step === size.step ? size.repeats + 1 : 1;
+    return repeats >= RUNAWAY_STEPS
+        ? { ...size, chasing: true }
+        : { ...size, height, step, repeats };
 }
 
 /** The height a view asks for, if `data` is its message and the height is usable. */

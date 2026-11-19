@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import { needsNetwork, requestedHeight, type ViewTheme, viewDocument } from "../htmlview";
+import {
+    INITIAL_FRAME,
+    needsNetwork,
+    nextFrameSize,
+    requestedHeight,
+    type ViewTheme,
+    viewDocument,
+} from "../htmlview";
 import { useStore } from "../store";
 
 /**
@@ -36,7 +43,7 @@ export function HtmlView({ html }: { html: string }) {
     const settings = useStore((state) => state.settings);
     // The document as shown, and the address the frame loads it from.
     const [shown, setShown] = useState<{ document: string; address: string } | null>(null);
-    const [height, setHeight] = useState(120);
+    const [size, setSize] = useState(INITIAL_FRAME);
     const [source, setSource] = useState(false);
     const [folded, setFolded] = useState(false);
 
@@ -61,7 +68,7 @@ export function HtmlView({ html }: { html: string }) {
             const wanted = requestedHeight(event.data);
             // Only this view's own frame may size it.
             if (wanted !== null && event.source === frame.current?.contentWindow) {
-                setHeight(Math.min(wanted, MAX_HEIGHT));
+                setSize((current) => nextFrameSize(current, wanted, MAX_HEIGHT));
             }
         };
         window.addEventListener("message", onMessage);
@@ -119,7 +126,7 @@ export function HtmlView({ html }: { html: string }) {
                     referrerPolicy="no-referrer"
                     src={shown.address}
                     hidden={folded}
-                    style={{ height }}
+                    style={{ height: size.height }}
                 />
             )}
         </div>
