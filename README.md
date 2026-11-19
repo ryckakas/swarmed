@@ -1,5 +1,7 @@
 # Swarmed
 
+![Swarmed, a Rust agent orchestrator: a bear in power armour facing a swarm](docs/cover.jpg)
+
 Parallel Claude Code sessions, each in its own git worktree with a fully isolated dev stack.
 A personal tool with a Rust core; the desktop app (Tauri) comes later.
 
