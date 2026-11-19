@@ -1,5 +1,6 @@
 import { type CSSProperties, useEffect } from "react";
 import { api } from "./api";
+import icon from "./assets/icon.jpg";
 import { Resizer, useStoredWidth } from "./components/Resizer";
 import { SessionPane } from "./components/SessionPane";
 import { Sidebar } from "./components/Sidebar";
@@ -35,8 +36,20 @@ export function App() {
                         </button>
                     </div>
                 )}
-                {typeof load === "object" ? <LoadError message={load.error} /> : <SessionPane />}
+                {load === "loading" && <Splash />}
+                {load === "ready" && <SessionPane />}
+                {typeof load === "object" && <LoadError message={load.error} />}
             </main>
+        </div>
+    );
+}
+
+/** What the window shows for the moment it takes to read the projects. */
+function Splash() {
+    return (
+        <div className="splash">
+            <img src={icon} alt="" width={128} height={128} />
+            <p>Swarmed</p>
         </div>
     );
 }
