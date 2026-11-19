@@ -19,6 +19,9 @@ pub struct ProjectConfig {
     pub port_step: u16,
     /// Named base ports, available to hooks as `{{port.<name>}}`.
     pub ports: BTreeMap<String, u16>,
+    /// Where a task's running stack is reached in a browser, such as
+    /// `http://localhost:{{port.web}}`. Empty for a project with nothing to look at.
+    pub open_url: String,
     /// The commands that build, run and destroy a task's stack.
     pub hooks: Hooks,
     /// Extra environment for hooks. Values may use variables.
@@ -48,6 +51,7 @@ impl Default for ProjectConfig {
             max_stacks: 2,
             port_step: 100,
             ports: BTreeMap::new(),
+            open_url: String::new(),
             hooks: Hooks::default(),
             env: BTreeMap::new(),
         }
@@ -58,6 +62,7 @@ const TEMPLATE: &str = r#"# Swarmed project config. This file is local to this m
 #
 # Variables usable in branch_pattern, hooks and env values:
 #   {{project}} {{task}} {{user}} {{branch}} {{slot}} {{worktree}} {{repo}} {{port.<name>}}
+# open_url may use them too.
 # Hooks run with `sh -c` in the task's worktree. The same values are also exported as
 # SWARMED_PROJECT, SWARMED_TASK, SWARMED_SLOT, SWARMED_WORKTREE, SWARMED_REPO, SWARMED_BRANCH
 # and SWARMED_PORT_<NAME>.
@@ -66,6 +71,7 @@ branch_pattern = "{{user}}/{{task}}"
 # base_branch = "origin/main"   # default: the remote's default branch
 max_stacks = 2
 port_step = 100                 # task port = base + slot * port_step
+# open_url = "http://localhost:{{port.web}}"   # what "Open in browser" opens for a task
 
 [ports]
 # web = 3000

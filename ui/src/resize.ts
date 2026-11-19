@@ -9,6 +9,8 @@ export interface WidthLimits {
 
 export const SIDEBAR_WIDTH: WidthLimits = { initial: 272, min: 200, max: 560 };
 
+export const PANEL_WIDTH: WidthLimits = { initial: 380, min: 280, max: 900 };
+
 /** How far one arrow-key press moves a panel's edge, in pixels. */
 export const KEY_STEP = 16;
 

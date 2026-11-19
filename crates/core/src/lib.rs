@@ -5,14 +5,17 @@
 
 pub mod agent;
 mod agents;
+mod changes;
 mod config;
 mod error;
 mod git;
 pub mod hooks;
 pub mod mcp;
+mod open;
 mod overview;
 mod paths;
 mod sessions;
+mod settings;
 mod store;
 mod tasks;
 mod vars;
@@ -24,6 +27,7 @@ use agent::AgentBackend;
 use agents::Agents;
 pub use agents::{AgentInfo, CLAUDE};
 
+pub use changes::{ChangeKind, FileChange, FileDiff};
 pub use config::{Hooks, ProjectConfig};
 pub use error::{Error, Result};
 pub use hooks::OutputSink;
@@ -33,6 +37,7 @@ use sessions::Live;
 pub use sessions::{
     EVENT_BUFFER, Session, SessionEvent, SessionOptions, SessionSettings, SessionStatus,
 };
+pub use settings::Settings;
 use store::Store;
 pub use store::{Project, SetupStatus, Task};
 pub use tasks::{BranchChoices, NewTaskOptions, RemoveOptions};

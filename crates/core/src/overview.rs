@@ -27,6 +27,8 @@ pub struct TaskOverview {
     pub sessions: Vec<Session>,
     /// The ids of those sessions whose agent is running.
     pub running: Vec<i64>,
+    /// Where the task's running stack is reached in a browser, if its project says so.
+    pub url: Option<String>,
 }
 
 impl Core {
@@ -53,19 +55,32 @@ impl Core {
                 task,
                 sessions,
                 running,
+                url: None,
             }
         };
         let mut tasks: Vec<TaskOverview> = tasks.into_iter().map(task_overview).collect();
         let overview = projects.into_iter().map(|project| {
-            let (own, rest) = tasks
+            let (mut own, rest): (Vec<_>, Vec<_>) = tasks
                 .drain(..)
                 .partition(|t| t.task.project_id == project.id);
             tasks = rest;
+            self.add_urls(&project, &mut own);
             ProjectOverview {
                 project,
                 tasks: own,
             }
         });
         Ok(overview.collect())
+    }
+
+    /// Fills in where each task's stack is reached. A config that cannot be read, or a URL that
+    /// cannot be rendered, leaves a task without one instead of failing the whole overview.
+    fn add_urls(&self, project: &Project, tasks: &mut [TaskOverview]) {
+        let Ok(config) = self.project_config(&project.name) else {
+            return;
+        };
+        for task in tasks.iter_mut().filter(|t| !t.task.archived) {
+            task.url = self.url_of(project, &config, &task.task).ok().flatten();
+        }
     }
 }

@@ -1,4 +1,3 @@
-import { api } from "../api";
 import type { Session, Task } from "../api/types";
 import { useStore } from "../store";
 import { findSession, findSessionHome } from "../tree";
@@ -20,7 +19,9 @@ export function SessionPane() {
     const events = useStore((state) =>
         selectedSessionId === null ? undefined : state.events[selectedSessionId],
     );
-    const close = useStore((state) => state.close);
+    const askToClose = useStore((state) => state.askToClose);
+    const panelOpen = useStore((state) => state.panelOpen);
+    const togglePanel = useStore((state) => state.togglePanel);
     const session = findSession(projects, selectedSessionId);
     const home = session && findSessionHome(projects, session);
 
@@ -42,8 +43,16 @@ export function SessionPane() {
                     <button
                         type="button"
                         className="quiet-button"
+                        aria-pressed={panelOpen}
+                        onClick={togglePanel}
+                    >
+                        {panelOpen ? "Hide task panel" : "Show task panel"}
+                    </button>
+                    <button
+                        type="button"
+                        className="quiet-button"
                         title="Stops the agent and removes the session from the sidebar"
-                        onClick={() => void close(api, session.id)}
+                        onClick={() => askToClose(session.id)}
                     >
                         Close session
                     </button>
@@ -56,6 +65,7 @@ export function SessionPane() {
                     key={`transcript-${session.id}`}
                     sessionId={session.id}
                     events={events}
+                    working={session.status === "working"}
                 />
             )}
             <Composer key={`composer-${session.id}`} session={session} />

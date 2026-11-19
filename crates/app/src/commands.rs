@@ -10,8 +10,8 @@ use std::sync::Arc;
 use serde::Serialize;
 use swarmed_core::agent::{AgentEvent, Auth, Supervision};
 use swarmed_core::{
-    AgentInfo, BranchChoices, Core, NewTaskOptions, Project, ProjectOverview, RemoveOptions,
-    Session, SessionOptions, SessionSettings, Task,
+    AgentInfo, BranchChoices, Core, FileChange, FileDiff, NewTaskOptions, Project, ProjectOverview,
+    RemoveOptions, Session, SessionOptions, SessionSettings, Settings, Task,
 };
 use tauri::{AppHandle, Emitter, Runtime, State};
 
@@ -113,6 +113,45 @@ pub(crate) async fn task_remove<R: Runtime>(
     };
     let sink = hook_sink(&app, &project, &name);
     Ok(core.task_remove(&project, &name, options, &sink).await?)
+}
+
+#[tauri::command]
+pub(crate) fn task_open_editor(core: CoreState<'_>, project: String, name: String) -> Command<()> {
+    Ok(core.task_open_editor(&project, &name)?)
+}
+
+#[tauri::command]
+pub(crate) fn task_open_url(core: CoreState<'_>, project: String, name: String) -> Command<()> {
+    Ok(core.task_open_url(&project, &name)?)
+}
+
+#[tauri::command]
+pub(crate) async fn task_changes(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+) -> Command<Vec<FileChange>> {
+    Ok(core.task_changes(&project, &name).await?)
+}
+
+#[tauri::command]
+pub(crate) async fn task_diff(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+    path: String,
+) -> Command<FileDiff> {
+    Ok(core.task_diff(&project, &name, &path).await?)
+}
+
+#[tauri::command]
+pub(crate) fn settings(core: CoreState<'_>) -> Command<Settings> {
+    Ok(core.settings()?)
+}
+
+#[tauri::command]
+pub(crate) fn set_settings(core: CoreState<'_>, settings: Settings) -> Command<()> {
+    Ok(core.set_settings(&settings)?)
 }
 
 #[tauri::command]

@@ -2,12 +2,15 @@ import type {
     AgentEvent,
     AgentInfo,
     BranchChoices,
+    FileChange,
+    FileDiff,
     HookOutput,
     Project,
     Session,
     SessionEvent,
     SessionSettings,
     SessionSetup,
+    Settings,
     Task,
 } from "./types";
 
@@ -30,6 +33,16 @@ export interface Api {
      * project's `setup` hook. This can take a while.
      */
     taskNew(project: string, name: string, branch: string | null): Promise<Task>;
+    /** The files the task has changed since its branch left its base, uncommitted ones included. */
+    taskChanges(project: string, name: string): Promise<FileChange[]>;
+    /** One changed file's diff. */
+    taskDiff(project: string, name: string, path: string): Promise<FileDiff>;
+    /** Opens the task's worktree, with its branch checked out, in the user's editor. */
+    taskOpenEditor(project: string, name: string): Promise<void>;
+    /** Opens the task's running stack in the default browser. */
+    taskOpenUrl(project: string, name: string): Promise<void>;
+    settings(): Promise<Settings>;
+    setSettings(settings: Settings): Promise<void>;
     /** Calls `listener` for every line a hook prints while a task is created or removed. */
     onHookOutput(listener: (output: HookOutput) => void): Promise<Unsubscribe>;
     /** Creates a session in a task. Its agent starts with the first message. */

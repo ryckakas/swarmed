@@ -85,6 +85,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **Swarmed never handles Claude.ai credentials.** It only shapes the child's environment (`Auth`).
 - **Session events are stored as JSON** (`AgentEvent`), so its variants and fields are only added,
   never renamed.
+- **A task's changes are read from git on demand** (`changes.rs`): everything that differs from
+  the merge base with the task's base ref, uncommitted and untracked files included. The view is
+  read-only. The UI reads again when one of the task's agents finishes a tool call or a turn.
+- **Opening things elsewhere** (`open.rs`) starts the user's editor (`settings.toml`, VS Code by
+  default) or the browser and never waits for them.
 - **Git is used by shelling out** to the `git` binary (`git.rs`), not through a library.
 - **The store is SQLite** (`store.rs`). Schema changes are appended to `MIGRATIONS` and never
   edited afterwards.

@@ -78,6 +78,10 @@ code {
     left: calc(var(--sidebar-width) - 4px);
 }
 
+.resizer-right {
+    right: calc(var(--panel-width) - 4px);
+}
+
 .resizer::after {
     content: "";
     position: absolute;
@@ -126,6 +130,231 @@ code {
     min-height: 0;
     overflow-y: auto;
     padding: var(--space-2) 0 var(--space-6);
+}
+
+/* With the task panel open the window has a third column. */
+.app:has(> .task-panel) {
+    grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--panel-width);
+}
+
+.task-panel {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    background: var(--panel);
+    border-left: 1px solid var(--line);
+}
+
+.panel-head {
+    flex: none;
+    padding: 0 var(--space-4) var(--space-3);
+    border-bottom: 1px solid var(--line);
+}
+
+.panel-head h2 {
+    font-size: var(--text-md);
+    font-weight: 650;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.panel-branch {
+    color: var(--muted);
+    font-size: var(--text-xs);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.panel-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+}
+
+/* Changes: the files a task touched, each opening into its diff. */
+
+.changes {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.changes-head {
+    flex: none;
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4) var(--space-2);
+}
+
+.changes-head h3 {
+    font-size: var(--text-sm);
+    font-weight: 650;
+}
+
+.changes-totals {
+    display: flex;
+    gap: var(--space-2);
+    margin-right: auto;
+    color: var(--muted);
+    font-size: var(--text-xs);
+}
+
+.changes-refresh {
+    padding: 2px var(--space-2);
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: var(--text-xs);
+}
+
+.changes-refresh:hover,
+.changes-refresh:focus-visible {
+    background: var(--raised);
+    color: var(--text);
+}
+
+.changes-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-bottom: var(--space-4);
+}
+
+.changes-note {
+    padding: var(--space-1) var(--space-4);
+    color: var(--faint);
+    font-size: var(--text-xs);
+}
+
+.changes-error {
+    color: var(--clay);
+    overflow-wrap: anywhere;
+}
+
+.change-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    width: 100%;
+    padding: 4px var(--space-4);
+    border: 0;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-size: var(--text-sm);
+    text-align: left;
+}
+
+.change-row:hover,
+.change-row[aria-expanded="true"] {
+    background: var(--raised);
+}
+
+.change-kind {
+    flex: none;
+    width: 1em;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    font-weight: 700;
+}
+
+.change-added,
+.count-added {
+    color: var(--moss);
+}
+
+.change-deleted,
+.count-removed {
+    color: var(--clay);
+}
+
+.change-modified {
+    color: var(--pollen);
+}
+
+.change-path {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    /* Cut a long path at its start, so the file's name stays readable. */
+    direction: rtl;
+    text-align: left;
+}
+
+.change-folder {
+    color: var(--faint);
+}
+
+.counts {
+    flex: none;
+    display: inline-flex;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--faint);
+}
+
+.diff {
+    overflow-x: auto;
+    border-block: 1px solid var(--line);
+    background: var(--dusk);
+    user-select: text;
+    cursor: auto;
+}
+
+/* As wide as the longest line, so every line's colour reaches the same edge. */
+.diff-lines {
+    width: max-content;
+    min-width: 100%;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    line-height: 1.55;
+}
+
+.diff-line {
+    display: flex;
+    white-space: pre;
+}
+
+.diff-number {
+    flex: none;
+    width: 4.5ch;
+    padding-right: 1ch;
+    color: var(--faint);
+    text-align: right;
+    user-select: none;
+}
+
+.diff-sign {
+    flex: none;
+    width: 2ch;
+    user-select: none;
+}
+
+.diff-added {
+    background: color-mix(in srgb, var(--moss) 16%, transparent);
+}
+
+.diff-removed {
+    background: color-mix(in srgb, var(--clay) 16%, transparent);
+}
+
+.diff-hunk,
+.diff-note {
+    padding: 2px var(--space-4);
+    background: var(--panel);
+    color: var(--faint);
 }
 
 .main {
@@ -445,6 +674,8 @@ code {
 }
 
 .session-status {
+    /* Pushes the header's buttons to the right. */
+    margin-right: auto;
     display: flex;
     align-items: center;
     gap: var(--space-2);
@@ -532,6 +763,56 @@ code {
 .item-tool:has(+ .item-tool) {
     border-bottom-right-radius: 0;
     border-bottom-left-radius: 0;
+}
+
+/* The last line while the agent is busy: proof that the message was taken and work goes on. */
+.activity {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--moss);
+    font-size: var(--text-sm);
+}
+
+.activity-dots {
+    display: inline-flex;
+    gap: 3px;
+}
+
+.activity-dots i {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentcolor;
+    animation: activity 1.2s ease-in-out infinite;
+}
+
+.activity-dots i:nth-child(2) {
+    animation-delay: 0.15s;
+}
+
+.activity-dots i:nth-child(3) {
+    animation-delay: 0.3s;
+}
+
+@keyframes activity {
+    0%,
+    60%,
+    100% {
+        opacity: 0.25;
+        transform: translateY(0);
+    }
+
+    30% {
+        opacity: 1;
+        transform: translateY(-2px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .activity-dots i {
+        animation: none;
+    }
 }
 
 .said {
@@ -940,6 +1221,46 @@ code {
 
 .splash img {
     border-radius: 28px;
+}
+
+/* A question that has to be answered before anything else. */
+
+.confirm {
+    width: min(44ch, 100% - 2 * var(--space-6));
+    padding: var(--space-4) var(--space-6);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--raised);
+    color: var(--text);
+    box-shadow: 0 16px 48px rgb(0 0 0 / 0.35);
+}
+
+.confirm::backdrop {
+    background: rgb(0 0 0 / 0.35);
+}
+
+.confirm h2 {
+    font-size: var(--text-md);
+    font-weight: 650;
+}
+
+.confirm p {
+    margin-top: var(--space-2);
+    color: var(--muted);
+}
+
+.confirm .confirm-what {
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    margin-top: var(--space-4);
 }
 
 /* Buttons */

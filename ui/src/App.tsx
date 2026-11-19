@@ -1,10 +1,12 @@
 import { type CSSProperties, useEffect } from "react";
 import { api } from "./api";
 import icon from "./assets/icon.jpg";
+import { CloseSessionDialog } from "./components/CloseSessionDialog";
 import { Resizer, useStoredWidth } from "./components/Resizer";
 import { SessionPane } from "./components/SessionPane";
 import { Sidebar } from "./components/Sidebar";
-import { SIDEBAR_WIDTH } from "./resize";
+import { TaskPanel } from "./components/TaskPanel";
+import { PANEL_WIDTH, SIDEBAR_WIDTH } from "./resize";
 import { connect, useStore } from "./store";
 
 export function App() {
@@ -13,7 +15,11 @@ export function App() {
     const problem = useStore((state) => state.problem);
     const dismissProblem = useStore((state) => state.dismissProblem);
     const [sidebarWidth, setSidebarWidth] = useStoredWidth("swarmed.sidebar-width", SIDEBAR_WIDTH);
-    const widths = { "--sidebar-width": `${sidebarWidth}px` } as CSSProperties;
+    const [panelWidth, setPanelWidth] = useStoredWidth("swarmed.panel-width", PANEL_WIDTH);
+    const widths = {
+        "--sidebar-width": `${sidebarWidth}px`,
+        "--panel-width": `${panelWidth}px`,
+    } as CSSProperties;
 
     return (
         <div className="app" style={widths}>
@@ -40,6 +46,8 @@ export function App() {
                 {load === "ready" && <SessionPane />}
                 {typeof load === "object" && <LoadError message={load.error} />}
             </main>
+            <TaskPanel width={panelWidth} onResize={setPanelWidth} />
+            <CloseSessionDialog />
         </div>
     );
 }

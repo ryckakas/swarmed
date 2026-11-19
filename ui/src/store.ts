@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { Api } from "./api/client";
-import type { AgentEvent, Project, SessionEvent, SessionSettings } from "./api/types";
-import { applySessionEvent, withoutSession, withSession } from "./tree";
+import type { AgentEvent, Project, SessionEvent, SessionSettings, Settings } from "./api/types";
+import { applySessionEvent, mayHaveEdited, taskIdOf, withoutSession, withSession } from "./tree";
 
 interface State {
     projects: Project[];
@@ -12,6 +12,8 @@ interface State {
     draftProject: string | null;
     /** The events of every session whose transcript has been opened. */
     events: Record<number, AgentEvent[]>;
+    /** Per task id, a count that goes up whenever its agents may have changed files. */
+    edits: Record<number, number>;
     /** The latest line a hook printed while a task is being set up or removed. */
     hookLine: string | null;
     /** The last thing that went wrong when acting on a session, shown until dismissed. */
@@ -24,6 +26,16 @@ interface State {
     apply(event: SessionEvent): void;
     /** Changes a session's model and supervision. */
     configure(api: Api, sessionId: number, settings: SessionSettings): Promise<void>;
+    /** The user's preferences; `null` until they are read. */
+    settings: Settings | null;
+    /** Whether the task panel on the right is shown. */
+    panelOpen: boolean;
+    togglePanel(): void;
+    setEditor(api: Api, editor: string): Promise<void>;
+    /** The session the user asked to close, until they confirm or change their mind. */
+    closing: number | null;
+    /** Asks before closing: `null` withdraws the question. */
+    askToClose(sessionId: number | null): void;
     /** Stops a session and takes it out of the tree. */
     close(api: Api, sessionId: number): Promise<void>;
     report(problem: unknown): void;
@@ -72,6 +84,35 @@ export function withEvent(events: AgentEvent[], event: AgentEvent): AgentEvent[]
     return [...events.slice(0, -1), next];
 }
 
+/** The edit counts after an event: one more for the task of a session that may have edited. */
+function countEdit(state: State, published: SessionEvent): Record<number, number> {
+    const taskId = taskIdOf(state.projects, published.session_id);
+    if (taskId === undefined || !mayHaveEdited(published.event)) {
+        return state.edits;
+    }
+    return { ...state.edits, [taskId]: (state.edits[taskId] ?? 0) + 1 };
+}
+
+const PANEL_OPEN = "swarmed.panel-open";
+
+/** A yes or no remembered on this machine; `fallback` if nothing, or nothing readable, is stored. */
+function readFlag(key: string, fallback: boolean): boolean {
+    try {
+        const stored = localStorage.getItem(key);
+        return stored === null ? fallback : stored === "true";
+    } catch {
+        return fallback;
+    }
+}
+
+function writeFlag(key: string, value: boolean) {
+    try {
+        localStorage.setItem(key, String(value));
+    } catch {
+        // Without storage the choice just lasts until the window closes.
+    }
+}
+
 /** Runs an action on a session; if it fails, the reason is shown instead of thrown. */
 async function reporting(action: () => Promise<void>) {
     try {
@@ -85,6 +126,7 @@ async function reporting(action: () => Promise<void>) {
 function closed(state: State, sessionId: number): Partial<State> {
     const selected = state.selectedSessionId;
     return {
+        closing: null,
         projects: withoutSession(state.projects, sessionId),
         selectedSessionId: selected === sessionId ? null : selected,
     };
@@ -96,8 +138,24 @@ export const useStore = create<State>((set, get) => ({
     selectedSessionId: null,
     draftProject: null,
     events: {},
+    edits: {},
     hookLine: null,
     problem: null,
+    settings: null,
+    panelOpen: readFlag(PANEL_OPEN, true),
+    togglePanel: () => {
+        const panelOpen = !get().panelOpen;
+        writeFlag(PANEL_OPEN, panelOpen);
+        set({ panelOpen });
+    },
+    setEditor: (api, editor) =>
+        reporting(async () => {
+            const settings = { ...get().settings, editor };
+            await api.setSettings(settings);
+            set({ settings });
+        }),
+    closing: null,
+    askToClose: (sessionId) => set({ closing: sessionId }),
     refresh: async (api) => {
         try {
             set({ projects: await api.overview(), load: "ready" });
@@ -126,6 +184,7 @@ export const useStore = create<State>((set, get) => ({
         set((state) => ({
             projects: applySessionEvent(state.projects, published),
             events: appendEvent(state.events, published),
+            edits: countEdit(state, published),
         }));
     },
     configure: (api, sessionId, settings) =>
@@ -146,6 +205,7 @@ export const useStore = create<State>((set, get) => ({
 export function connect(api: Api): () => void {
     const { refresh, apply } = useStore.getState();
     void refresh(api);
+    void reporting(async () => useStore.setState({ settings: await api.settings() }));
     // After dropped events nothing on screen can be trusted: forget the transcripts and reload.
     const reload = () => {
         const { selectedSessionId, open } = useStore.getState();
