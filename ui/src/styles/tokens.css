@@ -45,6 +45,8 @@
      * and types, bright for what the prose stresses.
      */
     --sky: #8fb4ff;
+    /* An answer nobody has looked at yet: the accent, unless a palette's accent reads as trouble. */
+    --fresh: var(--sky);
     --lilac: #c4a7e7;
     --teal: #7fc8c2;
     --sand: #e3c08a;

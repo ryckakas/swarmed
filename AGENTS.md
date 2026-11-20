@@ -224,6 +224,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **A task's work leaves its worktree only when asked** (`publish.rs`): commit everything, push
   the branch, open a pull request, each a step of its own behind a button. Commits are made by
   the user's git as them, the pull request by their `gh`; nothing is added to either.
+- **A commit message can be written for the user** (`task_commit_message`): the `Namer`'s small
+  model is shown what git says changed, new files included, and its answer goes into the commit
+  box to be read and changed. Nothing is committed by it.
 - **Removing a project** (`project_remove`) removes its tasks as `task_remove` does, keeping
   their branches, then deletes what Swarmed holds about it: sessions, their history and the
   notes. The repository is not touched. Removing a task stops its sessions first. In the UI

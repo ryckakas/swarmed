@@ -94,6 +94,8 @@ enum Call {
     OpenSession,
     /// Its answer is not needed: an agent without that model or mode keeps its own.
     SetOption,
+    /// Putting an earlier conversation back on its own model; see `restoring`.
+    RestoreModel,
     Prompt,
 }
 
@@ -182,6 +184,10 @@ struct Conversation {
     passed: Vec<(String, Value)>,
     /// While an old conversation is loaded the agent replays it; Swarmed has it stored already.
     replaying: bool,
+    /// While an earlier conversation, opened on the agent's default model, is put back on its
+    /// own. What the agent says in that time is about the model it opened with, which is
+    /// already no longer so, and messages wait so that they run on the right one.
+    restoring: bool,
     /// Set when the agent could not be set up; the reason is what the user is shown.
     failure: Option<String>,
     /// The modes of its own the agent offers, by id. Empty if it has none.
@@ -209,6 +215,7 @@ impl Conversation {
             unannounced: HashMap::new(),
             passed: Vec::new(),
             replaying: false,
+            restoring: false,
             failure: None,
             modes: vec![],
         }
@@ -306,7 +313,43 @@ impl Conversation {
         self.set_effort(&option_values(result, "reasoning_effort"))
             .await;
         self.set_fast(&option_values(result, FAST_MODE)).await;
-        self.set_model(self.spec.model.clone()).await;
+        if self.opened_on_another_model(result) {
+            self.restore_model().await;
+        } else {
+            self.set_model(self.spec.model.clone()).await;
+        }
+        self.send_queued().await;
+    }
+
+    /// Whether an earlier conversation was opened on a model other than the session's own.
+    fn opened_on_another_model(&self, result: &Value) -> bool {
+        let wanted = self.spec.model.as_deref();
+        self.spec.resume.is_some() && wanted.is_some_and(|model| model != current_model(result))
+    }
+
+    /// Puts an earlier conversation back on the session's model, holding everything else
+    /// until the agent has answered.
+    async fn restore_model(&mut self) {
+        let (Some(model), Some(session_id)) = (self.spec.model.clone(), self.session_id.clone())
+        else {
+            return;
+        };
+        self.restoring = true;
+        let params = json!({ "sessionId": session_id, "configId": "model", "value": model });
+        self.call(Call::RestoreModel, "session/set_config_option", params)
+            .await;
+    }
+
+    async fn on_model_restored(&mut self) {
+        self.restoring = false;
+        self.text.clear();
+        self.send_queued().await;
+    }
+
+    async fn send_queued(&mut self) {
+        if self.restoring {
+            return;
+        }
         while let Some(text) = self.queued.pop_front() {
             self.prompt(text).await;
         }
@@ -380,7 +423,8 @@ impl Conversation {
         let Some(session_id) = self.session_id.clone().filter(|_| !self.replaying) else {
             return self.queued.push_back(text);
         };
-        if self.calls.values().any(|call| *call == Call::OpenSession) {
+        let opening = |call: &Call| matches!(call, Call::OpenSession | Call::RestoreModel);
+        if self.restoring || self.calls.values().any(opening) {
             return self.queued.push_back(text);
         }
         let mut prompt = vec![json!({ "type": "text", "text": text })];
@@ -419,6 +463,7 @@ impl Conversation {
         let result = message.get("result").unwrap_or(&Value::Null);
         match (call, error) {
             (Call::SetOption, _) => {}
+            (Call::RestoreModel, _) => self.on_model_restored().await,
             (Call::Prompt, error) => self.on_turn_end(result, error),
             (Call::Initialize | Call::OpenSession, Some(error)) => self.failure = Some(error),
             (Call::Initialize, None) => {
@@ -527,6 +572,9 @@ impl Conversation {
 
     /// A piece of the reply: shown at once, and kept to be sent whole when the agent moves on.
     fn on_chunk(&mut self, update: &Value) {
+        if self.restoring {
+            return;
+        }
         let chunk = update.pointer("/content/text").and_then(Value::as_str);
         let chunk = chunk.unwrap_or_default();
         self.text.push_str(chunk);

@@ -73,6 +73,11 @@ export interface Words {
     /** What a task's setup produced, kept for new tasks to start from; and several. */
     snapshot: string;
     snapshots: string;
+    /** The buttons that unfold and fold every changed file at once. */
+    expandAll: string;
+    collapseAll: string;
+    /** The button in the commit box that has a message written for the changes. */
+    writeMessage: string;
 }
 
 const PLAIN: Words = {
@@ -118,6 +123,9 @@ const PLAIN: Words = {
     fast: "Fast",
     snapshot: "Snapshot",
     snapshots: "Snapshots",
+    expandAll: "Expand all",
+    collapseAll: "Collapse all",
+    writeMessage: "Generate a commit message",
 };
 
 const SWARM: Words = {
@@ -165,6 +173,9 @@ const SWARM: Words = {
     fast: "Frenzy",
     snapshot: "Cocoon",
     snapshots: "Cocoons",
+    expandAll: "Unburrow all",
+    collapseAll: "Burrow all",
+    writeMessage: "Spin a commit message",
 };
 
 /** The swarm's words, and its names for the tree as well. */

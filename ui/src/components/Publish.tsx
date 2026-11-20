@@ -3,6 +3,7 @@ import { api } from "../api";
 import type { PullDraft, Task, Unpublished } from "../api/types";
 import { nextStep, unpublishedSummary } from "../publish";
 import { useStore } from "../store";
+import { useWords } from "../useWords";
 
 interface Props {
     project: string;
@@ -60,6 +61,7 @@ export function Publish({ project, task }: Props) {
             {step === "commit" && (
                 <CommitForm
                     busy={busy}
+                    write={() => api.taskCommitMessage(project, task.name)}
                     onCommit={(message) => run(api.taskCommit(project, task.name, message))}
                 />
             )}
@@ -88,24 +90,81 @@ export function Publish({ project, task }: Props) {
     );
 }
 
-function CommitForm({ busy, onCommit }: { busy: boolean; onCommit(message: string): void }) {
+interface CommitFormProps {
+    busy: boolean;
+    /** Has a message written for what changed. */
+    write(): Promise<string>;
+    onCommit(message: string): void;
+}
+
+/** How many lines the commit box shows: as many as the message has, within reason. */
+function messageRows(message: string): number {
+    return Math.min(8, Math.max(1, message.split("\n").length));
+}
+
+function CommitForm({ busy, write, onCommit }: CommitFormProps) {
+    const report = useStore((state) => state.report);
+    const words = useWords();
     const [message, setMessage] = useState("");
+    const [writing, setWriting] = useState(false);
+    const commit = () => {
+        if (busy || message.trim() === "") {
+            return;
+        }
+        onCommit(message);
+        setMessage("");
+    };
+    const generate = () => {
+        setWriting(true);
+        write()
+            .then(setMessage, report)
+            .finally(() => setWriting(false));
+    };
     return (
         <form
-            className="publish-form"
+            className="publish-form publish-commit"
             onSubmit={(event) => {
                 event.preventDefault();
-                onCommit(message);
-                setMessage("");
+                commit();
             }}
         >
-            <input
-                className="publish-input"
-                aria-label="Commit message"
-                placeholder="Commit message"
-                value={message}
-                onChange={(event) => setMessage(event.target.value)}
-            />
+            <div className="publish-message">
+                <textarea
+                    className="publish-input publish-message-input"
+                    aria-label="Commit message"
+                    placeholder={writing ? "Reading the changes…" : "Commit message"}
+                    rows={messageRows(message)}
+                    disabled={writing}
+                    value={message}
+                    onChange={(event) => setMessage(event.target.value)}
+                    onKeyDown={(event) => {
+                        // Enter commits, as it did in a one-line box; Shift Enter is a new line.
+                        if (event.key === "Enter" && !event.shiftKey) {
+                            event.preventDefault();
+                            commit();
+                        }
+                    }}
+                />
+                <button
+                    type="button"
+                    className="publish-write"
+                    aria-label={words.writeMessage}
+                    title={words.writeMessage}
+                    aria-busy={writing}
+                    disabled={writing || busy}
+                    onClick={generate}
+                >
+                    <svg
+                        className="publish-write-mark"
+                        viewBox="0 0 16 16"
+                        aria-hidden="true"
+                        data-writing={writing}
+                    >
+                        <path d="M7 1.5 8.4 5.6 12.5 7 8.4 8.4 7 12.5 5.6 8.4 1.5 7 5.6 5.6Z" />
+                        <path d="M12.5 10.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6Z" />
+                    </svg>
+                </button>
+            </div>
             <button type="submit" className="button" disabled={busy || message.trim() === ""}>
                 {busy ? "Committing…" : "Commit all"}
             </button>

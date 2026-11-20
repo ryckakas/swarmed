@@ -3,6 +3,8 @@
 //! Each step is something the user asked for by name; nothing here is done by itself. Commits
 //! are made by the user's own git, as them, and the pull request is opened by their own `gh`.
 
+use std::path::Path;
+
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
@@ -67,6 +69,52 @@ fn commits_in(log: &str) -> Vec<(String, String)> {
         .collect()
 }
 
+/// The most of a diff a commit message is written from, in characters. A message says what a
+/// change is for, which its beginning and the list of files nearly always show.
+const MAX_DIFF: usize = 24_000;
+
+/// The largest new file a commit message is written from, in bytes, and how many of them.
+const MAX_NEW_FILE: u64 = 8_000;
+const MAX_NEW_FILES: usize = 20;
+
+/// The text of the new files among `paths`, each under its name. `git diff` says nothing of
+/// files git does not track yet, and a commit of everything takes them along. Large files
+/// and ones that are not text are left to their names.
+fn new_files(worktree: &Path, paths: &str) -> String {
+    let small = |path: &&str| {
+        std::fs::metadata(worktree.join(path))
+            .is_ok_and(|file| file.is_file() && file.len() <= MAX_NEW_FILE)
+    };
+    let shown = |path: &str| {
+        let text = std::fs::read_to_string(worktree.join(path)).ok()?;
+        Some(format!("new file {path}:\n{text}\n"))
+    };
+    let paths = paths.lines().filter(small).take(MAX_NEW_FILES);
+    paths.filter_map(shown).collect()
+}
+
+/// What a commit message is written from: the files that changed, then the diff, cut short
+/// if it is long.
+fn changes_for_message(status: &str, diff: &str) -> String {
+    let shown: String = diff.chars().take(MAX_DIFF).collect();
+    let cut = if shown.len() < diff.len() {
+        "\n[The rest of the diff is left out.]"
+    } else {
+        ""
+    };
+    format!("git status --porcelain:\n{status}\n\ngit diff HEAD:\n{shown}{cut}")
+}
+
+/// A model's answer as a commit message: without the fence or quotes some put around it.
+fn message_of(answer: &str) -> String {
+    let lines = answer
+        .trim()
+        .lines()
+        .filter(|line| !line.starts_with("```"));
+    let text = lines.collect::<Vec<_>>().join("\n");
+    text.trim().trim_matches(['"', '`']).trim().to_string()
+}
+
 /// The branch a pull request goes into: the task's base without its remote's name.
 fn base_branch(base_ref: &str) -> &str {
     base_ref.strip_prefix("origin/").unwrap_or(base_ref)
@@ -100,6 +148,33 @@ impl Core {
         git::git(&task.worktree_path, &["add", "--all"]).await?;
         git::git(&task.worktree_path, &["commit", "--quiet", "-m", message]).await?;
         Ok(())
+    }
+
+    /// A commit message for everything in a task's worktree, written by the same small model
+    /// that titles sessions, for the user to read and change before anything is committed.
+    /// The model is shown what git says changed, and nothing is committed here.
+    pub async fn task_commit_message(&self, project: &str, name: &str) -> Result<String> {
+        let (_, task) = self.task(project, name)?;
+        let worktree = &task.worktree_path;
+        let status = git::git(worktree, &["status", "--porcelain"]).await?;
+        if status.trim().is_empty() {
+            return Err(refused("there is nothing to commit"));
+        }
+        let namer = self.namer.clone();
+        let namer = namer.ok_or_else(|| refused("nothing here can write a commit message"))?;
+        let mut diff = git::git(worktree, &["diff", "HEAD"]).await?;
+        let untracked = ["ls-files", "--others", "--exclude-standard"];
+        diff.push('\n');
+        diff.push_str(&new_files(worktree, &git::git(worktree, &untracked).await?));
+        let answer = namer
+            .commit_message(changes_for_message(&status, &diff))
+            .await;
+        let message = answer.map(|answer| message_of(&answer));
+        message
+            .filter(|message| !message.is_empty())
+            .ok_or_else(|| {
+                refused("no commit message came back: is Claude Code installed and signed in?")
+            })
     }
 
     /// Pushes a task's branch to `origin`, and makes that its upstream.
@@ -187,6 +262,26 @@ mod tests {
         let draft = draft_from(&[], "fix-login-redirect");
         assert_eq!(draft.title, "fix login redirect");
         assert_eq!(draft.body, "");
+    }
+
+    #[test]
+    fn a_long_diff_is_cut_short_and_says_so() {
+        let short = changes_for_message(" M a.rs", "diff --git a/a.rs");
+        assert!(short.starts_with("git status --porcelain:\n M a.rs\n\ngit diff HEAD:\ndiff"));
+        assert!(!short.contains("left out"));
+        let long = changes_for_message("?? b", &"x".repeat(MAX_DIFF + 5));
+        assert!(long.ends_with("[The rest of the diff is left out.]"));
+        assert!(long.len() < MAX_DIFF + 200);
+    }
+
+    #[test]
+    fn an_answer_becomes_a_message_without_its_wrapping() {
+        assert_eq!(
+            message_of("```\nfix: the login\n\nWhy.\n```\n"),
+            "fix: the login\n\nWhy."
+        );
+        assert_eq!(message_of("\"feat: notes\"\n"), "feat: notes");
+        assert_eq!(message_of("  \n"), "");
     }
 
     #[test]

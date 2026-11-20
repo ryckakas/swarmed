@@ -34,14 +34,14 @@ export function Changes({ project, task }: Props) {
                             className="changes-refresh"
                             onClick={() => setOpen(new Set(files.map((file) => file.path)))}
                         >
-                            Expand all
+                            {words.expandAll}
                         </button>
                         <button
                             type="button"
                             className="changes-refresh"
                             onClick={() => setOpen(new Set())}
                         >
-                            Collapse all
+                            {words.collapseAll}
                         </button>
                     </>
                 )}

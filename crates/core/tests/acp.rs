@@ -349,6 +349,49 @@ async fn history_an_agent_replays_while_loading_is_not_recorded_twice() {
 }
 
 #[tokio::test]
+async fn what_an_agent_says_of_the_model_it_reopened_with_is_dropped_once_the_sessions_is_back() {
+    let fx = fixture();
+    let agent = scripted_agent(&[("FAKE_ACP_RESUME_NOTICE", "1")]);
+    let core = core_with(&fx, agent).await;
+    let mut bus = core.subscribe();
+    let options = SessionOptions {
+        agent: Some(AGENT.into()),
+        model: Some("some/model".into()),
+        ..Default::default()
+    };
+    let id = core
+        .session_new("demo", "one", &options)
+        .expect("creates")
+        .id;
+    core.session_start(id, Auth::Subscription).expect("starts");
+    core.session_send(id, "first").expect("sends");
+    turn(&mut bus, id).await;
+    core.session_stop(id);
+    while !matches!(next(&mut bus).await.event, AgentEvent::Exited { .. }) {}
+
+    core.session_start(id, Auth::Subscription)
+        .expect("restarts");
+    core.session_send(id, "second").expect("sends");
+    let events = turn(&mut bus, id).await;
+    assert!(events.contains(&text("echo: second")), "{events:?}");
+    let warned =
+        |event: &AgentEvent| matches!(event, AgentEvent::Text { text } if text.contains("Warning"));
+    assert!(!events.iter().any(warned), "{events:?}");
+}
+
+#[tokio::test]
+async fn a_session_whose_model_was_left_to_the_agent_still_hears_what_it_says_on_reopening() {
+    let fx = fixture();
+    let agent = scripted_agent(&[("FAKE_ACP_RESUME_NOTICE", "1")]);
+    let core = core_with(&fx, agent).await;
+    let mut bus = core.subscribe();
+    let events = turn_after_restart(&core, &mut bus).await;
+    let warned =
+        |event: &AgentEvent| matches!(event, AgentEvent::Text { text } if text.contains("Warning"));
+    assert!(events.iter().any(warned), "{events:?}");
+}
+
+#[tokio::test]
 async fn a_session_can_name_its_model_and_only_a_configured_agent() {
     let fx = fixture();
     let core = core_with(&fx, scripted_agent(&[])).await;

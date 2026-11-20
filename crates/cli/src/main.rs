@@ -238,6 +238,8 @@ enum TaskCommand {
         #[arg(short, long)]
         message: String,
     },
+    /// Print a commit message written for the task's uncommitted work. Commits nothing.
+    CommitMessage { project: String, name: String },
     /// Push the task's branch to its remote.
     Push { project: String, name: String },
     /// Open a pull request for the task's branch. Without a title, the task's commits give
@@ -858,6 +860,9 @@ async fn task(core: &Core, command: TaskCommand) -> Result<()> {
             name,
             message,
         } => commit(core, &project, &name, &message).await?,
+        TaskCommand::CommitMessage { project, name } => {
+            say(&core.task_commit_message(&project, &name).await?);
+        }
         TaskCommand::Push { project, name } => {
             core.task_push(&project, &name).await?;
             say("pushed");

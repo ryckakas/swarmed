@@ -438,6 +438,13 @@ pub type Naming = Pin<Box<dyn Future<Output = Option<String>> + Send>>;
 pub trait Namer: fmt::Debug + Send + Sync {
     /// A title of a few words for a conversation that starts with `prompt`.
     fn name(&self, prompt: String) -> Naming;
+
+    /// A commit message for `changes`, which is what git says was changed. `None` from a
+    /// namer that only names.
+    fn commit_message(&self, changes: String) -> Naming {
+        drop(changes);
+        Box::pin(async { None })
+    }
 }
 
 /// Something that can run agent sessions.
