@@ -5,6 +5,14 @@ import type { Usage } from "./api/types";
 const UNITS = ["kB", "MB", "GB", "TB"];
 
 /** A size as people say it: 512 B, 3.4 MB, 1.2 GB. */
+/** An amount of US dollars: cents for what is small, whole dollars above a hundred. */
+export function formatUsd(usd: number): string {
+    if (usd > 0 && usd < 0.01) {
+        return "under $0.01";
+    }
+    return usd >= 100 ? `$${Math.round(usd).toLocaleString("en-US")}` : `$${usd.toFixed(2)}`;
+}
+
 export function formatBytes(bytes: number): string {
     let value = bytes;
     let unit = "B";

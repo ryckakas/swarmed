@@ -17,6 +17,21 @@ export async function addProject() {
     }
 }
 
+/**
+ * Starts a new session from what was said in another, up to its event `upto` if given, and
+ * opens it.
+ */
+export async function forkSession(id: number, upto: number | null) {
+    const { refresh, open, report } = useStore.getState();
+    try {
+        const fork = await api.sessionFork(id, upto);
+        await refresh(api);
+        await open(api, fork.id);
+    } catch (error) {
+        report(error);
+    }
+}
+
 /** Creates a session in a task, with the defaults from the settings, and opens it. */
 export async function newSession(project: string, task: string) {
     const { refresh, open, report, settings } = useStore.getState();

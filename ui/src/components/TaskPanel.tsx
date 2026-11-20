@@ -7,6 +7,8 @@ import { Changes } from "./Changes";
 import { CloseIcon, IconButton } from "./IconButton";
 import { editorChoices, editorName } from "./options";
 import { Picker } from "./Picker";
+import { Publish } from "./Publish";
+import { PullSection } from "./PullRequest";
 import { Resizer } from "./Resizer";
 import { StackControls } from "./StackControls";
 
@@ -87,6 +89,33 @@ function TaskHead({ project, task }: { project: Project; task: Task }) {
                 )}
             </div>
             <StackControls project={project.name} task={task} />
+            <CompareWith project={project} task={task} />
+            <Publish project={project.name} task={task} />
+            <PullSection project={project.name} task={task} />
         </header>
+    );
+}
+
+/** Sets this task beside another of the same repository. Nothing without another task. */
+function CompareWith({ project, task }: { project: Project; task: Task }) {
+    const compare = useStore((state) => state.compare);
+    const others = project.tasks.filter((other) => !other.archived && other.id !== task.id);
+    if (others.length === 0) {
+        return null;
+    }
+    return (
+        <div className="panel-actions">
+            <Picker
+                label="Compare with another task"
+                value=""
+                onChange={(other) =>
+                    other && compare({ project: project.name, left: task.name, right: other })
+                }
+                options={[
+                    ["", "Compare with…"],
+                    ...others.map((other): [string, string] => [other.name, other.name]),
+                ]}
+            />
+        </div>
     );
 }

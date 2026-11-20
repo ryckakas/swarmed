@@ -4,16 +4,21 @@ import { applyAppearance } from "./appearance";
 import icon from "./assets/icon.jpg";
 import { CloseSessionDialog } from "./components/CloseSessionDialog";
 import { CloudDialog } from "./components/CloudDialog";
+import { CloudDiffDialog } from "./components/CloudDiffDialog";
+import { CompareDialog } from "./components/CompareDialog";
 import { EnvironmentsDialog } from "./components/EnvironmentsDialog";
+import { InboxDialog } from "./components/InboxDialog";
 import { NoteDialog } from "./components/NoteDialog";
 import { RemoveDialog } from "./components/RemoveDialog";
 import { Resizer, useStoredWidth } from "./components/Resizer";
+import { SearchDialog } from "./components/SearchDialog";
 import { SessionPane } from "./components/SessionPane";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { Sidebar } from "./components/Sidebar";
 import { TaskPanel } from "./components/TaskPanel";
 import { PANEL_WIDTH, SIDEBAR_WIDTH, widestPanel } from "./resize";
 import { connect, useStore } from "./store";
+import { countUnread, countWaiting } from "./tree";
 import { useHotkeys } from "./useHotkeys";
 
 export function App() {
@@ -22,6 +27,9 @@ export function App() {
     const load = useStore((state) => state.load);
     const settings = useStore((state) => state.settings);
     useEffect(() => applyAppearance(document.documentElement, settings), [settings]);
+    // The app's icon counts what waits for the user: questions, and answers not looked at.
+    const waiting = useStore((state) => countWaiting(state.projects) + countUnread(state.projects));
+    useEffect(() => void api.setBadge(waiting).catch(() => {}), [waiting]);
     const problem = useStore((state) => state.problem);
     const dismissProblem = useStore((state) => state.dismissProblem);
     const [sidebarWidth, setSidebarWidth] = useStoredWidth("swarmed.sidebar-width", SIDEBAR_WIDTH);
@@ -64,6 +72,10 @@ export function App() {
                 }
             />
             <CloseSessionDialog />
+            <InboxDialog />
+            <CompareDialog />
+            <CloudDiffDialog />
+            <SearchDialog />
             <NoteDialog />
             <EnvironmentsDialog />
             <CloudDialog />

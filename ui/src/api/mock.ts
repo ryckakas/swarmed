@@ -6,20 +6,26 @@ import type {
     ApiKeyInfo,
     CloudProvider,
     CloudTask,
+    Costs,
     Environment,
     FileChange,
     FileDiff,
     HookOutput,
     McpServerView,
     Project,
+    Pull,
+    PullDraft,
     QueuedMessage,
+    SearchHit,
     Session,
     SessionEvent,
     SessionStatus,
     Settings,
     Skill,
     Task,
+    Template,
     TerminalOutput,
+    Unpublished,
     Usage,
 } from "./types";
 
@@ -318,7 +324,15 @@ function sampleCloudTask(projectId: number, prompt: string, provider: CloudProvi
 /** Delegating to the cloud: the sample has an environment for `hero` and for nothing else. */
 function cloudApi(
     projects: () => Project[],
-): Pick<Api, "cloudDelegate" | "cloudTasks" | "cloudTaskForget" | "cloudTaskOpen"> {
+): Pick<
+    Api,
+    | "cloudDelegate"
+    | "cloudTasks"
+    | "cloudTaskForget"
+    | "cloudTaskOpen"
+    | "cloudTaskDiff"
+    | "cloudTaskApply"
+> {
     const find = (name: string) => {
         const project = projects().find((candidate) => candidate.name === name);
         if (!project) {
@@ -353,6 +367,8 @@ function cloudApi(
             }
         },
         cloudTaskOpen: async () => undefined,
+        cloudTaskDiff: async () => SAMPLE_CLOUD_DIFF,
+        cloudTaskApply: async () => undefined,
     };
 }
 
@@ -647,6 +663,53 @@ index 1a2b3c4..5d6e7f8 100644
 +    return next;
 +}
 `;
+
+/** One sample task has work to commit, another a branch waiting for a pull request. */
+async function sampleUnpublished(_project: string, name: string): Promise<Unpublished> {
+    return {
+        changed: name === "fix-login-redirect" ? 4 : 0,
+        unpushed: 0,
+        pushed_before: name === "invoice-export",
+    };
+}
+
+const SAMPLE_DRAFT: PullDraft = {
+    title: "Export invoices as CSV",
+    body: "- Add the exporter\n- Quote fields that hold a separator",
+};
+
+async function sampleOpenedPull(): Promise<Pull> {
+    const pull = await samplePull("", "fix-login-redirect");
+    if (pull === null) {
+        throw new Error("the sample pull request is gone");
+    }
+    return pull;
+}
+
+/** One sample task has a pull request with a failed check; the others have none. */
+async function samplePull(_project: string, name: string): Promise<Pull | null> {
+    if (name !== "fix-login-redirect") {
+        return null;
+    }
+    return {
+        number: 412,
+        title: "Fix the redirect loop after login",
+        url: "https://github.com/example/hero/pull/412",
+        state: "open",
+        draft: false,
+        review: "review_required",
+        checks: [
+            { name: "Lint", outcome: "passed", url: "https://github.com/example/hero/runs/1" },
+            {
+                name: "Unit tests",
+                outcome: "failed",
+                url: "https://github.com/example/hero/runs/2",
+            },
+            { name: "Browser tests", outcome: "running", url: null },
+            { name: "Deploy preview", outcome: "skipped", url: null },
+        ],
+    };
+}
 
 async function sampleChanges(_project: string, name: string): Promise<FileChange[]> {
     return name === "pm-16037" ? [] : SAMPLE_CHANGES;
@@ -987,6 +1050,93 @@ class MockAgent {
 }
 
 /** Closing sessions, listing the closed ones of a task, and reopening one. */
+/** The sample sessions whose title holds the words: the sample conversations are not kept. */
+function sampleSearch(projects: Project[], query: string): SearchHit[] {
+    const wanted = query.trim().toLowerCase();
+    return projects.flatMap((project) =>
+        project.tasks.flatMap((task) =>
+            task.sessions
+                .filter((session) => wanted !== "" && session.title.toLowerCase().includes(wanted))
+                .map((session) => ({
+                    session_id: session.id,
+                    title: session.title,
+                    project: project.name,
+                    task: task.name,
+                    closed: false,
+                    snippet: `…${session.title}…`,
+                    by_user: true,
+                    matches: 1,
+                })),
+        ),
+    );
+}
+
+/** A new sample session holding what was said in session `id`, as the core's fork does. */
+function sampleFork(agent: MockAgent, tasks: Task[], id: number, upto: number | null): Session {
+    const home = tasks.find((task) => task.sessions.some((one) => one.id === id));
+    const source = home?.sessions.find((one) => one.id === id);
+    if (!(home && source)) {
+        throw new Error(`there is no session ${id}`);
+    }
+    const fork = { ...agent.newSession(home.id), title: `${source.title} (fork)` };
+    const said = agent.history(id).slice(0, upto ?? undefined);
+    const kept = said.filter((event) => ["user_message", "text"].includes(event.type));
+    agent.events.set(fork.id, [...kept, { type: "forked", from: id }]);
+    home.sessions.push(fork);
+    return fork;
+}
+
+/** Kept prompts, held in memory, starting with two samples. */
+function templatesApi(): Pick<Api, "templates" | "templateSave" | "templateRemove"> {
+    let kept: Template[] = [
+        { name: "explain", text: "Explain how {{what}} works, briefly, with the files involved." },
+        {
+            name: "review",
+            text: "Review the changes in this worktree for bugs. Do not change anything.",
+        },
+    ];
+    const sorted = () => [...kept].sort((a, b) => a.name.localeCompare(b.name));
+    return {
+        templates: async () => sorted(),
+        templateSave: async (name, text) => {
+            kept = [...kept.filter((one) => one.name !== name), { name, text }];
+            return sorted();
+        },
+        templateRemove: async (name) => {
+            kept = kept.filter((one) => one.name !== name);
+            return sorted();
+        },
+    };
+}
+
+const SAMPLE_CLOUD_DIFF = [
+    "diff --git a/docs/api.md b/docs/api.md",
+    "--- a/docs/api.md",
+    "+++ b/docs/api.md",
+    "@@ -10,3 +10,4 @@ ## Invoices",
+    " `GET /invoices` lists them.",
+    "-`POST /invoices` is not documented yet.",
+    "+`POST /invoices` creates one from a JSON body.",
+    "+`GET /invoices/:id/export` returns it as CSV.",
+    " ",
+].join("\n");
+
+const SAMPLE_COSTS: Costs = {
+    today: 3.42,
+    week: 18.9,
+    total: 212.05,
+    tasks: [
+        { project: "hero", task: "fix-login-redirect", usd: 41.3 },
+        { project: "bonsai-lint", task: "rust-support", usd: 12.75 },
+        { project: "hero", task: "invoice-export", usd: 0.4 },
+    ],
+    days: [
+        { day: "2026-11-20", usd: 3.42 },
+        { day: "2026-11-19", usd: 9.1 },
+        { day: "2026-11-17", usd: 6.38 },
+    ],
+};
+
 function closingApi(
     agent: MockAgent,
 ): Pick<Api, "sessionClose" | "sessionsClosed" | "sessionReopen"> {
@@ -1020,6 +1170,7 @@ export function createMockApi(): Api {
         text_scale: 100,
         default_supervision: "auto",
         html_views: true,
+        notifications: true,
         rules: "",
         status_items: ["branch", "changes", "model", "context", "cost"],
         status_command: "",
@@ -1027,7 +1178,9 @@ export function createMockApi(): Api {
     return {
         overview: async () => structuredClone(agent.projects),
         ...mcpApi(),
+        ...templatesApi(),
         usage: async () => SAMPLE_USAGE,
+        costs: async () => SAMPLE_COSTS,
         ...setupApi(hookListeners),
         agents: async () => [
             { id: "claude", name: "Claude Code", models: ["opus", "sonnet", "haiku", "fable"] },
@@ -1090,6 +1243,13 @@ export function createMockApi(): Api {
             project.tasks.push(created);
             return created;
         },
+        taskUnpublished: sampleUnpublished,
+        taskCommit: async () => undefined,
+        taskPush: async () => undefined,
+        taskPullDraft: async () => SAMPLE_DRAFT,
+        taskPullCreate: sampleOpenedPull,
+        taskPull: samplePull,
+        taskPullOpen: async () => undefined,
         taskChanges: sampleChanges,
         taskDiff: sampleDiff,
         taskOpenEditor: async () => undefined,
@@ -1099,6 +1259,7 @@ export function createMockApi(): Api {
         setApiKey: async (name, key) => storeKey(keys, name, key.trim() !== ""),
         deleteApiKey: async (name) => storeKey(keys, name, false),
         settings: async () => ({ ...settings }),
+        setBadge: async () => {},
         setSettings: async (changed) => {
             settings = changed;
         },
@@ -1119,6 +1280,7 @@ export function createMockApi(): Api {
             home.sessions.push(created);
             return created;
         },
+        sessionFork: async (id, upto) => sampleFork(agent, tasks(), id, upto),
         sessionEvents: async (id) => [...agent.history(id)],
         sessionSend: async (id, text, files) => agent.send(id, withFiles(text, files ?? [])),
         sessionQueue: async (id) => agent.queue(id),
@@ -1159,6 +1321,7 @@ export function createMockApi(): Api {
         },
         statusLine: async (id) => scriptedStatus(settings.status_command, id),
         sessionRename: async (id, title) => agent.rename(id, title),
+        sessionsSearch: async (query) => sampleSearch(agent.projects, query),
         ...closingApi(agent),
         onSessionEvent: async (listener) => {
             agent.listeners.add(listener);

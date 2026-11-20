@@ -7,6 +7,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod notify;
 
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -18,7 +19,7 @@ use swarmed_core::{
 };
 use tauri::http::header::{CONTENT_SECURITY_POLICY, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
 use tauri::http::{HeaderValue, Response, StatusCode};
-use tauri::{AppHandle, Builder, Emitter, Runtime};
+use tauri::{AppHandle, Builder, Emitter, Manager, Runtime};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
 
@@ -28,6 +29,8 @@ const SESSION_EVENT: &str = "session-event";
 const SESSION_EVENTS_LAGGED: &str = "session-events-lagged";
 /// The event every piece of terminal output is emitted as.
 const TERMINAL_OUTPUT: &str = "terminal-output";
+/// The label of the app's one window.
+const MAIN_WINDOW: &str = "main";
 /// The scheme frames load an agent's HTML from: `swarmed-view://localhost/<id>`.
 const VIEW_SCHEME: &str = "swarmed-view";
 
@@ -45,12 +48,35 @@ fn open_core() -> swarmed_core::Result<Core> {
     Ok(core)
 }
 
-/// Passes every session event on to the UI until the core goes away.
-async fn forward_events<R: Runtime>(mut bus: Receiver<SessionEvent>, app: AppHandle<R>) {
+/// Tells the user, through the system, about an event worth it, unless they are looking at
+/// Swarmed already. A notification that cannot be shown is not an error: the app shows the same.
+fn notify<R: Runtime>(app: &AppHandle<R>, core: &Core, event: &SessionEvent) {
+    let looking = app
+        .get_webview_window(MAIN_WINDOW)
+        .is_some_and(|window| window.is_focused().unwrap_or(false));
+    if looking {
+        return;
+    }
+    let Ok(Some(notice)) = core.notice_for(event) else {
+        return;
+    };
+    notify::show(&app.config().identifier, &notice);
+}
+
+/// Passes every session event on to the UI until the core goes away, and notifies the user of
+/// the ones worth it.
+async fn forward_events<R: Runtime>(
+    mut bus: Receiver<SessionEvent>,
+    app: AppHandle<R>,
+    core: Arc<Core>,
+) {
     loop {
         // An emit only fails when there is no window to receive it, which is not an error here.
         match bus.recv().await {
-            Ok(event) => app.emit(SESSION_EVENT, event).ok(),
+            Ok(event) => {
+                notify(&app, &core, &event);
+                app.emit(SESSION_EVENT, event).ok()
+            }
             Err(RecvError::Lagged(_)) => app.emit(SESSION_EVENTS_LAGGED, ()).ok(),
             Err(RecvError::Closed) => return,
         };
@@ -102,6 +128,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         .invoke_handler(tauri::generate_handler![
             commands::agents,
             commands::usage,
+            commands::costs,
             commands::mcp_servers,
             commands::mcp_save,
             commands::mcp_remove,
@@ -117,6 +144,9 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
             commands::task_name_for,
             commands::task_new,
             commands::environments,
+            commands::templates,
+            commands::template_save,
+            commands::template_remove,
             commands::skills,
             commands::skill_body,
             commands::skill_save,
@@ -129,11 +159,20 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
             commands::cloud_tasks,
             commands::cloud_task_forget,
             commands::cloud_task_open,
+            commands::cloud_task_diff,
+            commands::cloud_task_apply,
             commands::environment_save,
             commands::environment_remove,
             commands::task_remove,
             commands::task_open_editor,
             commands::task_open_url,
+            commands::task_unpublished,
+            commands::task_commit,
+            commands::task_push,
+            commands::task_pull_draft,
+            commands::task_pull_create,
+            commands::task_pull,
+            commands::task_pull_open,
             commands::task_changes,
             commands::task_diff,
             commands::note,
@@ -157,6 +196,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
             commands::session_stop,
             commands::session_configure,
             commands::slash_commands,
+            commands::badge_set,
             commands::view_put,
             commands::view_open,
             commands::terminal_open,
@@ -166,8 +206,10 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
             commands::status_line,
             commands::session_rename,
             commands::session_close,
+            commands::sessions_search,
             commands::sessions_closed,
             commands::session_reopen,
+            commands::session_fork,
         ])
 }
 
@@ -181,6 +223,7 @@ fn main() {
         Arc::new(open_core().unwrap_or_else(|e| panic!("could not open Swarmed's data: {e}")));
     let listening = Arc::clone(&core);
     let leaving = Arc::clone(&core);
+    let noticing = Arc::clone(&core);
     let bus = core.subscribe();
     let terminals = core.subscribe_terminals();
     // The dialog plugin is the native folder picker, for adding a repository.
@@ -189,6 +232,7 @@ fn main() {
             drop(tauri::async_runtime::spawn(forward_events(
                 bus,
                 app.handle().clone(),
+                noticing,
             )));
             // Where the sessions' own tool servers reach the core: to see, message and start
             // other sessions. If it cannot listen, those tools say so; nothing else depends on it.

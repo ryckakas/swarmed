@@ -120,6 +120,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   own. A server's secrets are named in the file and kept in the keychain under
   `mcp:<server>:<name>`; a front end can set one and never read it. Claude Code's servers are
   shown from its configuration and from what it last reported, and never written.
+- **Prompts the user keeps** (`templates.rs`) are a name and a text in `templates.toml` in the
+  data directory. A front end puts one into the message box; the core never sends one by
+  itself, and agents are not told about them. `{{something}}` marks a place to fill in.
 - **Attaching a file is naming its path** (`attach.rs`). Nothing is uploaded or copied: the
   agent runs on this machine and reads the file where it is. `with_files` lists the paths
   under the message in one fixed form, which the UI reads back (`splitFiles`) to show them as
@@ -159,6 +162,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   in its parent's task with its settings, cannot spawn itself, and a session can have
   `MAX_SPAWNED` open. The tools are not on the allow list: in ask mode the user is asked.
   A session can close only sessions it started, and only idle ones (`peer_close`).
+- **A fork is a new session that starts with a copy of what was said** (`fork.rs`): the user's
+  messages, the replies and the views, up to a chosen event, then a `Forked` event. No agent can
+  be handed another's memory, so the fork's agent is given that conversation as text with the
+  first message sent to it, whatever agent it is. What is recorded is what the user typed.
 - **A closed session is put away, not deleted.** Closing is an event, `Closed`, so every front
   end drops it from its lists. Its task counts its closed sessions, they can be listed
   (`sessions_closed`) and put back (`session_reopen`) with their conversation as it was.
@@ -190,12 +197,23 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   the first one when a turn ends well, as if it had just been typed; a turn that was stopped
   or failed leaves the queue standing. The queue lives in memory, and its changes are published
   as `Queue` events that are never stored, like the pieces of a reply.
+- **What is worth interrupting the user for is decided in the core** (`notices.rs`): a session
+  that asks for a decision, finishes a turn, or fails. A front end shows it only while the user
+  looks elsewhere; the app does so as a macOS notification (`crates/app/src/notify.rs`) and
+  counts what waits on its icon. A notice names the tool and the agent's own summary, never the
+  tool's arguments, which may hold anything.
 - **Swarmed never handles Claude.ai credentials.** It only shapes the child's environment (`Auth`).
 - **Session events are stored as JSON** (`AgentEvent`), so its variants and fields are only added,
   never renamed.
 - **A task's changes are read from git on demand** (`changes.rs`): everything that differs from
   the merge base with the task's base ref, uncommitted and untracked files included. The view is
   read-only. The UI reads again when one of the task's agents finishes a tool call or a turn.
+- **A task's pull request and checks are asked of the user's own `gh`** (`pulls.rs`), in the
+  task's worktree, on demand. Swarmed holds no GitHub token. No `gh`, no pull request, or a
+  repository that is not on GitHub all mean the same: the task has none, which is not an error.
+- **A task's work leaves its worktree only when asked** (`publish.rs`): commit everything, push
+  the branch, open a pull request, each a step of its own behind a button. Commits are made by
+  the user's git as them, the pull request by their `gh`; nothing is added to either.
 - **Removing a project** (`project_remove`) removes its tasks as `task_remove` does, keeping
   their branches, then deletes what Swarmed holds about it: sessions, their history and the
   notes. The repository is not touched. Removing a task stops its sessions first. In the UI

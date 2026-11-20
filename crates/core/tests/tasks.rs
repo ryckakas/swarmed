@@ -814,3 +814,87 @@ async fn a_removed_project_leaves_swarmed_and_its_repository_stays() {
     core.project_add(&fx.repo, None).await.expect("adds again");
     assert_eq!(core.tasks("demo", true).expect("reads"), vec![]);
 }
+
+#[tokio::test]
+async fn a_tasks_work_is_committed_and_pushed_when_asked() {
+    let fx = fixture();
+    let root = fx.repo.parent().expect("test setup");
+    let remote = root.join("remote.git");
+    git(
+        root,
+        &["init", "--quiet", "--bare", "-b", "main", "remote.git"],
+    );
+    git(
+        &fx.repo,
+        &["remote", "add", "origin", &remote.to_string_lossy()],
+    );
+    git(&fx.repo, &["push", "--quiet", "-u", "origin", "main"]);
+    let core = core_with_project(&fx).await;
+    let task = core
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+
+    let clean = core.task_unpublished("demo", "one").await.expect("reads");
+    assert_eq!(
+        (clean.changed, clean.unpushed, clean.pushed_before),
+        (0, 0, false)
+    );
+    let nothing = core.task_commit("demo", "one", "feat: nothing").await;
+    assert_eq!(
+        nothing.expect_err("refused").to_string(),
+        "there is nothing to commit"
+    );
+
+    std::fs::write(task.worktree_path.join("a.txt"), "a").expect("test setup");
+    std::fs::write(task.worktree_path.join("b.txt"), "b").expect("test setup");
+    let dirty = core.task_unpublished("demo", "one").await.expect("reads");
+    assert_eq!((dirty.changed, dirty.unpushed), (2, 0));
+    let wordless = core.task_commit("demo", "one", "  ").await;
+    assert_eq!(
+        wordless.expect_err("refused").to_string(),
+        "a commit needs a message"
+    );
+
+    core.task_commit("demo", "one", "feat: two files\n\nBoth are new.")
+        .await
+        .expect("commits");
+    let committed = core.task_unpublished("demo", "one").await.expect("reads");
+    assert_eq!((committed.changed, committed.unpushed), (0, 1));
+    let draft = core.task_pull_draft("demo", "one").await.expect("drafts");
+    assert_eq!(draft.title, "feat: two files");
+    assert_eq!(draft.body, "Both are new.");
+
+    core.task_push("demo", "one").await.expect("pushes");
+    let pushed = core.task_unpublished("demo", "one").await.expect("reads");
+    assert_eq!((pushed.unpushed, pushed.pushed_before), (0, true));
+}
+
+#[tokio::test]
+async fn prompts_are_kept_by_name_replaced_and_dropped() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    assert_eq!(core.templates().expect("reads"), []);
+
+    core.template_save("review", "Review {{file}} for bugs.")
+        .expect("keeps");
+    core.template_save("explain", "  Explain this.  ")
+        .expect("keeps");
+    let kept = core.templates().expect("reads");
+    let names: Vec<_> = kept.iter().map(|template| template.name.as_str()).collect();
+    assert_eq!(names, ["explain", "review"]);
+    assert_eq!(kept[0].text, "Explain this.");
+
+    let replaced = core
+        .template_save("review", "Review it.\nSay \"done\".")
+        .expect("replaces");
+    assert_eq!(replaced.len(), 2);
+    assert_eq!(replaced[1].text, "Review it.\nSay \"done\".");
+
+    assert!(core.template_save("Not A Name", "x").is_err());
+    let empty = core.template_save("empty", "   ").expect_err("refused");
+    assert_eq!(empty.to_string(), "a prompt needs some text");
+
+    assert_eq!(core.template_remove("review").expect("drops").len(), 1);
+    assert_eq!(core.template_remove("review").expect("no error").len(), 1);
+}

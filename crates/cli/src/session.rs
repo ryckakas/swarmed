@@ -58,6 +58,14 @@ pub(crate) enum SessionCommand {
     List { project: String, task: String },
     /// Print everything a session has said and been told.
     Show { id: i64 },
+    /// Start a new session from what was said in this one. Its agent is given that
+    /// conversation with the first message sent to it.
+    Fork {
+        id: i64,
+        /// Keep only the first this many events of the conversation.
+        #[arg(long)]
+        upto: Option<usize>,
+    },
     /// Change the model and supervision a session runs with from now on.
     Set {
         id: i64,
@@ -155,6 +163,11 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
                 let state = state_of(&s);
                 say(&format!("{}\t{state}\t{mode}\t{}", s.id, s.title));
             }
+            Ok(())
+        }
+        SessionCommand::Fork { id, upto } => {
+            let fork = core.session_fork(id, upto)?;
+            say(&format!("session {}\t{}", fork.id, fork.title));
             Ok(())
         }
         SessionCommand::Show { id } => {

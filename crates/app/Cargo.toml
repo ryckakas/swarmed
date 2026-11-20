@@ -23,6 +23,10 @@ tauri = { workspace = true }
 tauri-plugin-dialog = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
 
+# The system's notifications, where there is a system we know how to ask.
+[target.'cfg(target_os = "macos")'.dependencies]
+mac-notification-sys = { workspace = true }
+
 [dev-dependencies]
 serde_json = { workspace = true }
 tauri = { workspace = true, features = ["test"] }

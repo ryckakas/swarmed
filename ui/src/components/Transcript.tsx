@@ -1,4 +1,5 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
+import { forkSession } from "../actions";
 import type { AgentEvent } from "../api/types";
 import { messageParts } from "../pastes";
 import { useStore } from "../store";
@@ -107,6 +108,14 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
                 <div className="said">
                     <Said text={item.text} />
                     <FileChips files={item.files} />
+                    <button
+                        type="button"
+                        className="said-fork"
+                        title="Starts a new session with the conversation as it stood before this message"
+                        onClick={() => void forkSession(sessionId, item.key)}
+                    >
+                        Fork from here
+                    </button>
                 </div>
             );
         case "text":
@@ -163,6 +172,13 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
                 <p className="aside turn-end">
                     {item.isError ? "Turn stopped" : "Turn finished"}
                     {item.costUsd !== null && `, $${item.costUsd.toFixed(2)} so far`}
+                </p>
+            );
+        case "forked":
+            return (
+                <p className="forked-line">
+                    Forked from session {item.from}. What stands above was said there; this
+                    session's agent is given it with your first message.
                 </p>
             );
         case "notice":

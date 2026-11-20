@@ -4,12 +4,16 @@ import type {
     AgentEvent,
     NoteTarget,
     Project,
+    Pull,
     QueuedMessage,
     RemoveTarget,
     SessionEvent,
     SessionSettings,
     Settings,
+    Template,
 } from "./api/types";
+import type { Comparison } from "./components/CompareDialog";
+import { type ReviewComment, withComment } from "./review";
 import {
     applySessionEvent,
     findSession,
@@ -29,6 +33,7 @@ export const SETTINGS_TABS = [
     ["status", "Status line"],
     ["agents", "Agents"],
     ["skills", "Skills"],
+    ["prompts", "Prompts"],
     ["mcp", "MCP servers"],
     ["keys", "API keys"],
     ["usage", "Storage and activity"],
@@ -110,6 +115,32 @@ interface State {
     noting: NoteTarget | null;
     /** Opens a note; `null` puts it away. */
     askForNote(target: NoteTarget | null): void;
+    /** The user's comments on each task's diff, by the task's id, until they are sent. */
+    reviews: Record<number, ReviewComment[]>;
+    /** Puts a comment on a line, changes it, or with empty text takes it away. */
+    comment(taskId: number, comment: ReviewComment): void;
+    /** Drops a task's comments: they were sent, or are not wanted. */
+    clearReview(taskId: number): void;
+    /** Each task's pull request by the task's id, as last heard; `null` for none. */
+    pulls: Record<number, Pull | null>;
+    /** Asks again for a task's pull request. Not hearing back changes nothing. */
+    loadPull(api: Api, project: string, task: string, taskId: number): Promise<void>;
+    /** The cloud task whose changes are being looked at, by Swarmed's id for it. */
+    cloudDiffOf: number | null;
+    showCloudDiff(id: number | null): void;
+    /** The two tasks set side by side, while they are. */
+    comparing: Comparison | null;
+    /** Sets two tasks side by side; `null` puts the comparison away. */
+    compare(comparison: Comparison | null): void;
+    /** The prompts the user keeps to send again. */
+    templates: Template[];
+    setTemplates(templates: Template[]): void;
+    /** Whether the search across conversations is open. */
+    searchOpen: boolean;
+    showSearch(open: boolean): void;
+    /** Whether the list of everything that waits for the user is open. */
+    inboxOpen: boolean;
+    showInbox(open: boolean): void;
     /** The session the user asked to close, until they confirm or change their mind. */
     closing: number | null;
     /** Asks before closing: `null` withdraws the question. */
@@ -298,6 +329,32 @@ export const useStore = create<State>((set, get) => ({
     askForEnvironments: (project) => set({ environmentsOf: project }),
     noting: null,
     askForNote: (target) => set({ noting: target }),
+    reviews: {},
+    comment: (taskId, comment) =>
+        set((state) => ({
+            reviews: {
+                ...state.reviews,
+                [taskId]: withComment(state.reviews[taskId] ?? [], comment),
+            },
+        })),
+    clearReview: (taskId) => set((state) => ({ reviews: { ...state.reviews, [taskId]: [] } })),
+    pulls: {},
+    loadPull: async (api, project, task, taskId) => {
+        const pull = await api.taskPull(project, task).catch(() => undefined);
+        if (pull !== undefined) {
+            set((state) => ({ pulls: { ...state.pulls, [taskId]: pull } }));
+        }
+    },
+    cloudDiffOf: null,
+    showCloudDiff: (id) => set({ cloudDiffOf: id }),
+    comparing: null,
+    compare: (comparison) => set({ comparing: comparison }),
+    templates: [],
+    setTemplates: (templates) => set({ templates }),
+    searchOpen: false,
+    showSearch: (open) => set({ searchOpen: open }),
+    inboxOpen: false,
+    showInbox: (open) => set({ inboxOpen: open }),
     closing: null,
     askToClose: (sessionId) => set({ closing: sessionId }),
     refresh: async (api) => {
@@ -363,6 +420,7 @@ export function connect(api: Api): () => void {
     const { refresh, apply } = useStore.getState();
     void refresh(api);
     void reporting(async () => useStore.setState({ settings: await api.settings() }));
+    void reporting(async () => useStore.setState({ templates: await api.templates() }));
     // After dropped events nothing on screen can be trusted: forget the transcripts and reload.
     const reload = () => {
         const { selectedSessionId, open } = useStore.getState();

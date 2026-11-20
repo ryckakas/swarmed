@@ -12,6 +12,7 @@ import { McpSettings } from "./McpSettings";
 import { editorChoices, supervisionChoices, TEXT_SCALES, THEMES } from "./options";
 import { Picker } from "./Picker";
 import { SkillsSettings } from "./SkillsSettings";
+import { TemplatesSettings } from "./TemplatesSettings";
 import { UsageSettings } from "./UsageSettings";
 
 /** The user's preferences. Every change takes effect, and is saved, at once. */
@@ -129,6 +130,8 @@ function Panel({ tab, settings }: { tab: SettingsTab; settings: Settings }) {
             return <AgentsSettings />;
         case "skills":
             return <SkillsSettings />;
+        case "prompts":
+            return <TemplatesSettings />;
         case "mcp":
             return <McpSettings />;
         case "keys":
@@ -234,6 +237,17 @@ function Sessions({ settings }: { settings: Settings }) {
                     aria-label="Name new sessions automatically"
                     checked={settings.auto_title}
                     onChange={(event) => void change(api, { auto_title: event.target.checked })}
+                />
+            </Row>
+            <Row
+                label="Notifications"
+                hint="The system tells you when a session needs you, finishes or fails while Swarmed is in the background. The app's icon always counts what waits for you."
+            >
+                <input
+                    type="checkbox"
+                    aria-label="Notify when a session needs you, finishes or fails"
+                    checked={settings.notifications}
+                    onChange={(event) => void change(api, { notifications: event.target.checked })}
                 />
             </Row>
             <Row

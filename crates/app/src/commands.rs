@@ -12,11 +12,12 @@ use serde::Serialize;
 use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
     AgentInfo, AgentSetup, ApiKeyInfo, BranchChoices, CloudOrigin, CloudProvider, CloudTask, Core,
-    Environment, FileChange, FileDiff, McpServerInput, McpServerView, NewTaskOptions, Project,
-    ProjectOverview, QueuedMessage, RemoveOptions, Session, SessionOptions, SessionSettings,
-    Settings, Skill, Task, TaskNaming, Usage, with_files,
+    Costs, Environment, FileChange, FileDiff, McpServerInput, McpServerView, NewTaskOptions,
+    Project, ProjectOverview, Pull, PullDraft, QueuedMessage, RemoveOptions, SearchHit, Session,
+    SessionOptions, SessionSettings, Settings, Skill, Task, TaskNaming, Template, Unpublished,
+    Usage, with_files,
 };
-use tauri::{AppHandle, Emitter, Runtime, State};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
 /// The event a hook's output lines are emitted as while a task is created or removed.
 pub(crate) const HOOK_OUTPUT: &str = "hook-output";
@@ -94,6 +95,12 @@ pub(crate) fn mcp_remove(core: CoreState<'_>, name: String) -> Command<Vec<McpSe
 #[tauri::command]
 pub(crate) async fn usage(core: CoreState<'_>) -> Command<Usage> {
     Ok(core.usage().await?)
+}
+
+/// What the agents report their work has cost: today, this week, in all, by task and by day.
+#[tauri::command]
+pub(crate) fn costs(core: CoreState<'_>) -> Command<Costs> {
+    Ok(core.costs()?)
 }
 
 /// The agents that can be set up from the settings, and how far along each is.
@@ -244,6 +251,23 @@ pub(crate) fn cloud_task_forget(core: CoreState<'_>, id: i64) -> Command<()> {
     Ok(core.cloud_task_forget(id)?)
 }
 
+/// What a Codex cloud task changed, as a unified diff.
+#[tauri::command]
+pub(crate) async fn cloud_task_diff(core: CoreState<'_>, id: i64) -> Command<String> {
+    Ok(core.cloud_task_diff(id).await?)
+}
+
+/// Applies what a Codex cloud task changed to a local task's worktree, uncommitted.
+#[tauri::command]
+pub(crate) async fn cloud_task_apply(
+    core: CoreState<'_>,
+    id: i64,
+    project: String,
+    name: String,
+) -> Command<()> {
+    Ok(core.cloud_task_apply(id, &project, &name).await?)
+}
+
 /// Opens an address in the default browser: a cloud task's page.
 #[tauri::command]
 pub(crate) fn cloud_task_open(core: CoreState<'_>, id: i64) -> Command<()> {
@@ -284,6 +308,28 @@ pub(crate) fn skills(core: CoreState<'_>) -> Vec<Skill> {
 #[tauri::command]
 pub(crate) fn skill_body(core: CoreState<'_>, name: String) -> Command<String> {
     Ok(core.skill_body(&name)?)
+}
+
+/// The prompts the user keeps to send again.
+#[tauri::command]
+pub(crate) fn templates(core: CoreState<'_>) -> Command<Vec<Template>> {
+    Ok(core.templates()?)
+}
+
+/// Keeps a prompt, in place of the one of that name if there is one.
+#[tauri::command]
+pub(crate) fn template_save(
+    core: CoreState<'_>,
+    name: String,
+    text: String,
+) -> Command<Vec<Template>> {
+    Ok(core.template_save(&name, &text)?)
+}
+
+/// Drops a kept prompt.
+#[tauri::command]
+pub(crate) fn template_remove(core: CoreState<'_>, name: String) -> Command<Vec<Template>> {
+    Ok(core.template_remove(&name)?)
 }
 
 /// Adds a skill of Swarmed's own, or replaces the one of that name.
@@ -365,6 +411,80 @@ pub(crate) fn set_note(
 #[tauri::command]
 pub(crate) fn task_open_url(core: CoreState<'_>, project: String, name: String) -> Command<()> {
     Ok(core.task_open_url(&project, &name)?)
+}
+
+/// What of a task's work is not committed, and what is not pushed.
+#[tauri::command]
+pub(crate) async fn task_unpublished(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+) -> Command<Unpublished> {
+    Ok(core.task_unpublished(&project, &name).await?)
+}
+
+/// Commits everything in a task's worktree under `message`.
+#[tauri::command]
+pub(crate) async fn task_commit(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+    message: String,
+) -> Command<()> {
+    Ok(core.task_commit(&project, &name, &message).await?)
+}
+
+/// Pushes a task's branch to its remote.
+#[tauri::command]
+pub(crate) async fn task_push(core: CoreState<'_>, project: String, name: String) -> Command<()> {
+    Ok(core.task_push(&project, &name).await?)
+}
+
+/// A title and description to start a task's pull request from.
+#[tauri::command]
+pub(crate) async fn task_pull_draft(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+) -> Command<PullDraft> {
+    Ok(core.task_pull_draft(&project, &name).await?)
+}
+
+/// Opens a pull request for a task's branch, as a draft if asked.
+#[tauri::command]
+pub(crate) async fn task_pull_create(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+    draft: PullDraft,
+    as_draft: bool,
+) -> Command<Pull> {
+    Ok(core
+        .task_pull_create(&project, &name, &draft, as_draft)
+        .await?)
+}
+
+/// The pull request of a task's branch with its checks, if it has one.
+#[tauri::command]
+pub(crate) async fn task_pull(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+) -> Command<Option<Pull>> {
+    Ok(core.task_pull(&project, &name).await?)
+}
+
+/// Opens a task's pull request in the browser, or the details of one of its checks.
+#[tauri::command]
+pub(crate) async fn task_pull_open(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+    check: Option<String>,
+) -> Command<()> {
+    Ok(core
+        .task_pull_open(&project, &name, check.as_deref())
+        .await?)
 }
 
 #[tauri::command]
@@ -484,6 +604,12 @@ pub(crate) async fn session_send_queued(core: CoreState<'_>, id: i64) -> Command
     Ok(core.session_send_queued(id)?)
 }
 
+/// The sessions in which `query` was said, closed ones included.
+#[tauri::command]
+pub(crate) fn sessions_search(core: CoreState<'_>, query: String) -> Command<Vec<SearchHit>> {
+    Ok(core.sessions_search(&query)?)
+}
+
 /// A task's closed sessions, the one closed last first.
 #[tauri::command]
 pub(crate) fn sessions_closed(
@@ -492,6 +618,12 @@ pub(crate) fn sessions_closed(
     task: String,
 ) -> Command<Vec<Session>> {
     Ok(core.sessions_closed(&project, &task)?)
+}
+
+/// A new session that starts with what was said in session `id`, up to its event `upto`.
+#[tauri::command]
+pub(crate) fn session_fork(core: CoreState<'_>, id: i64, upto: Option<usize>) -> Command<Session> {
+    Ok(core.session_fork(id, upto)?)
 }
 
 /// Puts a closed session back in the lists.
@@ -549,6 +681,16 @@ pub(crate) fn session_configure(
         effort,
     };
     Ok(core.session_configure(id, &settings)?)
+}
+
+/// Shows on the app's icon how many sessions wait for the user; nothing for none.
+#[tauri::command]
+pub(crate) fn badge_set<R: Runtime>(app: AppHandle<R>, count: i64) {
+    let Some(window) = app.get_webview_window(crate::MAIN_WINDOW) else {
+        return;
+    };
+    // Not every system has a badge to set, and nothing depends on it.
+    window.set_badge_count((count > 0).then_some(count)).ok();
 }
 
 /// Hands over an HTML document for a sandboxed frame and returns the id the frame loads it by.

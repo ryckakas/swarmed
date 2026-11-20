@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Usage } from "./api/types";
-import { formatBytes, formatCpu, totalBytes } from "./usage";
+import { formatBytes, formatCpu, formatUsd, totalBytes } from "./usage";
 
 describe("formatBytes", () => {
     it("says a size in the unit that fits it", () => {
@@ -24,6 +24,15 @@ describe("totalBytes", () => {
             sessions: [],
         };
         expect(totalBytes(usage)).toBe(1510);
+    });
+});
+
+describe("formatUsd", () => {
+    it("shows cents for what is small and whole dollars for what is large", () => {
+        expect(formatUsd(0)).toBe("$0.00");
+        expect(formatUsd(0.004)).toBe("under $0.01");
+        expect(formatUsd(3.416)).toBe("$3.42");
+        expect(formatUsd(1234.5)).toBe("$1,235");
     });
 });
 

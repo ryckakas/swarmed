@@ -47,6 +47,76 @@ export interface Task {
     stack: boolean | null;
 }
 
+/** A prompt kept to be sent again. `{{something}}` in its text marks a place to fill in. */
+export interface Template {
+    name: string;
+    text: string;
+}
+
+/** What the agents report their work has cost, in US dollars at API prices. */
+export interface Costs {
+    today: number;
+    /** The last seven days, today included. */
+    week: number;
+    total: number;
+    /** The most expensive tasks, the most expensive first. */
+    tasks: { project: string; task: string; usd: number }[];
+    /** The last days on which something was spent, the newest first. */
+    days: { day: string; usd: number }[];
+}
+
+/** One session in which the words searched for were said. */
+export interface SearchHit {
+    session_id: number;
+    title: string;
+    project: string;
+    task: string;
+    /** Whether the session was closed, and has to be reopened to be read. */
+    closed: boolean;
+    /** The newest place the words were said, with a little of what stands around them. */
+    snippet: string;
+    /** Whether the user said it, not the agent. */
+    by_user: boolean;
+    /** How many of the session's messages hold the words. */
+    matches: number;
+}
+
+/** What of a task's work has not left its worktree yet. */
+export interface Unpublished {
+    /** How many files are changed, added or removed and not committed. */
+    changed: number;
+    /** How many commits are not on the branch's upstream, or its base if never pushed. */
+    unpushed: number;
+    /** Whether the branch has been pushed before. */
+    pushed_before: boolean;
+}
+
+/** A title and a description to start a pull request from. */
+export interface PullDraft {
+    title: string;
+    body: string;
+}
+
+/** One check on a pull request: a CI job, or a status another service reported. */
+export interface Check {
+    name: string;
+    outcome: "passed" | "failed" | "running" | "skipped";
+    /** Where its details are, if it said. */
+    url: string | null;
+}
+
+/** The pull request of a task's branch, as the GitHub CLI reports it. */
+export interface Pull {
+    number: number;
+    title: string;
+    url: string;
+    state: "open" | "merged" | "closed";
+    draft: boolean;
+    /** What its reviewers decided, such as `approved`; `null` if no review is asked for. */
+    review: string | null;
+    checks: Check[];
+}
+
 /**
  * One way of setting a project's tasks up on this machine. Whatever is left empty is as the
  * project's own configuration has it.
@@ -122,6 +192,8 @@ export interface Settings {
     default_supervision: Supervision;
     /** Whether agents may answer with small HTML views, and those are shown. */
     html_views: boolean;
+    /** Whether the system notifies when a session needs you, finishes or fails out of sight. */
+    notifications: boolean;
     /** The built-in pieces of the status line under the message box, in order. */
     status_items: StatusItem[];
     /** A command whose first line of output replaces the built-in pieces. Empty for none. */
@@ -313,6 +385,8 @@ export type AgentEvent =
     | { type: "renamed"; title: string }
     /** The session was closed, by the user or by the session that started it. */
     | { type: "closed" }
+    /** What stands before this is a copy of what was said in the session forked from. */
+    | { type: "forked"; from: number }
     /** HTML the agent showed through Swarmed's own tool, handed over by the tool itself. */
     | { type: "view"; html: string }
     /** What the agent says it actually runs with, defaults resolved. */
