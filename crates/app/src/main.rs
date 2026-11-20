@@ -11,6 +11,7 @@ mod navigation;
 mod notify;
 
 use std::borrow::Cow;
+use std::io::Write;
 use std::sync::Arc;
 
 use swarmed_core::agent::FakeBackend;
@@ -32,6 +33,10 @@ const SESSION_EVENTS_LAGGED: &str = "session-events-lagged";
 const TERMINAL_OUTPUT: &str = "terminal-output";
 /// The label of the app's one window.
 const MAIN_WINDOW: &str = "main";
+/// The event that tells the UI which session a clicked notification was about.
+const NOTICE_OPENED: &str = "notice-opened";
+/// The argument that has the app check its notifications and say what it found, with no window.
+const NOTIFY_CHECK_ARG: &str = "notify-check";
 /// The scheme frames load an agent's HTML from: `swarmed-view://localhost/<id>`.
 const VIEW_SCHEME: &str = "swarmed-view";
 
@@ -61,7 +66,21 @@ fn notify<R: Runtime>(app: &AppHandle<R>, core: &Core, event: &SessionEvent) {
     let Ok(Some(notice)) = core.notice_for(event) else {
         return;
     };
-    notify::show(&app.config().identifier, &notice);
+    let app = app.clone();
+    notify::show(
+        &notice,
+        Box::new(move |session| open_session(&app, session)),
+    );
+}
+
+/// Brings Swarmed to the front on the session a notification was about.
+fn open_session<R: Runtime>(app: &AppHandle<R>, session: i64) {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+        window.unminimize().ok();
+        window.show().ok();
+        window.set_focus().ok();
+    }
+    app.emit(NOTICE_OPENED, session).ok();
 }
 
 /// Passes every session event on to the UI until the core goes away, and notifies the user of
@@ -235,6 +254,10 @@ fn main() {
         let served = serve_tools(std::io::stdin().lock(), std::io::stdout().lock());
         return served.unwrap_or_else(|e| panic!("the tool server stopped: {e}"));
     }
+    if std::env::args().nth(1).as_deref() == Some(NOTIFY_CHECK_ARG) {
+        let found = tauri::async_runtime::block_on(notify::check());
+        return writeln!(std::io::stdout(), "{found}").unwrap_or_default();
+    }
     let core =
         Arc::new(open_core().unwrap_or_else(|e| panic!("could not open Swarmed's data: {e}")));
     let listening = Arc::clone(&core);
@@ -253,6 +276,8 @@ fn main() {
             // Where the sessions' own tool servers reach the core: to see, message and start
             // other sessions. If it cannot listen, those tools say so; nothing else depends on it.
             drop(tauri::async_runtime::spawn(serve_session_tools(listening)));
+            // Asked once, by the system; from then on its settings hold the answer.
+            drop(tauri::async_runtime::spawn(notify::ask_permission()));
             drop(tauri::async_runtime::spawn(forward_terminals(
                 terminals,
                 app.handle().clone(),

@@ -220,6 +220,12 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   looks elsewhere; the app does so as a macOS notification (`crates/app/src/notify.rs`) and
   counts what waits on its icon. A notice names the tool and the agent's own summary, never the
   tool's arguments, which may hold anything.
+- **Banners need the built app.** The system's notification centre only knows a bundle with an
+  identity, which `pnpm app:build` makes (signed ad hoc, which is enough) and `pnpm app` does
+  not. The bundle asks once for permission, shows banners as Swarmed, and a click opens the
+  session (`notice-opened`). A development build falls back on showing them as the Terminal's,
+  which newer systems may not show. `Swarmed.app --args notify-check`, started with `open`,
+  says what the system allows and sends one banner.
 - **Swarmed never handles Claude.ai credentials.** It only shapes the child's environment (`Auth`).
 - **Session events are stored as JSON** (`AgentEvent`), so its variants and fields are only added,
   never renamed.

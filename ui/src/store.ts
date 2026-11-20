@@ -467,6 +467,7 @@ export function connect(api: Api): () => void {
             }
             readIfSeen();
         }),
+        api.onNoticeOpened((sessionId) => void useStore.getState().open(api, sessionId)),
         api.onEventsLagged(() => reload()),
         api.onHookOutput((output) => useStore.setState({ hookLine: output.line })),
     ];

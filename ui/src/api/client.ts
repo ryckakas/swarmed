@@ -279,6 +279,8 @@ export interface Api {
     sessionClose(id: number): Promise<void>;
     /** Calls `listener` for every event of every running session, from now on. */
     onSessionEvent(listener: (event: SessionEvent) => void): Promise<Unsubscribe>;
+    /** Calls `listener` with the session a notification was about, when the user clicks it. */
+    onNoticeOpened(listener: (sessionId: number) => void): Promise<Unsubscribe>;
     /** Calls `listener` when events were dropped and anything on screen should be reloaded. */
     onEventsLagged(listener: () => void): Promise<Unsubscribe>;
 }

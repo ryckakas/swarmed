@@ -1464,6 +1464,7 @@ export function createMockApi(): Api {
             agent.listeners.add(listener);
             return () => agent.listeners.delete(listener);
         },
+        onNoticeOpened: async () => () => undefined,
         onEventsLagged: async () => () => undefined,
     };
 }
