@@ -87,6 +87,7 @@ impl Core {
             .arg("-c")
             .arg(command)
             .current_dir(&task.worktree_path)
+            .env("PATH", crate::shellenv::path())
             .envs(env)
             .stdin(Stdio::null())
             .stdout(out)

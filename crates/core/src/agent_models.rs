@@ -33,6 +33,7 @@ async fn ask(program: &Path, args: &[String]) -> Result<Value, String> {
     let mut child = Command::new(program)
         .args(args)
         .current_dir(&cwd)
+        .env("PATH", crate::shellenv::path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

@@ -240,6 +240,7 @@ impl AgentBackend for ClaudeBackend {
         command
             .args(args(&spec))
             .current_dir(&spec.cwd)
+            .env("PATH", crate::shellenv::path())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
