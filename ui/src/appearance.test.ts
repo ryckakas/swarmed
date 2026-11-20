@@ -31,7 +31,7 @@ describe("applyAppearance", () => {
     it("draws in the first palette until the settings are read", () => {
         const root = page();
         applyAppearance(root, null);
-        expect(root.dataset).toEqual({ palette: "dusk" });
-        expect(PALETTES[0]?.[0]).toBe("dusk");
+        expect(root.dataset).toEqual({ palette: "swarm" });
+        expect(PALETTES[0]?.[0]).toBe("swarm");
     });
 });

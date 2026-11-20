@@ -20,19 +20,32 @@ interface Draft {
     editing: string | null;
     name: string;
     setup: string;
+    start: string;
+    stop: string;
     teardown: string;
     openUrl: string;
     /** The variables, as lines of `NAME=value`. */
     variables: string;
 }
 
-const NEW: Draft = { editing: null, name: "", setup: "", teardown: "", openUrl: "", variables: "" };
+const NEW: Draft = {
+    editing: null,
+    name: "",
+    setup: "",
+    start: "",
+    stop: "",
+    teardown: "",
+    openUrl: "",
+    variables: "",
+};
 
 function draftOf(name: string, environment: Environment): Draft {
     return {
         editing: name,
         name,
         setup: environment.setup,
+        start: environment.start,
+        stop: environment.stop,
         teardown: environment.teardown,
         openUrl: environment.open_url,
         variables: envToText(environment.env),
@@ -44,6 +57,8 @@ function environmentOf(draft: Draft): Environment {
     return {
         ...EMPTY_ENVIRONMENT,
         setup: draft.setup.trim(),
+        start: draft.start.trim(),
+        stop: draft.stop.trim(),
         teardown: draft.teardown.trim(),
         open_url: draft.openUrl.trim(),
         env: envFromText(draft.variables),
@@ -188,10 +203,17 @@ function Form({ draft, onChange, onSave, onRemove, onCancel }: FormProps) {
             </label>
             <Script
                 label="Setup"
-                hint="Runs once in a new task's worktree, in place of the repository's setup hook."
+                hint="Runs once in a new task's worktree and has to finish before the agent starts. Not for anything that keeps running."
                 placeholder="npm ci && npm run db:seed"
                 value={draft.setup}
                 onChange={(setup) => set({ setup })}
+            />
+            <Script
+                label="Start"
+                hint="Started when setup is done and left running in the background: a dev server, devenv up. Started and stopped from the task's panel, and stopped when the task is removed or Swarmed quits."
+                placeholder="devenv up"
+                value={draft.start}
+                onChange={(start) => set({ start })}
             />
             <Script
                 label="Variables"
@@ -199,6 +221,13 @@ function Form({ draft, onChange, onSave, onRemove, onCancel }: FormProps) {
                 placeholder={"DATABASE_URL=postgres://localhost/{{task}}\nAPP_ENV=staging"}
                 value={draft.variables}
                 onChange={(variables) => set({ variables })}
+            />
+            <Script
+                label="Stop"
+                hint="Optional. Runs when the stack is stopped, before what Start left running is ended."
+                placeholder="docker compose stop"
+                value={draft.stop}
+                onChange={(stop) => set({ stop })}
             />
             <Script
                 label="Teardown"

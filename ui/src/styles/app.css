@@ -118,7 +118,23 @@ code {
     padding: 0 var(--space-3) 0 84px;
 }
 
+/* Gives way first when the strip is short of room: the counts matter more than the name. */
+.sidebar-name {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    margin-right: auto;
+    color: var(--faint);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    pointer-events: none;
+}
+
 .needs-you {
+    flex: none;
+    white-space: nowrap;
     color: var(--pollen);
     font-size: var(--text-xs);
     font-weight: 600;
@@ -126,6 +142,8 @@ code {
 }
 
 .unread-count {
+    flex: none;
+    white-space: nowrap;
     margin-left: var(--space-2);
     color: var(--sky);
     font-size: var(--text-xs);
@@ -190,6 +208,39 @@ code {
     align-items: center;
     gap: var(--space-2);
     margin-top: var(--space-3);
+}
+
+/* What a task keeps running: its state, the button that starts or stops it, and its log. */
+.stack {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+}
+
+.stack-state {
+    margin: 0 auto 0 0;
+    color: var(--faint);
+    font-size: var(--text-xs);
+}
+
+.stack-state[data-running="true"] {
+    color: var(--moss);
+}
+
+.stack-log {
+    flex-basis: 100%;
+    max-height: 16rem;
+    margin: 0;
+    padding: var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    overflow: auto;
+    font-size: var(--text-xs);
+    white-space: pre-wrap;
+    user-select: text;
 }
 
 /* Changes: the files a task touched, each opening into its diff. */
@@ -831,9 +882,25 @@ code {
 }
 
 /* A session an agent started, marked as hanging off another. */
+/* A tendril from the session above, ending in a bud. */
 .session-spawned {
     flex: none;
+    display: inline-flex;
     color: var(--faint);
+}
+
+.session-spawned svg {
+    width: 11px;
+    height: 11px;
+    fill: none;
+    stroke: currentcolor;
+    stroke-width: 1.3;
+    stroke-linecap: round;
+}
+
+.session-spawned circle {
+    fill: currentcolor;
+    stroke: none;
 }
 
 .session-line[data-unread="true"] .session-title {
@@ -980,6 +1047,38 @@ code {
     .mark-working {
         animation: none;
     }
+}
+
+/*
+ * Swarm: sessions as pods. Dormant when idle, pulsing while an agent works, split open once it
+ * has answered and nobody has looked. Needing you and having failed keep their own shapes.
+ */
+:root[data-palette="swarm"] .mark-idle,
+:root[data-palette="swarm"] .mark-working,
+:root[data-palette="swarm"] .mark-unread {
+    width: 7px;
+    height: 9px;
+    border-radius: 50% 50% 50% 50% / 38% 38% 62% 62%;
+}
+
+:root[data-palette="swarm"] .mark-working {
+    animation-name: pod;
+}
+
+:root[data-palette="swarm"] .mark-unread {
+    clip-path: polygon(0 0, 30% 0, 50% 38%, 70% 0, 100% 0, 100% 100%, 0 100%);
+}
+
+@keyframes pod {
+    50% {
+        opacity: 0.45;
+        transform: scale(1.25, 1.12);
+    }
+}
+
+/* Swarm: a faint web of veins under the tree, more felt than seen. */
+:root[data-palette="swarm"] .sidebar {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='320' viewBox='0 0 260 320' fill='none' stroke='%23e86bbf' stroke-opacity='0.055' stroke-width='1.2' stroke-linecap='round'%3E%3Cpath d='M-10 40C40 30 60 80 110 70s70 40 160 10'/%3E%3Cpath d='M110 70c-10 50 20 70-10 120s20 90-20 140'/%3E%3Cpath d='M100 190c50-20 80 20 170 0'/%3E%3Cpath d='M90 250c-40-10-60 30-110 20'/%3E%3Cpath d='M190 50c10 40 40 50 30 100'/%3E%3C/svg%3E");
 }
 
 /* Centre */
@@ -1205,44 +1304,84 @@ code {
     font-size: var(--text-sm);
 }
 
-.activity-dots {
-    display: inline-flex;
-    gap: 3px;
+/* Waiting for an agent: a cell that swells, divides in two, and closes up again. */
+.spawning {
+    position: relative;
+    flex: none;
+    display: inline-block;
+    width: 18px;
+    height: 10px;
 }
 
-.activity-dots i {
-    width: 5px;
-    height: 5px;
+.spawning i {
+    position: absolute;
+    top: 1px;
+    left: 5px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
     background: currentcolor;
-    animation: activity 1.2s ease-in-out infinite;
+    animation: spawn-left 1.8s ease-in-out infinite;
 }
 
-.activity-dots i:nth-child(2) {
-    animation-delay: 0.15s;
+.spawning i:last-child {
+    animation-name: spawn-right;
 }
 
-.activity-dots i:nth-child(3) {
-    animation-delay: 0.3s;
-}
-
-@keyframes activity {
+/* Together as one swelling cell, pulled long, apart as two, then back into one. */
+@keyframes spawn-left {
     0%,
-    60%,
     100% {
-        opacity: 0.25;
-        transform: translateY(0);
+        transform: translateX(0) scale(1);
+        opacity: 0.55;
     }
 
-    30% {
+    25% {
+        transform: translateX(0) scale(1.3);
         opacity: 1;
-        transform: translateY(-2px);
+    }
+
+    45% {
+        transform: translateX(-2px) scale(1.15, 1);
+    }
+
+    60%,
+    80% {
+        transform: translateX(-5px) scale(0.8);
+        opacity: 1;
+    }
+}
+
+@keyframes spawn-right {
+    0%,
+    100% {
+        transform: translateX(0) scale(1);
+        opacity: 0.55;
+    }
+
+    25% {
+        transform: translateX(0) scale(1.3);
+        opacity: 1;
+    }
+
+    45% {
+        transform: translateX(2px) scale(1.15, 1);
+    }
+
+    60%,
+    80% {
+        transform: translateX(5px) scale(0.8);
+        opacity: 1;
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .activity-dots i {
+    .spawning i {
         animation: none;
+    }
+
+    .spawning i:last-child {
+        display: none;
     }
 }
 
@@ -2356,6 +2495,45 @@ code {
     color: var(--pollen);
 }
 
+/* A pod that fills while a new task is named and set up. */
+.incubating {
+    width: 10px;
+    height: 12px;
+    margin-right: 6px;
+    vertical-align: -2px;
+    overflow: visible;
+}
+
+.incubating-shell {
+    fill: none;
+    stroke: currentcolor;
+    stroke-width: 1.1;
+}
+
+.incubating-fill {
+    fill: currentcolor;
+    opacity: 0.75;
+    animation: incubate 2.4s ease-in-out infinite;
+}
+
+@keyframes incubate {
+    0% {
+        transform: translateY(13px);
+    }
+
+    70%,
+    100% {
+        transform: translateY(1px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .incubating-fill {
+        transform: translateY(6px);
+        animation: none;
+    }
+}
+
 .new-task-note {
     min-height: 1.5em;
     padding-left: var(--space-4);
@@ -2893,6 +3071,32 @@ kbd {
     color: var(--faint);
     font-size: var(--text-xs);
     font-weight: 400;
+}
+
+/* A skill of an agent's: a tick for whether others are offered it, its name, when to use it. */
+.skill-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    padding: 3px 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent);
+}
+
+.skill-row label {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--text-xs);
+}
+
+.skill-about {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--faint);
+    font-size: var(--text-xs);
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .mcp-list {

@@ -17,6 +17,7 @@ import type {
     SessionEvent,
     SessionStatus,
     Settings,
+    Skill,
     Task,
     TerminalOutput,
     Usage,
@@ -63,6 +64,8 @@ function task(id: number, projectId: number, name: string, sessions: Session[]):
         has_note: id === 1,
         closed: 0,
         environment: null,
+        // One sample task has a dev server to start and stop.
+        stack: id === 1 ? true : null,
     };
 }
 
@@ -353,6 +356,72 @@ function cloudApi(
     };
 }
 
+/** Starting and stopping what a sample task keeps running. */
+function stackApi(projects: () => Project[]): Pick<Api, "stackStart" | "stackStop" | "stackLog"> {
+    const set = (project: string, name: string, running: boolean) => {
+        const tasks = projects().find((candidate) => candidate.name === project)?.tasks ?? [];
+        const task = tasks.find((candidate) => candidate.name === name);
+        if (task && task.stack !== null) {
+            task.stack = running;
+        }
+        return task?.stack ?? null;
+    };
+    return {
+        stackStart: async (project, name) => set(project, name, true) !== null,
+        stackStop: async (project, name) => void set(project, name, false),
+        stackLog: async () => "Starting dev server…\nListening on http://localhost:3100\n",
+    };
+}
+
+/** Skills: a few of each agent's to look at, and Swarmed's own to fill. */
+function skillApi(): Pick<
+    Api,
+    "skills" | "skillBody" | "skillSave" | "skillRemove" | "skillShare"
+> {
+    const of = (origin: string, name: string, description: string): Skill => ({
+        origin,
+        name,
+        description,
+        folder: `/Users/you/.${origin}/skills/${name}`,
+        shared: true,
+    });
+    let skills: Skill[] = [
+        of("claude", "code-review", "Review a change for correctness and readability."),
+        of("claude", "bug-hunter", "Investigate a defect before proposing a fix."),
+        of("codex", "deploy", "Ship the current branch. Use when the user says deploy."),
+        of("agents", "triage", "Sort incoming bug reports by severity."),
+    ];
+    const bodies = new Map<string, string>();
+    const own = (name: string) => (skill: Skill) =>
+        skill.origin === "swarmed" && skill.name === name;
+    return {
+        skills: async () => skills,
+        skillBody: async (name) => bodies.get(name) ?? "",
+        skillSave: async (name, description, body) => {
+            if (!/^[a-z0-9][a-z0-9._-]*$/.test(name)) {
+                throw new Error(`invalid name \`${name}\``);
+            }
+            bodies.set(name, body);
+            const saved = {
+                ...of("swarmed", name, description.trim()),
+                folder: `/data/skills/${name}`,
+            };
+            skills = [saved, ...skills.filter((skill) => !own(name)(skill))];
+            return skills;
+        },
+        skillRemove: async (name) => {
+            skills = skills.filter((skill) => !own(name)(skill));
+            return skills;
+        },
+        skillShare: async (origin, name, shared) => {
+            skills = skills.map((skill) =>
+                skill.origin === origin && skill.name === name ? { ...skill, shared } : skill,
+            );
+            return skills;
+        },
+    };
+}
+
 /** Environments, kept per repository for as long as the page is open. */
 function environmentApi(): Pick<Api, "environments" | "environmentSave" | "environmentRemove"> {
     const kept = new Map<string, Record<string, Environment>>([
@@ -361,6 +430,8 @@ function environmentApi(): Pick<Api, "environments" | "environmentSave" | "envir
             {
                 staging: {
                     setup: "npm ci && npm run db:seed -- --staging",
+                    start: "npm run dev",
+                    stop: "",
                     teardown: "",
                     open_url: "",
                     env: { APP_ENV: "staging", DATABASE_URL: "postgres://localhost/{{task}}" },
@@ -944,7 +1015,7 @@ export function createMockApi(): Api {
         editor: "code",
         auto_title: true,
         theme: "system",
-        palette: "dusk",
+        palette: "swarm",
         text_scale: 100,
         default_supervision: "auto",
         html_views: true,
@@ -996,6 +1067,8 @@ export function createMockApi(): Api {
         // The sample data has no model to ask, so tasks are named after their prompts.
         taskNameFor: async () => null,
         ...environmentApi(),
+        ...skillApi(),
+        ...stackApi(() => agent.projects),
         ...cloudApi(() => agent.projects),
         taskNew: async (projectName, name, branch, environment) => {
             const project = agent.projects.find((candidate) => candidate.name === projectName);

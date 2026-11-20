@@ -627,7 +627,7 @@ impl Core {
         let handle = backend.start(SessionSpec {
             mcp_servers,
             env,
-            append_system_prompt: self.guidance(&settings),
+            append_system_prompt: self.guidance(&settings, &session.agent),
             cwd: task.worktree_path,
             model: session.model,
             supervision: session.supervision,
@@ -661,12 +661,14 @@ impl Core {
     /// rules, if they wrote any; about the other sessions, when there is a tool server to reach
     /// them through; and about showing views, when the user has those switched on. `None` if
     /// there is nothing to tell.
-    fn guidance(&self, settings: &Settings) -> Option<String> {
+    fn guidance(&self, settings: &Settings, agent: &str) -> Option<String> {
         let rules = settings.rules.trim();
         let rules = (!rules.is_empty()).then(|| format!("{RULES_HEADING}\n{rules}"));
         let sessions = self.tool_server.as_ref().map(|_| peers::INSTRUCTIONS);
+        // Handed over through the tool server, so only worth naming when there is one.
+        let skills = sessions.and_then(|_| self.skills_guidance(agent));
         let views = settings.html_views.then_some(views::INSTRUCTIONS);
-        let parts: Vec<&str> = [rules.as_deref(), sessions, views]
+        let parts: Vec<&str> = [rules.as_deref(), sessions, skills.as_deref(), views]
             .into_iter()
             .flatten()
             .collect();
@@ -962,6 +964,8 @@ pub(crate) struct Live {
     pub(crate) queues: Queues,
     /// The process of each session's agent, as of when it was last started.
     pub(crate) pids: Mutex<HashMap<i64, u32>>,
+    /// The stack each task has running, by task: what its `start` command started.
+    pub(crate) stacks: Mutex<HashMap<i64, tokio::process::Child>>,
     runs: AtomicU64,
     bus: broadcast::Sender<SessionEvent>,
 }
@@ -974,6 +978,7 @@ impl Default for Live {
             restarts: Mutex::default(),
             queues: Queues::default(),
             pids: Mutex::default(),
+            stacks: Mutex::default(),
             runs: AtomicU64::new(0),
             bus: broadcast::Sender::new(EVENT_BUFFER),
         }

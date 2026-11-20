@@ -152,6 +152,9 @@ pub enum Error {
     /// Work could not be handed to a cloud agent. Says why, and what to do about it.
     #[error("{0}")]
     Cloud(String),
+    /// A skill could not be saved or found. Says why.
+    #[error("{0}")]
+    Skill(String),
     /// Something one session asked about another was refused.
     #[error("{0}")]
     Peers(String),

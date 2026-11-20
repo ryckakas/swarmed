@@ -20,6 +20,7 @@ import type {
     Session,
     SessionEvent,
     Settings,
+    Skill,
     Task,
     TaskNaming,
     TerminalOutput,
@@ -64,6 +65,15 @@ export const tauriApi: Api = {
     cloudTasks: (project, refresh) => invoke<CloudTask[]>("cloud_tasks", { project, refresh }),
     cloudTaskForget: (id) => invoke<void>("cloud_task_forget", { id }),
     cloudTaskOpen: (id) => invoke<void>("cloud_task_open", { id }),
+    stackStart: (project, task) => invoke<boolean>("stack_start", { project, task }),
+    stackStop: (project, task) => invoke<void>("stack_stop", { project, task }),
+    stackLog: (project, task) => invoke<string>("stack_log", { project, task }),
+    skills: () => invoke<Skill[]>("skills"),
+    skillBody: (name) => invoke<string>("skill_body", { name }),
+    skillSave: (name, description, body) =>
+        invoke<Skill[]>("skill_save", { name, description, body }),
+    skillRemove: (name) => invoke<Skill[]>("skill_remove", { name }),
+    skillShare: (origin, name, shared) => invoke<Skill[]>("skill_share", { origin, name, shared }),
     environments: (project) => invoke<Record<string, Environment>>("environments", { project }),
     environmentSave: (project, name, environment) =>
         invoke<void>("environment_save", { project, name, environment }),

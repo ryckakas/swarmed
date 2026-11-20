@@ -38,6 +38,8 @@ pub struct TaskOverview {
     pub has_note: bool,
     /// How many closed sessions the task has, which can be listed and reopened.
     pub closed: usize,
+    /// Whether the task's stack is running; `None` if its project has no `start` command.
+    pub stack: Option<bool>,
 }
 
 impl Core {
@@ -71,6 +73,7 @@ impl Core {
                 url: None,
                 has_note: false,
                 closed: closed.get(&task.id).copied().unwrap_or(0),
+                stack: None,
                 task,
             }
         };
@@ -97,6 +100,16 @@ impl Core {
         Ok(overview.collect())
     }
 
+    /// Where one task's stack is reached, and whether it is running.
+    fn add_url(&self, project: &Project, task: &mut TaskOverview) {
+        let environment = task.task.environment.as_deref();
+        let Ok(config) = self.config_in(&project.name, environment) else {
+            return;
+        };
+        task.url = self.url_of(project, &config, &task.task).ok().flatten();
+        task.stack = self.stack_state(&config, &task.task);
+    }
+
     /// Marks the tasks the user keeps a note on.
     fn add_notes(&self, project: &Project, tasks: &mut [TaskOverview]) {
         for task in tasks {
@@ -108,10 +121,7 @@ impl Core {
     /// cannot be rendered, leaves a task without one instead of failing the whole overview.
     fn add_urls(&self, project: &Project, tasks: &mut [TaskOverview]) {
         for task in tasks.iter_mut().filter(|t| !t.task.archived) {
-            let environment = task.task.environment.as_deref();
-            let config = self.config_in(&project.name, environment);
-            let url = config.and_then(|config| self.url_of(project, &config, &task.task));
-            task.url = url.ok().flatten();
+            self.add_url(project, task);
         }
     }
 }

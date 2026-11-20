@@ -1,7 +1,7 @@
 //! Named environments of a project: different ways of setting a task up on this machine.
 //!
-//! An environment is a `setup` and a `teardown` command, environment variables and the address
-//! of what it runs. Each is laid over the project's own configuration, so one says only what
+//! An environment is a `setup` command, a `start` command for what is to keep running, `stop`
+//! and `teardown` commands, environment variables and the address of what it runs. Each is laid over the project's own configuration, so one says only what
 //! it does differently. A task is created in one of them, or in none, and keeps it.
 //!
 //! They live in a file of their own beside the project's configuration, written from a front
@@ -27,6 +27,12 @@ use crate::paths;
 pub struct Environment {
     /// Runs once after a task's worktree is created, in place of the project's `setup` hook.
     pub setup: String,
+    /// Started once `setup` is done and left running, in place of the project's `start` hook:
+    /// a dev server, or whatever else the task needs up while it is worked on.
+    pub start: String,
+    /// Runs when the stack is stopped, before what `start` left running is ended, in place of
+    /// the project's `stop` hook.
+    pub stop: String,
     /// Runs before a task's worktree is removed, in place of the project's `teardown` hook.
     pub teardown: String,
     /// Where a task's running stack is reached in a browser, in place of the project's.
@@ -41,6 +47,8 @@ impl std::fmt::Debug for Environment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Environment")
             .field("setup", &self.setup)
+            .field("start", &self.start)
+            .field("stop", &self.stop)
             .field("teardown", &self.teardown)
             .field("open_url", &self.open_url)
             .field("env", &self.env.keys().collect::<Vec<_>>())
@@ -52,6 +60,8 @@ impl Environment {
     /// `config` as a task in this environment sees it.
     fn over(&self, mut config: ProjectConfig) -> ProjectConfig {
         replace(&self.setup, &mut config.hooks.setup);
+        replace(&self.start, &mut config.hooks.start);
+        replace(&self.stop, &mut config.hooks.stop);
         replace(&self.teardown, &mut config.hooks.teardown);
         replace(&self.open_url, &mut config.open_url);
         config.env.extend(self.env.clone());

@@ -56,6 +56,7 @@ fn tools() -> Value {
     let mut tools = local_tools();
     if let Some(tools) = tools.as_array_mut() {
         tools.push(cloud_tool());
+        tools.push(skill_tool());
     }
     tools
 }
@@ -160,6 +161,26 @@ fn local_tools() -> Value {
             "required": ["session_id"],
         },
     }])
+}
+
+/// The tool that hands over a skill the user has with another agent or with Swarmed.
+fn skill_tool() -> Value {
+    json!({
+        "name": "use_skill",
+        "title": "Use one of the user's skills",
+        "description": "Gives you the instructions of a skill named in the list of skills \
+            from Swarmed you were given at the start: skills the user keeps with another \
+            agent or in Swarmed, which you do not have by yourself. Call it before doing work \
+            the skill covers, then follow what it says. Its answer ends with the folder its \
+            other files are in.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "The skill's name, as listed." },
+            },
+            "required": ["name"],
+        },
+    })
 }
 
 /// The tool that hands work to a cloud agent.

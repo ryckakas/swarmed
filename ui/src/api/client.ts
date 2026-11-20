@@ -19,6 +19,7 @@ import type {
     SessionSettings,
     SessionSetup,
     Settings,
+    Skill,
     Task,
     TaskNaming,
     TerminalOutput,
@@ -102,6 +103,21 @@ export interface Api {
     cloudTaskForget(id: number): Promise<void>;
     /** Opens a cloud task's page at its provider. */
     cloudTaskOpen(id: number): Promise<void>;
+    /** Starts what a task keeps running. Says whether its project has a start command at all. */
+    stackStart(project: string, task: string): Promise<boolean>;
+    /** Stops what a task keeps running. */
+    stackStop(project: string, task: string): Promise<void>;
+    /** The end of what a task's stack has printed since it was last started. */
+    stackLog(project: string, task: string): Promise<string>;
+    /** Every skill Swarmed knows of: its own first, then each agent's. */
+    skills(): Promise<Skill[]>;
+    /** What a skill of Swarmed's own says to do, for editing. */
+    skillBody(name: string): Promise<string>;
+    /** Adds a skill of Swarmed's own, or replaces the one of that name. Gives all skills. */
+    skillSave(name: string, description: string, body: string): Promise<Skill[]>;
+    skillRemove(name: string): Promise<Skill[]>;
+    /** Says whether a skill is offered to sessions whose agent lacks it. Gives all skills. */
+    skillShare(origin: string, name: string, shared: boolean): Promise<Skill[]>;
     /** A project's environments, by name. */
     environments(project: string): Promise<Record<string, Environment>>;
     /** Adds an environment to a project, or replaces the one of that name. */

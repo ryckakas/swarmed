@@ -59,7 +59,6 @@ pub enum Theme {
 #[serde(rename_all = "snake_case")]
 pub enum Palette {
     /// Blue-grey, the one Swarmed started with.
-    #[default]
     Dusk,
     /// Grey without a tint.
     Graphite,
@@ -69,6 +68,9 @@ pub enum Palette {
     Plum,
     /// Warm brown-grey.
     Ember,
+    /// Violet under magenta, like the inside of a hive. What a new installation starts in.
+    #[default]
+    Swarm,
 }
 
 /// The smallest and largest text the app can be set to, in percent.
@@ -81,7 +83,7 @@ impl Default for Settings {
             editor: "code".to_string(),
             auto_title: true,
             theme: Theme::System,
-            palette: Palette::Dusk,
+            palette: Palette::Swarm,
             text_scale: 100,
             default_supervision: Supervision::Auto,
             html_views: true,

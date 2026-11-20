@@ -379,6 +379,83 @@ async fn a_task_is_set_up_in_the_environment_it_was_created_in() {
 }
 
 #[tokio::test]
+async fn what_a_task_keeps_running_is_started_after_setup_and_does_not_hold_the_task_up() {
+    let fx = fixture();
+    // `start` never ends by itself, as a dev server does not. It leaves a child behind, to
+    // show that stopping takes the whole group.
+    write_config(
+        &fx,
+        "[hooks]\nsetup = \"echo ready > setup.txt\"\nstart = \"echo serving {{task}}; sleep 300 & echo $! > child.pid; wait\"\nstop = \"echo stopping > stopped.txt\"\n",
+    );
+    let core = core_with_project(&fx).await;
+    let stack = |core: &Core, index: usize| core.overview().expect("reads")[0].tasks[index].stack;
+
+    // The task is there as soon as setup is done, with its stack running behind it.
+    let created = core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard);
+    let task = tokio::time::timeout(std::time::Duration::from_secs(20), created)
+        .await
+        .expect("setup ended though `start` did not")
+        .expect("creates");
+    assert!(task.worktree_path.join("setup.txt").exists());
+    assert_eq!(stack(&core, 0), Some(true));
+    let pid_file = task.worktree_path.join("child.pid");
+    let started = |core: &Core| {
+        pid_file.exists() && !core.stack_log("demo", "one").expect("reads").is_empty()
+    };
+    let mut waits = 0;
+    while !started(&core) && waits < 200 {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        waits += 1;
+    }
+    assert_eq!(
+        core.stack_log("demo", "one").expect("reads"),
+        "serving one\n"
+    );
+    // Starting what is running starts nothing more.
+    assert!(core.stack_start("demo", "one").expect("starts"));
+
+    // Stopping runs `stop`, and ends what `start` left running, children and all.
+    let child = std::fs::read_to_string(&pid_file).expect("written");
+    let alive = |pid: &str| {
+        let probe = std::process::Command::new("kill")
+            .args(["-0", pid.trim()])
+            .output();
+        probe.expect("kill runs").status.success()
+    };
+    assert!(alive(&child));
+    core.stack_stop("demo", "one", &hooks::discard)
+        .await
+        .expect("stops");
+    assert!(task.worktree_path.join("stopped.txt").exists());
+    assert_eq!(stack(&core, 0), Some(false));
+    assert!(!alive(&child), "the stack's child outlived it");
+
+    // It can be started again, and goes with its task.
+    assert!(core.stack_start("demo", "one").expect("starts"));
+    assert_eq!(stack(&core, 0), Some(true));
+    let force = RemoveOptions {
+        force: true,
+        ..RemoveOptions::default()
+    };
+    core.task_remove("demo", "one", force, &hooks::discard)
+        .await
+        .expect("removes");
+    core.stacks_stop_all().await;
+}
+
+#[tokio::test]
+async fn a_task_without_a_start_command_has_no_stack() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates");
+    assert_eq!(core.overview().expect("reads")[0].tasks[0].stack, None);
+    assert!(!core.stack_start("demo", "one").expect("nothing to start"));
+    assert_eq!(core.stack_log("demo", "one").expect("reads"), "");
+}
+
+#[tokio::test]
 async fn task_new_can_check_out_an_existing_branch() {
     let fx = fixture();
     git(&fx.repo, &["branch", "feature/existing"]);

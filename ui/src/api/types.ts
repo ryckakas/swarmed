@@ -43,6 +43,8 @@ export interface Task {
     closed: number;
     /** The environment of its project the task was set up in, if any. */
     environment: string | null;
+    /** Whether what the task keeps running is up; `null` if its project has no start command. */
+    stack: boolean | null;
 }
 
 /**
@@ -50,8 +52,12 @@ export interface Task {
  * project's own configuration has it.
  */
 export interface Environment {
-    /** Runs once after a task's worktree is created. */
+    /** Runs once after a task's worktree is created, and has to finish. */
     setup: string;
+    /** Started once setup is done and left running: a dev server and the like. */
+    start: string;
+    /** Runs when the stack is stopped, before what `start` left running is ended. */
+    stop: string;
     /** Runs before a task's worktree is removed. */
     teardown: string;
     /** Where a task's running stack is reached in a browser. */
@@ -89,7 +95,7 @@ export interface ApiKeyInfo {
 /** The colours the app is drawn in: the system's choice, or always one of the two. */
 export type Theme = "system" | "dark" | "light";
 /** A set of colours for the app's surfaces, text and links, each with a dark and a light form. */
-export type Palette = "dusk" | "graphite" | "forest" | "plum" | "ember";
+export type Palette = "dusk" | "graphite" | "forest" | "plum" | "ember" | "swarm";
 
 /** One built-in piece of the status line. */
 export type StatusItem = "branch" | "changes" | "model" | "context" | "cost" | "agent" | "worktree";
@@ -126,6 +132,19 @@ export interface Project {
     has_note: boolean;
     /** The tasks handed to cloud agents from the repository, newest first, as last heard of. */
     cloud: CloudTask[];
+}
+
+/** A set of instructions for one kind of task, kept by an agent or by Swarmed itself. */
+export interface Skill {
+    name: string;
+    /** When to use it, in its own words. */
+    description: string;
+    /** Whose it is: `swarmed`, an agent's id, or `agents` for the folder several agents share. */
+    origin: string;
+    /** The folder it lives in. */
+    folder: string;
+    /** Whether sessions whose agent lacks it are offered it. */
+    shared: boolean;
 }
 
 /** Whose cloud a task can be handed to. */

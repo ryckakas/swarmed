@@ -171,6 +171,14 @@ impl Core {
             SetupStatus::Failed
         };
         self.store().task_set_setup(task.id, task.setup)?;
+        // Set up, so what the task keeps running can be started. That failing does not make
+        // the task unusable: it is said, and the stack can be started again later.
+        let started = result
+            .is_ok()
+            .then(|| self.start_stack(project, config, &task));
+        if let Some(Err(error)) = started {
+            sink(&format!("the stack could not be started: {error}"));
+        }
         result.map(|()| task)
     }
 
@@ -246,6 +254,8 @@ impl Core {
             ensure_clean(task).await?;
         }
         let config = self.config_in(&project.name, task.environment.as_deref())?;
+        // Nothing may still be running in a directory that is about to go.
+        self.stop_stack(project, &config, task, sink).await;
         let teardown = &config.hooks.teardown;
         match self
             .run_hook("teardown", teardown, project, &config, task, sink)
@@ -333,7 +343,7 @@ impl Core {
 
     /// Renders and runs one hook in the task's worktree. Every variable is also exported as
     /// `SWARMED_<NAME>`, so a hook can be a script that never sees the template syntax.
-    async fn run_hook(
+    pub(crate) async fn run_hook(
         &self,
         hook: &'static str,
         template: &str,
@@ -345,6 +355,18 @@ impl Core {
         if template.trim().is_empty() {
             return Ok(());
         }
+        let (command, env) = self.hook_command(template, project, config, task)?;
+        hooks::run(hook, &command, &task.worktree_path, &env, sink).await
+    }
+
+    /// A hook as it is run: its command with the variables filled in, and its environment.
+    pub(crate) fn hook_command(
+        &self,
+        template: &str,
+        project: &Project,
+        config: &ProjectConfig,
+        task: &Task,
+    ) -> Result<(String, Vec<(String, String)>)> {
         let vars = self.task_vars(project, config, task)?;
         let command = vars.render(template)?;
         let mut env: Vec<(String, String)> = vars
@@ -359,7 +381,7 @@ impl Core {
         for (key, value) in &config.env {
             env.push((key.clone(), vars.render(value)?));
         }
-        hooks::run(hook, &command, &task.worktree_path, &env, sink).await
+        Ok((command, env))
     }
 }
 

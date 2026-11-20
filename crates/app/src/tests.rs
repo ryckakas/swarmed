@@ -275,7 +275,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     assert_eq!(
         app.ok("settings", json!({})),
         json!({
-            "editor": "code", "auto_title": true, "theme": "system", "palette": "dusk",
+            "editor": "code", "auto_title": true, "theme": "system", "palette": "swarm",
             "text_scale": 100,
             "html_views": true, "default_supervision": "auto",
             "status_items": ["branch", "changes", "model", "context", "cost"],

@@ -8,6 +8,7 @@ import { CloseIcon, IconButton } from "./IconButton";
 import { editorChoices, editorName } from "./options";
 import { Picker } from "./Picker";
 import { Resizer } from "./Resizer";
+import { StackControls } from "./StackControls";
 
 interface Props {
     width: number;
@@ -85,6 +86,7 @@ function TaskHead({ project, task }: { project: Project; task: Task }) {
                     </button>
                 )}
             </div>
+            <StackControls project={project.name} task={task} />
         </header>
     );
 }

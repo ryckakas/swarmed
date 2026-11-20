@@ -14,7 +14,7 @@ use swarmed_core::{
     AgentInfo, AgentSetup, ApiKeyInfo, BranchChoices, CloudOrigin, CloudProvider, CloudTask, Core,
     Environment, FileChange, FileDiff, McpServerInput, McpServerView, NewTaskOptions, Project,
     ProjectOverview, QueuedMessage, RemoveOptions, Session, SessionOptions, SessionSettings,
-    Settings, Task, TaskNaming, Usage, with_files,
+    Settings, Skill, Task, TaskNaming, Usage, with_files,
 };
 use tauri::{AppHandle, Emitter, Runtime, State};
 
@@ -248,6 +248,73 @@ pub(crate) fn cloud_task_forget(core: CoreState<'_>, id: i64) -> Command<()> {
 #[tauri::command]
 pub(crate) fn cloud_task_open(core: CoreState<'_>, id: i64) -> Command<()> {
     Ok(core.cloud_task_open(id)?)
+}
+
+/// Starts what a task keeps running, if its project has a `start` command. Says whether it has.
+#[tauri::command]
+pub(crate) fn stack_start(core: CoreState<'_>, project: String, task: String) -> Command<bool> {
+    Ok(core.stack_start(&project, &task)?)
+}
+
+/// Stops what a task keeps running.
+#[tauri::command]
+pub(crate) async fn stack_stop<R: Runtime>(
+    app: AppHandle<R>,
+    core: CoreState<'_>,
+    project: String,
+    task: String,
+) -> Command<()> {
+    let sink = hook_sink(&app, &project, &task);
+    Ok(core.stack_stop(&project, &task, &sink).await?)
+}
+
+/// The end of what a task's stack has printed since it was last started.
+#[tauri::command]
+pub(crate) fn stack_log(core: CoreState<'_>, project: String, task: String) -> Command<String> {
+    Ok(core.stack_log(&project, &task)?)
+}
+
+/// Every skill Swarmed knows of: its own, and each agent's.
+#[tauri::command]
+pub(crate) fn skills(core: CoreState<'_>) -> Vec<Skill> {
+    core.skills()
+}
+
+/// What a skill of Swarmed's own says to do, for editing.
+#[tauri::command]
+pub(crate) fn skill_body(core: CoreState<'_>, name: String) -> Command<String> {
+    Ok(core.skill_body(&name)?)
+}
+
+/// Adds a skill of Swarmed's own, or replaces the one of that name.
+#[tauri::command]
+pub(crate) fn skill_save(
+    core: CoreState<'_>,
+    name: String,
+    description: String,
+    body: String,
+) -> Command<Vec<Skill>> {
+    core.skill_save(&name, &description, &body)?;
+    Ok(core.skills())
+}
+
+/// Removes a skill of Swarmed's own.
+#[tauri::command]
+pub(crate) fn skill_remove(core: CoreState<'_>, name: String) -> Command<Vec<Skill>> {
+    core.skill_remove(&name)?;
+    Ok(core.skills())
+}
+
+/// Says whether a skill is offered to sessions whose agent does not have it by itself.
+#[tauri::command]
+pub(crate) fn skill_share(
+    core: CoreState<'_>,
+    origin: String,
+    name: String,
+    shared: bool,
+) -> Command<Vec<Skill>> {
+    core.skill_share(&origin, &name, shared)?;
+    Ok(core.skills())
 }
 
 /// A project's environments, by name.
