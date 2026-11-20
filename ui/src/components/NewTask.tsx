@@ -34,6 +34,7 @@ import {
     takesEffort,
     takesFast,
     useAgents,
+    useEffortDefault,
     useSlashCommands,
 } from "./options";
 import { Picker } from "./Picker";
@@ -346,6 +347,7 @@ function setupFor(
 function AgentPickers(props: AgentPickersProps) {
     const { agents, agentId, model, onAgent, onModel, effort, onEffort } = props;
     const agent = agents.find((candidate) => candidate.id === agentId);
+    const usual = useEffortDefault(agentId, model || null);
     return (
         <>
             {agents.length > 1 && (
@@ -357,7 +359,9 @@ function AgentPickers(props: AgentPickersProps) {
                 />
             )}
             <Picker label="Model" value={model} onChange={onModel} options={modelChoices(agent)} />
-            {takesEffort(agentId) && <EffortPicker value={effort} onChange={onEffort} />}
+            {takesEffort(agentId) && (
+                <EffortPicker value={effort} applied={usual} onChange={onEffort} />
+            )}
             {takesFast(agentId) && <FastToggle on={props.fast} onChange={props.onFast} />}
         </>
     );

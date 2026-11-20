@@ -49,6 +49,7 @@ export const tauriApi: Api = {
     snapshotSave: (project, task) => invoke("snapshot_save", { project, task }),
     snapshotRemove: (project, environment) => invoke("snapshot_remove", { project, environment }),
     analytics: () => invoke("analytics"),
+    effortDefault: (agent, model) => invoke<string | null>("effort_default", { agent, model }),
     agentSetups: () => invoke<AgentSetup[]>("agent_setups"),
     agentInstall: (id) => invoke<AgentSetup>("agent_install", { id }),
     agentConfigure: (id, models) => invoke<AgentSetup>("agent_configure", { id, models }),

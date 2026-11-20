@@ -110,6 +110,27 @@ export function useAgents(): AgentInfo[] {
     return agents;
 }
 
+/**
+ * What an agent's default effort came to the last time a session left it to the agent, on
+ * `model` or, for `null`, on the agent's default model. `null` until that is known.
+ */
+export function useEffortDefault(agentId: string, model: string | null): string | null {
+    const [effort, setEffort] = useState<string | null>(null);
+    useEffect(() => {
+        let current = true;
+        setEffort(null);
+        api.effortDefault(agentId, model).then(
+            (read) => current && setEffort(read),
+            // Not knowing it only leaves the default unexplained.
+            () => undefined,
+        );
+        return () => {
+            current = false;
+        };
+    }, [agentId, model]);
+    return effort;
+}
+
 /** Editors offered by name, by the command that opens a folder in them. */
 export const EDITORS: [command: string, name: string][] = [
     ["code", "VS Code"],

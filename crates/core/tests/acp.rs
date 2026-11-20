@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use common::{fixture, next, turn};
 use serde_json::json;
-use swarmed_core::agent::{AcpBackend, AgentEvent, Auth, FakeBackend, Supervision};
+use swarmed_core::agent::{AcpBackend, AgentEvent, Auth, Effort, FakeBackend, Supervision};
 use swarmed_core::{
     AgentInfo, Core, Error, McpServerInput, NewTaskOptions, SessionEvent, SessionOptions,
     SessionStatus, hooks,
@@ -389,6 +389,52 @@ async fn a_session_whose_model_was_left_to_the_agent_still_hears_what_it_says_on
     let warned =
         |event: &AgentEvent| matches!(event, AgentEvent::Text { text } if text.contains("Warning"));
     assert!(events.iter().any(warned), "{events:?}");
+}
+
+#[tokio::test]
+async fn the_effort_an_agent_opens_with_is_recorded_and_is_its_default_from_then_on() {
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[("FAKE_ACP_EFFORT", "1")])).await;
+    let mut bus = core.subscribe();
+    assert_eq!(core.effort_default(AGENT, None).expect("reads"), None);
+    let id = started(&core, Supervision::Ask);
+    core.session_send(id, "hi").expect("sends");
+    let events = turn(&mut bus, id).await;
+    let applied = AgentEvent::Applied {
+        model: "fake/default".into(),
+        effort: Some("medium".into()),
+    };
+    assert!(events.contains(&applied), "{events:?}");
+    let known = core.effort_default(AGENT, None).expect("reads");
+    assert_eq!(known.as_deref(), Some("medium"));
+    // Another model, or another agent, has said nothing yet.
+    assert_eq!(
+        core.effort_default(AGENT, Some("other")).expect("reads"),
+        None
+    );
+    assert_eq!(core.effort_default("claude", None).expect("reads"), None);
+
+    // A session that chose its effort runs with the agent's nearest, and is no default.
+    let options = SessionOptions {
+        agent: Some(AGENT.into()),
+        effort: Some(Effort::Max),
+        ..Default::default()
+    };
+    let chosen = core
+        .session_new("demo", "one", &options)
+        .expect("creates")
+        .id;
+    core.session_start(chosen, Auth::Subscription)
+        .expect("starts");
+    core.session_send(chosen, "hi").expect("sends");
+    let events = turn(&mut bus, chosen).await;
+    let high = AgentEvent::Applied {
+        model: "fake/default".into(),
+        effort: Some("high".into()),
+    };
+    assert!(events.contains(&high), "{events:?}");
+    let known = core.effort_default(AGENT, None).expect("reads");
+    assert_eq!(known.as_deref(), Some("medium"));
 }
 
 #[tokio::test]

@@ -285,6 +285,9 @@ fn the_ui_can_commit_a_tasks_work_and_is_told_what_cannot_be_published() {
         app.ok("task_unpublished", target.clone()),
         json!({ "changed": 1, "unpushed": 0, "pushed_before": false })
     );
+    // No session has run, so nothing is known of what an agent's default effort comes to.
+    let effort = json!({ "agent": "claude", "model": null });
+    assert_eq!(app.ok("effort_default", effort), json!(null));
     // Nothing in this app can write: the answer is a reason, not a hang.
     let unwritten = app
         .invoke("task_commit_message", target.clone())

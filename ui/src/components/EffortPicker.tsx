@@ -27,7 +27,7 @@ export function EffortPicker({ value, onChange, applied = null }: Props) {
     const shown = value ?? applied;
     const filled = effortBars(shown);
     const chosen = EFFORT_CHOICES.find(([effort]) => effort === (value ?? ""))?.[1] ?? "Effort";
-    const label = value === null && filled > 0 ? `${chosen}: ${shown}` : chosen;
+    const label = value === null && shown ? `${chosen}: ${shown}` : chosen;
     return (
         <span className="icon-picker effort-picker" data-chosen={value !== null} title={label}>
             <svg viewBox="0 0 16 16" aria-hidden="true">

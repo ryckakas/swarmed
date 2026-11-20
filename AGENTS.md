@@ -203,6 +203,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **The model and effort actually in use** are asked of Claude Code (`get_settings`) when it
   starts and after each turn, and recorded as `Applied`. Only those two values are read: the
   rest of that answer is the user's whole configuration and is never kept or logged.
+- **ACP agents with an effort of their own say what it stands at** when a conversation opens,
+  which is recorded as `Applied` too. Before a session's agent has said, a front end shows
+  what the agent's default last came to (`effort.rs`, `Core::effort_default`): the latest
+  `Applied` of a session on the same agent and model that chose no effort.
 - **Messages can wait in a queue** (`queue.rs`) while a session's agent is busy. The core sends
   the first one when a turn ends well, as if it had just been typed; a turn that was stopped
   or failed leaves the queue standing. The queue lives in memory, and its changes are published

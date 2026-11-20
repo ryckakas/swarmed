@@ -91,6 +91,15 @@ describe("statusParts", () => {
         const reported: AgentEvent = { type: "applied", model: "claude-opus-5-5", effort: "xhigh" };
         const told = { ...unset, events: [reported] };
         expect(statusParts(["model"], told)[0]?.text).toBe("claude-opus-5-5 | xhigh");
+        // Before the agent has said, it is what its default came to the last time.
+        const usual = { ...unset, usualEffort: "high" };
+        expect(statusParts(["model"], usual)[0]?.text).toBe("opus | high");
+        expect(statusParts(["model"], { ...told, usualEffort: "high" })[0]?.text).toBe(
+            "claude-opus-5-5 | xhigh",
+        );
+        // A session on the agent's default model has no name to show yet, only the effort.
+        const unnamed = { ...usual, session: { ...base.session, model: null, effort: null } };
+        expect(statusParts(["model"], unnamed)[0]?.text).toBe("high");
     });
 });
 
