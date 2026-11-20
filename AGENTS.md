@@ -30,6 +30,8 @@ pnpm test                                           # Vitest
 pnpm build                                          # type check, then the UI into ui/dist
 pnpm dev                                            # the UI alone in a browser, on sample data
 pnpm app                                            # the desktop app (tauri dev)
+pnpm app:build                                      # Swarmed.app, in target/release/bundle/macos
+pnpm app:dmg                                        # a disk image of it, for handing on
 ```
 
 The Rust app crate embeds `ui/dist` at compile time, so `cargo clippy` and `cargo test` on the
