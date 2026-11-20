@@ -1,4 +1,5 @@
 import type { AgentEvent, Session, Task } from "../api/types";
+import { isSwarm } from "../appearance";
 import { agentName, iconForAgent } from "../providerIcons";
 import { useStore } from "../store";
 import { findSession, findSessionHome } from "../tree";
@@ -8,7 +9,7 @@ import { NewTask } from "./NewTask";
 import { ProviderMark } from "./ProviderMark";
 import { SessionTitle } from "./SessionTitle";
 import { StatusLine } from "./StatusLine";
-import { StatusMark, statusLabel } from "./StatusMark";
+import { Egg, StatusMark, useStatusLabel } from "./StatusMark";
 import { Transcript } from "./Transcript";
 
 const SUPERVISION = {
@@ -59,10 +60,7 @@ export function SessionPane() {
                 </p>
                 <SessionTitle key={session.id} session={session} />
                 <div className="session-meta">
-                    <p className={`session-status status-${session.status}`}>
-                        <StatusMark status={session.status} unread={session.unread} />
-                        {statusLabel(session.status, session.unread)}
-                    </p>
+                    <StatusWords session={session} />
                     <p className="session-agent">
                         <ProviderMark icon={iconForAgent(session.agent)} />
                         {agentName(session.agent)}
@@ -92,8 +90,14 @@ export function SessionPane() {
 
 /** What a session that has not said anything yet will work with. */
 function Facts({ session, task }: { session: Session; task: Task }) {
+    const swarm = useStore((state) => isSwarm(state.settings?.style));
     return (
         <div className="facts-wrap">
+            {swarm && (
+                <p className="facts-egg">
+                    <Egg label="Dormant" />
+                </p>
+            )}
             <p>Nothing has been said yet. The agent starts with your first message.</p>
             <dl className="facts">
                 <dt>Worktree</dt>
@@ -106,5 +110,16 @@ function Facts({ session, task }: { session: Session; task: Task }) {
                 <dd>{session.model ?? "Claude Code's default"}</dd>
             </dl>
         </div>
+    );
+}
+
+/** The session's status in a mark and in words, which always say the same. */
+function StatusWords({ session }: { session: Session }) {
+    const status = useStatusLabel(session.status, session.unread);
+    return (
+        <p className={`session-status status-${session.status}`}>
+            <StatusMark status={session.status} unread={session.unread} label={status} />
+            {status}
+        </p>
     );
 }

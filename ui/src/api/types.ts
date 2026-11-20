@@ -96,6 +96,11 @@ export interface ApiKeyInfo {
 export type Theme = "system" | "dark" | "light";
 /** A set of colours for the app's surfaces, text and links, each with a dark and a light form. */
 export type Palette = "dusk" | "graphite" | "forest" | "plum" | "ember" | "swarm";
+/**
+ * The icons and words for sessions: plain ones, a swarm's, or a swarm's with its names for the
+ * tree as well. Apart from the colours.
+ */
+export type Style = "plain" | "swarm" | "colony";
 
 /** One built-in piece of the status line. */
 export type StatusItem = "branch" | "changes" | "model" | "context" | "cost" | "agent" | "worktree";
@@ -109,6 +114,8 @@ export interface Settings {
     theme: Theme;
     /** Which set of colours the app is drawn in, in dark and in light alike. */
     palette: Palette;
+    /** Which icons and words the app uses, whatever its colours. */
+    style: Style;
     /** The size of the app's text, in percent of its normal size. */
     text_scale: number;
     /** How much a new session's agent may do without asking, unless chosen otherwise. */

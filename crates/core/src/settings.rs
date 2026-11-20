@@ -21,6 +21,8 @@ pub struct Settings {
     pub theme: Theme,
     /// Which set of colours the app is drawn in, in dark and in light alike.
     pub palette: Palette,
+    /// Which icons and words the app uses, whatever its colours.
+    pub style: Style,
     /// The size of the app's text, in percent of its normal size.
     pub text_scale: u16,
     /// How much a new session's agent may do without asking, unless chosen otherwise.
@@ -73,6 +75,21 @@ pub enum Palette {
     Swarm,
 }
 
+/// The icons and words the app uses for sessions and what they are doing. Apart from the
+/// palette, so either goes with any colours.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Style {
+    /// Dots and the plain words: idle, working, unread.
+    Plain,
+    /// Sessions as eggs and larvae, named after a swarm: dormant, mutating, hatched.
+    #[default]
+    Swarm,
+    /// The swarm's icons and words, and its names for the tree as well: a colony for a
+    /// repository, burrowed for closed.
+    Colony,
+}
+
 /// The smallest and largest text the app can be set to, in percent.
 const TEXT_SCALE_RANGE: (u16, u16) = (80, 150);
 
@@ -84,6 +101,7 @@ impl Default for Settings {
             auto_title: true,
             theme: Theme::System,
             palette: Palette::Swarm,
+            style: Style::Swarm,
             text_scale: 100,
             default_supervision: Supervision::Auto,
             html_views: true,
@@ -148,6 +166,7 @@ mod tests {
             auto_title: false,
             theme: Theme::Light,
             palette: Palette::Forest,
+            style: Style::Plain,
             text_scale: 110,
             default_supervision: Supervision::Ask,
             html_views: false,

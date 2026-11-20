@@ -28,7 +28,7 @@ const NEW_BRANCH = "";
 export function NewTask({ projects }: { projects: Project[] }) {
     const draftProject = useStore((state) => state.draftProject);
     const hookLine = useStore((state) => state.hookLine);
-    const words = useStore((state) => wordsFor(state.settings?.palette));
+    const words = useStore((state) => wordsFor(state.settings?.style));
     const [chosen, setChosen] = useState<string | null>(null);
     const [branch, setBranch] = useState(NEW_BRANCH);
     // The menu starts on the default from the settings and keeps what the user picks.

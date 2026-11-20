@@ -18,22 +18,18 @@ export function Sidebar() {
     const showSettings = useStore((state) => state.showSettings);
     const waiting = countWaiting(projects);
     const unread = countUnread(projects);
-    const words = useStore((state) => wordsFor(state.settings?.palette));
+    const words = useStore((state) => wordsFor(state.settings?.style));
 
     return (
         <nav className="sidebar" aria-label="Projects, tasks and sessions" onKeyDown={moveFocus}>
             <div className="sidebar-top" data-tauri-drag-region>
                 {words.overview && <span className="sidebar-name">{words.overview}</span>}
-                {waiting > 0 && (
-                    <span className="needs-you">
-                        {waiting === 1 ? "1 session needs you" : `${waiting} sessions need you`}
-                    </span>
-                )}
-                {unread > 0 && <span className="unread-count">{unread} unread</span>}
+                {waiting > 0 && <span className="needs-you">{words.needYou(waiting)}</span>}
+                {unread > 0 && <span className="unread-count">{words.unread(unread)}</span>}
             </div>
             {projects.length > 0 && (
                 <button type="button" className="new-task-button" onClick={() => startNew()}>
-                    New task
+                    {words.startTask}
                 </button>
             )}
             <div className="sidebar-scroll">
@@ -49,7 +45,7 @@ export function Sidebar() {
                         className="quiet-button quiet-button-centred"
                         onClick={() => void addProject()}
                     >
-                        Add repository
+                        {words.addRepository}
                     </button>
                     <button
                         type="button"
@@ -96,6 +92,7 @@ function NoProjects() {
 }
 
 function ProjectGroup({ project }: { project: Project }) {
+    const words = useStore((state) => wordsFor(state.settings?.style));
     const startNew = useStore((state) => state.startNew);
     const folded = useStore((state) => state.folded.includes(project.id));
     const toggleFolded = useStore((state) => state.toggleFolded);
@@ -136,7 +133,7 @@ function ProjectGroup({ project }: { project: Project }) {
                 </button>
                 <RemoveButton project={project.name} task={null} />
             </div>
-            {!folded && tasks.length === 0 && <p className="hint">No tasks</p>}
+            {!folded && tasks.length === 0 && <p className="hint">{words.noTasks}</p>}
             {!folded &&
                 tasks.map((task) => <TaskGroup key={task.id} project={project.name} task={task} />)}
             {!folded && <CloudTasks project={project.name} tasks={project.cloud} />}
@@ -145,7 +142,7 @@ function ProjectGroup({ project }: { project: Project }) {
 }
 
 function TaskGroup({ project, task }: { project: string; task: Task }) {
-    const words = useStore((state) => wordsFor(state.settings?.palette));
+    const words = useStore((state) => wordsFor(state.settings?.style));
     return (
         <div className="task">
             <div className="row-head">
@@ -170,7 +167,12 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
             {task.sessions.length === 0 && <p className="hint">{words.noSessions}</p>}
             <ul className="sessions">
                 {nestedSessions(task.sessions).map(({ session, nested }) => (
-                    <li key={session.id} data-nested={nested}>
+                    <li
+                        key={session.id}
+                        data-nested={nested}
+                        // One that started others is drawn larger, as the head of its brood.
+                        data-brood={task.sessions.some((other) => other.spawned_by === session.id)}
+                    >
                         <SessionRow session={session} />
                     </li>
                 ))}
@@ -195,7 +197,8 @@ function CloudIcon() {
 /** Opens the form that hands work to a cloud agent, from a repository or one of its tasks. */
 function CloudButton({ project, task }: { project: string; task: string | null }) {
     const askToDelegate = useStore((state) => state.askToDelegate);
-    const label = `Delegate to the cloud from ${task ?? project}`;
+    const words = useStore((state) => wordsFor(state.settings?.style));
+    const label = `${words.delegate} from ${task ?? project}`;
     return (
         <button
             type="button"
@@ -353,6 +356,7 @@ interface ClosedProps {
  * user did it or the agent that started it, only puts it here: it can be looked up and reopened.
  */
 function ClosedSessions({ project, task, count }: ClosedProps) {
+    const words = useStore((state) => wordsFor(state.settings?.style));
     const refresh = useStore((state) => state.refresh);
     const report = useStore((state) => state.report);
     const [sessions, setSessions] = useState<Session[] | null>(null);
@@ -382,7 +386,7 @@ function ClosedSessions({ project, task, count }: ClosedProps) {
                 aria-expanded={sessions !== null}
                 onClick={toggle}
             >
-                {count} closed
+                {words.closed(count)}
             </button>
             {sessions?.map((session) => (
                 <div key={session.id} className="closed-row">
@@ -394,7 +398,7 @@ function ClosedSessions({ project, task, count }: ClosedProps) {
                         className="closed-reopen"
                         onClick={() => void reopen(session.id)}
                     >
-                        Reopen
+                        {words.reopen}
                     </button>
                 </div>
             ))}
