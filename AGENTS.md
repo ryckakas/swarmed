@@ -74,6 +74,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   its program is found on the machine: configured but not installed, it is in the settings and
   not in the agent menu. The list of OpenRouter's models is fetched
   with `curl` from its public address, with no key and nothing of the user's in the request.
+- **Antigravity** (`agy acp`, Google's agent, on the user's Google sign-in) is a known agent
+  like Codex. It names its effort `thought_level` and its modes `default`, `auto` and `plan`,
+  which `acp.rs` maps supervision onto. What it asks permission for is decided by its own
+  settings as well: with `toolPermission` set to `always-proceed` there, it never asks.
 - **What Swarmed takes up** (`usage.rs`) is measured on request: the database and notes by
   their files, each worktree with `du`, and memory and processor time with `ps`, summed over
   Swarmed's own process and everything started from it. An agent's share is the tree under the

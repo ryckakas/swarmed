@@ -43,7 +43,7 @@ fn claude_code_and_codex_can_be_set_up_like_any_other_agent() {
         .into_iter()
         .map(|s| s.id)
         .collect();
-    assert_eq!(ids, ["claude", "codex", "opencode"]);
+    assert_eq!(ids, ["claude", "codex", "opencode", "antigravity"]);
 
     // Claude Code is installed by its own installer, and needs nothing written down.
     let claude = setup_of(&core, "claude");

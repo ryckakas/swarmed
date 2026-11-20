@@ -51,6 +51,7 @@ const AGENT_ICONS: Record<string, keyof typeof ICONS> = {
     claude: "claude",
     codex: "openai",
     opencode: "opencode",
+    antigravity: "gemini",
 };
 
 /** Which mark stands for which API key, by the environment variable the key is read from. */
@@ -66,6 +67,7 @@ const AGENT_NAMES: Record<string, string> = {
     claude: "Claude Code",
     codex: "Codex",
     opencode: "OpenCode",
+    antigravity: "Antigravity",
 };
 
 /** What the agent `id` is called; its id, for one the user set up by hand. */

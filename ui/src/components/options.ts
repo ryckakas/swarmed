@@ -33,11 +33,12 @@ export const MODEL_LABELS: Record<string, string> = {
 export const CLAUDE = "claude";
 
 /**
- * Whether sessions on an agent can be given an effort. Claude Code takes one, and so does
- * Codex, whose levels the core matches to the nearest of its own. Other agents offer none.
+ * Whether sessions on an agent can be given an effort. Claude Code takes one, and so do
+ * Codex and Antigravity, whose levels the core matches to the nearest of their own. Other
+ * agents offer none.
  */
 export function takesEffort(agentId: string): boolean {
-    return agentId === CLAUDE || agentId === "codex";
+    return agentId === CLAUDE || agentId === "codex" || agentId === "antigravity";
 }
 
 /** Whether an agent has a fast mode to ask for. Of the ones known here, only Codex does. */
