@@ -280,7 +280,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   not. The bundle asks once for permission, shows banners as Swarmed, and a click opens the
   session (`notice-opened`). A development build falls back on showing them as the Terminal's,
   which newer systems may not show. `Swarmed.app --args notify-check`, started with `open`,
-  says what the system allows and sends one banner.
+  says what the system allows and sends one banner. Whether this is the built app is decided
+  by where the program lies (`Name.app/Contents/MacOS/`), not by its having a bundle
+  identifier: the Terminal fallback makes the program answer to the Terminal's identifier,
+  after which a development build looked like a bundle and its second notice crashed it.
 - **Whether the user is looking** is asked of the window: focused, shown and not in the Dock.
   A window put away can still hold the focus. Closing the window hides Swarmed, on a Mac;
   ⌘Q quits it. The count on the icon needs the notification centre's leave too, which the

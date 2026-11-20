@@ -14,6 +14,7 @@ pub(crate) type OnOpen = Box<dyn FnOnce(i64) + Send>;
 
 #[cfg(target_os = "macos")]
 mod mac {
+    use std::path::Path;
     use std::time::Duration;
 
     use block2::RcBlock;
@@ -34,9 +35,34 @@ mod mac {
     /// once its list has been cleared.
     const KEPT: Duration = Duration::from_hours(12);
 
+    /// Whether `executable` is the program of an application bundle: `Name.app/Contents/MacOS/`
+    /// is where it lies.
+    pub(super) fn lies_in_bundle(executable: &Path) -> bool {
+        let named = |folder: Option<&Path>, name: &str| {
+            folder
+                .and_then(Path::file_name)
+                .is_some_and(|is| is == name)
+        };
+        let programs = executable.parent();
+        let contents = programs.and_then(Path::parent);
+        let bundle = contents.and_then(Path::parent);
+        let is_app = bundle
+            .and_then(Path::extension)
+            .is_some_and(|extension| extension == "app");
+        named(programs, "MacOS") && named(contents, "Contents") && is_app
+    }
+
     /// Whether this is an installed Swarmed, which the notification centre knows by name.
+    ///
+    /// Having a bundle identifier is not enough, because a development build gets one the
+    /// moment it shows its first notice: showing it as the Terminal's works by making the
+    /// program answer to the Terminal's identifier from then on. Asked again, it looked like
+    /// a bundle, the next notice went to the notification centre, and that ends the whole
+    /// process with an exception that cannot be caught here. So the program also has to lie
+    /// where a bundle keeps its own, which nothing changes while it runs.
     pub(crate) fn has_identity() -> bool {
-        check_bundle().is_ok()
+        let bundled = std::env::current_exe().is_ok_and(|executable| lies_in_bundle(&executable));
+        bundled && check_bundle().is_ok()
     }
 
     /// Asks the user, the first time, whether Swarmed may show notifications. Whatever they
@@ -171,4 +197,32 @@ pub(crate) async fn check() -> String {
 #[cfg(not(target_os = "macos"))]
 pub(crate) async fn check() -> String {
     "notifications are only shown on macOS".to_string()
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use std::path::Path;
+
+    use super::mac::{has_identity, lies_in_bundle};
+
+    #[test]
+    fn only_a_program_inside_an_application_bundle_is_one_the_system_knows() {
+        let installed = "/Applications/Swarmed.app/Contents/MacOS/swarmed-app";
+        assert!(lies_in_bundle(Path::new(installed)));
+        // A development build, which carries a bundle identifier all the same.
+        assert!(!lies_in_bundle(Path::new("/repo/target/debug/swarmed-app")));
+        assert!(!lies_in_bundle(Path::new("/repo/Swarmed.app/swarmed-app")));
+        assert!(!lies_in_bundle(Path::new("/MacOS/swarmed-app")));
+        assert!(!lies_in_bundle(Path::new("swarmed-app")));
+    }
+
+    #[test]
+    fn a_build_shown_as_the_terminal_does_not_come_to_look_like_a_bundle() {
+        assert!(!has_identity());
+        // What showing a notice as the Terminal's does first.
+        mac_notification_sys::set_application("com.apple.Terminal").ok();
+        // The program now answers to an identifier, which used to pass for an identity.
+        assert!(mac_usernotifications::check_bundle().is_ok());
+        assert!(!has_identity());
+    }
 }
