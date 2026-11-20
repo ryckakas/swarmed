@@ -191,6 +191,13 @@ export interface ViewTheme {
 // like "min-height: 100vh" makes the content as tall as the frame, the frame is then made as
 // tall as the content plus its margins, and the two chase each other upwards. Then it tells the
 // host how tall the content is, now and whenever it changes, so the frame fits it.
+//
+// The view never scrolls up and down inside its frame, because the frame is as tall as it. Where
+// scrollbars take up room, as they do on a Mac with a mouse, one appearing makes the view
+// narrower, a view that lays itself out by its width then changes height, the frame follows, the
+// scrollbar goes, and it all starts again: the view flickers between two layouts. So the
+// scrollbar is never shown, and one along the bottom of a view that is too wide is counted into
+// the height. The host says so when it stops following a view, which may then scroll again.
 const REPORT_HEIGHT = `(() => {
     const FRAME_UNITS = /\\d\\s*(?:[sld]?vh|vmin|vmax)\\b/;
     const tame = (style) => {
@@ -209,12 +216,23 @@ const REPORT_HEIGHT = `(() => {
         }
         for (const element of document.querySelectorAll("[style]")) tame(element.style);
     };
+    const root = document.documentElement;
     const report = () => parent.postMessage(
-        { swarmedViewHeight: Math.ceil(document.documentElement.getBoundingClientRect().height) },
+        {
+            swarmedViewHeight:
+                Math.ceil(root.getBoundingClientRect().height) +
+                Math.max(0, innerHeight - root.clientHeight),
+        },
         "*",
     );
+    root.style.overflowY = "hidden";
+    addEventListener("message", (event) => {
+        if (event.source === parent && event.data && event.data.swarmedViewScrolls === true) {
+            root.style.overflowY = "auto";
+        }
+    });
     tameAll();
-    new ResizeObserver(report).observe(document.documentElement);
+    new ResizeObserver(report).observe(root);
     addEventListener("load", () => { tameAll(); report(); });
     report();
 })();`;
@@ -279,23 +297,87 @@ export interface FrameSize {
     repeats: number;
     /** Whether the view was found to be chasing its own frame, and is no longer followed up. */
     chasing: boolean;
+    /** The height before this one, and how many times in a row the view went straight back to it. */
+    before: number;
+    flips: number;
+    /** When the height last changed, in milliseconds. */
+    at: number;
+    /** The lower of two heights the view was found to swing between, which is no longer taken. */
+    refused: number | null;
 }
 
-export const INITIAL_FRAME: FrameSize = { height: 120, step: 0, repeats: 0, chasing: false };
+export const INITIAL_FRAME: FrameSize = {
+    height: 120,
+    step: 0,
+    repeats: 0,
+    chasing: false,
+    before: 0,
+    flips: 0,
+    at: 0,
+    refused: null,
+};
 
 /** After this many equal steps upwards a view is taken to be chasing its own frame. */
 const RUNAWAY_STEPS = 3;
 
+/** After going back and forth between two heights this many times a view is held at the taller. */
+const SWING_FLIPS = 4;
+
+/**
+ * A view only swings if it goes back within this long, in milliseconds: a frame and its view
+ * answer each other at once, while a reader opening and closing a part of the view takes longer.
+ */
+const SWING_WITHIN = 400;
+
+/** Whether the frame no longer follows everything its view asks for, so the view must scroll. */
+export function holdsBack(size: FrameSize, limit: number): boolean {
+    return size.chasing || size.refused !== null || size.height >= limit;
+}
+
+/**
+ * The frame's size if the view is swinging between two heights, else `null`. A view laid out by
+ * its width can be shorter in a frame that is taller, so each answer undoes the last: it is
+ * held at the taller height, where all of it shows, and the shorter one is not taken again.
+ */
+function swinging(size: FrameSize, height: number, now: number): FrameSize | null {
+    if (height === size.refused) {
+        return size;
+    }
+    if (height !== size.before || now - size.at > SWING_WITHIN) {
+        return null;
+    }
+    const flips = size.flips + 1;
+    if (flips < SWING_FLIPS) {
+        return { ...size, height, before: size.height, flips, at: now, step: 0, repeats: 0 };
+    }
+    const taller = Math.max(height, size.height);
+    return { ...size, height: taller, refused: Math.min(height, size.height), flips: 0, at: now };
+}
+
 /**
  * The frame's size once its view asks for `wanted`, at most `limit`. A view that keeps asking
  * for the same little bit more is sizing itself by the frame it is in, so each answer only
- * provokes the next request: after a few of those the frame is not made taller again.
+ * provokes the next request: after a few of those the frame is not made taller again. One that
+ * swings between two heights is held at the taller. `now` is the time in milliseconds.
  */
-export function nextFrameSize(size: FrameSize, wanted: number, limit: number): FrameSize {
+export function nextFrameSize(
+    size: FrameSize,
+    wanted: number,
+    limit: number,
+    now: number,
+): FrameSize {
     const height = Math.min(wanted, limit);
+    if (height === size.height) {
+        return size;
+    }
+    const swung = swinging(size, height, now);
+    if (swung !== null) {
+        return swung;
+    }
+    const moved = { ...size, before: size.height, flips: 0, at: now };
     const step = height - size.height;
-    if (step <= 0) {
-        return { ...size, height, step: 0, repeats: 0 };
+    if (step < 0) {
+        return { ...moved, height, step: 0, repeats: 0 };
     }
     if (size.chasing) {
         return size;
@@ -303,7 +385,7 @@ export function nextFrameSize(size: FrameSize, wanted: number, limit: number): F
     const repeats = step === size.step ? size.repeats + 1 : 1;
     return repeats >= RUNAWAY_STEPS
         ? { ...size, chasing: true }
-        : { ...size, height, step, repeats };
+        : { ...moved, height, step, repeats };
 }
 
 /** The height a view asks for, if `data` is its message and the height is usable. */

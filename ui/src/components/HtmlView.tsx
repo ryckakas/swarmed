@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import {
+    holdsBack,
     INITIAL_FRAME,
     needsNetwork,
     nextFrameSize,
@@ -69,12 +70,21 @@ export function HtmlView({ html }: { html: string }) {
             const wanted = requestedHeight(event.data);
             // Only this view's own frame may size it.
             if (wanted !== null && event.source === frame.current?.contentWindow) {
-                setSize((current) => nextFrameSize(current, wanted, MAX_HEIGHT));
+                const now = performance.now();
+                setSize((current) => nextFrameSize(current, wanted, MAX_HEIGHT, now));
             }
         };
         window.addEventListener("message", onMessage);
         return () => window.removeEventListener("message", onMessage);
     }, []);
+
+    // A view the frame no longer follows has to scroll inside it, or its end could not be reached.
+    const heldBack = holdsBack(size, MAX_HEIGHT);
+    useEffect(() => {
+        if (heldBack) {
+            frame.current?.contentWindow?.postMessage({ swarmedViewScrolls: true }, "*");
+        }
+    }, [heldBack]);
 
     const openInBrowser = () => {
         if (shown) {

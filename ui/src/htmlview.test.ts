@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+    holdsBack,
     htmlInCode,
     htmlOf,
     INITIAL_FRAME,
@@ -111,8 +112,12 @@ describe("the tool that shows HTML", () => {
 });
 
 describe("nextFrameSize", () => {
-    const grow = (heights: number[]) =>
-        heights.reduce((size, wanted) => nextFrameSize(size, wanted, 12_000), INITIAL_FRAME);
+    // Each request `gap` milliseconds after the one before.
+    const grow = (heights: number[], gap = 16) =>
+        heights.reduce(
+            (size, wanted, index) => nextFrameSize(size, wanted, 12_000, 1000 + index * gap),
+            INITIAL_FRAME,
+        );
 
     it("follows a view as its content grows and shrinks", () => {
         expect(grow([400]).height).toBe(400);
@@ -127,6 +132,25 @@ describe("nextFrameSize", () => {
         // Uneven growth, as from rows being added, is followed all the way.
         expect(grow([300, 340, 400, 430, 500]).height).toBe(500);
     });
+
+    it("holds a view that swings between two heights at the taller one", () => {
+        // Two columns in a frame without a scrollbar, one column in a frame with one.
+        const swung = grow([719, 1041, 719, 1041, 719, 1041, 719, 1041, 719]);
+        expect(swung.height).toBe(1041);
+        expect(holdsBack(swung, 12_000)).toBe(true);
+        // A different height is still followed afterwards.
+        expect(nextFrameSize(swung, 500, 12_000, 5000).height).toBe(500);
+        // A reader folding a part away and opening it again, however often, is not a swing.
+        const folded = grow([719, 400, 719, 400, 719, 400, 719, 400], 900);
+        expect(folded.height).toBe(400);
+        expect(holdsBack(folded, 12_000)).toBe(false);
+    });
+
+    it("says when a view is no longer followed", () => {
+        expect(holdsBack(grow([400]), 12_000)).toBe(false);
+        expect(holdsBack(grow([400, 99_999]), 12_000)).toBe(true);
+        expect(holdsBack(grow([1976, 2000, 2024, 2048, 2072]), 12_000)).toBe(true);
+    });
 });
 
 describe("the script that measures a view", () => {
@@ -134,6 +158,15 @@ describe("the script that measures a view", () => {
         const shown = viewDocument("<p>hi</p>", theme);
         expect(shown).toContain('style.minHeight = "0"');
         expect(shown).toContain("vh|vmin|vmax");
+    });
+
+    it("keeps the view from scrolling up and down inside its frame", () => {
+        const shown = viewDocument("<p>hi</p>", theme);
+        expect(shown).toContain('root.style.overflowY = "hidden"');
+        // A scrollbar along the bottom is counted into the height it asks for.
+        expect(shown).toContain("innerHeight - root.clientHeight");
+        // Until the host says it has stopped following the view.
+        expect(shown).toContain("swarmedViewScrolls");
     });
 });
 
