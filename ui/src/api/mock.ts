@@ -1,3 +1,4 @@
+import { lastDays } from "../analytics";
 import { PLAN_TOOL, withFiles } from "../transcript";
 import type { Api } from "./client";
 import type {
@@ -27,6 +28,7 @@ import type {
     Task,
     Template,
     TerminalOutput,
+    TurnStats,
     Unpublished,
     Usage,
 } from "./types";
@@ -373,6 +375,33 @@ function cloudApi(
         cloudTaskDiff: async () => SAMPLE_CLOUD_DIFF,
         cloudTaskApply: async () => undefined,
     };
+}
+
+/** A few weeks of made-up work on three models, ending today, with two quiet days. */
+function sampleAnalytics(today: Date): TurnStats[] {
+    const models: [agent: string, model: string, usd: number][] = [
+        ["claude", "claude-opus-5-5", 2.4],
+        ["claude", "claude-haiku-5-5", 0.3],
+        ["codex", "gpt-6.1-sol", 0.9],
+    ];
+    return lastDays(today, 24).flatMap((day, index) =>
+        models
+            .filter((_, at) => index % 7 !== 5 && (index + at) % 4 !== 0)
+            .map(([agent, model, usd], at): TurnStats => {
+                const busy = 1 + ((index * 7 + at * 3) % 5);
+                return {
+                    day,
+                    project: "hero",
+                    task: "fix-login-redirect",
+                    agent,
+                    model,
+                    turns: busy * 3,
+                    failed: busy === 4 ? 1 : 0,
+                    usd: usd * busy,
+                    duration_ms: busy * 190_000,
+                };
+            }),
+    );
 }
 
 /** Things the sample agents left running: one still going, two that ended. */
@@ -1240,6 +1269,7 @@ export function createMockApi(): Api {
         ...templatesApi(),
         usage: async () => SAMPLE_USAGE,
         costs: async () => SAMPLE_COSTS,
+        analytics: async () => sampleAnalytics(new Date()),
         ...setupApi(hookListeners),
         agents: async () => [
             { id: "claude", name: "Claude Code", models: ["opus", "sonnet", "haiku", "fable"] },

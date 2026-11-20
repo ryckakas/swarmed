@@ -66,6 +66,8 @@ export interface Words {
     stopBackground: string;
     /** What the background tab says when nothing was left running. */
     noBackground: string;
+    /** The heading over the charts of what the sessions did. */
+    activityTitle: string;
 }
 
 const PLAIN: Words = {
@@ -107,6 +109,7 @@ const PLAIN: Words = {
     },
     stopBackground: "Stop",
     noBackground: "The agents of this task have left nothing running.",
+    activityTitle: "Activity",
 };
 
 const SWARM: Words = {
@@ -150,6 +153,7 @@ const SWARM: Words = {
     },
     stopBackground: "Cull",
     noBackground: "No drones are out for this task.",
+    activityTitle: "Hive activity",
 };
 
 /** The swarm's words, and its names for the tree as well. */

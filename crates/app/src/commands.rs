@@ -15,7 +15,7 @@ use swarmed_core::{
     CloudTask, Core, Costs, Environment, FileChange, FileDiff, McpServerInput, McpServerView,
     NewTaskOptions, Project, ProjectOverview, Pull, PullDraft, QueuedMessage, RemoveOptions,
     SearchHit, Session, SessionOptions, SessionSettings, Settings, Skill, Task, TaskNaming,
-    Template, Unpublished, Usage, with_files,
+    Template, TurnStats, Unpublished, Usage, with_files,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -661,6 +661,12 @@ pub(crate) fn session_deny(
 #[tauri::command]
 pub(crate) fn session_interrupt(core: CoreState<'_>, id: i64) -> Command<()> {
     Ok(core.session_interrupt(id)?)
+}
+
+/// The sessions' turns added up by day, task, agent and model, for drawing.
+#[tauri::command]
+pub(crate) fn analytics(core: CoreState<'_>) -> Command<Vec<TurnStats>> {
+    Ok(core.analytics()?)
 }
 
 /// What a task's agents left running in the background, and how what ended did.

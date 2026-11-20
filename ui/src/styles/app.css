@@ -4031,6 +4031,208 @@ kbd {
     font-variant-numeric: tabular-nums;
 }
 
+/* What the sessions did, drawn. The series colours are a set checked for colour-blind
+   separation against these surfaces, in a dark and a light step each; they are not the app's
+   own accents, which sit too close to one another to tell series apart. */
+.activity-charts {
+    --series-0: #3987e5;
+    --series-1: #d95926;
+    --series-2: #199e70;
+    --series-3: #c98500;
+    --series-4: #d55181;
+}
+
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) .activity-charts {
+        --series-0: #2a78d6;
+        --series-1: #eb6834;
+        --series-2: #1baf7a;
+        --series-3: #eda100;
+        --series-4: #e87ba4;
+    }
+}
+
+:root[data-theme="light"] .activity-charts {
+    --series-0: #2a78d6;
+    --series-1: #eb6834;
+    --series-2: #1baf7a;
+    --series-3: #eda100;
+    --series-4: #e87ba4;
+}
+
+.activity-series-0 {
+    fill: var(--series-0);
+    background: var(--series-0);
+}
+
+.activity-series-1 {
+    fill: var(--series-1);
+    background: var(--series-1);
+}
+
+.activity-series-2 {
+    fill: var(--series-2);
+    background: var(--series-2);
+}
+
+.activity-series-3 {
+    fill: var(--series-3);
+    background: var(--series-3);
+}
+
+.activity-series-4 {
+    fill: var(--series-4);
+    background: var(--series-4);
+}
+
+.activity-controls {
+    display: flex;
+    gap: var(--space-2);
+    padding: var(--space-2) 0;
+}
+
+.activity-totals {
+    display: flex;
+    gap: var(--space-6);
+    margin: 0 0 var(--space-2);
+}
+
+.activity-totals dt {
+    color: var(--muted);
+    font-size: var(--text-xs);
+}
+
+.activity-totals dd {
+    margin: 0;
+    color: var(--bright);
+    font-size: var(--text-lg);
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+}
+
+.activity-chart {
+    position: relative;
+}
+
+.activity-chart svg {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+.activity-grid {
+    stroke: var(--line);
+    stroke-width: 1;
+}
+
+.activity-tick {
+    fill: var(--muted);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+}
+
+.activity-hit {
+    fill: transparent;
+}
+
+[data-hovered="true"] > .activity-hit {
+    fill: color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.activity-told {
+    position: absolute;
+    top: 0;
+    z-index: 2;
+    min-width: 13rem;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--raised);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+    font-size: var(--text-xs);
+    pointer-events: none;
+}
+
+.activity-told[data-side="right"] {
+    margin-left: var(--space-4);
+}
+
+.activity-told[data-side="left"] {
+    margin-left: calc(var(--space-4) * -1);
+    transform: translateX(-100%);
+}
+
+.activity-told p {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    padding: 1px 0;
+    color: var(--text);
+}
+
+.activity-told span {
+    margin-left: auto;
+    padding-left: var(--space-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.activity-told-day {
+    font-weight: 650;
+}
+
+.activity-swatch {
+    flex: none;
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+}
+
+.activity-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px var(--space-4);
+    margin: var(--space-1) 0 var(--space-3);
+    padding: 0 0 0 46px;
+    color: var(--muted);
+    font-size: var(--text-xs);
+    list-style: none;
+}
+
+.activity-key {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.activity-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--text-xs);
+}
+
+.activity-table th,
+.activity-table td {
+    padding: 3px var(--space-2) 3px 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.activity-table thead th {
+    color: var(--faint);
+    font-weight: 600;
+}
+
+.activity-table tbody th {
+    font-weight: 500;
+}
+
+.activity-table th:first-child,
+.activity-table td:nth-child(2) {
+    text-align: left;
+}
+
 /* An agent in the settings: what it is, its state, and the models it offers. */
 .agent-ask {
     display: flex;

@@ -45,6 +45,7 @@ export const tauriApi: Api = {
     templateRemove: (name) => invoke<Template[]>("template_remove", { name }),
     usage: () => invoke<Usage>("usage"),
     costs: () => invoke<Costs>("costs"),
+    analytics: () => invoke("analytics"),
     agentSetups: () => invoke<AgentSetup[]>("agent_setups"),
     agentInstall: (id) => invoke<AgentSetup>("agent_install", { id }),
     agentConfigure: (id, models) => invoke<AgentSetup>("agent_configure", { id, models }),

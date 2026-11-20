@@ -73,6 +73,23 @@ export interface Costs {
     days: { day: string; usd: number }[];
 }
 
+/** The turns of one day on one model of one agent in one task, added up. */
+export interface TurnStats {
+    /** The day, as `YYYY-MM-DD` in local time. */
+    day: string;
+    project: string;
+    task: string;
+    agent: string;
+    model: string;
+    turns: number;
+    /** How many of the turns failed or were interrupted. */
+    failed: number;
+    /** In US dollars at API prices, as the agents report it. */
+    usd: number;
+    /** How long the turns took in all, as far as that was measured. */
+    duration_ms: number;
+}
+
 /** One session in which the words searched for were said. */
 export interface SearchHit {
     session_id: number;

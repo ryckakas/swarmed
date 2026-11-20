@@ -3,6 +3,7 @@ import { api } from "../api";
 import type { Costs, Usage } from "../api/types";
 import { useStore } from "../store";
 import { formatBytes, formatCpu, formatUsd, totalBytes } from "../usage";
+import { ActivityCharts } from "./ActivityCharts";
 
 /** How many worktrees are listed before the rest are summed up in one line. */
 const LISTED = 8;
@@ -25,6 +26,7 @@ export function UsageSettings() {
     return (
         <>
             <CostFigures />
+            <ActivityCharts />
             <section className="settings-group" aria-label="Storage and activity">
                 <h3>Storage and activity</h3>
                 <div className="settings-row">

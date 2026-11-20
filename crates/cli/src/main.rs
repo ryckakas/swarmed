@@ -40,6 +40,8 @@ enum Command {
     Usage,
     /// Print what the agents report their work has cost: by day and by task, at API prices.
     Costs,
+    /// Print the sessions' turns by day, task, agent and model, as tab-separated values.
+    Analytics,
     /// List the agents sessions can run on.
     Agents,
     /// Set up an agent other than Claude Code: install it, or choose the models it offers.
@@ -322,6 +324,7 @@ async fn run(core: &Core, command: Command) -> Result<()> {
         Command::Mcp => mcp(core),
         Command::Usage => usage(core).await,
         Command::Costs => costs(core),
+        Command::Analytics => analytics(core),
         Command::Agents => {
             agents(core);
             Ok(())
@@ -352,6 +355,26 @@ fn costs(core: &Core) -> Result<()> {
         say(&format!(
             "${:.2}\t{} / {}",
             task.usd, task.project, task.task
+        ));
+    }
+    Ok(())
+}
+
+/// Prints the sessions' turns added up, one day, task, agent and model to a line.
+fn analytics(core: &Core) -> Result<()> {
+    say("day\tproject\ttask\tagent\tmodel\tturns\tfailed\tusd\tseconds");
+    for stats in core.analytics()? {
+        say(&format!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.4}\t{}",
+            stats.day,
+            stats.project,
+            stats.task,
+            stats.agent,
+            stats.model,
+            stats.turns,
+            stats.failed,
+            stats.usd,
+            stats.duration_ms / 1000
         ));
     }
     Ok(())

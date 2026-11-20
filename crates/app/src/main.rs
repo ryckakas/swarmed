@@ -131,6 +131,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
             commands::agents,
             commands::usage,
             commands::costs,
+            commands::analytics,
             commands::mcp_servers,
             commands::mcp_save,
             commands::mcp_remove,

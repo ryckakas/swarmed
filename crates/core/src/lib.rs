@@ -7,6 +7,7 @@ pub mod agent;
 mod agent_models;
 mod agent_setup;
 mod agents;
+mod analytics;
 mod attach;
 mod background;
 mod changes;
@@ -56,6 +57,7 @@ use agent::{AgentBackend, ClaudeNamer, Namer};
 pub use agent_setup::{AgentSetup, openrouter_models};
 use agents::Agents;
 pub use agents::{AgentInfo, CLAUDE};
+pub use analytics::TurnStats;
 pub use attach::{ATTACHED_FILES, with_files};
 pub use background::BackgroundTask;
 

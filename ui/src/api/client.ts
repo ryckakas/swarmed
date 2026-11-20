@@ -29,6 +29,7 @@ import type {
     TaskNaming,
     Template,
     TerminalOutput,
+    TurnStats,
     Unpublished,
     Usage,
 } from "./types";
@@ -57,6 +58,8 @@ export interface Api {
     usage(): Promise<Usage>;
     /** What the agents report their work has cost: by day and by task. */
     costs(): Promise<Costs>;
+    /** The sessions' turns added up by day, task, agent and model, the oldest day first. */
+    analytics(): Promise<TurnStats[]>;
     /** The agents that can be set up from the settings, and how far along each is. */
     agentSetups(): Promise<AgentSetup[]>;
     /** Installs a known agent and configures it. Its installer's output comes as hook output. */
