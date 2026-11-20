@@ -15,6 +15,7 @@ import type {
     Pull,
     PullDraft,
     QueuedMessage,
+    SearchHit,
     Session,
     SessionEvent,
     SessionStatus,
@@ -1037,6 +1038,27 @@ class MockAgent {
 }
 
 /** Closing sessions, listing the closed ones of a task, and reopening one. */
+/** The sample sessions whose title holds the words: the sample conversations are not kept. */
+function sampleSearch(projects: Project[], query: string): SearchHit[] {
+    const wanted = query.trim().toLowerCase();
+    return projects.flatMap((project) =>
+        project.tasks.flatMap((task) =>
+            task.sessions
+                .filter((session) => wanted !== "" && session.title.toLowerCase().includes(wanted))
+                .map((session) => ({
+                    session_id: session.id,
+                    title: session.title,
+                    project: project.name,
+                    task: task.name,
+                    closed: false,
+                    snippet: `…${session.title}…`,
+                    by_user: true,
+                    matches: 1,
+                })),
+        ),
+    );
+}
+
 function closingApi(
     agent: MockAgent,
 ): Pick<Api, "sessionClose" | "sessionsClosed" | "sessionReopen"> {
@@ -1218,6 +1240,7 @@ export function createMockApi(): Api {
         },
         statusLine: async (id) => scriptedStatus(settings.status_command, id),
         sessionRename: async (id, title) => agent.rename(id, title),
+        sessionsSearch: async (query) => sampleSearch(agent.projects, query),
         ...closingApi(agent),
         onSessionEvent: async (listener) => {
             agent.listeners.add(listener);

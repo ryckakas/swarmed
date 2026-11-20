@@ -47,6 +47,22 @@ export interface Task {
     stack: boolean | null;
 }
 
+/** One session in which the words searched for were said. */
+export interface SearchHit {
+    session_id: number;
+    title: string;
+    project: string;
+    task: string;
+    /** Whether the session was closed, and has to be reopened to be read. */
+    closed: boolean;
+    /** The newest place the words were said, with a little of what stands around them. */
+    snippet: string;
+    /** Whether the user said it, not the agent. */
+    by_user: boolean;
+    /** How many of the session's messages hold the words. */
+    matches: number;
+}
+
 /** What of a task's work has not left its worktree yet. */
 export interface Unpublished {
     /** How many files are changed, added or removed and not committed. */

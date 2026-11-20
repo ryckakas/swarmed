@@ -75,6 +75,11 @@ enum Command {
         #[arg(long)]
         set: bool,
     },
+    /// Find the sessions in which something was said, closed ones included.
+    Search {
+        /// The words to look for, as they were written.
+        query: String,
+    },
     /// Print the rules every agent is given, whatever the agent or model, or replace them.
     Rules {
         /// Replace the rules with what is read from standard input. Nothing but blank space
@@ -319,7 +324,20 @@ async fn run(core: &Core, command: Command) -> Result<()> {
             Ok(())
         }
         Command::Rules { set } => rules(core, set),
+        Command::Search { query } => search(core, &query),
     }
+}
+
+/// Prints the sessions in which `query` was said.
+fn search(core: &Core, query: &str) -> Result<()> {
+    for hit in core.sessions_search(query)? {
+        let closed = if hit.closed { ", closed" } else { "" };
+        say(&format!(
+            "{}\t{} / {}{closed}\t{}\n\t{}",
+            hit.session_id, hit.project, hit.task, hit.title, hit.snippet
+        ));
+    }
+    Ok(())
 }
 
 fn editor(core: &Core, command: Option<String>) -> Result<()> {

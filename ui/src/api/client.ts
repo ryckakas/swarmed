@@ -16,6 +16,7 @@ import type {
     Pull,
     PullDraft,
     QueuedMessage,
+    SearchHit,
     Session,
     SessionEvent,
     SessionSettings,
@@ -223,6 +224,8 @@ export interface Api {
     /** Gives the session a title of the user's choosing. Every front end hears of it as an event. */
     sessionRename(id: number, title: string): Promise<Session>;
     /** A task's closed sessions, the one closed last first. */
+    /** The sessions in which `query` was said, closed ones included. */
+    sessionsSearch(query: string): Promise<SearchHit[]>;
     sessionsClosed(project: string, task: string): Promise<Session[]>;
     /** Puts a closed session back in the tree, with its conversation as it was. */
     sessionReopen(id: number): Promise<Session>;

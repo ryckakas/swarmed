@@ -200,6 +200,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
             commands::status_line,
             commands::session_rename,
             commands::session_close,
+            commands::sessions_search,
             commands::sessions_closed,
             commands::session_reopen,
         ])

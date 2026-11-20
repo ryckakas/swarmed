@@ -139,6 +139,7 @@ const ACTIONS: Partial<Record<HotkeyId, () => void>> = {
     "previous-session": () => step(-1),
     "next-session": () => step(1),
     "next-waiting": nextWaiting,
+    search: () => useStore.getState().showSearch(!useStore.getState().searchOpen),
     inbox: () => useStore.getState().showInbox(!useStore.getState().inboxOpen),
     "focus-message": focusMessage,
     "toggle-terminal": () => current() && useStore.getState().toggleTerminal(),

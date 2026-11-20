@@ -122,6 +122,9 @@ interface State {
     pulls: Record<number, Pull | null>;
     /** Asks again for a task's pull request. Not hearing back changes nothing. */
     loadPull(api: Api, project: string, task: string, taskId: number): Promise<void>;
+    /** Whether the search across conversations is open. */
+    searchOpen: boolean;
+    showSearch(open: boolean): void;
     /** Whether the list of everything that waits for the user is open. */
     inboxOpen: boolean;
     showInbox(open: boolean): void;
@@ -329,6 +332,8 @@ export const useStore = create<State>((set, get) => ({
             set((state) => ({ pulls: { ...state.pulls, [taskId]: pull } }));
         }
     },
+    searchOpen: false,
+    showSearch: (open) => set({ searchOpen: open }),
     inboxOpen: false,
     showInbox: (open) => set({ inboxOpen: open }),
     closing: null,

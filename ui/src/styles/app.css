@@ -3113,6 +3113,48 @@ code {
     font-size: var(--text-xs);
 }
 
+/* Search across conversations: a box over what it found. */
+.search-box {
+    width: 100%;
+    padding: 6px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--dusk);
+    color: var(--text);
+    font: inherit;
+}
+
+.search-hit {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    margin-top: var(--space-2);
+    padding: 6px var(--space-2);
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+}
+
+.search-hit:hover,
+.search-hit:focus-visible {
+    background: var(--panel);
+}
+
+.search-hit-head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+}
+
+.search-snippet {
+    color: var(--muted);
+    font-size: var(--text-sm);
+}
+
 /* A note: the same dialog, around a page to write on. */
 
 .confirm.note {

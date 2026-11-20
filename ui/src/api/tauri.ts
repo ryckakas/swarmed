@@ -19,6 +19,7 @@ import type {
     Pull,
     PullDraft,
     QueuedMessage,
+    SearchHit,
     Session,
     SessionEvent,
     Settings,
@@ -133,6 +134,7 @@ export const tauriApi: Api = {
     statusLine: (id) => invoke<string | null>("status_line", { id }),
     sessionRename: (id, title) => invoke<Session>("session_rename", { id, title }),
     sessionClose: (id) => invoke("session_close", { id }),
+    sessionsSearch: (query) => invoke<SearchHit[]>("sessions_search", { query }),
     sessionsClosed: (project, task) => invoke<Session[]>("sessions_closed", { project, task }),
     sessionReopen: (id) => invoke<Session>("session_reopen", { id }),
     onSessionEvent: (listener) =>

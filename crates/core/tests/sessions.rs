@@ -974,3 +974,44 @@ async fn a_new_task_is_named_by_the_namer_and_its_session_keeps_that_title() {
         Err(Error::ProjectNotFound(_))
     ));
 }
+
+#[tokio::test]
+async fn what_was_said_is_found_again_in_open_and_closed_sessions() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let first = started_session(&core);
+    core.session_send(first.id, "Why is the Zeppelin 100% \"late\"?")
+        .expect("sends");
+    turn(&mut bus, first.id).await;
+    let second = started_session(&core);
+    core.session_send(second.id, "Nothing about airships here")
+        .expect("sends");
+    turn(&mut bus, second.id).await;
+
+    let hits = core.sessions_search("zeppelin").expect("searches");
+    assert_eq!(hits.len(), 1);
+    let hit = &hits[0];
+    assert_eq!((hit.session_id, hit.closed), (first.id, false));
+    assert_eq!((hit.project.as_str(), hit.task.as_str()), ("demo", "one"));
+    assert!(hit.snippet.contains("Zeppelin"));
+    // What the fake agent answers repeats the message, so both sides may hold the word.
+    assert!(hit.matches >= 1);
+
+    // Signs that mean something to the database or to JSON are taken as they are typed.
+    assert_eq!(
+        core.sessions_search("100% \"late\"")
+            .expect("searches")
+            .len(),
+        1
+    );
+    assert_eq!(core.sessions_search("100_").expect("searches"), []);
+    assert_eq!(core.sessions_search("   ").expect("searches"), []);
+    // A word that only stands in an event's own field names is not something anybody said.
+    assert_eq!(core.sessions_search("user_message").expect("searches"), []);
+
+    core.session_close(first.id).expect("closes");
+    let closed = core.sessions_search("ZEPPELIN").expect("searches");
+    assert_eq!(closed.len(), 1);
+    assert!(closed[0].closed);
+}

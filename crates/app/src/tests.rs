@@ -531,6 +531,9 @@ fn the_ui_can_list_closed_sessions_and_reopen_one() {
     assert_eq!(closed(&app), 1);
     let task = json!({ "project": "demo", "task": "one" });
     assert_eq!(app.ok("sessions_closed", task.clone())[0]["id"], *id);
+    // Nothing was said in it, so nothing is found, which is an answer and not an error.
+    let nothing = app.ok("sessions_search", json!({ "query": "zeppelin" }));
+    assert_eq!(nothing, json!([]));
     assert_eq!(app.ok("session_reopen", json!({ "id": id }))["id"], *id);
     assert_eq!(app.ok("sessions_closed", task), json!([]));
     assert_eq!(closed(&app), 0);

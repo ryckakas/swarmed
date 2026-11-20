@@ -9,6 +9,7 @@ import { InboxDialog } from "./components/InboxDialog";
 import { NoteDialog } from "./components/NoteDialog";
 import { RemoveDialog } from "./components/RemoveDialog";
 import { Resizer, useStoredWidth } from "./components/Resizer";
+import { SearchDialog } from "./components/SearchDialog";
 import { SessionPane } from "./components/SessionPane";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { Sidebar } from "./components/Sidebar";
@@ -70,6 +71,7 @@ export function App() {
             />
             <CloseSessionDialog />
             <InboxDialog />
+            <SearchDialog />
             <NoteDialog />
             <EnvironmentsDialog />
             <CloudDialog />

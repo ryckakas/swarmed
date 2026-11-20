@@ -13,8 +13,9 @@ use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
     AgentInfo, AgentSetup, ApiKeyInfo, BranchChoices, CloudOrigin, CloudProvider, CloudTask, Core,
     Environment, FileChange, FileDiff, McpServerInput, McpServerView, NewTaskOptions, Project,
-    ProjectOverview, Pull, PullDraft, QueuedMessage, RemoveOptions, Session, SessionOptions,
-    SessionSettings, Settings, Skill, Task, TaskNaming, Unpublished, Usage, with_files,
+    ProjectOverview, Pull, PullDraft, QueuedMessage, RemoveOptions, SearchHit, Session,
+    SessionOptions, SessionSettings, Settings, Skill, Task, TaskNaming, Unpublished, Usage,
+    with_files,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -556,6 +557,12 @@ pub(crate) fn session_queue_edit(
 pub(crate) async fn session_send_queued(core: CoreState<'_>, id: i64) -> Command<()> {
     core.session_start(id, Auth::Subscription)?;
     Ok(core.session_send_queued(id)?)
+}
+
+/// The sessions in which `query` was said, closed ones included.
+#[tauri::command]
+pub(crate) fn sessions_search(core: CoreState<'_>, query: String) -> Command<Vec<SearchHit>> {
+    Ok(core.sessions_search(&query)?)
 }
 
 /// A task's closed sessions, the one closed last first.
