@@ -5,6 +5,7 @@ import { EMPTY_ENVIRONMENT, envFromText, envToText } from "../environments";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
 import { withArticle } from "../wording";
+import { Snapshots } from "./Snapshots";
 
 /** A repository's environments, opened from the sidebar. */
 export function EnvironmentsDialog() {
@@ -138,6 +139,7 @@ function Editor({ project }: { project: string }) {
                 />
             )}
             {problem && <p className="note-problem">{problem}</p>}
+            {draft === null && <Snapshots project={project} environments={names} />}
             {draft === null && (
                 <div className="confirm-actions">
                     <button type="button" className="button button-primary" onClick={close}>

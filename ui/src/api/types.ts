@@ -75,6 +75,18 @@ export interface Costs {
     days: { day: string; usd: number }[];
 }
 
+/** What a task's setup produced, kept for new tasks of its environment to start from. */
+export interface Snapshot {
+    /** The environment whose tasks start from it; `null` for tasks without one. */
+    environment: string | null;
+    /** The task it was taken from. */
+    task: string;
+    /** When it was taken, in seconds since 1970. */
+    taken_at: number;
+    /** How many files and folders git ignores were kept, counted at the top of each. */
+    entries: number;
+}
+
 /** The turns of one day on one model of one agent in one task, added up. */
 export interface TurnStats {
     /** The day, as `YYYY-MM-DD` in local time. */

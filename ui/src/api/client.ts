@@ -25,6 +25,7 @@ import type {
     SessionSetup,
     Settings,
     Skill,
+    Snapshot,
     Task,
     TaskNaming,
     Template,
@@ -58,6 +59,12 @@ export interface Api {
     usage(): Promise<Usage>;
     /** What the agents report their work has cost: by day and by task. */
     costs(): Promise<Costs>;
+    /** The project's snapshots: what new tasks of each environment start from. */
+    snapshots(project: string): Promise<Snapshot[]>;
+    /** Keeps what the task's setup produced as the snapshot of its environment. */
+    snapshotSave(project: string, task: string): Promise<Snapshot>;
+    /** Forgets the snapshot of an environment; `null` is the one of tasks without any. */
+    snapshotRemove(project: string, environment: string | null): Promise<void>;
     /** The sessions' turns added up by day, task, agent and model, the oldest day first. */
     analytics(): Promise<TurnStats[]>;
     /** The agents that can be set up from the settings, and how far along each is. */

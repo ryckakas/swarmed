@@ -443,6 +443,72 @@ async fn what_a_task_keeps_running_is_started_after_setup_and_does_not_hold_the_
     core.stacks_stop_all().await;
 }
 
+#[tokio::test]
+async fn a_new_task_starts_from_what_an_earlier_one_was_set_up_with() {
+    let fx = fixture();
+    std::fs::write(fx.repo.join(".gitignore"), "deps/\n").expect("writes");
+    git(&fx.repo, &["add", "."]);
+    git(&fx.repo, &["commit", "--quiet", "-m", "ignore deps"]);
+    // Setup builds only what is not there yet, as installing dependencies does.
+    write_config(
+        &fx,
+        "[hooks]\nsetup = \"mkdir -p deps && test -f deps/lib.txt || echo built-{{task}} > deps/lib.txt\"\n",
+    );
+    let core = core_with_project(&fx).await;
+    let new = |name: &'static str| {
+        core.task_new("demo", name, NewTaskOptions::default(), &hooks::discard)
+    };
+    let built = |task: &swarmed_core::Task| {
+        std::fs::read_to_string(task.worktree_path.join("deps/lib.txt")).expect("built")
+    };
+    let one = new("one").await.expect("creates");
+    assert_eq!(built(&one), "built-one\n");
+    assert_eq!(core.snapshots("demo").expect("reads"), []);
+
+    let snapshot = core.snapshot_save("demo", "one").await.expect("saves");
+    assert_eq!((snapshot.task.as_str(), snapshot.entries), ("one", 1));
+    assert_eq!(snapshot.environment, None);
+    assert_eq!(core.snapshots("demo").expect("reads"), [snapshot]);
+
+    // The next task finds the first one's work in place, and what git checked out untouched.
+    let two = new("two").await.expect("creates");
+    assert_eq!(built(&two), "built-one\n");
+    let readme = std::fs::read_to_string(two.worktree_path.join("README.md")).expect("reads");
+    assert_eq!(readme, "demo\n");
+    let status = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&two.worktree_path)
+        .args(["status", "--porcelain"])
+        .output()
+        .expect("git runs");
+    // Nothing git tracks was changed, and what was put there is all ignored.
+    assert_eq!(String::from_utf8_lossy(&status.stdout), "");
+
+    // Without the snapshot a task is set up from nothing again.
+    core.snapshot_remove("demo", None).expect("removes");
+    let three = new("three").await.expect("creates");
+    assert_eq!(built(&three), "built-three\n");
+}
+
+#[tokio::test]
+async fn a_task_whose_setup_failed_or_left_nothing_cannot_be_kept_as_a_snapshot() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    core.task_new("demo", "plain", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates");
+    let nothing = core.snapshot_save("demo", "plain").await;
+    assert!(matches!(nothing, Err(Error::Snapshot(_))), "{nothing:?}");
+
+    write_config(&fx, "[hooks]\nsetup = \"exit 3\"\n");
+    let broken = core
+        .task_new("demo", "broken", NewTaskOptions::default(), &hooks::discard)
+        .await;
+    assert!(broken.is_err());
+    let refused = core.snapshot_save("demo", "broken").await;
+    assert!(matches!(refused, Err(Error::Snapshot(_))), "{refused:?}");
+}
+
 /// The window's own commands run on a thread with no Tokio runtime. Starting a stack from one
 /// used to bring the whole app down.
 #[test]

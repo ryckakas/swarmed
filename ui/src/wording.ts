@@ -70,6 +70,9 @@ export interface Words {
     activityTitle: string;
     /** The switch that asks an agent for its fast mode. */
     fast: string;
+    /** What a task's setup produced, kept for new tasks to start from; and several. */
+    snapshot: string;
+    snapshots: string;
 }
 
 const PLAIN: Words = {
@@ -113,6 +116,8 @@ const PLAIN: Words = {
     noBackground: "The agents of this task have left nothing running.",
     activityTitle: "Activity",
     fast: "Fast",
+    snapshot: "Snapshot",
+    snapshots: "Snapshots",
 };
 
 const SWARM: Words = {
@@ -158,6 +163,8 @@ const SWARM: Words = {
     noBackground: "No drones are out for this task.",
     activityTitle: "Hive activity",
     fast: "Frenzy",
+    snapshot: "Cocoon",
+    snapshots: "Cocoons",
 };
 
 /** The swarm's words, and its names for the tree as well. */

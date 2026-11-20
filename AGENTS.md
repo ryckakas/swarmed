@@ -126,6 +126,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   request. What ran under an agent that is no longer running is listed as stopped. A stack's
   `start` command is spawned with `std::process`, never Tokio's: window commands that are not
   `async` run on a thread without a runtime, where a Tokio spawn aborts the app.
+- **A snapshot is the files git ignores in one well set up task** (`snapshots.rs`), one per
+  environment, copied with `cp -c` so that APFS clones them. A new task gets them put into its
+  worktree before `setup` runs, never over a file that is already there. They may include the
+  likes of `.env`: the folder is the user's alone and its contents are never logged.
 - **Prompts the user keeps** (`templates.rs`) are a name and a text in `templates.toml` in the
   data directory. A front end puts one into the message box; the core never sends one by
   itself, and agents are not told about them. `{{something}}` marks a place to fill in.

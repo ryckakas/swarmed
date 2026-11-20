@@ -2878,6 +2878,37 @@ code {
     font-size: var(--text-xs);
 }
 
+/* What new tasks start from, one row for each environment. */
+.snapshots {
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--line);
+}
+
+.snapshots h3 {
+    font-size: var(--text-sm);
+    font-weight: 650;
+}
+
+.snapshot-list {
+    display: grid;
+    gap: var(--space-1);
+    margin: var(--space-2) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.snapshot-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.snapshot-row > div {
+    flex: 1;
+    min-width: 0;
+}
+
 /* A switch among the pickers: asks the agent for its fast mode. */
 .fast-toggle {
     padding: 3px var(--space-2);

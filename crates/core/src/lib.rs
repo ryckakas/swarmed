@@ -39,6 +39,7 @@ pub mod secrets;
 mod sessions;
 mod settings;
 mod skills;
+mod snapshots;
 mod stacks;
 mod statusline;
 mod store;
@@ -87,6 +88,7 @@ pub use sessions::{
 };
 pub use settings::{Palette, Settings, Style, Theme};
 pub use skills::Skill;
+pub use snapshots::Snapshot;
 pub use stacks::StackState;
 pub use statusline::StatusItem;
 use store::Store;

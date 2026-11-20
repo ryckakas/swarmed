@@ -24,6 +24,7 @@ import type {
     SessionStatus,
     Settings,
     Skill,
+    Snapshot,
     StackState,
     Task,
     Template,
@@ -375,6 +376,36 @@ function cloudApi(
         cloudTaskOpen: async () => undefined,
         cloudTaskDiff: async () => SAMPLE_CLOUD_DIFF,
         cloudTaskApply: async () => undefined,
+    };
+}
+
+/** Snapshots of the sample projects: none to begin with, kept as they are taken. */
+function snapshotApi(
+    projects: () => Project[],
+): Pick<Api, "snapshots" | "snapshotSave" | "snapshotRemove"> {
+    const kept = new Map<string, Snapshot[]>();
+    const of = (project: string) => kept.get(project) ?? [];
+    return {
+        snapshots: async (project) => [...of(project)],
+        snapshotSave: async (project, name) => {
+            const tasks = projects().find((one) => one.name === project)?.tasks ?? [];
+            const environment = tasks.find((task) => task.name === name)?.environment ?? null;
+            const snapshot = {
+                environment,
+                task: name,
+                taken_at: Math.floor(Date.now() / 1000),
+                entries: 3,
+            };
+            const others = of(project).filter((one) => one.environment !== environment);
+            kept.set(project, [...others, snapshot]);
+            return snapshot;
+        },
+        snapshotRemove: async (project, environment) => {
+            kept.set(
+                project,
+                of(project).filter((one) => one.environment !== environment),
+            );
+        },
     };
 }
 
@@ -1270,6 +1301,7 @@ export function createMockApi(): Api {
         ...templatesApi(),
         usage: async () => SAMPLE_USAGE,
         costs: async () => SAMPLE_COSTS,
+        ...snapshotApi(() => agent.projects),
         analytics: async () => sampleAnalytics(new Date()),
         ...setupApi(hookListeners),
         agents: async () => [

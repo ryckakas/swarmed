@@ -14,8 +14,8 @@ use swarmed_core::{
     AgentInfo, AgentSetup, ApiKeyInfo, BackgroundTask, BranchChoices, CloudOrigin, CloudProvider,
     CloudTask, Core, Costs, Environment, FileChange, FileDiff, McpServerInput, McpServerView,
     NewTaskOptions, Project, ProjectOverview, Pull, PullDraft, QueuedMessage, RemoveOptions,
-    SearchHit, Session, SessionOptions, SessionSettings, Settings, Skill, Task, TaskNaming,
-    Template, TurnStats, Unpublished, Usage, with_files,
+    SearchHit, Session, SessionOptions, SessionSettings, Settings, Skill, Snapshot, Task,
+    TaskNaming, Template, TurnStats, Unpublished, Usage, with_files,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -671,6 +671,32 @@ pub(crate) fn session_deny(
 #[tauri::command]
 pub(crate) fn session_interrupt(core: CoreState<'_>, id: i64) -> Command<()> {
     Ok(core.session_interrupt(id)?)
+}
+
+/// The project's snapshots: what tasks of each environment start from.
+#[tauri::command]
+pub(crate) fn snapshots(core: CoreState<'_>, project: String) -> Command<Vec<Snapshot>> {
+    Ok(core.snapshots(&project)?)
+}
+
+/// Keeps what a task's setup produced as the snapshot of its environment.
+#[tauri::command]
+pub(crate) async fn snapshot_save(
+    core: CoreState<'_>,
+    project: String,
+    task: String,
+) -> Command<Snapshot> {
+    Ok(core.snapshot_save(&project, &task).await?)
+}
+
+/// Forgets the snapshot of an environment, or of tasks without one.
+#[tauri::command]
+pub(crate) fn snapshot_remove(
+    core: CoreState<'_>,
+    project: String,
+    environment: Option<String>,
+) -> Command<()> {
+    Ok(core.snapshot_remove(&project, environment.as_deref())?)
 }
 
 /// The sessions' turns added up by day, task, agent and model, for drawing.

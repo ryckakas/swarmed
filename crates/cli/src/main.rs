@@ -38,6 +38,11 @@ enum Command {
     Mcp,
     /// Show what Swarmed takes up on disk, and in memory and processor time right now.
     Usage,
+    /// Keep what a task's setup produced, for new tasks of its environment to start from.
+    Snapshot {
+        #[command(subcommand)]
+        command: SnapshotCommand,
+    },
     /// Print what the agents report their work has cost: by day and by task, at API prices.
     Costs,
     /// Print the sessions' turns by day, task, agent and model, as tab-separated values.
@@ -323,6 +328,7 @@ async fn run(core: &Core, command: Command) -> Result<()> {
         Command::Agent(command) => agent(core, command).await,
         Command::Mcp => mcp(core),
         Command::Usage => usage(core).await,
+        Command::Snapshot { command } => snapshot(core, command).await,
         Command::Costs => costs(core),
         Command::Analytics => analytics(core),
         Command::Agents => {
@@ -356,6 +362,45 @@ fn costs(core: &Core) -> Result<()> {
             "${:.2}\t{} / {}",
             task.usd, task.project, task.task
         ));
+    }
+    Ok(())
+}
+
+#[derive(Debug, Subcommand)]
+enum SnapshotCommand {
+    /// Keep the files git ignores in the task's worktree as the snapshot of its environment.
+    Save { project: String, task: String },
+    /// List the project's snapshots.
+    List { project: String },
+    /// Forget a snapshot: the one of tasks without an environment, unless one is named.
+    Remove {
+        project: String,
+        #[arg(long)]
+        environment: Option<String>,
+    },
+}
+
+async fn snapshot(core: &Core, command: SnapshotCommand) -> Result<()> {
+    let describe = |snapshot: &swarmed_core::Snapshot| {
+        let environment = snapshot.environment.as_deref().unwrap_or("(none)");
+        format!(
+            "{environment}\tfrom {}\t{} entries",
+            snapshot.task, snapshot.entries
+        )
+    };
+    match command {
+        SnapshotCommand::Save { project, task } => {
+            say(&describe(&core.snapshot_save(&project, &task).await?));
+        }
+        SnapshotCommand::List { project } => {
+            for snapshot in core.snapshots(&project)? {
+                say(&describe(&snapshot));
+            }
+        }
+        SnapshotCommand::Remove {
+            project,
+            environment,
+        } => core.snapshot_remove(&project, environment.as_deref())?,
     }
     Ok(())
 }

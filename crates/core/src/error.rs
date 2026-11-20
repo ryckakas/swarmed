@@ -161,6 +161,9 @@ pub enum Error {
     /// A skill could not be saved or found. Says why.
     #[error("{0}")]
     Skill(String),
+    /// A snapshot could not be taken or put into a worktree. Says why.
+    #[error("{0}")]
+    Snapshot(String),
     /// Something one session asked about another was refused.
     #[error("{0}")]
     Peers(String),

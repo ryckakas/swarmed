@@ -132,6 +132,16 @@ impl Core {
                 return Err(e);
             }
         };
+        // What an earlier task's setup produced, so that this one's has less to do. Not
+        // having it is no reason to fail: setup then does all the work, as it always could.
+        let seeded = self
+            .seed_from_snapshot(&project.name, options.environment, &worktree)
+            .await;
+        match seeded {
+            Ok(true) => sink("started from the snapshot of this environment"),
+            Ok(false) => {}
+            Err(error) => sink(&format!("the snapshot could not be used: {error}")),
+        }
         self.run_setup(&project, &config, task, sink).await
     }
 
