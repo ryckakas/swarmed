@@ -158,6 +158,9 @@ pub enum Error {
     /// A prompt could not be kept. Says why.
     #[error("{0}")]
     Template(String),
+    /// A change to Swarmed's configuration that an agent asked for was not made. Says why.
+    #[error("{0}")]
+    Configure(String),
     /// A mark could not be put on a session. Says why.
     #[error("{0}")]
     Mark(String),

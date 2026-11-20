@@ -9,6 +9,7 @@ import { useRoll } from "../useRoll";
 import { useWords } from "../useWords";
 import type { Words } from "../wording";
 import { activityWords, pickWord, wordsFor } from "../wording";
+import { ConfigProposal } from "./ConfigProposal";
 import { FileChips } from "./FileChips";
 import { HtmlView } from "./HtmlView";
 import { Markdown } from "./Markdown";
@@ -133,6 +134,15 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
                     toolName={item.toolName}
                     input={item.input}
                     description={item.description}
+                />
+            );
+        case "proposal":
+            return (
+                <ConfigProposal
+                    requestId={item.requestId}
+                    title={item.title}
+                    detail={item.detail}
+                    accepted={item.accepted}
                 />
             );
         case "denied":

@@ -7,11 +7,12 @@ use std::sync::Arc;
 use common::{core_with_project, fixture, next, turn};
 use swarmed_core::agent::{AgentEvent, Auth};
 use swarmed_core::{
-    Core, Delivery, Error, MAX_SPAWNED, NewTaskOptions, Session, SessionOptions, hooks,
-    serve_session_tools,
+    Core, Delivery, Environment, Error, MAX_SPAWNED, NewTaskOptions, Palette, Session,
+    SessionEvent, SessionOptions, hooks, serve_session_tools,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
+use tokio::sync::broadcast::Receiver;
 
 async fn core_with_task(fx: &common::Fixture) -> Core {
     let core = core_with_project(fx).await;
@@ -230,6 +231,192 @@ async fn a_session_closes_only_what_it_started_and_only_when_that_is_done() {
     assert_ne!(core.session_events(child.id).expect("reads").len(), 0);
 }
 
+/// Calls the `configure` tool for `session` and returns whether it worked and what it said.
+async fn configure(
+    socket: &std::path::Path,
+    session: i64,
+    arguments: serde_json::Value,
+) -> (bool, String) {
+    let request =
+        serde_json::json!({ "session": session, "tool": "configure", "arguments": arguments });
+    let reply = asked(socket.to_path_buf(), request).await;
+    let text = reply["text"].as_str().unwrap_or_default().to_string();
+    (reply["ok"] == true, text)
+}
+
+/// Skips ahead to the next proposed change; returns its id, its title and its detail.
+async fn proposed(bus: &mut Receiver<SessionEvent>) -> (String, String, String) {
+    loop {
+        if let AgentEvent::ConfigProposed {
+            request_id,
+            title,
+            detail,
+        } = next(bus).await.event
+        {
+            return (request_id, title, detail);
+        }
+    }
+}
+
+#[tokio::test]
+async fn an_agent_changes_what_is_harmless_at_once() {
+    let fx = fixture();
+    let core = Arc::new(core_with_task(&fx).await);
+    let session = new_session(&core);
+    drop(tokio::spawn(serve_session_tools(Arc::clone(&core))));
+    let socket = core.paths().tools_socket();
+    listening(&socket).await;
+    let json = |value: serde_json::Value| value;
+
+    let (ok, _) = configure(
+        &socket,
+        session.id,
+        json(serde_json::json!({ "kind": "prompt", "op": "save", "name": "review", "text": "Review it." })),
+    )
+    .await;
+    assert!(ok);
+    assert_eq!(core.templates().expect("reads")[0].text, "Review it.");
+    let (_, listed) = configure(
+        &socket,
+        session.id,
+        json(serde_json::json!({ "kind": "prompt", "op": "list" })),
+    )
+    .await;
+    assert_eq!(listed, "/review: Review it.");
+
+    let (ok, _) = configure(
+        &socket,
+        session.id,
+        json(serde_json::json!({ "kind": "action", "op": "save", "name": "Review", "icon": "🔍", "text": "Review the changes." })),
+    )
+    .await;
+    assert!(ok);
+    let own = core.actions(Some("demo")).expect("reads");
+    assert_eq!((own[0].name.as_str(), own[0].of_project), ("Review", true));
+
+    let (ok, said) = configure(
+        &socket,
+        session.id,
+        json(serde_json::json!({ "kind": "appearance", "op": "save", "palette": "Forest", "text_size": 110 })),
+    )
+    .await;
+    assert!(ok, "{said}");
+    let settings = core.settings().expect("reads");
+    assert_eq!(
+        (settings.palette, settings.text_scale),
+        (Palette::Forest, 110)
+    );
+    let (ok, _) = configure(
+        &socket,
+        session.id,
+        json(
+            serde_json::json!({ "kind": "status_line", "op": "save", "items": ["model", "cost"] }),
+        ),
+    )
+    .await;
+    assert!(ok);
+    assert_eq!(core.settings().expect("reads").status_items.len(), 2);
+
+    for refused in [
+        serde_json::json!({ "kind": "api_key", "op": "list" }),
+        serde_json::json!({ "kind": "appearance", "op": "save", "palette": "pink" }),
+        serde_json::json!({ "kind": "prompt", "op": "rename" }),
+    ] {
+        assert!(!configure(&socket, session.id, refused).await.0);
+    }
+}
+
+#[tokio::test]
+async fn what_outlives_the_session_is_only_proposed_until_the_user_accepts_it() {
+    let fx = fixture();
+    let core = Arc::new(core_with_task(&fx).await);
+    let mut bus = core.subscribe();
+    let session = new_session(&core);
+    drop(tokio::spawn(serve_session_tools(Arc::clone(&core))));
+    let socket = core.paths().tools_socket();
+    listening(&socket).await;
+
+    let rule = serde_json::json!({ "kind": "rule", "op": "save", "text": "never use em dashes" });
+    let (ok, said) = configure(&socket, session.id, rule.clone()).await;
+    assert!(ok);
+    assert!(said.contains("NOT in effect"));
+    let (declined, title, detail) = proposed(&mut bus).await;
+    assert_eq!(title, "Add this rule for every agent?");
+    assert_eq!(detail, "never use em dashes");
+    assert_eq!(core.settings().expect("reads").rules, "");
+
+    core.config_answer(&declined, false).expect("declines");
+    assert_eq!(core.settings().expect("reads").rules, "");
+    // An answer is given once.
+    assert!(core.config_answer(&declined, true).is_err());
+
+    configure(&socket, session.id, rule).await;
+    let (accepted, ..) = proposed(&mut bus).await;
+    core.config_answer(&accepted, true).expect("accepts");
+    assert_eq!(core.settings().expect("reads").rules, "never use em dashes");
+
+    let command = serde_json::json!({
+        "kind": "action", "op": "save", "name": "Nix env", "command": "nix develop", "everywhere": true
+    });
+    assert!(configure(&socket, session.id, command).await.0);
+    let (button, title, detail) = proposed(&mut bus).await;
+    assert!(title.contains("every repository"));
+    assert_eq!(detail, "nix develop");
+    assert_eq!(core.actions(None).expect("reads"), []);
+    core.config_answer(&button, true).expect("accepts");
+    assert_eq!(core.actions(None).expect("reads")[0].command, "nix develop");
+
+    let script = serde_json::json!({ "kind": "status_line", "op": "save", "command": "echo hi" });
+    assert!(configure(&socket, session.id, script).await.0);
+    let (script, ..) = proposed(&mut bus).await;
+    assert_eq!(core.settings().expect("reads").status_command, "");
+    core.config_answer(&script, true).expect("accepts");
+    assert_eq!(core.settings().expect("reads").status_command, "echo hi");
+
+    let gone = serde_json::json!({ "kind": "rule", "op": "remove", "text": "no such rule" });
+    assert!(!configure(&socket, session.id, gone).await.0);
+}
+
+#[tokio::test]
+async fn an_environment_is_proposed_and_its_variables_stay_out_of_what_an_agent_reads() {
+    let fx = fixture();
+    let core = Arc::new(core_with_task(&fx).await);
+    let mut bus = core.subscribe();
+    let session = new_session(&core);
+    drop(tokio::spawn(serve_session_tools(Arc::clone(&core))));
+    let socket = core.paths().tools_socket();
+    listening(&socket).await;
+    let secret = Environment {
+        start: "make up".to_string(),
+        env: [("API_TOKEN".to_string(), "s3cret-value".to_string())].into(),
+        ..Environment::default()
+    };
+    core.environment_save("demo", "local", &secret)
+        .expect("test setup");
+
+    let list = serde_json::json!({ "kind": "environment", "op": "list" });
+    let (_, listed) = configure(&socket, session.id, list).await;
+    assert!(listed.contains("start: make up"));
+    assert!(listed.contains("API_TOKEN"));
+    assert!(!listed.contains("s3cret-value"));
+
+    let change = serde_json::json!({
+        "kind": "environment", "op": "save", "name": "local", "setup": "make deps"
+    });
+    assert!(configure(&socket, session.id, change).await.0);
+    let (request, _, detail) = proposed(&mut bus).await;
+    assert!(detail.contains("setup: make deps"));
+    assert!(!detail.contains("s3cret-value"));
+    core.config_answer(&request, true).expect("accepts");
+    let kept = &core.environments("demo").expect("reads")["local"];
+    // What the call did not name is as it was, the variables included.
+    assert_eq!(
+        (kept.setup.as_str(), kept.start.as_str()),
+        ("make deps", "make up")
+    );
+    assert_eq!(kept.env["API_TOKEN"], "s3cret-value");
+}
+
 #[tokio::test]
 async fn the_tool_server_reaches_the_core_over_its_socket() {
     let fx = fixture();
@@ -260,27 +447,6 @@ async fn the_tool_server_reaches_the_core_over_its_socket() {
         ("green", "e2e passed")
     );
     assert_eq!(core.session(second.id).expect("exists").mark, None);
-    let kept = ask(serde_json::json!({
-        "session": first.id, "tool": "save_action",
-        "arguments": { "name": "Nix env", "icon": "❄️", "command": "nix develop" }
-    }))
-    .await;
-    assert_eq!(kept["ok"], true);
-    let own = core.actions(Some("demo")).expect("reads");
-    assert_eq!((own[0].name.as_str(), own[0].of_project), ("Nix env", true));
-    assert_eq!(core.actions(None).expect("reads"), []);
-    let general = ask(serde_json::json!({
-        "session": first.id, "tool": "save_action",
-        "arguments": { "name": "Review", "prompt": "Review it.", "everywhere": true }
-    }))
-    .await;
-    assert_eq!(general["ok"], true);
-    assert_eq!(core.actions(None).expect("reads").len(), 1);
-    let neither = ask(serde_json::json!({
-        "session": first.id, "tool": "save_action", "arguments": { "name": "Nothing" }
-    }))
-    .await;
-    assert_eq!(neither["ok"], false);
     let pink = ask(serde_json::json!({
         "session": first.id, "tool": "set_mark", "arguments": { "colour": "pink" }
     }))

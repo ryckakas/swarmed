@@ -275,6 +275,29 @@ pub enum AgentEvent {
         /// The words beside it; empty for none.
         label: String,
     },
+    /// The agent asked for a change to Swarmed's own configuration that the user has to agree
+    /// to, such as a rule for every agent. Recorded by the core.
+    ConfigProposed {
+        /// What [`AgentEvent::ConfigAnswered`] refers to.
+        request_id: String,
+        /// What the user is asked, in a line.
+        title: String,
+        /// The change itself, as it would be made.
+        detail: String,
+    },
+    /// The user answered a proposed change. Recorded by the core.
+    ConfigAnswered {
+        /// The [`AgentEvent::ConfigProposed`] this answers.
+        request_id: String,
+        /// Whether the change was made.
+        accepted: bool,
+    },
+    /// Swarmed's configuration was changed from this session, so front ends read it again.
+    /// Published and never stored.
+    ConfigChanged {
+        /// Which part: `prompt`, `action`, `rule`, `status_line`, `appearance`, `environment`.
+        kind: String,
+    },
     /// What happened in the session's terminal since the agent's last turn, which the agent was
     /// given along with the user's message. Recorded by the core.
     TerminalShared {

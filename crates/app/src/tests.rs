@@ -779,3 +779,26 @@ fn a_core_error_reaches_the_ui_as_its_message() {
     let not_running = app.invoke("session_interrupt", json!({ "id": 7 }));
     assert_eq!(not_running, Err(json!("session 7 is not running")));
 }
+
+#[test]
+fn the_ui_can_keep_an_action_as_it_holds_it_and_answer_a_proposal() {
+    let app = app();
+    assert_eq!(app.ok("actions", json!({ "project": null })), json!([]));
+    // The UI sends an action back whole, with the flag only the core decides.
+    let action = json!({
+        "name": "Tests", "icon": "🧪", "prompt": "", "command": "make test", "of_project": true
+    });
+    let kept = app.ok("action_save", json!({ "project": null, "action": action }));
+    assert_eq!(kept[0]["name"], "Tests");
+    assert_eq!(kept[0]["of_project"], false);
+    assert_eq!(
+        app.ok("action_remove", json!({ "project": null, "name": "Tests" })),
+        json!([])
+    );
+    // A proposal that is not open, such as one from before the app was started again.
+    let gone = app.invoke(
+        "config_answer",
+        json!({ "requestId": "config-0-0", "accepted": true }),
+    );
+    assert!(gone.is_err());
+}

@@ -712,6 +712,16 @@ pub(crate) fn session_mark_read(core: CoreState<'_>, id: i64) -> Command<()> {
     Ok(core.session_mark_read(id)?)
 }
 
+/// The user's answer to a change of Swarmed's configuration that an agent proposed.
+#[tauri::command]
+pub(crate) fn config_answer(
+    core: CoreState<'_>,
+    request_id: String,
+    accepted: bool,
+) -> Command<()> {
+    Ok(core.config_answer(&request_id, accepted)?)
+}
+
 #[tauri::command]
 pub(crate) fn session_allow(core: CoreState<'_>, id: i64, request_id: String) -> Command<()> {
     Ok(core.session_allow(id, &request_id)?)

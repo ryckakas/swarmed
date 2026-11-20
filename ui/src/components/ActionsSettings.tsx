@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useState } from "react";
-import { actionLabel } from "../actionbar";
+import { ACTION_ICONS, actionLabel, pickedIcon } from "../actionbar";
 import { api } from "../api";
 import type { Action } from "../api/types";
 import { useStore } from "../store";
@@ -184,9 +184,28 @@ function ActionForm({ draft, onChange, onSave, onRemove, onCancel }: FormProps) 
                     onChange={(event) => onChange({ ...draft, name: event.target.value })}
                 />
             </label>
-            <label>
-                <span className="settings-label">Icon</span>
-                <span className="settings-hint">An emoji or a letter, or nothing.</span>
+            <div>
+                <p className="settings-label">Icon</p>
+                <p className="settings-hint">
+                    Pick one, or type any emoji or a letter of your own. It can be left empty.
+                </p>
+                <fieldset className="icon-choices" aria-label="Icons to pick from">
+                    {ACTION_ICONS.map(([icon, meaning]) => (
+                        <button
+                            key={icon}
+                            type="button"
+                            className="icon-choice"
+                            title={meaning}
+                            aria-label={meaning}
+                            aria-pressed={draft.icon.trim() === icon}
+                            onClick={() =>
+                                onChange({ ...draft, icon: pickedIcon(draft.icon, icon) })
+                            }
+                        >
+                            {icon}
+                        </button>
+                    ))}
+                </fieldset>
                 <input
                     className="key-input action-icon-input"
                     aria-label="Icon of the action"
@@ -195,7 +214,7 @@ function ActionForm({ draft, onChange, onSave, onRemove, onCancel }: FormProps) 
                     value={draft.icon}
                     onChange={(event) => onChange({ ...draft, icon: event.target.value })}
                 />
-            </label>
+            </div>
             <div className="settings-row">
                 <p className="settings-label">When pressed</p>
                 <Picker

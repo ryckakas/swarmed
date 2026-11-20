@@ -11,7 +11,6 @@
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::error::Error;
 use crate::{Core, Result};
@@ -36,9 +35,8 @@ pub struct Action {
     /// Typed into the terminal of the session on screen, in the task's worktree. Empty for an
     /// action that sends a prompt.
     pub command: String,
-    /// Whether it belongs to one repository and not to all. Not part of the file: which file
-    /// it is in says so.
-    #[serde(skip_deserializing)]
+    /// Whether it belongs to one repository and not to all. Which file it is in says so:
+    /// the files do not hold it, and what a front end sends for it is not gone by.
     pub of_project: bool,
 }
 
@@ -72,7 +70,7 @@ fn refused(why: impl Into<String>) -> Error {
 }
 
 /// `action` as it is kept, if it is one that can be: named, and with a prompt or a command.
-fn checked(action: &Action) -> Result<Action> {
+pub(crate) fn checked(action: &Action) -> Result<Action> {
     let name = action.name.trim().to_string();
     if name.is_empty() || name.contains('\n') {
         return Err(refused("an action needs a name of one line"));
@@ -109,42 +107,6 @@ fn checked(action: &Action) -> Result<Action> {
 }
 
 impl Core {
-    /// The `save_action` tool, called by session `from`: keeps an action for the repository
-    /// that session works in, or for every repository if it says so.
-    pub(crate) fn peer_action(&self, from: i64, arguments: &Value) -> Result<String> {
-        let word = |key: &str| {
-            let value = arguments.get(key).and_then(Value::as_str);
-            value.unwrap_or_default().to_string()
-        };
-        let everywhere = arguments.get("everywhere").and_then(Value::as_bool);
-        let session = self.session(from)?;
-        let task = self
-            .store()
-            .task_by_id(session.task_id)?
-            .ok_or(Error::SessionNotFound(from))?;
-        let project = self
-            .store()
-            .project_by_id(task.project_id)?
-            .ok_or(Error::SessionNotFound(from))?;
-        let action = Action {
-            name: word("name"),
-            icon: word("icon"),
-            prompt: word("prompt"),
-            command: word("command"),
-            of_project: false,
-        };
-        let scope = (everywhere != Some(true)).then_some(project.name.as_str());
-        self.action_save(scope, &action)?;
-        let place = scope.map_or_else(
-            || "every repository".to_string(),
-            |name| format!("the repository `{name}`"),
-        );
-        Ok(format!(
-            "Kept the action `{}` for {place}. Its button is in the task panel.",
-            action.name.trim()
-        ))
-    }
-
     /// The file with the actions of `project`, or with those for every repository.
     fn actions_file(&self, project: Option<&str>) -> PathBuf {
         match project {
@@ -245,5 +207,20 @@ impl Core {
         kept.retain(|action| action.name != name.trim());
         self.actions_write(project, &kept)?;
         self.actions(project)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_action_is_taken_as_a_front_end_sends_it() {
+        // A front end sends back what it was given, `of_project` and all.
+        let sent =
+            r#"{"name":"Tests","icon":"","prompt":"","command":"make test","of_project":true}"#;
+        let action: Action = serde_json::from_str(sent).unwrap_or_default();
+        assert_eq!(action.name, "Tests");
+        assert_eq!(action.command, "make test");
     }
 }

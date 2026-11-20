@@ -3,7 +3,6 @@ import { actionLabel, actionTooltip, splitActions } from "../actionbar";
 import { api } from "../api";
 import type { Action } from "../api/types";
 import { useStore } from "../store";
-import { findSession } from "../tree";
 import { useWords } from "../useWords";
 import { Picker } from "./Picker";
 
@@ -16,11 +15,6 @@ export function ActionBar({ project }: { project: string }) {
     const words = useWords();
     const sessionId = useStore((state) => state.selectedSessionId);
     const changed = useStore((state) => state.actionsChanged);
-    // An agent may have been asked to add a button: they are read again when its turn ends.
-    const status = useStore((state) =>
-        sessionId === null ? null : (findSession(state.projects, sessionId)?.status ?? null),
-    );
-    const settled = status !== "working" && status !== "waiting";
     const [actions, setActions] = useState<Action[]>([]);
 
     // biome-ignore lint/correctness/useExhaustiveDependencies: read again when the actions were changed
@@ -32,7 +26,7 @@ export function ActionBar({ project }: { project: string }) {
         return () => {
             current = false;
         };
-    }, [project, changed, settled]);
+    }, [project, changed]);
 
     if (actions.length === 0) {
         return null;

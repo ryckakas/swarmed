@@ -1314,6 +1314,38 @@ code {
     max-width: 8ch;
 }
 
+/* The icons offered for an action: a few rows to pick from. */
+.icon-choices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    min-width: 0;
+    margin: var(--space-2) 0;
+    padding: 0;
+    border: 0;
+}
+
+.icon-choice {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: none;
+    font-size: var(--text-md);
+    line-height: 1;
+}
+
+.icon-choice:hover,
+.icon-choice:focus-visible {
+    background: var(--line);
+}
+
+.icon-choice[aria-pressed="true"] {
+    border-color: var(--sky);
+    background: color-mix(in srgb, var(--sky) 16%, transparent);
+}
+
 /* A provider's mark: what a session runs on, or whose key or agent a row is about. */
 .provider-mark {
     flex: none;

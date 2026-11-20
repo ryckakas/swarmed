@@ -236,6 +236,8 @@ export interface Api {
     /** Says the user has looked at the session, so it is no longer unread. */
     sessionMarkRead(id: number): Promise<void>;
     sessionAllow(id: number, requestId: string): Promise<void>;
+    /** Answers a change to Swarmed's configuration that an agent proposed. */
+    configAnswer(requestId: string, accepted: boolean): Promise<void>;
     sessionDeny(id: number, requestId: string, reason: string): Promise<void>;
     /** Stops the current turn; the session stays usable. */
     sessionInterrupt(id: number): Promise<void>;

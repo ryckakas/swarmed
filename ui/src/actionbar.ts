@@ -27,3 +27,39 @@ export function actionTooltip(action: Action): string {
 export function actionLabel(action: Action): string {
     return action.icon === "" ? action.name : `${action.icon} ${action.name}`;
 }
+
+/**
+ * Icons offered for an action, each with what it tends to stand for. Only suggestions: any
+ * emoji or letter can be typed instead.
+ */
+export const ACTION_ICONS: [icon: string, meaning: string][] = [
+    ["▶️", "Start or run"],
+    ["⏹️", "Stop"],
+    ["🔁", "Run again"],
+    ["🧪", "Tests"],
+    ["✅", "Check"],
+    ["🔍", "Review or search"],
+    ["🐛", "Debug"],
+    ["🛠️", "Build or fix"],
+    ["🧹", "Clean up"],
+    ["📦", "Package or install"],
+    ["🚀", "Deploy or release"],
+    ["🌐", "Browser or network"],
+    ["🗄️", "Database"],
+    ["🐳", "Containers"],
+    ["❄️", "Nix environment"],
+    ["🔒", "Security"],
+    ["⚡", "Quick task"],
+    ["📝", "Write or document"],
+    ["📋", "Plan or list"],
+    ["💬", "Ask or explain"],
+    ["🌿", "Branch or git"],
+    ["📊", "Report or chart"],
+    ["🧭", "Explore"],
+    ["📞", "Notify someone"],
+];
+
+/** The icon after `picked` was pressed: that one, or none if it was the one already chosen. */
+export function pickedIcon(current: string, picked: string): string {
+    return current.trim() === picked ? "" : picked;
+}

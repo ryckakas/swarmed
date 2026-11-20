@@ -58,7 +58,7 @@ fn tools() -> Value {
         tools.push(cloud_tool());
         tools.push(skill_tool());
         tools.push(mark_tool());
-        tools.push(action_tool());
+        tools.push(configure_tool());
     }
     tools
 }
@@ -165,37 +165,63 @@ fn local_tools() -> Value {
     }])
 }
 
-/// The tool an agent adds a button of the user's own with.
-fn action_tool() -> Value {
+/// The tool an agent changes Swarmed's own configuration with.
+fn configure_tool() -> Value {
+    let text = |description: &str| json!({ "type": "string", "description": description });
     json!({
-        "name": "save_action",
-        "title": "Add a button to the user's task panel",
-        "description": "Keeps an action: a button in Swarmed's task panel that, when the user \
-            presses it, either sends a prompt to the agent of the session on screen or runs a \
-            shell command in that session's terminal, in the task's worktree. Use it only when \
-            the user asks for a button or an action. Give it either `prompt` or `command`, \
-            not both. It replaces the action of the same name. By default it is kept for the \
-            repository you are working in; set `everywhere` for one the user wants in every \
-            repository.",
+        "name": "configure",
+        "title": "Change Swarmed's own settings",
+        "description": "Reads or changes the configuration of Swarmed, the app the user runs \
+            you in. Use it when the user asks for it: \"keep that as a prompt\", \"add a button \
+            that starts the dev server\", \"add a rule: never use em dashes\". Choose a `kind` \
+            and an `op` (list, save, remove). \
+            prompt: a text kept under `name` (lower-case, dashes) that the user sends again by \
+            typing /name; give `name` and `text`. \
+            action: a button in the task panel that sends `text` to the agent or runs \
+            `command` in the session's terminal; give `name`, optionally `icon`, and one of \
+            the two; `everywhere` keeps it for every repository instead of this one. \
+            rule: one line every agent is told to keep to; give `text`. \
+            status_line: the pieces under the message box, as `items` in order (branch, \
+            changes, model, context, cost, agent, worktree, duration), or a script as `command`. \
+            appearance: `theme`, `palette`, `style`, `text_size`. \
+            environment: a way of setting a task up in this repository; give `name` and any \
+            of `setup`, `start`, `stop`, `teardown`, `open_url`. \
+            Rules, environments, a command for an action and a script for the status line are \
+            not made at once: they are proposed to the user, who accepts or declines them in \
+            the conversation. API keys, MCP servers, sign-ins, permissions and notes cannot be \
+            changed this way. List before you change something you have not seen.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "name": { "type": "string", "description": "What the button says; short." },
-                "icon": {
+                "kind": {
                     "type": "string",
-                    "description": "One emoji shown before the name; may be left out.",
+                    "enum": ["prompt", "action", "rule", "status_line", "appearance", "environment"],
                 },
-                "prompt": { "type": "string", "description": "The prompt the button sends." },
-                "command": {
-                    "type": "string",
-                    "description": "The shell command the button runs in the terminal.",
-                },
+                "op": { "type": "string", "enum": ["list", "save", "remove"] },
+                "name": text("The name of the prompt, action or environment."),
+                "text": text("A prompt's text, an action's prompt, or a rule."),
+                "command": text("An action's shell command, or the status line's script."),
+                "icon": text("One emoji shown before an action's name."),
                 "everywhere": {
                     "type": "boolean",
-                    "description": "Keep it for every repository instead of this one.",
+                    "description": "An action for every repository instead of this one.",
                 },
+                "items": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "The status line's pieces, in order.",
+                },
+                "theme": text("system, dark or light."),
+                "palette": text("dusk, graphite, forest, plum, ember or swarm."),
+                "style": text("plain, swarm or colony."),
+                "text_size": { "type": "integer", "description": "In percent, 80 to 150." },
+                "setup": text("An environment's command run once after a worktree is created."),
+                "start": text("An environment's command that starts what keeps running."),
+                "stop": text("An environment's command run when its stack is stopped."),
+                "teardown": text("An environment's command run before a worktree is removed."),
+                "open_url": text("Where an environment's running stack is reached."),
             },
-            "required": ["name"],
+            "required": ["kind", "op"],
         },
     })
 }

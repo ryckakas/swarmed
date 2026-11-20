@@ -445,12 +445,25 @@ export const useStore = create<State>((set, get) => ({
 /** The window the app is shown in. There is none where the store runs without one, as in tests. */
 const inView = typeof window === "undefined" ? null : window;
 
+/** Reads the settings and the kept prompts, at the start and whenever an agent changed them. */
+function readConfiguration(api: Api) {
+    void reporting(async () => useStore.setState({ settings: await api.settings() }));
+    void reporting(async () => useStore.setState({ templates: await api.templates() }));
+}
+
+/** An agent changed Swarmed's configuration: what was read of it is out of date. */
+function heardOfConfiguration(api: Api, event: SessionEvent) {
+    if (event.event.type === "config_changed") {
+        readConfiguration(api);
+        useStore.getState().noteActionsChanged();
+    }
+}
+
 /** Loads the tree and keeps it in step with the sessions. Returns what stops that again. */
 export function connect(api: Api): () => void {
     const { refresh, apply } = useStore.getState();
     void refresh(api);
-    void reporting(async () => useStore.setState({ settings: await api.settings() }));
-    void reporting(async () => useStore.setState({ templates: await api.templates() }));
+    readConfiguration(api);
     // After dropped events nothing on screen can be trusted: forget the transcripts and reload.
     const reload = () => {
         const { selectedSessionId, open } = useStore.getState();
@@ -487,6 +500,7 @@ export function connect(api: Api): () => void {
             if (turnBegan !== useStore.getState().turnBegan) {
                 useStore.setState({ turnBegan });
             }
+            heardOfConfiguration(api, event);
             if (event.event.type === "background") {
                 useStore.setState((state) => ({ backgroundHeard: state.backgroundHeard + 1 }));
             }

@@ -907,6 +907,15 @@ class MockAgent {
         let events = this.events.get(id);
         if (!events) {
             events = sampleEvents(id);
+            // One sample session's agent has proposed a rule, which waits for an answer.
+            if (id === 2) {
+                events.push({
+                    type: "config_proposed",
+                    request_id: "config-sample",
+                    title: "Add this rule for every agent?",
+                    detail: "never use em dashes in anything you write",
+                });
+            }
             this.events.set(id, events);
         }
         return events;
@@ -1127,6 +1136,20 @@ class MockAgent {
             throw new Error(`session ${id} not found`);
         }
         return Object.assign(found, settings);
+    }
+
+    /** Answers the sample proposal, in whichever session it was made. */
+    answerProposal(requestId: string, accepted: boolean) {
+        for (const [id, events] of this.events) {
+            if (events.some((event) => "request_id" in event && event.request_id === requestId)) {
+                this.publish(
+                    id,
+                    { type: "config_answered", request_id: requestId, accepted },
+                    null,
+                );
+                this.publish(id, { type: "config_changed", kind: "rule" }, null);
+            }
+        }
     }
 
     mark(id: number, colour: MarkColour | "none", label: string): Session {
@@ -1486,6 +1509,7 @@ export function createMockApi(): Api {
             agent.configure(id, { unread: false });
         },
         sessionAllow: async (id, requestId) => agent.decide(id, requestId, true),
+        configAnswer: async (requestId, accepted) => agent.answerProposal(requestId, accepted),
         sessionDeny: async (id, requestId) => agent.decide(id, requestId, false),
         sessionInterrupt: async (id) => agent.interrupt(id),
         ...backgroundApi(),

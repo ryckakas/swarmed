@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actionLabel, actionTooltip, splitActions } from "./actionbar";
+import { ACTION_ICONS, actionLabel, actionTooltip, pickedIcon, splitActions } from "./actionbar";
 import type { Action } from "./api/types";
 
 const action = (name: string, over: Partial<Action> = {}): Action => ({
@@ -37,5 +37,20 @@ describe("what an action says", () => {
         expect(actionTooltip(action("Review"))).toBe("Sends the agent: Do it.");
         const runs = action("Env", { prompt: "", command: "nix develop\nmake up" });
         expect(actionTooltip(runs)).toBe("Runs in the terminal: nix develop…");
+    });
+});
+
+describe("the icons offered for an action", () => {
+    it("are all different and short enough to be kept", () => {
+        const icons = ACTION_ICONS.map(([icon]) => icon);
+        expect(new Set(icons).size).toBe(icons.length);
+        // The core keeps an icon of at most 8 characters.
+        expect(icons.every((icon) => [...icon].length <= 8)).toBe(true);
+    });
+
+    it("are chosen by pressing one, and put back by pressing it again", () => {
+        expect(pickedIcon("", "🧪")).toBe("🧪");
+        expect(pickedIcon("🔍", "🧪")).toBe("🧪");
+        expect(pickedIcon(" 🧪 ", "🧪")).toBe("");
     });
 });
