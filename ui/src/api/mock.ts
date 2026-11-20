@@ -10,6 +10,7 @@ import type {
     CloudProvider,
     CloudTask,
     Costs,
+    CustomLayout,
     Environment,
     FileChange,
     FileDiff,
@@ -1368,6 +1369,7 @@ export function createMockApi(): Api {
         { name: "ANTHROPIC_API_KEY", provider: "Anthropic API", stored: false },
         { name: "GEMINI_API_KEY", provider: "Google Gemini", stored: false },
     ];
+    let customLayout: CustomLayout = { base: "classic" };
     let settings: Settings = {
         editor: "code",
         auto_title: true,
@@ -1488,6 +1490,12 @@ export function createMockApi(): Api {
         setBadge: async () => {},
         setSettings: async (changed) => {
             settings = changed;
+        },
+        customLayout: async () => ({ ...customLayout }),
+        // The real check is the core's; here only what is not JSON at all is refused.
+        customLayoutSave: async (text) => {
+            customLayout = { base: "classic", ...(JSON.parse(text) as Partial<CustomLayout>) };
+            return { ...customLayout };
         },
         onHookOutput: async (listener) => {
             hookListeners.add(listener);

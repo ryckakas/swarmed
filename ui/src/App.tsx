@@ -1,6 +1,6 @@
 import { type CSSProperties, useEffect } from "react";
 import { api } from "./api";
-import { applyAppearance } from "./appearance";
+import { applyAppearance, customCss, drawCustom } from "./appearance";
 import icon from "./assets/icon.jpg";
 import { CloseSessionDialog } from "./components/CloseSessionDialog";
 import { CloudDialog } from "./components/CloudDialog";
@@ -16,6 +16,7 @@ import { SessionPane } from "./components/SessionPane";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { Sidebar } from "./components/Sidebar";
 import { TaskPanel } from "./components/TaskPanel";
+import { drawnLayout } from "./customLayout";
 import { PANEL_WIDTH, sidebarOf, widestPanel } from "./resize";
 import { connect, useStore } from "./store";
 import { countUnread, countWaiting } from "./tree";
@@ -26,13 +27,17 @@ export function App() {
     useHotkeys();
     const load = useStore((state) => state.load);
     const settings = useStore((state) => state.settings);
-    useEffect(() => applyAppearance(document.documentElement, settings), [settings]);
+    const customLayout = useStore((state) => state.customLayout);
+    useEffect(() => {
+        applyAppearance(document.documentElement, settings, customLayout);
+        drawCustom(document, customCss(settings, customLayout));
+    }, [settings, customLayout]);
     // The app's icon counts what waits for the user: questions, and answers not looked at.
     const waiting = useStore((state) => countWaiting(state.projects) + countUnread(state.projects));
     useEffect(() => void api.setBadge(waiting).catch(() => {}), [waiting]);
     const problem = useStore((state) => state.problem);
     const dismissProblem = useStore((state) => state.dismissProblem);
-    const sidebar = sidebarOf(settings?.layout);
+    const sidebar = sidebarOf(drawnLayout(settings, customLayout));
     const [sidebarWidth, setSidebarWidth] = useStoredWidth(sidebar.key, sidebar.limits);
     const [panelWidth, setPanelWidth] = useStoredWidth("swarmed.panel-width", PANEL_WIDTH);
     const widths = {

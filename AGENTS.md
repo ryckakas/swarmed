@@ -123,6 +123,14 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   enlarged with `zoom` rather than given second sizes. Size new things with the tokens and they
   follow; a new fixed-size icon goes into the `zoom` lists there. Each layout remembers its own
   sidebar width (`sidebarOf`).
+- **The custom layout is data, checked in the core** (`layouts.rs`, `layout.json` in the data
+  directory): sizes, spacing, fonts and colours on top of classic or senior, never which parts
+  the app has. `CustomLayout::parse` refuses the whole file with the reason if a number is out
+  of range, a colour is not `#rrggbb`, or text would not stand out from the backgrounds given;
+  a new field gets a range there, a line in `layout_schema`, and a line in the UI's
+  `customLayout.ts`, which writes only values of a form it knows into the stylesheet it builds.
+  Agents save it whole through `configure`'s `layout` kind, at once: it cannot hide or move
+  anything, and it has to stay that way for that to be safe.
 - **Check UI changes in a browser** with `pnpm dev`. The mock agent answers plain text, asks
   permission for `run: <command>`, and runs until stopped for `slow`; one sample session has
   2,000 messages for checking scroll speed.

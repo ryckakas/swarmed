@@ -24,7 +24,7 @@ export interface StoredPanel {
  * The sidebar of a layout. Each layout remembers its own width, so that going back to one
  * finds the sidebar as it was left there.
  */
-export function sidebarOf(layout: Layout | undefined): StoredPanel {
+export function sidebarOf(layout: Layout): StoredPanel {
     return layout === "senior"
         ? { key: "swarmed.sidebar-width.senior", limits: SENIOR_SIDEBAR_WIDTH }
         : { key: "swarmed.sidebar-width", limits: SIDEBAR_WIDTH };

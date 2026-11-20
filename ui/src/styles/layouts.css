@@ -22,6 +22,11 @@
     --space-4: 20px;
     --space-6: 28px;
     --space-8: 44px;
+
+    --icon-zoom: 1.35;
+    --button-zoom: 1.3;
+    --row-min: 44px;
+    --control-min: 40px;
 }
 
 /*
@@ -47,45 +52,45 @@
 }
 
 /*
- * Icons, marks and the small buttons beside a row are drawn to fixed sizes in app.css. Here
- * each is enlarged as a whole, with its own margins, rather than given a second set of sizes.
+ * Icons, marks and the small buttons beside a row are drawn to fixed sizes in app.css. A layout
+ * enlarges each as a whole, with its own margins, rather than giving it a second set of sizes;
+ * and sets how tall rows and controls are at least. Classic sets none of these, senior all of
+ * them, and a custom layout whichever it names.
  */
-:root[data-layout="senior"]
-    :is(
-        .row-icon,
-        .provider-mark,
-        .fold-chevron,
-        .change-chevron,
-        .pull-fold-chevron,
-        .egg,
-        .larva,
-        .incubating,
-        .spawning,
-        .mark,
-        .session-spawned,
-        .session-mark-dot,
-        .agent-ready,
-        .activity-swatch
-    ) {
-    zoom: 1.35;
+:is(
+    .row-icon,
+    .provider-mark,
+    .fold-chevron,
+    .change-chevron,
+    .pull-fold-chevron,
+    .egg,
+    .larva,
+    .incubating,
+    .spawning,
+    .mark,
+    .session-spawned,
+    .session-mark-dot,
+    .agent-ready,
+    .activity-swatch
+) {
+    zoom: var(--icon-zoom, 1);
 }
 
-:root[data-layout="senior"]
-    :is(
-        .row-add,
-        .row-close,
-        .row-note,
-        .icon-button,
-        .icon-picker,
-        .round-button,
-        .status-toggle,
-        .status-piece-move,
-        .publish-write,
-        .queue-remove,
-        .file-chip button,
-        .model-chip button
-    ) {
-    zoom: 1.3;
+:is(
+    .row-add,
+    .row-close,
+    .row-note,
+    .icon-button,
+    .icon-picker,
+    .round-button,
+    .status-toggle,
+    .status-piece-move,
+    .publish-write,
+    .queue-remove,
+    .file-chip button,
+    .model-chip button
+) {
+    zoom: var(--button-zoom, 1);
 }
 
 /*
@@ -143,8 +148,22 @@
     border-left-width: 4px;
 }
 
+.session-row,
+.cloud-row,
+.new-task-button,
+.quiet-button {
+    min-height: var(--row-min, 0);
+}
+
+.button {
+    min-height: var(--control-min, 0);
+}
+
+.picker {
+    min-height: calc(var(--control-min, 0px) * 0.9);
+}
+
 :root[data-layout="senior"] .session-row {
-    min-height: 44px;
     padding-block: var(--space-2);
 }
 
@@ -173,24 +192,14 @@
     margin-left: 26px;
 }
 
-:root[data-layout="senior"] .cloud-row {
-    min-height: 44px;
-}
-
-:root[data-layout="senior"] :is(.new-task-button, .quiet-button) {
-    min-height: 44px;
-}
-
 /* Everything pressed: tall enough to hit without aiming. */
 
 :root[data-layout="senior"] .button {
-    min-height: 40px;
     padding-block: 6px;
     border-radius: 8px;
 }
 
 :root[data-layout="senior"] .picker {
-    min-height: 36px;
     padding-block: var(--space-1);
     padding-right: 26px;
     background-size: 11px;
@@ -211,7 +220,7 @@
 
 .layouts {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: var(--space-2);
 }
 
@@ -254,4 +263,47 @@
 .layout-what {
     color: var(--muted);
     font-size: var(--text-xs);
+}
+
+.layout-choice[data-layout="custom"] .layout-sample {
+    font-family: var(--font-mono);
+    font-size: 1rem;
+}
+
+/* The custom layout, as the JSON it is: written here, checked by the core when saved. */
+.layout-editor {
+    display: grid;
+    gap: var(--space-2);
+}
+
+.layout-json {
+    display: block;
+    width: 100%;
+    min-height: 16lh;
+    padding: var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--dusk);
+    color: var(--text);
+    font: inherit;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    line-height: 1.45;
+    resize: vertical;
+    user-select: text;
+    tab-size: 2;
+}
+
+.layout-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.layout-problem {
+    flex: 1;
+    min-width: 0;
+    color: var(--clay);
+    font-size: var(--text-xs);
+    user-select: text;
 }

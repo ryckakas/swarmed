@@ -54,4 +54,14 @@ describe("applyAppearance", () => {
         expect(root.dataset).toEqual({ palette: "swarm", style: "swarm", layout: "classic" });
         expect(PALETTES[0]?.[0]).toBe("swarm");
     });
+
+    it("draws a custom layout as the layout it starts from, and marks the page as custom", () => {
+        const root = page();
+        applyAppearance(root, { ...settings, layout: "custom" }, { base: "senior" });
+        expect(root.dataset.layout).toBe("senior");
+        expect(root.dataset.custom).toBe("");
+        applyAppearance(root, { ...settings, layout: "classic" }, { base: "senior" });
+        expect(root.dataset.layout).toBe("classic");
+        expect(root.dataset.custom).toBeUndefined();
+    });
 });

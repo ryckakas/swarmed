@@ -105,6 +105,8 @@ pub enum Layout {
     Classic,
     /// For easier reading: larger text, taller rows, larger buttons and stronger contrast.
     Senior,
+    /// The user's own, as their layout file describes it.
+    Custom,
 }
 
 /// The smallest and largest text the app can be set to, in percent.

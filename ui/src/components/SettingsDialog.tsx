@@ -219,6 +219,7 @@ function Appearance({ settings }: { settings: Settings }) {
                     ))}
                 </div>
             </Row>
+            {settings.layout === "custom" && <LayoutEditor />}
             <Row label="Text size" hint="On top of what the layout starts from.">
                 <Picker
                     label="Text size"
@@ -228,6 +229,62 @@ function Appearance({ settings }: { settings: Settings }) {
                 />
             </Row>
         </section>
+    );
+}
+
+/** The fields a custom layout may hold, as the hint under its editor. */
+const LAYOUT_FIELDS =
+    "base (classic or senior), text { xs, sm, md, lg, xl } in pixels, line_height, spacing and icons in percent, " +
+    "row_height and control_height in pixels, font, mono_font, and dark and light colours such as dusk, panel, " +
+    "raised, line, text, muted, faint, bright, focus, sky, pollen, moss, busy, clay. Leave out what should stay " +
+    "as it is. An agent can write it for you: ask one to change the layout.";
+
+/** The custom layout as the JSON it is. The core checks it on saving and says what is wrong. */
+function LayoutEditor() {
+    const kept = useStore((state) => state.customLayout);
+    const save = useStore((state) => state.saveCustomLayout);
+    const [text, setText] = useState<string | null>(null);
+    const [problem, setProblem] = useState<string | null>(null);
+    const written = JSON.stringify(kept ?? { base: "classic" }, null, 2);
+    const shown = text ?? written;
+    const keep = async () => {
+        const wrong = await save(api, shown);
+        setProblem(wrong);
+        // Once kept, the editor shows it as the core wrote it down.
+        setText(wrong === null ? null : shown);
+    };
+    return (
+        <div className="layout-editor">
+            <p className="settings-hint">{LAYOUT_FIELDS}</p>
+            <textarea
+                className="layout-json"
+                aria-label="Custom layout, as JSON"
+                spellCheck={false}
+                value={shown}
+                onChange={(event) => setText(event.target.value)}
+            />
+            <div className="layout-foot">
+                <p className="layout-problem" role="alert">
+                    {problem}
+                </p>
+                <button
+                    type="button"
+                    className="button"
+                    disabled={shown === written}
+                    onClick={() => setText(null)}
+                >
+                    Revert
+                </button>
+                <button
+                    type="button"
+                    className="button button-primary"
+                    disabled={shown === written}
+                    onClick={keep}
+                >
+                    Save layout
+                </button>
+            </div>
+        </div>
     );
 }
 

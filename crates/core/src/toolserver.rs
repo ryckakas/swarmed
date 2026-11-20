@@ -184,6 +184,10 @@ fn configure_tool() -> Value {
             status_line: the pieces under the message box, as `items` in order (branch, \
             changes, model, context, cost, agent, worktree, duration), or a script as `command`. \
             appearance: `theme`, `palette`, `style`, `layout`, `text_size`. \
+            layout: the user's custom layout, one JSON object of sizes, spacing, fonts and \
+            colours; list it to get its schema, save the whole of it as `json`. Saving \
+            switches the app to it; what cannot be read, such as text too close to its \
+            background, is refused with the reason. \
             environment: a way of setting a task up in this repository; give `name` and any \
             of `setup`, `start`, `stop`, `teardown`, `open_url`. \
             Rules, environments, a command for an action and a script for the status line are \
@@ -195,7 +199,10 @@ fn configure_tool() -> Value {
             "properties": {
                 "kind": {
                     "type": "string",
-                    "enum": ["prompt", "action", "rule", "status_line", "appearance", "environment"],
+                    "enum": [
+                        "prompt", "action", "rule", "status_line", "appearance", "layout",
+                        "environment",
+                    ],
                 },
                 "op": { "type": "string", "enum": ["list", "save", "remove"] },
                 "name": text("The name of the prompt, action or environment."),
@@ -214,7 +221,11 @@ fn configure_tool() -> Value {
                 "theme": text("system, dark or light."),
                 "palette": text("dusk, graphite, forest, plum, ember or swarm."),
                 "style": text("plain, swarm or colony."),
-                "layout": text("classic, or senior for larger text and rows."),
+                "layout": text("classic, senior for larger text and rows, or custom."),
+                "json": {
+                    "type": "object",
+                    "description": "The whole custom layout, for kind layout.",
+                },
                 "text_size": { "type": "integer", "description": "In percent, 80 to 150." },
                 "setup": text("An environment's command run once after a worktree is created."),
                 "start": text("An environment's command that starts what keeps running."),

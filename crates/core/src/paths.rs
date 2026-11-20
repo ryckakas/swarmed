@@ -69,6 +69,12 @@ impl Paths {
         self.data_dir.join("settings.toml")
     }
 
+    /// The file with the user's custom layout.
+    #[must_use]
+    pub fn custom_layout(&self) -> PathBuf {
+        self.data_dir.join("layout.json")
+    }
+
     /// The local config file of `project`.
     #[must_use]
     pub fn project_config(&self, project: &str) -> PathBuf {

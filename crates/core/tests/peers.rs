@@ -306,6 +306,16 @@ async fn an_agent_changes_what_is_harmless_at_once() {
         (settings.palette, settings.layout, settings.text_scale),
         (Palette::Forest, Layout::Senior, 110)
     );
+    let layout = serde_json::json!({ "kind": "layout", "op": "save", "json": { "base": "senior", "icons": 140 } });
+    let (ok, said) = configure(&socket, session.id, json(layout)).await;
+    assert!(ok, "{said}");
+    assert_eq!(core.settings().expect("reads").layout, Layout::Custom);
+    assert_eq!(core.custom_layout().expect("reads").icons, Some(140));
+    let unreadable = serde_json::json!({ "kind": "layout", "op": "save",
+        "json": { "dark": { "dusk": "#202020", "text": "#303030" } } });
+    let (ok, said) = configure(&socket, session.id, json(unreadable)).await;
+    assert!(!ok && said.contains("cannot be read"), "{said}");
+    assert_eq!(core.custom_layout().expect("reads").icons, Some(140));
     let (ok, _) = configure(
         &socket,
         session.id,

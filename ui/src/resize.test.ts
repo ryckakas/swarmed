@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import type { Settings } from "./api/types";
+import { drawnLayout } from "./customLayout";
 import {
     clampWidth,
     KEY_STEP,
@@ -58,7 +60,9 @@ describe("sidebarOf", () => {
         expect(sidebarOf("senior").key).not.toBe(sidebarOf("classic").key);
     });
 
-    it("is the classic one until the settings are read", () => {
-        expect(sidebarOf(undefined)).toEqual(sidebarOf("classic"));
+    it("gives a custom layout the sidebar of the layout it starts from", () => {
+        const senior = { layout: "custom" } as Settings;
+        expect(sidebarOf(drawnLayout(senior, { base: "senior" }))).toEqual(sidebarOf("senior"));
+        expect(sidebarOf(drawnLayout(null, null))).toEqual(sidebarOf("classic"));
     });
 });

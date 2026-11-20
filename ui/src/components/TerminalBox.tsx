@@ -47,6 +47,7 @@ function useTypedCommand(sessionId: number, opened: RefObject<Promise<unknown>>)
 export function TerminalBox({ sessionId }: { sessionId: number }) {
     const holder = useRef<HTMLDivElement>(null);
     const settings = useStore((state) => state.settings);
+    const customLayout = useStore((state) => state.customLayout);
     // Settles once the shell is there to be typed into.
     const opened = useRef<Promise<unknown>>(Promise.resolve());
 
@@ -110,7 +111,7 @@ export function TerminalBox({ sessionId }: { sessionId: number }) {
             void listening.then((stop) => stop());
             terminal.dispose();
         };
-    }, [sessionId, settings?.theme, settings?.layout, settings?.text_scale]);
+    }, [sessionId, settings?.theme, settings?.layout, settings?.text_scale, customLayout]);
     // After the effect above, so that on first showing there is a shell being opened to wait for.
     useTypedCommand(sessionId, opened);
 

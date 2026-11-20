@@ -28,7 +28,8 @@ use crate::actions::Action;
 use crate::agent::AgentEvent;
 use crate::environments::Environment;
 use crate::error::Error;
-use crate::settings::{MAX_RULES_BYTES, Settings};
+use crate::layouts::layout_schema;
+use crate::settings::{Layout, MAX_RULES_BYTES, Settings};
 use crate::store::Project;
 use crate::{Core, Result, lock};
 
@@ -410,6 +411,34 @@ impl Core {
         Ok(format!("Changed. {}", appearance_of(&settings)))
     }
 
+    /// The custom layout: listed with its schema, or replaced as a whole and switched to.
+    fn configure_layout(&self, op: &str, asked: &Asked<'_>) -> Result<String> {
+        if op == "list" {
+            let current = serde_json::to_string(&self.custom_layout()?).unwrap_or_default();
+            return Ok(format!(
+                "The custom layout now: {current}\nIts JSON Schema: {}",
+                layout_schema()
+            ));
+        }
+        if op != "save" {
+            return Err(refused(
+                "the custom layout can be listed and saved; save {} to empty it",
+            ));
+        }
+        let Some(given) = asked.0.get("json").filter(|given| !given.is_null()) else {
+            return Err(refused("give the whole layout as `json`"));
+        };
+        let text = given
+            .as_str()
+            .map_or_else(|| given.to_string(), str::to_string);
+        let kept = self.set_custom_layout(&text)?;
+        let mut settings = self.settings()?;
+        settings.layout = Layout::Custom;
+        self.set_settings(&settings)?;
+        let kept = serde_json::to_string(&kept).unwrap_or_default();
+        Ok(format!("Kept, and the app is drawn in it now: {kept}"))
+    }
+
     fn configure_environment(&self, from: i64, op: &str, asked: &Asked<'_>) -> Result<String> {
         let project = self.project_of_session(from)?.name;
         let environments = self.environments(&project)?;
@@ -462,9 +491,11 @@ impl Core {
             "rule" => self.configure_rule(from, op, &asked),
             "status_line" => self.configure_status_line(from, op, &asked),
             "appearance" => self.configure_appearance(op, &asked),
+            "layout" => self.configure_layout(op, &asked),
             "environment" => self.configure_environment(from, op, &asked),
             _ => Err(refused(
-                "`kind` is one of prompt, action, rule, status_line, appearance, environment. \
+                "`kind` is one of prompt, action, rule, status_line, appearance, layout, \
+                 environment. \
                  API keys, MCP servers, sign-ins, permissions and notes cannot be changed by \
                  an agent.",
             )),
@@ -526,7 +557,8 @@ fn appearance_of(settings: &Settings) -> String {
     let layout = word(serde_json::to_value(settings.layout).unwrap_or_default());
     format!(
         "theme {theme} (system, dark, light); palette {palette} (dusk, graphite, forest, plum, \
-         ember, swarm); style {style} (plain, swarm, colony); layout {layout} (classic, senior); \
+         ember, swarm); style {style} (plain, swarm, colony); layout {layout} (classic, senior, custom: \
+         see kind layout); \
          text_size {} (80 to 150)",
         settings.text_scale
     )

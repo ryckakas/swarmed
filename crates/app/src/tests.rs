@@ -367,6 +367,14 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
         "rules": "Keep answers short.",
     } });
     app.ok("set_settings", chosen);
+    assert_eq!(
+        app.ok("custom_layout", json!({})),
+        json!({ "base": "classic", "text": {} })
+    );
+    let written = json!({ "text": "{ \"base\": \"senior\", \"text\": { \"sm\": 17 } }" });
+    let kept = json!({ "base": "senior", "text": { "sm": 17 } });
+    assert_eq!(app.ok("custom_layout_save", written), kept);
+    assert_eq!(app.ok("custom_layout", json!({})), kept);
     let target = json!({ "project": "demo", "name": "one" });
     let failed = app.invoke("task_open_editor", target.clone());
     let message = failed.expect_err("no such editor");
