@@ -438,6 +438,38 @@ async fn the_effort_an_agent_opens_with_is_recorded_and_is_its_default_from_then
 }
 
 #[tokio::test]
+async fn a_commit_message_is_written_by_the_agent_the_session_runs_on() {
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let options = SessionOptions {
+        agent: Some(AGENT.into()),
+        ..Default::default()
+    };
+    let id = core
+        .session_new("demo", "one", &options)
+        .expect("creates")
+        .id;
+    let worktree = core.task("demo", "one").expect("exists").1.worktree_path;
+    std::fs::write(worktree.join("notes.txt"), "one\n").expect("writes");
+
+    // No namer is set: the session's own agent is asked, and it echoes what it was shown.
+    let message = core
+        .task_commit_message("demo", "one", Some(id))
+        .await
+        .expect("writes");
+    assert!(
+        message.starts_with("echo: You write git commit messages."),
+        "{message}"
+    );
+    assert!(message.contains("new file notes.txt:\none"), "{message}");
+    // The question was a conversation of its own: the session has heard nothing of it.
+    assert_eq!(core.session_events(id).expect("reads"), []);
+    assert_eq!(core.running_sessions(), Vec::<i64>::new());
+    // Without a session there is nobody to ask here.
+    assert!(core.task_commit_message("demo", "one", None).await.is_err());
+}
+
+#[tokio::test]
 async fn a_session_can_name_its_model_and_only_a_configured_agent() {
     let fx = fixture();
     let core = core_with(&fx, scripted_agent(&[])).await;

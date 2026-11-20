@@ -160,8 +160,11 @@ export interface Api {
     /** The files the task has changed since its branch left its base, uncommitted ones included. */
     /** What of a task's work is not committed, and what is not pushed. */
     taskUnpublished(project: string, name: string): Promise<Unpublished>;
-    /** A commit message written for a task's uncommitted work. Commits nothing. */
-    taskCommitMessage(project: string, name: string): Promise<string>;
+    /**
+     * A commit message written for a task's uncommitted work, by the agent of `session` or,
+     * without one or for Claude Code, by Claude Code's smallest model. Commits nothing.
+     */
+    taskCommitMessage(project: string, name: string, session: number | null): Promise<string>;
     /** Commits everything in a task's worktree under `message`. */
     taskCommit(project: string, name: string, message: string): Promise<void>;
     /** Pushes a task's branch to its remote. */

@@ -8,6 +8,7 @@ mod agent_models;
 mod agent_setup;
 mod agents;
 mod analytics;
+mod asking;
 mod attach;
 mod background;
 mod changes;

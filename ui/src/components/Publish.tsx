@@ -37,6 +37,8 @@ export function Publish({ project, task }: Props) {
     const hasPull = useStore((state) => Boolean(state.pulls[task.id]));
     const loadPull = useStore((state) => state.loadPull);
     const report = useStore((state) => state.report);
+    // The session on screen is one of this task's: its agent is the one to write for it.
+    const sessionId = useStore((state) => state.selectedSessionId);
     const [done, setDone] = useState(0);
     const [busy, setBusy] = useState(false);
     const state = useUnpublished(project, task, edits + done);
@@ -61,7 +63,7 @@ export function Publish({ project, task }: Props) {
             {step === "commit" && (
                 <CommitForm
                     busy={busy}
-                    write={() => api.taskCommitMessage(project, task.name)}
+                    write={() => api.taskCommitMessage(project, task.name, sessionId)}
                     onCommit={(message) => run(api.taskCommit(project, task.name, message))}
                 />
             )}

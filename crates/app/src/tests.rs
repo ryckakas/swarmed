@@ -290,7 +290,10 @@ fn the_ui_can_commit_a_tasks_work_and_is_told_what_cannot_be_published() {
     assert_eq!(app.ok("effort_default", effort), json!(null));
     // Nothing in this app can write: the answer is a reason, not a hang.
     let unwritten = app
-        .invoke("task_commit_message", target.clone())
+        .invoke(
+            "task_commit_message",
+            json!({ "project": "demo", "name": "one", "session": null }),
+        )
         .expect_err("no namer");
     assert_eq!(unwritten, json!("nothing here can write a commit message"));
     let commit = json!({ "project": "demo", "name": "one", "message": "feat: notes" });
