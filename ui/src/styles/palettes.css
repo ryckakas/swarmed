@@ -224,3 +224,47 @@
     --sky: #1f5fa8;
     --bright: #120d08;
 }
+
+/* Swarm: the dark of a hive, violet under magenta. */
+[data-palette="swarm"] {
+    --dusk: #1a1420;
+    --panel: #211929;
+    --raised: #2d2236;
+    --line: #44324f;
+    --text: #ecdfe6;
+    --muted: #b39fb6;
+    --faint: #8a7590;
+    --focus: #e86bbf;
+    --sky: #e86bbf;
+    --bright: #fff3fa;
+}
+
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"])[data-palette="swarm"],
+    :root:not([data-theme="dark"]) [data-palette="swarm"] {
+        --dusk: #f1e8ee;
+        --panel: #faf4f8;
+        --raised: #ffffff;
+        --line: #dfcbd9;
+        --text: #2a1a2c;
+        --muted: #68506a;
+        --faint: #8f7791;
+        --focus: #a8257f;
+        --sky: #a8257f;
+        --bright: #150a16;
+    }
+}
+
+:root[data-theme="light"][data-palette="swarm"],
+:root[data-theme="light"] [data-palette="swarm"] {
+    --dusk: #f1e8ee;
+    --panel: #faf4f8;
+    --raised: #ffffff;
+    --line: #dfcbd9;
+    --text: #2a1a2c;
+    --muted: #68506a;
+    --faint: #8f7791;
+    --focus: #a8257f;
+    --sky: #a8257f;
+    --bright: #150a16;
+}

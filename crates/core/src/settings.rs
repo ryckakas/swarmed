@@ -69,6 +69,8 @@ pub enum Palette {
     Plum,
     /// Warm brown-grey.
     Ember,
+    /// Violet under magenta, like the inside of a hive.
+    Swarm,
 }
 
 /// The smallest and largest text the app can be set to, in percent.

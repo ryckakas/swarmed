@@ -15,6 +15,7 @@ export const PALETTES: [Palette, string][] = [
     ["forest", "Forest"],
     ["plum", "Plum"],
     ["ember", "Ember"],
+    ["swarm", "Swarm"],
 ];
 
 /**

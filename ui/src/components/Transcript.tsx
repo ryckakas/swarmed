@@ -6,6 +6,7 @@ import { FileChips } from "./FileChips";
 import { HtmlView } from "./HtmlView";
 import { Markdown } from "./Markdown";
 import { PermissionPrompt } from "./PermissionPrompt";
+import { Spawning } from "./Spawning";
 import { ToolCall } from "./ToolCall";
 
 /** How close to the bottom, in pixels, still counts as "following the conversation". */
@@ -66,11 +67,7 @@ export function Transcript({ sessionId, events, working }: Props) {
                 ))}
                 {working && (
                     <li className="activity" aria-live="polite">
-                        <span className="activity-dots" aria-hidden="true">
-                            <i />
-                            <i />
-                            <i />
-                        </span>
+                        <Spawning />
                         {activity(events)}…
                     </li>
                 )}

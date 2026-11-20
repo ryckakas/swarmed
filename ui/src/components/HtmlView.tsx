@@ -9,6 +9,7 @@ import {
     viewDocument,
 } from "../htmlview";
 import { useStore } from "../store";
+import { Spawning } from "./Spawning";
 
 /**
  * A view is as tall as its content, so it never scrolls inside the conversation. This only
@@ -141,11 +142,7 @@ export function ViewPending() {
                 <span>View from the agent</span>
             </div>
             <p className="html-view-wait">
-                <span className="activity-dots" aria-hidden="true">
-                    <i />
-                    <i />
-                    <i />
-                </span>
+                <Spawning />
                 Building the view…
             </p>
         </div>

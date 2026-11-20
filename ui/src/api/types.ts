@@ -95,7 +95,7 @@ export interface ApiKeyInfo {
 /** The colours the app is drawn in: the system's choice, or always one of the two. */
 export type Theme = "system" | "dark" | "light";
 /** A set of colours for the app's surfaces, text and links, each with a dark and a light form. */
-export type Palette = "dusk" | "graphite" | "forest" | "plum" | "ember";
+export type Palette = "dusk" | "graphite" | "forest" | "plum" | "ember" | "swarm";
 
 /** One built-in piece of the status line. */
 export type StatusItem = "branch" | "changes" | "model" | "context" | "cost" | "agent" | "worktree";
