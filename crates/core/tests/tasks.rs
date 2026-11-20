@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use common::{core_with_project, fixture, git, write_config};
 use swarmed_core::agent::{AgentEvent, Auth, FakeBackend};
 use swarmed_core::{
-    ChangeKind, Core, Environment, Error, NewTaskOptions, ProjectConfig, RemoveOptions,
+    Action, ChangeKind, Core, Environment, Error, NewTaskOptions, ProjectConfig, RemoveOptions,
     SessionOptions, Settings, SetupStatus, StackState, hooks,
 };
 
@@ -1047,6 +1047,102 @@ async fn a_tasks_work_is_committed_and_pushed_when_asked() {
     core.task_push("demo", "one").await.expect("pushes");
     let pushed = core.task_unpublished("demo", "one").await.expect("reads");
     assert_eq!((pushed.unpushed, pushed.pushed_before), (0, true));
+}
+
+fn action(name: &str, prompt: &str, command: &str) -> Action {
+    Action {
+        name: name.to_string(),
+        prompt: prompt.to_string(),
+        command: command.to_string(),
+        ..Action::default()
+    }
+}
+
+#[tokio::test]
+async fn actions_are_kept_for_every_repository_and_for_one() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    assert_eq!(core.actions(Some("demo")).expect("reads"), []);
+
+    core.action_save(None, &action(" Review ", "Review the changes.", ""))
+        .expect("keeps");
+    core.action_save(None, &action("Tests", "", "cargo test"))
+        .expect("keeps");
+    let own = Action {
+        icon: "❄️".to_string(),
+        ..action("Tests", "", "nix develop -c make test")
+    };
+    let offered = core.action_save(Some("demo"), &own).expect("keeps");
+    // The general ones first, and the repository's own in place of the one it shares a name with.
+    let seen: Vec<_> = offered
+        .iter()
+        .map(|action| {
+            (
+                action.name.as_str(),
+                action.command.as_str(),
+                action.of_project,
+            )
+        })
+        .collect();
+    assert_eq!(
+        seen,
+        [
+            ("Review", "", false),
+            ("Tests", "nix develop -c make test", true)
+        ]
+    );
+    assert_eq!(offered[1].icon, "❄️");
+    assert_eq!(core.actions(None).expect("reads").len(), 2);
+
+    // Saved again under the same name it is replaced, not added.
+    let replaced = core
+        .action_save(None, &action("Review", "Review it again.", ""))
+        .expect("replaces");
+    assert_eq!(replaced.len(), 2);
+    assert_eq!(replaced[0].prompt, "Review it again.");
+
+    for unusable in [
+        action("", "x", ""),
+        action("Both", "a prompt", "and a command"),
+        action("Neither", "", "  "),
+        action(&"n".repeat(41), "x", ""),
+    ] {
+        assert!(matches!(
+            core.action_save(None, &unusable),
+            Err(Error::Action(_))
+        ));
+    }
+    assert!(
+        core.action_save(Some("nowhere"), &action("A", "x", ""))
+            .is_err()
+    );
+
+    let left = core.action_remove(Some("demo"), "Tests").expect("drops");
+    assert_eq!(left[1].command, "cargo test");
+    assert_eq!(core.action_remove(None, "Tests").expect("drops").len(), 1);
+    assert_eq!(
+        core.action_remove(None, "Tests").expect("no error").len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn an_actions_file_written_by_hand_is_read_and_a_slip_in_it_costs_one_button() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    let file = fx.paths.data_dir.join("actions.toml");
+    std::fs::write(
+        &file,
+        "[[action]]\nname = \"Call home\"\nicon = \"📞\"\ncommand = \"./call.sh\"\n\n\
+         [[action]]\nname = \"Nothing to do\"\n",
+    )
+    .expect("test setup");
+    let offered = core.actions(Some("demo")).expect("reads");
+    assert_eq!(offered.len(), 1);
+    assert_eq!(offered[0].name, "Call home");
+
+    std::fs::write(&file, "[[action]]\nnmae = \"typo\"\n").expect("test setup");
+    assert!(matches!(core.actions(None), Err(Error::Config { .. })));
 }
 
 #[tokio::test]

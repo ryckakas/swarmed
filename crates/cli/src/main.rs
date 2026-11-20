@@ -1,11 +1,13 @@
 //! The `swarmed` command: a thin front end over `swarmed-core`.
 
+mod action;
 mod session;
 
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use action::ActionCommand;
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use session::SessionCommand;
@@ -84,6 +86,9 @@ enum Command {
         #[arg(long)]
         set: bool,
     },
+    /// Manage actions: buttons of your own that send a prompt or run a command.
+    #[command(subcommand)]
+    Action(ActionCommand),
     /// Find the sessions in which something was said, closed ones included.
     Search {
         /// The words to look for, as they were written.
@@ -355,6 +360,7 @@ async fn run(core: &Core, command: Command) -> Result<()> {
             Ok(())
         }
         Command::Rules { set } => rules(core, set),
+        Command::Action(command) => action::run(core, command),
         Command::Search { query } => search(core, &query),
     }
 }

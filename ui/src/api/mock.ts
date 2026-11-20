@@ -2,6 +2,7 @@ import { lastDays } from "../analytics";
 import { PLAN_TOOL, withFiles } from "../transcript";
 import type { Api } from "./client";
 import type {
+    Action,
     AgentEvent,
     AgentSetup,
     ApiKeyInfo,
@@ -13,6 +14,7 @@ import type {
     FileChange,
     FileDiff,
     HookOutput,
+    MarkColour,
     McpServerView,
     Project,
     Pull,
@@ -56,6 +58,8 @@ function session(id: number, taskId: number, title: string, status: SessionStatu
         unread: id === 5,
         spawned_by: null,
         fast: false,
+        // One sample session carries a mark, as a skill's last step would leave it.
+        mark: id === 3 ? { colour: "green", label: "e2e passed" } : null,
     };
 }
 
@@ -1125,6 +1129,13 @@ class MockAgent {
         return Object.assign(found, settings);
     }
 
+    mark(id: number, colour: MarkColour | "none", label: string): Session {
+        const marked = this.configure(id, {}) as Session;
+        marked.mark = colour === "none" ? null : { colour, label: label.trim() };
+        this.publish(id, { type: "marked", colour: marked.mark?.colour ?? null, label }, null);
+        return marked;
+    }
+
     rename(id: number, title: string): Session {
         const renamed = this.configure(id, {}) as Session;
         renamed.title = title.trim();
@@ -1206,6 +1217,51 @@ function sampleFork(agent: MockAgent, tasks: Task[], id: number, upto: number | 
     agent.events.set(fork.id, [...kept, { type: "forked", from: id }]);
     home.sessions.push(fork);
     return fork;
+}
+
+/** The user's own buttons, held in memory: some for every repository, one for the first. */
+function actionsApi(): Pick<Api, "actions" | "actionSave" | "actionRemove"> {
+    const one = (name: string, icon: string, prompt: string, command: string): Action => ({
+        name,
+        icon,
+        prompt,
+        command,
+        of_project: false,
+    });
+    let general: Action[] = [
+        one("Review", "🔍", "Review the changes in this worktree for bugs.", ""),
+        one("Tests", "🧪", "", "pnpm test"),
+        one("E2E, then mark", "✅", "Run the e2e tests and mark this session green.", ""),
+    ];
+    const own = new Map<string, Action[]>([
+        ["hero", [{ ...one("Nix env", "❄️", "", "nix develop"), of_project: true }]],
+    ]);
+    const offered = (project: string | null) => {
+        const mine = project === null ? [] : (own.get(project) ?? []);
+        const taken = new Set(mine.map((action) => action.name));
+        return [...general.filter((action) => !taken.has(action.name)), ...mine];
+    };
+    const without = (actions: Action[], name: string) =>
+        actions.filter((action) => action.name !== name);
+    return {
+        actions: async (project) => offered(project),
+        actionSave: async (project, action) => {
+            if (project === null) {
+                general = [...without(general, action.name), action];
+            } else {
+                own.set(project, [...without(own.get(project) ?? [], action.name), action]);
+            }
+            return offered(project);
+        },
+        actionRemove: async (project, name) => {
+            if (project === null) {
+                general = without(general, name);
+            } else {
+                own.set(project, without(own.get(project) ?? [], name));
+            }
+            return offered(project);
+        },
+    };
 }
 
 /** Kept prompts, held in memory, starting with two samples. */
@@ -1307,6 +1363,7 @@ export function createMockApi(): Api {
         overview: async () => structuredClone(agent.projects),
         ...mcpApi(),
         ...templatesApi(),
+        ...actionsApi(),
         usage: async () => SAMPLE_USAGE,
         costs: async () => SAMPLE_COSTS,
         ...snapshotApi(() => agent.projects),
@@ -1462,6 +1519,7 @@ export function createMockApi(): Api {
         },
         statusLine: async (id) => scriptedStatus(settings.status_command, id),
         sessionRename: async (id, title) => agent.rename(id, title),
+        sessionMark: async (id, colour, label) => agent.mark(id, colour, label),
         sessionsSearch: async (query) => sampleSearch(agent.projects, query),
         ...closingApi(agent),
         onSessionEvent: async (listener) => {

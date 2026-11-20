@@ -6,7 +6,9 @@ use anyhow::{Context, Result};
 use clap::{Subcommand, ValueEnum};
 use serde_json::Value;
 use swarmed_core::agent::{AgentEvent, Auth, Effort, McpServerInfo, PLAN_TOOL, Supervision};
-use swarmed_core::{Core, Session, SessionEvent, SessionOptions, SessionSettings, with_files};
+use swarmed_core::{
+    Core, Mark, Session, SessionEvent, SessionOptions, SessionSettings, with_files,
+};
 use tokio::io::{AsyncBufReadExt, BufReader, Lines, Stdin};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
@@ -94,6 +96,15 @@ pub(crate) enum SessionCommand {
     Status { id: i64 },
     /// Give a session a new title.
     Rename { id: i64, title: String },
+    /// Put a mark on a session: a colour and a few words shown in the sidebar.
+    Mark {
+        id: i64,
+        /// `green`, `blue`, `yellow`, `red` or `purple`; `none` takes the mark off.
+        colour: String,
+        /// A few words beside the colour.
+        #[arg(default_value = "")]
+        label: String,
+    },
     /// Take a session out of the lists. Its history is kept.
     Close { id: i64 },
     /// Put a closed session back in the lists.
@@ -123,6 +134,16 @@ impl AuthMode {
             ),
         })
     }
+}
+
+/// Puts a mark on a session, or takes it off, and prints what it then has.
+fn mark(core: &Core, id: i64, colour: &str, label: &str) -> Result<()> {
+    let marked = core.session_mark(id, Mark::named(colour, label)?)?;
+    say(&marked.mark.map_or_else(
+        || "no mark".to_string(),
+        |mark| format!("{}\t{}", mark.colour.as_str(), mark.label),
+    ));
+    Ok(())
 }
 
 pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> {
@@ -218,6 +239,7 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             say(&core.session_rename(id, &title)?.title);
             Ok(())
         }
+        SessionCommand::Mark { id, colour, label } => mark(core, id, &colour, &label),
         SessionCommand::Close { id } => Ok(core.session_close(id)?),
         SessionCommand::Reopen { id } => {
             say(&core.session_reopen(id)?.title);

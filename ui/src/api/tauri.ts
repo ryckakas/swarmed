@@ -4,6 +4,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Api } from "./client";
 import type {
+    Action,
     AgentEvent,
     AgentInfo,
     AgentSetup,
@@ -40,6 +41,9 @@ export const tauriApi: Api = {
     mcpServers: () => invoke<McpServerView[]>("mcp_servers"),
     mcpSave: (server) => invoke<McpServerView[]>("mcp_save", { server }),
     mcpRemove: (name) => invoke<McpServerView[]>("mcp_remove", { name }),
+    actions: (project) => invoke<Action[]>("actions", { project }),
+    actionSave: (project, action) => invoke<Action[]>("action_save", { project, action }),
+    actionRemove: (project, name) => invoke<Action[]>("action_remove", { project, name }),
     templates: () => invoke<Template[]>("templates"),
     templateSave: (name, text) => invoke<Template[]>("template_save", { name, text }),
     templateRemove: (name) => invoke<Template[]>("template_remove", { name }),
@@ -153,6 +157,7 @@ export const tauriApi: Api = {
         listen<TerminalOutput>("terminal-output", (event) => listener(event.payload)),
     statusLine: (id) => invoke<string | null>("status_line", { id }),
     sessionRename: (id, title) => invoke<Session>("session_rename", { id, title }),
+    sessionMark: (id, colour, label) => invoke<Session>("session_mark", { id, colour, label }),
     sessionClose: (id) => invoke("session_close", { id }),
     sessionsSearch: (query) => invoke<SearchHit[]>("sessions_search", { query }),
     sessionsClosed: (project, task) => invoke<Session[]>("sessions_closed", { project, task }),

@@ -27,6 +27,9 @@ function theme(element: HTMLElement) {
 export function TerminalBox({ sessionId }: { sessionId: number }) {
     const holder = useRef<HTMLDivElement>(null);
     const settings = useStore((state) => state.settings);
+    const command = useStore((state) => state.terminalCommand);
+    // Settles once the shell is there to be typed into.
+    const opened = useRef<Promise<unknown>>(Promise.resolve());
 
     // biome-ignore lint/correctness/useExhaustiveDependencies: rebuilt when the theme or text size changes
     useEffect(() => {
@@ -60,7 +63,8 @@ export function TerminalBox({ sessionId }: { sessionId: number }) {
                 terminal.write(output.data);
             }
         });
-        api.terminalOpen(sessionId, terminal.cols, terminal.rows)
+        opened.current = api
+            .terminalOpen(sessionId, terminal.cols, terminal.rows)
             .then((replay) => {
                 // A replay already holds whatever arrived early; a fresh shell has only that.
                 terminal.write(replay === "" ? (early ?? []).join("") : replay);
@@ -88,6 +92,18 @@ export function TerminalBox({ sessionId }: { sessionId: number }) {
             terminal.dispose();
         };
     }, [sessionId, settings?.theme, settings?.text_scale]);
+
+    // A command an action asked for is typed as if the user had, once the shell is up.
+    useEffect(() => {
+        if (command === null || command.sessionId !== sessionId) {
+            return;
+        }
+        const { report, terminalCommandTyped } = useStore.getState();
+        terminalCommandTyped();
+        void opened.current
+            .then(() => api.terminalWrite(sessionId, `${command.text}\n`))
+            .catch(report);
+    }, [command, sessionId]);
 
     return <div className="terminal-box" ref={holder} />;
 }

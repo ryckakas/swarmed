@@ -9,8 +9,8 @@ use swarmed_core::agent::{
     AgentEvent, Auth, Effort, FakeBackend, Namer, Naming, PLAN_TOOL, Supervision,
 };
 use swarmed_core::{
-    Core, Error, NewTaskOptions, Session, SessionEvent, SessionOptions, SessionSettings,
-    SessionStatus, Settings, TerminalOutput, hooks,
+    Core, Error, Mark, MarkColour, NewTaskOptions, Session, SessionEvent, SessionOptions,
+    SessionSettings, SessionStatus, Settings, TerminalOutput, hooks,
 };
 use tokio::sync::broadcast::Receiver;
 
@@ -374,6 +374,60 @@ async fn a_session_is_named_after_its_first_message_and_can_be_renamed() {
         core.session_rename(session.id, "  "),
         Err(Error::EmptyTitle)
     ));
+}
+
+#[tokio::test]
+async fn a_mark_stays_on_a_session_until_it_is_taken_off_or_the_user_writes() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+    assert_eq!(session.mark, None);
+
+    let passed = Mark {
+        colour: MarkColour::Green,
+        label: "  e2e passed\nand more ".to_string(),
+    };
+    let marked = core.session_mark(session.id, Some(passed)).expect("marks");
+    let kept = Mark {
+        colour: MarkColour::Green,
+        label: "e2e passed".to_string(),
+    };
+    assert_eq!(marked.mark, Some(kept.clone()));
+    let told = next(&mut bus).await;
+    assert_eq!(
+        told.event,
+        AgentEvent::Marked {
+            colour: Some(MarkColour::Green),
+            label: "e2e passed".to_string()
+        }
+    );
+    // A mark says nothing about what the agent is doing.
+    assert_eq!(told.status, None);
+    assert_eq!(core.session(session.id).expect("exists").mark, Some(kept));
+
+    let too_long = Mark {
+        colour: MarkColour::Red,
+        label: "x".repeat(41),
+    };
+    assert!(matches!(
+        core.session_mark(session.id, Some(too_long)),
+        Err(Error::Mark(_))
+    ));
+
+    // Writing to the session starts something new: the mark was about what came before.
+    core.session_send(session.id, "next thing").expect("sends");
+    turn(&mut bus, session.id).await;
+    assert_eq!(core.session(session.id).expect("exists").mark, None);
+
+    let failed = Mark {
+        colour: MarkColour::Red,
+        label: String::new(),
+    };
+    core.session_mark(session.id, Some(failed)).expect("marks");
+    let cleared = core.session_mark(session.id, None).expect("takes it off");
+    assert_eq!(cleared.mark, None);
+    assert!(core.session_mark(9999, None).is_err());
 }
 
 #[tokio::test]

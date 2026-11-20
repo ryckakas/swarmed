@@ -158,6 +158,12 @@ pub enum Error {
     /// A prompt could not be kept. Says why.
     #[error("{0}")]
     Template(String),
+    /// A mark could not be put on a session. Says why.
+    #[error("{0}")]
+    Mark(String),
+    /// An action could not be kept or found. Says why.
+    #[error("{0}")]
+    Action(String),
     /// A skill could not be saved or found. Says why.
     #[error("{0}")]
     Skill(String),

@@ -76,6 +76,33 @@ describe("a renamed session", () => {
     });
 });
 
+describe("a marked session", () => {
+    const marked = (colour: "green" | null, label: string): SessionEvent => ({
+        session_id: 2,
+        status: null,
+        event: { type: "marked", colour, label },
+    });
+
+    it("takes the mark, and loses it when the mark is taken off", () => {
+        const after = applySessionEvent(sampleProjects(), marked("green", "e2e passed"));
+        expect(findSession(after, 2)?.mark).toEqual({ colour: "green", label: "e2e passed" });
+        expect(findSession(applySessionEvent(after, marked(null, "")), 2)?.mark).toBeNull();
+    });
+
+    it("loses its mark when the user writes to it", () => {
+        const before = applySessionEvent(sampleProjects(), marked("green", ""));
+        const written: SessionEvent = {
+            session_id: 2,
+            status: "working",
+            event: { type: "user_message", text: "and now the next thing" },
+        };
+        expect(findSession(applySessionEvent(before, written), 2)?.mark).toBeNull();
+        // What the agent then does leaves a mark alone.
+        const done: SessionEvent = { session_id: 2, status: "idle", event: { type: "closed" } };
+        expect(findSession(applySessionEvent(before, done), 2)?.mark).not.toBeNull();
+    });
+});
+
 describe("withSessionStatus", () => {
     it("replaces one session's status and leaves other branches untouched", () => {
         const before = sampleProjects();

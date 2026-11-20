@@ -22,6 +22,20 @@ export interface Session {
     spawned_by: number | null;
     /** Whether the agent is asked for its fast mode, where it has one. */
     fast: boolean;
+    /** The mark an agent or the user put on it, if any. */
+    mark: Mark | null;
+}
+
+/** The colours a mark can have. Each theme draws its own. */
+export type MarkColour = "green" | "blue" | "yellow" | "red" | "purple";
+
+export const MARK_COLOURS: MarkColour[] = ["green", "blue", "yellow", "red", "purple"];
+
+/** A colour and a few words on a session that say how its work stands. */
+export interface Mark {
+    colour: MarkColour;
+    /** A few words beside the colour; may be empty. */
+    label: string;
 }
 
 export interface Task {
@@ -56,6 +70,20 @@ export interface Task {
  * still be installing or building what it serves.
  */
 export type StackState = "stopped" | "starting" | "running";
+
+/** A button of the user's own: it sends a prompt to the agent or runs a command in the terminal. */
+export interface Action {
+    /** What the button says. */
+    name: string;
+    /** A sign shown before the name, such as an emoji; may be empty. */
+    icon: string;
+    /** Sent to the agent of the session on screen; empty for one that runs a command. */
+    prompt: string;
+    /** Typed into the session's terminal; empty for one that sends a prompt. */
+    command: string;
+    /** Whether it belongs to one repository and not to all. */
+    of_project: boolean;
+}
 
 /** A prompt kept to be sent again. `{{something}}` in its text marks a place to fill in. */
 export interface Template {
@@ -430,6 +458,8 @@ export type AgentEvent =
     | { type: "context_usage"; used: number; max: number; categories: ContextCategory[] }
     /** The session got a new title, from the user or from the model that names sessions. */
     | { type: "renamed"; title: string }
+    /** The session got a mark, or lost the one it had when `colour` is `null`. */
+    | { type: "marked"; colour: MarkColour | null; label: string }
     /** The session was closed, by the user or by the session that started it. */
     | { type: "closed" }
     /** What stands before this is a copy of what was said in the session forked from. */

@@ -244,6 +244,54 @@ async fn the_tool_server_reaches_the_core_over_its_socket() {
         ask(serde_json::json!({ "session": first.id, "tool": "list_sessions", "arguments": {} }))
             .await;
     assert_eq!(listed["ok"], true);
+    let marked = ask(serde_json::json!({
+        "session": first.id, "tool": "set_mark",
+        "arguments": { "colour": "Green", "label": "e2e passed" }
+    }))
+    .await;
+    assert_eq!(marked["ok"], true);
+    let mark = core
+        .session(first.id)
+        .expect("exists")
+        .mark
+        .expect("marked");
+    assert_eq!(
+        (mark.colour.as_str(), mark.label.as_str()),
+        ("green", "e2e passed")
+    );
+    assert_eq!(core.session(second.id).expect("exists").mark, None);
+    let kept = ask(serde_json::json!({
+        "session": first.id, "tool": "save_action",
+        "arguments": { "name": "Nix env", "icon": "❄️", "command": "nix develop" }
+    }))
+    .await;
+    assert_eq!(kept["ok"], true);
+    let own = core.actions(Some("demo")).expect("reads");
+    assert_eq!((own[0].name.as_str(), own[0].of_project), ("Nix env", true));
+    assert_eq!(core.actions(None).expect("reads"), []);
+    let general = ask(serde_json::json!({
+        "session": first.id, "tool": "save_action",
+        "arguments": { "name": "Review", "prompt": "Review it.", "everywhere": true }
+    }))
+    .await;
+    assert_eq!(general["ok"], true);
+    assert_eq!(core.actions(None).expect("reads").len(), 1);
+    let neither = ask(serde_json::json!({
+        "session": first.id, "tool": "save_action", "arguments": { "name": "Nothing" }
+    }))
+    .await;
+    assert_eq!(neither["ok"], false);
+    let pink = ask(serde_json::json!({
+        "session": first.id, "tool": "set_mark", "arguments": { "colour": "pink" }
+    }))
+    .await;
+    assert_eq!(pink["ok"], false);
+    let off = ask(serde_json::json!({
+        "session": first.id, "tool": "set_mark", "arguments": { "color": "none" }
+    }))
+    .await;
+    assert_eq!(off["ok"], true);
+    assert_eq!(core.session(first.id).expect("exists").mark, None);
     assert!(
         listed["text"]
             .as_str()

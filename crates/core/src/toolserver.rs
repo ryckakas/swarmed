@@ -57,6 +57,8 @@ fn tools() -> Value {
     if let Some(tools) = tools.as_array_mut() {
         tools.push(cloud_tool());
         tools.push(skill_tool());
+        tools.push(mark_tool());
+        tools.push(action_tool());
     }
     tools
 }
@@ -161,6 +163,71 @@ fn local_tools() -> Value {
             "required": ["session_id"],
         },
     }])
+}
+
+/// The tool an agent adds a button of the user's own with.
+fn action_tool() -> Value {
+    json!({
+        "name": "save_action",
+        "title": "Add a button to the user's task panel",
+        "description": "Keeps an action: a button in Swarmed's task panel that, when the user \
+            presses it, either sends a prompt to the agent of the session on screen or runs a \
+            shell command in that session's terminal, in the task's worktree. Use it only when \
+            the user asks for a button or an action. Give it either `prompt` or `command`, \
+            not both. It replaces the action of the same name. By default it is kept for the \
+            repository you are working in; set `everywhere` for one the user wants in every \
+            repository.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "What the button says; short." },
+                "icon": {
+                    "type": "string",
+                    "description": "One emoji shown before the name; may be left out.",
+                },
+                "prompt": { "type": "string", "description": "The prompt the button sends." },
+                "command": {
+                    "type": "string",
+                    "description": "The shell command the button runs in the terminal.",
+                },
+                "everywhere": {
+                    "type": "boolean",
+                    "description": "Keep it for every repository instead of this one.",
+                },
+            },
+            "required": ["name"],
+        },
+    })
+}
+
+/// The tool an agent marks its own session with.
+fn mark_tool() -> Value {
+    json!({
+        "name": "set_mark",
+        "title": "Mark your session in the sidebar",
+        "description": "Puts a colour and a few words on your own session in the user's \
+            sidebar, so they see at a glance how its work stands without opening it: green \
+            for a check that passed, red for one that failed, yellow for something they \
+            should look at. Use it when the user, a skill or a prompt asks for a mark, not as \
+            a matter of course. The mark stays until you set it again or the user writes to \
+            you; the colour `none` takes it off.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "colour": {
+                    "type": "string",
+                    "enum": ["green", "blue", "yellow", "red", "purple", "none"],
+                    "description": "The colour of the mark, or `none` to take it off.",
+                },
+                "label": {
+                    "type": "string",
+                    "description": "A few words shown beside it, such as `e2e passed`. At \
+                        most 40 characters; may be left out.",
+                },
+            },
+            "required": ["colour"],
+        },
+    })
 }
 
 /// The tool that hands over a skill the user has with another agent or with Swarmed.
