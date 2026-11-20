@@ -365,6 +365,19 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
 }
 
 #[test]
+fn a_link_that_is_not_a_web_link_is_not_opened() {
+    let app = app();
+    let refused = app.invoke("open_link", json!({ "url": "file:///etc/passwd" }));
+    let message = refused.expect_err("refused");
+    assert!(
+        message
+            .as_str()
+            .is_some_and(|m| m.contains("only web and mail links")),
+        "{message}"
+    );
+}
+
+#[test]
 fn the_ui_can_remove_a_repository_with_its_tasks() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));

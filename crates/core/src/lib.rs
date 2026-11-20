@@ -66,6 +66,7 @@ pub use hooks::OutputSink;
 pub use mcp_own::{McpServerInput, McpServerView};
 pub use naming::TaskNaming;
 pub use notices::Notice;
+pub use open::open_link;
 pub use overview::{ProjectOverview, TaskOverview};
 pub use paths::Paths;
 pub use peers::{Delivery, MAX_SPAWNED, serve_session_tools};

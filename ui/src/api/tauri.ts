@@ -103,6 +103,7 @@ export const tauriApi: Api = {
     taskDiff: (project, name, path) => invoke<FileDiff>("task_diff", { project, name, path }),
     taskOpenEditor: (project, name) => invoke("task_open_editor", { project, name }),
     taskOpenUrl: (project, name) => invoke("task_open_url", { project, name }),
+    openLink: (url) => invoke("open_link", { url }),
     note: (project, task) => invoke<string>("note", { project, task }),
     setNote: (project, task, text) => invoke("set_note", { project, task, text }),
     apiKeys: () => invoke<ApiKeyInfo[]>("api_keys"),

@@ -999,7 +999,7 @@ pub(crate) struct Live {
     /// The process of each session's agent, as of when it was last started.
     pub(crate) pids: Mutex<HashMap<i64, u32>>,
     /// The stack each task has running, by task: what its `start` command started.
-    pub(crate) stacks: Mutex<HashMap<i64, tokio::process::Child>>,
+    pub(crate) stacks: Mutex<HashMap<i64, std::process::Child>>,
     runs: AtomicU64,
     bus: broadcast::Sender<SessionEvent>,
 }

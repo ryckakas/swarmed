@@ -168,6 +168,8 @@ export interface Api {
     taskOpenEditor(project: string, name: string): Promise<void>;
     /** Opens the task's running stack in the default browser. */
     taskOpenUrl(project: string, name: string): Promise<void>;
+    /** Opens a web or mail link in the user's browser, never in Swarmed's own window. */
+    openLink(url: string): Promise<void>;
     /** The user's note on a repository, or on one of its tasks; empty if there is none. */
     note(project: string, task: string | null): Promise<string>;
     /** Replaces that note. Nothing but blank space removes it. */

@@ -83,6 +83,23 @@ pub(crate) fn in_browser(url: &str) -> Result<()> {
     launch(command).map_err(|e| could_not_open(url, e))
 }
 
+/// What a link in a conversation may be for it to be handed to the user's browser or mail
+/// program. Anything else, a file or another program's own scheme, is refused.
+const LINK_SCHEMES: &[&str] = &["http://", "https://", "mailto:"];
+
+/// Opens a link from a conversation in the user's default browser, never in Swarmed's window.
+pub fn open_link(url: &str) -> Result<()> {
+    let url = url.trim();
+    let known = LINK_SCHEMES.iter().any(|scheme| {
+        url.get(..scheme.len())
+            .is_some_and(|start| start.eq_ignore_ascii_case(scheme))
+    });
+    if !known {
+        return Err(could_not_open(url, "only web and mail links are opened"));
+    }
+    in_browser(url)
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::OsStr;
@@ -119,5 +136,21 @@ mod tests {
         assert!(
             matches!(missing, Err(Error::OpenFailed { what, .. }) if what == "swarmed-no-such-editor")
         );
+    }
+
+    #[test]
+    fn only_web_and_mail_links_are_opened() {
+        for refused in [
+            "file:///etc/passwd",
+            "-a Calculator",
+            "vscode://x",
+            "",
+            "javascript:1",
+        ] {
+            assert!(
+                matches!(open_link(refused), Err(Error::OpenFailed { .. })),
+                "{refused}"
+            );
+        }
     }
 }

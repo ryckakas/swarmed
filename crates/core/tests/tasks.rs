@@ -443,6 +443,31 @@ async fn what_a_task_keeps_running_is_started_after_setup_and_does_not_hold_the_
     core.stacks_stop_all().await;
 }
 
+/// The window's own commands run on a thread with no Tokio runtime. Starting a stack from one
+/// used to bring the whole app down.
+#[test]
+fn a_stack_can_be_started_from_a_thread_that_has_no_runtime() {
+    let fx = fixture();
+    write_config(&fx, "[hooks]\nstart = \"sleep 300\"\n");
+    let runtime = tokio::runtime::Runtime::new().expect("a runtime");
+    let core = runtime.block_on(async {
+        let core = core_with_project(&fx).await;
+        core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+            .await
+            .expect("creates");
+        core.stack_stop("demo", "one", &hooks::discard)
+            .await
+            .expect("stops");
+        core
+    });
+    assert!(core.stack_start("demo", "one").expect("starts"));
+    assert_eq!(
+        core.overview().expect("reads")[0].tasks[0].stack,
+        Some(true)
+    );
+    runtime.block_on(core.stacks_stop_all());
+}
+
 #[tokio::test]
 async fn a_task_without_a_start_command_has_no_stack() {
     let fx = fixture();

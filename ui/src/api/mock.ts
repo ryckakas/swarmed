@@ -1254,6 +1254,9 @@ export function createMockApi(): Api {
         taskDiff: sampleDiff,
         taskOpenEditor: async () => undefined,
         taskOpenUrl: async () => undefined,
+        openLink: async (url) => {
+            window.open(url, "_blank", "noopener");
+        },
         ...noteApi(() => agent.projects),
         apiKeys: async () => structuredClone(keys),
         setApiKey: async (name, key) => storeKey(keys, name, key.trim() !== ""),

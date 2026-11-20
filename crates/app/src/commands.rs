@@ -413,6 +413,12 @@ pub(crate) fn task_open_url(core: CoreState<'_>, project: String, name: String) 
     Ok(core.task_open_url(&project, &name)?)
 }
 
+/// Opens a link from a conversation in the user's browser.
+#[tauri::command]
+pub(crate) fn open_link(url: String) -> Command<()> {
+    Ok(swarmed_core::open_link(&url)?)
+}
+
 /// What of a task's work is not committed, and what is not pushed.
 #[tauri::command]
 pub(crate) async fn task_unpublished(

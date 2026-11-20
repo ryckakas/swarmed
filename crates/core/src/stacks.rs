@@ -7,11 +7,12 @@
 //! Swarmed quits, and can be started again from a front end.
 
 use std::fs::File;
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
-use std::process::Stdio;
-use std::time::Duration;
+use std::process::{Child, Command, Stdio};
+use std::time::{Duration, Instant};
 
-use tokio::process::{Child, Command};
+use tokio::process::Command as Signal;
 
 use crate::config::ProjectConfig;
 use crate::error::Result;
@@ -21,6 +22,9 @@ use crate::{Core, lock};
 
 /// How long a stack is given to stop by itself once asked to, before it is killed.
 const STOP_GRACE: Duration = Duration::from_secs(5);
+
+/// How often a stack that was asked to stop is looked at again.
+const STOP_POLL: Duration = Duration::from_millis(50);
 
 /// How much of the end of a stack's log is given to a front end.
 const LOG_TAIL_BYTES: usize = 64_000;
@@ -53,6 +57,8 @@ impl Core {
         }
         let out = File::create(&log)?;
         let err = out.try_clone()?;
+        // Started with the standard library, not Tokio: a front end may ask for this from a
+        // thread that has no runtime, such as the one a window's own commands run on.
         let child = Command::new("sh")
             .arg("-c")
             .arg(command)
@@ -63,7 +69,6 @@ impl Core {
             .stderr(err)
             // A group of its own, so that everything it starts can be stopped with it.
             .process_group(0)
-            .kill_on_drop(true)
             .spawn()?;
         lock(&self.live.stacks).insert(task.id, child);
         Ok(true)
@@ -147,16 +152,32 @@ impl Core {
 
 /// Asks the stack's whole process group to stop, waits a little, then kills what is left.
 async fn end(mut child: Child) {
-    if let Some(pid) = child.id() {
-        // The group's id is that of the process that leads it; a minus addresses the group.
-        let group = format!("-{pid}");
-        let asked = Command::new("kill").args(["-TERM", "--", &group]).status();
-        asked.await.ok();
-        if tokio::time::timeout(STOP_GRACE, child.wait()).await.is_ok() {
-            return;
-        }
-        let killed = Command::new("kill").args(["-KILL", "--", &group]).status();
-        killed.await.ok();
+    // The group's id is that of the process that leads it; a minus addresses the group.
+    let group = format!("-{}", child.id());
+    signal("-TERM", &group).await;
+    if gone_within(&mut child, STOP_GRACE).await {
+        return;
     }
-    child.kill().await.ok();
+    signal("-KILL", &group).await;
+    child.kill().ok();
+    gone_within(&mut child, STOP_GRACE).await;
+}
+
+async fn signal(which: &str, group: &str) {
+    let sent = Signal::new("kill").args([which, "--", group]).status();
+    sent.await.ok();
+}
+
+/// Whether `child` ended within `limit`. Looking is also what reaps it.
+async fn gone_within(child: &mut Child, limit: Duration) -> bool {
+    let until = Instant::now() + limit;
+    loop {
+        if !matches!(child.try_wait(), Ok(None)) {
+            return true;
+        }
+        if Instant::now() >= until {
+            return false;
+        }
+        tokio::time::sleep(STOP_POLL).await;
+    }
 }
