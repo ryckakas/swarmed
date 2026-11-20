@@ -88,6 +88,8 @@ pub(crate) enum SessionCommand {
         #[arg(long, conflicts_with = "auto")]
         plan: bool,
     },
+    /// Put a session that has not begun on another agent, with that agent's default model.
+    Agent { id: i64, agent: String },
     /// Print what the status line script shows for a session.
     Status { id: i64 },
     /// Give a session a new title.
@@ -206,6 +208,10 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
         SessionCommand::Status { id } => {
             let line = core.status_line(id).await?;
             say(line.as_deref().unwrap_or("no status_command is set"));
+            Ok(())
+        }
+        SessionCommand::Agent { id, agent } => {
+            say(&core.session_set_agent(id, &agent)?.agent);
             Ok(())
         }
         SessionCommand::Rename { id, title } => {

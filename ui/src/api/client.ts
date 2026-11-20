@@ -246,6 +246,11 @@ export interface Api {
      */
     sessionConfigure(id: number, settings: SessionSettings): Promise<Session>;
     /**
+     * Puts a session that has not begun on another agent, with that agent's default model.
+     * Refused once the session has talked to its agent.
+     */
+    sessionSetAgent(id: number, agent: string): Promise<Session>;
+    /**
      * Hands over an HTML document an agent wrote and returns the address a sandboxed frame
      * loads it from: an origin of its own, with no access to the app.
      */

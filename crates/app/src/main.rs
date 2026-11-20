@@ -245,6 +245,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::sessions_closed,
         commands::session_reopen,
         commands::session_fork,
+        commands::session_set_agent,
     ])
 }
 

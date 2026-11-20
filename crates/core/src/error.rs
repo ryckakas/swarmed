@@ -182,6 +182,9 @@ pub enum Error {
     /// No session has this id.
     #[error("session {0} not found")]
     SessionNotFound(i64),
+    /// The session has talked to its agent, which holds the conversation from then on.
+    #[error("session {0} has begun: another agent would not know what was said")]
+    SessionBegun(i64),
     /// The session's agent has not been started, or has exited.
     #[error("session {0} is not running")]
     SessionNotRunning(i64),

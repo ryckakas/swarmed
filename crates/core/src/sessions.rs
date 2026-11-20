@@ -300,6 +300,16 @@ impl Store {
         Ok(())
     }
 
+    /// Puts a session on another agent. Its model and fast mode were that agent's own, so
+    /// they go back to the default.
+    fn session_set_agent(&self, id: i64, agent: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions SET agent = ?2, model = NULL, fast = 0 WHERE id = ?1",
+            params![id, agent],
+        )?;
+        Ok(())
+    }
+
     fn session_rename(&self, id: i64, title: &str) -> Result<()> {
         self.conn.execute(
             "UPDATE sessions SET title = ?2 WHERE id = ?1",
@@ -857,6 +867,25 @@ impl Core {
             fast: session.fast,
         };
         self.session_configure(id, &settings).map(drop)
+    }
+
+    /// Puts a session that has not begun on another agent, with that agent's default model.
+    ///
+    /// Only before the first message reaches an agent: from then on the agent holds the
+    /// conversation, and another would not know what was said. A fork has not begun either,
+    /// since what it starts from is handed to its agent as text.
+    pub fn session_set_agent(&self, id: i64, agent: &str) -> Result<Session> {
+        let session = self.session(id)?;
+        if session.agent == agent {
+            return Ok(session);
+        }
+        self.agents_now().backend(agent)?;
+        let running = self.live.sender(id).is_ok();
+        if running || session.agent_session_id.is_some() {
+            return Err(Error::SessionBegun(id));
+        }
+        self.store().session_set_agent(id, agent)?;
+        self.session(id)
     }
 
     /// Stops the current turn. The session stays running.

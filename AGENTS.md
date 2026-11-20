@@ -186,6 +186,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   in its parent's task with its settings, cannot spawn itself, and a session can have
   `MAX_SPAWNED` open. The tools are not on the allow list: in ask mode the user is asked.
   A session can close only sessions it started, and only idle ones (`peer_close`).
+- **A session's agent can be changed until it has begun** (`session_set_agent`): before its
+  first message reaches an agent, which from then on holds the conversation. The model goes
+  back to the new agent's default. The UI offers the agent menu for exactly that long.
 - **A fork is a new session that starts with a copy of what was said** (`fork.rs`): the user's
   messages, the replies and the views, up to a chosen event, then a `Forked` event. No agent can
   be handed another's memory, so the fork's agent is given that conversation as text with the

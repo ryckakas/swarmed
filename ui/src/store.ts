@@ -70,6 +70,8 @@ interface State {
     apply(event: SessionEvent): void;
     /** Changes a session's model and supervision. */
     configure(api: Api, sessionId: number, settings: SessionSettings): Promise<void>;
+    /** Puts a session that has not begun on another agent. */
+    setAgent(api: Api, sessionId: number, agent: string): Promise<void>;
     /** The user's preferences; `null` until they are read. */
     settings: Settings | null;
     /** Whether the task panel on the right is shown. */
@@ -403,6 +405,11 @@ export const useStore = create<State>((set, get) => ({
             edits: countEdit(state, published),
         }));
     },
+    setAgent: (api, sessionId, agent) =>
+        reporting(async () => {
+            const session = await api.sessionSetAgent(sessionId, agent);
+            set((state) => ({ projects: withSession(state.projects, session) }));
+        }),
     configure: (api, sessionId, settings) =>
         reporting(async () => {
             const session = await api.sessionConfigure(sessionId, settings);
