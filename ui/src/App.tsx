@@ -4,6 +4,7 @@ import { applyAppearance } from "./appearance";
 import icon from "./assets/icon.jpg";
 import { CloseSessionDialog } from "./components/CloseSessionDialog";
 import { CloudDialog } from "./components/CloudDialog";
+import { CompareDialog } from "./components/CompareDialog";
 import { EnvironmentsDialog } from "./components/EnvironmentsDialog";
 import { InboxDialog } from "./components/InboxDialog";
 import { NoteDialog } from "./components/NoteDialog";
@@ -71,6 +72,7 @@ export function App() {
             />
             <CloseSessionDialog />
             <InboxDialog />
+            <CompareDialog />
             <SearchDialog />
             <NoteDialog />
             <EnvironmentsDialog />

@@ -3191,6 +3191,93 @@ code {
     font-size: var(--text-sm);
 }
 
+/* Two tasks side by side: a head for each, then a row per file, opening into both diffs. */
+.confirm.compare {
+    width: min(150ch, 100% - 2 * var(--space-6));
+    max-height: 86vh;
+    overflow-y: auto;
+}
+
+.compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2) var(--space-4);
+}
+
+.compare-head {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--line);
+}
+
+.compare-file {
+    grid-column: 1 / -1;
+    display: grid;
+    /* The same two columns as the heads, so each side's figures stand under its task. */
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--space-4);
+    padding: 4px var(--space-2);
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-size: var(--text-sm);
+    text-align: left;
+}
+
+.compare-file:hover,
+.compare-file[aria-expanded="true"] {
+    background: var(--panel);
+}
+
+.compare-cell {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-3);
+    min-width: 0;
+}
+
+.compare-path {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.compare-side {
+    flex: none;
+    color: var(--muted);
+}
+
+.compare-untouched {
+    color: var(--faint);
+}
+
+.compare-diff {
+    min-width: 0;
+    max-height: 50vh;
+    overflow: auto;
+}
+
+/* One more agent the same prompt goes to, under the new task's options. */
+.variant-chip {
+    padding: 2px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--raised);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--text-xs);
+}
+
+.variant-chip:hover {
+    border-color: var(--clay);
+    color: var(--clay);
+}
+
 /* A note: the same dialog, around a page to write on. */
 
 .confirm.note {

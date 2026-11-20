@@ -12,6 +12,7 @@ import type {
     Settings,
     Template,
 } from "./api/types";
+import type { Comparison } from "./components/CompareDialog";
 import { type ReviewComment, withComment } from "./review";
 import {
     applySessionEvent,
@@ -124,6 +125,10 @@ interface State {
     pulls: Record<number, Pull | null>;
     /** Asks again for a task's pull request. Not hearing back changes nothing. */
     loadPull(api: Api, project: string, task: string, taskId: number): Promise<void>;
+    /** The two tasks set side by side, while they are. */
+    comparing: Comparison | null;
+    /** Sets two tasks side by side; `null` puts the comparison away. */
+    compare(comparison: Comparison | null): void;
     /** The prompts the user keeps to send again. */
     templates: Template[];
     setTemplates(templates: Template[]): void;
@@ -337,6 +342,8 @@ export const useStore = create<State>((set, get) => ({
             set((state) => ({ pulls: { ...state.pulls, [taskId]: pull } }));
         }
     },
+    comparing: null,
+    compare: (comparison) => set({ comparing: comparison }),
     templates: [],
     setTemplates: (templates) => set({ templates }),
     searchOpen: false,

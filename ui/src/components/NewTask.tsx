@@ -9,6 +9,14 @@ import type {
     Supervision,
     TaskNaming,
 } from "../api/types";
+import {
+    type Variant,
+    variantChoices,
+    variantFrom,
+    variantKey,
+    variantLabel,
+    variantNames,
+} from "../broadcast";
 import { expandPastes, forgetPastes } from "../pastes";
 import { useStore } from "../store";
 import { taskNameForPrompt, taskNameFrom, uniqueTaskName } from "../tree";
@@ -38,6 +46,8 @@ export function NewTask({ projects }: { projects: Project[] }) {
     const [agentId, setAgentId] = useState(CLAUDE);
     const [model, setModel] = useState("");
     const [effort, setEffort] = useState<Effort | null>(null);
+    // More agents to run the same prompt on, each in a task of its own.
+    const [variants, setVariants] = useState<Variant[]>([]);
     const agents = useAgents();
     const commands = useSlashCommands(null);
     const [prompt, setPrompt] = useState("");
@@ -71,7 +81,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
             const naming = branch === NEW_BRANCH ? await named(project.name, prompt.trim()) : null;
             const chosen = naming ? uniqueTaskName(naming.name, taken) : name;
             setCreating(chosen);
-            await startTask({
+            const start = {
                 project: project.name,
                 name: chosen,
                 title: naming?.title ?? null,
@@ -80,7 +90,9 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 setup: setupFor(agentId, model, supervision, effort),
                 prompt: expandPastes(prompt.trim()),
                 files,
-            });
+            };
+            await startTask(start, true);
+            await startVariants(start, variants, taken, { supervision, effort });
             forgetPastes(prompt);
         } catch (error) {
             // A task whose setup failed still exists; reload so it shows up in the sidebar.
@@ -145,6 +157,13 @@ export function NewTask({ projects }: { projects: Project[] }) {
                     effort={effort}
                     onEffort={setEffort}
                 />
+                <Variants
+                    offered={branch === NEW_BRANCH}
+                    agents={agents}
+                    first={{ agent: agentId, model }}
+                    variants={variants}
+                    onChange={setVariants}
+                />
             </ComposerBox>
             <AgentNotice agentId={agentId} />
             <p className="new-task-note" aria-live="polite">
@@ -185,8 +204,34 @@ interface Start {
     files: string[];
 }
 
-/** Creates the task and its first session, opens it, and sends the prompt. */
-async function startTask(start: Start) {
+/**
+ * Sends the same prompt to every other agent chosen, each from the same base in a task of
+ * its own. One that cannot be started is reported; the others carry on. An existing branch
+ * can only be checked out once, so there the variants are left out.
+ */
+async function startVariants(
+    start: Start,
+    variants: Variant[],
+    taken: string[],
+    how: { supervision: Supervision; effort: Effort | null },
+) {
+    const also = start.branch === null ? variants : [];
+    const names = variantNames(start.name, also, taken);
+    const { report, refresh } = useStore.getState();
+    const started = also.map((variant, index) => {
+        const setup = setupFor(variant.agent, variant.model, how.supervision, how.effort);
+        return startTask({ ...start, name: names[index] ?? start.name, setup }, false).catch(
+            report,
+        );
+    });
+    await Promise.all(started);
+    if (also.length > 0) {
+        await refresh(api);
+    }
+}
+
+/** Creates the task and its first session, sends the prompt, and opens it if asked to. */
+async function startTask(start: Start, show: boolean) {
     const { project, name, title, setup, prompt, files } = start;
     const { refresh, open } = useStore.getState();
     await api.taskNew(project, name, start.branch, start.environment);
@@ -194,9 +239,65 @@ async function startTask(start: Start) {
     if (title) {
         await api.sessionRename(session.id, title);
     }
-    await refresh(api);
-    await open(api, session.id);
+    if (show) {
+        await refresh(api);
+        await open(api, session.id);
+    }
     await api.sessionSend(session.id, prompt, files);
+}
+
+interface VariantsProps {
+    /** Whether more agents can be added at all: only where a new branch is made. */
+    offered: boolean;
+    agents: AgentInfo[];
+    /** The agent and model the task runs on anyway. */
+    first: Variant;
+    variants: Variant[];
+    onChange(variants: Variant[]): void;
+}
+
+/**
+ * More agents to run the same prompt on: a menu to add one, and what was added, each with a
+ * way to take it off again. Only where a new branch is made, since each needs its own.
+ */
+function Variants({ offered, agents, first, variants, onChange }: VariantsProps) {
+    const choices = variantChoices(agents, [first, ...variants]);
+    if (!offered) {
+        return null;
+    }
+    return (
+        <>
+            {choices.length > 0 && (
+                <Picker
+                    label="Also run on another agent or model"
+                    value=""
+                    onChange={(key) => key && onChange([...variants, variantFrom(key)])}
+                    options={[
+                        ["", "Also run on…"],
+                        ...choices.map((choice): [string, string] => [
+                            variantKey(choice),
+                            variantLabel(choice, agents),
+                        ]),
+                    ]}
+                />
+            )}
+            {variants.map((variant) => (
+                <button
+                    key={variantKey(variant)}
+                    type="button"
+                    className="variant-chip"
+                    title="Take this one off"
+                    onClick={() =>
+                        onChange(
+                            variants.filter((other) => variantKey(other) !== variantKey(variant)),
+                        )
+                    }
+                >
+                    + {variantLabel(variant, agents)} ×
+                </button>
+            ))}
+        </>
+    );
 }
 
 interface AgentPickersProps {
