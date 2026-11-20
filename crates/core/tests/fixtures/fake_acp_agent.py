@@ -9,6 +9,8 @@
 - "mcp": names the MCP servers it was given.
 
 Set FAKE_ACP_LOAD_ONLY=1 to offer only session/load, which replays a history first.
+Set FAKE_ACP_RESUME_NOTICE=1 to remark, as Codex does, on the model an earlier conversation
+was opened with, right after opening it.
 """
 import json
 import os
@@ -111,6 +113,8 @@ def open_session(request_id, method, params):
         # A real agent replays the conversation before it answers.
         chunk(params["sessionId"], "replayed history")
     send({"id": request_id, "result": {}})
+    if method == "session/resume" and os.environ.get("FAKE_ACP_RESUME_NOTICE") == "1":
+        chunk(params["sessionId"], "Warning: resuming with another model. ")
 
 
 for line in sys.stdin:
