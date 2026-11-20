@@ -13,7 +13,7 @@ use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
     AgentInfo, AgentSetup, ApiKeyInfo, BranchChoices, CloudOrigin, CloudProvider, CloudTask, Core,
     Environment, FileChange, FileDiff, McpServerInput, McpServerView, NewTaskOptions, Project,
-    ProjectOverview, QueuedMessage, RemoveOptions, Session, SessionOptions, SessionSettings,
+    ProjectOverview, Pull, QueuedMessage, RemoveOptions, Session, SessionOptions, SessionSettings,
     Settings, Skill, Task, TaskNaming, Usage, with_files,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
@@ -365,6 +365,29 @@ pub(crate) fn set_note(
 #[tauri::command]
 pub(crate) fn task_open_url(core: CoreState<'_>, project: String, name: String) -> Command<()> {
     Ok(core.task_open_url(&project, &name)?)
+}
+
+/// The pull request of a task's branch with its checks, if it has one.
+#[tauri::command]
+pub(crate) async fn task_pull(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+) -> Command<Option<Pull>> {
+    Ok(core.task_pull(&project, &name).await?)
+}
+
+/// Opens a task's pull request in the browser, or the details of one of its checks.
+#[tauri::command]
+pub(crate) async fn task_pull_open(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+    check: Option<String>,
+) -> Command<()> {
+    Ok(core
+        .task_pull_open(&project, &name, check.as_deref())
+        .await?)
 }
 
 #[tauri::command]

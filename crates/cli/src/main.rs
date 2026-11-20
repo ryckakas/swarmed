@@ -204,6 +204,8 @@ enum TaskCommand {
         #[arg(long)]
         delete_branch: bool,
     },
+    /// Show the pull request of the task's branch and how its checks stand.
+    Pull { project: String, name: String },
     /// List the files the task has changed, or print one file's diff.
     Changes {
         project: String,
@@ -376,6 +378,23 @@ async fn cloud(core: &Core, command: CloudCommand) -> Result<()> {
         CloudCommand::List { project } => {
             core.cloud_tasks(&project, true).await?.iter().for_each(row);
         }
+    }
+    Ok(())
+}
+
+/// Prints a task's pull request and its checks.
+async fn pull(core: &Core, project: &str, name: &str) -> Result<()> {
+    let Some(pull) = core.task_pull(project, name).await? else {
+        say("no pull request");
+        return Ok(());
+    };
+    let draft = if pull.draft { ", draft" } else { "" };
+    say(&format!(
+        "#{} {:?}{draft}  {}\n{}",
+        pull.number, pull.state, pull.title, pull.url
+    ));
+    for check in &pull.checks {
+        say(&format!("{:?}\t{}", check.outcome, check.name));
     }
     Ok(())
 }
@@ -650,6 +669,7 @@ async fn task(core: &Core, command: TaskCommand) -> Result<()> {
                 .await?;
             say(&format!("removed task `{name}`"));
         }
+        TaskCommand::Pull { project, name } => pull(core, &project, &name).await?,
         TaskCommand::Changes {
             project,
             name,

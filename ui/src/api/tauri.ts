@@ -16,6 +16,7 @@ import type {
     HookOutput,
     McpServerView,
     Project,
+    Pull,
     QueuedMessage,
     Session,
     SessionEvent,
@@ -78,6 +79,9 @@ export const tauriApi: Api = {
     environmentSave: (project, name, environment) =>
         invoke<void>("environment_save", { project, name, environment }),
     environmentRemove: (project, name) => invoke<void>("environment_remove", { project, name }),
+    taskPull: (project, name) => invoke<Pull | null>("task_pull", { project, name }),
+    taskPullOpen: (project, name, check) =>
+        invoke<void>("task_pull_open", { project, name, check }),
     taskChanges: (project, name) => invoke<FileChange[]>("task_changes", { project, name }),
     taskDiff: (project, name, path) => invoke<FileDiff>("task_diff", { project, name, path }),
     taskOpenEditor: (project, name) => invoke("task_open_editor", { project, name }),

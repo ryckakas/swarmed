@@ -47,6 +47,26 @@ export interface Task {
     stack: boolean | null;
 }
 
+/** One check on a pull request: a CI job, or a status another service reported. */
+export interface Check {
+    name: string;
+    outcome: "passed" | "failed" | "running" | "skipped";
+    /** Where its details are, if it said. */
+    url: string | null;
+}
+
+/** The pull request of a task's branch, as the GitHub CLI reports it. */
+export interface Pull {
+    number: number;
+    title: string;
+    url: string;
+    state: "open" | "merged" | "closed";
+    draft: boolean;
+    /** What its reviewers decided, such as `approved`; `null` if no review is asked for. */
+    review: string | null;
+    checks: Check[];
+}
+
 /**
  * One way of setting a project's tasks up on this machine. Whatever is left empty is as the
  * project's own configuration has it.

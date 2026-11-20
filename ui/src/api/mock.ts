@@ -12,6 +12,7 @@ import type {
     HookOutput,
     McpServerView,
     Project,
+    Pull,
     QueuedMessage,
     Session,
     SessionEvent,
@@ -648,6 +649,31 @@ index 1a2b3c4..5d6e7f8 100644
 +}
 `;
 
+/** One sample task has a pull request with a failed check; the others have none. */
+async function samplePull(_project: string, name: string): Promise<Pull | null> {
+    if (name !== "fix-login-redirect") {
+        return null;
+    }
+    return {
+        number: 412,
+        title: "Fix the redirect loop after login",
+        url: "https://github.com/example/hero/pull/412",
+        state: "open",
+        draft: false,
+        review: "review_required",
+        checks: [
+            { name: "Lint", outcome: "passed", url: "https://github.com/example/hero/runs/1" },
+            {
+                name: "Unit tests",
+                outcome: "failed",
+                url: "https://github.com/example/hero/runs/2",
+            },
+            { name: "Browser tests", outcome: "running", url: null },
+            { name: "Deploy preview", outcome: "skipped", url: null },
+        ],
+    };
+}
+
 async function sampleChanges(_project: string, name: string): Promise<FileChange[]> {
     return name === "pm-16037" ? [] : SAMPLE_CHANGES;
 }
@@ -1091,6 +1117,8 @@ export function createMockApi(): Api {
             project.tasks.push(created);
             return created;
         },
+        taskPull: samplePull,
+        taskPullOpen: async () => undefined,
         taskChanges: sampleChanges,
         taskDiff: sampleDiff,
         taskOpenEditor: async () => undefined,

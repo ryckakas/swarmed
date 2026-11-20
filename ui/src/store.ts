@@ -4,6 +4,7 @@ import type {
     AgentEvent,
     NoteTarget,
     Project,
+    Pull,
     QueuedMessage,
     RemoveTarget,
     SessionEvent,
@@ -110,6 +111,10 @@ interface State {
     noting: NoteTarget | null;
     /** Opens a note; `null` puts it away. */
     askForNote(target: NoteTarget | null): void;
+    /** Each task's pull request by the task's id, as last heard; `null` for none. */
+    pulls: Record<number, Pull | null>;
+    /** Asks again for a task's pull request. Not hearing back changes nothing. */
+    loadPull(api: Api, project: string, task: string, taskId: number): Promise<void>;
     /** Whether the list of everything that waits for the user is open. */
     inboxOpen: boolean;
     showInbox(open: boolean): void;
@@ -301,6 +306,13 @@ export const useStore = create<State>((set, get) => ({
     askForEnvironments: (project) => set({ environmentsOf: project }),
     noting: null,
     askForNote: (target) => set({ noting: target }),
+    pulls: {},
+    loadPull: async (api, project, task, taskId) => {
+        const pull = await api.taskPull(project, task).catch(() => undefined);
+        if (pull !== undefined) {
+            set((state) => ({ pulls: { ...state.pulls, [taskId]: pull } }));
+        }
+    },
     inboxOpen: false,
     showInbox: (open) => set({ inboxOpen: open }),
     closing: null,

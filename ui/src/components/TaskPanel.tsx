@@ -7,6 +7,7 @@ import { Changes } from "./Changes";
 import { CloseIcon, IconButton } from "./IconButton";
 import { editorChoices, editorName } from "./options";
 import { Picker } from "./Picker";
+import { PullSection } from "./PullRequest";
 import { Resizer } from "./Resizer";
 import { StackControls } from "./StackControls";
 
@@ -87,6 +88,7 @@ function TaskHead({ project, task }: { project: Project; task: Task }) {
                 )}
             </div>
             <StackControls project={project.name} task={task} />
+            <PullSection project={project.name} task={task} />
         </header>
     );
 }

@@ -9,6 +9,7 @@ import { useStore } from "../store";
 import { countUnread, countWaiting, nestedSessions, projectStatus, projectUnread } from "../tree";
 import { wordsFor } from "../wording";
 import { ProviderMark } from "./ProviderMark";
+import { PullBadge } from "./PullRequest";
 import { StatusMark } from "./StatusMark";
 
 export function Sidebar() {
@@ -161,6 +162,7 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
                     <span className="task-title">{task.name}</span>
                     {task.setup === "failed" && <span className="task-flag">setup failed</span>}
                 </h3>
+                <PullBadge project={project} task={task} />
                 <CloudButton project={project} task={task.name} />
                 <NoteButton project={project} task={task.name} has={task.has_note} />
                 <button

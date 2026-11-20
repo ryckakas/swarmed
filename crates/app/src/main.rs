@@ -160,6 +160,8 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
             commands::task_remove,
             commands::task_open_editor,
             commands::task_open_url,
+            commands::task_pull,
+            commands::task_pull_open,
             commands::task_changes,
             commands::task_diff,
             commands::note,

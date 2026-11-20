@@ -226,6 +226,101 @@ code {
     margin-top: var(--space-3);
 }
 
+/* The task's pull request: where it stands, its checks, and a way to hand failures on. */
+.pull {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--line);
+}
+
+.pull-title {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    text-align: left;
+}
+
+.pull-title:hover {
+    text-decoration: underline;
+}
+
+.pull-number {
+    margin-right: var(--space-2);
+    color: var(--muted);
+    font-weight: 400;
+}
+
+.pull-summary {
+    color: var(--muted);
+    font-size: var(--text-sm);
+}
+
+.pull-summary[data-tone="failed"] {
+    color: var(--clay);
+}
+
+.pull-summary[data-tone="running"] {
+    color: var(--pollen);
+}
+
+.pull-summary[data-tone="passed"] {
+    color: var(--moss);
+}
+
+.pull-checks {
+    align-self: stretch;
+}
+
+.pull-check {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-3);
+    width: 100%;
+    padding: 3px var(--space-2);
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-size: var(--text-sm);
+    text-align: left;
+}
+
+.pull-check:hover {
+    background: var(--raised);
+}
+
+.pull-check-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pull-check-outcome {
+    flex: none;
+    color: var(--muted);
+}
+
+.pull-check[data-outcome="passed"] .pull-check-outcome {
+    color: var(--moss);
+}
+
+.pull-check[data-outcome="failed"] .pull-check-outcome {
+    color: var(--clay);
+}
+
+.pull-check[data-outcome="running"] .pull-check-outcome {
+    color: var(--pollen);
+}
+
 /* What a task keeps running: its state, the button that starts or stops it, and its log. */
 .stack {
     display: flex;
@@ -657,6 +752,38 @@ code {
 .task-flag {
     color: var(--clay);
     font-family: var(--font-ui);
+}
+
+/* A task's pull request: its number, coloured by how its checks stand. */
+.pull-badge {
+    flex: none;
+    padding: 0 5px;
+    border: 1px solid currentcolor;
+    border-radius: 8px;
+    background: none;
+    color: var(--faint);
+    font: inherit;
+    font-size: var(--text-xs);
+    line-height: 1.45;
+}
+
+.pull-badge[data-tone="passed"] {
+    color: var(--moss);
+}
+
+.pull-badge[data-tone="running"] {
+    color: var(--pollen);
+}
+
+.pull-badge[data-tone="failed"] {
+    color: var(--clay);
+}
+
+/* Merged or closed: done with, whatever its checks said. */
+.pull-badge[data-state="merged"],
+.pull-badge[data-state="closed"] {
+    color: var(--faint);
+    border-style: dashed;
 }
 
 .hint {

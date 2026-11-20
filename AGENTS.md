@@ -201,6 +201,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **A task's changes are read from git on demand** (`changes.rs`): everything that differs from
   the merge base with the task's base ref, uncommitted and untracked files included. The view is
   read-only. The UI reads again when one of the task's agents finishes a tool call or a turn.
+- **A task's pull request and checks are asked of the user's own `gh`** (`pulls.rs`), in the
+  task's worktree, on demand. Swarmed holds no GitHub token. No `gh`, no pull request, or a
+  repository that is not on GitHub all mean the same: the task has none, which is not an error.
 - **Removing a project** (`project_remove`) removes its tasks as `task_remove` does, keeping
   their branches, then deletes what Swarmed holds about it: sessions, their history and the
   notes. The repository is not touched. Removing a task stops its sessions first. In the UI

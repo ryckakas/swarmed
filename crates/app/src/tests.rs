@@ -289,7 +289,14 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     std::fs::write(worktree.join("notes.txt"), "one\n").expect("writes");
     let target = json!({ "project": "demo", "name": "one" });
     let added = json!([{ "path": "notes.txt", "kind": "added", "added": 1, "removed": 0 }]);
-    assert_eq!(app.ok("task_changes", target), added);
+    assert_eq!(app.ok("task_changes", target.clone()), added);
+    // A branch that was never pushed has no pull request, and opening it says so.
+    assert_eq!(app.ok("task_pull", target.clone()), json!(null));
+    let opening = json!({ "project": "demo", "name": "one", "check": null });
+    let refused = app
+        .invoke("task_pull_open", opening)
+        .expect_err("nothing to open");
+    assert_eq!(refused, json!("`one` has no pull request"));
     let file = json!({ "project": "demo", "name": "one", "path": "notes.txt" });
     let diff = app.ok("task_diff", file);
     assert_eq!(diff["truncated"], false);

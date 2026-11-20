@@ -13,6 +13,7 @@ import type {
     McpServerInput,
     McpServerView,
     Project,
+    Pull,
     QueuedMessage,
     Session,
     SessionEvent,
@@ -124,6 +125,10 @@ export interface Api {
     environmentSave(project: string, name: string, environment: Environment): Promise<void>;
     environmentRemove(project: string, name: string): Promise<void>;
     /** The files the task has changed since its branch left its base, uncommitted ones included. */
+    /** The pull request of a task's branch with its checks; `null` if it has none. */
+    taskPull(project: string, name: string): Promise<Pull | null>;
+    /** Opens a task's pull request in the browser, or the details of its check `check`. */
+    taskPullOpen(project: string, name: string, check: string | null): Promise<void>;
     taskChanges(project: string, name: string): Promise<FileChange[]>;
     /** One changed file's diff. */
     taskDiff(project: string, name: string, path: string): Promise<FileDiff>;
