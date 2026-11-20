@@ -17,7 +17,8 @@ use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
 use tokio::sync::mpsc;
 
 use super::{
-    AgentBackend, AgentCommand, AgentEvent, AgentHandle, McpServerInfo, SessionSpec, Supervision,
+    AgentBackend, AgentCommand, AgentEvent, AgentHandle, Effort, McpServerInfo, SessionSpec,
+    Supervision,
 };
 use crate::error::{Error, Result};
 use crate::mcp::{McpServer, McpTransport};
@@ -107,6 +108,25 @@ fn agent_mode(supervision: Supervision, offered: &[String]) -> Option<&str> {
     };
     let wanted = |mode: &&String| names.contains(&mode.as_str());
     offered.iter().find(wanted).map(String::as_str)
+}
+
+/// The efforts from least to most, as agents name them. Some offer less than these, and
+/// some a step below the lowest Swarmed has.
+const EFFORTS: [&str; 6] = ["minimal", "low", "medium", "high", "xhigh", "max"];
+
+/// The agent's own effort that comes closest to `effort`, among the ones it `offered`: the
+/// same one if it has it, else the nearest below, else the nearest above.
+fn agent_effort(effort: Effort, offered: &[String]) -> Option<&str> {
+    let rank = |name: &str| EFFORTS.iter().position(|known| *known == name);
+    let wanted = rank(effort.as_str())?;
+    let known = || offered.iter().filter_map(|name| Some((rank(name)?, name)));
+    let below = known()
+        .filter(|(at, _)| *at <= wanted)
+        .max_by_key(|(at, _)| *at);
+    let above = known()
+        .filter(|(at, _)| *at > wanted)
+        .min_by_key(|(at, _)| *at);
+    below.or(above).map(|(_, name)| name.as_str())
 }
 
 /// The values the agent offers for its option `id`, from what it answers to opening a session.
@@ -273,6 +293,8 @@ impl Conversation {
         });
         self.modes = option_values(result, "mode");
         self.set_mode().await;
+        self.set_effort(&option_values(result, "reasoning_effort"))
+            .await;
         self.set_model(self.spec.model.clone()).await;
         while let Some(text) = self.queued.pop_front() {
             self.prompt(text).await;
@@ -287,6 +309,23 @@ impl Conversation {
             return;
         };
         let params = json!({ "sessionId": session_id, "configId": "model", "value": model });
+        self.call(Call::SetOption, "session/set_config_option", params)
+            .await;
+    }
+
+    /// Sets how hard the agent's model thinks, to the level of its own nearest the one chosen
+    /// for the session. An agent that offers no such choice, or a session without one, is left
+    /// at the agent's default.
+    async fn set_effort(&mut self, offered: &[String]) {
+        let effort = self
+            .spec
+            .effort
+            .and_then(|effort| agent_effort(effort, offered));
+        let (Some(effort), Some(session_id)) = (effort, self.session_id.clone()) else {
+            return;
+        };
+        let params =
+            json!({ "sessionId": session_id, "configId": "reasoning_effort", "value": effort });
         self.call(Call::SetOption, "session/set_config_option", params)
             .await;
     }
@@ -774,6 +813,24 @@ mod tests {
         assert_eq!(option_values(&json!({}), "mode"), Vec::<String>::new());
         assert_eq!(agent_mode(Supervision::Auto, &[]), None);
         assert_eq!(agent_mode(Supervision::Ask, &["build".to_string()]), None);
+    }
+
+    #[test]
+    fn effort_is_matched_to_the_nearest_level_the_agent_offers() {
+        let levels = |names: &[&str]| names.iter().map(ToString::to_string).collect::<Vec<_>>();
+        let codex = levels(&["minimal", "low", "medium", "high"]);
+        assert_eq!(agent_effort(Effort::Medium, &codex), Some("medium"));
+        // Nothing higher on offer: the highest there is.
+        assert_eq!(agent_effort(Effort::Max, &codex), Some("high"));
+        assert_eq!(agent_effort(Effort::Xhigh, &codex), Some("high"));
+        // Nothing as low on offer: the nearest above.
+        assert_eq!(
+            agent_effort(Effort::Low, &levels(&["medium", "high"])),
+            Some("medium")
+        );
+        // An agent with no such choice, or with names nobody knows, is left alone.
+        assert_eq!(agent_effort(Effort::High, &[]), None);
+        assert_eq!(agent_effort(Effort::High, &levels(&["turbo"])), None);
     }
 
     #[test]

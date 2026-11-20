@@ -9,7 +9,7 @@ import { ComposerBox } from "./ComposerBox";
 import { EffortPicker } from "./EffortPicker";
 import { MessageQueue } from "./MessageQueue";
 import { ModePicker, TerminalIcon } from "./ModePicker";
-import { CLAUDE, modelChoices, useAgents, useSlashCommands } from "./options";
+import { CLAUDE, modelChoices, takesEffort, useAgents, useSlashCommands } from "./options";
 import { Picker } from "./Picker";
 
 // The terminal emulator is a large library; it is only fetched when a terminal is first shown.
@@ -145,8 +145,8 @@ function SessionPickers({ session }: { session: Session }) {
                 onChange={(value) => void configure(api, id, { ...current, model: value || null })}
                 options={modelChoices(agent, model)}
             />
-            {/* Only Claude Code takes an effort. Changing it restarts the agent between turns. */}
-            {session.agent === CLAUDE && (
+            {/* Changing it restarts the agent between turns. */}
+            {takesEffort(session.agent) && (
                 <EffortPicker
                     value={effort}
                     applied={applied}

@@ -18,7 +18,7 @@ import { ComposerBox } from "./ComposerBox";
 import { EffortPicker } from "./EffortPicker";
 import { Incubating } from "./Incubating";
 import { ModePicker } from "./ModePicker";
-import { CLAUDE, modelChoices, useAgents, useSlashCommands } from "./options";
+import { CLAUDE, modelChoices, takesEffort, useAgents, useSlashCommands } from "./options";
 import { Picker } from "./Picker";
 
 /** The value of the branch picker that means "create a new branch". */
@@ -209,7 +209,7 @@ interface AgentPickersProps {
     onEffort(effort: Effort | null): void;
 }
 
-/** What the session is created with. Only Claude Code takes an effort. */
+/** What the session is created with. An effort only goes to an agent that takes one. */
 function setupFor(
     agentId: string,
     model: string,
@@ -221,7 +221,7 @@ function setupFor(
         agent: claude ? null : agentId,
         model: model || null,
         supervision,
-        effort: claude ? effort : null,
+        effort: takesEffort(agentId) ? effort : null,
     };
 }
 
@@ -240,7 +240,7 @@ function AgentPickers(props: AgentPickersProps) {
                 />
             )}
             <Picker label="Model" value={model} onChange={onModel} options={modelChoices(agent)} />
-            {agentId === CLAUDE && <EffortPicker value={effort} onChange={onEffort} />}
+            {takesEffort(agentId) && <EffortPicker value={effort} onChange={onEffort} />}
         </>
     );
 }
