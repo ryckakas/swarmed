@@ -12,8 +12,8 @@ use serde::Serialize;
 use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
     AgentInfo, AgentSetup, ApiKeyInfo, BranchChoices, CloudOrigin, CloudProvider, CloudTask, Core,
-    Environment, FileChange, FileDiff, McpServerInput, McpServerView, NewTaskOptions, Project,
-    ProjectOverview, Pull, PullDraft, QueuedMessage, RemoveOptions, SearchHit, Session,
+    Costs, Environment, FileChange, FileDiff, McpServerInput, McpServerView, NewTaskOptions,
+    Project, ProjectOverview, Pull, PullDraft, QueuedMessage, RemoveOptions, SearchHit, Session,
     SessionOptions, SessionSettings, Settings, Skill, Task, TaskNaming, Unpublished, Usage,
     with_files,
 };
@@ -95,6 +95,12 @@ pub(crate) fn mcp_remove(core: CoreState<'_>, name: String) -> Command<Vec<McpSe
 #[tauri::command]
 pub(crate) async fn usage(core: CoreState<'_>) -> Command<Usage> {
     Ok(core.usage().await?)
+}
+
+/// What the agents report their work has cost: today, this week, in all, by task and by day.
+#[tauri::command]
+pub(crate) fn costs(core: CoreState<'_>) -> Command<Costs> {
+    Ok(core.costs()?)
 }
 
 /// The agents that can be set up from the settings, and how far along each is.

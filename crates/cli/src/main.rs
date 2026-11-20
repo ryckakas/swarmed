@@ -38,6 +38,8 @@ enum Command {
     Mcp,
     /// Show what Swarmed takes up on disk, and in memory and processor time right now.
     Usage,
+    /// Print what the agents report their work has cost: by day and by task, at API prices.
+    Costs,
     /// List the agents sessions can run on.
     Agents,
     /// Set up an agent other than Claude Code: install it, or choose the models it offers.
@@ -309,6 +311,7 @@ async fn run(core: &Core, command: Command) -> Result<()> {
         Command::Agent(command) => agent(core, command).await,
         Command::Mcp => mcp(core),
         Command::Usage => usage(core).await,
+        Command::Costs => costs(core),
         Command::Agents => {
             agents(core);
             Ok(())
@@ -326,6 +329,22 @@ async fn run(core: &Core, command: Command) -> Result<()> {
         Command::Rules { set } => rules(core, set),
         Command::Search { query } => search(core, &query),
     }
+}
+
+/// Prints what the agents report their work has cost.
+fn costs(core: &Core) -> Result<()> {
+    let costs = core.costs()?;
+    say(&format!(
+        "today ${:.2}\tlast 7 days ${:.2}\tin all ${:.2}",
+        costs.today, costs.week, costs.total
+    ));
+    for task in &costs.tasks {
+        say(&format!(
+            "${:.2}\t{} / {}",
+            task.usd, task.project, task.task
+        ));
+    }
+    Ok(())
 }
 
 /// Prints the sessions in which `query` was said.

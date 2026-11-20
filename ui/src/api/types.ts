@@ -47,6 +47,18 @@ export interface Task {
     stack: boolean | null;
 }
 
+/** What the agents report their work has cost, in US dollars at API prices. */
+export interface Costs {
+    today: number;
+    /** The last seven days, today included. */
+    week: number;
+    total: number;
+    /** The most expensive tasks, the most expensive first. */
+    tasks: { project: string; task: string; usd: number }[];
+    /** The last days on which something was spent, the newest first. */
+    days: { day: string; usd: number }[];
+}
+
 /** One session in which the words searched for were said. */
 export interface SearchHit {
     session_id: number;

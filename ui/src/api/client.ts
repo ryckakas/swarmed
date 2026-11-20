@@ -6,6 +6,7 @@ import type {
     BranchChoices,
     CloudProvider,
     CloudTask,
+    Costs,
     Environment,
     FileChange,
     FileDiff,
@@ -46,6 +47,8 @@ export interface Api {
     mcpRemove(name: string): Promise<McpServerView[]>;
     /** What Swarmed takes up and uses. Measuring the worktrees can take a few seconds. */
     usage(): Promise<Usage>;
+    /** What the agents report their work has cost: by day and by task. */
+    costs(): Promise<Costs>;
     /** The agents that can be set up from the settings, and how far along each is. */
     agentSetups(): Promise<AgentSetup[]>;
     /** Installs a known agent and configures it. Its installer's output comes as hook output. */

@@ -467,6 +467,10 @@ fn the_ui_can_see_what_swarmed_takes_up() {
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
     let task = json!({ "project": "demo", "name": "one", "branch": null });
     app.ok("task_new", task);
+    // Nothing has run, so nothing was spent; the figures are there all the same.
+    let costs = app.ok("costs", json!({}));
+    assert_eq!(costs["total"], json!(0.0));
+    assert_eq!(costs["tasks"], json!([]));
     let usage = app.ok("usage", json!({}));
     let positive = |value: &Value| value.as_u64().is_some_and(|bytes| bytes > 0);
     assert!(positive(&usage["database_bytes"]), "{usage}");

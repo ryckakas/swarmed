@@ -6,6 +6,7 @@ import type {
     ApiKeyInfo,
     CloudProvider,
     CloudTask,
+    Costs,
     Environment,
     FileChange,
     FileDiff,
@@ -1074,6 +1075,22 @@ function sampleFork(agent: MockAgent, tasks: Task[], id: number, upto: number | 
     return fork;
 }
 
+const SAMPLE_COSTS: Costs = {
+    today: 3.42,
+    week: 18.9,
+    total: 212.05,
+    tasks: [
+        { project: "hero", task: "fix-login-redirect", usd: 41.3 },
+        { project: "bonsai-lint", task: "rust-support", usd: 12.75 },
+        { project: "hero", task: "invoice-export", usd: 0.4 },
+    ],
+    days: [
+        { day: "2026-11-20", usd: 3.42 },
+        { day: "2026-11-19", usd: 9.1 },
+        { day: "2026-11-17", usd: 6.38 },
+    ],
+};
+
 function closingApi(
     agent: MockAgent,
 ): Pick<Api, "sessionClose" | "sessionsClosed" | "sessionReopen"> {
@@ -1116,6 +1133,7 @@ export function createMockApi(): Api {
         overview: async () => structuredClone(agent.projects),
         ...mcpApi(),
         usage: async () => SAMPLE_USAGE,
+        costs: async () => SAMPLE_COSTS,
         ...setupApi(hookListeners),
         agents: async () => [
             { id: "claude", name: "Claude Code", models: ["opus", "sonnet", "haiku", "fable"] },
