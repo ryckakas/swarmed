@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { Api } from "./api/client";
 import type {
     AgentEvent,
+    CustomLayout,
     NoteTarget,
     Project,
     Pull,
@@ -80,6 +81,13 @@ interface State {
     togglePanel(): void;
     /** Changes some of the user's preferences and keeps the rest. */
     changeSettings(api: Api, change: Partial<Settings>): Promise<void>;
+    /** The user's custom layout, once read; drawn when the settings choose it. */
+    customLayout: CustomLayout | null;
+    /**
+     * Has the core check `text` as the custom layout and keep it. Resolves to what is wrong
+     * with it, or to nothing once it is kept and drawn.
+     */
+    saveCustomLayout(api: Api, text: string): Promise<string | null>;
     /** The ids of the repositories whose tasks are folded away in the sidebar. */
     folded: number[];
     toggleFolded(projectId: number): void;
@@ -93,8 +101,11 @@ interface State {
     terminalCommand: { sessionId: number; text: string } | null;
     /** Shows the terminal and has `text` typed into the terminal of `sessionId`. */
     runInTerminal(sessionId: number, text: string): void;
-    /** Notes that the waiting command was typed. */
-    terminalCommandTyped(): void;
+    /**
+     * The command waiting for the terminal of `sessionId`, which is then no longer waiting: so
+     * however often it is asked for, it is typed once.
+     */
+    takeTerminalCommand(sessionId: number): string | null;
     /** Goes up whenever the user's actions were changed, so what shows them reads them again. */
     actionsChanged: number;
     noteActionsChanged(): void;
@@ -278,6 +289,25 @@ function closed(state: State, sessionId: number): Partial<State> {
     };
 }
 
+/** Has the core keep `text` as the custom layout; what is wrong with it, or nothing once `kept`. */
+async function keptLayout(api: Api, text: string, kept: (layout: CustomLayout) => void) {
+    try {
+        kept(await api.customLayoutSave(text));
+        return null;
+    } catch (error) {
+        return String(error);
+    }
+}
+
+/** The text of a waiting command meant for the terminal of `sessionId`, which `forget` then drops. */
+function taken(waiting: State["terminalCommand"], sessionId: number, forget: () => void) {
+    if (waiting === null || waiting.sessionId !== sessionId) {
+        return null;
+    }
+    forget();
+    return waiting.text;
+}
+
 export const useStore = create<State>((set, get) => ({
     projects: [],
     load: "loading",
@@ -304,6 +334,8 @@ export const useStore = create<State>((set, get) => ({
             set({ settings });
             await api.setSettings(settings);
         }),
+    customLayout: null,
+    saveCustomLayout: (api, text) => keptLayout(api, text, (customLayout) => set({ customLayout })),
     folded: readIds(FOLDED),
     toggleFolded: (projectId) => {
         const folded = toggledId(get().folded, projectId);
@@ -321,7 +353,8 @@ export const useStore = create<State>((set, get) => ({
     terminalCommand: null,
     runInTerminal: (sessionId, text) =>
         set({ terminalOpen: true, terminalCommand: { sessionId, text } }),
-    terminalCommandTyped: () => set({ terminalCommand: null }),
+    takeTerminalCommand: (sessionId) =>
+        taken(get().terminalCommand, sessionId, () => set({ terminalCommand: null })),
     actionsChanged: 0,
     noteActionsChanged: () => set((state) => ({ actionsChanged: state.actionsChanged + 1 })),
     renameAsked: 0,
@@ -448,6 +481,7 @@ const inView = typeof window === "undefined" ? null : window;
 /** Reads the settings and the kept prompts, at the start and whenever an agent changed them. */
 function readConfiguration(api: Api) {
     void reporting(async () => useStore.setState({ settings: await api.settings() }));
+    void reporting(async () => useStore.setState({ customLayout: await api.customLayout() }));
     void reporting(async () => useStore.setState({ templates: await api.templates() }));
 }
 

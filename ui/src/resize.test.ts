@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
+import type { Settings } from "./api/types";
+import { drawnLayout } from "./customLayout";
 import {
     clampWidth,
     KEY_STEP,
     MIN_MAIN_WIDTH,
     PANEL_WIDTH,
+    SENIOR_SIDEBAR_WIDTH,
     SIDEBAR_WIDTH,
+    sidebarOf,
     widestPanel,
     widthAfterKey,
 } from "./resize";
@@ -43,5 +47,22 @@ describe("widestPanel", () => {
 
     it("never goes below the panel's own minimum in a small window", () => {
         expect(widestPanel(700, 300)).toBe(PANEL_WIDTH.min);
+    });
+});
+
+describe("sidebarOf", () => {
+    it("gives each layout its own remembered width", () => {
+        expect(sidebarOf("classic")).toEqual({
+            key: "swarmed.sidebar-width",
+            limits: SIDEBAR_WIDTH,
+        });
+        expect(sidebarOf("senior").limits).toBe(SENIOR_SIDEBAR_WIDTH);
+        expect(sidebarOf("senior").key).not.toBe(sidebarOf("classic").key);
+    });
+
+    it("gives a custom layout the sidebar of the layout it starts from", () => {
+        const senior = { layout: "custom" } as Settings;
+        expect(sidebarOf(drawnLayout(senior, { base: "senior" }))).toEqual(sidebarOf("senior"));
+        expect(sidebarOf(drawnLayout(null, null))).toEqual(sidebarOf("classic"));
     });
 });

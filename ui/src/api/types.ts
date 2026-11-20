@@ -239,6 +239,30 @@ export type Palette = "dusk" | "graphite" | "forest" | "plum" | "ember" | "swarm
  */
 export type Style = "plain" | "swarm" | "colony";
 
+/** How large and how far apart things are drawn: dense, or made for easier reading. */
+export type Layout = "classic" | "senior" | "custom";
+
+/** Colours of one form of the app, by the stylesheet's names for them, each `#rrggbb`. */
+export type LayoutColours = Record<string, string>;
+
+/**
+ * A layout of the user's own, as the core checked it: whatever it leaves out is drawn as in
+ * the layout it starts from. Sizes are in pixels, the rest in percent of the classic layout's.
+ */
+export interface CustomLayout {
+    base: "classic" | "senior";
+    text?: { xs?: number; sm?: number; md?: number; lg?: number; xl?: number };
+    line_height?: number;
+    spacing?: number;
+    icons?: number;
+    row_height?: number;
+    control_height?: number;
+    font?: string;
+    mono_font?: string;
+    dark?: LayoutColours;
+    light?: LayoutColours;
+}
+
 /** One built-in piece of the status line. */
 export type StatusItem =
     | "branch"
@@ -261,7 +285,9 @@ export interface Settings {
     palette: Palette;
     /** Which icons and words the app uses, whatever its colours. */
     style: Style;
-    /** The size of the app's text, in percent of its normal size. */
+    /** How large and how far apart the app draws things, whatever its colours. */
+    layout: Layout;
+    /** The size of the app's text, in percent of what its layout starts from. */
     text_scale: number;
     /** How much a new session's agent may do without asking, unless chosen otherwise. */
     default_supervision: Supervision;

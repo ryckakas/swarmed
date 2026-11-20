@@ -12,10 +12,10 @@ use serde::{Deserialize, Serialize};
 use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
     Action, AgentInfo, AgentSetup, ApiKeyInfo, BackgroundTask, BranchChoices, CloudOrigin,
-    CloudProvider, CloudTask, Core, Costs, Environment, FileChange, FileDiff, Mark, McpServerInput,
-    McpServerView, NewTaskOptions, Project, ProjectOverview, Pull, PullDraft, QueuedMessage,
-    RemoveOptions, SearchHit, Session, SessionOptions, SessionSettings, Settings, Skill, Snapshot,
-    Task, TaskNaming, Template, TurnStats, Unpublished, Usage, with_files,
+    CloudProvider, CloudTask, Core, Costs, CustomLayout, Environment, FileChange, FileDiff, Mark,
+    McpServerInput, McpServerView, NewTaskOptions, Project, ProjectOverview, Pull, PullDraft,
+    QueuedMessage, RemoveOptions, SearchHit, Session, SessionOptions, SessionSettings, Settings,
+    Skill, Snapshot, Task, TaskNaming, Template, TurnStats, Unpublished, Usage, with_files,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -591,6 +591,18 @@ pub(crate) fn settings(core: CoreState<'_>) -> Command<Settings> {
 #[tauri::command]
 pub(crate) fn set_settings(core: CoreState<'_>, settings: Settings) -> Command<()> {
     Ok(core.set_settings(&settings)?)
+}
+
+/// The user's custom layout, as checked by the core.
+#[tauri::command]
+pub(crate) fn custom_layout(core: CoreState<'_>) -> Command<CustomLayout> {
+    Ok(core.custom_layout()?)
+}
+
+/// Keeps `text`, JSON as the user wrote it, as the custom layout if it can be drawn.
+#[tauri::command]
+pub(crate) fn custom_layout_save(core: CoreState<'_>, text: String) -> Command<CustomLayout> {
+    Ok(core.set_custom_layout(&text)?)
 }
 
 #[tauri::command]

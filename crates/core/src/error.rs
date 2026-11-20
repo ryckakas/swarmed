@@ -161,6 +161,9 @@ pub enum Error {
     /// A change to Swarmed's configuration that an agent asked for was not made. Says why.
     #[error("{0}")]
     Configure(String),
+    /// A custom layout cannot be drawn or read as given. Says why.
+    #[error("{0}")]
+    Layout(String),
     /// A mark could not be put on a session. Says why.
     #[error("{0}")]
     Mark(String),

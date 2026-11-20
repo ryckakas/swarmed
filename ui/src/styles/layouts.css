@@ -1,0 +1,309 @@
+/*
+ * The layouts the user can choose between in the settings. Classic is what app.css draws and
+ * needs nothing here. Senior is the same app made easier to read and to hit: nothing is set
+ * smaller than 14px, rows and buttons are taller, icons larger, quiet text less quiet, and
+ * what classic shows only under the pointer is always there.
+ *
+ * It is not a zoom. The smallest text grows the most (11px to 14px) and headings the least, so
+ * the steps between sizes get flatter and a window holds more than it would enlarged as a whole.
+ * The text size setting still applies on top: every size here is in rem.
+ */
+
+:root[data-layout="senior"] {
+    --text-xs: 0.875rem;
+    --text-sm: 1rem;
+    --text-md: 1.125rem;
+    --text-lg: 1.3125rem;
+    --text-xl: 1.625rem;
+
+    --space-1: 5px;
+    --space-2: 10px;
+    --space-3: 14px;
+    --space-4: 20px;
+    --space-6: 28px;
+    --space-8: 44px;
+
+    --icon-zoom: 1.35;
+    --button-zoom: 1.3;
+    --row-min: 44px;
+    --control-min: 40px;
+}
+
+/*
+ * Quiet text, less quiet. Mixed from the palette's own text and background, so it holds for
+ * every palette in dark and in light; set on the body because the palettes set theirs on the
+ * root, with selectors this file should not have to outweigh.
+ */
+:root[data-layout="senior"] body {
+    --muted: color-mix(in srgb, var(--text) 86%, var(--dusk));
+    --faint: color-mix(in srgb, var(--text) 66%, var(--dusk));
+    --line: color-mix(in srgb, var(--text) 26%, var(--dusk));
+    line-height: 1.5;
+}
+
+/* The settings show each palette in its own colours: quiet ones included. */
+:root[data-layout="senior"] .palette {
+    --line: color-mix(in srgb, var(--text) 26%, var(--dusk));
+}
+
+/* Where the keyboard is: a ring nobody has to look for. */
+:root[data-layout="senior"] :focus-visible {
+    outline-width: 3px;
+}
+
+/*
+ * Icons, marks and the small buttons beside a row are drawn to fixed sizes in app.css. A layout
+ * enlarges each as a whole, with its own margins, rather than giving it a second set of sizes;
+ * and sets how tall rows and controls are at least. Classic sets none of these, senior all of
+ * them, and a custom layout whichever it names.
+ */
+:is(
+    .row-icon,
+    .provider-mark,
+    .fold-chevron,
+    .change-chevron,
+    .pull-fold-chevron,
+    .egg,
+    .larva,
+    .incubating,
+    .spawning,
+    .mark,
+    .session-spawned,
+    .session-mark-dot,
+    .agent-ready,
+    .activity-swatch
+) {
+    zoom: var(--icon-zoom, 1);
+}
+
+:is(
+    .row-add,
+    .row-close,
+    .row-note,
+    .icon-button,
+    .icon-picker,
+    .round-button,
+    .status-toggle,
+    .status-piece-move,
+    .publish-write,
+    .queue-remove,
+    .file-chip button,
+    .model-chip button
+) {
+    zoom: var(--button-zoom, 1);
+}
+
+/*
+ * Starting a session and closing one are always in full, not faint until pointed at. What else
+ * a row offers still waits for the pointer: shown all the time, it would leave the names, which
+ * matter more, half their room.
+ */
+:root[data-layout="senior"] :is(.row-add, .row-close) {
+    opacity: 1;
+    color: var(--muted);
+}
+
+/* And takes no room until then, so a name is cut short only while its row is pointed at. */
+:root[data-layout="senior"] .row-head:not(:hover, :focus-within) .row-note:not([data-has="true"]) {
+    display: none;
+}
+
+/* The tree: taller rows, names in the text face at a size to read, more between the levels. */
+
+:root[data-layout="senior"] .project + .project {
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+}
+
+:root[data-layout="senior"] .project-name {
+    font-size: var(--text-md);
+}
+
+:root[data-layout="senior"] .project-toggle {
+    gap: var(--space-2);
+    padding-block: var(--space-2);
+}
+
+:root[data-layout="senior"] .task {
+    margin-top: var(--space-2);
+}
+
+:root[data-layout="senior"] .task > .row-head {
+    margin-left: 26px;
+    border-radius: 8px;
+}
+
+:root[data-layout="senior"] .task-name {
+    gap: var(--space-2);
+    padding-block: var(--space-2);
+    font-size: var(--text-xs);
+}
+
+:root[data-layout="senior"] .sessions {
+    margin: var(--space-1) 0 0 44px;
+    border-left-width: 2px;
+}
+
+:root[data-layout="senior"] .session-line {
+    border-left-width: 4px;
+}
+
+.session-row,
+.cloud-row,
+.new-task-button,
+.quiet-button {
+    min-height: var(--row-min, 0);
+}
+
+.button {
+    min-height: var(--control-min, 0);
+}
+
+.picker {
+    min-height: calc(var(--control-min, 0px) * 0.9);
+}
+
+:root[data-layout="senior"] .session-row {
+    padding-block: var(--space-2);
+}
+
+:root[data-layout="senior"] .session-line[data-current="true"] {
+    box-shadow: inset 0 0 0 1px var(--faint);
+}
+
+:root[data-layout="senior"] .hint {
+    padding-left: 60px;
+}
+
+:root[data-layout="senior"] .project > .hint {
+    padding-left: 48px;
+}
+
+:root[data-layout="senior"] .closed-toggle {
+    margin-left: 50px;
+    padding-block: var(--space-1);
+}
+
+:root[data-layout="senior"] .closed-row {
+    padding: var(--space-1) var(--space-2) var(--space-1) 60px;
+}
+
+:root[data-layout="senior"] .cloud-tasks {
+    margin-left: 26px;
+}
+
+/* Everything pressed: tall enough to hit without aiming. */
+
+:root[data-layout="senior"] .button {
+    padding-block: 6px;
+    border-radius: 8px;
+}
+
+:root[data-layout="senior"] .picker {
+    padding-block: var(--space-1);
+    padding-right: 26px;
+    background-size: 11px;
+    background-position: right 10px center;
+}
+
+:root[data-layout="senior"] .picker-plain {
+    padding-right: var(--space-2);
+}
+
+/* The status line: onto a second line rather than cut short. */
+:root[data-layout="senior"] .status-text {
+    flex-wrap: wrap;
+    row-gap: var(--space-1);
+}
+
+/* The choice of layout itself, in the settings: each card set in what it stands for. */
+
+.layouts {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-2);
+}
+
+.layout-choice {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    column-gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--dusk);
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+}
+
+.layout-choice[aria-checked="true"] {
+    border-color: var(--focus);
+    box-shadow: 0 0 0 1px var(--focus);
+}
+
+.layout-sample {
+    grid-row: span 2;
+    width: 2.2em;
+    color: var(--bright);
+    font-size: 0.8125rem;
+    font-weight: 700;
+    text-align: center;
+}
+
+.layout-choice[data-layout="senior"] .layout-sample {
+    font-size: 1.25rem;
+}
+
+.layout-name {
+    font-weight: 600;
+}
+
+.layout-what {
+    color: var(--muted);
+    font-size: var(--text-xs);
+}
+
+.layout-choice[data-layout="custom"] .layout-sample {
+    font-family: var(--font-mono);
+    font-size: 1rem;
+}
+
+/* The custom layout, as the JSON it is: written here, checked by the core when saved. */
+.layout-editor {
+    display: grid;
+    gap: var(--space-2);
+}
+
+.layout-json {
+    display: block;
+    width: 100%;
+    min-height: 16lh;
+    padding: var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--dusk);
+    color: var(--text);
+    font: inherit;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    line-height: 1.45;
+    resize: vertical;
+    user-select: text;
+    tab-size: 2;
+}
+
+.layout-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.layout-problem {
+    flex: 1;
+    min-width: 0;
+    color: var(--clay);
+    font-size: var(--text-xs);
+    user-select: text;
+}

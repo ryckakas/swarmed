@@ -23,6 +23,7 @@ mod error;
 mod fork;
 mod git;
 pub mod hooks;
+mod layouts;
 mod marks;
 pub mod mcp;
 mod mcp_codex;
@@ -77,6 +78,7 @@ pub use costs::{Costs, DayCost, TaskCost};
 pub use environments::Environment;
 pub use error::{Error, Result};
 pub use hooks::OutputSink;
+pub use layouts::{Colour, Colours, CustomLayout, LayoutBase, TextSizes, layout_schema};
 pub use marks::{MAX_MARK_LABEL_CHARS, Mark, MarkColour};
 pub use mcp_own::{McpServerInput, McpServerView};
 pub use naming::TaskNaming;
@@ -95,7 +97,7 @@ use sessions::Live;
 pub use sessions::{
     EVENT_BUFFER, Session, SessionEvent, SessionOptions, SessionSettings, SessionStatus,
 };
-pub use settings::{Palette, Settings, Style, Theme};
+pub use settings::{Layout, Palette, Settings, Style, Theme};
 pub use skills::Skill;
 pub use snapshots::Snapshot;
 pub use stacks::StackState;

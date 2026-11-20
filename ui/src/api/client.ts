@@ -9,6 +9,7 @@ import type {
     CloudProvider,
     CloudTask,
     Costs,
+    CustomLayout,
     Environment,
     FileChange,
     FileDiff,
@@ -212,6 +213,10 @@ export interface Api {
     deleteApiKey(name: string): Promise<void>;
     settings(): Promise<Settings>;
     setSettings(settings: Settings): Promise<void>;
+    /** The user's custom layout. Fails if its file was edited into something unusable. */
+    customLayout(): Promise<CustomLayout>;
+    /** Keeps `text`, JSON as written, as the custom layout; fails with the reason if it cannot be drawn. */
+    customLayoutSave(text: string): Promise<CustomLayout>;
     /** Shows on the app's icon how many sessions wait for the user; nothing for none. */
     setBadge(count: number): Promise<void>;
     /** Calls `listener` for every line a hook prints while a task is created or removed. */

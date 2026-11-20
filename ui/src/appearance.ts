@@ -1,4 +1,5 @@
-import type { Palette, Settings, Style } from "./api/types";
+import type { CustomLayout, Layout, Palette, Settings, Style } from "./api/types";
+import { drawnLayout, layoutCss } from "./customLayout";
 
 // How the user's appearance settings reach the page. The stylesheet does the rest.
 
@@ -36,11 +37,31 @@ export function isSwarm(style: Style | undefined): boolean {
     return (style ?? DEFAULT_STYLE) !== "plain";
 }
 
+/** The layouts on offer, with the names to show and what each is for. */
+export const LAYOUTS: [Layout, string, string][] = [
+    ["classic", "Classic", "Dense, with small text: the most sessions in view."],
+    ["senior", "Senior", "Larger text, taller rows, larger buttons, stronger contrast."],
+    ["custom", "Custom", "Your own sizes, spacing, fonts and colours, as JSON."],
+];
+
+/** The layout the app is drawn in until the user chooses another. */
+export const DEFAULT_LAYOUT: Layout = "classic";
+
+/** The stylesheet a custom layout is drawn with: empty unless the settings choose that layout. */
+export function customCss(settings: Settings | null, custom: CustomLayout | null): string {
+    return settings?.layout === "custom" && custom ? layoutCss(custom) : "";
+}
+
 /**
- * Puts the theme, the palette, the style and the text size on the page. Before the settings are read, the
- * defaults.
+ * Puts the theme, the palette, the style, the layout and the text size on the page. Before the
+ * settings are read, the defaults. A custom layout is drawn as the layout it starts from, with
+ * its own stylesheet on top, which `drawCustom` puts in place.
  */
-export function applyAppearance(root: HTMLElement, settings: Settings | null) {
+export function applyAppearance(
+    root: HTMLElement,
+    settings: Settings | null,
+    custom: CustomLayout | null = null,
+) {
     const theme = settings?.theme ?? "system";
     if (theme === "system") {
         delete root.dataset.theme;
@@ -50,5 +71,22 @@ export function applyAppearance(root: HTMLElement, settings: Settings | null) {
     root.dataset.palette = settings?.palette ?? DEFAULT_PALETTE;
     // The stylesheet knows two: the renamed tree only changes words.
     root.dataset.style = isSwarm(settings?.style) ? "swarm" : "plain";
+    root.dataset.layout = drawnLayout(settings, custom);
+    if (settings?.layout === "custom") {
+        root.dataset.custom = "";
+    } else {
+        delete root.dataset.custom;
+    }
     root.style.fontSize = rootFontSize(settings?.text_scale);
+}
+
+/** Keeps one style element in `page` holding `css`, the custom layout's stylesheet. */
+export function drawCustom(page: Document, css: string) {
+    const id = "custom-layout";
+    const held =
+        page.getElementById(id) ??
+        page.head.appendChild(Object.assign(page.createElement("style"), { id }));
+    if (held.textContent !== css) {
+        held.textContent = css;
+    }
 }

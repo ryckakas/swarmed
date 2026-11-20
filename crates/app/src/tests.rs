@@ -337,7 +337,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
         app.ok("settings", json!({})),
         json!({
             "editor": "code", "auto_title": true, "theme": "system", "palette": "swarm",
-            "style": "colony",
+            "style": "colony", "layout": "classic",
             "text_scale": 100,
             "html_views": true, "notifications": true, "default_supervision": "auto",
             "status_items": ["branch", "changes", "model", "context", "cost"],
@@ -362,11 +362,19 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
 
     let chosen = json!({ "settings": {
         "editor": "swarmed-no-such-editor", "auto_title": false, "theme": "light",
-        "palette": "plum", "style": "plain", "text_scale": 110,
+        "palette": "plum", "style": "plain", "layout": "senior", "text_scale": 110,
         "html_views": false, "notifications": false, "default_supervision": "ask", "status_items": ["cost"], "status_command": "",
         "rules": "Keep answers short.",
     } });
     app.ok("set_settings", chosen);
+    assert_eq!(
+        app.ok("custom_layout", json!({})),
+        json!({ "base": "classic", "text": {} })
+    );
+    let written = json!({ "text": "{ \"base\": \"senior\", \"text\": { \"sm\": 17 } }" });
+    let kept = json!({ "base": "senior", "text": { "sm": 17 } });
+    assert_eq!(app.ok("custom_layout_save", written), kept);
+    assert_eq!(app.ok("custom_layout", json!({})), kept);
     let target = json!({ "project": "demo", "name": "one" });
     let failed = app.invoke("task_open_editor", target.clone());
     let message = failed.expect_err("no such editor");

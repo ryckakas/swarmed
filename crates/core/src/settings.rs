@@ -23,7 +23,9 @@ pub struct Settings {
     pub palette: Palette,
     /// Which icons and words the app uses, whatever its colours.
     pub style: Style,
-    /// The size of the app's text, in percent of its normal size.
+    /// How large and how far apart the app draws things, whatever its colours.
+    pub layout: Layout,
+    /// The size of the app's text, in percent of what its layout starts from.
     pub text_scale: u16,
     /// How much a new session's agent may do without asking, unless chosen otherwise.
     pub default_supervision: Supervision,
@@ -93,6 +95,20 @@ pub enum Style {
     Colony,
 }
 
+/// How large and how far apart the app draws things. Apart from the palette and the style,
+/// so it goes with any of them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Layout {
+    /// Dense, with small text: the most sessions in view. What Swarmed started with.
+    #[default]
+    Classic,
+    /// For easier reading: larger text, taller rows, larger buttons and stronger contrast.
+    Senior,
+    /// The user's own, as their layout file describes it.
+    Custom,
+}
+
 /// The smallest and largest text the app can be set to, in percent.
 const TEXT_SCALE_RANGE: (u16, u16) = (80, 150);
 
@@ -105,6 +121,7 @@ impl Default for Settings {
             theme: Theme::System,
             palette: Palette::Swarm,
             style: Style::Colony,
+            layout: Layout::Classic,
             text_scale: 100,
             default_supervision: Supervision::Auto,
             notifications: true,
@@ -171,6 +188,7 @@ mod tests {
             theme: Theme::Light,
             palette: Palette::Forest,
             style: Style::Plain,
+            layout: Layout::Senior,
             text_scale: 110,
             default_supervision: Supervision::Ask,
             notifications: false,

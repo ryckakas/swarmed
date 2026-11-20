@@ -7,7 +7,7 @@ use std::sync::Arc;
 use common::{core_with_project, fixture, next, turn};
 use swarmed_core::agent::{AgentEvent, Auth};
 use swarmed_core::{
-    Core, Delivery, Environment, Error, MAX_SPAWNED, NewTaskOptions, Palette, Session,
+    Core, Delivery, Environment, Error, Layout, MAX_SPAWNED, NewTaskOptions, Palette, Session,
     SessionEvent, SessionOptions, hooks, serve_session_tools,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -297,15 +297,25 @@ async fn an_agent_changes_what_is_harmless_at_once() {
     let (ok, said) = configure(
         &socket,
         session.id,
-        json(serde_json::json!({ "kind": "appearance", "op": "save", "palette": "Forest", "text_size": 110 })),
+        json(serde_json::json!({ "kind": "appearance", "op": "save", "palette": "Forest", "layout": "senior", "text_size": 110 })),
     )
     .await;
     assert!(ok, "{said}");
     let settings = core.settings().expect("reads");
     assert_eq!(
-        (settings.palette, settings.text_scale),
-        (Palette::Forest, 110)
+        (settings.palette, settings.layout, settings.text_scale),
+        (Palette::Forest, Layout::Senior, 110)
     );
+    let layout = serde_json::json!({ "kind": "layout", "op": "save", "json": { "base": "senior", "icons": 140 } });
+    let (ok, said) = configure(&socket, session.id, json(layout)).await;
+    assert!(ok, "{said}");
+    assert_eq!(core.settings().expect("reads").layout, Layout::Custom);
+    assert_eq!(core.custom_layout().expect("reads").icons, Some(140));
+    let unreadable = serde_json::json!({ "kind": "layout", "op": "save",
+        "json": { "dark": { "dusk": "#202020", "text": "#303030" } } });
+    let (ok, said) = configure(&socket, session.id, json(unreadable)).await;
+    assert!(!ok && said.contains("cannot be read"), "{said}");
+    assert_eq!(core.custom_layout().expect("reads").icons, Some(140));
     let (ok, _) = configure(
         &socket,
         session.id,
