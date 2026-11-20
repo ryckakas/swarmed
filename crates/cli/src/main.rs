@@ -431,7 +431,7 @@ fn note(core: &Core, project: &str, task: Option<&str>, set: bool) -> Result<()>
 
 /// One line per skill: whose it is, its name, whether it is shared, and when to use it.
 fn skills(core: &Core, agent: Option<&str>) {
-    let skills = agent.map_or_else(|| core.skills(), |agent| core.skills_offered(agent));
+    let skills = agent.map_or_else(|| core.skills(), |agent| core.skills_offered(agent, None));
     for skill in skills {
         let shared = ["kept back", "shared"][usize::from(skill.shared)];
         say(&format!(

@@ -5,6 +5,11 @@
 //! have by itself: they are named in what the agent is told at the start, and handed over
 //! through Swarmed's tool server when the agent asks for one. Nothing is copied into an
 //! agent's own folders, and those are never written to.
+//!
+//! Two more places hold skills. The plugins installed in Claude Code bring their own, which
+//! Claude Code reads by itself and other agents are offered. And a repository can keep skills
+//! beside its code, in `.claude/skills` or `.agents/skills`: those go with the task, so a
+//! session is offered the ones of its own worktree that its agent would not read by itself.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -20,6 +25,12 @@ use crate::paths;
 const SKILL_FILE: &str = "SKILL.md";
 /// Whose a skill is, for one kept in Swarmed itself.
 const OWN: &str = "swarmed";
+/// Whose a skill is, for one a plugin installed in Claude Code brought.
+const PLUGINS: &str = "plugins";
+/// Whose a skill is, for one kept in the task's repository: in the folder Claude Code reads,
+/// and in the one the other agents read.
+const REPO_CLAUDE: &str = "repo-claude";
+const REPO_AGENTS: &str = "repo-agents";
 /// How much of a skill's description goes into what an agent is told at the start.
 const TOLD_CHARS: usize = 220;
 /// How long a skill of Swarmed's own may be, in bytes.
@@ -32,8 +43,9 @@ pub struct Skill {
     pub name: String,
     /// When to use it, in its own words.
     pub description: String,
-    /// Whose it is: `swarmed` for one kept here, else the agent it was found with, or
-    /// `agents` for the folder several agents share.
+    /// Whose it is: `swarmed` for one kept here, the agent it was found with, `agents` for
+    /// the folder several agents share, `plugins` for one a Claude Code plugin brought, or
+    /// `repo-claude` and `repo-agents` for one kept in the task's repository.
     pub origin: String,
     /// The folder it lives in, with whatever else it needs beside its `SKILL.md`.
     pub folder: PathBuf,
@@ -109,6 +121,66 @@ fn skills_in(folder: &Path, origin: &str) -> Vec<Skill> {
     skills
 }
 
+/// The skills the plugins installed in Claude Code bring, each named `plugin:skill` as Claude
+/// Code names it. Only plugins installed for the user count: one installed for a single
+/// project belongs to that project's sessions, which Claude Code sees to itself.
+fn plugin_skills(claude_home: &Path) -> Vec<Skill> {
+    let record = claude_home.join("plugins").join("installed_plugins.json");
+    let Ok(text) = std::fs::read_to_string(record) else {
+        return vec![];
+    };
+    let record: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+    let Some(plugins) = record.get("plugins").and_then(serde_json::Value::as_object) else {
+        return vec![];
+    };
+    let mut skills: Vec<Skill> = plugins
+        .iter()
+        .flat_map(|(id, installs)| installed_skills(id, installs))
+        .collect();
+    skills.sort_by(|a, b| a.name.cmp(&b.name));
+    skills.dedup_by(|a, b| a.name == b.name);
+    skills
+}
+
+/// The skills of one plugin, `plugin@marketplace`, from wherever it is installed for the user.
+fn installed_skills(id: &str, installs: &serde_json::Value) -> Vec<Skill> {
+    let plugin = id.split('@').next().unwrap_or(id);
+    let for_user = |install: &&serde_json::Value| {
+        install.get("scope").and_then(serde_json::Value::as_str) == Some("user")
+    };
+    let folder = |install: &serde_json::Value| {
+        let path = install.get("installPath")?.as_str()?;
+        Some(PathBuf::from(path).join("skills"))
+    };
+    let installs = installs.as_array().map_or_default(Vec::as_slice);
+    let found = installs.iter().filter(for_user).filter_map(folder);
+    found
+        .flat_map(|folder| skills_in(&folder, PLUGINS))
+        .map(|skill| Skill {
+            name: format!("{plugin}:{}", skill.name),
+            ..skill
+        })
+        .collect()
+}
+
+/// The skills a repository keeps beside its code, as checked out in `worktree`.
+fn repo_skills(worktree: &Path) -> Vec<Skill> {
+    let claude = worktree.join(".claude").join("skills");
+    let agents = worktree.join(".agents").join("skills");
+    let mut skills = skills_in(&claude, REPO_CLAUDE);
+    skills.extend(skills_in(&agents, REPO_AGENTS));
+    skills
+}
+
+/// Whether `agent` reads the skills of `origin` by itself, so that it need not be offered them.
+fn reads_itself(agent: &str, origin: &str) -> bool {
+    match origin {
+        PLUGINS | REPO_CLAUDE => agent == CLAUDE,
+        REPO_AGENTS => agent != CLAUDE,
+        _ => origin == agent || origin == native_also(agent),
+    }
+}
+
 impl Core {
     /// Where each agent keeps its skills, by whose they are. The folder several agents read
     /// goes by `agents`.
@@ -144,13 +216,22 @@ impl Core {
             .unwrap_or_default()
     }
 
-    /// Every skill Swarmed knows of: its own first, then each agent's, by name.
+    /// Every skill Swarmed knows of wherever a session runs: its own first, then each
+    /// agent's by name, then the ones Claude Code's plugins bring.
     pub fn skills(&self) -> Vec<Skill> {
+        self.skills_with(None)
+    }
+
+    /// The same, with the ones kept in the repository checked out in `worktree` at the end.
+    fn skills_with(&self, worktree: Option<&Path>) -> Vec<Skill> {
         let sharing = self.sharing();
         let mut skills = skills_in(&self.own_skills_folder(), OWN);
         for (origin, folder) in self.skill_folders() {
             skills.extend(skills_in(&folder, origin));
         }
+        let home = self.paths.claude_config.parent();
+        skills.extend(home.map_or_else(Vec::new, |home| plugin_skills(&home.join(".claude"))));
+        skills.extend(worktree.map_or_else(Vec::new, repo_skills));
         for skill in &mut skills {
             skill.shared = !sharing.hidden.contains(&key(&skill.origin, &skill.name));
         }
@@ -219,11 +300,12 @@ impl Core {
         }
     }
 
-    /// The skills offered to a session on `agent`: the shared ones its agent does not have by
-    /// itself, each name once, Swarmed's own before the others'.
-    pub fn skills_offered(&self, agent: &str) -> Vec<Skill> {
-        let all = self.skills();
-        let native = |skill: &Skill| skill.origin == agent || skill.origin == native_also(agent);
+    /// The skills offered to a session on `agent` that works in `worktree`, if it is known
+    /// where it works: the shared ones its agent does not have by itself, each name once,
+    /// Swarmed's own before the others'.
+    pub fn skills_offered(&self, agent: &str, worktree: Option<&Path>) -> Vec<Skill> {
+        let all = self.skills_with(worktree);
+        let native = |skill: &Skill| reads_itself(agent, &skill.origin);
         let has: BTreeSet<&str> = all
             .iter()
             .filter(|skill| native(skill))
@@ -240,8 +322,8 @@ impl Core {
 
     /// What a session on `agent` is told about the skills it is offered, or `None` if there
     /// are none.
-    pub(crate) fn skills_guidance(&self, agent: &str) -> Option<String> {
-        let offered = self.skills_offered(agent);
+    pub(crate) fn skills_guidance(&self, agent: &str, worktree: &Path) -> Option<String> {
+        let offered = self.skills_offered(agent, Some(worktree));
         if offered.is_empty() {
             return None;
         }
@@ -252,8 +334,13 @@ impl Core {
 
     /// A skill as it is handed to the agent of session `from` that asked for it: what it says,
     /// and where its other files are.
-    pub(crate) fn skill_for_session(&self, agent: &str, name: &str) -> Result<String> {
-        let offered = self.skills_offered(agent);
+    pub(crate) fn skill_for_session(
+        &self,
+        agent: &str,
+        worktree: &Path,
+        name: &str,
+    ) -> Result<String> {
+        let offered = self.skills_offered(agent, Some(worktree));
         let skill = offered.iter().find(|skill| skill.name == name);
         let skill = skill.ok_or_else(|| no_skill(name))?;
         let text = std::fs::read_to_string(skill.folder.join(SKILL_FILE))?;

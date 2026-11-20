@@ -94,33 +94,33 @@ async fn each_agent_is_offered_the_skills_it_does_not_have_by_itself() {
 
     // Claude Code lacks Codex's and the shared folder's; what both have it has already.
     assert_eq!(
-        names(&core.skills_offered("claude")),
+        names(&core.skills_offered("claude", None)),
         ["house-style", "deploy", "triage"]
     );
     // Codex reads the shared folder itself, and lacks Claude Code's.
     assert_eq!(
-        names(&core.skills_offered("codex")),
+        names(&core.skills_offered("codex", None)),
         ["house-style", "review"]
     );
     // An agent with none of its own gets each name once.
     assert_eq!(
-        names(&core.skills_offered("opencode")),
+        names(&core.skills_offered("opencode", None)),
         ["house-style", "both-have", "review", "deploy"]
     );
 
     // A skill kept back is offered to nobody else, and still listed.
     core.skill_share("codex", "deploy", false).expect("saves");
     assert_eq!(
-        names(&core.skills_offered("claude")),
+        names(&core.skills_offered("claude", None)),
         ["house-style", "triage"]
     );
     let deploy = core.skills().into_iter().find(|s| s.name == "deploy");
     assert!(!deploy.expect("listed").shared);
     core.skill_share("codex", "deploy", true).expect("saves");
-    assert_eq!(core.skills_offered("claude").len(), 3);
+    assert_eq!(core.skills_offered("claude", None).len(), 3);
 
     core.skill_remove("house-style").expect("removes");
-    assert_eq!(names(&core.skills_offered("codex")), ["review"]);
+    assert_eq!(names(&core.skills_offered("codex", None)), ["review"]);
     assert!(matches!(
         core.skill_save("Bad Name", "d", "b"),
         Err(Error::InvalidName(_))
@@ -129,6 +129,61 @@ async fn each_agent_is_offered_the_skills_it_does_not_have_by_itself() {
         core.skill_save("empty", "d", "  "),
         Err(Error::Skill(_))
     ));
+}
+
+#[tokio::test]
+async fn plugins_and_the_repository_bring_skills_for_the_agents_that_would_not_read_them() {
+    let fx = fixture();
+    let root = fx.paths.claude_config.parent().expect("a folder");
+    // Two plugins installed in Claude Code: one for the user, one for a single project.
+    let design = root.join("cache/design/1.0.0");
+    let local = root.join("cache/local/1.0.0");
+    skill(&design.join("skills"), "mock-up", "Draw a screen.");
+    skill(&local.join("skills"), "secret", "Only for one project.");
+    let installed = serde_json::json!({ "version": 2, "plugins": {
+        "design@official": [{ "scope": "user", "installPath": design }],
+        "local@official": [{ "scope": "project", "installPath": local }],
+    }});
+    let plugins = root.join(".claude/plugins");
+    std::fs::create_dir_all(&plugins).expect("dir");
+    std::fs::write(
+        plugins.join("installed_plugins.json"),
+        installed.to_string(),
+    )
+    .expect("writes");
+    let core = core_with_project(&fx).await;
+
+    let listed: Vec<String> = core
+        .skills()
+        .iter()
+        .map(|s| format!("{}/{}", s.origin, s.name))
+        .collect();
+    assert_eq!(listed, ["plugins/design:mock-up"]);
+    // Claude Code reads its plugins itself; the others are offered what they bring.
+    assert_eq!(names(&core.skills_offered("claude", None)), [""; 0]);
+    assert_eq!(
+        names(&core.skills_offered("codex", None)),
+        ["design:mock-up"]
+    );
+
+    // A repository's own skills go with the task whose worktree holds them.
+    let worktree = root.join("worktree");
+    skill(
+        &worktree.join(".claude/skills"),
+        "release",
+        "Cut a release.",
+    );
+    skill(&worktree.join(".agents/skills"), "lint", "Run the linters.");
+    assert_eq!(
+        names(&core.skills_offered("codex", Some(&worktree))),
+        ["design:mock-up", "release"]
+    );
+    assert_eq!(
+        names(&core.skills_offered("claude", Some(&worktree))),
+        ["lint"]
+    );
+    // They are not part of the list for the settings, which is about no task in particular.
+    assert_eq!(core.skills().len(), 1);
 }
 
 #[tokio::test]
