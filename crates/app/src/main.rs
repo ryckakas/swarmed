@@ -159,6 +159,8 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
             commands::cloud_tasks,
             commands::cloud_task_forget,
             commands::cloud_task_open,
+            commands::cloud_task_diff,
+            commands::cloud_task_apply,
             commands::environment_save,
             commands::environment_remove,
             commands::task_remove,

@@ -232,6 +232,7 @@ const CLOUD_POLL_MS = 45_000;
  * unfinished, their statuses are asked for again from time to time.
  */
 function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] }) {
+    const showCloudDiff = useStore((state) => state.showCloudDiff);
     const refresh = useStore((state) => state.refresh);
     const report = useStore((state) => state.report);
     const waiting = tasks.some(isUnfinished);
@@ -272,6 +273,17 @@ function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] })
                             label={cloudProvider(task.provider).name}
                         />
                     </button>
+                    {task.provider === "codex" && !isUnfinished(task) && (
+                        <button
+                            type="button"
+                            className="row-add"
+                            aria-label={`Show what ${cloudTitle(task)} changed`}
+                            title="Show what it changed, and apply that to a local task"
+                            onClick={() => showCloudDiff(task.id)}
+                        >
+                            ±
+                        </button>
+                    )}
                     <button
                         type="button"
                         className="row-close"

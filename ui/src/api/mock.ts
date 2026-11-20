@@ -324,7 +324,15 @@ function sampleCloudTask(projectId: number, prompt: string, provider: CloudProvi
 /** Delegating to the cloud: the sample has an environment for `hero` and for nothing else. */
 function cloudApi(
     projects: () => Project[],
-): Pick<Api, "cloudDelegate" | "cloudTasks" | "cloudTaskForget" | "cloudTaskOpen"> {
+): Pick<
+    Api,
+    | "cloudDelegate"
+    | "cloudTasks"
+    | "cloudTaskForget"
+    | "cloudTaskOpen"
+    | "cloudTaskDiff"
+    | "cloudTaskApply"
+> {
     const find = (name: string) => {
         const project = projects().find((candidate) => candidate.name === name);
         if (!project) {
@@ -359,6 +367,8 @@ function cloudApi(
             }
         },
         cloudTaskOpen: async () => undefined,
+        cloudTaskDiff: async () => SAMPLE_CLOUD_DIFF,
+        cloudTaskApply: async () => undefined,
     };
 }
 
@@ -1098,6 +1108,18 @@ function templatesApi(): Pick<Api, "templates" | "templateSave" | "templateRemov
         },
     };
 }
+
+const SAMPLE_CLOUD_DIFF = [
+    "diff --git a/docs/api.md b/docs/api.md",
+    "--- a/docs/api.md",
+    "+++ b/docs/api.md",
+    "@@ -10,3 +10,4 @@ ## Invoices",
+    " `GET /invoices` lists them.",
+    "-`POST /invoices` is not documented yet.",
+    "+`POST /invoices` creates one from a JSON body.",
+    "+`GET /invoices/:id/export` returns it as CSV.",
+    " ",
+].join("\n");
 
 const SAMPLE_COSTS: Costs = {
     today: 3.42,

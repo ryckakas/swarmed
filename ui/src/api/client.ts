@@ -117,6 +117,10 @@ export interface Api {
     cloudTaskForget(id: number): Promise<void>;
     /** Opens a cloud task's page at its provider. */
     cloudTaskOpen(id: number): Promise<void>;
+    /** What a Codex cloud task changed, as a unified diff. Refused while it has none. */
+    cloudTaskDiff(id: number): Promise<string>;
+    /** Applies what a Codex cloud task changed to a local task's worktree, uncommitted. */
+    cloudTaskApply(id: number, project: string, name: string): Promise<void>;
     /** Starts what a task keeps running. Says whether its project has a start command at all. */
     stackStart(project: string, task: string): Promise<boolean>;
     /** Stops what a task keeps running. */

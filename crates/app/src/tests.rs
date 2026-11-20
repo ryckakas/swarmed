@@ -682,6 +682,22 @@ fn the_ui_can_hand_over_html_for_a_frame() {
 }
 
 #[test]
+fn asking_for_the_changes_of_a_cloud_task_that_is_not_there_says_so() {
+    let app = app();
+    let diff = app.invoke("cloud_task_diff", json!({ "id": 404 }));
+    assert_eq!(
+        diff.expect_err("refused"),
+        json!("there is no cloud task 404")
+    );
+    let apply = json!({ "id": 404, "project": "demo", "name": "one" });
+    let applied = app.invoke("cloud_task_apply", apply);
+    assert_eq!(
+        applied.expect_err("refused"),
+        json!("there is no cloud task 404")
+    );
+}
+
+#[test]
 fn the_ui_can_keep_a_prompt_and_drop_it() {
     let app = app();
     assert_eq!(app.ok("templates", json!({})), json!([]));

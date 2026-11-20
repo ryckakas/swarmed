@@ -125,6 +125,9 @@ interface State {
     pulls: Record<number, Pull | null>;
     /** Asks again for a task's pull request. Not hearing back changes nothing. */
     loadPull(api: Api, project: string, task: string, taskId: number): Promise<void>;
+    /** The cloud task whose changes are being looked at, by Swarmed's id for it. */
+    cloudDiffOf: number | null;
+    showCloudDiff(id: number | null): void;
     /** The two tasks set side by side, while they are. */
     comparing: Comparison | null;
     /** Sets two tasks side by side; `null` puts the comparison away. */
@@ -342,6 +345,8 @@ export const useStore = create<State>((set, get) => ({
             set((state) => ({ pulls: { ...state.pulls, [taskId]: pull } }));
         }
     },
+    cloudDiffOf: null,
+    showCloudDiff: (id) => set({ cloudDiffOf: id }),
     comparing: null,
     compare: (comparison) => set({ comparing: comparison }),
     templates: [],

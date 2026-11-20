@@ -251,6 +251,23 @@ pub(crate) fn cloud_task_forget(core: CoreState<'_>, id: i64) -> Command<()> {
     Ok(core.cloud_task_forget(id)?)
 }
 
+/// What a Codex cloud task changed, as a unified diff.
+#[tauri::command]
+pub(crate) async fn cloud_task_diff(core: CoreState<'_>, id: i64) -> Command<String> {
+    Ok(core.cloud_task_diff(id).await?)
+}
+
+/// Applies what a Codex cloud task changed to a local task's worktree, uncommitted.
+#[tauri::command]
+pub(crate) async fn cloud_task_apply(
+    core: CoreState<'_>,
+    id: i64,
+    project: String,
+    name: String,
+) -> Command<()> {
+    Ok(core.cloud_task_apply(id, &project, &name).await?)
+}
+
 /// Opens an address in the default browser: a cloud task's page.
 #[tauri::command]
 pub(crate) fn cloud_task_open(core: CoreState<'_>, id: i64) -> Command<()> {

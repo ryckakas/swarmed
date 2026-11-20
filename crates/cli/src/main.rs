@@ -128,6 +128,14 @@ enum CloudCommand {
     },
     /// List the cloud tasks delegated from a project, with their statuses as of now.
     List { project: String },
+    /// Print what a Codex cloud task changed, by its id from `cloud list`.
+    Diff { id: i64 },
+    /// Apply what a Codex cloud task changed to a local task's worktree, uncommitted.
+    Apply {
+        id: i64,
+        project: String,
+        task: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -437,6 +445,11 @@ async fn cloud(core: &Core, command: CloudCommand) -> Result<()> {
         }
         CloudCommand::List { project } => {
             core.cloud_tasks(&project, true).await?.iter().for_each(row);
+        }
+        CloudCommand::Diff { id } => say(&core.cloud_task_diff(id).await?),
+        CloudCommand::Apply { id, project, task } => {
+            core.cloud_task_apply(id, &project, &task).await?;
+            say(&format!("applied to `{task}`, uncommitted"));
         }
     }
     Ok(())
