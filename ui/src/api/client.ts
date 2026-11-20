@@ -26,6 +26,7 @@ import type {
     Skill,
     Task,
     TaskNaming,
+    Template,
     TerminalOutput,
     Unpublished,
     Usage,
@@ -46,6 +47,12 @@ export interface Api {
     /** Removes a server set up here, with its secrets. Returns the new list. */
     mcpRemove(name: string): Promise<McpServerView[]>;
     /** What Swarmed takes up and uses. Measuring the worktrees can take a few seconds. */
+    /** The prompts the user keeps to send again, by name. */
+    templates(): Promise<Template[]>;
+    /** Keeps a prompt, in place of the one of that name; returns them all. */
+    templateSave(name: string, text: string): Promise<Template[]>;
+    /** Drops a kept prompt; returns the rest. */
+    templateRemove(name: string): Promise<Template[]>;
     usage(): Promise<Usage>;
     /** What the agents report their work has cost: by day and by task. */
     costs(): Promise<Costs>;

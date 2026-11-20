@@ -869,3 +869,32 @@ async fn a_tasks_work_is_committed_and_pushed_when_asked() {
     let pushed = core.task_unpublished("demo", "one").await.expect("reads");
     assert_eq!((pushed.unpushed, pushed.pushed_before), (0, true));
 }
+
+#[tokio::test]
+async fn prompts_are_kept_by_name_replaced_and_dropped() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    assert_eq!(core.templates().expect("reads"), []);
+
+    core.template_save("review", "Review {{file}} for bugs.")
+        .expect("keeps");
+    core.template_save("explain", "  Explain this.  ")
+        .expect("keeps");
+    let kept = core.templates().expect("reads");
+    let names: Vec<_> = kept.iter().map(|template| template.name.as_str()).collect();
+    assert_eq!(names, ["explain", "review"]);
+    assert_eq!(kept[0].text, "Explain this.");
+
+    let replaced = core
+        .template_save("review", "Review it.\nSay \"done\".")
+        .expect("replaces");
+    assert_eq!(replaced.len(), 2);
+    assert_eq!(replaced[1].text, "Review it.\nSay \"done\".");
+
+    assert!(core.template_save("Not A Name", "x").is_err());
+    let empty = core.template_save("empty", "   ").expect_err("refused");
+    assert_eq!(empty.to_string(), "a prompt needs some text");
+
+    assert_eq!(core.template_remove("review").expect("drops").len(), 1);
+    assert_eq!(core.template_remove("review").expect("no error").len(), 1);
+}

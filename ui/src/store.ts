@@ -10,6 +10,7 @@ import type {
     SessionEvent,
     SessionSettings,
     Settings,
+    Template,
 } from "./api/types";
 import { type ReviewComment, withComment } from "./review";
 import {
@@ -31,6 +32,7 @@ export const SETTINGS_TABS = [
     ["status", "Status line"],
     ["agents", "Agents"],
     ["skills", "Skills"],
+    ["prompts", "Prompts"],
     ["mcp", "MCP servers"],
     ["keys", "API keys"],
     ["usage", "Storage and activity"],
@@ -122,6 +124,9 @@ interface State {
     pulls: Record<number, Pull | null>;
     /** Asks again for a task's pull request. Not hearing back changes nothing. */
     loadPull(api: Api, project: string, task: string, taskId: number): Promise<void>;
+    /** The prompts the user keeps to send again. */
+    templates: Template[];
+    setTemplates(templates: Template[]): void;
     /** Whether the search across conversations is open. */
     searchOpen: boolean;
     showSearch(open: boolean): void;
@@ -332,6 +337,8 @@ export const useStore = create<State>((set, get) => ({
             set((state) => ({ pulls: { ...state.pulls, [taskId]: pull } }));
         }
     },
+    templates: [],
+    setTemplates: (templates) => set({ templates }),
     searchOpen: false,
     showSearch: (open) => set({ searchOpen: open }),
     inboxOpen: false,
@@ -401,6 +408,7 @@ export function connect(api: Api): () => void {
     const { refresh, apply } = useStore.getState();
     void refresh(api);
     void reporting(async () => useStore.setState({ settings: await api.settings() }));
+    void reporting(async () => useStore.setState({ templates: await api.templates() }));
     // After dropped events nothing on screen can be trusted: forget the transcripts and reload.
     const reload = () => {
         const { selectedSessionId, open } = useStore.getState();

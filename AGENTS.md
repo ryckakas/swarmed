@@ -120,6 +120,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   own. A server's secrets are named in the file and kept in the keychain under
   `mcp:<server>:<name>`; a front end can set one and never read it. Claude Code's servers are
   shown from its configuration and from what it last reported, and never written.
+- **Prompts the user keeps** (`templates.rs`) are a name and a text in `templates.toml` in the
+  data directory. A front end puts one into the message box; the core never sends one by
+  itself, and agents are not told about them. `{{something}}` marks a place to fill in.
 - **Attaching a file is naming its path** (`attach.rs`). Nothing is uploaded or copied: the
   agent runs on this machine and reads the file where it is. `with_files` lists the paths
   under the message in one fixed form, which the UI reads back (`splitFiles`) to show them as

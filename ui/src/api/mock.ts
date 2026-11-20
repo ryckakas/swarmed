@@ -23,6 +23,7 @@ import type {
     Settings,
     Skill,
     Task,
+    Template,
     TerminalOutput,
     Unpublished,
     Usage,
@@ -1075,6 +1076,29 @@ function sampleFork(agent: MockAgent, tasks: Task[], id: number, upto: number | 
     return fork;
 }
 
+/** Kept prompts, held in memory, starting with two samples. */
+function templatesApi(): Pick<Api, "templates" | "templateSave" | "templateRemove"> {
+    let kept: Template[] = [
+        { name: "explain", text: "Explain how {{what}} works, briefly, with the files involved." },
+        {
+            name: "review",
+            text: "Review the changes in this worktree for bugs. Do not change anything.",
+        },
+    ];
+    const sorted = () => [...kept].sort((a, b) => a.name.localeCompare(b.name));
+    return {
+        templates: async () => sorted(),
+        templateSave: async (name, text) => {
+            kept = [...kept.filter((one) => one.name !== name), { name, text }];
+            return sorted();
+        },
+        templateRemove: async (name) => {
+            kept = kept.filter((one) => one.name !== name);
+            return sorted();
+        },
+    };
+}
+
 const SAMPLE_COSTS: Costs = {
     today: 3.42,
     week: 18.9,
@@ -1132,6 +1156,7 @@ export function createMockApi(): Api {
     return {
         overview: async () => structuredClone(agent.projects),
         ...mcpApi(),
+        ...templatesApi(),
         usage: async () => SAMPLE_USAGE,
         costs: async () => SAMPLE_COSTS,
         ...setupApi(hookListeners),

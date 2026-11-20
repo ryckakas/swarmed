@@ -682,6 +682,25 @@ fn the_ui_can_hand_over_html_for_a_frame() {
 }
 
 #[test]
+fn the_ui_can_keep_a_prompt_and_drop_it() {
+    let app = app();
+    assert_eq!(app.ok("templates", json!({})), json!([]));
+    let kept = app.ok(
+        "template_save",
+        json!({ "name": "review", "text": "Review {{file}}." }),
+    );
+    assert_eq!(
+        kept,
+        json!([{ "name": "review", "text": "Review {{file}}." }])
+    );
+    assert_eq!(app.ok("templates", json!({})), kept);
+    assert_eq!(
+        app.ok("template_remove", json!({ "name": "review" })),
+        json!([])
+    );
+}
+
+#[test]
 fn the_ui_can_set_the_badge_and_clear_it() {
     let app = app();
     assert_eq!(app.ok("badge_set", json!({ "count": 3 })), json!(null));

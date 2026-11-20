@@ -14,8 +14,8 @@ use swarmed_core::{
     AgentInfo, AgentSetup, ApiKeyInfo, BranchChoices, CloudOrigin, CloudProvider, CloudTask, Core,
     Costs, Environment, FileChange, FileDiff, McpServerInput, McpServerView, NewTaskOptions,
     Project, ProjectOverview, Pull, PullDraft, QueuedMessage, RemoveOptions, SearchHit, Session,
-    SessionOptions, SessionSettings, Settings, Skill, Task, TaskNaming, Unpublished, Usage,
-    with_files,
+    SessionOptions, SessionSettings, Settings, Skill, Task, TaskNaming, Template, Unpublished,
+    Usage, with_files,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -291,6 +291,28 @@ pub(crate) fn skills(core: CoreState<'_>) -> Vec<Skill> {
 #[tauri::command]
 pub(crate) fn skill_body(core: CoreState<'_>, name: String) -> Command<String> {
     Ok(core.skill_body(&name)?)
+}
+
+/// The prompts the user keeps to send again.
+#[tauri::command]
+pub(crate) fn templates(core: CoreState<'_>) -> Command<Vec<Template>> {
+    Ok(core.templates()?)
+}
+
+/// Keeps a prompt, in place of the one of that name if there is one.
+#[tauri::command]
+pub(crate) fn template_save(
+    core: CoreState<'_>,
+    name: String,
+    text: String,
+) -> Command<Vec<Template>> {
+    Ok(core.template_save(&name, &text)?)
+}
+
+/// Drops a kept prompt.
+#[tauri::command]
+pub(crate) fn template_remove(core: CoreState<'_>, name: String) -> Command<Vec<Template>> {
+    Ok(core.template_remove(&name)?)
 }
 
 /// Adds a skill of Swarmed's own, or replaces the one of that name.

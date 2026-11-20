@@ -3663,6 +3663,23 @@ kbd {
 }
 
 /* A skill of an agent's: a tick for whether others are offered it, its name, when to use it. */
+/* A kept prompt in the settings: its start, on one line. */
+.template-preview {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+}
+
+/* Tells one of the user's own prompts from the agent's commands in the list after a slash. */
+.slash-kind {
+    margin-left: var(--space-2);
+    color: var(--faint);
+    font-family: var(--font-ui);
+    font-size: var(--text-xs);
+}
+
 .skill-row {
     display: flex;
     align-items: baseline;

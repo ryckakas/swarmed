@@ -9,9 +9,10 @@ import {
     useState,
 } from "react";
 import { api } from "../api";
+import type { Template } from "../api/types";
 import { type Edit, editFor } from "../editing";
 import { isLargePaste, tokenFor, withToken } from "../pastes";
-import { slashMatches, slashQuery, stepActive, withCommand } from "../slash";
+import { firstPlaceholder, slashMatches, slashQuery, stepActive, withCommand } from "../slash";
 import { useStore } from "../store";
 import { takesSuggestion } from "../suggestion";
 import { FileChips } from "./FileChips";
@@ -44,7 +45,13 @@ export function ComposerBox(props: Props) {
     const { files, onFiles } = props;
     const offered = value === "" && !props.disabled ? props.suggestion : null;
     const own = useRef<HTMLTextAreaElement>(null);
-    const menu = useSlashMenu(value, props.commands ?? [], onChange);
+    // What to select once a kept prompt is in the box: its first place to fill in.
+    const toSelect = useRef<[number, number] | null>(null);
+    const templates = useStore((state) => state.templates);
+    const menu = useSlashMenu(value, props.commands ?? [], templates, (text, select) => {
+        toSelect.current = select ?? null;
+        onChange(text);
+    });
     const attach = useAttaching(files, onFiles);
 
     // Grow with the text, up to the limit the stylesheet sets, then scroll.
@@ -54,6 +61,10 @@ export function ComposerBox(props: Props) {
         if (element) {
             element.style.height = "auto";
             element.style.height = `${element.scrollHeight}px`;
+        }
+        if (element && toSelect.current) {
+            element.setSelectionRange(...toSelect.current);
+            toSelect.current = null;
         }
     }, [value]);
 
@@ -84,6 +95,9 @@ export function ComposerBox(props: Props) {
                                 onClick={() => menu.choose(name)}
                             >
                                 /{name}
+                                {menu.isTemplate(name) && (
+                                    <span className="slash-kind">your prompt</span>
+                                )}
                             </button>
                         </li>
                     ))}
@@ -273,16 +287,28 @@ function assign<T>(ref: Ref<T> | undefined, value: T | null) {
  * The suggestions for a message that starts with `/`: which to show, which one the arrow keys
  * are on, and the keys the list takes for itself while it is open.
  */
-function useSlashMenu(value: string, commands: string[], onChange: (value: string) => void) {
+function useSlashMenu(
+    value: string,
+    commands: string[],
+    templates: Template[],
+    onChange: (value: string, select?: [number, number] | null) => void,
+) {
     const [active, setActive] = useState(0);
     // The text Esc was pressed on; the list stays away until the text changes.
     const [dismissed, setDismissed] = useState<string | null>(null);
     const query = dismissed === value ? null : slashQuery(value);
-    const matches = query === null ? [] : slashMatches(query, commands);
+    const kept = new Map(templates.map((template) => [template.name, template.text]));
+    // The user's own prompts stand beside the agent's commands; one of the same name wins.
+    const matches = query === null ? [] : slashMatches(query, [...kept.keys(), ...commands]);
     const current = Math.min(active, Math.max(matches.length - 1, 0));
     const choose = (name: string) => {
         setActive(0);
-        onChange(withCommand(name));
+        const text = kept.get(name);
+        if (text === undefined) {
+            onChange(withCommand(name));
+        } else {
+            onChange(text, firstPlaceholder(text));
+        }
     };
 
     /** Handles the key if the list is open and it is one of the list's; says whether it did. */
@@ -306,5 +332,11 @@ function useSlashMenu(value: string, commands: string[], onChange: (value: strin
         action();
         return true;
     };
-    return { matches, active: current, choose, onKeyDown };
+    return {
+        matches,
+        active: current,
+        choose,
+        onKeyDown,
+        isTemplate: (name: string) => kept.has(name),
+    };
 }

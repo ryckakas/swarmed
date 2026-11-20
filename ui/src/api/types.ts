@@ -47,6 +47,12 @@ export interface Task {
     stack: boolean | null;
 }
 
+/** A prompt kept to be sent again. `{{something}}` in its text marks a place to fill in. */
+export interface Template {
+    name: string;
+    text: string;
+}
+
 /** What the agents report their work has cost, in US dollars at API prices. */
 export interface Costs {
     today: number;
