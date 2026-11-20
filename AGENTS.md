@@ -204,6 +204,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **A task's pull request and checks are asked of the user's own `gh`** (`pulls.rs`), in the
   task's worktree, on demand. Swarmed holds no GitHub token. No `gh`, no pull request, or a
   repository that is not on GitHub all mean the same: the task has none, which is not an error.
+- **A task's work leaves its worktree only when asked** (`publish.rs`): commit everything, push
+  the branch, open a pull request, each a step of its own behind a button. Commits are made by
+  the user's git as them, the pull request by their `gh`; nothing is added to either.
 - **Removing a project** (`project_remove`) removes its tasks as `task_remove` does, keeping
   their branches, then deletes what Swarmed holds about it: sessions, their history and the
   notes. The repository is not touched. Removing a task stops its sessions first. In the UI

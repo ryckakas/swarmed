@@ -13,6 +13,7 @@ import type {
     McpServerView,
     Project,
     Pull,
+    PullDraft,
     QueuedMessage,
     Session,
     SessionEvent,
@@ -21,6 +22,7 @@ import type {
     Skill,
     Task,
     TerminalOutput,
+    Unpublished,
     Usage,
 } from "./types";
 
@@ -649,6 +651,28 @@ index 1a2b3c4..5d6e7f8 100644
 +}
 `;
 
+/** One sample task has work to commit, another a branch waiting for a pull request. */
+async function sampleUnpublished(_project: string, name: string): Promise<Unpublished> {
+    return {
+        changed: name === "fix-login-redirect" ? 4 : 0,
+        unpushed: 0,
+        pushed_before: name === "invoice-export",
+    };
+}
+
+const SAMPLE_DRAFT: PullDraft = {
+    title: "Export invoices as CSV",
+    body: "- Add the exporter\n- Quote fields that hold a separator",
+};
+
+async function sampleOpenedPull(): Promise<Pull> {
+    const pull = await samplePull("", "fix-login-redirect");
+    if (pull === null) {
+        throw new Error("the sample pull request is gone");
+    }
+    return pull;
+}
+
 /** One sample task has a pull request with a failed check; the others have none. */
 async function samplePull(_project: string, name: string): Promise<Pull | null> {
     if (name !== "fix-login-redirect") {
@@ -1117,6 +1141,11 @@ export function createMockApi(): Api {
             project.tasks.push(created);
             return created;
         },
+        taskUnpublished: sampleUnpublished,
+        taskCommit: async () => undefined,
+        taskPush: async () => undefined,
+        taskPullDraft: async () => SAMPLE_DRAFT,
+        taskPullCreate: sampleOpenedPull,
         taskPull: samplePull,
         taskPullOpen: async () => undefined,
         taskChanges: sampleChanges,

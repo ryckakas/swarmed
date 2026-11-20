@@ -14,6 +14,7 @@ import type {
     McpServerView,
     Project,
     Pull,
+    PullDraft,
     QueuedMessage,
     Session,
     SessionEvent,
@@ -24,6 +25,7 @@ import type {
     Task,
     TaskNaming,
     TerminalOutput,
+    Unpublished,
     Usage,
 } from "./types";
 
@@ -125,6 +127,21 @@ export interface Api {
     environmentSave(project: string, name: string, environment: Environment): Promise<void>;
     environmentRemove(project: string, name: string): Promise<void>;
     /** The files the task has changed since its branch left its base, uncommitted ones included. */
+    /** What of a task's work is not committed, and what is not pushed. */
+    taskUnpublished(project: string, name: string): Promise<Unpublished>;
+    /** Commits everything in a task's worktree under `message`. */
+    taskCommit(project: string, name: string, message: string): Promise<void>;
+    /** Pushes a task's branch to its remote. */
+    taskPush(project: string, name: string): Promise<void>;
+    /** A title and description to start a task's pull request from: its commits. */
+    taskPullDraft(project: string, name: string): Promise<PullDraft>;
+    /** Opens a pull request for a task's branch, as a draft if asked. */
+    taskPullCreate(
+        project: string,
+        name: string,
+        draft: PullDraft,
+        asDraft: boolean,
+    ): Promise<Pull>;
     /** The pull request of a task's branch with its checks; `null` if it has none. */
     taskPull(project: string, name: string): Promise<Pull | null>;
     /** Opens a task's pull request in the browser, or the details of its check `check`. */

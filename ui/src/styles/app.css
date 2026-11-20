@@ -226,6 +226,59 @@ code {
     margin-top: var(--space-3);
 }
 
+/* The way out for the task's work: what is left, and the one next step. */
+.publish {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--line);
+}
+
+.publish-summary {
+    color: var(--muted);
+    font-size: var(--text-sm);
+}
+
+.publish-form {
+    align-self: stretch;
+    display: flex;
+    gap: var(--space-2);
+}
+
+.publish-pull {
+    flex-direction: column;
+}
+
+.publish-input {
+    flex: 1;
+    min-width: 0;
+    padding: 5px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--dusk);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--text-sm);
+    resize: vertical;
+}
+
+.publish-draft {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--muted);
+    font-size: var(--text-sm);
+}
+
+.publish-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+}
+
 /* The task's pull request: where it stands, its checks, and a way to hand failures on. */
 .pull {
     display: flex;

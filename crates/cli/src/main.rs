@@ -206,6 +206,29 @@ enum TaskCommand {
     },
     /// Show the pull request of the task's branch and how its checks stand.
     Pull { project: String, name: String },
+    /// Commit everything in the task's worktree.
+    Commit {
+        project: String,
+        name: String,
+        /// The commit message.
+        #[arg(short, long)]
+        message: String,
+    },
+    /// Push the task's branch to its remote.
+    Push { project: String, name: String },
+    /// Open a pull request for the task's branch. Without a title, the task's commits give
+    /// the title and the description.
+    Pr {
+        project: String,
+        name: String,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        body: Option<String>,
+        /// Open it as a draft.
+        #[arg(long)]
+        draft: bool,
+    },
     /// List the files the task has changed, or print one file's diff.
     Changes {
         project: String,
@@ -379,6 +402,30 @@ async fn cloud(core: &Core, command: CloudCommand) -> Result<()> {
             core.cloud_tasks(&project, true).await?.iter().for_each(row);
         }
     }
+    Ok(())
+}
+
+/// Commits a task's work and says what is left to push.
+async fn commit(core: &Core, project: &str, name: &str, message: &str) -> Result<()> {
+    core.task_commit(project, name, message).await?;
+    let left = core.task_unpublished(project, name).await?;
+    say(&format!("committed; {} commit(s) to push", left.unpushed));
+    Ok(())
+}
+
+/// Opens a task's pull request, from its commits unless a title or a body is given.
+async fn open_pull(
+    core: &Core,
+    (project, name): (&str, &str),
+    title: Option<String>,
+    body: Option<String>,
+    draft: bool,
+) -> Result<()> {
+    let mut text = core.task_pull_draft(project, name).await?;
+    text.title = title.unwrap_or(text.title);
+    text.body = body.unwrap_or(text.body);
+    let opened = core.task_pull_create(project, name, &text, draft).await?;
+    say(&format!("opened #{} {}", opened.number, opened.url));
     Ok(())
 }
 
@@ -670,6 +717,22 @@ async fn task(core: &Core, command: TaskCommand) -> Result<()> {
             say(&format!("removed task `{name}`"));
         }
         TaskCommand::Pull { project, name } => pull(core, &project, &name).await?,
+        TaskCommand::Commit {
+            project,
+            name,
+            message,
+        } => commit(core, &project, &name, &message).await?,
+        TaskCommand::Push { project, name } => {
+            core.task_push(&project, &name).await?;
+            say("pushed");
+        }
+        TaskCommand::Pr {
+            project,
+            name,
+            title,
+            body,
+            draft,
+        } => open_pull(core, (&project, &name), title, body, draft).await?,
         TaskCommand::Changes {
             project,
             name,

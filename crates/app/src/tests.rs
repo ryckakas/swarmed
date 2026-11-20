@@ -263,6 +263,49 @@ fn the_ui_can_deny_interrupt_stop_and_remove() {
 }
 
 #[test]
+fn the_ui_can_commit_a_tasks_work_and_is_told_what_cannot_be_published() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+    let worktree = app.ok("overview", json!({}))[0]["tasks"][0]["worktree_path"].clone();
+    let worktree = Path::new(worktree.as_str().expect("a path"));
+    std::fs::write(worktree.join("notes.txt"), "one\n").expect("writes");
+    let target = json!({ "project": "demo", "name": "one" });
+    // A branch that was never pushed has no pull request, and opening it says so.
+    assert_eq!(app.ok("task_pull", target.clone()), json!(null));
+    let opening = json!({ "project": "demo", "name": "one", "check": null });
+    let refused = app
+        .invoke("task_pull_open", opening)
+        .expect_err("nothing to open");
+    assert_eq!(refused, json!("`one` has no pull request"));
+    // The file written above is not committed yet; committing it leaves one commit to push.
+    assert_eq!(
+        app.ok("task_unpublished", target.clone()),
+        json!({ "changed": 1, "unpushed": 0, "pushed_before": false })
+    );
+    let commit = json!({ "project": "demo", "name": "one", "message": "feat: notes" });
+    assert_eq!(app.ok("task_commit", commit), json!(null));
+    assert_eq!(
+        app.ok("task_unpublished", target.clone()),
+        json!({ "changed": 0, "unpushed": 1, "pushed_before": false })
+    );
+    assert_eq!(
+        app.ok("task_pull_draft", target.clone()),
+        json!({ "title": "feat: notes", "body": "" })
+    );
+    // The test repository has no remote: pushing and opening a pull request both say why not.
+    app.invoke("task_push", target.clone())
+        .expect_err("nowhere to push to");
+    let create = json!({
+        "project": "demo", "name": "one", "asDraft": true,
+        "draft": { "title": " ", "body": "" },
+    });
+    let untitled = app.invoke("task_pull_create", create).expect_err("refused");
+    assert_eq!(untitled, json!("a pull request needs a title"));
+}
+
+#[test]
 fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
@@ -289,14 +332,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     std::fs::write(worktree.join("notes.txt"), "one\n").expect("writes");
     let target = json!({ "project": "demo", "name": "one" });
     let added = json!([{ "path": "notes.txt", "kind": "added", "added": 1, "removed": 0 }]);
-    assert_eq!(app.ok("task_changes", target.clone()), added);
-    // A branch that was never pushed has no pull request, and opening it says so.
-    assert_eq!(app.ok("task_pull", target.clone()), json!(null));
-    let opening = json!({ "project": "demo", "name": "one", "check": null });
-    let refused = app
-        .invoke("task_pull_open", opening)
-        .expect_err("nothing to open");
-    assert_eq!(refused, json!("`one` has no pull request"));
+    assert_eq!(app.ok("task_changes", target), added);
     let file = json!({ "project": "demo", "name": "one", "path": "notes.txt" });
     let diff = app.ok("task_diff", file);
     assert_eq!(diff["truncated"], false);

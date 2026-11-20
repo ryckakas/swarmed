@@ -13,8 +13,8 @@ use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
     AgentInfo, AgentSetup, ApiKeyInfo, BranchChoices, CloudOrigin, CloudProvider, CloudTask, Core,
     Environment, FileChange, FileDiff, McpServerInput, McpServerView, NewTaskOptions, Project,
-    ProjectOverview, Pull, QueuedMessage, RemoveOptions, Session, SessionOptions, SessionSettings,
-    Settings, Skill, Task, TaskNaming, Usage, with_files,
+    ProjectOverview, Pull, PullDraft, QueuedMessage, RemoveOptions, Session, SessionOptions,
+    SessionSettings, Settings, Skill, Task, TaskNaming, Unpublished, Usage, with_files,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -365,6 +365,57 @@ pub(crate) fn set_note(
 #[tauri::command]
 pub(crate) fn task_open_url(core: CoreState<'_>, project: String, name: String) -> Command<()> {
     Ok(core.task_open_url(&project, &name)?)
+}
+
+/// What of a task's work is not committed, and what is not pushed.
+#[tauri::command]
+pub(crate) async fn task_unpublished(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+) -> Command<Unpublished> {
+    Ok(core.task_unpublished(&project, &name).await?)
+}
+
+/// Commits everything in a task's worktree under `message`.
+#[tauri::command]
+pub(crate) async fn task_commit(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+    message: String,
+) -> Command<()> {
+    Ok(core.task_commit(&project, &name, &message).await?)
+}
+
+/// Pushes a task's branch to its remote.
+#[tauri::command]
+pub(crate) async fn task_push(core: CoreState<'_>, project: String, name: String) -> Command<()> {
+    Ok(core.task_push(&project, &name).await?)
+}
+
+/// A title and description to start a task's pull request from.
+#[tauri::command]
+pub(crate) async fn task_pull_draft(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+) -> Command<PullDraft> {
+    Ok(core.task_pull_draft(&project, &name).await?)
+}
+
+/// Opens a pull request for a task's branch, as a draft if asked.
+#[tauri::command]
+pub(crate) async fn task_pull_create(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+    draft: PullDraft,
+    as_draft: bool,
+) -> Command<Pull> {
+    Ok(core
+        .task_pull_create(&project, &name, &draft, as_draft)
+        .await?)
 }
 
 /// The pull request of a task's branch with its checks, if it has one.

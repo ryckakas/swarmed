@@ -17,6 +17,7 @@ import type {
     McpServerView,
     Project,
     Pull,
+    PullDraft,
     QueuedMessage,
     Session,
     SessionEvent,
@@ -25,6 +26,7 @@ import type {
     Task,
     TaskNaming,
     TerminalOutput,
+    Unpublished,
     Usage,
 } from "./types";
 
@@ -79,6 +81,12 @@ export const tauriApi: Api = {
     environmentSave: (project, name, environment) =>
         invoke<void>("environment_save", { project, name, environment }),
     environmentRemove: (project, name) => invoke<void>("environment_remove", { project, name }),
+    taskUnpublished: (project, name) => invoke<Unpublished>("task_unpublished", { project, name }),
+    taskCommit: (project, name, message) => invoke<void>("task_commit", { project, name, message }),
+    taskPush: (project, name) => invoke<void>("task_push", { project, name }),
+    taskPullDraft: (project, name) => invoke<PullDraft>("task_pull_draft", { project, name }),
+    taskPullCreate: (project, name, draft, asDraft) =>
+        invoke<Pull>("task_pull_create", { project, name, draft, asDraft }),
     taskPull: (project, name) => invoke<Pull | null>("task_pull", { project, name }),
     taskPullOpen: (project, name, check) =>
         invoke<void>("task_pull_open", { project, name, check }),

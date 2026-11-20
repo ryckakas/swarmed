@@ -47,6 +47,22 @@ export interface Task {
     stack: boolean | null;
 }
 
+/** What of a task's work has not left its worktree yet. */
+export interface Unpublished {
+    /** How many files are changed, added or removed and not committed. */
+    changed: number;
+    /** How many commits are not on the branch's upstream, or its base if never pushed. */
+    unpushed: number;
+    /** Whether the branch has been pushed before. */
+    pushed_before: boolean;
+}
+
+/** A title and a description to start a pull request from. */
+export interface PullDraft {
+    title: string;
+    body: string;
+}
+
 /** One check on a pull request: a CI job, or a status another service reported. */
 export interface Check {
     name: string;
