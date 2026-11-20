@@ -31,6 +31,7 @@ pnpm build                                          # type check, then the UI in
 pnpm dev                                            # the UI alone in a browser, on sample data
 pnpm app                                            # the desktop app (tauri dev)
 pnpm app:build                                      # Swarmed.app, in target/release/bundle/macos
+pnpm app:install                                    # the same, copied into /Applications
 pnpm app:dmg                                        # a disk image of it, for handing on
 ```
 

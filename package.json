@@ -15,6 +15,7 @@
         "test": "vitest run",
         "app": "tauri dev",
         "app:build": "tauri build --bundles app",
+        "app:install": "tauri build --bundles app && ditto target/release/bundle/macos/Swarmed.app /Applications/Swarmed.app",
         "app:dmg": "tauri build --bundles dmg"
     },
     "dependencies": {
