@@ -6,7 +6,9 @@
 - "slow": works until the turn is cancelled;
 - "guidance": says whether Swarmed's guidance came along with the message;
 - "fail": answers the prompt with an error;
-- "mcp": names the MCP servers it was given.
+- "mcp": names the MCP servers it was given;
+- "wake": ends its turn, then carries on by itself, as an agent whose timer went off does;
+- "linger": ends its turn, then starts a tool and never says another word.
 
 Set FAKE_ACP_LOAD_ONLY=1 to offer only session/load, which replays a history first.
 Set FAKE_ACP_EFFORT=1 to have an effort setting, standing at medium.
@@ -16,6 +18,7 @@ was opened with, right after opening it.
 import json
 import os
 import sys
+import time
 
 LOAD_ONLY = os.environ.get("FAKE_ACP_LOAD_ONLY") == "1"
 # What an agent with an effort of its own says of it when a conversation opens.
@@ -58,6 +61,20 @@ def on_prompt(request_id, params):
     elif text == "key":
         chunk(session, "key: " + os.environ.get("OPENROUTER_API_KEY", "none"))
         finish()
+    elif text == "wake":
+        chunk(session, "I will tell you when the timer goes off.")
+        finish()
+        time.sleep(0.2)
+        update(session, {"sessionUpdate": "tool_call_update", "toolCallId": "timer",
+                         "title": "Timer", "status": "completed"})
+        chunk(session, "The timer went off.")
+        update(session, {"sessionUpdate": "usage_update", "used": 3, "size": 4})
+    elif text == "linger":
+        chunk(session, "Done for now.")
+        finish()
+        time.sleep(0.2)
+        update(session, {"sessionUpdate": "tool_call", "toolCallId": "late", "title": "Watching",
+                         "kind": "other", "status": "in_progress", "rawInput": {"for": "ever"}})
     elif text == "slow":
         chunk(session, "working")
     elif text == "fail":

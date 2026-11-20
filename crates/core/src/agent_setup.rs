@@ -194,7 +194,7 @@ pub(crate) fn find_program(program: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
 /// Where programs are looked for: the `PATH`, then the places installers use that a desktop
 /// app's shorter `PATH` often lacks.
 pub(crate) fn default_tool_dirs() -> Vec<PathBuf> {
-    let path = std::env::var_os("PATH").unwrap_or_default();
+    let path = crate::shellenv::path();
     let mut dirs: Vec<PathBuf> = std::env::split_paths(&path).collect();
     dirs.extend(["/opt/homebrew/bin", "/usr/local/bin"].map(PathBuf::from));
     if let Some(home) = std::env::home_dir() {

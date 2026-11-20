@@ -30,6 +30,8 @@ pub(crate) async fn run(
         .arg("-c")
         .arg(command)
         .current_dir(cwd)
+        // Before the task's own variables, which may set a `PATH` of their own.
+        .env("PATH", crate::shellenv::path())
         .envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

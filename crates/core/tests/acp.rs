@@ -470,6 +470,64 @@ async fn a_commit_message_is_written_by_the_agent_the_session_runs_on() {
 }
 
 #[tokio::test]
+async fn what_an_agent_does_by_itself_after_its_turn_ends_like_a_turn() {
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+    core.session_send(id, "wake").expect("sends");
+    let asked = turn(&mut bus, id).await;
+    assert!(asked.contains(&text("I will tell you when the timer goes off.")));
+
+    // Nobody asked again: the agent's timer went off, it says so, and is then done.
+    let own = turn(&mut bus, id).await;
+    assert!(own.contains(&text("The timer went off.")), "{own:?}");
+    let done = own.last().expect("ends");
+    assert!(
+        matches!(
+            done,
+            AgentEvent::TurnDone {
+                is_error: false,
+                ..
+            }
+        ),
+        "{own:?}"
+    );
+    assert_eq!(
+        core.session(id).expect("exists").status,
+        SessionStatus::Idle
+    );
+}
+
+#[tokio::test]
+async fn an_agent_at_work_by_itself_can_be_stopped() {
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+    core.session_send(id, "linger").expect("sends");
+    turn(&mut bus, id).await;
+    // It starts a tool after its turn and says no more: the session counts as working.
+    while !matches!(next(&mut bus).await.event, AgentEvent::ToolUse { .. }) {}
+    assert_eq!(
+        core.session(id).expect("exists").status,
+        SessionStatus::Working
+    );
+
+    core.session_interrupt(id).expect("sends");
+    let stopped = turn(&mut bus, id).await;
+    let done = stopped.last().expect("ends");
+    assert!(
+        matches!(done, AgentEvent::TurnDone { is_error: true, .. }),
+        "{stopped:?}"
+    );
+    assert_eq!(
+        core.session(id).expect("exists").status,
+        SessionStatus::Idle
+    );
+}
+
+#[tokio::test]
 async fn a_session_can_name_its_model_and_only_a_configured_agent() {
     let fx = fixture();
     let core = core_with(&fx, scripted_agent(&[])).await;

@@ -10,6 +10,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::time::Duration;
 
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, Lines};
@@ -58,6 +59,7 @@ impl AgentBackend for AcpBackend {
     fn start(&self, spec: SessionSpec) -> Result<AgentHandle> {
         let mut child = Command::new(&self.program)
             .args(&self.args)
+            .env("PATH", crate::shellenv::path())
             .envs(spec.env.0.iter().map(|(name, value)| (name, value)))
             // What the user wrote for this agent in agents.toml wins over a stored key.
             .envs(self.env.iter().map(|(name, value)| (name, value)))
@@ -195,6 +197,10 @@ struct Conversation {
     /// own. What the agent says in that time is about the model it opened with, which is
     /// already no longer so, and messages wait so that they run on the right one.
     restoring: bool,
+    /// The agent is at work without having been asked just now: something it left running
+    /// ended, or a timer of its own went off, and it carries on after its turn was over.
+    /// Nothing in the protocol says when it is done with that; see `end_own_turn`.
+    woken: bool,
     /// Set when the agent could not be set up; the reason is what the user is shown.
     failure: Option<String>,
     /// The modes of its own the agent offers, by id. Empty if it has none.
@@ -223,6 +229,7 @@ impl Conversation {
             passed: Vec::new(),
             replaying: false,
             restoring: false,
+            woken: false,
             failure: None,
             modes: vec![],
         }
@@ -454,6 +461,8 @@ impl Conversation {
         if self.restoring || self.calls.values().any(opening) {
             return self.queued.push_back(text);
         }
+        // Whatever it was doing by itself is part of the turn that starts now.
+        self.woken = false;
         let mut prompt = vec![json!({ "type": "text", "text": text })];
         // The protocol has nowhere to put instructions of the client's own, so what Claude Code
         // is given as part of its system prompt goes along with the first message instead:
@@ -505,6 +514,13 @@ impl Conversation {
     }
 
     fn on_turn_end(&mut self, result: &Value, error: Option<String>) {
+        let finished = error.is_none() && str_of(result, "stopReason") == Some("end_turn");
+        self.finish_turn(!finished, error);
+    }
+
+    /// Reports a turn as over: what was said in it whole, how full the window is, and how it
+    /// ended.
+    fn finish_turn(&mut self, is_error: bool, error: Option<String>) {
         self.flush_text();
         if let Some(error) = &error {
             self.emit(AgentEvent::Text {
@@ -518,9 +534,8 @@ impl Conversation {
                 categories: vec![],
             });
         }
-        let finished = error.is_none() && str_of(result, "stopReason") == Some("end_turn");
         self.emit(AgentEvent::TurnDone {
-            is_error: !finished,
+            is_error,
             result: error,
             cost_usd: self.cost,
             duration_ms: None,
@@ -595,6 +610,39 @@ impl Conversation {
         let params = json!({ "sessionId": session_id });
         self.write(&json!({ "jsonrpc": "2.0", "method": "session/cancel", "params": params }))
             .await;
+        // With no turn of the user's running, the agent has nothing to answer the
+        // cancellation with: the stop is reported here, or the session would work forever.
+        if !self.in_turn() {
+            self.end_own_turn(true);
+        }
+    }
+
+    /// Whether a message of the user's is being answered.
+    fn in_turn(&self) -> bool {
+        self.calls.values().any(|call| *call == Call::Prompt)
+    }
+
+    /// Ends what the agent did by itself, the way a turn ends: its words whole, then that it
+    /// is done, so that the session stops counting as working.
+    fn end_own_turn(&mut self, stopped: bool) {
+        self.woken = false;
+        self.finish_turn(stopped, None);
+    }
+
+    /// Takes note of something the agent did after its turn was over. It is at work again
+    /// from its first word or tool, and done once it has said something and reports its
+    /// usage, which is what agents send last. One that says nothing is done when it has been
+    /// quiet for a while; see `QUIET`.
+    fn on_own_activity(&mut self, kind: &str) {
+        let open = self.session_id.is_some() && !self.restoring;
+        if !open || self.in_turn() {
+            return;
+        }
+        match kind {
+            "agent_message_chunk" | "tool_call" | "tool_call_update" => self.woken = true,
+            "usage_update" if self.woken && !self.text.is_empty() => self.end_own_turn(false),
+            _ => {}
+        }
     }
 
     /// A piece of the reply: shown at once, and kept to be sent whole when the agent moves on.
@@ -624,13 +672,15 @@ impl Conversation {
 
     /// One `session/update` notification: a piece of what the agent is doing.
     fn on_update(&mut self, update: &Value) {
-        match str_of(update, "sessionUpdate").unwrap_or_default() {
+        let kind = str_of(update, "sessionUpdate").unwrap_or_default();
+        match kind {
             "agent_message_chunk" => self.on_chunk(update),
             "tool_call" | "tool_call_update" => self.on_tool(update),
             "usage_update" => self.on_usage(update),
             // Thoughts, plans, mode and command lists are not shown yet.
             _ => {}
         }
+        self.on_own_activity(kind);
     }
 
     /// A tool call or a change to one. The call is shown once its arguments are known, or when
@@ -705,6 +755,10 @@ impl Conversation {
     }
 }
 
+/// How long an agent that took something up by itself may say nothing at all, not even what
+/// it is thinking, before it counts as done with it.
+const QUIET: Duration = Duration::from_secs(20);
+
 /// Runs a session until the agent exits or cannot be set up, then reports how it ended.
 async fn drive(
     mut session: Conversation,
@@ -751,6 +805,11 @@ async fn step(
             // Swarmed hung up: closing the agent's input is what asks it to exit.
             None => session.stdin = None,
         },
+        // Nothing has come from it for a while, and it is not waiting on the user: whatever
+        // it took up by itself, it is done with.
+        () = tokio::time::sleep(QUIET), if session.woken && session.permissions.is_empty() => {
+            session.end_own_turn(false);
+        }
     }
     true
 }

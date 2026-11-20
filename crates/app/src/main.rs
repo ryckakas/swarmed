@@ -258,6 +258,11 @@ fn main() {
         let found = tauri::async_runtime::block_on(notify::check());
         return writeln!(std::io::stdout(), "{found}").unwrap_or_default();
     }
+    // Started from the Finder or the Dock, the app has the system's bare `PATH`: ask the
+    // user's shell for theirs before anything is looked up or started.
+    if !tauri::is_dev() {
+        swarmed_core::learn_shell_path();
+    }
     let core =
         Arc::new(open_core().unwrap_or_else(|e| panic!("could not open Swarmed's data: {e}")));
     let listening = Arc::clone(&core);

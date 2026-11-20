@@ -74,6 +74,7 @@ async fn run_script(command: &str, cwd: &Path, input: &Value) -> Result<String> 
         .arg("-c")
         .arg(command)
         .current_dir(cwd)
+        .env("PATH", crate::shellenv::path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

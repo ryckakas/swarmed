@@ -74,6 +74,13 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   its program is found on the machine: configured but not installed, it is in the settings and
   not in the agent menu. The list of OpenRouter's models is fetched
   with `curl` from its public address, with no key and nothing of the user's in the request.
+- **An ACP agent may carry on after its turn is over**, when a timer of its own goes off or
+  something it left running ends. `acp.rs` treats that as a turn of the agent's own: it ends
+  when the agent has said something and reports its usage, or has been silent for `QUIET`,
+  and a stop from the user ends it at once, since the agent has nothing to answer one with.
+- **Whatever Swarmed starts gets the `PATH` of the user's shell** (`shellenv.rs`). An app
+  started from the Dock has only the system's, so the installed app asks the shell once, before
+  the core opens; hooks, stacks, the status command and agents are then given it.
 - **Antigravity** (`agy acp`, Google's agent, on the user's Google sign-in) is a known agent
   like Codex. It names its effort `thought_level` and its modes `default`, `auto` and `plan`,
   which `acp.rs` maps supervision onto. What it asks permission for is decided by its own
