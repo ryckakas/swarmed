@@ -1,7 +1,8 @@
 /*
  * The palettes the user can choose between in the settings. A palette sets the surfaces, the
  * text and the colour of links and focus, for dark and for light. The status colours (pollen,
- * moss, clay) and the other reading colours are the same in all of them: what they mean must
+ * moss, clay, and the blue of work going on) and the other reading colours are the same in
+ * all of them: what they mean must
  * not change with taste.
  *
  * Each is written three times, as the base colours in tokens.css are: dark, light because the
@@ -236,11 +237,6 @@
     --faint: #8a7590;
     --focus: #e86bbf;
     --sky: #e86bbf;
-    /*
-     * Magenta beside the red of a failure reads as one, and green is what works: what
-     * hatched glows blue here.
-     */
-    --fresh: #6cc4ff;
     --bright: #fff3fa;
 }
 
@@ -256,7 +252,6 @@
         --faint: #8f7791;
         --focus: #a8257f;
         --sky: #a8257f;
-        --fresh: #1668b5;
         --bright: #150a16;
     }
 }
@@ -272,6 +267,5 @@
     --faint: #8f7791;
     --focus: #a8257f;
     --sky: #a8257f;
-    --fresh: #1668b5;
     --bright: #150a16;
 }
