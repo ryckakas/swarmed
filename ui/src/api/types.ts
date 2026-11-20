@@ -20,6 +20,8 @@ export interface Session {
     unread: boolean;
     /** The session that started this one, if an agent did and not the user. */
     spawned_by: number | null;
+    /** Whether the agent is asked for its fast mode, where it has one. */
+    fast: boolean;
 }
 
 export interface Task {
@@ -519,6 +521,11 @@ export interface SessionSettings {
      * starts, so a running one is restarted between turns and carries on the conversation.
      */
     effort: Effort | null;
+    /**
+     * Whether the agent is asked for its fast mode: quicker answers at a higher price. Like
+     * the effort, it is taken when the agent starts. Left out, it is off.
+     */
+    fast?: boolean;
 }
 
 /** How hard the model thinks before it answers. */
@@ -531,4 +538,6 @@ export interface SessionSetup {
     model: string | null;
     supervision: Supervision;
     effort: Effort | null;
+    /** Whether the agent is asked for its fast mode, where it has one. Left out, it is off. */
+    fast?: boolean;
 }

@@ -162,6 +162,9 @@ pub struct Session {
     pub unread: bool,
     /// The session that started this one, if an agent did and not the user.
     pub spawned_by: Option<i64>,
+    /// Whether the agent is asked for its fast mode: quicker answers at a higher price, where
+    /// the agent has such a thing. Off leaves the agent as it is set up.
+    pub fast: bool,
 }
 
 /// What can be changed about a session after it was created.
@@ -173,6 +176,8 @@ pub struct SessionSettings {
     pub supervision: Supervision,
     /// How hard the model thinks; `None` is the agent's default.
     pub effort: Option<Effort>,
+    /// Whether the agent is asked for its fast mode, where it has one.
+    pub fast: bool,
 }
 
 /// Options for [`Core::session_new`].
@@ -188,9 +193,11 @@ pub struct SessionOptions {
     pub supervision: Supervision,
     /// How hard the model thinks; `None` leaves the agent's default.
     pub effort: Option<Effort>,
+    /// Whether the agent is asked for its fast mode, where it has one.
+    pub fast: bool,
 }
 
-const SESSION_SELECT: &str = "SELECT id, task_id, title, agent_session_id, model, supervision, status, agent, effort, unread, spawned_by \
+const SESSION_SELECT: &str = "SELECT id, task_id, title, agent_session_id, model, supervision, status, agent, effort, unread, spawned_by, fast \
      FROM sessions";
 
 fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
@@ -208,6 +215,7 @@ fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
             .and_then(|effort| Effort::parse(&effort)),
         unread: row.get(9)?,
         spawned_by: row.get(10)?,
+        fast: row.get(11)?,
     })
 }
 
@@ -216,15 +224,16 @@ impl Store {
         let title = options.title.clone().unwrap_or_default();
         let agent = options.agent.clone().unwrap_or_else(|| CLAUDE.to_string());
         self.conn.execute(
-            "INSERT INTO sessions (task_id, title, model, supervision, agent, effort) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO sessions (task_id, title, model, supervision, agent, effort, fast) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 task_id,
                 title,
                 options.model,
                 options.supervision.as_str(),
                 agent,
-                options.effort.map(Effort::as_str)
+                options.effort.map(Effort::as_str),
+                options.fast
             ],
         )?;
         Ok(Session {
@@ -239,6 +248,7 @@ impl Store {
             status: SessionStatus::Idle,
             unread: false,
             spawned_by: None,
+            fast: options.fast,
         })
     }
 
@@ -277,12 +287,14 @@ impl Store {
 
     fn session_configure(&self, id: i64, settings: &SessionSettings) -> Result<()> {
         self.conn.execute(
-            "UPDATE sessions SET model = ?2, supervision = ?3, effort = ?4 WHERE id = ?1",
+            "UPDATE sessions SET model = ?2, supervision = ?3, effort = ?4, fast = ?5 \
+             WHERE id = ?1",
             params![
                 id,
                 settings.model,
                 settings.supervision.as_str(),
-                settings.effort.map(Effort::as_str)
+                settings.effort.map(Effort::as_str),
+                settings.fast
             ],
         )?;
         Ok(())
@@ -660,6 +672,7 @@ impl Core {
             model: session.model,
             supervision: session.supervision,
             effort: session.effort,
+            fast: session.fast,
             auth,
             resume: session.agent_session_id,
             // Showing a view changes nothing, so it is never worth a question.
@@ -841,6 +854,7 @@ impl Core {
             model: session.model,
             supervision,
             effort: session.effort,
+            fast: session.fast,
         };
         self.session_configure(id, &settings).map(drop)
     }
@@ -868,7 +882,8 @@ impl Core {
         if let Ok(commands) = self.live.sender(id) {
             tell_agent(&commands, &before, settings);
         }
-        if before.effort != settings.effort {
+        // Like its effort, an agent takes its fast mode when it starts.
+        if before.effort != settings.effort || before.fast != settings.fast {
             self.live.restart_when_idle(id, before.status);
         }
         if before.supervision != settings.supervision {

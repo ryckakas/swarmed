@@ -219,6 +219,7 @@ impl Core {
             model: parent.model.clone(),
             supervision: parent.supervision,
             effort: parent.effort,
+            fast: parent.fast,
         };
         let child = {
             let store = self.store();

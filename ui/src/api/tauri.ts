@@ -116,8 +116,8 @@ export const tauriApi: Api = {
     onHookOutput: (listener) =>
         listen<HookOutput>("hook-output", (event) => listener(event.payload)),
     sessionFork: (id, upto) => invoke<Session>("session_fork", { id, upto }),
-    sessionNew: (project, task, setup) =>
-        invoke<Session>("session_new", { project, task, ...setup }),
+    sessionNew: (project, task, { agent, ...how }) =>
+        invoke<Session>("session_new", { project, task, agent, how }),
     sessionEvents: (id) => invoke<AgentEvent[]>("session_events", { id }),
     sessionSend: (id, text, files) => invoke("session_send", { id, text, files: files ?? [] }),
     sessionQueue: (id) => invoke<QueuedMessage[]>("session_queue", { id }),
@@ -133,7 +133,7 @@ export const tauriApi: Api = {
     taskBackground: (project, name) => invoke("task_background", { project, name }),
     sessionStopBackground: (id, taskId) => invoke("session_stop_background", { id, taskId }),
     slashCommands: (id) => invoke<string[]>("slash_commands", { id }),
-    sessionConfigure: (id, settings) => invoke<Session>("session_configure", { id, ...settings }),
+    sessionConfigure: (id, settings) => invoke<Session>("session_configure", { id, how: settings }),
     viewUrl: async (document) => {
         const id = await invoke<string>("view_put", { document });
         return `swarmed-view://localhost/${id}`;

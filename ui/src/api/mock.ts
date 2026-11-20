@@ -54,6 +54,7 @@ function session(id: number, taskId: number, title: string, status: SessionStatu
         // One sample session has answered and not been looked at.
         unread: id === 5,
         spawned_by: null,
+        fast: false,
     };
 }
 

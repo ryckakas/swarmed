@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
     AgentInfo, AgentSetup, ApiKeyInfo, BackgroundTask, BranchChoices, CloudOrigin, CloudProvider,
@@ -537,22 +537,32 @@ pub(crate) fn delete_api_key(core: CoreState<'_>, name: String) -> Command<()> {
     Ok(core.delete_api_key(&name)?)
 }
 
+/// What a session runs with, as the UI chooses it.
+#[derive(Debug, Deserialize)]
+pub(crate) struct Running {
+    model: Option<String>,
+    supervision: Supervision,
+    effort: Option<Effort>,
+    /// Absent from a front end that knows nothing of it, which is the same as off.
+    #[serde(default)]
+    fast: bool,
+}
+
 #[tauri::command]
 pub(crate) fn session_new(
     core: CoreState<'_>,
     project: String,
     task: String,
     agent: Option<String>,
-    model: Option<String>,
-    supervision: Supervision,
-    effort: Option<Effort>,
+    how: Running,
 ) -> Command<Session> {
     let options = SessionOptions {
         agent,
         title: None,
-        model,
-        supervision,
-        effort,
+        model: how.model,
+        supervision: how.supervision,
+        effort: how.effort,
+        fast: how.fast,
     };
     Ok(core.session_new(&project, &task, &options)?)
 }
@@ -700,17 +710,12 @@ pub(crate) fn slash_commands(core: CoreState<'_>, id: Option<i64>) -> Command<Ve
 }
 
 #[tauri::command]
-pub(crate) fn session_configure(
-    core: CoreState<'_>,
-    id: i64,
-    model: Option<String>,
-    supervision: Supervision,
-    effort: Option<Effort>,
-) -> Command<Session> {
+pub(crate) fn session_configure(core: CoreState<'_>, id: i64, how: Running) -> Command<Session> {
     let settings = SessionSettings {
-        model,
-        supervision,
-        effort,
+        model: how.model,
+        supervision: how.supervision,
+        effort: how.effort,
+        fast: how.fast,
     };
     Ok(core.session_configure(id, &settings)?)
 }

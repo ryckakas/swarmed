@@ -2878,6 +2878,26 @@ code {
     font-size: var(--text-xs);
 }
 
+/* A switch among the pickers: asks the agent for its fast mode. */
+.fast-toggle {
+    padding: 3px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: none;
+    color: var(--muted);
+    font-size: var(--text-xs);
+}
+
+.fast-toggle:hover {
+    color: var(--text);
+}
+
+.fast-toggle[aria-pressed="true"] {
+    border-color: var(--pollen);
+    background: var(--pollen-wash);
+    color: var(--pollen);
+}
+
 .picker {
     max-width: 30ch;
     /* Room on the right for the chevron that marks it as a menu. */

@@ -141,6 +141,8 @@ pub struct SessionSpec {
     pub supervision: Supervision,
     /// How hard the model thinks; `None` leaves the agent's own default.
     pub effort: Option<Effort>,
+    /// Whether to ask the agent for its fast mode, if it has one.
+    pub fast: bool,
     /// Where the credentials come from.
     pub auth: Auth,
     /// The agent's own session id from an earlier run, to continue that conversation.

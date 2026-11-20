@@ -160,6 +160,9 @@ const MIGRATIONS: &[&str] = &[
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 ",
+    "
+    ALTER TABLE sessions ADD COLUMN fast INTEGER NOT NULL DEFAULT 0;
+",
 ];
 
 const TASK_SELECT: &str = "SELECT id, project_id, name, branch, base_ref, worktree_path, slot, \

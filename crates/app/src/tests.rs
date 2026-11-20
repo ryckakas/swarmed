@@ -160,7 +160,7 @@ fn the_ui_can_go_from_an_empty_app_to_an_answered_permission_request() {
     );
     let session = app.ok(
         "session_new",
-        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "ask", "effort": null }),
+        json!({ "project": "demo", "task": "one", "agent": null, "how": { "model": null, "supervision": "ask", "effort": null } }),
     );
     let id = &session["id"];
 
@@ -204,7 +204,7 @@ fn the_ui_can_deny_interrupt_stop_and_remove() {
     );
     let session = app.ok(
         "session_new",
-        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "auto", "effort": "high" }),
+        json!({ "project": "demo", "task": "one", "agent": null, "how": { "model": null, "supervision": "auto", "effort": "high" } }),
     );
     let id = &session["id"];
     assert_eq!(session["supervision"], "auto");
@@ -219,11 +219,12 @@ fn the_ui_can_deny_interrupt_stop_and_remove() {
     app.ok("session_send", json!({ "id": id, "text": "slow" }));
     app.wait_for_event(id, "text");
     assert_eq!(session["effort"], "high");
-    let settings = json!({ "id": id, "model": "opus", "supervision": "ask", "effort": "high" });
+    let how = json!({ "model": "opus", "supervision": "ask", "effort": "high", "fast": true });
+    let settings = json!({ "id": id, "how": how });
     let changed = app.ok("session_configure", settings);
     assert_eq!(
-        (&changed["model"], &changed["supervision"]),
-        (&json!("opus"), &json!("ask"))
+        (&changed["model"], &changed["supervision"], &changed["fast"]),
+        (&json!("opus"), &json!("ask"), &json!(true))
     );
     app.ok("session_interrupt", json!({ "id": id }));
     app.ok("session_stop", json!({ "id": id }));
@@ -413,7 +414,7 @@ fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
     app.ok("task_new", task);
     let session = app.ok(
         "session_new",
-        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "ask", "effort": null }),
+        json!({ "project": "demo", "task": "one", "agent": null, "how": { "model": null, "supervision": "ask", "effort": null } }),
     );
     let id = &session["id"];
     app.ok("session_send", json!({ "id": id, "text": "run: ls" }));
@@ -552,7 +553,7 @@ fn the_ui_can_list_closed_sessions_and_reopen_one() {
     );
     let session = app.ok(
         "session_new",
-        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "ask", "effort": null }),
+        json!({ "project": "demo", "task": "one", "agent": null, "how": { "model": null, "supervision": "ask", "effort": null } }),
     );
     let id = &session["id"];
     app.ok("session_close", json!({ "id": id }));
@@ -581,7 +582,7 @@ fn the_ui_can_point_the_agent_at_files_with_a_message() {
     app.ok("task_new", task);
     let session = app.ok(
         "session_new",
-        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "ask", "effort": null }),
+        json!({ "project": "demo", "task": "one", "agent": null, "how": { "model": null, "supervision": "ask", "effort": null } }),
     );
     let id = &session["id"];
     let readme = app.repo.join("README.md");

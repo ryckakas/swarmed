@@ -89,6 +89,7 @@ impl Core {
             model: source.model,
             supervision: source.supervision,
             effort: source.effort,
+            fast: source.fast,
         };
         let store = lock(&self.store);
         let fork = store.session_insert(source.task_id, &options)?;

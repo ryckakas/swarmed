@@ -68,6 +68,8 @@ export interface Words {
     noBackground: string;
     /** The heading over the charts of what the sessions did. */
     activityTitle: string;
+    /** The switch that asks an agent for its fast mode. */
+    fast: string;
 }
 
 const PLAIN: Words = {
@@ -110,6 +112,7 @@ const PLAIN: Words = {
     stopBackground: "Stop",
     noBackground: "The agents of this task have left nothing running.",
     activityTitle: "Activity",
+    fast: "Fast",
 };
 
 const SWARM: Words = {
@@ -154,6 +157,7 @@ const SWARM: Words = {
     stopBackground: "Cull",
     noBackground: "No drones are out for this task.",
     activityTitle: "Hive activity",
+    fast: "Frenzy",
 };
 
 /** The swarm's words, and its names for the tree as well. */
