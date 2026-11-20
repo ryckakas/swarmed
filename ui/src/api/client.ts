@@ -6,6 +6,7 @@ import type {
     BranchChoices,
     CloudProvider,
     CloudTask,
+    Costs,
     Environment,
     FileChange,
     FileDiff,
@@ -13,7 +14,10 @@ import type {
     McpServerInput,
     McpServerView,
     Project,
+    Pull,
+    PullDraft,
     QueuedMessage,
+    SearchHit,
     Session,
     SessionEvent,
     SessionSettings,
@@ -22,7 +26,9 @@ import type {
     Skill,
     Task,
     TaskNaming,
+    Template,
     TerminalOutput,
+    Unpublished,
     Usage,
 } from "./types";
 
@@ -41,7 +47,15 @@ export interface Api {
     /** Removes a server set up here, with its secrets. Returns the new list. */
     mcpRemove(name: string): Promise<McpServerView[]>;
     /** What Swarmed takes up and uses. Measuring the worktrees can take a few seconds. */
+    /** The prompts the user keeps to send again, by name. */
+    templates(): Promise<Template[]>;
+    /** Keeps a prompt, in place of the one of that name; returns them all. */
+    templateSave(name: string, text: string): Promise<Template[]>;
+    /** Drops a kept prompt; returns the rest. */
+    templateRemove(name: string): Promise<Template[]>;
     usage(): Promise<Usage>;
+    /** What the agents report their work has cost: by day and by task. */
+    costs(): Promise<Costs>;
     /** The agents that can be set up from the settings, and how far along each is. */
     agentSetups(): Promise<AgentSetup[]>;
     /** Installs a known agent and configures it. Its installer's output comes as hook output. */
@@ -103,6 +117,10 @@ export interface Api {
     cloudTaskForget(id: number): Promise<void>;
     /** Opens a cloud task's page at its provider. */
     cloudTaskOpen(id: number): Promise<void>;
+    /** What a Codex cloud task changed, as a unified diff. Refused while it has none. */
+    cloudTaskDiff(id: number): Promise<string>;
+    /** Applies what a Codex cloud task changed to a local task's worktree, uncommitted. */
+    cloudTaskApply(id: number, project: string, name: string): Promise<void>;
     /** Starts what a task keeps running. Says whether its project has a start command at all. */
     stackStart(project: string, task: string): Promise<boolean>;
     /** Stops what a task keeps running. */
@@ -124,6 +142,25 @@ export interface Api {
     environmentSave(project: string, name: string, environment: Environment): Promise<void>;
     environmentRemove(project: string, name: string): Promise<void>;
     /** The files the task has changed since its branch left its base, uncommitted ones included. */
+    /** What of a task's work is not committed, and what is not pushed. */
+    taskUnpublished(project: string, name: string): Promise<Unpublished>;
+    /** Commits everything in a task's worktree under `message`. */
+    taskCommit(project: string, name: string, message: string): Promise<void>;
+    /** Pushes a task's branch to its remote. */
+    taskPush(project: string, name: string): Promise<void>;
+    /** A title and description to start a task's pull request from: its commits. */
+    taskPullDraft(project: string, name: string): Promise<PullDraft>;
+    /** Opens a pull request for a task's branch, as a draft if asked. */
+    taskPullCreate(
+        project: string,
+        name: string,
+        draft: PullDraft,
+        asDraft: boolean,
+    ): Promise<Pull>;
+    /** The pull request of a task's branch with its checks; `null` if it has none. */
+    taskPull(project: string, name: string): Promise<Pull | null>;
+    /** Opens a task's pull request in the browser, or the details of its check `check`. */
+    taskPullOpen(project: string, name: string, check: string | null): Promise<void>;
     taskChanges(project: string, name: string): Promise<FileChange[]>;
     /** One changed file's diff. */
     taskDiff(project: string, name: string, path: string): Promise<FileDiff>;
@@ -148,6 +185,11 @@ export interface Api {
     onHookOutput(listener: (output: HookOutput) => void): Promise<Unsubscribe>;
     /** Creates a session in a task. Its agent starts with the first message. */
     sessionNew(project: string, task: string, setup: SessionSetup): Promise<Session>;
+    /**
+     * A new session in the same task that starts with what was said in session `id`: all of
+     * it, or only its first `upto` events.
+     */
+    sessionFork(id: number, upto: number | null): Promise<Session>;
     /** Everything the session has said and been told, oldest first. */
     sessionEvents(id: number): Promise<AgentEvent[]>;
     /** Starts a turn, starting the session's agent first if it is not running. */
@@ -201,6 +243,8 @@ export interface Api {
     /** Gives the session a title of the user's choosing. Every front end hears of it as an event. */
     sessionRename(id: number, title: string): Promise<Session>;
     /** A task's closed sessions, the one closed last first. */
+    /** The sessions in which `query` was said, closed ones included. */
+    sessionsSearch(query: string): Promise<SearchHit[]>;
     sessionsClosed(project: string, task: string): Promise<Session[]>;
     /** Puts a closed session back in the tree, with its conversation as it was. */
     sessionReopen(id: number): Promise<Session>;

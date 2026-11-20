@@ -263,6 +263,49 @@ fn the_ui_can_deny_interrupt_stop_and_remove() {
 }
 
 #[test]
+fn the_ui_can_commit_a_tasks_work_and_is_told_what_cannot_be_published() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+    let worktree = app.ok("overview", json!({}))[0]["tasks"][0]["worktree_path"].clone();
+    let worktree = Path::new(worktree.as_str().expect("a path"));
+    std::fs::write(worktree.join("notes.txt"), "one\n").expect("writes");
+    let target = json!({ "project": "demo", "name": "one" });
+    // A branch that was never pushed has no pull request, and opening it says so.
+    assert_eq!(app.ok("task_pull", target.clone()), json!(null));
+    let opening = json!({ "project": "demo", "name": "one", "check": null });
+    let refused = app
+        .invoke("task_pull_open", opening)
+        .expect_err("nothing to open");
+    assert_eq!(refused, json!("`one` has no pull request"));
+    // The file written above is not committed yet; committing it leaves one commit to push.
+    assert_eq!(
+        app.ok("task_unpublished", target.clone()),
+        json!({ "changed": 1, "unpushed": 0, "pushed_before": false })
+    );
+    let commit = json!({ "project": "demo", "name": "one", "message": "feat: notes" });
+    assert_eq!(app.ok("task_commit", commit), json!(null));
+    assert_eq!(
+        app.ok("task_unpublished", target.clone()),
+        json!({ "changed": 0, "unpushed": 1, "pushed_before": false })
+    );
+    assert_eq!(
+        app.ok("task_pull_draft", target.clone()),
+        json!({ "title": "feat: notes", "body": "" })
+    );
+    // The test repository has no remote: pushing and opening a pull request both say why not.
+    app.invoke("task_push", target.clone())
+        .expect_err("nowhere to push to");
+    let create = json!({
+        "project": "demo", "name": "one", "asDraft": true,
+        "draft": { "title": " ", "body": "" },
+    });
+    let untitled = app.invoke("task_pull_create", create).expect_err("refused");
+    assert_eq!(untitled, json!("a pull request needs a title"));
+}
+
+#[test]
 fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
@@ -424,6 +467,10 @@ fn the_ui_can_see_what_swarmed_takes_up() {
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
     let task = json!({ "project": "demo", "name": "one", "branch": null });
     app.ok("task_new", task);
+    // Nothing has run, so nothing was spent; the figures are there all the same.
+    let costs = app.ok("costs", json!({}));
+    assert_eq!(costs["total"], json!(0.0));
+    assert_eq!(costs["tasks"], json!([]));
     let usage = app.ok("usage", json!({}));
     let positive = |value: &Value| value.as_u64().is_some_and(|bytes| bytes > 0);
     assert!(positive(&usage["database_bytes"]), "{usage}");
@@ -488,7 +535,13 @@ fn the_ui_can_list_closed_sessions_and_reopen_one() {
     assert_eq!(closed(&app), 1);
     let task = json!({ "project": "demo", "task": "one" });
     assert_eq!(app.ok("sessions_closed", task.clone())[0]["id"], *id);
+    // Nothing was said in it, so nothing is found, which is an answer and not an error.
+    let nothing = app.ok("sessions_search", json!({ "query": "zeppelin" }));
+    assert_eq!(nothing, json!([]));
     assert_eq!(app.ok("session_reopen", json!({ "id": id }))["id"], *id);
+    let fork = app.ok("session_fork", json!({ "id": id, "upto": null }));
+    assert_ne!(fork["id"], *id);
+    assert_eq!(fork["title"], json!("Fork"));
     assert_eq!(app.ok("sessions_closed", task), json!([]));
     assert_eq!(closed(&app), 0);
 }
@@ -626,6 +679,41 @@ fn the_ui_can_hand_over_html_for_a_frame() {
     let app = app();
     let id = app.ok("view_put", json!({ "document": "<p>hi</p>" }));
     assert_eq!(id.as_str().map(str::len), Some(16));
+}
+
+#[test]
+fn asking_for_the_changes_of_a_cloud_task_that_is_not_there_says_so() {
+    let app = app();
+    let diff = app.invoke("cloud_task_diff", json!({ "id": 404 }));
+    assert_eq!(
+        diff.expect_err("refused"),
+        json!("there is no cloud task 404")
+    );
+    let apply = json!({ "id": 404, "project": "demo", "name": "one" });
+    let applied = app.invoke("cloud_task_apply", apply);
+    assert_eq!(
+        applied.expect_err("refused"),
+        json!("there is no cloud task 404")
+    );
+}
+
+#[test]
+fn the_ui_can_keep_a_prompt_and_drop_it() {
+    let app = app();
+    assert_eq!(app.ok("templates", json!({})), json!([]));
+    let kept = app.ok(
+        "template_save",
+        json!({ "name": "review", "text": "Review {{file}}." }),
+    );
+    assert_eq!(
+        kept,
+        json!([{ "name": "review", "text": "Review {{file}}." }])
+    );
+    assert_eq!(app.ok("templates", json!({})), kept);
+    assert_eq!(
+        app.ok("template_remove", json!({ "name": "review" })),
+        json!([])
+    );
 }
 
 #[test]

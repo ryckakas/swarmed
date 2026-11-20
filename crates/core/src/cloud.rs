@@ -418,28 +418,89 @@ impl Core {
         Ok(())
     }
 
+    /// The Codex cloud task `id`, or why there is nothing of the kind to ask Codex about.
+    fn codex_cloud_task(&self, id: i64) -> Result<CloudTask> {
+        let tasks = self.cloud_tasks_of(None)?;
+        let task = tasks.into_iter().find(|task| task.id == id);
+        let task = task.ok_or_else(|| refused(format!("there is no cloud task {id}")))?;
+        if task.provider != CloudProvider::Codex.as_str() {
+            return Err(refused(
+                "only a Codex cloud task's changes can be read here: a Claude cloud session is \
+                 brought to this machine with `claude --teleport <id>` in a terminal",
+            ));
+        }
+        Ok(task)
+    }
+
+    /// What a Codex cloud task changed, as a unified diff. A task that is still running, or
+    /// changed nothing, has none, which Codex says in its own words.
+    pub async fn cloud_task_diff(&self, id: i64) -> Result<String> {
+        let task = self.codex_cloud_task(id)?;
+        let ran = self.codex(&["cloud", "diff", &task.remote_id]).await?;
+        if ran.ok {
+            Ok(ran.stdout)
+        } else {
+            Err(refused(said(&ran)))
+        }
+    }
+
+    /// Applies what a Codex cloud task changed to a local task's worktree, uncommitted, for
+    /// the user to look at and commit there.
+    pub async fn cloud_task_apply(&self, id: i64, project: &str, name: &str) -> Result<()> {
+        let cloud = self.codex_cloud_task(id)?;
+        let (_, task) = self.task(project, name)?;
+        let args = ["cloud", "apply", &cloud.remote_id];
+        let ran = self.codex_in(&task.worktree_path, &args).await?;
+        if ran.ok {
+            Ok(())
+        } else {
+            Err(refused(said(&ran)))
+        }
+    }
+
     /// Runs the user's `codex` with `args`, in a folder of Swarmed's own: Codex leaves a log
     /// where it is run, and that must not land in a repository.
     async fn codex(&self, args: &[&str]) -> Result<Ran> {
+        let folder: PathBuf = self.paths.data_dir.join("run").join("cloud");
+        tokio::fs::create_dir_all(&folder).await?;
+        self.codex_in(&folder, args).await
+    }
+
+    /// Runs the user's `codex` with `args` in `folder`, and takes away the log it leaves
+    /// there, unless a file of that name was the user's own to begin with.
+    async fn codex_in(&self, folder: &Path, args: &[&str]) -> Result<Ran> {
         let program = find_program("codex", &self.tool_dirs).ok_or_else(|| {
             refused("Codex is not installed: install it from Settings, under Agents")
         })?;
-        let folder: PathBuf = self.paths.data_dir.join("run").join("cloud");
-        tokio::fs::create_dir_all(&folder).await?;
+        let log = folder.join("error.log");
+        let theirs = log.exists();
         let output = Command::new(program)
             .args(args)
-            .current_dir(&folder)
+            .current_dir(folder)
             .stdin(std::process::Stdio::null())
             .output()
             .await?;
         // It names the user's account, and nobody reads it.
-        tokio::fs::remove_file(folder.join("error.log")).await.ok();
+        if !theirs {
+            tokio::fs::remove_file(log).await.ok();
+        }
         Ok(Ran {
             ok: output.status.success(),
             stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
             stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         })
     }
+}
+
+/// What Codex said went wrong, without the word it starts every such line with.
+fn said(ran: &Ran) -> String {
+    let text = if ran.stderr.trim().is_empty() {
+        &ran.stdout
+    } else {
+        &ran.stderr
+    };
+    let text = text.trim();
+    text.strip_prefix("Error: ").unwrap_or(text).to_string()
 }
 
 /// `program` with `args`, run with a terminal of its own where this system has the means.

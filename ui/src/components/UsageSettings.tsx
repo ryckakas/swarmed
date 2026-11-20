@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import type { Usage } from "../api/types";
+import type { Costs, Usage } from "../api/types";
 import { useStore } from "../store";
-import { formatBytes, formatCpu, totalBytes } from "../usage";
+import { formatBytes, formatCpu, formatUsd, totalBytes } from "../usage";
 
 /** How many worktrees are listed before the rest are summed up in one line. */
 const LISTED = 8;
@@ -23,19 +23,57 @@ export function UsageSettings() {
     useEffect(measure, []);
 
     return (
-        <section className="settings-group" aria-label="Storage and activity">
-            <h3>Storage and activity</h3>
-            <div className="settings-row">
-                <p className="settings-hint">
-                    {usage
-                        ? `${formatBytes(totalBytes(usage))} on disk in all. Worktrees are your tasks' checkouts, with whatever was built in them.`
-                        : "Measuring the worktrees…"}
-                </p>
-                <button type="button" className="button" disabled={measuring} onClick={measure}>
-                    {measuring ? "Measuring…" : "Measure again"}
-                </button>
-            </div>
-            {usage && <Figures usage={usage} />}
+        <>
+            <CostFigures />
+            <section className="settings-group" aria-label="Storage and activity">
+                <h3>Storage and activity</h3>
+                <div className="settings-row">
+                    <p className="settings-hint">
+                        {usage
+                            ? `${formatBytes(totalBytes(usage))} on disk in all. Worktrees are your tasks' checkouts, with whatever was built in them.`
+                            : "Measuring the worktrees…"}
+                    </p>
+                    <button type="button" className="button" disabled={measuring} onClick={measure}>
+                        {measuring ? "Measuring…" : "Measure again"}
+                    </button>
+                </div>
+                {usage && <Figures usage={usage} />}
+            </section>
+        </>
+    );
+}
+
+/** What the agents say their work has cost: today, this week, in all, and by task. */
+function CostFigures() {
+    const [costs, setCosts] = useState<Costs | null>(null);
+    useEffect(() => {
+        // Not being able to read them is no reason to interrupt the settings.
+        api.costs().then(setCosts, () => undefined);
+    }, []);
+    if (!costs) {
+        return null;
+    }
+    return (
+        <section className="settings-group" aria-label="Cost">
+            <h3>Cost</h3>
+            <p className="settings-hint">
+                As the agents report it, at API prices. On a subscription this is what the work
+                would have cost, not what you paid. Agents that report nothing count as nothing.
+            </p>
+            <dl className="usage">
+                <Figure name="Today">{formatUsd(costs.today)}</Figure>
+                <Figure name="Last 7 days">{formatUsd(costs.week)}</Figure>
+                <Figure name="In all">{formatUsd(costs.total)}</Figure>
+                {costs.tasks.map((task) => (
+                    <Figure
+                        key={`${task.project}/${task.task}`}
+                        name={`${task.project} / ${task.task}`}
+                        detail="task"
+                    >
+                        {formatUsd(task.usd)}
+                    </Figure>
+                ))}
+            </dl>
         </section>
     );
 }

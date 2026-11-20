@@ -19,6 +19,8 @@ export type HotkeyId =
     | "session-7"
     | "session-8"
     | "session-9"
+    | "inbox"
+    | "search"
     | "focus-message"
     | "toggle-terminal"
     | "toggle-plan"
@@ -67,6 +69,13 @@ export const HOTKEYS: Hotkey[] = [
         id: "next-waiting",
         keys: "cmd+shift+a",
         label: "Go to the next session that needs you or has an unread reply",
+        group: "Sessions",
+    },
+    { id: "inbox", keys: "cmd+i", label: "List everything that waits for you", group: "Sessions" },
+    {
+        id: "search",
+        keys: "cmd+shift+f",
+        label: "Search what was said, in any session",
         group: "Sessions",
     },
     ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map(session),

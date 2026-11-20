@@ -4,10 +4,14 @@ import { applyAppearance } from "./appearance";
 import icon from "./assets/icon.jpg";
 import { CloseSessionDialog } from "./components/CloseSessionDialog";
 import { CloudDialog } from "./components/CloudDialog";
+import { CloudDiffDialog } from "./components/CloudDiffDialog";
+import { CompareDialog } from "./components/CompareDialog";
 import { EnvironmentsDialog } from "./components/EnvironmentsDialog";
+import { InboxDialog } from "./components/InboxDialog";
 import { NoteDialog } from "./components/NoteDialog";
 import { RemoveDialog } from "./components/RemoveDialog";
 import { Resizer, useStoredWidth } from "./components/Resizer";
+import { SearchDialog } from "./components/SearchDialog";
 import { SessionPane } from "./components/SessionPane";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { Sidebar } from "./components/Sidebar";
@@ -68,6 +72,10 @@ export function App() {
                 }
             />
             <CloseSessionDialog />
+            <InboxDialog />
+            <CompareDialog />
+            <CloudDiffDialog />
+            <SearchDialog />
             <NoteDialog />
             <EnvironmentsDialog />
             <CloudDialog />

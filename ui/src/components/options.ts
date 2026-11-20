@@ -32,6 +32,14 @@ export const MODEL_LABELS: Record<string, string> = {
 /** The id of the agent every installation has. */
 export const CLAUDE = "claude";
 
+/**
+ * Whether sessions on an agent can be given an effort. Claude Code takes one, and so does
+ * Codex, whose levels the core matches to the nearest of its own. Other agents offer none.
+ */
+export function takesEffort(agentId: string): boolean {
+    return agentId === CLAUDE || agentId === "codex";
+}
+
 /** A model name as shown: Claude Code's short names get labels, other names are shown as they are. */
 export function modelLabel(model: string | null): string {
     return MODEL_LABELS[model ?? ""] ?? model ?? "";

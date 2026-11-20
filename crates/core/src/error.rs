@@ -152,6 +152,12 @@ pub enum Error {
     /// Work could not be handed to a cloud agent. Says why, and what to do about it.
     #[error("{0}")]
     Cloud(String),
+    /// A task's work could not be committed, pushed or put in a pull request. Says why.
+    #[error("{0}")]
+    Pull(String),
+    /// A prompt could not be kept. Says why.
+    #[error("{0}")]
+    Template(String),
     /// A skill could not be saved or found. Says why.
     #[error("{0}")]
     Skill(String),

@@ -38,6 +38,8 @@ enum Command {
     Mcp,
     /// Show what Swarmed takes up on disk, and in memory and processor time right now.
     Usage,
+    /// Print what the agents report their work has cost: by day and by task, at API prices.
+    Costs,
     /// List the agents sessions can run on.
     Agents,
     /// Set up an agent other than Claude Code: install it, or choose the models it offers.
@@ -74,6 +76,11 @@ enum Command {
         /// shell history. Nothing but blank space removes it.
         #[arg(long)]
         set: bool,
+    },
+    /// Find the sessions in which something was said, closed ones included.
+    Search {
+        /// The words to look for, as they were written.
+        query: String,
     },
     /// Print the rules every agent is given, whatever the agent or model, or replace them.
     Rules {
@@ -121,6 +128,14 @@ enum CloudCommand {
     },
     /// List the cloud tasks delegated from a project, with their statuses as of now.
     List { project: String },
+    /// Print what a Codex cloud task changed, by its id from `cloud list`.
+    Diff { id: i64 },
+    /// Apply what a Codex cloud task changed to a local task's worktree, uncommitted.
+    Apply {
+        id: i64,
+        project: String,
+        task: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -204,6 +219,31 @@ enum TaskCommand {
         #[arg(long)]
         delete_branch: bool,
     },
+    /// Show the pull request of the task's branch and how its checks stand.
+    Pull { project: String, name: String },
+    /// Commit everything in the task's worktree.
+    Commit {
+        project: String,
+        name: String,
+        /// The commit message.
+        #[arg(short, long)]
+        message: String,
+    },
+    /// Push the task's branch to its remote.
+    Push { project: String, name: String },
+    /// Open a pull request for the task's branch. Without a title, the task's commits give
+    /// the title and the description.
+    Pr {
+        project: String,
+        name: String,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        body: Option<String>,
+        /// Open it as a draft.
+        #[arg(long)]
+        draft: bool,
+    },
     /// List the files the task has changed, or print one file's diff.
     Changes {
         project: String,
@@ -279,6 +319,7 @@ async fn run(core: &Core, command: Command) -> Result<()> {
         Command::Agent(command) => agent(core, command).await,
         Command::Mcp => mcp(core),
         Command::Usage => usage(core).await,
+        Command::Costs => costs(core),
         Command::Agents => {
             agents(core);
             Ok(())
@@ -294,7 +335,36 @@ async fn run(core: &Core, command: Command) -> Result<()> {
             Ok(())
         }
         Command::Rules { set } => rules(core, set),
+        Command::Search { query } => search(core, &query),
     }
+}
+
+/// Prints what the agents report their work has cost.
+fn costs(core: &Core) -> Result<()> {
+    let costs = core.costs()?;
+    say(&format!(
+        "today ${:.2}\tlast 7 days ${:.2}\tin all ${:.2}",
+        costs.today, costs.week, costs.total
+    ));
+    for task in &costs.tasks {
+        say(&format!(
+            "${:.2}\t{} / {}",
+            task.usd, task.project, task.task
+        ));
+    }
+    Ok(())
+}
+
+/// Prints the sessions in which `query` was said.
+fn search(core: &Core, query: &str) -> Result<()> {
+    for hit in core.sessions_search(query)? {
+        let closed = if hit.closed { ", closed" } else { "" };
+        say(&format!(
+            "{}\t{} / {}{closed}\t{}\n\t{}",
+            hit.session_id, hit.project, hit.task, hit.title, hit.snippet
+        ));
+    }
+    Ok(())
 }
 
 fn editor(core: &Core, command: Option<String>) -> Result<()> {
@@ -376,6 +446,52 @@ async fn cloud(core: &Core, command: CloudCommand) -> Result<()> {
         CloudCommand::List { project } => {
             core.cloud_tasks(&project, true).await?.iter().for_each(row);
         }
+        CloudCommand::Diff { id } => say(&core.cloud_task_diff(id).await?),
+        CloudCommand::Apply { id, project, task } => {
+            core.cloud_task_apply(id, &project, &task).await?;
+            say(&format!("applied to `{task}`, uncommitted"));
+        }
+    }
+    Ok(())
+}
+
+/// Commits a task's work and says what is left to push.
+async fn commit(core: &Core, project: &str, name: &str, message: &str) -> Result<()> {
+    core.task_commit(project, name, message).await?;
+    let left = core.task_unpublished(project, name).await?;
+    say(&format!("committed; {} commit(s) to push", left.unpushed));
+    Ok(())
+}
+
+/// Opens a task's pull request, from its commits unless a title or a body is given.
+async fn open_pull(
+    core: &Core,
+    (project, name): (&str, &str),
+    title: Option<String>,
+    body: Option<String>,
+    draft: bool,
+) -> Result<()> {
+    let mut text = core.task_pull_draft(project, name).await?;
+    text.title = title.unwrap_or(text.title);
+    text.body = body.unwrap_or(text.body);
+    let opened = core.task_pull_create(project, name, &text, draft).await?;
+    say(&format!("opened #{} {}", opened.number, opened.url));
+    Ok(())
+}
+
+/// Prints a task's pull request and its checks.
+async fn pull(core: &Core, project: &str, name: &str) -> Result<()> {
+    let Some(pull) = core.task_pull(project, name).await? else {
+        say("no pull request");
+        return Ok(());
+    };
+    let draft = if pull.draft { ", draft" } else { "" };
+    say(&format!(
+        "#{} {:?}{draft}  {}\n{}",
+        pull.number, pull.state, pull.title, pull.url
+    ));
+    for check in &pull.checks {
+        say(&format!("{:?}\t{}", check.outcome, check.name));
     }
     Ok(())
 }
@@ -650,6 +766,23 @@ async fn task(core: &Core, command: TaskCommand) -> Result<()> {
                 .await?;
             say(&format!("removed task `{name}`"));
         }
+        TaskCommand::Pull { project, name } => pull(core, &project, &name).await?,
+        TaskCommand::Commit {
+            project,
+            name,
+            message,
+        } => commit(core, &project, &name, &message).await?,
+        TaskCommand::Push { project, name } => {
+            core.task_push(&project, &name).await?;
+            say("pushed");
+        }
+        TaskCommand::Pr {
+            project,
+            name,
+            title,
+            body,
+            draft,
+        } => open_pull(core, (&project, &name), title, body, draft).await?,
         TaskCommand::Changes {
             project,
             name,

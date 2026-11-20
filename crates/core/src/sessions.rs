@@ -15,6 +15,7 @@ use crate::agent::{
 };
 use crate::agents::CLAUDE;
 use crate::error::{Error, Result};
+use crate::fork;
 use crate::mcp::{self, McpServer, McpTransport};
 use crate::queue::{self, Queues};
 use crate::secrets::SecretEnv;
@@ -100,6 +101,7 @@ impl SessionStatus {
             | AgentEvent::TerminalShared { .. }
             | AgentEvent::TextDelta { .. }
             | AgentEvent::RateLimit { .. }
+            | AgentEvent::Forked { .. }
             | AgentEvent::Other { .. } => None,
         }
     }
@@ -407,6 +409,30 @@ impl Store {
             )?,
             _ => 0,
         };
+        Ok(())
+    }
+
+    /// Starts session `to` with a copy of `events`, said in session `from`, and marks where
+    /// the copy ends. A copy is nothing new to read.
+    pub(crate) fn session_copy_events(
+        &self,
+        to: i64,
+        events: &[AgentEvent],
+        from: i64,
+    ) -> Result<()> {
+        let title: String = self.conn.query_row(
+            "SELECT title FROM sessions WHERE id = ?1",
+            params![to],
+            |row| row.get(0),
+        )?;
+        for event in events {
+            self.record(to, event, None)?;
+        }
+        self.record(to, &AgentEvent::Forked { from }, None)?;
+        self.conn.execute(
+            "UPDATE sessions SET unread = 0, title = ?2 WHERE id = ?1",
+            params![to, title],
+        )?;
         Ok(())
     }
 
@@ -892,13 +918,21 @@ pub(crate) fn send_text(
     text: &str,
 ) -> Result<()> {
     let commands = live.sender(id)?;
+    // A fork's agent has not heard the conversation it starts from: it is told with the first
+    // message. Looked up before the message is recorded, and the user's own words are
+    // recorded as they typed them.
+    let earlier = fork::carried(&lock(store).events(id)?);
     let event = AgentEvent::UserMessage {
         text: text.to_string(),
     };
     live.note(store, id, event)?;
     let shared = terminals.take_unshared(id);
+    let text = &earlier.map_or_else(
+        || text.to_string(),
+        |earlier| fork::with_carried(text, &earlier),
+    );
     let message = if shared.is_empty() {
-        text.to_string()
+        text.clone()
     } else {
         live.note(
             store,

@@ -28,6 +28,15 @@ export function withCommand(name: string): string {
     return `/${name} `;
 }
 
+/**
+ * Where the first place to fill in stands in a kept prompt: the start and end of its first
+ * `{{something}}`, or `null` if it has none.
+ */
+export function firstPlaceholder(text: string): [number, number] | null {
+    const match = /\{\{[^{}\n]*\}\}/.exec(text);
+    return match ? [match.index, match.index + match[0].length] : null;
+}
+
 /** The suggestion `step` places after `active`, wrapping round at both ends. */
 export function stepActive(active: number, step: number, count: number): number {
     return count === 0 ? 0 : (active + step + count) % count;

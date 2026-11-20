@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { SUGGESTION_LIMIT, slashMatches, slashQuery, stepActive, withCommand } from "./slash";
+import {
+    firstPlaceholder,
+    SUGGESTION_LIMIT,
+    slashMatches,
+    slashQuery,
+    stepActive,
+    withCommand,
+} from "./slash";
 
 describe("slashQuery", () => {
     it("is the name typed so far while a command is being named", () => {
@@ -35,6 +42,19 @@ describe("slashMatches", () => {
     it("shows a limited number at once", () => {
         const many = Array.from({ length: 30 }, (_, index) => `command-${index}`);
         expect(slashMatches("", many)).toHaveLength(SUGGESTION_LIMIT);
+    });
+});
+
+describe("firstPlaceholder", () => {
+    it("finds the first place to fill in", () => {
+        expect(firstPlaceholder("Review {{file}} for {{what}}.")).toEqual([7, 15]);
+        expect(firstPlaceholder("{{}}")).toEqual([0, 4]);
+    });
+
+    it("finds none in a prompt without one, or with braces that are code", () => {
+        expect(firstPlaceholder("Explain this.")).toBeNull();
+        expect(firstPlaceholder("const a = { b: {} };")).toBeNull();
+        expect(firstPlaceholder("{{open\nclose}}")).toBeNull();
     });
 });
 

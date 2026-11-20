@@ -9,6 +9,7 @@ import { useStore } from "../store";
 import { countUnread, countWaiting, nestedSessions, projectStatus, projectUnread } from "../tree";
 import { wordsFor } from "../wording";
 import { ProviderMark } from "./ProviderMark";
+import { PullBadge } from "./PullRequest";
 import { StatusMark } from "./StatusMark";
 
 export function Sidebar() {
@@ -16,6 +17,7 @@ export function Sidebar() {
     const load = useStore((state) => state.load);
     const startNew = useStore((state) => state.startNew);
     const showSettings = useStore((state) => state.showSettings);
+    const showInbox = useStore((state) => state.showInbox);
     const waiting = countWaiting(projects);
     const unread = countUnread(projects);
     const words = useStore((state) => wordsFor(state.settings?.style));
@@ -24,8 +26,17 @@ export function Sidebar() {
         <nav className="sidebar" aria-label="Projects, tasks and sessions" onKeyDown={moveFocus}>
             <div className="sidebar-top" data-tauri-drag-region>
                 {words.overview && <span className="sidebar-name">{words.overview}</span>}
-                {waiting > 0 && <span className="needs-you">{words.needYou(waiting)}</span>}
-                {unread > 0 && <span className="unread-count">{words.unread(unread)}</span>}
+                {waiting + unread > 0 && (
+                    <button
+                        type="button"
+                        className="inbox-open"
+                        title="List everything that waits for you"
+                        onClick={() => showInbox(true)}
+                    >
+                        {waiting > 0 && <span className="needs-you">{words.needYou(waiting)}</span>}
+                        {unread > 0 && <span className="unread-count">{words.unread(unread)}</span>}
+                    </button>
+                )}
             </div>
             {projects.length > 0 && (
                 <button type="button" className="new-task-button" onClick={() => startNew()}>
@@ -151,6 +162,7 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
                     <span className="task-title">{task.name}</span>
                     {task.setup === "failed" && <span className="task-flag">setup failed</span>}
                 </h3>
+                <PullBadge project={project} task={task} />
                 <CloudButton project={project} task={task.name} />
                 <NoteButton project={project} task={task.name} has={task.has_note} />
                 <button
@@ -220,6 +232,7 @@ const CLOUD_POLL_MS = 45_000;
  * unfinished, their statuses are asked for again from time to time.
  */
 function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] }) {
+    const showCloudDiff = useStore((state) => state.showCloudDiff);
     const refresh = useStore((state) => state.refresh);
     const report = useStore((state) => state.report);
     const waiting = tasks.some(isUnfinished);
@@ -260,6 +273,17 @@ function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] })
                             label={cloudProvider(task.provider).name}
                         />
                     </button>
+                    {task.provider === "codex" && !isUnfinished(task) && (
+                        <button
+                            type="button"
+                            className="row-add"
+                            aria-label={`Show what ${cloudTitle(task)} changed`}
+                            title="Show what it changed, and apply that to a local task"
+                            onClick={() => showCloudDiff(task.id)}
+                        >
+                            ±
+                        </button>
+                    )}
                     <button
                         type="button"
                         className="row-close"
