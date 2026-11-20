@@ -239,6 +239,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   session (`notice-opened`). A development build falls back on showing them as the Terminal's,
   which newer systems may not show. `Swarmed.app --args notify-check`, started with `open`,
   says what the system allows and sends one banner.
+- **Whether the user is looking** is asked of the window: focused, shown and not in the Dock.
+  A window put away can still hold the focus. Closing the window hides Swarmed, on a Mac;
+  ⌘Q quits it. The count on the icon needs the notification centre's leave too, which the
+  bundle asks for with the rest. `SWARMED_NOTIFY_TRACE=<file>` notes what became of each notice.
 - **Swarmed never handles Claude.ai credentials.** It only shapes the child's environment (`Auth`).
 - **Session events are stored as JSON** (`AgentEvent`), so its variants and fields are only added,
   never renamed.

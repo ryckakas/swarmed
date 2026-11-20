@@ -450,7 +450,9 @@ export function connect(api: Api): () => void {
     // at; otherwise when the window is.
     const readIfSeen = () => {
         const { selectedSessionId, markRead } = useStore.getState();
-        if (selectedSessionId !== null && inView?.document.hasFocus()) {
+        // A window put away in the Dock can still hold the focus; nobody reads it there.
+        const seen = inView?.document.hasFocus() && inView.document.visibilityState === "visible";
+        if (selectedSessionId !== null && seen) {
             markRead(api, selectedSessionId);
         }
     };
