@@ -2,9 +2,15 @@
 //!
 //! `setup` has to finish before a task can be worked in. `start` is the opposite: it is
 //! started once setup is done and left running, with what it prints kept in a log. It runs in
-//! a process group of its own, so that stopping it takes everything it started with it. A
-//! stack lives as long as Swarmed does: it is stopped when its task is removed and when
-//! Swarmed quits, and can be started again from a front end.
+//! a process group of its own, and stopping it takes everything started from it along, also
+//! what set itself apart in a group of its own, as the services of some stacks do. A stack is
+//! stopped when its task is removed and when Swarmed quits, and can be started again from a
+//! front end.
+//!
+//! Which process a task's stack is, is also written down beside its log. A Swarmed that did
+//! not get to stop its stacks, because it crashed or was killed, finds them again that way
+//! when it is next started: they count as running, are not started a second time over
+//! themselves, and can be stopped.
 
 use std::fs::File;
 use std::os::unix::process::CommandExt;
@@ -22,8 +28,12 @@ use crate::reach::{self, Local};
 use crate::store::{Project, Task};
 use crate::{Core, lock};
 
-/// How long a stack is given to stop by itself once asked to, before it is killed.
-const STOP_GRACE: Duration = Duration::from_secs(5);
+/// How long a stack is given to stop by itself once asked to, before it is killed. Long
+/// enough for one that has services of its own to wind down first.
+const STOP_GRACE: Duration = Duration::from_secs(15);
+
+/// How long what a stack left behind is given, once asked, before it is killed too.
+const LEFTOVER_GRACE: Duration = Duration::from_secs(3);
 
 /// How often a stack that was asked to stop is looked at again.
 const STOP_POLL: Duration = Duration::from_millis(50);
@@ -95,11 +105,36 @@ impl Core {
             // A group of its own, so that everything it starts can be stopped with it.
             .process_group(0)
             .spawn()?;
+        self.keep_stack(task.id, child.id());
         lock(&self.live.stacks).insert(task.id, child);
         Ok(true)
     }
 
-    /// Whether the task's stack is running. One that has ended by itself is forgotten.
+    /// Writes down which process the task's stack is, and when it started: a process id is
+    /// handed out again sooner or later, and the next holder of it is no stack of ours.
+    fn keep_stack(&self, task: i64, pid: u32) {
+        let Some(started) = started_at(pid) else {
+            return;
+        };
+        std::fs::write(self.stack_pid_file(task), format!("{pid}\n{started}\n")).ok();
+    }
+
+    /// The process that was written down as the task's stack, if it is still that process.
+    /// What was written is forgotten otherwise.
+    fn kept_stack(&self, task: i64) -> Option<u32> {
+        let file = self.stack_pid_file(task);
+        let written = std::fs::read_to_string(&file).ok()?;
+        let (pid, started) = written.trim().split_once('\n')?;
+        let pid: u32 = pid.trim().parse().ok()?;
+        if started_at(pid).as_deref() == Some(started.trim()) {
+            return Some(pid);
+        }
+        std::fs::remove_file(file).ok();
+        None
+    }
+
+    /// Whether the task's stack is running: one this Swarmed started, or one an earlier
+    /// Swarmed left behind. One that has ended by itself is forgotten.
     pub(crate) fn stack_running(&self, task: i64) -> bool {
         let mut stacks = lock(&self.live.stacks);
         let ended = stacks
@@ -107,8 +142,9 @@ impl Core {
             .is_some_and(|child| !matches!(child.try_wait(), Ok(None)));
         if ended {
             stacks.remove(&task);
+            std::fs::remove_file(self.stack_pid_file(task)).ok();
         }
-        stacks.contains_key(&task)
+        stacks.contains_key(&task) || self.kept_stack(task).is_some()
     }
 
     /// How far along the task's stack is and where it is opened. The project's `open_url`
@@ -168,9 +204,13 @@ impl Core {
         task: &Task,
         sink: OutputSink<'_>,
     ) {
-        let running = lock(&self.live.stacks).remove(&task.id);
-        let Some(child) = running else {
-            return;
+        let started = lock(&self.live.stacks).remove(&task.id);
+        let stack = match started {
+            Some(child) => Stack::Started(child),
+            None => match self.kept_stack(task.id) {
+                Some(pid) => Stack::Found(pid),
+                None => return,
+            },
         };
         let stop = &config.hooks.stop;
         if let Err(error) = self
@@ -179,18 +219,44 @@ impl Core {
         {
             sink(&format!("stop failed, ending the stack anyway: {error}"));
         }
-        end(child).await;
+        end(stack).await;
+        std::fs::remove_file(self.stack_pid_file(task.id)).ok();
     }
 
-    /// Ends every stack, for when Swarmed quits: nothing it started is left running unseen.
+    /// Ends every stack, for when Swarmed quits: nothing it started is left running unseen,
+    /// and neither is what an earlier Swarmed left behind.
     pub async fn stacks_stop_all(&self) {
-        let running: Vec<Child> = lock(&self.live.stacks)
+        let started: Vec<Child> = lock(&self.live.stacks)
             .drain()
             .map(|(_, child)| child)
             .collect();
-        for child in running {
-            end(child).await;
+        for child in started {
+            end(Stack::Started(child)).await;
         }
+        let tasks = self.kept_tasks();
+        let found: Vec<u32> = tasks
+            .iter()
+            .filter_map(|task| self.kept_stack(*task))
+            .collect();
+        for pid in found {
+            end(Stack::Found(pid)).await;
+        }
+        for task in tasks {
+            std::fs::remove_file(self.stack_pid_file(task)).ok();
+        }
+    }
+
+    /// The tasks a stack is written down for.
+    fn kept_tasks(&self) -> Vec<i64> {
+        let folder = self.paths.data_dir.join("run").join("stacks");
+        let Ok(entries) = std::fs::read_dir(folder) else {
+            return vec![];
+        };
+        let task = |entry: std::fs::DirEntry| {
+            let name = entry.file_name();
+            name.to_string_lossy().strip_suffix(".pid")?.parse().ok()
+        };
+        entries.flatten().filter_map(task).collect()
     }
 
     /// The end of what the task's stack has printed since it was last started.
@@ -207,6 +273,10 @@ impl Core {
         let folder = self.paths.data_dir.join("run").join("stacks");
         folder.join(format!("{task}.log"))
     }
+
+    fn stack_pid_file(&self, task: i64) -> PathBuf {
+        self.stack_log_file(task).with_extension("pid")
+    }
 }
 
 /// Whether a stack whose project names its address answers there. An address that is not on
@@ -218,34 +288,160 @@ fn named_state(url: &str) -> StackState {
     }
 }
 
-/// Asks the stack's whole process group to stop, waits a little, then kills what is left.
-async fn end(mut child: Child) {
-    // The group's id is that of the process that leads it; a minus addresses the group.
-    let group = format!("-{}", child.id());
-    signal("-TERM", &group).await;
-    if gone_within(&mut child, STOP_GRACE).await {
-        return;
+/// A running stack: one this Swarmed started and so can wait for, or one it found.
+enum Stack {
+    Started(Child),
+    Found(u32),
+}
+
+impl Stack {
+    fn pid(&self) -> u32 {
+        match self {
+            Self::Started(child) => child.id(),
+            Self::Found(pid) => *pid,
+        }
     }
-    signal("-KILL", &group).await;
-    child.kill().ok();
-    gone_within(&mut child, STOP_GRACE).await;
+
+    /// Whether its leading process has ended. Looking is also what reaps one of our own.
+    async fn is_gone(&mut self) -> bool {
+        match self {
+            Self::Started(child) => !matches!(child.try_wait(), Ok(None)),
+            Self::Found(pid) => !alive(*pid).await,
+        }
+    }
 }
 
-async fn signal(which: &str, group: &str) {
-    let sent = Signal::new("kill").args([which, "--", group]).status();
-    sent.await.ok();
-}
-
-/// Whether `child` ended within `limit`. Looking is also what reaps it.
-async fn gone_within(child: &mut Child, limit: Duration) -> bool {
+/// Whether the stack's leading process ended within `limit`.
+async fn gone_within(stack: &mut Stack, limit: Duration) -> bool {
     let until = Instant::now() + limit;
     loop {
-        if !matches!(child.try_wait(), Ok(None)) {
+        if stack.is_gone().await {
             return true;
         }
         if Instant::now() >= until {
             return false;
         }
         tokio::time::sleep(STOP_POLL).await;
+    }
+}
+
+/// When the process `pid` started, as `ps` words it; `None` if there is no such process.
+fn started_at(pid: u32) -> Option<String> {
+    let asked = Command::new("ps")
+        .args(["-o", "lstart=", "-p", &pid.to_string()])
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    let started = String::from_utf8_lossy(&asked.stdout).trim().to_string();
+    (!started.is_empty()).then_some(started)
+}
+
+/// Whether there is a process `pid` that still runs. One that has ended and only waits for
+/// whoever started it to take note does not count.
+async fn alive(pid: u32) -> bool {
+    let asked = Signal::new("ps")
+        .args(["-o", "stat=", "-p", &pid.to_string()])
+        .stderr(Stdio::null())
+        .output();
+    let Ok(asked) = asked.await else {
+        return false;
+    };
+    let state = String::from_utf8_lossy(&asked.stdout);
+    let state = state.trim();
+    !state.is_empty() && !state.starts_with('Z')
+}
+
+/// Every process started from `root`, at whatever remove, as they are now.
+async fn started_from(root: u32) -> Vec<u32> {
+    let listing = Signal::new("ps").args(["-axo", "pid=,ppid="]).output();
+    let Ok(listing) = listing.await else {
+        return vec![];
+    };
+    let listing = String::from_utf8_lossy(&listing.stdout);
+    let pair = |line: &str| {
+        let mut numbers = line.split_whitespace().map(str::parse::<u32>);
+        Some((numbers.next()?.ok()?, numbers.next()?.ok()?))
+    };
+    below(&listing.lines().filter_map(pair).collect::<Vec<_>>(), root)
+}
+
+/// The processes below `root` among `processes`, each given with its parent.
+fn below(processes: &[(u32, u32)], root: u32) -> Vec<u32> {
+    let mut found: Vec<u32> = vec![];
+    let mut waiting = vec![root];
+    while let Some(parent) = waiting.pop() {
+        // A process id met twice must not send this round in circles.
+        let new = |(pid, of): &&(u32, u32)| *of == parent && *pid != root && !found.contains(pid);
+        let children: Vec<u32> = processes.iter().filter(new).map(|(pid, _)| *pid).collect();
+        found.extend(&children);
+        waiting.extend(children);
+    }
+    found
+}
+
+/// Ends a stack. Its whole process group is asked to stop and given time, since a stack
+/// with services of its own winds them down itself; then what is left of the group is killed,
+/// and so is whatever it started that set itself apart and is still there.
+async fn end(mut stack: Stack) {
+    let started = started_from(stack.pid()).await;
+    // The group's id is that of the process that leads it; a minus addresses the group.
+    let group = format!("-{}", stack.pid());
+    signal("-TERM", &group).await;
+    if !gone_within(&mut stack, STOP_GRACE).await {
+        signal("-KILL", &group).await;
+        if let Stack::Started(child) = &mut stack {
+            child.kill().ok();
+        }
+        gone_within(&mut stack, STOP_GRACE).await;
+    }
+    end_leftovers(started).await;
+}
+
+/// Ends what a stack started and did not take along: asked first, then killed.
+async fn end_leftovers(started: Vec<u32>) {
+    let mut left = still_alive(started).await;
+    for pid in &left {
+        signal("-TERM", &pid.to_string()).await;
+    }
+    let until = Instant::now() + LEFTOVER_GRACE;
+    while !left.is_empty() && Instant::now() < until {
+        tokio::time::sleep(STOP_POLL).await;
+        left = still_alive(left).await;
+    }
+    for pid in left {
+        signal("-KILL", &pid.to_string()).await;
+    }
+}
+
+async fn still_alive(pids: Vec<u32>) -> Vec<u32> {
+    let mut left = vec![];
+    for pid in pids {
+        if alive(pid).await {
+            left.push(pid);
+        }
+    }
+    left
+}
+
+async fn signal(which: &str, target: &str) {
+    let sent = Signal::new("kill")
+        .args([which, "--", target])
+        .stderr(Stdio::null())
+        .status();
+    sent.await.ok();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn everything_started_from_a_process_is_found_at_any_remove() {
+        // 10 started 11 and 12, 12 started 13; 20 and its child have nothing to do with it.
+        let processes = [(10, 1), (11, 10), (12, 10), (13, 12), (20, 1), (21, 20)];
+        let mut found = below(&processes, 10);
+        found.sort_unstable();
+        assert_eq!(found, [11, 12, 13]);
+        assert_eq!(below(&processes, 13), Vec::<u32>::new());
     }
 }

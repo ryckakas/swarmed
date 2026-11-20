@@ -285,8 +285,11 @@ fn main() {
     if !tauri::is_dev() {
         swarmed_core::learn_shell_path();
     }
-    let core =
-        Arc::new(open_core().unwrap_or_else(|e| panic!("could not open Swarmed's data: {e}")));
+    let core = open_core().unwrap_or_else(|e| panic!("could not open Swarmed's data: {e}"));
+    // No agent runs yet: a session that still counts as busy was left so by a Swarmed that
+    // ended in the middle of its turn, and would never be anything else.
+    core.sessions_settle().ok();
+    let core = Arc::new(core);
     let listening = Arc::clone(&core);
     let leaving = Arc::clone(&core);
     let noticing = Arc::clone(&core);

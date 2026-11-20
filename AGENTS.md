@@ -81,6 +81,13 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   something it left running ends. `acp.rs` treats that as a turn of the agent's own: it ends
   when the agent has said something and reports its usage, or has been silent for `QUIET`,
   and a stop from the user ends it at once, since the agent has nothing to answer one with.
+- **A stack is also remembered on disk** (`run/stacks/<task>.pid`: its leading process and
+  when that started). A Swarmed that ended without stopping its stacks finds them again, counts
+  them as running and can stop them. Stopping asks the stack's process group, waits, then
+  ends whatever was started from it and is still there: services often sit in groups of their
+  own, where a signal to the stack's group does not reach them.
+- **A session left busy by a Swarmed that ended mid-turn** is put right: the app settles all
+  of them when it starts (`sessions_settle`), and Stop on one records its turn as stopped.
 - **Whatever Swarmed starts gets the `PATH` of the user's shell** (`shellenv.rs`). An app
   started from the Dock has only the system's, so the installed app asks the shell once, before
   the core opens; hooks, stacks, the status command and agents are then given it.

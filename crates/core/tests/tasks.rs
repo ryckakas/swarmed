@@ -2,10 +2,11 @@
 
 mod common;
 
-use std::sync::Mutex;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 use common::{core_with_project, fixture, git, write_config};
-use swarmed_core::agent::{AgentEvent, Auth};
+use swarmed_core::agent::{AgentEvent, Auth, FakeBackend};
 use swarmed_core::{
     ChangeKind, Core, Environment, Error, NewTaskOptions, ProjectConfig, RemoveOptions,
     SessionOptions, Settings, SetupStatus, StackState, hooks,
@@ -443,6 +444,64 @@ async fn what_a_task_keeps_running_is_started_after_setup_and_does_not_hold_the_
     core.stacks_stop_all().await;
 }
 
+/// Whether there is a process with the id written in `pid`.
+fn process_alive(pid: &str) -> bool {
+    let probe = std::process::Command::new("kill")
+        .args(["-0", pid.trim()])
+        .output();
+    probe.expect("kill runs").status.success()
+}
+
+/// Waits for `file` to be written and returns what it holds.
+async fn written(file: &Path) -> String {
+    for _ in 0..300 {
+        let text = std::fs::read_to_string(file).unwrap_or_default();
+        if !text.trim().is_empty() {
+            return text;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("{} was never written", file.display());
+}
+
+#[tokio::test]
+async fn a_stack_left_behind_is_found_again_and_stopped_with_what_set_itself_apart() {
+    let fx = fixture();
+    // As the services of some stacks do, the child puts itself in a process group of its
+    // own: `set -m` gives every background job one.
+    write_config(
+        &fx,
+        "[hooks]\nstart = \"set -m; sleep 300 & echo $! > child.pid; wait\"\n",
+    );
+    let first = core_with_project(&fx).await;
+    let task = first
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates");
+    let child = written(&task.worktree_path.join("child.pid")).await;
+    assert!(process_alive(&child));
+    // That Swarmed goes away without stopping anything, as one that crashed does.
+    drop(first);
+
+    let second =
+        Core::with_backend(fx.paths.clone(), Arc::new(FakeBackend::default())).expect("opens");
+    let stack = |core: &Core| core.overview().expect("reads")[0].tasks[0].stack;
+    assert_eq!(stack(&second), Some(StackState::Starting));
+    // It is not started a second time over itself.
+    assert!(second.stack_start("demo", "one").expect("starts"));
+    assert_eq!(written(&task.worktree_path.join("child.pid")).await, child);
+
+    second
+        .stack_stop("demo", "one", &hooks::discard)
+        .await
+        .expect("stops");
+    assert_eq!(stack(&second), Some(StackState::Stopped));
+    assert!(
+        !process_alive(&child),
+        "what set itself apart outlived the stack"
+    );
+}
+
 #[tokio::test]
 async fn a_new_task_starts_from_what_an_earlier_one_was_set_up_with() {
     let fx = fixture();
@@ -736,14 +795,14 @@ async fn the_editor_is_started_with_the_worktree() {
 }
 
 #[cfg(unix)]
-fn make_executable(path: &std::path::Path) {
+fn make_executable(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
     let permissions = std::fs::Permissions::from_mode(0o755);
     std::fs::set_permissions(path, permissions).expect("chmod");
 }
 
 /// The file's contents once the launched program has written it.
-async fn wait_for_file(path: &std::path::Path) -> String {
+async fn wait_for_file(path: &Path) -> String {
     for _ in 0..200 {
         match std::fs::read_to_string(path) {
             Ok(text) if !text.is_empty() => return text,

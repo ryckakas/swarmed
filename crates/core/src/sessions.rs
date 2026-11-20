@@ -318,6 +318,15 @@ impl Store {
         Ok(())
     }
 
+    /// Puts every session that counts as busy back to idle, and says how many there were.
+    fn sessions_settle(&self) -> Result<usize> {
+        let settled = self.conn.execute(
+            "UPDATE sessions SET status = 'idle' WHERE status IN ('working', 'waiting')",
+            params![],
+        )?;
+        Ok(settled)
+    }
+
     fn session_close(&self, id: i64) -> Result<()> {
         self.conn.execute(
             "UPDATE sessions SET closed_at = CURRENT_TIMESTAMP, status = 'idle' WHERE id = ?1",
@@ -533,6 +542,10 @@ fn without_pastes(message: &str) -> String {
     }
     typed.push_str(rest);
     typed
+}
+
+fn is_busy_status(status: SessionStatus) -> bool {
+    matches!(status, SessionStatus::Working | SessionStatus::Waiting)
 }
 
 /// A namer's answer as a session title.
@@ -889,8 +902,33 @@ impl Core {
     }
 
     /// Stops the current turn. The session stays running.
+    ///
+    /// A session that counts as busy though no agent runs for it, which a Swarmed that ended
+    /// in the middle of a turn leaves behind, is put right instead: its turn is recorded as
+    /// stopped.
     pub fn session_interrupt(&self, id: i64) -> Result<()> {
-        self.live.command(id, AgentCommand::Interrupt)
+        let stopped = self.live.command(id, AgentCommand::Interrupt);
+        let left_busy = || {
+            self.session(id)
+                .is_ok_and(|session| is_busy_status(session.status))
+        };
+        if stopped.is_ok() || !left_busy() {
+            return stopped;
+        }
+        let ended = AgentEvent::TurnDone {
+            is_error: true,
+            result: Some("the agent was no longer running".to_string()),
+            cost_usd: None,
+            duration_ms: None,
+        };
+        self.live.note(&self.store, id, ended)
+    }
+
+    /// Puts the sessions that count as busy back to idle: for a front end that has just
+    /// started, when no agent runs yet and whatever says otherwise is left from a Swarmed that
+    /// ended in the middle of a turn. Says how many there were.
+    pub fn sessions_settle(&self) -> Result<usize> {
+        self.store().sessions_settle()
     }
 
     /// Stops a session's agent. Its history stays, and [`Core::session_start`] continues it.
