@@ -429,6 +429,16 @@ pub(crate) async fn task_unpublished(
     Ok(core.task_unpublished(&project, &name).await?)
 }
 
+/// The effort an agent last ran a model with when the effort was left to it.
+#[tauri::command]
+pub(crate) fn effort_default(
+    core: CoreState<'_>,
+    agent: String,
+    model: Option<String>,
+) -> Command<Option<String>> {
+    Ok(core.effort_default(&agent, model.as_deref())?)
+}
+
 /// A commit message for a task's uncommitted work, for the user to read and change.
 #[tauri::command]
 pub(crate) async fn task_commit_message(

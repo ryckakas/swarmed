@@ -67,6 +67,11 @@ export interface Api {
     snapshotRemove(project: string, environment: string | null): Promise<void>;
     /** The sessions' turns added up by day, task, agent and model, the oldest day first. */
     analytics(): Promise<TurnStats[]>;
+    /**
+     * The effort an agent last ran a model with when the effort was left to it; `null` for
+     * `model` is the agent's default model. `null` if no such session has run yet.
+     */
+    effortDefault(agent: string, model: string | null): Promise<string | null>;
     /** The agents that can be set up from the settings, and how far along each is. */
     agentSetups(): Promise<AgentSetup[]>;
     /** Installs a known agent and configures it. Its installer's output comes as hook output. */

@@ -1270,6 +1270,12 @@ function closingApi(
 }
 
 /** An in-memory stand-in for the app. */
+/** What the sample agents' default efforts come to; the small model says nothing of effort. */
+async function sampleEffortDefault(agent: string, model: string | null): Promise<string | null> {
+    const known: Record<string, string> = { claude: "xhigh", codex: "medium" };
+    return model === "haiku" ? null : (known[agent] ?? null);
+}
+
 export function createMockApi(): Api {
     const agent = new MockAgent();
     const tasks = () => agent.projects.flatMap((project) => project.tasks);
@@ -1303,6 +1309,7 @@ export function createMockApi(): Api {
         costs: async () => SAMPLE_COSTS,
         ...snapshotApi(() => agent.projects),
         analytics: async () => sampleAnalytics(new Date()),
+        effortDefault: sampleEffortDefault,
         ...setupApi(hookListeners),
         agents: async () => [
             { id: "claude", name: "Claude Code", models: ["opus", "sonnet", "haiku", "fable"] },

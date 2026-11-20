@@ -16,6 +16,7 @@ import {
     takesEffort,
     takesFast,
     useAgents,
+    useEffortDefault,
     useSlashCommands,
 } from "./options";
 import { Picker } from "./Picker";
@@ -135,7 +136,10 @@ function SessionPickers({ session }: { session: Session }) {
     const agent = useAgents().find((candidate) => candidate.id === session.agent);
     const { id, model, supervision, effort, fast } = session;
     // What the agent last said its effort comes to, for when none was chosen.
-    const applied = useStore((state) => appliedEffort(state.events[id]));
+    const said = useStore((state) => appliedEffort(state.events[id]));
+    // Before it has said, what it said the last time a session left the effort to it.
+    const usual = useEffortDefault(session.agent, model);
+    const applied = said ?? usual;
     const current = { model, supervision, effort, fast };
     return (
         <>

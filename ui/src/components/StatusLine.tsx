@@ -13,6 +13,7 @@ import {
 } from "../statusline";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
+import { useEffortDefault } from "./options";
 
 interface Props {
     project: string;
@@ -77,7 +78,8 @@ function BuiltIn({ project, task, session, events }: Props) {
 
     const words = useWords();
     const running = useRunning(session.id, items.includes("duration"));
-    const parts = statusParts(items, { session, task, events, changes, running });
+    const usualEffort = useEffortDefault(session.agent, session.model);
+    const parts = statusParts(items, { session, task, events, changes, running, usualEffort });
     const usage = contextUsage(events);
     // Where the context badge starts, while its overview is shown: the overview stands over it.
     const [detail, setDetail] = useState<number | null>(null);

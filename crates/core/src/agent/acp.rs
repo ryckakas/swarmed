@@ -308,10 +308,12 @@ impl Conversation {
             skills: 0,
             slash_commands: vec![],
         });
+        if let Some(applied) = self.applied(result) {
+            self.emit(applied);
+        }
         self.modes = option_values(result, "mode");
         self.set_mode().await;
-        self.set_effort(&option_values(result, "reasoning_effort"))
-            .await;
+        self.set_effort(&option_values(result, EFFORT_OPTION)).await;
         self.set_fast(&option_values(result, FAST_MODE)).await;
         if self.opened_on_another_model(result) {
             self.restore_model().await;
@@ -355,6 +357,22 @@ impl Conversation {
         }
     }
 
+    /// What the conversation runs with once it is set up: the session's model and effort where
+    /// it chose them, else what the agent opened with. Nothing for an agent that has no effort.
+    fn applied(&self, opened: &Value) -> Option<AgentEvent> {
+        let offered = option_values(opened, EFFORT_OPTION);
+        let chosen = self
+            .spec
+            .effort
+            .and_then(|effort| agent_effort(effort, &offered));
+        let effort = chosen.or_else(|| current_value(opened, EFFORT_OPTION))?;
+        let model = self.spec.model.clone();
+        Some(AgentEvent::Applied {
+            model: model.unwrap_or_else(|| current_model(opened)),
+            effort: Some(effort.to_string()),
+        })
+    }
+
     /// Switches the open session to `model`. The protocol has no way back to the agent's own
     /// default, so `None` only applies when the session is next started.
     async fn set_model(&mut self, model: Option<String>) {
@@ -378,8 +396,7 @@ impl Conversation {
         let (Some(effort), Some(session_id)) = (effort, self.session_id.clone()) else {
             return;
         };
-        let params =
-            json!({ "sessionId": session_id, "configId": "reasoning_effort", "value": effort });
+        let params = json!({ "sessionId": session_id, "configId": EFFORT_OPTION, "value": effort });
         self.call(Call::SetOption, "session/set_config_option", params)
             .await;
     }
@@ -769,15 +786,20 @@ fn error_text(error: &Value) -> String {
     str_of(error, "message").map_or_else(|| error.to_string(), String::from)
 }
 
+/// The option agents name their effort by.
+const EFFORT_OPTION: &str = "reasoning_effort";
+
+/// What one of a conversation's options stands at when it opens, if the agent says.
+fn current_value<'a>(opened: &'a Value, id: &str) -> Option<&'a str> {
+    let options = opened.get("configOptions").and_then(Value::as_array);
+    let named = |option: &&Value| str_of(option, "id") == Some(id);
+    let option = options.and_then(|options| options.iter().find(named));
+    option.and_then(|option| str_of(option, "currentValue"))
+}
+
 /// The model a new conversation reports it runs on, if it says.
 fn current_model(result: &Value) -> String {
-    let options = result.get("configOptions").and_then(Value::as_array);
-    let model = options
-        .into_iter()
-        .flatten()
-        .find(|option| str_of(option, "id") == Some("model"));
-    model
-        .and_then(|option| str_of(option, "currentValue"))
+    current_value(result, "model")
         .unwrap_or_default()
         .to_string()
 }

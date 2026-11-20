@@ -25,6 +25,8 @@ export interface StatusSource {
     changes: FileChange[] | null;
     /** How long the turn that is running has run so far, in milliseconds, if that is known. */
     running?: number | null;
+    /** What the agent's default effort last came to, for before this session's agent says. */
+    usualEffort?: string | null;
 }
 
 /** How a run of text in the status line is coloured: by what it says, not by its piece. */
@@ -58,14 +60,15 @@ function model({ session, events }: StatusSource): string | null {
 
 /**
  * The model, then the effort it thinks with: `opus | high`. The effort is the one chosen for
- * the session, else the one the agent reports its default comes to. An agent that says nothing
- * of effort shows its model alone.
+ * the session, else the one the agent reports its default comes to, else what that default
+ * came to the last time. An agent that says nothing of effort shows its model alone, and a
+ * session whose model is not known yet its effort alone.
  */
 function modelRuns(source: StatusSource): StatusPart["runs"] | null {
     const name = model(source);
-    const effort = source.session.effort ?? applied(source.events)?.effort;
+    const effort = source.session.effort ?? applied(source.events)?.effort ?? source.usualEffort;
     if (!(name && effort)) {
-        return plain(name);
+        return plain(name || effort || null);
     }
     return [
         [name, "plain"],

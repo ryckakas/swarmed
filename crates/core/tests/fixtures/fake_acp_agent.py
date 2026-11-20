@@ -9,6 +9,7 @@
 - "mcp": names the MCP servers it was given.
 
 Set FAKE_ACP_LOAD_ONLY=1 to offer only session/load, which replays a history first.
+Set FAKE_ACP_EFFORT=1 to have an effort setting, standing at medium.
 Set FAKE_ACP_RESUME_NOTICE=1 to remark, as Codex does, on the model an earlier conversation
 was opened with, right after opening it.
 """
@@ -17,6 +18,10 @@ import os
 import sys
 
 LOAD_ONLY = os.environ.get("FAKE_ACP_LOAD_ONLY") == "1"
+# What an agent with an effort of its own says of it when a conversation opens.
+EFFORT = [{"id": "reasoning_effort", "currentValue": "medium",
+           "options": [{"value": "low"}, {"value": "medium"}, {"value": "high"}]}
+          ] if os.environ.get("FAKE_ACP_EFFORT") == "1" else []
 state = {"pending_prompt": None, "tool": None, "permission_id": None, "requests": 100}
 
 
@@ -108,7 +113,7 @@ def open_session(request_id, method, params):
             return send({"id": request_id, "error": {"code": -32602, "message": "no such directory"}})
         return send({"id": request_id, "result": {
             "sessionId": "acp-1",
-            "configOptions": [{"id": "model", "currentValue": "fake/default"}]}})
+            "configOptions": [{"id": "model", "currentValue": "fake/default"}] + EFFORT}})
     if method == "session/load":
         # A real agent replays the conversation before it answers.
         chunk(params["sessionId"], "replayed history")
