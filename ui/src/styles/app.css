@@ -1237,6 +1237,83 @@ code {
     white-space: nowrap;
 }
 
+/* A mark on a session: a colour an agent or the user gave it, and a few words if it has any. */
+.session-mark {
+    --mark: var(--muted);
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    max-width: 38%;
+    margin-right: var(--space-1);
+    padding: 1px 6px;
+    border: 1px solid color-mix(in srgb, var(--mark) 45%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--mark) 14%, transparent);
+    color: var(--mark);
+    font: inherit;
+    font-size: var(--text-xs);
+    line-height: 1.4;
+}
+
+.session-mark:hover,
+.session-mark:focus-visible {
+    background: color-mix(in srgb, var(--mark) 26%, transparent);
+}
+
+.session-mark-dot {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--mark);
+}
+
+.session-mark-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mark-green {
+    --mark: var(--moss);
+}
+
+.mark-blue {
+    --mark: var(--busy);
+}
+
+.mark-yellow {
+    --mark: var(--pollen);
+}
+
+.mark-red {
+    --mark: var(--clay);
+}
+
+.mark-purple {
+    --mark: color-mix(in srgb, var(--sky) 50%, var(--clay));
+}
+
+/* The user's own buttons on a task: as many lines as they need. */
+.action-bar {
+    min-width: 0;
+    margin-inline: 0;
+    padding: 0;
+    border: 0;
+}
+
+.action-button {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.action-icon-input {
+    max-width: 8ch;
+}
+
 /* A provider's mark: what a session runs on, or whose key or agent a row is about. */
 .provider-mark {
     flex: none;

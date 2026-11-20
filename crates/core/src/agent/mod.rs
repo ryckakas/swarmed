@@ -267,6 +267,14 @@ pub enum AgentEvent {
         /// The new title.
         title: String,
     },
+    /// The session got a mark, or lost the one it had: a colour and a few words that say how
+    /// its work stands. Recorded by the core.
+    Marked {
+        /// The colour; `None` takes the mark off.
+        colour: Option<crate::marks::MarkColour>,
+        /// The words beside it; empty for none.
+        label: String,
+    },
     /// What happened in the session's terminal since the agent's last turn, which the agent was
     /// given along with the user's message. Recorded by the core.
     TerminalShared {

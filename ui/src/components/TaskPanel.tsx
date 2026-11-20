@@ -5,6 +5,7 @@ import { PANEL_WIDTH } from "../resize";
 import { useStore } from "../store";
 import { findSession, findSessionHome } from "../tree";
 import { useWords } from "../useWords";
+import { ActionBar } from "./ActionBar";
 import { Background, runningCount, useBackground } from "./Background";
 import { Changes } from "./Changes";
 import { CloseIcon, IconButton } from "./IconButton";
@@ -136,6 +137,7 @@ function TaskHead({ project, task }: { project: Project; task: Task }) {
                     </button>
                 ))}
             </div>
+            <ActionBar project={project.name} />
             <StackControls project={project.name} task={task} />
             <CompareWith project={project} task={task} />
             <Publish project={project.name} task={task} />

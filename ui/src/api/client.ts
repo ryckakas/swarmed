@@ -1,4 +1,5 @@
 import type {
+    Action,
     AgentEvent,
     AgentInfo,
     AgentSetup,
@@ -12,6 +13,7 @@ import type {
     FileChange,
     FileDiff,
     HookOutput,
+    MarkColour,
     McpServerInput,
     McpServerView,
     Project,
@@ -50,6 +52,12 @@ export interface Api {
     /** Removes a server set up here, with its secrets. Returns the new list. */
     mcpRemove(name: string): Promise<McpServerView[]>;
     /** What Swarmed takes up and uses. Measuring the worktrees can take a few seconds. */
+    /** The actions offered in `project`: those for every repository, then its own. */
+    actions(project: string | null): Promise<Action[]>;
+    /** Keeps an action, in `project`'s own or for every repository; returns what is offered. */
+    actionSave(project: string | null, action: Action): Promise<Action[]>;
+    /** Drops an action; returns what is then offered. */
+    actionRemove(project: string | null, name: string): Promise<Action[]>;
     /** The prompts the user keeps to send again, by name. */
     templates(): Promise<Template[]>;
     /** Keeps a prompt, in place of the one of that name; returns them all. */
@@ -274,6 +282,8 @@ export interface Api {
     statusLine(id: number): Promise<string | null>;
     /** Gives the session a title of the user's choosing. Every front end hears of it as an event. */
     sessionRename(id: number, title: string): Promise<Session>;
+    /** Puts a mark on a session; the colour `none` takes it off. */
+    sessionMark(id: number, colour: MarkColour | "none", label: string): Promise<Session>;
     /** A task's closed sessions, the one closed last first. */
     /** The sessions in which `query` was said, closed ones included. */
     sessionsSearch(query: string): Promise<SearchHit[]>;

@@ -6,6 +6,7 @@ import { keyCaps, LOCAL_HOTKEYS, listedHotkeys } from "../hotkeys";
 import { movedItem, STATUS_ITEM_LABELS, STATUS_ITEMS, withItem } from "../statusline";
 import { SETTINGS_TABS, type SettingsTab, useStore } from "../store";
 import { useWords } from "../useWords";
+import { ActionsSettings } from "./ActionsSettings";
 import { AgentsSettings } from "./AgentsSettings";
 import { ApiKeys } from "./ApiKeys";
 import { CloseIcon, IconButton } from "./IconButton";
@@ -133,6 +134,8 @@ function Panel({ tab, settings }: { tab: SettingsTab; settings: Settings }) {
             return <SkillsSettings />;
         case "prompts":
             return <TemplatesSettings />;
+        case "actions":
+            return <ActionsSettings />;
         case "mcp":
             return <McpSettings />;
         case "keys":

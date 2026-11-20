@@ -60,6 +60,10 @@ export function applySessionEvent(projects: Project[], published: SessionEvent):
     if (event.type === "renamed") {
         return mapSession(projects, id, (session) => ({ ...session, title: event.title }));
     }
+    if (event.type === "marked") {
+        const mark = event.colour === null ? null : { colour: event.colour, label: event.label };
+        return mapSession(projects, id, (session) => ({ ...session, mark }));
+    }
     if (event.type === "supervision_changed") {
         const { supervision } = event;
         return mapSession(projects, id, (session) => ({ ...session, supervision }));
@@ -72,6 +76,8 @@ export function applySessionEvent(projects: Project[], published: SessionEvent):
         ...session,
         unread: unreadAfter(session.unread, published),
         status: status ?? session.status,
+        // Writing to a session starts something new: its mark was about what came before.
+        mark: event.type === "user_message" ? null : session.mark,
         title:
             session.title === "" && firstMessage !== null ? titleFrom(firstMessage) : session.title,
     }));

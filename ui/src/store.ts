@@ -35,6 +35,7 @@ export const SETTINGS_TABS = [
     ["agents", "Agents"],
     ["skills", "Skills"],
     ["prompts", "Prompts"],
+    ["actions", "Actions"],
     ["mcp", "MCP servers"],
     ["keys", "API keys"],
     ["usage", "Storage and activity"],
@@ -88,6 +89,15 @@ interface State {
     /** Whether the terminal is shown in place of the message box. */
     terminalOpen: boolean;
     toggleTerminal(): void;
+    /** A command waiting to be typed into a session's terminal, once that is on screen. */
+    terminalCommand: { sessionId: number; text: string } | null;
+    /** Shows the terminal and has `text` typed into the terminal of `sessionId`. */
+    runInTerminal(sessionId: number, text: string): void;
+    /** Notes that the waiting command was typed. */
+    terminalCommandTyped(): void;
+    /** Goes up whenever the user's actions were changed, so what shows them reads them again. */
+    actionsChanged: number;
+    noteActionsChanged(): void;
     /** Goes up each time the user asks to rename the open session, from wherever. */
     renameAsked: number;
     askToRename(): void;
@@ -308,6 +318,12 @@ export const useStore = create<State>((set, get) => ({
     },
     terminalOpen: false,
     toggleTerminal: () => set((state) => ({ terminalOpen: !state.terminalOpen })),
+    terminalCommand: null,
+    runInTerminal: (sessionId, text) =>
+        set({ terminalOpen: true, terminalCommand: { sessionId, text } }),
+    terminalCommandTyped: () => set({ terminalCommand: null }),
+    actionsChanged: 0,
+    noteActionsChanged: () => set((state) => ({ actionsChanged: state.actionsChanged + 1 })),
     renameAsked: 0,
     askToRename: () => set((state) => ({ renameAsked: state.renameAsked + 1 })),
     settingsOpen: false,

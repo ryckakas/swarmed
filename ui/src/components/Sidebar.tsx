@@ -1,7 +1,7 @@
 import { type KeyboardEvent, useEffect, useState } from "react";
 import { addProject, newSession } from "../actions";
 import { api } from "../api";
-import type { CloudTask, Project, Session, Task } from "../api/types";
+import type { CloudTask, Mark, Project, Session, Task } from "../api/types";
 import { cloudProvider, cloudTitle, cloudTone, cloudTooltip, isUnfinished } from "../cloud";
 import { taskTooltip } from "../environments";
 import { agentName, iconForAgent } from "../providerIcons";
@@ -486,6 +486,7 @@ function SessionRow({ session }: { session: Session }) {
                 <span className="session-title">{title}</span>
                 <ProviderMark icon={iconForAgent(session.agent)} label={agentName(session.agent)} />
             </button>
+            {session.mark && <SessionMark id={session.id} mark={session.mark} />}
             <button
                 type="button"
                 className="row-close"
@@ -496,5 +497,26 @@ function SessionRow({ session }: { session: Session }) {
                 ×
             </button>
         </div>
+    );
+}
+
+/**
+ * The mark on a session: its colour, and its words if it has any. Pressing it takes it off,
+ * for a mark that has said what it had to say.
+ */
+function SessionMark({ id, mark }: { id: number; mark: Mark }) {
+    const report = useStore((state) => state.report);
+    const said = mark.label === "" ? `Marked ${mark.colour}` : mark.label;
+    return (
+        <button
+            type="button"
+            className={`session-mark mark-${mark.colour}`}
+            title={`${said}. Press to take the mark off.`}
+            aria-label={`${said}. Take the mark off.`}
+            onClick={() => api.sessionMark(id, "none", "").catch(report)}
+        >
+            <span className="session-mark-dot" aria-hidden="true" />
+            {mark.label !== "" && <span className="session-mark-label">{mark.label}</span>}
+        </button>
     );
 }

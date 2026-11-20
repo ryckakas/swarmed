@@ -85,6 +85,14 @@ impl Paths {
             .join(format!("{project}.environments.toml"))
     }
 
+    /// The file holding the actions that belong to `project` alone, beside its config.
+    #[must_use]
+    pub fn project_actions(&self, project: &str) -> PathBuf {
+        self.data_dir
+            .join("projects")
+            .join(format!("{project}.actions.toml"))
+    }
+
     /// The directory holding the notes on `project` and on its tasks.
     #[must_use]
     pub fn notes(&self, project: &str) -> PathBuf {

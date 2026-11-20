@@ -78,6 +78,9 @@ export interface Words {
     collapseAll: string;
     /** The button in the commit box that has a message written for the changes. */
     writeMessage: string;
+    /** The row of the user's own buttons on a task, and the menu holding those that do not fit. */
+    actions: string;
+    moreActions: string;
 }
 
 const PLAIN: Words = {
@@ -126,6 +129,8 @@ const PLAIN: Words = {
     expandAll: "Expand all",
     collapseAll: "Collapse all",
     writeMessage: "Generate a commit message",
+    actions: "Actions",
+    moreActions: "More actions…",
 };
 
 const SWARM: Words = {
@@ -176,6 +181,8 @@ const SWARM: Words = {
     expandAll: "Unburrow all",
     collapseAll: "Burrow all",
     writeMessage: "Spin a commit message",
+    actions: "Instincts",
+    moreActions: "More instincts…",
 };
 
 /** The swarm's words, and its names for the tree as well. */

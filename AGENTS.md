@@ -182,6 +182,21 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   holds a view that swings between two heights at the taller one. When the frame stops
   following a view (`holdsBack`), the host tells it so and it may scroll again. Test a change
   here in Safari with "Always show scroll bars": Chromium does not reproduce the loop.
+- **Actions are buttons of the user's own** (`actions.rs`): a name, an optional icon, and either
+  a prompt or a command. Those for every repository are in `actions.toml` in the data
+  directory, a repository's own in `projects/<name>.actions.toml`; its own takes the place of a
+  general one of the same name. The files are meant to be written by hand or by an agent
+  (`save_action` on the tool server, `swarmed action` on the command line), so an entry that is
+  not a usable action is left out instead of failing the lot. The core only keeps them. The UI
+  (`ActionBar`) sends the prompt to the session on screen, or types the command into that
+  session's terminal: a command is run where the user sees it and can answer it, never out of
+  sight. However many there are, the first six are buttons and the rest a menu. Do not add a
+  built-in button for one person's workflow: that is what an action is for.
+- **A mark is a colour and a few words on a session** (`marks.rs`), set by the agent with
+  `set_mark`, by `swarmed session mark`, or taken off by pressing it in the sidebar. It says how
+  the work stands, in the user's terms; the status says what the agent is doing, and the two
+  never mix. It is cleared when the user writes to the session. Colours are names, drawn by
+  each theme, so a mark never carries a colour value.
 - **Swarmed serves one tool of its own to every agent** (`toolserver.rs`): `show_html`, on an
   MCP server named `swarmed`. A front end's executable is that server when started with
   `tool-server`, and tells the core so with `set_tool_server`. The tool does nothing: its call

@@ -17,6 +17,7 @@ use crate::agent::{
 use crate::agents::CLAUDE;
 use crate::error::{Error, Result};
 use crate::fork;
+use crate::marks::{Mark, MarkColour};
 use crate::mcp::{self, McpServer, McpTransport};
 use crate::queue::{self, Queues};
 use crate::secrets::SecretEnv;
@@ -92,6 +93,7 @@ impl SessionStatus {
             AgentEvent::Exited { .. } => Some(Self::Errored),
             AgentEvent::Init { .. }
             | AgentEvent::Renamed { .. }
+            | AgentEvent::Marked { .. }
             | AgentEvent::SupervisionChanged { .. }
             | AgentEvent::Applied { .. }
             | AgentEvent::Suggestion { .. }
@@ -165,6 +167,8 @@ pub struct Session {
     /// Whether the agent is asked for its fast mode: quicker answers at a higher price, where
     /// the agent has such a thing. Off leaves the agent as it is set up.
     pub fast: bool,
+    /// The mark an agent or the user put on it, if any.
+    pub mark: Option<Mark>,
 }
 
 /// What can be changed about a session after it was created.
@@ -197,7 +201,7 @@ pub struct SessionOptions {
     pub fast: bool,
 }
 
-const SESSION_SELECT: &str = "SELECT id, task_id, title, agent_session_id, model, supervision, status, agent, effort, unread, spawned_by, fast \
+const SESSION_SELECT: &str = "SELECT id, task_id, title, agent_session_id, model, supervision, status, agent, effort, unread, spawned_by, fast, mark_colour, mark_label \
      FROM sessions";
 
 fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
@@ -216,6 +220,16 @@ fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
         unread: row.get(9)?,
         spawned_by: row.get(10)?,
         fast: row.get(11)?,
+        mark: row
+            .get::<_, Option<String>>(12)?
+            .and_then(|colour| MarkColour::parse(&colour))
+            .map(|colour| -> rusqlite::Result<Mark> {
+                Ok(Mark {
+                    colour,
+                    label: row.get(13)?,
+                })
+            })
+            .transpose()?,
     })
 }
 
@@ -249,6 +263,7 @@ impl Store {
             unread: false,
             spawned_by: None,
             fast: options.fast,
+            mark: None,
         })
     }
 
@@ -430,9 +445,11 @@ impl Store {
                 "UPDATE sessions SET agent_session_id = ?2 WHERE id = ?1",
                 params![session_id, agent_session_id],
             )?,
-            // Whoever writes to a session has seen where it stood.
+            // Whoever writes to a session has seen where it stood, and starts something new:
+            // a mark was about what came before.
             AgentEvent::UserMessage { text } => self.conn.execute(
-                "UPDATE sessions SET unread = 0, title = CASE WHEN title = '' THEN ?2 ELSE title END \
+                "UPDATE sessions SET unread = 0, mark_colour = NULL, mark_label = '', \
+                 title = CASE WHEN title = '' THEN ?2 ELSE title END \
                  WHERE id = ?1",
                 params![session_id, title_from(text)],
             )?,
@@ -491,6 +508,19 @@ impl Store {
     fn session_mark_read(&self, id: i64) -> Result<()> {
         self.conn
             .execute("UPDATE sessions SET unread = 0 WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    /// Puts `mark` on a session, or takes its mark off.
+    pub(crate) fn session_set_mark(&self, id: i64, mark: Option<&Mark>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions SET mark_colour = ?2, mark_label = ?3 WHERE id = ?1",
+            params![
+                id,
+                mark.map(|mark| mark.colour.as_str()),
+                mark.map_or("", |mark| mark.label.as_str())
+            ],
+        )?;
         Ok(())
     }
 }

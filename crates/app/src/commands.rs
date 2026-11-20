@@ -11,11 +11,11 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
-    AgentInfo, AgentSetup, ApiKeyInfo, BackgroundTask, BranchChoices, CloudOrigin, CloudProvider,
-    CloudTask, Core, Costs, Environment, FileChange, FileDiff, McpServerInput, McpServerView,
-    NewTaskOptions, Project, ProjectOverview, Pull, PullDraft, QueuedMessage, RemoveOptions,
-    SearchHit, Session, SessionOptions, SessionSettings, Settings, Skill, Snapshot, Task,
-    TaskNaming, Template, TurnStats, Unpublished, Usage, with_files,
+    Action, AgentInfo, AgentSetup, ApiKeyInfo, BackgroundTask, BranchChoices, CloudOrigin,
+    CloudProvider, CloudTask, Core, Costs, Environment, FileChange, FileDiff, Mark, McpServerInput,
+    McpServerView, NewTaskOptions, Project, ProjectOverview, Pull, PullDraft, QueuedMessage,
+    RemoveOptions, SearchHit, Session, SessionOptions, SessionSettings, Settings, Skill, Snapshot,
+    Task, TaskNaming, Template, TurnStats, Unpublished, Usage, with_files,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -330,6 +330,44 @@ pub(crate) fn template_save(
 #[tauri::command]
 pub(crate) fn template_remove(core: CoreState<'_>, name: String) -> Command<Vec<Template>> {
     Ok(core.template_remove(&name)?)
+}
+
+/// The buttons of the user's own that `project` offers, or those for every repository.
+#[tauri::command]
+pub(crate) fn actions(core: CoreState<'_>, project: Option<String>) -> Command<Vec<Action>> {
+    Ok(core.actions(project.as_deref())?)
+}
+
+/// Keeps an action, in place of the one of that name: `project`'s own, or one for every
+/// repository.
+#[tauri::command]
+pub(crate) fn action_save(
+    core: CoreState<'_>,
+    project: Option<String>,
+    action: Action,
+) -> Command<Vec<Action>> {
+    Ok(core.action_save(project.as_deref(), &action)?)
+}
+
+/// Drops an action.
+#[tauri::command]
+pub(crate) fn action_remove(
+    core: CoreState<'_>,
+    project: Option<String>,
+    name: String,
+) -> Command<Vec<Action>> {
+    Ok(core.action_remove(project.as_deref(), &name)?)
+}
+
+/// Puts a mark on a session, or takes it off when `colour` is `none`.
+#[tauri::command]
+pub(crate) fn session_mark(
+    core: CoreState<'_>,
+    id: i64,
+    colour: String,
+    label: String,
+) -> Command<Session> {
+    Ok(core.session_mark(id, Mark::named(&colour, &label)?)?)
 }
 
 /// Adds a skill of Swarmed's own, or replaces the one of that name.

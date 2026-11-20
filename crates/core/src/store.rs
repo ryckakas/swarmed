@@ -163,6 +163,10 @@ const MIGRATIONS: &[&str] = &[
     "
     ALTER TABLE sessions ADD COLUMN fast INTEGER NOT NULL DEFAULT 0;
 ",
+    "
+    ALTER TABLE sessions ADD COLUMN mark_colour TEXT;
+    ALTER TABLE sessions ADD COLUMN mark_label TEXT NOT NULL DEFAULT '';
+",
 ];
 
 const TASK_SELECT: &str = "SELECT id, project_id, name, branch, base_ref, worktree_path, slot, \

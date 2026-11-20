@@ -3,6 +3,7 @@
 //! Every front end (the CLI, the desktop app) drives this crate and nothing else. It has no
 //! UI dependency.
 
+mod actions;
 pub mod agent;
 mod agent_models;
 mod agent_setup;
@@ -21,6 +22,7 @@ mod error;
 mod fork;
 mod git;
 pub mod hooks;
+mod marks;
 pub mod mcp;
 mod mcp_codex;
 mod mcp_opencode;
@@ -57,6 +59,7 @@ mod views;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
 
+pub use actions::Action;
 use agent::{AgentBackend, ClaudeNamer, Namer};
 pub use agent_setup::{AgentSetup, openrouter_models};
 use agents::Agents;
@@ -73,6 +76,7 @@ pub use costs::{Costs, DayCost, TaskCost};
 pub use environments::Environment;
 pub use error::{Error, Result};
 pub use hooks::OutputSink;
+pub use marks::{MAX_MARK_LABEL_CHARS, Mark, MarkColour};
 pub use mcp_own::{McpServerInput, McpServerView};
 pub use naming::TaskNaming;
 pub use notices::Notice;

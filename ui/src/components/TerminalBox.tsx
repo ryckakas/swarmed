@@ -1,7 +1,7 @@
 import "@xterm/xterm/css/xterm.css";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
-import { useEffect, useRef } from "react";
+import { type RefObject, useEffect, useRef } from "react";
 import { api } from "../api";
 import { useStore } from "../store";
 
@@ -20,6 +20,21 @@ function theme(element: HTMLElement) {
     };
 }
 
+/** Types a command an action asked for, as if the user had, once the shell is up. */
+function useTypedCommand(sessionId: number, opened: RefObject<Promise<unknown>>) {
+    const command = useStore((state) => state.terminalCommand);
+    useEffect(() => {
+        if (command === null || command.sessionId !== sessionId) {
+            return;
+        }
+        const { report, terminalCommandTyped } = useStore.getState();
+        terminalCommandTyped();
+        void opened.current
+            .then(() => api.terminalWrite(sessionId, `${command.text}\n`))
+            .catch(report);
+    }, [command, sessionId, opened]);
+}
+
 /**
  * A terminal in the task's worktree, in the place of the message box. The shell belongs to the
  * session and keeps running while this is off screen; coming back redraws what it printed.
@@ -27,6 +42,9 @@ function theme(element: HTMLElement) {
 export function TerminalBox({ sessionId }: { sessionId: number }) {
     const holder = useRef<HTMLDivElement>(null);
     const settings = useStore((state) => state.settings);
+    // Settles once the shell is there to be typed into.
+    const opened = useRef<Promise<unknown>>(Promise.resolve());
+    useTypedCommand(sessionId, opened);
 
     // biome-ignore lint/correctness/useExhaustiveDependencies: rebuilt when the theme or text size changes
     useEffect(() => {
@@ -60,7 +78,8 @@ export function TerminalBox({ sessionId }: { sessionId: number }) {
                 terminal.write(output.data);
             }
         });
-        api.terminalOpen(sessionId, terminal.cols, terminal.rows)
+        opened.current = api
+            .terminalOpen(sessionId, terminal.cols, terminal.rows)
             .then((replay) => {
                 // A replay already holds whatever arrived early; a fresh shell has only that.
                 terminal.write(replay === "" ? (early ?? []).join("") : replay);
