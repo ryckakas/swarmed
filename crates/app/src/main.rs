@@ -54,18 +54,27 @@ fn open_core() -> swarmed_core::Result<Core> {
     Ok(core)
 }
 
+/// Whether the user has `window` in front of them. A window put away in the Dock or hidden
+/// can still count as the focused one, as long as no other window of Swarmed took its place.
+fn is_looked_at<R: Runtime>(window: &tauri::WebviewWindow<R>) -> bool {
+    let focused = window.is_focused().unwrap_or(false);
+    let put_away = window.is_minimized().unwrap_or(false);
+    let shown = window.is_visible().unwrap_or(true);
+    focused && shown && !put_away
+}
+
 /// Tells the user, through the system, about an event worth it, unless they are looking at
 /// Swarmed already. A notification that cannot be shown is not an error: the app shows the same.
 fn notify<R: Runtime>(app: &AppHandle<R>, core: &Core, event: &SessionEvent) {
-    let looking = app
-        .get_webview_window(MAIN_WINDOW)
-        .is_some_and(|window| window.is_focused().unwrap_or(false));
-    if looking {
-        return;
-    }
     let Ok(Some(notice)) = core.notice_for(event) else {
         return;
     };
+    let window = app.get_webview_window(MAIN_WINDOW);
+    let looking = window.as_ref().is_some_and(is_looked_at);
+    notify::trace(&format!("{}: looking={looking}", notice.title));
+    if looking {
+        return;
+    }
     let app = app.clone();
     notify::show(
         &notice,
@@ -75,12 +84,24 @@ fn notify<R: Runtime>(app: &AppHandle<R>, core: &Core, event: &SessionEvent) {
 
 /// Brings Swarmed to the front on the session a notification was about.
 fn open_session<R: Runtime>(app: &AppHandle<R>, session: i64) {
+    bring_forward(app);
+    app.emit(NOTICE_OPENED, session).ok();
+}
+
+/// Shows Swarmed's window again, wherever it was put: hidden, or in the Dock.
+fn bring_forward<R: Runtime>(app: &AppHandle<R>) {
     if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
         window.unminimize().ok();
         window.show().ok();
         window.set_focus().ok();
     }
-    app.emit(NOTICE_OPENED, session).ok();
+}
+
+/// Hides Swarmed's window without ending anything.
+fn put_away<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+        window.hide().ok();
+    }
 }
 
 /// Passes every session event on to the UI until the core goes away, and notifies the user of
@@ -245,6 +266,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::sessions_closed,
         commands::session_reopen,
         commands::session_fork,
+        commands::session_set_agent,
     ])
 }
 
@@ -263,8 +285,11 @@ fn main() {
     if !tauri::is_dev() {
         swarmed_core::learn_shell_path();
     }
-    let core =
-        Arc::new(open_core().unwrap_or_else(|e| panic!("could not open Swarmed's data: {e}")));
+    let core = open_core().unwrap_or_else(|e| panic!("could not open Swarmed's data: {e}"));
+    // No agent runs yet: a session that still counts as busy was left so by a Swarmed that
+    // ended in the middle of its turn, and would never be anything else.
+    core.sessions_settle().ok();
+    let core = Arc::new(core);
     let listening = Arc::clone(&core);
     let leaving = Arc::clone(&core);
     let noticing = Arc::clone(&core);
@@ -282,7 +307,7 @@ fn main() {
             // other sessions. If it cannot listen, those tools say so; nothing else depends on it.
             drop(tauri::async_runtime::spawn(serve_session_tools(listening)));
             // Asked once, by the system; from then on its settings hold the answer.
-            drop(tauri::async_runtime::spawn(notify::ask_permission()));
+            notify::ask_permission();
             drop(tauri::async_runtime::spawn(forward_terminals(
                 terminals,
                 app.handle().clone(),
@@ -291,12 +316,22 @@ fn main() {
         })
         .build(tauri::generate_context!())
         .unwrap_or_else(|e| panic!("could not start Swarmed: {e}"))
-        .run(move |_app, event| {
+        .run(move |app, event| match event {
             // What the tasks' `start` commands left running goes with Swarmed: nothing it
             // started is to carry on unseen.
-            if matches!(event, tauri::RunEvent::Exit) {
-                tauri::async_runtime::block_on(leaving.stacks_stop_all());
+            tauri::RunEvent::Exit => tauri::async_runtime::block_on(leaving.stacks_stop_all()),
+            // Closing the window puts Swarmed away, as it does for most apps on a Mac: the
+            // sessions carry on and tell the user when they need them. Quitting is ⌘Q.
+            tauri::RunEvent::WindowEvent {
+                event: tauri::WindowEvent::CloseRequested { api, .. },
+                ..
+            } if cfg!(target_os = "macos") => {
+                api.prevent_close();
+                put_away(app);
             }
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => bring_forward(app),
+            _ => {}
         });
 }
 

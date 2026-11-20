@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import type { Session } from "../api/types";
+import type { AgentEvent, Session } from "../api/types";
 import { expandPastes, forgetPastes } from "../pastes";
 import { appliedEffort } from "../statusline";
 import { useStore } from "../store";
@@ -130,10 +130,26 @@ export function Composer({ session }: { session: Session }) {
     );
 }
 
+/**
+ * Whether a session has talked to its agent, or is about to: the agent then holds the
+ * conversation, and the session stays on it. A fork has not, though it shows a conversation.
+ */
+function hasBegun(session: Session, events: AgentEvent[] | undefined): boolean {
+    const started = session.agent_session_id !== null || session.status !== "idle";
+    const forked = events?.findLastIndex((event) => event.type === "forked") ?? -1;
+    const said = events?.slice(forked + 1).some((event) => event.type === "user_message");
+    return started || Boolean(said);
+}
+
 /** The session's supervision, model and effort, changeable at any time, also while the agent works. */
 function SessionPickers({ session }: { session: Session }) {
     const configure = useStore((state) => state.configure);
-    const agent = useAgents().find((candidate) => candidate.id === session.agent);
+    const setAgent = useStore((state) => state.setAgent);
+    const agents = useAgents();
+    const agent = agents.find((candidate) => candidate.id === session.agent);
+    // Until the first message reaches an agent, which agent that is can still be chosen.
+    const begun = useStore((state) => hasBegun(session, state.events[session.id]));
+    const choosable = !begun && agents.length > 1;
     const { id, model, supervision, effort, fast } = session;
     // What the agent last said its effort comes to, for when none was chosen.
     const said = useStore((state) => appliedEffort(state.events[id]));
@@ -148,7 +164,15 @@ function SessionPickers({ session }: { session: Session }) {
                 agentId={session.agent}
                 onChange={(value) => void configure(api, id, { ...current, supervision: value })}
             />
-            {session.agent !== CLAUDE && (
+            {choosable && (
+                <Picker
+                    label="Agent"
+                    value={session.agent}
+                    onChange={(value) => void setAgent(api, id, value)}
+                    options={agents.map((candidate) => [candidate.id, candidate.name])}
+                />
+            )}
+            {!choosable && session.agent !== CLAUDE && (
                 <span className="option-label">{agent?.name ?? session.agent}</span>
             )}
             <Picker

@@ -756,6 +756,12 @@ pub(crate) fn slash_commands(core: CoreState<'_>, id: Option<i64>) -> Command<Ve
     Ok(core.slash_commands(id)?)
 }
 
+/// Puts a session that has not begun on another agent.
+#[tauri::command]
+pub(crate) fn session_set_agent(core: CoreState<'_>, id: i64, agent: String) -> Command<Session> {
+    Ok(core.session_set_agent(id, &agent)?)
+}
+
 #[tauri::command]
 pub(crate) fn session_configure(core: CoreState<'_>, id: i64, how: Running) -> Command<Session> {
     let settings = SessionSettings {

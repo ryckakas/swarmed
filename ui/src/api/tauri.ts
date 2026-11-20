@@ -139,6 +139,7 @@ export const tauriApi: Api = {
     taskBackground: (project, name) => invoke("task_background", { project, name }),
     sessionStopBackground: (id, taskId) => invoke("session_stop_background", { id, taskId }),
     slashCommands: (id) => invoke<string[]>("slash_commands", { id }),
+    sessionSetAgent: (id, agent) => invoke<Session>("session_set_agent", { id, agent }),
     sessionConfigure: (id, settings) => invoke<Session>("session_configure", { id, how: settings }),
     viewUrl: async (document) => {
         const id = await invoke<string>("view_put", { document });

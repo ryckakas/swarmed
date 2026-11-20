@@ -5,7 +5,9 @@ mod common;
 use common::{core_with_project, fixture, next, turn};
 use std::sync::Arc;
 
-use swarmed_core::agent::{AgentEvent, Auth, Effort, Namer, Naming, PLAN_TOOL, Supervision};
+use swarmed_core::agent::{
+    AgentEvent, Auth, Effort, FakeBackend, Namer, Naming, PLAN_TOOL, Supervision,
+};
 use swarmed_core::{
     Core, Error, NewTaskOptions, Session, SessionEvent, SessionOptions, SessionSettings,
     SessionStatus, Settings, TerminalOutput, hooks,
@@ -921,6 +923,61 @@ async fn a_stopped_turn_leaves_the_queue_for_the_user_to_send() {
         Err(Error::SessionNotRunning(_))
     ));
     assert_eq!(core.session_queue(session.id).expect("reads").len(), 1);
+}
+
+#[tokio::test]
+async fn a_session_left_busy_by_a_swarmed_that_ended_can_be_stopped_and_is_settled_at_start() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+    core.session_send(session.id, "slow").expect("sends");
+    while core.session(session.id).expect("exists").status != SessionStatus::Working {
+        next(&mut bus).await;
+    }
+    // That Swarmed ends in the middle of the turn: nothing gets to say the turn is over.
+    drop(core);
+
+    let later =
+        Core::with_backend(fx.paths.clone(), Arc::new(FakeBackend::default())).expect("opens");
+    let status = |core: &Core| core.session(session.id).expect("exists").status;
+    assert_eq!(status(&later), SessionStatus::Working);
+    // Stopping it puts it right, with a turn recorded as stopped, instead of refusing.
+    later.session_interrupt(session.id).expect("stops");
+    assert_eq!(status(&later), SessionStatus::Idle);
+    let events = later.session_events(session.id).expect("reads");
+    let last = events.last().expect("recorded");
+    assert!(
+        matches!(last, AgentEvent::TurnDone { is_error: true, .. }),
+        "{last:?}"
+    );
+    // An idle session that is not running still has nothing to stop.
+    assert!(matches!(
+        later.session_interrupt(session.id),
+        Err(Error::SessionNotRunning(_))
+    ));
+
+    // And a front end that starts settles whatever is left busy, all at once.
+    let other = later
+        .session_new("demo", "one", &SessionOptions::default())
+        .expect("creates");
+    later
+        .session_start(other.id, Auth::Subscription)
+        .expect("starts");
+    later.session_send(other.id, "slow").expect("sends");
+    let mut bus = later.subscribe();
+    while status_of(&later, other.id) != SessionStatus::Working {
+        next(&mut bus).await;
+    }
+    drop(later);
+    let fresh =
+        Core::with_backend(fx.paths.clone(), Arc::new(FakeBackend::default())).expect("opens");
+    assert_eq!(fresh.sessions_settle().expect("settles"), 1);
+    assert_eq!(status_of(&fresh, other.id), SessionStatus::Idle);
+}
+
+fn status_of(core: &Core, id: i64) -> SessionStatus {
+    core.session(id).expect("exists").status
 }
 
 #[tokio::test]

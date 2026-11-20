@@ -528,6 +528,45 @@ async fn an_agent_at_work_by_itself_can_be_stopped() {
 }
 
 #[tokio::test]
+async fn a_session_can_change_its_agent_until_it_has_begun() {
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    // Started the way the sidebar starts one: on Claude Code, with a model of its own.
+    let options = SessionOptions {
+        model: Some("opus".into()),
+        ..Default::default()
+    };
+    let id = core
+        .session_new("demo", "one", &options)
+        .expect("creates")
+        .id;
+    let moved = core.session_set_agent(id, AGENT).expect("changes");
+    // The model was the other agent's: this one starts on its default.
+    assert_eq!((moved.agent.as_str(), moved.model), (AGENT, None));
+    assert!(matches!(
+        core.session_set_agent(id, "nope"),
+        Err(Error::AgentNotFound(_))
+    ));
+
+    core.session_start(id, Auth::Subscription).expect("starts");
+    core.session_send(id, "hi").expect("sends");
+    let events = turn(&mut bus, id).await;
+    assert!(events.contains(&text("echo: hi")), "{events:?}");
+    // Now the scripted agent holds the conversation.
+    assert!(matches!(
+        core.session_set_agent(id, "claude"),
+        Err(Error::SessionBegun(_))
+    ));
+    core.session_stop(id);
+    while !matches!(next(&mut bus).await.event, AgentEvent::Exited { .. }) {}
+    assert!(matches!(
+        core.session_set_agent(id, "claude"),
+        Err(Error::SessionBegun(_))
+    ));
+}
+
+#[tokio::test]
 async fn a_session_can_name_its_model_and_only_a_configured_agent() {
     let fx = fixture();
     let core = core_with(&fx, scripted_agent(&[])).await;

@@ -27,6 +27,11 @@ tokio = { workspace = true, features = ["sync"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 mac-notification-sys = { workspace = true }
 mac-usernotifications = { workspace = true }
+# For asking the notification centre for the badge on the icon too, which the wrapper leaves out.
+block2 = { workspace = true }
+objc2 = { workspace = true }
+objc2-foundation = { workspace = true }
+objc2-user-notifications = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

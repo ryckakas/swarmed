@@ -1473,7 +1473,7 @@ code {
 
 .mark-working {
     border-radius: 50%;
-    background: var(--moss);
+    background: var(--busy);
     animation: working 1.6s ease-in-out infinite;
 }
 
@@ -1544,7 +1544,7 @@ code {
 }
 
 .larva-working {
-    color: var(--moss);
+    color: var(--busy);
 }
 
 /* A wave from tail to head, one segment after the other, the pincers last. */
@@ -1866,7 +1866,7 @@ code {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    color: var(--moss);
+    color: var(--busy);
     font-size: var(--text-sm);
 }
 

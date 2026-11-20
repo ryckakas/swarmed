@@ -300,12 +300,31 @@ impl Store {
         Ok(())
     }
 
+    /// Puts a session on another agent. Its model and fast mode were that agent's own, so
+    /// they go back to the default.
+    fn session_set_agent(&self, id: i64, agent: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions SET agent = ?2, model = NULL, fast = 0 WHERE id = ?1",
+            params![id, agent],
+        )?;
+        Ok(())
+    }
+
     fn session_rename(&self, id: i64, title: &str) -> Result<()> {
         self.conn.execute(
             "UPDATE sessions SET title = ?2 WHERE id = ?1",
             params![id, title],
         )?;
         Ok(())
+    }
+
+    /// Puts every session that counts as busy back to idle, and says how many there were.
+    fn sessions_settle(&self) -> Result<usize> {
+        let settled = self.conn.execute(
+            "UPDATE sessions SET status = 'idle' WHERE status IN ('working', 'waiting')",
+            params![],
+        )?;
+        Ok(settled)
     }
 
     fn session_close(&self, id: i64) -> Result<()> {
@@ -523,6 +542,10 @@ fn without_pastes(message: &str) -> String {
     }
     typed.push_str(rest);
     typed
+}
+
+fn is_busy_status(status: SessionStatus) -> bool {
+    matches!(status, SessionStatus::Working | SessionStatus::Waiting)
 }
 
 /// A namer's answer as a session title.
@@ -859,9 +882,53 @@ impl Core {
         self.session_configure(id, &settings).map(drop)
     }
 
+    /// Puts a session that has not begun on another agent, with that agent's default model.
+    ///
+    /// Only before the first message reaches an agent: from then on the agent holds the
+    /// conversation, and another would not know what was said. A fork has not begun either,
+    /// since what it starts from is handed to its agent as text.
+    pub fn session_set_agent(&self, id: i64, agent: &str) -> Result<Session> {
+        let session = self.session(id)?;
+        if session.agent == agent {
+            return Ok(session);
+        }
+        self.agents_now().backend(agent)?;
+        let running = self.live.sender(id).is_ok();
+        if running || session.agent_session_id.is_some() {
+            return Err(Error::SessionBegun(id));
+        }
+        self.store().session_set_agent(id, agent)?;
+        self.session(id)
+    }
+
     /// Stops the current turn. The session stays running.
+    ///
+    /// A session that counts as busy though no agent runs for it, which a Swarmed that ended
+    /// in the middle of a turn leaves behind, is put right instead: its turn is recorded as
+    /// stopped.
     pub fn session_interrupt(&self, id: i64) -> Result<()> {
-        self.live.command(id, AgentCommand::Interrupt)
+        let stopped = self.live.command(id, AgentCommand::Interrupt);
+        let left_busy = || {
+            self.session(id)
+                .is_ok_and(|session| is_busy_status(session.status))
+        };
+        if stopped.is_ok() || !left_busy() {
+            return stopped;
+        }
+        let ended = AgentEvent::TurnDone {
+            is_error: true,
+            result: Some("the agent was no longer running".to_string()),
+            cost_usd: None,
+            duration_ms: None,
+        };
+        self.live.note(&self.store, id, ended)
+    }
+
+    /// Puts the sessions that count as busy back to idle: for a front end that has just
+    /// started, when no agent runs yet and whatever says otherwise is left from a Swarmed that
+    /// ended in the middle of a turn. Says how many there were.
+    pub fn sessions_settle(&self) -> Result<usize> {
+        self.store().sessions_settle()
     }
 
     /// Stops a session's agent. Its history stays, and [`Core::session_start`] continues it.

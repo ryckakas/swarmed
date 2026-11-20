@@ -36,6 +36,8 @@
     --pollen: #e9b93a;
     --pollen-wash: rgb(233 185 58 / 0.12);
     --moss: #7fb58a;
+    /* Work going on: not yet good or bad, so neither green nor red. */
+    --busy: #6cc4ff;
     --clay: #e07d6c;
     --focus: #8fb4ff;
 
@@ -45,8 +47,8 @@
      * and types, bright for what the prose stresses.
      */
     --sky: #8fb4ff;
-    /* An answer nobody has looked at yet: the accent, unless a palette's accent reads as trouble. */
-    --fresh: var(--sky);
+    /* An answer nobody has looked at yet: done, and so the green of what went well. */
+    --fresh: var(--moss);
     --lilac: #c4a7e7;
     --teal: #7fc8c2;
     --sand: #e3c08a;
@@ -68,6 +70,8 @@
         --pollen: #8a5d00;
         --pollen-wash: rgb(214 158 20 / 0.18);
         --moss: #2c7443;
+        /* Work going on: not yet good or bad, so neither green nor red. */
+        --busy: #1668b5;
         --clay: #b03c2a;
         --focus: #1f5fd1;
 
@@ -93,6 +97,8 @@
     --pollen: #8a5d00;
     --pollen-wash: rgb(214 158 20 / 0.18);
     --moss: #2c7443;
+    /* Work going on: not yet good or bad, so neither green nor red. */
+    --busy: #1668b5;
     --clay: #b03c2a;
     --focus: #1f5fd1;
 

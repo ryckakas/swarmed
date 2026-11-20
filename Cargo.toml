@@ -18,6 +18,10 @@ swarmed-core = { path = "crates/core", version = "0.0.1" }
 anyhow = "1.0.104"
 mac-notification-sys = "0.6.15"
 mac-usernotifications = "0.3.1"
+block2 = "0.6.2"
+objc2 = "0.6.5"
+objc2-foundation = "0.3.2"
+objc2-user-notifications = { version = "0.3.2", features = ["UNUserNotificationCenter"] }
 clap = { version = "4.6.8", features = ["derive"] }
 pty-process = { version = "0.5.4", features = ["async"] }
 rusqlite = { version = "0.43.0", features = ["bundled"] }

@@ -976,6 +976,8 @@ class MockAgent {
 
     newSession(taskId: number): Session {
         const created = session(this.nextId++, taskId, "", "idle");
+        // Nothing has been said to an agent yet, so which one it is can still be chosen.
+        created.agent_session_id = null;
         this.events.set(created.id, []);
         return created;
     }
@@ -1443,6 +1445,8 @@ export function createMockApi(): Api {
             "tdd",
         ],
         sessionConfigure: async (id, settings) => agent.configure(id, settings),
+        sessionSetAgent: async (id, to) =>
+            agent.configure(id, { agent: to, model: null, fast: false }),
         // A browser has no custom scheme; a blob address is enough to see the view.
         viewUrl: async (document) =>
             URL.createObjectURL(new Blob([document], { type: "text/html" })),

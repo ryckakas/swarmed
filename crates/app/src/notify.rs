@@ -16,7 +16,11 @@ pub(crate) type OnOpen = Box<dyn FnOnce(i64) + Send>;
 mod mac {
     use std::time::Duration;
 
-    use mac_usernotifications::{Notification, check_bundle, request_auth};
+    use block2::RcBlock;
+    use mac_usernotifications::{Notification, check_bundle};
+    use objc2::runtime::Bool;
+    use objc2_foundation::NSError;
+    use objc2_user_notifications::{UNAuthorizationOptions, UNUserNotificationCenter};
     use swarmed_core::Notice;
 
     use super::OnOpen;
@@ -37,10 +41,20 @@ mod mac {
 
     /// Asks the user, the first time, whether Swarmed may show notifications. Whatever they
     /// say is theirs to change in the system's settings; a refusal only means no banners.
-    pub(crate) async fn ask_permission() {
-        if has_identity() {
-            request_auth().await.ok();
+    ///
+    /// The count on the icon is asked for along with banners and sounds: an app the
+    /// notification centre knows is only allowed a badge if it asked for one.
+    pub(crate) fn ask_permission() {
+        if !has_identity() {
+            return;
         }
+        let wanted = UNAuthorizationOptions::Alert
+            | UNAuthorizationOptions::Sound
+            | UNAuthorizationOptions::Badge;
+        // The answer is the system's to keep: every notice finds out for itself.
+        let heard = RcBlock::new(|_granted: Bool, _error: *mut NSError| {});
+        UNUserNotificationCenter::currentNotificationCenter()
+            .requestAuthorizationWithOptions_completionHandler(wanted, &heard);
     }
 
     /// Shows `notice` as Swarmed's own and waits to hear whether it was clicked.
@@ -52,7 +66,9 @@ mod mac {
             // The notices of one session are kept together in the notification centre.
             .thread_id(format!("session-{}", notice.session_id))
             .timeout(KEPT);
-        let Ok(shown) = notification.send().await else {
+        let sent = notification.send().await;
+        super::trace(&format!("{}: sent={}", notice.title, sent.is_ok()));
+        let Ok(shown) = sent else {
             return;
         };
         if shown
@@ -85,15 +101,36 @@ mod mac {
     }
 }
 
+/// The variable that names a file to note in what became of each notice. For finding out why
+/// one did not appear: nobody can look into the notification centre from outside.
+const TRACE_VARIABLE: &str = "SWARMED_NOTIFY_TRACE";
+
+/// Notes `line` in the file `SWARMED_NOTIFY_TRACE` names, if it names one. A notice's title
+/// is the session's title and what happened, never what a tool was given.
+pub(crate) fn trace(line: &str) {
+    use std::io::Write;
+
+    let Some(path) = std::env::var_os(TRACE_VARIABLE) else {
+        return;
+    };
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path);
+    if let Ok(mut file) = file {
+        writeln!(file, "{line}").ok();
+    }
+}
+
 /// Asks the user, the first time, whether Swarmed may show notifications.
 #[cfg(target_os = "macos")]
-pub(crate) async fn ask_permission() {
-    mac::ask_permission().await;
+pub(crate) fn ask_permission() {
+    mac::ask_permission();
 }
 
 /// Asks nothing: this system's notifications are not known here.
 #[cfg(not(target_os = "macos"))]
-pub(crate) async fn ask_permission() {}
+pub(crate) fn ask_permission() {}
 
 /// Shows `notice` and returns at once. `on_open` is called if the user clicks it, which only
 /// an installed Swarmed gets to hear of. A notification that cannot be shown is not an error:
@@ -115,6 +152,7 @@ pub(crate) async fn check() -> String {
     if !mac::has_identity() {
         return "not a bundle: run the built Swarmed.app, not a development build".to_string();
     }
+    mac::ask_permission();
     let allowed = request_auth().await;
     let settings = get_notification_settings().await;
     let sent = Notification::new()

@@ -208,6 +208,12 @@ fn the_ui_can_deny_interrupt_stop_and_remove() {
     );
     let id = &session["id"];
     assert_eq!(session["supervision"], "auto");
+    // Before anything is said the agent can still be chosen; one that is not set up cannot.
+    let same = app.ok("session_set_agent", json!({ "id": id, "agent": "claude" }));
+    assert_eq!(same["agent"], "claude");
+    let unknown = json!({ "id": id, "agent": "nope" });
+    app.invoke("session_set_agent", unknown)
+        .expect_err("not an agent");
 
     app.ok("session_send", json!({ "id": id, "text": "run: rm -rf /" }));
     let request = app.wait_for_event(id, "permission_request");

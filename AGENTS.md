@@ -30,6 +30,9 @@ pnpm test                                           # Vitest
 pnpm build                                          # type check, then the UI into ui/dist
 pnpm dev                                            # the UI alone in a browser, on sample data
 pnpm app                                            # the desktop app (tauri dev)
+pnpm app:build                                      # Swarmed.app, in target/release/bundle/macos
+pnpm app:install                                    # the same, copied into /Applications
+pnpm app:dmg                                        # a disk image of it, for handing on
 ```
 
 The Rust app crate embeds `ui/dist` at compile time, so `cargo clippy` and `cargo test` on the
@@ -78,6 +81,13 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   something it left running ends. `acp.rs` treats that as a turn of the agent's own: it ends
   when the agent has said something and reports its usage, or has been silent for `QUIET`,
   and a stop from the user ends it at once, since the agent has nothing to answer one with.
+- **A stack is also remembered on disk** (`run/stacks/<task>.pid`: its leading process and
+  when that started). A Swarmed that ended without stopping its stacks finds them again, counts
+  them as running and can stop them. Stopping asks the stack's process group, waits, then
+  ends whatever was started from it and is still there: services often sit in groups of their
+  own, where a signal to the stack's group does not reach them.
+- **A session left busy by a Swarmed that ended mid-turn** is put right: the app settles all
+  of them when it starts (`sessions_settle`), and Stop on one records its turn as stopped.
 - **Whatever Swarmed starts gets the `PATH` of the user's shell** (`shellenv.rs`). An app
   started from the Dock has only the system's, so the installed app asks the shell once, before
   the core opens; hooks, stacks, the status command and agents are then given it.
@@ -183,6 +193,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   in its parent's task with its settings, cannot spawn itself, and a session can have
   `MAX_SPAWNED` open. The tools are not on the allow list: in ask mode the user is asked.
   A session can close only sessions it started, and only idle ones (`peer_close`).
+- **A session's agent can be changed until it has begun** (`session_set_agent`): before its
+  first message reaches an agent, which from then on holds the conversation. The model goes
+  back to the new agent's default. The UI offers the agent menu for exactly that long.
 - **A fork is a new session that starts with a copy of what was said** (`fork.rs`): the user's
   messages, the replies and the views, up to a chosen event, then a `Forked` event. No agent can
   be handed another's memory, so the fork's agent is given that conversation as text with the
@@ -233,6 +246,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   session (`notice-opened`). A development build falls back on showing them as the Terminal's,
   which newer systems may not show. `Swarmed.app --args notify-check`, started with `open`,
   says what the system allows and sends one banner.
+- **Whether the user is looking** is asked of the window: focused, shown and not in the Dock.
+  A window put away can still hold the focus. Closing the window hides Swarmed, on a Mac;
+  ⌘Q quits it. The count on the icon needs the notification centre's leave too, which the
+  bundle asks for with the rest. `SWARMED_NOTIFY_TRACE=<file>` notes what became of each notice.
 - **Swarmed never handles Claude.ai credentials.** It only shapes the child's environment (`Auth`).
 - **Session events are stored as JSON** (`AgentEvent`), so its variants and fields are only added,
   never renamed.
