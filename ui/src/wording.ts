@@ -2,6 +2,7 @@
 // look. Every other palette keeps the plain words. Pure, so it can be tested.
 
 import type { Palette } from "./api/types";
+import { DEFAULT_PALETTE } from "./appearance";
 
 /** What a handful of things are called. */
 export interface Words {
@@ -31,5 +32,5 @@ const SWARM: Words = {
 
 /** The words that go with a palette. */
 export function wordsFor(palette: Palette | undefined): Words {
-    return palette === "swarm" ? SWARM : PLAIN;
+    return (palette ?? DEFAULT_PALETTE) === "swarm" ? SWARM : PLAIN;
 }

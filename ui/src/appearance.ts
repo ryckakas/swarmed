@@ -10,13 +10,16 @@ export function rootFontSize(scale: number | undefined): string {
 
 /** The palettes on offer, by what the stylesheet knows them as, with the names to show. */
 export const PALETTES: [Palette, string][] = [
+    ["swarm", "Swarm"],
     ["dusk", "Dusk"],
     ["graphite", "Graphite"],
     ["forest", "Forest"],
     ["plum", "Plum"],
     ["ember", "Ember"],
-    ["swarm", "Swarm"],
 ];
+
+/** The palette the app is drawn in until the user chooses another. */
+export const DEFAULT_PALETTE: Palette = "swarm";
 
 /**
  * Puts the theme, the palette and the text size on the page. Before the settings are read, the
@@ -29,6 +32,6 @@ export function applyAppearance(root: HTMLElement, settings: Settings | null) {
     } else {
         root.dataset.theme = theme;
     }
-    root.dataset.palette = settings?.palette ?? "dusk";
+    root.dataset.palette = settings?.palette ?? DEFAULT_PALETTE;
     root.style.fontSize = rootFontSize(settings?.text_scale);
 }

@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 import { wordsFor } from "./wording";
 
 describe("wordsFor", () => {
-    it("keeps the plain words in every palette but Swarm, and before the settings are read", () => {
+    it("keeps the plain words in every palette but Swarm", () => {
         expect(wordsFor("dusk").newSession).toBe("New session");
         expect(wordsFor("plum").overview).toBe("");
-        expect(wordsFor(undefined).newTask).toBe("What should the agent work on?");
+        expect(wordsFor("ember").newTask).toBe("What should the agent work on?");
+    });
+
+    it("uses the default palette's words before the settings are read", () => {
+        expect(wordsFor(undefined)).toEqual(wordsFor("swarm"));
     });
 
     it("names things after the swarm in the Swarm palette", () => {
