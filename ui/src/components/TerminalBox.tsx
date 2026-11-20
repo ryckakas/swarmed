@@ -20,19 +20,24 @@ function theme(element: HTMLElement) {
     };
 }
 
-/** Types a command an action asked for, as if the user had, once the shell is up. */
+/**
+ * Types a command an action asked for, as if the user had, once the shell is up. The command is
+ * taken from the store, not read from this render: an effect may run more than once for one
+ * render, and each run would type it again.
+ */
 function useTypedCommand(sessionId: number, opened: RefObject<Promise<unknown>>) {
-    const command = useStore((state) => state.terminalCommand);
+    const waiting = useStore((state) => state.terminalCommand);
     useEffect(() => {
-        if (command === null || command.sessionId !== sessionId) {
+        if (waiting === null) {
             return;
         }
-        const { report, terminalCommandTyped } = useStore.getState();
-        terminalCommandTyped();
-        void opened.current
-            .then(() => api.terminalWrite(sessionId, `${command.text}\n`))
-            .catch(report);
-    }, [command, sessionId, opened]);
+        const { report, takeTerminalCommand } = useStore.getState();
+        const text = takeTerminalCommand(sessionId);
+        if (text === null) {
+            return;
+        }
+        void opened.current.then(() => api.terminalWrite(sessionId, `${text}\n`)).catch(report);
+    }, [waiting, sessionId, opened]);
 }
 
 /**
@@ -44,7 +49,6 @@ export function TerminalBox({ sessionId }: { sessionId: number }) {
     const settings = useStore((state) => state.settings);
     // Settles once the shell is there to be typed into.
     const opened = useRef<Promise<unknown>>(Promise.resolve());
-    useTypedCommand(sessionId, opened);
 
     // biome-ignore lint/correctness/useExhaustiveDependencies: rebuilt when the theme, layout or text size changes
     useEffect(() => {
@@ -107,6 +111,8 @@ export function TerminalBox({ sessionId }: { sessionId: number }) {
             terminal.dispose();
         };
     }, [sessionId, settings?.theme, settings?.layout, settings?.text_scale]);
+    // After the effect above, so that on first showing there is a shell being opened to wait for.
+    useTypedCommand(sessionId, opened);
 
     return <div className="terminal-box" ref={holder} />;
 }

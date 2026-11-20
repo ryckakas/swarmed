@@ -93,8 +93,11 @@ interface State {
     terminalCommand: { sessionId: number; text: string } | null;
     /** Shows the terminal and has `text` typed into the terminal of `sessionId`. */
     runInTerminal(sessionId: number, text: string): void;
-    /** Notes that the waiting command was typed. */
-    terminalCommandTyped(): void;
+    /**
+     * The command waiting for the terminal of `sessionId`, which is then no longer waiting: so
+     * however often it is asked for, it is typed once.
+     */
+    takeTerminalCommand(sessionId: number): string | null;
     /** Goes up whenever the user's actions were changed, so what shows them reads them again. */
     actionsChanged: number;
     noteActionsChanged(): void;
@@ -278,6 +281,15 @@ function closed(state: State, sessionId: number): Partial<State> {
     };
 }
 
+/** The text of a waiting command meant for the terminal of `sessionId`, which `forget` then drops. */
+function taken(waiting: State["terminalCommand"], sessionId: number, forget: () => void) {
+    if (waiting === null || waiting.sessionId !== sessionId) {
+        return null;
+    }
+    forget();
+    return waiting.text;
+}
+
 export const useStore = create<State>((set, get) => ({
     projects: [],
     load: "loading",
@@ -321,7 +333,8 @@ export const useStore = create<State>((set, get) => ({
     terminalCommand: null,
     runInTerminal: (sessionId, text) =>
         set({ terminalOpen: true, terminalCommand: { sessionId, text } }),
-    terminalCommandTyped: () => set({ terminalCommand: null }),
+    takeTerminalCommand: (sessionId) =>
+        taken(get().terminalCommand, sessionId, () => set({ terminalCommand: null })),
     actionsChanged: 0,
     noteActionsChanged: () => set((state) => ({ actionsChanged: state.actionsChanged + 1 })),
     renameAsked: 0,

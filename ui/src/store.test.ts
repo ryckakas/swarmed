@@ -273,3 +273,16 @@ describe("closed sessions", () => {
         expect(task()?.sessions.map((session) => session.id)).toEqual([3]);
     });
 });
+
+describe("runInTerminal", () => {
+    it("shows the terminal and hands the command over once, to the session it is for", () => {
+        useStore.setState({ terminalOpen: false, terminalCommand: null });
+        useStore.getState().runInTerminal(7, "make test");
+        expect(useStore.getState().terminalOpen).toBe(true);
+        // Another session's terminal leaves it waiting.
+        expect(useStore.getState().takeTerminalCommand(8)).toBeNull();
+        expect(useStore.getState().takeTerminalCommand(7)).toBe("make test");
+        // Asked again, as an effect that runs twice does: nothing left to type.
+        expect(useStore.getState().takeTerminalCommand(7)).toBeNull();
+    });
+});
