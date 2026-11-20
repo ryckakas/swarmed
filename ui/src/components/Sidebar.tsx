@@ -16,6 +16,7 @@ export function Sidebar() {
     const load = useStore((state) => state.load);
     const startNew = useStore((state) => state.startNew);
     const showSettings = useStore((state) => state.showSettings);
+    const showInbox = useStore((state) => state.showInbox);
     const waiting = countWaiting(projects);
     const unread = countUnread(projects);
     const words = useStore((state) => wordsFor(state.settings?.style));
@@ -24,8 +25,17 @@ export function Sidebar() {
         <nav className="sidebar" aria-label="Projects, tasks and sessions" onKeyDown={moveFocus}>
             <div className="sidebar-top" data-tauri-drag-region>
                 {words.overview && <span className="sidebar-name">{words.overview}</span>}
-                {waiting > 0 && <span className="needs-you">{words.needYou(waiting)}</span>}
-                {unread > 0 && <span className="unread-count">{words.unread(unread)}</span>}
+                {waiting + unread > 0 && (
+                    <button
+                        type="button"
+                        className="inbox-open"
+                        title="List everything that waits for you"
+                        onClick={() => showInbox(true)}
+                    >
+                        {waiting > 0 && <span className="needs-you">{words.needYou(waiting)}</span>}
+                        {unread > 0 && <span className="unread-count">{words.unread(unread)}</span>}
+                    </button>
+                )}
             </div>
             {projects.length > 0 && (
                 <button type="button" className="new-task-button" onClick={() => startNew()}>

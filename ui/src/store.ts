@@ -110,6 +110,9 @@ interface State {
     noting: NoteTarget | null;
     /** Opens a note; `null` puts it away. */
     askForNote(target: NoteTarget | null): void;
+    /** Whether the list of everything that waits for the user is open. */
+    inboxOpen: boolean;
+    showInbox(open: boolean): void;
     /** The session the user asked to close, until they confirm or change their mind. */
     closing: number | null;
     /** Asks before closing: `null` withdraws the question. */
@@ -298,6 +301,8 @@ export const useStore = create<State>((set, get) => ({
     askForEnvironments: (project) => set({ environmentsOf: project }),
     noting: null,
     askForNote: (target) => set({ noting: target }),
+    inboxOpen: false,
+    showInbox: (open) => set({ inboxOpen: open }),
     closing: null,
     askToClose: (sessionId) => set({ closing: sessionId }),
     refresh: async (api) => {

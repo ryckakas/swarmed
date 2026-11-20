@@ -19,6 +19,7 @@ export type HotkeyId =
     | "session-7"
     | "session-8"
     | "session-9"
+    | "inbox"
     | "focus-message"
     | "toggle-terminal"
     | "toggle-plan"
@@ -69,6 +70,7 @@ export const HOTKEYS: Hotkey[] = [
         label: "Go to the next session that needs you or has an unread reply",
         group: "Sessions",
     },
+    { id: "inbox", keys: "cmd+i", label: "List everything that waits for you", group: "Sessions" },
     ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map(session),
     { id: "focus-message", keys: "cmd+l", label: "Go to the message box", group: "In a session" },
     {

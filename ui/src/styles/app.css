@@ -151,6 +151,22 @@ code {
     pointer-events: none;
 }
 
+/* The counts are also the way into the list of what they count. */
+.inbox-open {
+    flex: none;
+    display: flex;
+    align-items: center;
+    padding: 2px var(--space-1);
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    font: inherit;
+}
+
+.inbox-open:hover {
+    background: color-mix(in srgb, var(--raised) 70%, transparent);
+}
+
 .sidebar-scroll {
     flex: 1;
     min-height: 0;
@@ -2795,6 +2811,53 @@ code {
     justify-content: flex-end;
     gap: var(--space-2);
     margin-top: var(--space-4);
+}
+
+/* Everything that waits for the user: the same dialog, around a list to choose from. */
+.confirm.inbox {
+    width: min(60ch, 100% - 2 * var(--space-6));
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.inbox-group h3 {
+    margin: var(--space-4) 0 var(--space-1);
+    color: var(--faint);
+    font-size: var(--text-xs);
+    font-weight: 600;
+}
+
+.inbox-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    padding: 6px var(--space-2);
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+}
+
+.inbox-row:hover,
+.inbox-row:focus-visible {
+    background: var(--panel);
+}
+
+.inbox-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.inbox-place {
+    flex: none;
+    color: var(--faint);
+    font-size: var(--text-xs);
 }
 
 /* A note: the same dialog, around a page to write on. */
