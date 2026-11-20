@@ -174,6 +174,14 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   The instructions are deliberately firm that this is the way to show something and needs no
   tool: without that, agents build a file and drive a browser instead. An ordinary `html` block
   stays code, with a button to show it as a view.
+- **A view's frame is as tall as its content, and the view never scrolls up and down inside
+  it.** The script Swarmed adds to a view hides its vertical scrollbar and counts a horizontal
+  one into the height it reports. Where scrollbars take up room (a Mac with a mouse), a
+  scrollbar appearing made the view narrower, a view laid out by its width changed height, the
+  frame followed, and the two flickered between two layouts for ever. `nextFrameSize` also
+  holds a view that swings between two heights at the taller one. When the frame stops
+  following a view (`holdsBack`), the host tells it so and it may scroll again. Test a change
+  here in Safari with "Always show scroll bars": Chromium does not reproduce the loop.
 - **Swarmed serves one tool of its own to every agent** (`toolserver.rs`): `show_html`, on an
   MCP server named `swarmed`. A front end's executable is that server when started with
   `tool-server`, and tells the core so with `set_tool_server`. The tool does nothing: its call
