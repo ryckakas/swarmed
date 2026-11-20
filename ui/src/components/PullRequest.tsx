@@ -1,6 +1,15 @@
+import { useState } from "react";
 import { api } from "../api";
 import type { Check, Pull, Task } from "../api/types";
-import { checksSummary, failedChecks, fixPrompt, pullState, pullTone, pullTooltip } from "../pulls";
+import {
+    checksShownByDefault,
+    checksSummary,
+    failedChecks,
+    fixPrompt,
+    pullState,
+    pullTone,
+    pullTooltip,
+} from "../pulls";
 import { useStore } from "../store";
 import { usePull } from "../usePull";
 
@@ -46,6 +55,7 @@ export function PullSection({ project, task }: { project: string; task: Task }) 
     }
     const open = (check: string | null) =>
         api.taskPullOpen(project, task.name, check).catch(report);
+    const summary = `${checksSummary(pull)}${pull.review ? `, ${pull.review.replaceAll("_", " ")}` : ""}`;
     return (
         <section className="pull" aria-label="Pull request">
             <button type="button" className="pull-title" onClick={() => void open(null)}>
@@ -54,11 +64,7 @@ export function PullSection({ project, task }: { project: string; task: Task }) 
                 </span>
                 {pull.title}
             </button>
-            <p className="pull-summary" data-tone={pullTone(pull)}>
-                {checksSummary(pull)}
-                {pull.review && `, ${pull.review.replaceAll("_", " ")}`}
-            </p>
-            <Checks pull={pull} onOpen={(name) => void open(name)} />
+            <Checks pull={pull} summary={summary} onOpen={(name) => void open(name)} />
             {failedChecks(pull).length > 0 && sessionId !== null && (
                 <button
                     type="button"
@@ -73,10 +79,56 @@ export function PullSection({ project, task }: { project: string; task: Task }) 
     );
 }
 
-function Checks({ pull, onOpen }: { pull: Pull; onOpen(name: string): void }) {
+interface ChecksProps {
+    pull: Pull;
+    /** How the checks stand, in a line: what is left of them while they are folded away. */
+    summary: string;
+    onOpen(name: string): void;
+}
+
+/**
+ * The checks of a pull request under the line that sums them up. Pressing that line folds the
+ * list away or brings it back; a long list scrolls in a space of its own, so a repository
+ * with dozens of checks does not push the rest of the panel out of sight.
+ */
+function Checks({ pull, summary, onOpen }: ChecksProps) {
+    // Until the user says, shown while a check failed or runs and folded once all is well.
+    const [chosen, setChosen] = useState<boolean | null>(null);
+    const tone = pullTone(pull);
     if (pull.checks.length === 0) {
-        return null;
+        return (
+            <p className="pull-summary" data-tone={tone}>
+                {summary}
+            </p>
+        );
     }
+    const shown = chosen ?? checksShownByDefault(pull);
+    return (
+        <>
+            <button
+                type="button"
+                className="pull-summary pull-summary-fold"
+                data-tone={tone}
+                aria-expanded={shown}
+                title={shown ? "Folds the checks away" : "Shows each check"}
+                onClick={() => setChosen(!shown)}
+            >
+                <svg
+                    className="pull-fold-chevron"
+                    viewBox="0 0 10 10"
+                    aria-hidden="true"
+                    data-open={shown}
+                >
+                    <path d="M3.5 1.5 7 5 3.5 8.5" />
+                </svg>
+                {summary}
+            </button>
+            {shown && <CheckList pull={pull} onOpen={onOpen} />}
+        </>
+    );
+}
+
+function CheckList({ pull, onOpen }: { pull: Pull; onOpen(name: string): void }) {
     return (
         <ul className="pull-checks">
             {pull.checks.map((check) => (

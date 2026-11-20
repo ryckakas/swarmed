@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { Check, Pull } from "./api/types";
-import { checksSummary, fixPrompt, pullPollMs, pullState, pullTone, pullTooltip } from "./pulls";
+import {
+    checksShownByDefault,
+    checksSummary,
+    fixPrompt,
+    pullPollMs,
+    pullState,
+    pullTone,
+    pullTooltip,
+} from "./pulls";
 
 const check = (name: string, outcome: Check["outcome"], url: string | null = null): Check => ({
     name,
@@ -16,6 +24,16 @@ const pull = (checks: Check[], more: Partial<Pull> = {}): Pull => ({
     review: null,
     checks,
     ...more,
+});
+
+describe("checksShownByDefault", () => {
+    it("shows the checks while one failed or runs, and folds them once all passed", () => {
+        const passed = check("a", "passed");
+        expect(checksShownByDefault(pull([passed, check("b", "failed")]))).toBe(true);
+        expect(checksShownByDefault(pull([passed, check("b", "running")]))).toBe(true);
+        expect(checksShownByDefault(pull([passed, check("b", "skipped")]))).toBe(false);
+        expect(checksShownByDefault(pull([]))).toBe(false);
+    });
 });
 
 describe("pullTone", () => {
