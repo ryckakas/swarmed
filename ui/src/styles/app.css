@@ -583,13 +583,86 @@ code {
     white-space: pre;
 }
 
+/* The number is also the way to comment on its line. */
 .diff-number {
     flex: none;
     width: 4.5ch;
-    padding-right: 1ch;
+    padding: 0 1ch 0 0;
+    border: 0;
+    background: none;
     color: var(--faint);
+    font: inherit;
     text-align: right;
     user-select: none;
+}
+
+.diff-number:hover,
+.diff-number:focus-visible {
+    color: var(--sky);
+}
+
+.diff-line[data-commented="true"] .diff-number {
+    color: var(--sky);
+    font-weight: 700;
+}
+
+/* A comment under its line, and the box it is written in. They wrap; code does not. */
+.diff-comment,
+.diff-comment-box {
+    position: sticky;
+    left: 0;
+    width: calc(var(--panel-width) - var(--space-8));
+    max-width: 100%;
+    margin: 2px 0 4px 4.5ch;
+    font-family: var(--font-ui);
+    white-space: normal;
+}
+
+.diff-comment {
+    display: block;
+    padding: 4px var(--space-2);
+    border: 0;
+    border-left: 2px solid var(--sky);
+    border-radius: 0 6px 6px 0;
+    background: var(--raised);
+    color: var(--text);
+    font-size: var(--text-sm);
+    text-align: left;
+}
+
+.diff-comment-box {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-2);
+}
+
+.diff-comment-box textarea {
+    flex: 1;
+    min-width: 0;
+    padding: 4px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--dusk);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--text-sm);
+    resize: vertical;
+}
+
+/* The comments made so far, and the way to send them. */
+.review-bar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 0 var(--space-3) var(--space-2) var(--space-4);
+    color: var(--sky);
+    font-size: var(--text-sm);
+    font-weight: 600;
+}
+
+.review-bar span {
+    margin-right: auto;
 }
 
 .diff-sign {

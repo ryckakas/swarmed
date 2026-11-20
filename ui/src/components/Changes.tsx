@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import type { FileChange, FileDiff, Project, Task } from "../api/types";
 import { type DiffLine, parseDiff, splitPath } from "../diff";
+import { commentKey, type ReviewComment, reviewMessage } from "../review";
 import { useStore } from "../store";
 
 interface Props {
@@ -51,6 +52,7 @@ export function Changes({ project, task }: Props) {
                     Refresh
                 </button>
             </div>
+            <ReviewBar taskId={task.id} />
             <div className="changes-scroll">
                 {changes === null && <p className="changes-note">Reading the changes…</p>}
                 {typeof changes === "string" && (
@@ -68,7 +70,12 @@ export function Changes({ project, task }: Props) {
                             change={change}
                             open={open.has(change.path)}
                             onToggle={() => toggle(change.path)}
-                            target={{ project: project.name, task: task.name, version }}
+                            target={{
+                                project: project.name,
+                                task: task.name,
+                                taskId: task.id,
+                                version,
+                            }}
                         />
                     ))}
             </div>
@@ -127,7 +134,45 @@ function Counts({ added, removed }: { added: number | null; removed: number | nu
 interface Target {
     project: string;
     task: string;
+    taskId: number;
     version: number;
+}
+
+/** The comments made so far, with the way to send them to the session on screen. */
+function ReviewBar({ taskId }: { taskId: number }) {
+    const comments = useStore((state) => state.reviews[taskId]);
+    const clearReview = useStore((state) => state.clearReview);
+    const sessionId = useStore((state) => state.selectedSessionId);
+    const report = useStore((state) => state.report);
+    if (!comments || comments.length === 0) {
+        return null;
+    }
+    const send = () => {
+        if (sessionId === null) {
+            return;
+        }
+        api.sessionSend(sessionId, reviewMessage(comments))
+            .then(() => clearReview(taskId))
+            .catch(report);
+    };
+    return (
+        <div className="review-bar">
+            <span>
+                {comments.length} {comments.length === 1 ? "comment" : "comments"}
+            </span>
+            <button type="button" className="changes-refresh" onClick={() => clearReview(taskId)}>
+                Discard
+            </button>
+            <button
+                type="button"
+                className="button"
+                title="Sends the comments to the session on screen, as one message"
+                onClick={send}
+            >
+                Send to this session
+            </button>
+        </div>
+    );
 }
 
 interface FileRowProps {
@@ -164,8 +209,17 @@ function FileRow({ change, open, onToggle, target }: FileRowProps) {
     );
 }
 
+/** A reference that stays the same, so a file without comments is not drawn again. */
+const NO_COMMENTS: ReviewComment[] = [];
+
 function Diff({ path, target }: { path: string; target: Target }) {
-    const { project, task, version } = target;
+    const { project, task, taskId, version } = target;
+    const all = useStore((state) => state.reviews[taskId]);
+    const comments = useMemo(
+        () => all?.filter((comment) => comment.path === path) ?? NO_COMMENTS,
+        [all, path],
+    );
+    const comment = useStore((state) => state.comment);
     const [diff, setDiff] = useState<FileDiff | string | null>(null);
     // biome-ignore lint/correctness/useExhaustiveDependencies: a new version means read again
     useEffect(() => {
@@ -186,7 +240,12 @@ function Diff({ path, target }: { path: string; target: Target }) {
     }
     return (
         <>
-            <DiffLines text={diff.text} />
+            <DiffLines
+                text={diff.text}
+                path={path}
+                comments={comments.length > 0 ? comments : NO_COMMENTS}
+                onComment={(made) => comment(taskId, made)}
+            />
             {diff.truncated && (
                 <p className="changes-note">The diff is longer; the rest is not shown.</p>
             )}
@@ -196,30 +255,127 @@ function Diff({ path, target }: { path: string; target: Target }) {
 
 const SIGN = { added: "+", removed: "−", context: " " } as const;
 
-const DiffLines = memo(function DiffLines({ text }: { text: string }) {
+interface DiffLinesProps {
+    text: string;
+    path: string;
+    /** The comments on this file's lines. */
+    comments: ReviewComment[];
+    onComment(comment: ReviewComment): void;
+}
+
+/** Where a line of a diff is, for a comment on it; nothing for lines that are not code. */
+function placeOf(line: DiffLine): Pick<ReviewComment, "line" | "side"> | null {
+    if (line.kind === "removed") {
+        return { line: line.oldLine, side: "old" };
+    }
+    return line.kind === "added" || line.kind === "context"
+        ? { line: line.newLine, side: "new" }
+        : null;
+}
+
+const DiffLines = memo(function DiffLines({ text, path, comments, onComment }: DiffLinesProps) {
     const lines = useMemo(() => parseDiff(text), [text]);
+    // The line whose comment is being written, by its key.
+    const [writing, setWriting] = useState<string | null>(null);
+    const made = useMemo(
+        () => new Map(comments.map((comment) => [commentKey(comment), comment])),
+        [comments],
+    );
     return (
         <div className="diff">
             <div className="diff-lines">
-                {lines.map((line, index) => (
-                    // biome-ignore lint/suspicious/noArrayIndexKey: the lines of one diff never reorder
-                    <DiffRow key={index} line={line} />
-                ))}
+                {lines.map((line, index) => {
+                    const place = placeOf(line);
+                    const key = place && commentKey({ path, ...place });
+                    return (
+                        <DiffRow
+                            // biome-ignore lint/suspicious/noArrayIndexKey: the lines of one diff never reorder
+                            key={index}
+                            line={line}
+                            comment={key ? made.get(key) : undefined}
+                            writing={key !== null && key === writing}
+                            onWrite={() => setWriting(key === writing ? null : key)}
+                            onSave={(said) => {
+                                setWriting(null);
+                                if (place) {
+                                    onComment({ path, ...place, code: line.text, text: said });
+                                }
+                            }}
+                        />
+                    );
+                })}
             </div>
         </div>
     );
 });
 
-function DiffRow({ line }: { line: DiffLine }) {
+interface DiffRowProps {
+    line: DiffLine;
+    comment: ReviewComment | undefined;
+    writing: boolean;
+    onWrite(): void;
+    onSave(text: string): void;
+}
+
+function DiffRow({ line, comment, writing, onWrite, onSave }: DiffRowProps) {
     if (line.kind === "hunk" || line.kind === "note") {
         return <div className={`diff-line diff-${line.kind}`}>{line.text || "⋯"}</div>;
     }
     const number = line.kind === "removed" ? line.oldLine : line.newLine;
     return (
-        <div className={`diff-line diff-${line.kind}`}>
-            <span className="diff-number">{number}</span>
-            <span className="diff-sign">{SIGN[line.kind]}</span>
-            <span className="diff-text">{line.text}</span>
-        </div>
+        <>
+            <div className={`diff-line diff-${line.kind}`} data-commented={comment !== undefined}>
+                <button
+                    type="button"
+                    className="diff-number"
+                    title="Comment on this line"
+                    aria-label={`Comment on line ${number}`}
+                    onClick={onWrite}
+                >
+                    {number}
+                </button>
+                <span className="diff-sign">{SIGN[line.kind]}</span>
+                <span className="diff-text">{line.text}</span>
+            </div>
+            {writing && <CommentBox said={comment?.text ?? ""} onSave={onSave} />}
+            {!writing && comment && (
+                <button type="button" className="diff-comment" onClick={onWrite}>
+                    {comment.text}
+                </button>
+            )}
+        </>
+    );
+}
+
+/** Where a comment is written. Saving it empty takes the comment away. */
+function CommentBox({ said, onSave }: { said: string; onSave(text: string): void }) {
+    const [text, setText] = useState(said);
+    return (
+        <form
+            className="diff-comment-box"
+            onSubmit={(event) => {
+                event.preventDefault();
+                onSave(text);
+            }}
+        >
+            <textarea
+                // biome-ignore lint/a11y/noAutofocus: opened by a click on the line it belongs to
+                autoFocus
+                aria-label="Comment"
+                placeholder="What should change here? ⌘↩ saves."
+                rows={2}
+                value={text}
+                onChange={(event) => setText(event.target.value)}
+                onKeyDown={(event) => {
+                    if (event.key === "Enter" && event.metaKey) {
+                        event.preventDefault();
+                        onSave(text);
+                    }
+                }}
+            />
+            <button type="submit" className="button">
+                {said !== "" && text.trim() === "" ? "Remove" : "Save"}
+            </button>
+        </form>
     );
 }

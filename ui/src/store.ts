@@ -11,6 +11,7 @@ import type {
     SessionSettings,
     Settings,
 } from "./api/types";
+import { type ReviewComment, withComment } from "./review";
 import {
     applySessionEvent,
     findSession,
@@ -111,6 +112,12 @@ interface State {
     noting: NoteTarget | null;
     /** Opens a note; `null` puts it away. */
     askForNote(target: NoteTarget | null): void;
+    /** The user's comments on each task's diff, by the task's id, until they are sent. */
+    reviews: Record<number, ReviewComment[]>;
+    /** Puts a comment on a line, changes it, or with empty text takes it away. */
+    comment(taskId: number, comment: ReviewComment): void;
+    /** Drops a task's comments: they were sent, or are not wanted. */
+    clearReview(taskId: number): void;
     /** Each task's pull request by the task's id, as last heard; `null` for none. */
     pulls: Record<number, Pull | null>;
     /** Asks again for a task's pull request. Not hearing back changes nothing. */
@@ -306,6 +313,15 @@ export const useStore = create<State>((set, get) => ({
     askForEnvironments: (project) => set({ environmentsOf: project }),
     noting: null,
     askForNote: (target) => set({ noting: target }),
+    reviews: {},
+    comment: (taskId, comment) =>
+        set((state) => ({
+            reviews: {
+                ...state.reviews,
+                [taskId]: withComment(state.reviews[taskId] ?? [], comment),
+            },
+        })),
+    clearReview: (taskId) => set((state) => ({ reviews: { ...state.reviews, [taskId]: [] } })),
     pulls: {},
     loadPull: async (api, project, task, taskId) => {
         const pull = await api.taskPull(project, task).catch(() => undefined);
