@@ -36,9 +36,8 @@ pub struct Action {
     /// Typed into the terminal of the session on screen, in the task's worktree. Empty for an
     /// action that sends a prompt.
     pub command: String,
-    /// Whether it belongs to one repository and not to all. Not part of the file: which file
-    /// it is in says so.
-    #[serde(skip_deserializing)]
+    /// Whether it belongs to one repository and not to all. Which file it is in says so:
+    /// the files do not hold it, and what a front end sends for it is not gone by.
     pub of_project: bool,
 }
 
@@ -245,5 +244,20 @@ impl Core {
         kept.retain(|action| action.name != name.trim());
         self.actions_write(project, &kept)?;
         self.actions(project)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_action_is_taken_as_a_front_end_sends_it() {
+        // A front end sends back what it was given, `of_project` and all.
+        let sent =
+            r#"{"name":"Tests","icon":"","prompt":"","command":"make test","of_project":true}"#;
+        let action: Action = serde_json::from_str(sent).unwrap_or_default();
+        assert_eq!(action.name, "Tests");
+        assert_eq!(action.command, "make test");
     }
 }
