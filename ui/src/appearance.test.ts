@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Settings } from "./api/types";
-import { applyAppearance, PALETTES, rootFontSize } from "./appearance";
+import { applyAppearance, isSwarm, PALETTES, rootFontSize } from "./appearance";
 
 describe("rootFontSize", () => {
     it("is the chosen scale in percent", () => {
@@ -31,6 +31,15 @@ describe("applyAppearance", () => {
         // The system's choice is the absence of a theme, and the palette still applies.
         applyAppearance(root, { ...settings, theme: "system", palette: "forest" });
         expect(root.dataset).toEqual({ palette: "forest", style: "plain" });
+    });
+
+    it("draws the swarm's icons for both of its styles", () => {
+        const root = page();
+        applyAppearance(root, { ...settings, style: "colony" });
+        expect(root.dataset.style).toBe("swarm");
+        expect(isSwarm("colony")).toBe(true);
+        expect(isSwarm("plain")).toBe(false);
+        expect(isSwarm(undefined)).toBe(true);
     });
 
     it("draws in the first palette until the settings are read", () => {

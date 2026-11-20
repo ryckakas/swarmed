@@ -85,6 +85,9 @@ pub enum Style {
     /// Sessions as eggs and larvae, named after a swarm: dormant, mutating, hatched.
     #[default]
     Swarm,
+    /// The swarm's icons and words, and its names for the tree as well: a colony for a
+    /// repository, burrowed for closed.
+    Colony,
 }
 
 /// The smallest and largest text the app can be set to, in percent.

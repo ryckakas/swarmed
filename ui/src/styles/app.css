@@ -1051,8 +1051,8 @@ code {
 
 /*
  * The swarm's marks. A dormant session is a sac on its roots; a working one a grub that crawls;
- * one that has hatched an answer the same grub, glowing. Needing you and having failed keep the
- * shapes above.
+ * one that has hatched an answer the same grub, glowing; one that needs you the grub reared up;
+ * one that failed a sac burst open.
  */
 .egg,
 .larva {
@@ -1061,6 +1061,7 @@ code {
     fill: none;
     stroke: currentcolor;
     stroke-linecap: round;
+    stroke-linejoin: round;
 }
 
 /* As wide, with its margins, as the grub, so the titles beside them line up. */
@@ -1072,7 +1073,11 @@ code {
     stroke-width: 1.1;
 }
 
-.egg-sac {
+.egg-burst {
+    color: var(--clay);
+}
+
+.swarm-body {
     fill: currentcolor;
     stroke: none;
 }
@@ -1116,6 +1121,16 @@ code {
     filter: drop-shadow(0 0 2px var(--sky));
 }
 
+/* The moment it hatched: one flash, never repeated. */
+.larva-unread[data-hatching="true"] {
+    animation: hatch 0.7s ease-out 1;
+}
+
+.larva-waiting {
+    height: 12px;
+    color: var(--pollen);
+}
+
 @keyframes larva-crawl {
     30% {
         translate: 0 -1.3px;
@@ -1126,21 +1141,60 @@ code {
     }
 }
 
+@keyframes hatch {
+    0% {
+        transform: scale(0.4);
+        filter: drop-shadow(0 0 0 var(--sky)) brightness(2);
+    }
+
+    45% {
+        transform: scale(1.7);
+        filter: drop-shadow(0 0 6px var(--sky)) brightness(1.6);
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
     .larva-working circle,
-    .larva-working path {
+    .larva-working path,
+    .larva-unread[data-hatching="true"] {
         animation: none;
     }
 }
 
-/* Beside eggs and grubs, the two plain shapes take the same room, so titles line up. */
-:root[data-style="swarm"] .session-row .mark {
-    margin: 0 4px;
+/* A brood: what a session started is drawn smaller, and the one that started it larger. */
+.sessions li[data-nested="true"] :is(.egg, .larva) {
+    scale: 0.78;
 }
 
-/* Swarm: a faint web of veins under the tree, more felt than seen. */
-:root[data-palette="swarm"] .sidebar {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='320' viewBox='0 0 260 320' fill='none' stroke='%23e86bbf' stroke-opacity='0.055' stroke-width='1.2' stroke-linecap='round'%3E%3Cpath d='M-10 40C40 30 60 80 110 70s70 40 160 10'/%3E%3Cpath d='M110 70c-10 50 20 70-10 120s20 90-20 140'/%3E%3Cpath d='M100 190c50-20 80 20 170 0'/%3E%3Cpath d='M90 250c-40-10-60 30-110 20'/%3E%3Cpath d='M190 50c10 40 40 50 30 100'/%3E%3C/svg%3E");
+.sessions li[data-brood="true"] :is(.egg, .larva) {
+    scale: 1.2;
+}
+
+/* The session on screen sits on a patch of creep: an uneven edge, not a straight bar. */
+:root[data-style="swarm"] .session-line[data-current="true"] {
+    border-radius: 3px 15px 9px 17px / 3px 10px 15px 8px;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sky) 22%, transparent);
+}
+
+/*
+ * A faint web of veins under the tree, more felt than seen. Drawn as a mask over the palette's
+ * own accent, so it goes with any colours.
+ */
+:root[data-style="swarm"] .sidebar {
+    position: relative;
+    isolation: isolate;
+}
+
+:root[data-style="swarm"] .sidebar::before {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: var(--sky);
+    opacity: 0.07;
+    content: "";
+    pointer-events: none;
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='320' viewBox='0 0 260 320' fill='none' stroke='%23000' stroke-width='1.2' stroke-linecap='round'%3E%3Cpath d='M-10 40C40 30 60 80 110 70s70 40 160 10'/%3E%3Cpath d='M110 70c-10 50 20 70-10 120s20 90-20 140'/%3E%3Cpath d='M100 190c50-20 80 20 170 0'/%3E%3Cpath d='M90 250c-40-10-60 30-110 20'/%3E%3Cpath d='M190 50c10 40 40 50 30 100'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='320' viewBox='0 0 260 320' fill='none' stroke='%23000' stroke-width='1.2' stroke-linecap='round'%3E%3Cpath d='M-10 40C40 30 60 80 110 70s70 40 160 10'/%3E%3Cpath d='M110 70c-10 50 20 70-10 120s20 90-20 140'/%3E%3Cpath d='M100 190c50-20 80 20 170 0'/%3E%3Cpath d='M90 250c-40-10-60 30-110 20'/%3E%3Cpath d='M190 50c10 40 40 50 30 100'/%3E%3C/svg%3E");
 }
 
 /* Centre */
@@ -2612,6 +2666,67 @@ code {
         transform: translateY(6px);
         animation: none;
     }
+}
+
+/* The swarm's: a sac that swells on its roots, then splits down the middle. */
+.incubating-sac {
+    fill: none;
+    stroke: currentcolor;
+    stroke-width: 1.1;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.sac-body {
+    fill: currentcolor;
+    stroke: none;
+    transform-origin: 6px 11px;
+    animation: sac-swell 2.6s ease-in-out infinite;
+}
+
+.sac-split {
+    stroke: var(--dusk);
+    stroke-width: 0.9;
+    animation: sac-split 2.6s ease-in-out infinite;
+}
+
+@keyframes sac-swell {
+    0% {
+        transform: scale(0.62);
+        opacity: 0.55;
+    }
+
+    70%,
+    100% {
+        transform: scale(1.12);
+        opacity: 1;
+    }
+}
+
+@keyframes sac-split {
+    0%,
+    72% {
+        opacity: 0;
+    }
+
+    82%,
+    100% {
+        opacity: 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sac-body,
+    .sac-split {
+        animation: none;
+    }
+}
+
+/* The swarm's empty conversation: one dormant sac over the facts. */
+.facts-egg .egg {
+    width: 30px;
+    height: 36px;
+    margin: 0 0 var(--space-2);
 }
 
 .new-task-note {

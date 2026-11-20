@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pickWord, statusKind, wordsFor } from "./wording";
+import { activityWords, pickWord, statusKind, wordsFor } from "./wording";
 
 describe("wordsFor", () => {
     it("keeps the plain words in the plain style", () => {
@@ -26,8 +26,36 @@ describe("wordsFor", () => {
         expect(words.status.working).toEqual(["Mutating", "Incubating"]);
     });
 
+    it("counts in the swarm's terms", () => {
+        expect(wordsFor("plain").needYou(1)).toBe("1 session needs you");
+        expect(wordsFor("plain").needYou(3)).toBe("3 sessions need you");
+        expect(wordsFor("plain").unread(2)).toBe("2 unread");
+        expect(wordsFor("swarm").needYou(1)).toBe("1 awaits you");
+        expect(wordsFor("swarm").needYou(3)).toBe("3 await you");
+        expect(wordsFor("swarm").unread(2)).toBe("2 hatched");
+        expect(wordsFor("swarm").noTasks).toBe("The nest is empty");
+    });
+
+    it("renames the tree only when asked to", () => {
+        expect(wordsFor("swarm").addRepository).toBe("Add repository");
+        expect(wordsFor("swarm").closed(2)).toBe("2 closed");
+        const colony = wordsFor("colony");
+        expect(colony.addRepository).toBe("Found a colony");
+        expect(colony.startTask).toBe("New brood");
+        expect(colony.closed(2)).toBe("2 burrowed");
+        expect(colony.reopen).toBe("Unburrow");
+        // Everything else is the swarm's.
+        expect(colony.status).toEqual(wordsFor("swarm").status);
+    });
+
+    it("has other words for what the agent is doing, and leaves the rest alone", () => {
+        expect(activityWords(wordsFor("plain"), "Thinking")).toEqual(["Thinking"]);
+        expect(activityWords(wordsFor("swarm"), "Thinking")).toContain("Gestating");
+        expect(activityWords(wordsFor("swarm"), "Running Bash")).toEqual(["Running Bash"]);
+    });
+
     it("never leaves a status without a word", () => {
-        for (const style of ["plain", "swarm"] as const) {
+        for (const style of ["plain", "swarm", "colony"] as const) {
             for (const words of Object.values(wordsFor(style).status)) {
                 expect(words.length).toBeGreaterThan(0);
             }

@@ -1,7 +1,10 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
 import type { AgentEvent } from "../api/types";
 import { messageParts } from "../pastes";
+import { useStore } from "../store";
 import { activity, type Item, PLAN_TOOL, summarize, toItems } from "../transcript";
+import { useRoll } from "../useRoll";
+import { activityWords, pickWord, wordsFor } from "../wording";
 import { FileChips } from "./FileChips";
 import { HtmlView } from "./HtmlView";
 import { Markdown } from "./Markdown";
@@ -68,7 +71,7 @@ export function Transcript({ sessionId, events, working }: Props) {
                 {working && (
                     <li className="activity" aria-live="polite">
                         <Spawning />
-                        {activity(events)}…
+                        <Activity events={events} />
                     </li>
                 )}
             </ol>
@@ -169,4 +172,12 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
                 </p>
             );
     }
+}
+
+/** What the agent is doing right now, in the words of the style in use. */
+function Activity({ events }: { events: AgentEvent[] }) {
+    const plain = activity(events);
+    const words = useStore((state) => wordsFor(state.settings?.style));
+    const options = activityWords(words, plain);
+    return <>{pickWord(options, useRoll(options.length > 1))}…</>;
 }

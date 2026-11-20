@@ -1,4 +1,5 @@
 import type { AgentEvent, Session, Task } from "../api/types";
+import { isSwarm } from "../appearance";
 import { agentName, iconForAgent } from "../providerIcons";
 import { useStore } from "../store";
 import { findSession, findSessionHome } from "../tree";
@@ -8,7 +9,7 @@ import { NewTask } from "./NewTask";
 import { ProviderMark } from "./ProviderMark";
 import { SessionTitle } from "./SessionTitle";
 import { StatusLine } from "./StatusLine";
-import { StatusMark, useStatusLabel } from "./StatusMark";
+import { Egg, StatusMark, useStatusLabel } from "./StatusMark";
 import { Transcript } from "./Transcript";
 
 const SUPERVISION = {
@@ -89,8 +90,14 @@ export function SessionPane() {
 
 /** What a session that has not said anything yet will work with. */
 function Facts({ session, task }: { session: Session; task: Task }) {
+    const swarm = useStore((state) => isSwarm(state.settings?.style));
     return (
         <div className="facts-wrap">
+            {swarm && (
+                <p className="facts-egg">
+                    <Egg label="Dormant" />
+                </p>
+            )}
             <p>Nothing has been said yet. The agent starts with your first message.</p>
             <dl className="facts">
                 <dt>Worktree</dt>

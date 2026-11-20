@@ -24,11 +24,17 @@ export const DEFAULT_PALETTE: Palette = "swarm";
 /** The icons and words on offer, with the names to show. */
 export const STYLES: [Style, string][] = [
     ["swarm", "Swarm"],
+    ["colony", "Swarm, tree renamed too"],
     ["plain", "Plain"],
 ];
 
 /** The icons and words the app uses until the user chooses others. */
 export const DEFAULT_STYLE: Style = "swarm";
+
+/** Whether a style draws the swarm's icons; before the settings are read, the default does. */
+export function isSwarm(style: Style | undefined): boolean {
+    return (style ?? DEFAULT_STYLE) !== "plain";
+}
 
 /**
  * Puts the theme, the palette, the style and the text size on the page. Before the settings are read, the
@@ -42,6 +48,7 @@ export function applyAppearance(root: HTMLElement, settings: Settings | null) {
         root.dataset.theme = theme;
     }
     root.dataset.palette = settings?.palette ?? DEFAULT_PALETTE;
-    root.dataset.style = settings?.style ?? DEFAULT_STYLE;
+    // The stylesheet knows two: the renamed tree only changes words.
+    root.dataset.style = isSwarm(settings?.style) ? "swarm" : "plain";
     root.style.fontSize = rootFontSize(settings?.text_scale);
 }
