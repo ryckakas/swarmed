@@ -458,6 +458,12 @@ export type AgentEvent =
     | { type: "context_usage"; used: number; max: number; categories: ContextCategory[] }
     /** The session got a new title, from the user or from the model that names sessions. */
     | { type: "renamed"; title: string }
+    /** The agent asked for a change to Swarmed's configuration that the user has to agree to. */
+    | { type: "config_proposed"; request_id: string; title: string; detail: string }
+    /** The user answered a proposed change. */
+    | { type: "config_answered"; request_id: string; accepted: boolean }
+    /** Swarmed's configuration was changed from a session: what was read of it is out of date. */
+    | { type: "config_changed"; kind: string }
     /** The session got a mark, or lost the one it had when `colour` is `null`. */
     | { type: "marked"; colour: MarkColour | null; label: string }
     /** The session was closed, by the user or by the session that started it. */

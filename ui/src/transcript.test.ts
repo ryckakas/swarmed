@@ -44,6 +44,27 @@ describe("toItems", () => {
         expect(items[1]).toMatchObject({ result: { content: "/tmp", isError: false } });
     });
 
+    it("keeps a proposed change where it was made, and says how it was answered", () => {
+        const proposed: AgentEvent = {
+            type: "config_proposed",
+            request_id: "c1",
+            title: "Add this rule for every agent?",
+            detail: "never use em dashes",
+        };
+        const waiting = toItems([proposed, { type: "text", text: "It waits for you." }]);
+        expect(waiting[0]).toMatchObject({ kind: "proposal", requestId: "c1", accepted: null });
+        // The end of a turn closes permission requests, not proposals.
+        const done: AgentEvent = { type: "user_message", text: "thanks" };
+        expect(toItems([proposed, done])[0]).toMatchObject({ kind: "proposal", accepted: null });
+        const answered = toItems([
+            proposed,
+            { type: "config_answered", request_id: "c1", accepted: true },
+            { type: "config_changed", kind: "rule" },
+        ]);
+        expect(answered).toHaveLength(1);
+        expect(answered[0]).toMatchObject({ kind: "proposal", accepted: true });
+    });
+
     it("shows a call without a result yet as running", () => {
         expect(toItems([toolUse("a", "sleep 60")])[0]).toMatchObject({ result: null });
     });

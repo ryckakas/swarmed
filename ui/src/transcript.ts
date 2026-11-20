@@ -22,6 +22,15 @@ export type Item =
       }
     /** A request the user refused. An allowed one shows as the tool call it let through. */
     | { kind: "denied"; key: number; toolName: string; input: unknown }
+    /** A change to Swarmed's configuration the agent proposed; `accepted` once it is answered. */
+    | {
+          kind: "proposal";
+          key: number;
+          requestId: string;
+          title: string;
+          detail: string;
+          accepted: boolean | null;
+      }
     /** HTML the agent showed the user through Swarmed's tool. */
     | { kind: "view"; key: number; html: string }
     /** What happened in the terminal, as the agent was told with the message before it. */
@@ -203,11 +212,19 @@ interface Draft {
     open: Map<string, Permission>;
     /** Requests that were decided or abandoned; they are left out of the result. */
     settled: Set<Item>;
+    /** The proposed changes to the configuration, by request id. */
+    proposals: Map<string, Extract<Item, { kind: "proposal" }>>;
 }
 
 /** The transcript items for a session's events, in order. Tool results join their calls. */
 export function toItems(events: AgentEvent[]): Item[] {
-    const draft: Draft = { items: [], tools: new Map(), open: new Map(), settled: new Set() };
+    const draft: Draft = {
+        items: [],
+        tools: new Map(),
+        open: new Map(),
+        settled: new Set(),
+        proposals: new Map(),
+    };
     events.forEach((event, key) => {
         add(draft, event, key);
     });
@@ -237,8 +254,33 @@ function add(draft: Draft, event: AgentEvent, key: number) {
             return settle(draft, event.request_id, key, event.allowed);
         case "permission_withdrawn":
             return settle(draft, event.request_id, key, true);
+        case "config_proposed":
+            return addProposal(draft, event, key);
+        case "config_answered":
+            return answerProposal(draft.proposals.get(event.request_id), event.accepted);
         default:
             return addSingle(draft, event, key);
+    }
+}
+
+function addProposal(
+    draft: Draft,
+    event: Extract<AgentEvent, { type: "config_proposed" }>,
+    key: number,
+) {
+    const { request_id: requestId, title, detail } = event;
+    const proposal: Item = { kind: "proposal", key, requestId, title, detail, accepted: null };
+    draft.proposals.set(requestId, proposal);
+    draft.items.push(proposal);
+}
+
+/** A proposal stays where it was made, and says how it was answered. */
+function answerProposal(
+    proposal: Extract<Item, { kind: "proposal" }> | undefined,
+    accepted: boolean,
+) {
+    if (proposal) {
+        proposal.accepted = accepted;
     }
 }
 

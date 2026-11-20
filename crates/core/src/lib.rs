@@ -15,6 +15,7 @@ mod background;
 mod changes;
 mod cloud;
 mod config;
+mod configure;
 mod costs;
 mod effort;
 mod environments;
@@ -126,6 +127,9 @@ pub struct Core {
     secrets: Box<dyn SecretStore>,
     /// The sessions' terminals.
     terminals: Arc<Terminals>,
+    /// The changes to Swarmed's configuration that agents asked for and the user has not
+    /// answered yet.
+    proposals: configure::Proposals,
     /// HTML the agents wrote, waiting to be shown.
     views: ViewStore,
     /// The executable that serves Swarmed's own tools to agents, if a front end named one.
@@ -166,6 +170,7 @@ impl Core {
             // Nothing outside this process until `open` says where keys really live.
             secrets: Box::new(MemorySecrets::default()),
             terminals: Arc::default(),
+            proposals: configure::Proposals::default(),
             views: ViewStore::default(),
             tool_server: None,
         })

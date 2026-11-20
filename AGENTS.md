@@ -186,12 +186,24 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   a prompt or a command. Those for every repository are in `actions.toml` in the data
   directory, a repository's own in `projects/<name>.actions.toml`; its own takes the place of a
   general one of the same name. The files are meant to be written by hand or by an agent
-  (`save_action` on the tool server, `swarmed action` on the command line), so an entry that is
+  (`configure` on the tool server, `swarmed action` on the command line), so an entry that is
   not a usable action is left out instead of failing the lot. The core only keeps them. The UI
   (`ActionBar`) sends the prompt to the session on screen, or types the command into that
   session's terminal: a command is run where the user sees it and can answer it, never out of
   sight. However many there are, the first six are buttons and the rest a menu. Do not add a
   built-in button for one person's workflow: that is what an action is for.
+- **Agents change Swarmed's own configuration through one tool, `configure`** (`configure.rs`),
+  in three kinds. Done at once: prompts, actions that send a prompt, the status line's pieces,
+  appearance. Only proposed: rules, environments, an action's command, the status line's
+  script. These outlive the session, so an agent that read something hostile could plant one;
+  the change is shown in the conversation (`ConfigProposed`) and made when the user accepts it
+  there (`Core::config_answer`), whatever the agent's own permission mode. Not reachable at
+  all: API keys, MCP servers, sign-ins, supervision, notes. Keep it one tool: every tool's
+  description is sent to every agent in every session. A new setting goes into one of the three
+  kinds on purpose; when unsure, propose. An environment's variable values are never told to
+  an agent, only their names. Proposals are held in memory, so one from before a restart has
+  to be asked for again. `ConfigChanged` is published and never stored: it tells front ends to
+  read the settings again.
 - **A mark is a colour and a few words on a session** (`marks.rs`), set by the agent with
   `set_mark`, by `swarmed session mark`, or taken off by pressing it in the sidebar. It says how
   the work stands, in the user's terms; the status says what the agent is doing, and the two

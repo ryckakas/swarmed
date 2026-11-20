@@ -94,6 +94,9 @@ impl SessionStatus {
             AgentEvent::Init { .. }
             | AgentEvent::Renamed { .. }
             | AgentEvent::Marked { .. }
+            | AgentEvent::ConfigProposed { .. }
+            | AgentEvent::ConfigAnswered { .. }
+            | AgentEvent::ConfigChanged { .. }
             | AgentEvent::SupervisionChanged { .. }
             | AgentEvent::Applied { .. }
             | AgentEvent::Suggestion { .. }
@@ -1185,7 +1188,9 @@ impl Live {
         // not part of the conversation.
         let shown_only = matches!(
             event,
-            AgentEvent::TextDelta { .. } | AgentEvent::Queue { .. }
+            AgentEvent::TextDelta { .. }
+                | AgentEvent::Queue { .. }
+                | AgentEvent::ConfigChanged { .. }
         );
         let stored = if shown_only {
             Ok(())

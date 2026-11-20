@@ -49,6 +49,9 @@ from it. You cannot close any other session.
 - `delegate_to_cloud`: hand a self-contained piece of work to an agent in the cloud, when the \
 user wants something delegated or run there. It works on what is pushed to GitHub, not on \
 your worktree, and does not report back to you.
+- `configure`: change Swarmed's own settings when the user asks you to: keep a prompt, add a \
+button, add a rule, change the status line or the colours. Some changes are only proposed, \
+and made when the user accepts them.
 - `set_mark`: put a colour and a few words on your own session in the sidebar, when the user, \
 a skill or a prompt asks for one, such as green once a check has passed. It stays until the \
 user writes to you again.
@@ -328,7 +331,7 @@ impl Core {
                 ))
             }
             "set_mark" => self.peer_mark(from, arguments),
-            "save_action" => self.peer_action(from, arguments),
+            "configure" => self.peer_configure(from, arguments),
             "use_skill" => {
                 let session = self.session(from)?;
                 let worktree = self.task_of(&session)?.worktree_path;
