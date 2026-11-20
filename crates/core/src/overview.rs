@@ -6,6 +6,7 @@ use crate::Core;
 use crate::cloud::CloudTask;
 use crate::error::Result;
 use crate::sessions::Session;
+use crate::stacks::StackState;
 use crate::store::{Project, Task};
 
 /// A project with its tasks.
@@ -32,14 +33,17 @@ pub struct TaskOverview {
     pub sessions: Vec<Session>,
     /// The ids of those sessions whose agent is running.
     pub running: Vec<i64>,
-    /// Where the task's running stack is reached in a browser, if its project says so.
+    /// Where the task's stack is opened in a browser by default: what its project says, or
+    /// the first address the running stack printed.
     pub url: Option<String>,
+    /// Every address the stack can be opened at, `url` first.
+    pub urls: Vec<String>,
     /// Whether the user keeps a note on the task.
     pub has_note: bool,
     /// How many closed sessions the task has, which can be listed and reopened.
     pub closed: usize,
-    /// Whether the task's stack is running; `None` if its project has no `start` command.
-    pub stack: Option<bool>,
+    /// How far along the task's stack is; `None` if its project has no `start` command.
+    pub stack: Option<StackState>,
 }
 
 impl Core {
@@ -71,6 +75,7 @@ impl Core {
                 sessions,
                 running,
                 url: None,
+                urls: Vec::new(),
                 has_note: false,
                 closed: closed.get(&task.id).copied().unwrap_or(0),
                 stack: None,
@@ -106,8 +111,10 @@ impl Core {
         let Ok(config) = self.config_in(&project.name, environment) else {
             return;
         };
-        task.url = self.url_of(project, &config, &task.task).ok().flatten();
-        task.stack = self.stack_state(&config, &task.task);
+        let reach = self.reach(project, &config, &task.task);
+        task.url = reach.urls.first().cloned();
+        task.urls = reach.urls;
+        task.stack = reach.state;
     }
 
     /// Marks the tasks the user keeps a note on.

@@ -22,6 +22,7 @@ import type {
     SessionStatus,
     Settings,
     Skill,
+    StackState,
     Task,
     Template,
     TerminalOutput,
@@ -67,11 +68,12 @@ function task(id: number, projectId: number, name: string, sessions: Session[]):
         sessions,
         running: sessions.filter((s) => s.status !== "idle").map((s) => s.id),
         url: `http://localhost:${3000 + id * 100}`,
+        urls: [`http://localhost:${3000 + id * 100}`],
         has_note: id === 1,
         closed: 0,
         environment: null,
         // One sample task has a dev server to start and stop.
-        stack: id === 1 ? true : null,
+        stack: id === 1 ? "running" : null,
     };
 }
 
@@ -374,17 +376,23 @@ function cloudApi(
 
 /** Starting and stopping what a sample task keeps running. */
 function stackApi(projects: () => Project[]): Pick<Api, "stackStart" | "stackStop" | "stackLog"> {
-    const set = (project: string, name: string, running: boolean) => {
+    const set = (project: string, name: string, state: StackState) => {
         const tasks = projects().find((candidate) => candidate.name === project)?.tasks ?? [];
         const task = tasks.find((candidate) => candidate.name === name);
         if (task && task.stack !== null) {
-            task.stack = running;
+            task.stack = state;
+            // A sample stack takes a moment to answer, as a real one does.
+            if (state === "starting") {
+                setTimeout(() => {
+                    task.stack = task.stack === "starting" ? "running" : task.stack;
+                }, 6000);
+            }
         }
         return task?.stack ?? null;
     };
     return {
-        stackStart: async (project, name) => set(project, name, true) !== null,
-        stackStop: async (project, name) => void set(project, name, false),
+        stackStart: async (project, name) => set(project, name, "starting") !== null,
+        stackStop: async (project, name) => void set(project, name, "stopped"),
         stackLog: async () => "Starting dev server…\nListening on http://localhost:3100\n",
     };
 }

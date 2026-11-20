@@ -389,8 +389,12 @@ code {
     font-size: var(--text-xs);
 }
 
-.stack-state[data-running="true"] {
+.stack-state[data-state="running"] {
     color: var(--moss);
+}
+
+.stack-state[data-state="starting"] {
+    color: var(--pollen);
 }
 
 .stack-log {

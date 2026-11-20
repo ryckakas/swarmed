@@ -238,7 +238,10 @@ function Form({ draft, onChange, onSave, onRemove, onCancel }: FormProps) {
             />
             <label>
                 <span className="settings-label">Address</span>
-                <span className="settings-hint">What "Open in browser" opens for a task.</span>
+                <span className="settings-hint">
+                    What "Open in browser" opens for a task. Left empty, the addresses on this
+                    machine that the stack prints are offered once they answer.
+                </span>
                 <input
                     className="key-input mono"
                     aria-label="Address of the running task"

@@ -35,17 +35,25 @@ export interface Task {
     sessions: Session[];
     /** Ids of the sessions whose agent is running. */
     running: number[];
-    /** Where the task's running stack is reached in a browser, if its project says so. */
+    /** Where the task's stack is opened by default: what its project says, or what it printed. */
     url: string | null;
+    /** Every address the stack can be opened at, `url` first. */
+    urls: string[];
     /** Whether the user keeps a note on the task. */
     has_note: boolean;
     /** How many closed sessions the task has, which can be listed and reopened. */
     closed: number;
     /** The environment of its project the task was set up in, if any. */
     environment: string | null;
-    /** Whether what the task keeps running is up; `null` if its project has no start command. */
-    stack: boolean | null;
+    /** How far along what the task keeps running is; `null` if its project starts nothing. */
+    stack: StackState | null;
 }
+
+/**
+ * A stack whose command runs is "starting" until something answers at its address: it may
+ * still be installing or building what it serves.
+ */
+export type StackState = "stopped" | "starting" | "running";
 
 /** A prompt kept to be sent again. `{{something}}` in its text marks a place to fill in. */
 export interface Template {

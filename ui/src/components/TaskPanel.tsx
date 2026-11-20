@@ -77,16 +77,17 @@ function TaskHead({ project, task }: { project: Project; task: Task }) {
                     onChange={(editor) => void changeSettings(api, { editor })}
                     options={editorChoices(editor)}
                 />
-                {task.url !== null && (
+                {task.urls.map((url) => (
                     <button
+                        key={url}
                         type="button"
                         className="button"
-                        title={`Opens ${task.url}`}
-                        onClick={() => api.taskOpenUrl(project.name, task.name).catch(report)}
+                        title={`Opens ${url}`}
+                        onClick={() => api.openLink(url).catch(report)}
                     >
-                        Open in browser
+                        {browserLabel(url, task.urls.length)}
                     </button>
-                )}
+                ))}
             </div>
             <StackControls project={project.name} task={task} />
             <CompareWith project={project} task={task} />
@@ -94,6 +95,13 @@ function TaskHead({ project, task }: { project: Project; task: Task }) {
             <PullSection project={project.name} task={task} />
         </header>
     );
+}
+
+/** What the button that opens a stack's address says: which address, when there are several. */
+export function browserLabel(url: string, of: number): string {
+    return of > 1
+        ? `Open ${url.replace(/^https?:\/\//, "").replace(/\/$/, "")}`
+        : "Open in browser";
 }
 
 /** Sets this task beside another of the same repository. Nothing without another task. */

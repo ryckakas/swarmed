@@ -31,6 +31,7 @@ mod peers;
 mod publish;
 mod pulls;
 mod queue;
+mod reach;
 mod search;
 pub mod secrets;
 mod sessions;
@@ -82,6 +83,7 @@ pub use sessions::{
 };
 pub use settings::{Palette, Settings, Style, Theme};
 pub use skills::Skill;
+pub use stacks::StackState;
 pub use statusline::StatusItem;
 use store::Store;
 pub use store::{Project, SetupStatus, Task};
