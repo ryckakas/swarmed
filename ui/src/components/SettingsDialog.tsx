@@ -11,6 +11,7 @@ import { CloseIcon, IconButton } from "./IconButton";
 import { McpSettings } from "./McpSettings";
 import { editorChoices, supervisionChoices, TEXT_SCALES, THEMES } from "./options";
 import { Picker } from "./Picker";
+import { SkillsSettings } from "./SkillsSettings";
 import { UsageSettings } from "./UsageSettings";
 
 /** The user's preferences. Every change takes effect, and is saved, at once. */
@@ -126,6 +127,8 @@ function Panel({ tab, settings }: { tab: SettingsTab; settings: Settings }) {
             return <StatusLineSettings settings={settings} />;
         case "agents":
             return <AgentsSettings />;
+        case "skills":
+            return <SkillsSettings />;
         case "mcp":
             return <McpSettings />;
         case "keys":

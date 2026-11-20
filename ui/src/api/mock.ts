@@ -17,6 +17,7 @@ import type {
     SessionEvent,
     SessionStatus,
     Settings,
+    Skill,
     Task,
     TerminalOutput,
     Usage,
@@ -369,6 +370,55 @@ function stackApi(projects: () => Project[]): Pick<Api, "stackStart" | "stackSto
         stackStart: async (project, name) => set(project, name, true) !== null,
         stackStop: async (project, name) => void set(project, name, false),
         stackLog: async () => "Starting dev server…\nListening on http://localhost:3100\n",
+    };
+}
+
+/** Skills: a few of each agent's to look at, and Swarmed's own to fill. */
+function skillApi(): Pick<
+    Api,
+    "skills" | "skillBody" | "skillSave" | "skillRemove" | "skillShare"
+> {
+    const of = (origin: string, name: string, description: string): Skill => ({
+        origin,
+        name,
+        description,
+        folder: `/Users/you/.${origin}/skills/${name}`,
+        shared: true,
+    });
+    let skills: Skill[] = [
+        of("claude", "code-review", "Review a change for correctness and readability."),
+        of("claude", "bug-hunter", "Investigate a defect before proposing a fix."),
+        of("codex", "deploy", "Ship the current branch. Use when the user says deploy."),
+        of("agents", "triage", "Sort incoming bug reports by severity."),
+    ];
+    const bodies = new Map<string, string>();
+    const own = (name: string) => (skill: Skill) =>
+        skill.origin === "swarmed" && skill.name === name;
+    return {
+        skills: async () => skills,
+        skillBody: async (name) => bodies.get(name) ?? "",
+        skillSave: async (name, description, body) => {
+            if (!/^[a-z0-9][a-z0-9._-]*$/.test(name)) {
+                throw new Error(`invalid name \`${name}\``);
+            }
+            bodies.set(name, body);
+            const saved = {
+                ...of("swarmed", name, description.trim()),
+                folder: `/data/skills/${name}`,
+            };
+            skills = [saved, ...skills.filter((skill) => !own(name)(skill))];
+            return skills;
+        },
+        skillRemove: async (name) => {
+            skills = skills.filter((skill) => !own(name)(skill));
+            return skills;
+        },
+        skillShare: async (origin, name, shared) => {
+            skills = skills.map((skill) =>
+                skill.origin === origin && skill.name === name ? { ...skill, shared } : skill,
+            );
+            return skills;
+        },
     };
 }
 
@@ -1017,6 +1067,7 @@ export function createMockApi(): Api {
         // The sample data has no model to ask, so tasks are named after their prompts.
         taskNameFor: async () => null,
         ...environmentApi(),
+        ...skillApi(),
         ...stackApi(() => agent.projects),
         ...cloudApi(() => agent.projects),
         taskNew: async (projectName, name, branch, environment) => {

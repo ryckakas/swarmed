@@ -28,6 +28,7 @@ export const SETTINGS_TABS = [
     ["rules", "Rules"],
     ["status", "Status line"],
     ["agents", "Agents"],
+    ["skills", "Skills"],
     ["mcp", "MCP servers"],
     ["keys", "API keys"],
     ["usage", "Storage and activity"],

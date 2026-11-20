@@ -55,6 +55,13 @@ enum Command {
     /// List a project's environments: the ways a task can be set up in it. They are edited
     /// in the app.
     Environment { project: String },
+    /// List the skills Swarmed knows of, or those a session on AGENT would be offered: the
+    /// ones that agent does not have by itself.
+    Skills {
+        /// An agent's id, such as `claude` or `codex`.
+        #[arg(long)]
+        agent: Option<String>,
+    },
     /// Hand work to an agent in the cloud, or see what was handed over.
     #[command(subcommand)]
     Cloud(CloudCommand),
@@ -282,6 +289,10 @@ async fn run(core: &Core, command: Command) -> Result<()> {
         Command::Note { project, task, set } => note(core, &project, task.as_deref(), set),
         Command::Environment { project } => environments(core, &project),
         Command::Cloud(command) => cloud(core, command).await,
+        Command::Skills { agent } => {
+            skills(core, agent.as_deref());
+            Ok(())
+        }
         Command::Rules { set } => rules(core, set),
     }
 }
@@ -321,6 +332,18 @@ fn note(core: &Core, project: &str, task: Option<&str>, set: bool) -> Result<()>
     }
     say(core.note(project, task)?.trim_end());
     Ok(())
+}
+
+/// One line per skill: whose it is, its name, whether it is shared, and when to use it.
+fn skills(core: &Core, agent: Option<&str>) {
+    let skills = agent.map_or_else(|| core.skills(), |agent| core.skills_offered(agent));
+    for skill in skills {
+        let shared = ["kept back", "shared"][usize::from(skill.shared)];
+        say(&format!(
+            "{}\t{}\t{shared}\t{}",
+            skill.origin, skill.name, skill.description
+        ));
+    }
 }
 
 async fn cloud(core: &Core, command: CloudCommand) -> Result<()> {

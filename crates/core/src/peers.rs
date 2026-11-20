@@ -323,6 +323,10 @@ impl Core {
                     "Closed session {closed}. The user can reopen it from the sidebar."
                 ))
             }
+            "use_skill" => {
+                let agent = self.session(from)?.agent;
+                self.skill_for_session(&agent, word("name").unwrap_or_default())
+            }
             _ => Err(refused(format!("Swarmed has no tool called `{tool}`"))),
         }
     }

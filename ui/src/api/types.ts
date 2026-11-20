@@ -134,6 +134,19 @@ export interface Project {
     cloud: CloudTask[];
 }
 
+/** A set of instructions for one kind of task, kept by an agent or by Swarmed itself. */
+export interface Skill {
+    name: string;
+    /** When to use it, in its own words. */
+    description: string;
+    /** Whose it is: `swarmed`, an agent's id, or `agents` for the folder several agents share. */
+    origin: string;
+    /** The folder it lives in. */
+    folder: string;
+    /** Whether sessions whose agent lacks it are offered it. */
+    shared: boolean;
+}
+
 /** Whose cloud a task can be handed to. */
 export type CloudProvider = "codex" | "claude";
 

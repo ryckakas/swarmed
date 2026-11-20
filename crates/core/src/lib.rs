@@ -29,6 +29,7 @@ mod queue;
 pub mod secrets;
 mod sessions;
 mod settings;
+mod skills;
 mod stacks;
 mod statusline;
 mod store;
@@ -67,6 +68,7 @@ pub use sessions::{
     EVENT_BUFFER, Session, SessionEvent, SessionOptions, SessionSettings, SessionStatus,
 };
 pub use settings::{Palette, Settings, Theme};
+pub use skills::Skill;
 pub use statusline::StatusItem;
 use store::Store;
 pub use store::{Project, SetupStatus, Task};
