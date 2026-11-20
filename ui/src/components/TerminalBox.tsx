@@ -46,7 +46,7 @@ export function TerminalBox({ sessionId }: { sessionId: number }) {
     const opened = useRef<Promise<unknown>>(Promise.resolve());
     useTypedCommand(sessionId, opened);
 
-    // biome-ignore lint/correctness/useExhaustiveDependencies: rebuilt when the theme or text size changes
+    // biome-ignore lint/correctness/useExhaustiveDependencies: rebuilt when the theme, layout or text size changes
     useEffect(() => {
         const element = holder.current;
         if (!element) {
@@ -106,7 +106,7 @@ export function TerminalBox({ sessionId }: { sessionId: number }) {
             void listening.then((stop) => stop());
             terminal.dispose();
         };
-    }, [sessionId, settings?.theme, settings?.text_scale]);
+    }, [sessionId, settings?.theme, settings?.layout, settings?.text_scale]);
 
     return <div className="terminal-box" ref={holder} />;
 }
