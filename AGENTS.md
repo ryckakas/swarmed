@@ -280,7 +280,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   not. The bundle asks once for permission, shows banners as Swarmed, and a click opens the
   session (`notice-opened`). A development build falls back on showing them as the Terminal's,
   which newer systems may not show. `Swarmed.app --args notify-check`, started with `open`,
-  says what the system allows and sends one banner.
+  says what the system allows and sends one banner. Whether this is the built app is decided
+  by where the program lies (`Name.app/Contents/MacOS/`), not by its having a bundle
+  identifier: the Terminal fallback makes the program answer to the Terminal's identifier,
+  after which a development build looked like a bundle and its second notice crashed it.
 - **Whether the user is looking** is asked of the window: focused, shown and not in the Dock.
   A window put away can still hold the focus. Closing the window hides Swarmed, on a Mac;
   ⌘Q quits it. The count on the icon needs the notification centre's leave too, which the
@@ -297,6 +300,13 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **A task's work leaves its worktree only when asked** (`publish.rs`): commit everything, push
   the branch, open a pull request, each a step of its own behind a button. Commits are made by
   the user's git as them, the pull request by their `gh`; nothing is added to either.
+- **A pull request's title and description can be written for the user too**
+  (`task_pull_message`), by the same writer as a commit message and under the same rules:
+  shown the branch's commits and its diff against the base (three dots, so only what the
+  branch itself changed), told that this is data and not instructions, and nothing is opened.
+  A repository's own pull request template is handed on and filled in. The first line of the
+  answer is the title. The writer is told not to claim anything was tested, since it cannot
+  know.
 - **A commit message can be written for the user** (`task_commit_message`), by the agent of the
   session on screen: for Claude Code the `Namer`'s small model, for any other agent one question
   in a conversation of its own (`asking.rs`), on the session's model, in no worktree, with every

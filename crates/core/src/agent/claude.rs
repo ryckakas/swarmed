@@ -17,7 +17,8 @@ use tokio::sync::mpsc;
 
 use super::{
     AgentBackend, AgentCommand, AgentEvent, AgentHandle, Auth, BackgroundState,
-    COMMIT_INSTRUCTIONS, ContextCategory, McpServerInfo, Namer, Naming, SessionSpec, Supervision,
+    COMMIT_INSTRUCTIONS, ContextCategory, McpServerInfo, Namer, Naming, PULL_INSTRUCTIONS,
+    SessionSpec, Supervision,
 };
 use crate::agent_setup::{default_tool_dirs, find_program};
 use crate::error::{Error, Result};
@@ -93,6 +94,11 @@ impl Namer for ClaudeNamer {
 
     fn commit_message(&self, changes: String) -> Naming {
         let command = self.asking(COMMIT_INSTRUCTIONS, &changes);
+        Box::pin(answer(command, COMMIT_TIMEOUT))
+    }
+
+    fn pull_message(&self, branch: String) -> Naming {
+        let command = self.asking(PULL_INSTRUCTIONS, &branch);
         Box::pin(answer(command, COMMIT_TIMEOUT))
     }
 }

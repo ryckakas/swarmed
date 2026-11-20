@@ -1459,6 +1459,13 @@ export function createMockApi(): Api {
             await new Promise((done) => setTimeout(done, 900));
             return "feat: show how long each turn took\n\nThe transcript only said that a turn had ended.";
         },
+        taskPullMessage: async () => {
+            await new Promise((done) => setTimeout(done, 900));
+            return {
+                title: "fix: stop the redirect loop after login",
+                body: "**Logging in no longer loops back to the login page.**\n\n## Problem\n\n`next` could point at `/login` itself.\n\n## Change\n\n- Reject a `next` that leads back to the login page.\n- Fall back to the dashboard.",
+            };
+        },
         taskCommit: async () => undefined,
         taskPush: async () => undefined,
         taskPullDraft: async () => SAMPLE_DRAFT,

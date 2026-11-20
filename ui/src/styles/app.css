@@ -289,6 +289,13 @@ code {
     field-sizing: content;
 }
 
+/* The title leaves room for the button that writes it. */
+.publish-title-input {
+    flex: 1;
+    min-width: 0;
+    padding-right: 28px;
+}
+
 /* The message over its button: side by side, a written message has no room in the panel. */
 .publish-commit {
     flex-direction: column;
@@ -407,8 +414,40 @@ code {
     color: var(--moss);
 }
 
+/* The line that sums the checks up is what folds their list away and brings it back. */
+.pull-summary-fold {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    font-size: var(--text-sm);
+    text-align: left;
+}
+
+.pull-fold-chevron {
+    flex: none;
+    width: 9px;
+    height: 9px;
+    fill: none;
+    stroke: currentcolor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.pull-fold-chevron[data-open="true"] {
+    transform: rotate(90deg);
+}
+
+/* A long list of checks scrolls in a space of its own: about eight of them show at once. */
 .pull-checks {
     align-self: stretch;
+    max-height: 13lh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 .pull-check {

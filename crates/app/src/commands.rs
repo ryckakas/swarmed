@@ -488,6 +488,18 @@ pub(crate) async fn task_commit_message(
     Ok(core.task_commit_message(&project, &name, session).await?)
 }
 
+/// A title and description for a task's pull request, written from its branch, for the user
+/// to read and change.
+#[tauri::command]
+pub(crate) async fn task_pull_message(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+    session: Option<i64>,
+) -> Command<PullDraft> {
+    Ok(core.task_pull_message(&project, &name, session).await?)
+}
+
 /// Commits everything in a task's worktree under `message`.
 #[tauri::command]
 pub(crate) async fn task_commit(

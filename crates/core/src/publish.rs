@@ -9,7 +9,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
-use crate::agent::{COMMIT_INSTRUCTIONS, Effort, SessionSpec, Supervision};
+use crate::agent::{COMMIT_INSTRUCTIONS, Effort, PULL_INSTRUCTIONS, SessionSpec, Supervision};
 use crate::agent_setup::find_program;
 use crate::agents::CLAUDE;
 use crate::error::Error;
@@ -122,6 +122,53 @@ fn message_of(answer: &str) -> String {
     text.trim().trim_matches(['"', '`']).trim().to_string()
 }
 
+/// The most of a repository's pull request template that is handed on, in characters.
+const MAX_TEMPLATE: usize = 4_000;
+
+/// Where GitHub looks for a repository's pull request template.
+const PULL_TEMPLATES: [&str; 3] = [
+    ".github/pull_request_template.md",
+    ".github/PULL_REQUEST_TEMPLATE.md",
+    "docs/pull_request_template.md",
+];
+
+/// The repository's own template for pull requests, if it has one.
+fn pull_template(worktree: &Path) -> Option<String> {
+    let found = PULL_TEMPLATES
+        .iter()
+        .find_map(|path| std::fs::read_to_string(worktree.join(path)).ok())?;
+    let template: String = found.chars().take(MAX_TEMPLATE).collect();
+    (!template.trim().is_empty()).then_some(template)
+}
+
+/// What a pull request is written from: the branch's commits, the files it touches, its diff
+/// cut short if it is long, and the repository's template if it has one.
+fn branch_for_message(log: &str, stat: &str, diff: &str, template: Option<&str>) -> String {
+    let shown: String = diff.chars().take(MAX_DIFF).collect();
+    let cut = if shown.len() < diff.len() {
+        "\n[The rest of the diff is left out.]"
+    } else {
+        ""
+    };
+    let template = template.map_or_else(String::new, |template| {
+        format!("\n\nThe repository's pull request template:\n{template}")
+    });
+    format!(
+        "The commits, oldest first:\n{log}\n\nFiles changed:\n{stat}\n\ngit diff:\n{shown}{cut}{template}"
+    )
+}
+
+/// A model's answer as a pull request: its first line is the title, the rest the description.
+fn draft_of(answer: &str) -> Option<PullDraft> {
+    let message = message_of(answer);
+    let (title, body) = message.split_once('\n').unwrap_or((&message, ""));
+    let title = title.trim().trim_start_matches('#').trim();
+    (!title.is_empty()).then(|| PullDraft {
+        title: title.to_string(),
+        body: body.trim().to_string(),
+    })
+}
+
 /// The branch a pull request goes into: the task's base without its remote's name.
 fn base_branch(base_ref: &str) -> &str {
     base_ref.strip_prefix("origin/").unwrap_or(base_ref)
@@ -181,7 +228,10 @@ impl Core {
         let changes = changes_for_message(&status, &diff);
         let writer = session.map(|id| self.session(id)).transpose()?;
         let answer = match writer.filter(|session| session.agent != CLAUDE) {
-            Some(session) => self.ask_for_message(&session, changes).await?,
+            Some(session) => {
+                self.ask_for_message(&session, COMMIT_INSTRUCTIONS, &changes)
+                    .await?
+            }
             None => self.name_message(changes).await?,
         };
         let message = answer.map(|answer| message_of(&answer));
@@ -200,7 +250,12 @@ impl Core {
     /// Has the agent of `session` write the message, on the session's model, in a
     /// conversation that has nothing to do with the session's own: in no worktree, with no
     /// tools allowed and none of Swarmed's servers.
-    async fn ask_for_message(&self, session: &Session, changes: String) -> Result<Option<String>> {
+    async fn ask_for_message(
+        &self,
+        session: &Session,
+        instructions: &str,
+        changes: &str,
+    ) -> Result<Option<String>> {
         let backend = self.agents_now().backend(&session.agent)?;
         let spec = SessionSpec {
             cwd: std::env::temp_dir(),
@@ -210,7 +265,7 @@ impl Core {
             env: self.key_env()?,
             ..SessionSpec::default()
         };
-        let question = format!("{COMMIT_INSTRUCTIONS}\n\n<changes>\n{changes}\n</changes>");
+        let question = format!("{instructions}\n\n<changes>\n{changes}\n</changes>");
         Ok(asking::ask(backend, spec, question, ASKING_TIMEOUT).await)
     }
 
@@ -229,6 +284,48 @@ impl Core {
         let log = ["log", "--reverse", "--format=%s%x1f%b%x1e", &range];
         let log = git::git(&task.worktree_path, &log).await?;
         Ok(draft_from(&commits_in(&log), &task.name))
+    }
+
+    /// A title and a description for the task's pull request, written from its commits and
+    /// from what the branch changes against its base, for the user to read and change before
+    /// anything is opened. Written by the agent of `session` on that session's model, in a
+    /// conversation of its own; for a session on Claude Code, or without one, by the small
+    /// model that titles sessions. A repository's own pull request template is filled in.
+    pub async fn task_pull_message(
+        &self,
+        project: &str,
+        name: &str,
+        session: Option<i64>,
+    ) -> Result<PullDraft> {
+        let (_, task) = self.task(project, name)?;
+        let worktree = &task.worktree_path;
+        let range = format!("{}..HEAD", task.base_ref);
+        let log = ["log", "--reverse", "--format=%s%n%b", &range];
+        let log = git::git(worktree, &log).await?;
+        if log.trim().is_empty() {
+            return Err(refused(
+                "there is nothing to describe yet: the branch has no commits of its own",
+            ));
+        }
+        // Three dots: what the branch itself changed, not what its base has moved on by.
+        let against = format!("{}...HEAD", task.base_ref);
+        let stat = git::git(worktree, &["diff", "--stat", &against]).await?;
+        let diff = git::git(worktree, &["diff", &against]).await?;
+        let template = pull_template(worktree);
+        let branch = branch_for_message(&log, &stat, &diff, template.as_deref());
+        let writer = session.map(|id| self.session(id)).transpose()?;
+        let answer = if let Some(session) = writer.filter(|session| session.agent != CLAUDE) {
+            self.ask_for_message(&session, PULL_INSTRUCTIONS, &branch)
+                .await?
+        } else {
+            let namer = self.namer.clone();
+            let namer = namer.ok_or_else(|| refused("nothing here can write a pull request"))?;
+            namer.pull_message(branch).await
+        };
+        answer
+            .as_deref()
+            .and_then(draft_of)
+            .ok_or_else(|| refused("no pull request text came back: is the agent signed in?"))
     }
 
     /// Opens a pull request for a task's branch into its base, with the user's own `gh`. The

@@ -252,6 +252,16 @@ enum TaskCommand {
         #[arg(long)]
         session: Option<i64>,
     },
+    /// Print a pull request title and description written for the task's branch. Opens
+    /// nothing.
+    PrMessage {
+        project: String,
+        name: String,
+        /// Have this session's agent write it, on the session's model. Without it, and for a
+        /// session on Claude Code, Claude Code's smallest model writes.
+        #[arg(long)]
+        session: Option<i64>,
+    },
     /// Push the task's branch to its remote.
     Push { project: String, name: String },
     /// Open a pull request for the task's branch. Without a title, the task's commits give
@@ -814,7 +824,32 @@ async fn project(core: &Core, command: ProjectCommand) -> Result<()> {
     Ok(())
 }
 
+/// Prints a commit message or a pull request written for a task, if that is what `command`
+/// asks for; else hands the command back.
+async fn written(core: &Core, command: TaskCommand) -> Result<Option<TaskCommand>> {
+    match command {
+        TaskCommand::CommitMessage {
+            project,
+            name,
+            session,
+        } => say(&core.task_commit_message(&project, &name, session).await?),
+        TaskCommand::PrMessage {
+            project,
+            name,
+            session,
+        } => {
+            let draft = core.task_pull_message(&project, &name, session).await?;
+            say(&format!("{}\n\n{}", draft.title, draft.body));
+        }
+        other => return Ok(Some(other)),
+    }
+    Ok(None)
+}
+
 async fn task(core: &Core, command: TaskCommand) -> Result<()> {
+    let Some(command) = written(core, command).await? else {
+        return Ok(());
+    };
     match command {
         TaskCommand::Name { project, prompt } => {
             let naming = core.task_name_for(&project, &prompt).await?;
@@ -873,13 +908,7 @@ async fn task(core: &Core, command: TaskCommand) -> Result<()> {
             name,
             message,
         } => commit(core, &project, &name, &message).await?,
-        TaskCommand::CommitMessage {
-            project,
-            name,
-            session,
-        } => {
-            say(&core.task_commit_message(&project, &name, session).await?);
-        }
+        TaskCommand::CommitMessage { .. } | TaskCommand::PrMessage { .. } => {}
         TaskCommand::Push { project, name } => {
             core.task_push(&project, &name).await?;
             say("pushed");

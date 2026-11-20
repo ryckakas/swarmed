@@ -173,6 +173,8 @@ export interface Api {
      * without one or for Claude Code, by Claude Code's smallest model. Commits nothing.
      */
     taskCommitMessage(project: string, name: string, session: number | null): Promise<string>;
+    /** A title and description written for the task's pull request. Opens nothing. */
+    taskPullMessage(project: string, name: string, session: number | null): Promise<PullDraft>;
     /** Commits everything in a task's worktree under `message`. */
     taskCommit(project: string, name: string, message: string): Promise<void>;
     /** Pushes a task's branch to its remote. */
