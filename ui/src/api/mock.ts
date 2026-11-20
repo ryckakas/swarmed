@@ -1366,6 +1366,10 @@ export function createMockApi(): Api {
             return created;
         },
         taskUnpublished: sampleUnpublished,
+        taskCommitMessage: async () => {
+            await new Promise((done) => setTimeout(done, 900));
+            return "feat: show how long each turn took\n\nThe transcript only said that a turn had ended.";
+        },
         taskCommit: async () => undefined,
         taskPush: async () => undefined,
         taskPullDraft: async () => SAMPLE_DRAFT,

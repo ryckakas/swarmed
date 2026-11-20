@@ -429,6 +429,16 @@ pub(crate) async fn task_unpublished(
     Ok(core.task_unpublished(&project, &name).await?)
 }
 
+/// A commit message for a task's uncommitted work, for the user to read and change.
+#[tauri::command]
+pub(crate) async fn task_commit_message(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+) -> Command<String> {
+    Ok(core.task_commit_message(&project, &name).await?)
+}
+
 /// Commits everything in a task's worktree under `message`.
 #[tauri::command]
 pub(crate) async fn task_commit(

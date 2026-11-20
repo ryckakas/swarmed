@@ -145,7 +145,7 @@ code {
     flex: none;
     white-space: nowrap;
     margin-left: var(--space-2);
-    color: var(--sky);
+    color: var(--fresh);
     font-size: var(--text-xs);
     font-weight: 600;
     pointer-events: none;
@@ -252,6 +252,14 @@ code {
     flex-direction: column;
 }
 
+.cloud-providers {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--muted);
+    font-size: var(--text-sm);
+}
+
 .publish-input {
     flex: 1;
     min-width: 0;
@@ -263,6 +271,78 @@ code {
     font: inherit;
     font-size: var(--text-sm);
     resize: vertical;
+}
+
+/* The commit box, with the button that has its message written inside it, at the right. */
+.publish-message {
+    position: relative;
+    flex: 1;
+    display: flex;
+    min-width: 0;
+}
+
+/* As tall as its message, where the webview can do that, and never taller than the panel bears. */
+.publish-message-input {
+    max-height: 12lh;
+    padding-right: 28px;
+    resize: none;
+    field-sizing: content;
+}
+
+/* The message over its button: side by side, a written message has no room in the panel. */
+.publish-commit {
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+.publish-commit .publish-message {
+    align-self: stretch;
+    flex: none;
+}
+
+.publish-write {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    border-radius: 5px;
+    background: none;
+    color: var(--faint);
+}
+
+.publish-write-mark {
+    width: 14px;
+    height: 14px;
+    fill: currentcolor;
+}
+
+.publish-write:hover:not(:disabled),
+.publish-write:focus-visible {
+    background: var(--raised);
+    color: var(--sky);
+}
+
+.publish-write-mark[data-writing="true"] {
+    animation: publish-writing 1.2s ease-in-out infinite;
+}
+
+@keyframes publish-writing {
+    50% {
+        opacity: 0.25;
+        scale: 0.8;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .publish-write-mark[data-writing="true"] {
+        animation: none;
+        opacity: 0.4;
+    }
 }
 
 .publish-draft {
@@ -1387,8 +1467,8 @@ code {
 /* Answered and not looked at yet: filled, where merely idle is hollow. */
 .mark-unread {
     border-radius: 50%;
-    background: var(--sky);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--sky) 22%, transparent);
+    background: var(--fresh);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--fresh) 22%, transparent);
 }
 
 .mark-working {
@@ -1487,8 +1567,8 @@ code {
 }
 
 .larva-unread {
-    color: var(--sky);
-    filter: drop-shadow(0 0 2px var(--sky));
+    color: var(--fresh);
+    filter: drop-shadow(0 0 2px var(--fresh));
 }
 
 /* The moment it hatched: one flash, never repeated. */
@@ -1514,12 +1594,12 @@ code {
 @keyframes hatch {
     0% {
         transform: scale(0.4);
-        filter: drop-shadow(0 0 0 var(--sky)) brightness(2);
+        filter: drop-shadow(0 0 0 var(--fresh)) brightness(2);
     }
 
     45% {
         transform: scale(1.7);
-        filter: drop-shadow(0 0 6px var(--sky)) brightness(1.6);
+        filter: drop-shadow(0 0 6px var(--fresh)) brightness(1.6);
     }
 }
 

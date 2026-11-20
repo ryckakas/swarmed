@@ -321,6 +321,11 @@ impl Namer for FixedNamer {
             Some(title)
         })
     }
+
+    fn commit_message(&self, changes: String) -> Naming {
+        // What it was shown, so that a test can see it.
+        Box::pin(async move { Some(format!("```\nfeat: written\n\n{changes}\n```")) })
+    }
 }
 
 /// Skips ahead to the next change of title.
@@ -916,6 +921,32 @@ async fn a_stopped_turn_leaves_the_queue_for_the_user_to_send() {
         Err(Error::SessionNotRunning(_))
     ));
     assert_eq!(core.session_queue(session.id).expect("reads").len(), 1);
+}
+
+#[tokio::test]
+async fn a_commit_message_is_written_from_what_changed_and_commits_nothing() {
+    let fx = fixture();
+    let mut core = core_with_task(&fx).await;
+    let worktree = core.task("demo", "one").expect("exists").1.worktree_path;
+    // Nothing changed, then nothing to write about; and nobody to write.
+    assert!(core.task_commit_message("demo", "one").await.is_err());
+    std::fs::write(worktree.join("notes.txt"), "one\n").expect("writes");
+    assert!(core.task_commit_message("demo", "one").await.is_err());
+
+    core.set_namer(Arc::new(FixedNamer("unused")));
+    let message = core
+        .task_commit_message("demo", "one")
+        .await
+        .expect("writes");
+    // The fence is gone, and the model was shown the new file.
+    assert!(
+        message.starts_with("feat: written\n\ngit status"),
+        "{message}"
+    );
+    assert!(message.contains("?? notes.txt"), "{message}");
+    assert!(message.contains("new file notes.txt:\none"), "{message}");
+    let left = core.task_unpublished("demo", "one").await.expect("reads");
+    assert_eq!((left.changed, left.unpushed), (1, 0));
 }
 
 #[tokio::test]

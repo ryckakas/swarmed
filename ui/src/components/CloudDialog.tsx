@@ -63,21 +63,24 @@ function Delegate({ target }: { target: NoteTarget }) {
                 not see what is only on this Mac, and it carries on when Swarmed is closed. You
                 follow it at {name}.
             </p>
-            <fieldset className="cloud-providers">
-                <legend>Whose cloud</legend>
-                {CLOUD_PROVIDERS.map(([id, label]) => (
-                    <label key={id}>
-                        <input
-                            type="radio"
-                            name="cloud-provider"
-                            checked={provider === id}
-                            disabled={sending}
-                            onChange={() => setProvider(id)}
-                        />
-                        {label}
-                    </label>
-                ))}
-            </fieldset>
+            <label className="cloud-providers">
+                Whose cloud
+                <select
+                    className="picker"
+                    value={provider}
+                    disabled={sending}
+                    onChange={(event) => {
+                        const chosen = CLOUD_PROVIDERS.find(([id]) => id === event.target.value);
+                        setProvider(chosen?.[0] ?? provider);
+                    }}
+                >
+                    {CLOUD_PROVIDERS.map(([id, label]) => (
+                        <option key={id} value={id}>
+                            {label}
+                        </option>
+                    ))}
+                </select>
+            </label>
             <p className="settings-hint">{PROVIDER_NOTES[provider]}</p>
             <textarea
                 className="note-text"

@@ -175,6 +175,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
             commands::open_link,
             commands::task_unpublished,
             commands::task_commit,
+            commands::task_commit_message,
             commands::task_push,
             commands::task_pull_draft,
             commands::task_pull_create,
