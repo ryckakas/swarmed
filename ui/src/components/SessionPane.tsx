@@ -8,7 +8,7 @@ import { NewTask } from "./NewTask";
 import { ProviderMark } from "./ProviderMark";
 import { SessionTitle } from "./SessionTitle";
 import { StatusLine } from "./StatusLine";
-import { StatusMark, statusLabel } from "./StatusMark";
+import { StatusMark, useStatusLabel } from "./StatusMark";
 import { Transcript } from "./Transcript";
 
 const SUPERVISION = {
@@ -59,10 +59,7 @@ export function SessionPane() {
                 </p>
                 <SessionTitle key={session.id} session={session} />
                 <div className="session-meta">
-                    <p className={`session-status status-${session.status}`}>
-                        <StatusMark status={session.status} unread={session.unread} />
-                        {statusLabel(session.status, session.unread)}
-                    </p>
+                    <StatusWords session={session} />
                     <p className="session-agent">
                         <ProviderMark icon={iconForAgent(session.agent)} />
                         {agentName(session.agent)}
@@ -106,5 +103,16 @@ function Facts({ session, task }: { session: Session; task: Task }) {
                 <dd>{session.model ?? "Claude Code's default"}</dd>
             </dl>
         </div>
+    );
+}
+
+/** The session's status in a mark and in words, which always say the same. */
+function StatusWords({ session }: { session: Session }) {
+    const status = useStatusLabel(session.status, session.unread);
+    return (
+        <p className={`session-status status-${session.status}`}>
+            <StatusMark status={session.status} unread={session.unread} label={status} />
+            {status}
+        </p>
     );
 }

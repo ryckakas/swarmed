@@ -18,7 +18,7 @@ export function Sidebar() {
     const showSettings = useStore((state) => state.showSettings);
     const waiting = countWaiting(projects);
     const unread = countUnread(projects);
-    const words = useStore((state) => wordsFor(state.settings?.palette));
+    const words = useStore((state) => wordsFor(state.settings?.style));
 
     return (
         <nav className="sidebar" aria-label="Projects, tasks and sessions" onKeyDown={moveFocus}>
@@ -145,7 +145,7 @@ function ProjectGroup({ project }: { project: Project }) {
 }
 
 function TaskGroup({ project, task }: { project: string; task: Task }) {
-    const words = useStore((state) => wordsFor(state.settings?.palette));
+    const words = useStore((state) => wordsFor(state.settings?.style));
     return (
         <div className="task">
             <div className="row-head">

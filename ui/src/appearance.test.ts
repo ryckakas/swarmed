@@ -16,22 +16,27 @@ describe("rootFontSize", () => {
 
 describe("applyAppearance", () => {
     const page = () => ({ dataset: {}, style: {} }) as unknown as HTMLElement;
-    const settings = { theme: "dark", palette: "plum", text_scale: 110 } as Settings;
+    const settings = {
+        theme: "dark",
+        palette: "plum",
+        style: "plain",
+        text_scale: 110,
+    } as Settings;
 
     it("puts the theme, the palette and the text size on the page", () => {
         const root = page();
         applyAppearance(root, settings);
-        expect(root.dataset).toEqual({ theme: "dark", palette: "plum" });
+        expect(root.dataset).toEqual({ theme: "dark", palette: "plum", style: "plain" });
         expect(root.style.fontSize).toBe("110%");
         // The system's choice is the absence of a theme, and the palette still applies.
         applyAppearance(root, { ...settings, theme: "system", palette: "forest" });
-        expect(root.dataset).toEqual({ palette: "forest" });
+        expect(root.dataset).toEqual({ palette: "forest", style: "plain" });
     });
 
     it("draws in the first palette until the settings are read", () => {
         const root = page();
         applyAppearance(root, null);
-        expect(root.dataset).toEqual({ palette: "swarm" });
+        expect(root.dataset).toEqual({ palette: "swarm", style: "swarm" });
         expect(PALETTES[0]?.[0]).toBe("swarm");
     });
 });

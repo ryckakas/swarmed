@@ -1,7 +1,7 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import type { Settings, Supervision, Theme } from "../api/types";
-import { PALETTES } from "../appearance";
+import type { Settings, Style, Supervision, Theme } from "../api/types";
+import { PALETTES, STYLES } from "../appearance";
 import { keyCaps, LOCAL_HOTKEYS, listedHotkeys } from "../hotkeys";
 import { STATUS_ITEM_LABELS, STATUS_ITEMS, withItem } from "../statusline";
 import { SETTINGS_TABS, type SettingsTab, useStore } from "../store";
@@ -175,6 +175,17 @@ function Appearance({ settings }: { settings: Settings }) {
                         </button>
                     ))}
                 </div>
+            </Row>
+            <Row
+                label="Icons and words"
+                hint="Swarm draws sessions as eggs and larvae: dormant, mutating, hatched. Works with any palette."
+            >
+                <Picker
+                    label="Icons and words"
+                    value={settings.style}
+                    onChange={(style) => void change(api, { style: style as Style })}
+                    options={STYLES}
+                />
             </Row>
             <Row label="Text size">
                 <Picker

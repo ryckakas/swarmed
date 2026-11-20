@@ -1050,30 +1050,92 @@ code {
 }
 
 /*
- * Swarm: sessions as pods. Dormant when idle, pulsing while an agent works, split open once it
- * has answered and nobody has looked. Needing you and having failed keep their own shapes.
+ * The swarm's marks. A dormant session is a sac on its roots; a working one a grub that crawls;
+ * one that has hatched an answer the same grub, glowing. Needing you and having failed keep the
+ * shapes above.
  */
-:root[data-palette="swarm"] .mark-idle,
-:root[data-palette="swarm"] .mark-working,
-:root[data-palette="swarm"] .mark-unread {
-    width: 7px;
-    height: 9px;
-    border-radius: 50% 50% 50% 50% / 38% 38% 62% 62%;
+.egg,
+.larva {
+    flex: none;
+    overflow: visible;
+    fill: none;
+    stroke: currentcolor;
+    stroke-linecap: round;
 }
 
-:root[data-palette="swarm"] .mark-working {
-    animation-name: pod;
+/* As wide, with its margins, as the grub, so the titles beside them line up. */
+.egg {
+    width: 10px;
+    height: 12px;
+    margin: 0 3px;
+    color: var(--faint);
+    stroke-width: 1.1;
 }
 
-:root[data-palette="swarm"] .mark-unread {
-    clip-path: polygon(0 0, 30% 0, 50% 38%, 70% 0, 100% 0, 100% 100%, 0 100%);
+.egg-sac {
+    fill: currentcolor;
+    stroke: none;
 }
 
-@keyframes pod {
-    50% {
-        opacity: 0.45;
-        transform: scale(1.25, 1.12);
+.larva {
+    width: 16px;
+    height: 10px;
+    stroke-width: 1;
+}
+
+.larva circle {
+    fill: currentcolor;
+    stroke: none;
+}
+
+.larva-working {
+    color: var(--moss);
+}
+
+/* A wave from tail to head, one segment after the other, the pincers last. */
+.larva-working circle,
+.larva-working path {
+    animation: larva-crawl 1.1s ease-in-out infinite;
+}
+
+.larva-working circle:nth-of-type(2) {
+    animation-delay: 0.11s;
+}
+
+.larva-working circle:nth-of-type(3) {
+    animation-delay: 0.22s;
+}
+
+.larva-working circle:nth-of-type(4),
+.larva-working path {
+    animation-delay: 0.33s;
+}
+
+.larva-unread {
+    color: var(--sky);
+    filter: drop-shadow(0 0 2px var(--sky));
+}
+
+@keyframes larva-crawl {
+    30% {
+        translate: 0 -1.3px;
     }
+
+    60% {
+        translate: 0 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .larva-working circle,
+    .larva-working path {
+        animation: none;
+    }
+}
+
+/* Beside eggs and grubs, the two plain shapes take the same room, so titles line up. */
+:root[data-style="swarm"] .session-row .mark {
+    margin: 0 4px;
 }
 
 /* Swarm: a faint web of veins under the tree, more felt than seen. */

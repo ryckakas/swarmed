@@ -67,7 +67,7 @@ use sessions::Live;
 pub use sessions::{
     EVENT_BUFFER, Session, SessionEvent, SessionOptions, SessionSettings, SessionStatus,
 };
-pub use settings::{Palette, Settings, Theme};
+pub use settings::{Palette, Settings, Style, Theme};
 pub use skills::Skill;
 pub use statusline::StatusItem;
 use store::Store;
