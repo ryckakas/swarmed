@@ -117,6 +117,12 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **Keyboard shortcuts are one table** (`ui/src/hotkeys.ts`), matched in `useHotkeys.ts` and
   listed in Settings from the same table. A new action gets its shortcut there, not a key
   handler of its own. Combinations macOS or the window already use are not taken.
+- **A layout is a setting apart from palette and style** (`Settings::layout`, `data-layout` on
+  the root). Classic is what `app.css` draws; `layouts.css` holds only what senior changes:
+  the text and spacing tokens, quiet colours mixed from the palette's own, and fixed-size icons
+  enlarged with `zoom` rather than given second sizes. Size new things with the tokens and they
+  follow; a new fixed-size icon goes into the `zoom` lists there. Each layout remembers its own
+  sidebar width (`sidebarOf`).
 - **Check UI changes in a browser** with `pnpm dev`. The mock agent answers plain text, asks
   permission for `run: <command>`, and runs until stopped for `slow`; one sample session has
   2,000 messages for checking scroll speed.

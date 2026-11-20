@@ -400,6 +400,9 @@ impl Core {
         if let Some(style) = asked.choice("style")? {
             settings.style = style;
         }
+        if let Some(layout) = asked.choice("layout")? {
+            settings.layout = layout;
+        }
         if let Some(scale) = asked.choice("text_size")? {
             settings.text_scale = scale;
         }
@@ -520,9 +523,11 @@ fn appearance_of(settings: &Settings) -> String {
     let theme = word(serde_json::to_value(settings.theme).unwrap_or_default());
     let palette = word(serde_json::to_value(settings.palette).unwrap_or_default());
     let style = word(serde_json::to_value(settings.style).unwrap_or_default());
+    let layout = word(serde_json::to_value(settings.layout).unwrap_or_default());
     format!(
         "theme {theme} (system, dark, light); palette {palette} (dusk, graphite, forest, plum, \
-         ember, swarm); style {style} (plain, swarm, colony); text_size {} (80 to 150)",
+         ember, swarm); style {style} (plain, swarm, colony); layout {layout} (classic, senior); \
+         text_size {} (80 to 150)",
         settings.text_scale
     )
 }

@@ -1,5 +1,7 @@
 // Widths of the panels a user can drag wider or narrower. Pure, so it can be tested.
 
+import type { Layout } from "./api/types";
+
 export interface WidthLimits {
     /** The width a panel has until the user changes it, and after a double click. */
     initial: number;
@@ -8,6 +10,25 @@ export interface WidthLimits {
 }
 
 export const SIDEBAR_WIDTH: WidthLimits = { initial: 272, min: 200, max: 560 };
+
+/** The senior layout's sidebar: its larger rows need more room to show the same names. */
+export const SENIOR_SIDEBAR_WIDTH: WidthLimits = { initial: 348, min: 264, max: 640 };
+
+/** A panel whose width is remembered: under which name, and within which limits. */
+export interface StoredPanel {
+    key: string;
+    limits: WidthLimits;
+}
+
+/**
+ * The sidebar of a layout. Each layout remembers its own width, so that going back to one
+ * finds the sidebar as it was left there.
+ */
+export function sidebarOf(layout: Layout | undefined): StoredPanel {
+    return layout === "senior"
+        ? { key: "swarmed.sidebar-width.senior", limits: SENIOR_SIDEBAR_WIDTH }
+        : { key: "swarmed.sidebar-width", limits: SIDEBAR_WIDTH };
+}
 
 /**
  * The task panel may be dragged very wide, for reading diffs; the stylesheet stops it where the

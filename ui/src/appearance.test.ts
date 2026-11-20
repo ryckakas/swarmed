@@ -20,17 +20,23 @@ describe("applyAppearance", () => {
         theme: "dark",
         palette: "plum",
         style: "plain",
+        layout: "senior",
         text_scale: 110,
     } as Settings;
 
     it("puts the theme, the palette and the text size on the page", () => {
         const root = page();
         applyAppearance(root, settings);
-        expect(root.dataset).toEqual({ theme: "dark", palette: "plum", style: "plain" });
+        expect(root.dataset).toEqual({
+            theme: "dark",
+            palette: "plum",
+            style: "plain",
+            layout: "senior",
+        });
         expect(root.style.fontSize).toBe("110%");
         // The system's choice is the absence of a theme, and the palette still applies.
         applyAppearance(root, { ...settings, theme: "system", palette: "forest" });
-        expect(root.dataset).toEqual({ palette: "forest", style: "plain" });
+        expect(root.dataset).toEqual({ palette: "forest", style: "plain", layout: "senior" });
     });
 
     it("draws the swarm's icons for both of its styles", () => {
@@ -45,7 +51,7 @@ describe("applyAppearance", () => {
     it("draws in the first palette until the settings are read", () => {
         const root = page();
         applyAppearance(root, null);
-        expect(root.dataset).toEqual({ palette: "swarm", style: "swarm" });
+        expect(root.dataset).toEqual({ palette: "swarm", style: "swarm", layout: "classic" });
         expect(PALETTES[0]?.[0]).toBe("swarm");
     });
 });

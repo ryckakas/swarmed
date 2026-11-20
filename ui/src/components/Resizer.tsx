@@ -3,7 +3,9 @@ import { clampWidth, type WidthLimits, widthAfterKey } from "../resize";
 
 /** A panel's width, remembered on this machine under `key`. */
 export function useStoredWidth(key: string, limits: WidthLimits) {
-    const [width, setWidth] = useState(() => clampWidth(Number(read(key)), limits));
+    const [held, setHeld] = useState(() => ({ key, width: clampWidth(Number(read(key)), limits) }));
+    // Another name is another width: read where it was left, and held from the first change on.
+    const width = held.key === key ? held.width : clampWidth(Number(read(key)), limits);
     useEffect(() => {
         try {
             localStorage.setItem(key, String(width));
@@ -11,7 +13,8 @@ export function useStoredWidth(key: string, limits: WidthLimits) {
             // Without storage the width just lasts until the window closes.
         }
     }, [key, width]);
-    return [width, (wanted: number) => setWidth(clampWidth(wanted, limits))] as const;
+    const change = (wanted: number) => setHeld({ key, width: clampWidth(wanted, limits) });
+    return [width, change] as const;
 }
 
 function read(key: string): string | null {

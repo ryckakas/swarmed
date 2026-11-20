@@ -4,7 +4,9 @@ import {
     KEY_STEP,
     MIN_MAIN_WIDTH,
     PANEL_WIDTH,
+    SENIOR_SIDEBAR_WIDTH,
     SIDEBAR_WIDTH,
+    sidebarOf,
     widestPanel,
     widthAfterKey,
 } from "./resize";
@@ -43,5 +45,20 @@ describe("widestPanel", () => {
 
     it("never goes below the panel's own minimum in a small window", () => {
         expect(widestPanel(700, 300)).toBe(PANEL_WIDTH.min);
+    });
+});
+
+describe("sidebarOf", () => {
+    it("gives each layout its own remembered width", () => {
+        expect(sidebarOf("classic")).toEqual({
+            key: "swarmed.sidebar-width",
+            limits: SIDEBAR_WIDTH,
+        });
+        expect(sidebarOf("senior").limits).toBe(SENIOR_SIDEBAR_WIDTH);
+        expect(sidebarOf("senior").key).not.toBe(sidebarOf("classic").key);
+    });
+
+    it("is the classic one until the settings are read", () => {
+        expect(sidebarOf(undefined)).toEqual(sidebarOf("classic"));
     });
 });

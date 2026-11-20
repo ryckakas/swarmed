@@ -1,4 +1,4 @@
-import type { Palette, Settings, Style } from "./api/types";
+import type { Layout, Palette, Settings, Style } from "./api/types";
 
 // How the user's appearance settings reach the page. The stylesheet does the rest.
 
@@ -36,8 +36,17 @@ export function isSwarm(style: Style | undefined): boolean {
     return (style ?? DEFAULT_STYLE) !== "plain";
 }
 
+/** The layouts on offer, with the names to show and what each is for. */
+export const LAYOUTS: [Layout, string, string][] = [
+    ["classic", "Classic", "Dense, with small text: the most sessions in view."],
+    ["senior", "Senior", "Larger text, taller rows, larger buttons, stronger contrast."],
+];
+
+/** The layout the app is drawn in until the user chooses another. */
+export const DEFAULT_LAYOUT: Layout = "classic";
+
 /**
- * Puts the theme, the palette, the style and the text size on the page. Before the settings are read, the
+ * Puts the theme, the palette, the style, the layout and the text size on the page. Before the settings are read, the
  * defaults.
  */
 export function applyAppearance(root: HTMLElement, settings: Settings | null) {
@@ -50,5 +59,6 @@ export function applyAppearance(root: HTMLElement, settings: Settings | null) {
     root.dataset.palette = settings?.palette ?? DEFAULT_PALETTE;
     // The stylesheet knows two: the renamed tree only changes words.
     root.dataset.style = isSwarm(settings?.style) ? "swarm" : "plain";
+    root.dataset.layout = settings?.layout ?? DEFAULT_LAYOUT;
     root.style.fontSize = rootFontSize(settings?.text_scale);
 }

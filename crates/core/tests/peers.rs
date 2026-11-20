@@ -7,7 +7,7 @@ use std::sync::Arc;
 use common::{core_with_project, fixture, next, turn};
 use swarmed_core::agent::{AgentEvent, Auth};
 use swarmed_core::{
-    Core, Delivery, Environment, Error, MAX_SPAWNED, NewTaskOptions, Palette, Session,
+    Core, Delivery, Environment, Error, Layout, MAX_SPAWNED, NewTaskOptions, Palette, Session,
     SessionEvent, SessionOptions, hooks, serve_session_tools,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -297,14 +297,14 @@ async fn an_agent_changes_what_is_harmless_at_once() {
     let (ok, said) = configure(
         &socket,
         session.id,
-        json(serde_json::json!({ "kind": "appearance", "op": "save", "palette": "Forest", "text_size": 110 })),
+        json(serde_json::json!({ "kind": "appearance", "op": "save", "palette": "Forest", "layout": "senior", "text_size": 110 })),
     )
     .await;
     assert!(ok, "{said}");
     let settings = core.settings().expect("reads");
     assert_eq!(
-        (settings.palette, settings.text_scale),
-        (Palette::Forest, 110)
+        (settings.palette, settings.layout, settings.text_scale),
+        (Palette::Forest, Layout::Senior, 110)
     );
     let (ok, _) = configure(
         &socket,

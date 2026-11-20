@@ -16,7 +16,7 @@ import { SessionPane } from "./components/SessionPane";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { Sidebar } from "./components/Sidebar";
 import { TaskPanel } from "./components/TaskPanel";
-import { PANEL_WIDTH, SIDEBAR_WIDTH, widestPanel } from "./resize";
+import { PANEL_WIDTH, sidebarOf, widestPanel } from "./resize";
 import { connect, useStore } from "./store";
 import { countUnread, countWaiting } from "./tree";
 import { useHotkeys } from "./useHotkeys";
@@ -32,7 +32,8 @@ export function App() {
     useEffect(() => void api.setBadge(waiting).catch(() => {}), [waiting]);
     const problem = useStore((state) => state.problem);
     const dismissProblem = useStore((state) => state.dismissProblem);
-    const [sidebarWidth, setSidebarWidth] = useStoredWidth("swarmed.sidebar-width", SIDEBAR_WIDTH);
+    const sidebar = sidebarOf(settings?.layout);
+    const [sidebarWidth, setSidebarWidth] = useStoredWidth(sidebar.key, sidebar.limits);
     const [panelWidth, setPanelWidth] = useStoredWidth("swarmed.panel-width", PANEL_WIDTH);
     const widths = {
         "--sidebar-width": `${sidebarWidth}px`,
@@ -45,7 +46,7 @@ export function App() {
             <Resizer
                 label="Resize sidebar"
                 width={sidebarWidth}
-                limits={SIDEBAR_WIDTH}
+                limits={sidebar.limits}
                 side="left"
                 onResize={setSidebarWidth}
             />

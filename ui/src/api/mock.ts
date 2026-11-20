@@ -1374,6 +1374,7 @@ export function createMockApi(): Api {
         theme: "system",
         palette: "swarm",
         style: "swarm",
+        layout: "classic",
         text_scale: 100,
         default_supervision: "auto",
         html_views: true,

@@ -1,7 +1,7 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { Settings, StatusItem, Style, Supervision, Theme } from "../api/types";
-import { PALETTES, STYLES } from "../appearance";
+import { LAYOUTS, PALETTES, STYLES } from "../appearance";
 import { keyCaps, LOCAL_HOTKEYS, listedHotkeys } from "../hotkeys";
 import { movedItem, STATUS_ITEM_LABELS, STATUS_ITEMS, withItem } from "../statusline";
 import { SETTINGS_TABS, type SettingsTab, useStore } from "../store";
@@ -194,7 +194,32 @@ function Appearance({ settings }: { settings: Settings }) {
                     options={STYLES}
                 />
             </Row>
-            <Row label="Text size">
+            <Row
+                label="Layout"
+                hint="How large and how far apart things are. Works with any palette."
+            >
+                <div className="layouts" role="radiogroup" aria-label="Layout">
+                    {LAYOUTS.map(([layout, name, what]) => (
+                        // biome-ignore lint/a11y/useSemanticElements: a card with a sample, not a bare radio
+                        <button
+                            key={layout}
+                            type="button"
+                            role="radio"
+                            className="layout-choice"
+                            data-layout={layout}
+                            aria-checked={settings.layout === layout}
+                            onClick={() => void change(api, { layout })}
+                        >
+                            <span className="layout-sample" aria-hidden="true">
+                                Aa
+                            </span>
+                            <span className="layout-name">{name}</span>
+                            <span className="layout-what">{what}</span>
+                        </button>
+                    ))}
+                </div>
+            </Row>
+            <Row label="Text size" hint="On top of what the layout starts from.">
                 <Picker
                     label="Text size"
                     value={String(settings.text_scale)}

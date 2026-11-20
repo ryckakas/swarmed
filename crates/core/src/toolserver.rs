@@ -183,7 +183,7 @@ fn configure_tool() -> Value {
             rule: one line every agent is told to keep to; give `text`. \
             status_line: the pieces under the message box, as `items` in order (branch, \
             changes, model, context, cost, agent, worktree, duration), or a script as `command`. \
-            appearance: `theme`, `palette`, `style`, `text_size`. \
+            appearance: `theme`, `palette`, `style`, `layout`, `text_size`. \
             environment: a way of setting a task up in this repository; give `name` and any \
             of `setup`, `start`, `stop`, `teardown`, `open_url`. \
             Rules, environments, a command for an action and a script for the status line are \
@@ -214,6 +214,7 @@ fn configure_tool() -> Value {
                 "theme": text("system, dark or light."),
                 "palette": text("dusk, graphite, forest, plum, ember or swarm."),
                 "style": text("plain, swarm or colony."),
+                "layout": text("classic, or senior for larger text and rows."),
                 "text_size": { "type": "integer", "description": "In percent, 80 to 150." },
                 "setup": text("An environment's command run once after a worktree is created."),
                 "start": text("An environment's command that starts what keeps running."),
