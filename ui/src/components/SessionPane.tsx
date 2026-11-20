@@ -3,6 +3,7 @@ import { isSwarm } from "../appearance";
 import { agentName, iconForAgent } from "../providerIcons";
 import { useStore } from "../store";
 import { findSession, findSessionHome } from "../tree";
+import { useWords } from "../useWords";
 import { Composer } from "./Composer";
 import { EndIcon, IconButton, PanelIcon } from "./IconButton";
 import { NewTask } from "./NewTask";
@@ -30,6 +31,7 @@ export function SessionPane() {
         selectedSessionId === null ? undefined : state.events[selectedSessionId],
     );
     const askToClose = useStore((state) => state.askToClose);
+    const words = useWords();
     const panelOpen = useStore((state) => state.panelOpen);
     const togglePanel = useStore((state) => state.togglePanel);
     const session = findSession(projects, selectedSessionId);
@@ -43,7 +45,7 @@ export function SessionPane() {
             <header className="session-head">
                 <div className="session-actions">
                     <IconButton
-                        label="Close session: stops the agent and removes it from the sidebar"
+                        label={`${words.closeSession}: stops the agent and removes it from the sidebar`}
                         danger
                         onClick={() => askToClose(session.id)}
                     >

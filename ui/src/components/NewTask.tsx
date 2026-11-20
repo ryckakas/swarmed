@@ -20,6 +20,7 @@ import {
 import { expandPastes, forgetPastes } from "../pastes";
 import { useStore } from "../store";
 import { taskNameForPrompt, taskNameFrom, uniqueTaskName } from "../tree";
+import { useWords } from "../useWords";
 import { wordsFor } from "../wording";
 import { AgentNotice } from "./AgentNotice";
 import { ComposerBox } from "./ComposerBox";
@@ -358,12 +359,13 @@ function EnvironmentPicker(props: {
     value: string;
     onChange(value: string): void;
 }) {
+    const words = useWords();
     if (props.names.length === 0) {
         return null;
     }
     return (
         <Picker
-            label="Environment"
+            label={words.environment}
             value={chosenEnvironment(props.names, props.value) ?? ""}
             onChange={props.onChange}
             options={[

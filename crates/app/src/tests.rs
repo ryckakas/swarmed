@@ -319,7 +319,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
         app.ok("settings", json!({})),
         json!({
             "editor": "code", "auto_title": true, "theme": "system", "palette": "swarm",
-            "style": "swarm",
+            "style": "colony",
             "text_scale": 100,
             "html_views": true, "notifications": true, "default_supervision": "auto",
             "status_items": ["branch", "changes", "model", "context", "cost"],

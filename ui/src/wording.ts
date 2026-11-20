@@ -43,6 +43,13 @@ export interface Words {
     reopen: string;
     /** What handing work to a cloud agent is called, before "from <where>". */
     delegate: string;
+    /** What ending a session and taking it out of the sidebar is called. */
+    closeSession: string;
+    /** The question asked before a session is closed. */
+    closeAsk: string;
+    /** One way of setting a task up, and several of them. */
+    environment: string;
+    environments: string;
 }
 
 const PLAIN: Words = {
@@ -66,6 +73,10 @@ const PLAIN: Words = {
     closed: (count) => `${count} closed`,
     reopen: "Reopen",
     delegate: "Delegate to the cloud",
+    closeSession: "Close session",
+    closeAsk: "Close this session?",
+    environment: "Environment",
+    environments: "Environments",
 };
 
 const SWARM: Words = {
@@ -90,6 +101,10 @@ const SWARM: Words = {
     needYou: (count) => (count === 1 ? "1 awaits you" : `${count} await you`),
     unread: (count) => `${count} hatched`,
     noTasks: "The nest is empty",
+    closeSession: "Terminate spawn",
+    closeAsk: "Terminate this spawn?",
+    environment: "Spawning pool",
+    environments: "Spawning pools",
 };
 
 /** The swarm's words, and its names for the tree as well. */
@@ -107,6 +122,12 @@ const WORDS: Record<Style, Words> = { plain: PLAIN, swarm: SWARM, colony: COLONY
 /** The words that go with a style. */
 export function wordsFor(style: Style | undefined): Words {
     return WORDS[style ?? DEFAULT_STYLE];
+}
+
+/** A name as it stands in the middle of a sentence: "an environment", "a spawning pool". */
+export function withArticle(name: string): string {
+    const lower = name.toLowerCase();
+    return `${/^[aeiou]/.test(lower) ? "an" : "a"} ${lower}`;
 }
 
 /** The words on offer for what the agent is doing: the swarm's, or the plain word alone. */

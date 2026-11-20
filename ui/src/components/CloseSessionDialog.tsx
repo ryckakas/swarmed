@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { api } from "../api";
 import { useStore } from "../store";
 import { findSession } from "../tree";
+import { wordsFor } from "../wording";
 
 /** Asks before a session is closed. Nothing is closed by one stray click. */
 export function CloseSessionDialog() {
@@ -9,6 +10,7 @@ export function CloseSessionDialog() {
     const session = useStore((state) => findSession(state.projects, state.closing));
     const askToClose = useStore((state) => state.askToClose);
     const close = useStore((state) => state.close);
+    const words = useStore((state) => wordsFor(state.settings?.style));
     const dialog = useRef<HTMLDialogElement>(null);
 
     // A modal <dialog> keeps the keyboard inside it and closes on Esc by itself.
@@ -29,7 +31,7 @@ export function CloseSessionDialog() {
             aria-labelledby="confirm-title"
             onClose={() => askToClose(null)}
         >
-            <h2 id="confirm-title">Close this session?</h2>
+            <h2 id="confirm-title">{words.closeAsk}</h2>
             <p className="confirm-what">{session.title || "New session"}</p>
             <p>
                 {busy ? "The agent is still working and will be stopped. " : ""}
@@ -45,7 +47,7 @@ export function CloseSessionDialog() {
                     className="button button-primary"
                     onClick={() => void close(api, closing)}
                 >
-                    Close session
+                    {words.closeSession}
                 </button>
             </div>
         </dialog>

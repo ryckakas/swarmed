@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type CSSProperties, useEffect, useState } from "react";
 import { api } from "../api";
 import type { AgentEvent, FileChange, Session, Task } from "../api/types";
 import {
@@ -76,7 +76,10 @@ function BuiltIn({ project, task, session, events }: Props) {
 
     const parts = statusParts(items, { session, task, events, changes });
     const usage = contextUsage(events);
-    const [detail, setDetail] = useState(false);
+    // Where the context badge starts, while its overview is shown: the overview stands over it.
+    const [detail, setDetail] = useState<number | null>(null);
+    const show = (badge: HTMLElement) => setDetail(badge.offsetLeft);
+    const hide = () => setDetail(null);
     return (
         <>
             <p className="status-text">
@@ -88,12 +91,12 @@ function BuiltIn({ project, task, session, events }: Props) {
                             key={part.item}
                             type="button"
                             className="status-part status-context"
-                            aria-expanded={detail}
+                            aria-expanded={detail !== null}
                             aria-label={`Context window: ${part.text}`}
-                            onMouseEnter={() => setDetail(true)}
-                            onMouseLeave={() => setDetail(false)}
-                            onFocus={() => setDetail(true)}
-                            onBlur={() => setDetail(false)}
+                            onMouseEnter={(event) => show(event.currentTarget)}
+                            onMouseLeave={hide}
+                            onFocus={(event) => show(event.currentTarget)}
+                            onBlur={hide}
                         >
                             <Runs part={part} />
                         </button>
@@ -108,7 +111,7 @@ function BuiltIn({ project, task, session, events }: Props) {
                     ),
                 )}
             </p>
-            {detail && usage && <ContextCard usage={usage} />}
+            {detail !== null && usage && <ContextCard usage={usage} at={detail} />}
         </>
     );
 }
@@ -122,11 +125,13 @@ function Runs({ part }: { part: StatusPart }) {
 }
 
 /** What fills the context window, part by part, shown over the status line. */
-function ContextCard({ usage }: { usage: ContextUsage }) {
+function ContextCard({ usage, at }: { usage: ContextUsage; at: number }) {
     const percent = contextPercent(usage);
     const parts = contextBreakdown(usage);
+    // The stylesheet keeps it inside the line when the badge is near the right edge.
+    const place = { "--badge-left": `${at}px` } as CSSProperties;
     return (
-        <div className="context-card" role="tooltip">
+        <div className="context-card" role="tooltip" style={place}>
             <p className="context-title">
                 Context window
                 <span>

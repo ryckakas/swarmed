@@ -3,6 +3,8 @@ import { api } from "../api";
 import type { Environment } from "../api/types";
 import { EMPTY_ENVIRONMENT, envFromText, envToText } from "../environments";
 import { useStore } from "../store";
+import { useWords } from "../useWords";
+import { withArticle } from "../wording";
 
 /** A repository's environments, opened from the sidebar. */
 export function EnvironmentsDialog() {
@@ -66,6 +68,7 @@ function environmentOf(draft: Draft): Environment {
 }
 
 function Editor({ project }: { project: string }) {
+    const words = useWords();
     const close = () => useStore.getState().askForEnvironments(null);
     const dialog = useRef<HTMLDialogElement>(null);
     const [environments, setEnvironments] = useState<Record<string, Environment>>({});
@@ -108,12 +111,13 @@ function Editor({ project }: { project: string }) {
             aria-labelledby="environments-title"
             onClose={close}
         >
-            <h2 id="environments-title">Environments of {project}</h2>
+            <h2 id="environments-title">
+                {words.environments} of {project}
+            </h2>
             <p>
                 Different ways of setting a task up on this Mac: what runs when its worktree is
                 made, and the variables its hooks and agents get. One is chosen when a task is
-                started. Whatever an environment leaves empty is as the repository's own config has
-                it.
+                started. Whatever one leaves empty is as the repository's own config has it.
             </p>
             {draft === null ? (
                 <Listing
@@ -146,6 +150,7 @@ function Editor({ project }: { project: string }) {
 }
 
 function Listing(props: { names: string[]; onEdit(name: string): void; onNew(): void }) {
+    const words = useWords();
     return (
         <div className="environment-list">
             {props.names.length === 0 && (
@@ -164,7 +169,7 @@ function Listing(props: { names: string[]; onEdit(name: string): void; onNew(): 
                 </button>
             ))}
             <button type="button" className="button" onClick={props.onNew}>
-                Add an environment
+                Add {withArticle(words.environment)}
             </button>
         </div>
     );
@@ -180,6 +185,7 @@ interface FormProps {
 }
 
 function Form({ draft, onChange, onSave, onRemove, onCancel }: FormProps) {
+    const words = useWords();
     const set = (change: Partial<Draft>) => onChange({ ...draft, ...change });
     return (
         <form
@@ -193,7 +199,7 @@ function Form({ draft, onChange, onSave, onRemove, onCancel }: FormProps) {
                 <span className="settings-label">Name</span>
                 <input
                     className="key-input mono"
-                    aria-label="Name of the environment"
+                    aria-label={`Name of the ${words.environment.toLowerCase()}`}
                     placeholder="staging"
                     spellCheck={false}
                     required
@@ -261,7 +267,7 @@ function Form({ draft, onChange, onSave, onRemove, onCancel }: FormProps) {
                     Cancel
                 </button>
                 <button type="submit" className="button button-primary">
-                    Save environment
+                    Save {words.environment.toLowerCase()}
                 </button>
             </div>
         </form>

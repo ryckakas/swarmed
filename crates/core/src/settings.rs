@@ -86,10 +86,10 @@ pub enum Style {
     /// Dots and the plain words: idle, working, unread.
     Plain,
     /// Sessions as eggs and larvae, named after a swarm: dormant, mutating, hatched.
-    #[default]
     Swarm,
     /// The swarm's icons and words, and its names for the tree as well: a colony for a
-    /// repository, burrowed for closed.
+    /// repository, burrowed for closed. What a new installation starts in.
+    #[default]
     Colony,
 }
 
@@ -104,7 +104,7 @@ impl Default for Settings {
             auto_title: true,
             theme: Theme::System,
             palette: Palette::Swarm,
-            style: Style::Swarm,
+            style: Style::Colony,
             text_scale: 100,
             default_supervision: Supervision::Auto,
             notifications: true,

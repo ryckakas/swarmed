@@ -7,6 +7,7 @@ import { taskTooltip } from "../environments";
 import { agentName, iconForAgent } from "../providerIcons";
 import { useStore } from "../store";
 import { countUnread, countWaiting, nestedSessions, projectStatus, projectUnread } from "../tree";
+import { useWords } from "../useWords";
 import { wordsFor } from "../wording";
 import { ProviderMark } from "./ProviderMark";
 import { PullBadge } from "./PullRequest";
@@ -302,7 +303,8 @@ function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] })
 /** Opens the repository's environments: the ways its tasks can be set up. */
 function EnvironmentsButton({ project }: { project: string }) {
     const askForEnvironments = useStore((state) => state.askForEnvironments);
-    const label = `Environments of ${project}`;
+    const words = useStore((state) => wordsFor(state.settings?.style));
+    const label = `${words.environments} of ${project}`;
     return (
         <button
             type="button"
@@ -448,6 +450,7 @@ function RemoveButton({ project, task }: { project: string; task: string | null 
 }
 
 function SessionRow({ session }: { session: Session }) {
+    const words = useWords();
     const selected = useStore((state) => state.selectedSessionId === session.id);
     const open = useStore((state) => state.open);
     const askToClose = useStore((state) => state.askToClose);
@@ -487,7 +490,7 @@ function SessionRow({ session }: { session: Session }) {
                 type="button"
                 className="row-close"
                 aria-label={`Close ${title}`}
-                title="Close session"
+                title={words.closeSession}
                 onClick={() => askToClose(session.id)}
             >
                 ×
