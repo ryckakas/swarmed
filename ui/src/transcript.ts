@@ -28,7 +28,9 @@ export type Item =
     | { kind: "terminal"; key: number; text: string }
     | { kind: "session"; key: number; model: string; login: string; mcp: string; skills: number }
     | { kind: "turn"; key: number; isError: boolean; costUsd: number | null }
-    | { kind: "notice"; key: number; tone: "error" | "warning"; text: string };
+    | { kind: "notice"; key: number; tone: "error" | "warning"; text: string }
+    /** Where the copy of an earlier conversation ends and the fork's own begins. */
+    | { kind: "forked"; key: number; from: number };
 
 export interface ToolResult {
     content: string;
@@ -123,6 +125,8 @@ function single(event: AgentEvent, key: number): Item | null {
             return { kind: "terminal", key, text: event.text };
         case "view":
             return { kind: "view", key, html: event.html };
+        case "forked":
+            return { kind: "forked", key, from: event.from };
         case "init":
             return sessionItem(event, key);
         case "turn_done":

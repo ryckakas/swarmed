@@ -1015,3 +1015,51 @@ async fn what_was_said_is_found_again_in_open_and_closed_sessions() {
     assert_eq!(closed.len(), 1);
     assert!(closed[0].closed);
 }
+
+#[tokio::test]
+async fn a_fork_starts_with_what_was_said_and_tells_its_agent_once() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let source = started_session(&core);
+    core.session_send(source.id, "The password is swordfish")
+        .expect("sends");
+    turn(&mut bus, source.id).await;
+    let said = core.session_events(source.id).expect("reads");
+
+    let fork = core.session_fork(source.id, None).expect("forks");
+    assert_eq!(fork.task_id, source.task_id);
+    assert_eq!(fork.agent, source.agent);
+    let fork_row = core.session(fork.id).expect("reads");
+    assert!(fork_row.title.ends_with("(fork)"), "{}", fork_row.title);
+    assert!(!fork_row.unread);
+    assert_eq!(fork_row.status, SessionStatus::Idle);
+    let copied = core.session_events(fork.id).expect("reads");
+    assert_eq!(copied.first(), said.first());
+    assert_eq!(copied.last(), Some(&AgentEvent::Forked { from: source.id }));
+    // The source is as it was.
+    assert_eq!(core.session_events(source.id).expect("reads"), said);
+
+    // The fake agent repeats what it is sent: the first message carries the conversation,
+    // the second does not, and what is recorded is what was typed.
+    core.session_start(fork.id, Auth::Subscription)
+        .expect("starts");
+    core.session_send(fork.id, "echo: what was it?")
+        .expect("sends");
+    let first = turn(&mut bus, fork.id).await;
+    assert_eq!(
+        first.first(),
+        Some(&AgentEvent::UserMessage {
+            text: "echo: what was it?".into()
+        })
+    );
+    let heard = |events: &[AgentEvent]| {
+        events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::Text { text } if text.contains("swordfish")))
+    };
+    assert!(heard(&first), "{first:?}");
+    core.session_send(fork.id, "echo: and again?")
+        .expect("sends");
+    assert!(!heard(&turn(&mut bus, fork.id).await));
+}

@@ -367,6 +367,8 @@ export type AgentEvent =
     | { type: "renamed"; title: string }
     /** The session was closed, by the user or by the session that started it. */
     | { type: "closed" }
+    /** What stands before this is a copy of what was said in the session forked from. */
+    | { type: "forked"; from: number }
     /** HTML the agent showed through Swarmed's own tool, handed over by the tool itself. */
     | { type: "view"; html: string }
     /** What the agent says it actually runs with, defaults resolved. */

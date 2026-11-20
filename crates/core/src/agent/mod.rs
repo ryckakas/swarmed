@@ -341,6 +341,12 @@ pub enum AgentEvent {
         /// The end of what the process wrote to stderr.
         stderr: String,
     },
+    /// The session was forked from another: what stands before this is a copy of what was
+    /// said there. Recorded by the core, not produced by a backend.
+    Forked {
+        /// The session it was forked from.
+        from: i64,
+    },
     /// Something this version does not understand; kept so nothing is lost silently.
     Other {
         /// The message as received.

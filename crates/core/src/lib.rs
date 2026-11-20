@@ -13,6 +13,7 @@ mod cloud;
 mod config;
 mod environments;
 mod error;
+mod fork;
 mod git;
 pub mod hooks;
 pub mod mcp;

@@ -1800,6 +1800,42 @@ code {
     overflow-wrap: anywhere;
 }
 
+/* The way to branch off before a message: out of sight until the message is pointed at. */
+.said {
+    position: relative;
+}
+
+.said-fork {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    padding: 1px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--muted);
+    font: inherit;
+    font-size: var(--text-xs);
+    opacity: 0;
+}
+
+.said:hover .said-fork,
+.said-fork:focus-visible {
+    opacity: 1;
+}
+
+.said-fork:hover {
+    color: var(--text);
+}
+
+/* Where a fork's copy of an earlier conversation ends. */
+.forked-line {
+    padding: var(--space-2) 0;
+    border-top: 1px dashed var(--line);
+    color: var(--faint);
+    font-size: var(--text-sm);
+}
+
 /* A large paste in a message: one line until it is opened. */
 .pasted {
     margin: var(--space-1) 0;

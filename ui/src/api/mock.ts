@@ -1059,6 +1059,21 @@ function sampleSearch(projects: Project[], query: string): SearchHit[] {
     );
 }
 
+/** A new sample session holding what was said in session `id`, as the core's fork does. */
+function sampleFork(agent: MockAgent, tasks: Task[], id: number, upto: number | null): Session {
+    const home = tasks.find((task) => task.sessions.some((one) => one.id === id));
+    const source = home?.sessions.find((one) => one.id === id);
+    if (!(home && source)) {
+        throw new Error(`there is no session ${id}`);
+    }
+    const fork = { ...agent.newSession(home.id), title: `${source.title} (fork)` };
+    const said = agent.history(id).slice(0, upto ?? undefined);
+    const kept = said.filter((event) => ["user_message", "text"].includes(event.type));
+    agent.events.set(fork.id, [...kept, { type: "forked", from: id }]);
+    home.sessions.push(fork);
+    return fork;
+}
+
 function closingApi(
     agent: MockAgent,
 ): Pick<Api, "sessionClose" | "sessionsClosed" | "sessionReopen"> {
@@ -1200,6 +1215,7 @@ export function createMockApi(): Api {
             home.sessions.push(created);
             return created;
         },
+        sessionFork: async (id, upto) => sampleFork(agent, tasks(), id, upto),
         sessionEvents: async (id) => [...agent.history(id)],
         sessionSend: async (id, text, files) => agent.send(id, withFiles(text, files ?? [])),
         sessionQueue: async (id) => agent.queue(id),

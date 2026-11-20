@@ -159,6 +159,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   in its parent's task with its settings, cannot spawn itself, and a session can have
   `MAX_SPAWNED` open. The tools are not on the allow list: in ask mode the user is asked.
   A session can close only sessions it started, and only idle ones (`peer_close`).
+- **A fork is a new session that starts with a copy of what was said** (`fork.rs`): the user's
+  messages, the replies and the views, up to a chosen event, then a `Forked` event. No agent can
+  be handed another's memory, so the fork's agent is given that conversation as text with the
+  first message sent to it, whatever agent it is. What is recorded is what the user typed.
 - **A closed session is put away, not deleted.** Closing is an event, `Closed`, so every front
   end drops it from its lists. Its task counts its closed sessions, they can be listed
   (`sessions_closed`) and put back (`session_reopen`) with their conversation as it was.

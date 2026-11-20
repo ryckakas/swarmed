@@ -575,6 +575,12 @@ pub(crate) fn sessions_closed(
     Ok(core.sessions_closed(&project, &task)?)
 }
 
+/// A new session that starts with what was said in session `id`, up to its event `upto`.
+#[tauri::command]
+pub(crate) fn session_fork(core: CoreState<'_>, id: i64, upto: Option<usize>) -> Command<Session> {
+    Ok(core.session_fork(id, upto)?)
+}
+
 /// Puts a closed session back in the lists.
 #[tauri::command]
 pub(crate) fn session_reopen(core: CoreState<'_>, id: i64) -> Command<Session> {

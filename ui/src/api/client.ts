@@ -171,6 +171,11 @@ export interface Api {
     onHookOutput(listener: (output: HookOutput) => void): Promise<Unsubscribe>;
     /** Creates a session in a task. Its agent starts with the first message. */
     sessionNew(project: string, task: string, setup: SessionSetup): Promise<Session>;
+    /**
+     * A new session in the same task that starts with what was said in session `id`: all of
+     * it, or only its first `upto` events.
+     */
+    sessionFork(id: number, upto: number | null): Promise<Session>;
     /** Everything the session has said and been told, oldest first. */
     sessionEvents(id: number): Promise<AgentEvent[]>;
     /** Starts a turn, starting the session's agent first if it is not running. */
