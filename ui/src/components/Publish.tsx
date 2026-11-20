@@ -83,6 +83,7 @@ export function Publish({ project, task }: Props) {
                     project={project}
                     task={task}
                     busy={busy}
+                    write={() => api.taskPullMessage(project, task.name, sessionId)}
                     onOpen={(draft, asDraft) =>
                         run(api.taskPullCreate(project, task.name, draft, asDraft))
                     }
@@ -147,25 +148,12 @@ function CommitForm({ busy, write, onCommit }: CommitFormProps) {
                         }
                     }}
                 />
-                <button
-                    type="button"
-                    className="publish-write"
-                    aria-label={words.writeMessage}
-                    title={words.writeMessage}
-                    aria-busy={writing}
-                    disabled={writing || busy}
+                <WriteButton
+                    label={words.writeMessage}
+                    writing={writing}
+                    disabled={busy}
                     onClick={generate}
-                >
-                    <svg
-                        className="publish-write-mark"
-                        viewBox="0 0 16 16"
-                        aria-hidden="true"
-                        data-writing={writing}
-                    >
-                        <path d="M7 1.5 8.4 5.6 12.5 7 8.4 8.4 7 12.5 5.6 8.4 1.5 7 5.6 5.6Z" />
-                        <path d="M12.5 10.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6Z" />
-                    </svg>
-                </button>
+                />
             </div>
             <button type="submit" className="button" disabled={busy || message.trim() === ""}>
                 {busy ? "Committing…" : "Commit all"}
@@ -174,16 +162,59 @@ function CommitForm({ busy, write, onCommit }: CommitFormProps) {
     );
 }
 
+interface WriteButtonProps {
+    /** What it has written, for its tooltip. */
+    label: string;
+    writing: boolean;
+    disabled: boolean;
+    onClick(): void;
+}
+
+/** The small button inside a text box that has its text written from the task's work. */
+function WriteButton({ label, writing, disabled, onClick }: WriteButtonProps) {
+    return (
+        <button
+            type="button"
+            className="publish-write"
+            aria-label={label}
+            title={label}
+            aria-busy={writing}
+            disabled={writing || disabled}
+            onClick={onClick}
+        >
+            <svg
+                className="publish-write-mark"
+                viewBox="0 0 16 16"
+                aria-hidden="true"
+                data-writing={writing}
+            >
+                <path d="M7 1.5 8.4 5.6 12.5 7 8.4 8.4 7 12.5 5.6 8.4 1.5 7 5.6 5.6Z" />
+                <path d="M12.5 10.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6Z" />
+            </svg>
+        </button>
+    );
+}
+
 interface PullFormProps extends Props {
     busy: boolean;
+    /** Has a title and a description written for the branch. */
+    write(): Promise<PullDraft>;
     onOpen(draft: PullDraft, asDraft: boolean): void;
 }
 
 /** The pull request's title and description, started from the task's commits, to edit first. */
-function PullForm({ project, task, busy, onOpen }: PullFormProps) {
+function PullForm({ project, task, busy, write, onOpen }: PullFormProps) {
     const report = useStore((state) => state.report);
+    const words = useWords();
     const [draft, setDraft] = useState<PullDraft | null>(null);
     const [asDraft, setAsDraft] = useState(false);
+    const [writing, setWriting] = useState(false);
+    const generate = () => {
+        setWriting(true);
+        write()
+            .then(setDraft, report)
+            .finally(() => setWriting(false));
+    };
     if (draft === null) {
         return (
             <button
@@ -203,18 +234,29 @@ function PullForm({ project, task, busy, onOpen }: PullFormProps) {
                 onOpen(draft, asDraft);
             }}
         >
-            <input
-                className="publish-input"
-                aria-label="Pull request title"
-                placeholder="Title"
-                value={draft.title}
-                onChange={(event) => setDraft({ ...draft, title: event.target.value })}
-            />
+            <div className="publish-message">
+                <input
+                    className="publish-input publish-title-input"
+                    aria-label="Pull request title"
+                    placeholder={writing ? "Reading the branch…" : "Title"}
+                    disabled={writing}
+                    value={draft.title}
+                    onChange={(event) => setDraft({ ...draft, title: event.target.value })}
+                />
+                {/* One press writes both the title and the description under it. */}
+                <WriteButton
+                    label={words.writePull}
+                    writing={writing}
+                    disabled={busy}
+                    onClick={generate}
+                />
+            </div>
             <textarea
                 className="publish-input"
                 aria-label="Pull request description"
-                placeholder="Description"
+                placeholder={writing ? "Reading the branch…" : "Description"}
                 rows={6}
+                disabled={writing}
                 value={draft.body}
                 onChange={(event) => setDraft({ ...draft, body: event.target.value })}
             />
@@ -233,7 +275,7 @@ function PullForm({ project, task, busy, onOpen }: PullFormProps) {
                 <button
                     type="submit"
                     className="button button-primary"
-                    disabled={busy || draft.title.trim() === ""}
+                    disabled={busy || writing || draft.title.trim() === ""}
                 >
                     {busy ? "Opening…" : `Open into ${task.base_ref.replace(/^origin\//, "")}`}
                 </button>

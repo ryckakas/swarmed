@@ -78,6 +78,8 @@ export interface Words {
     collapseAll: string;
     /** The button in the commit box that has a message written for the changes. */
     writeMessage: string;
+    /** The button in the pull request form that has its title and description written. */
+    writePull: string;
     /** The row of the user's own buttons on a task, and the menu holding those that do not fit. */
     actions: string;
     moreActions: string;
@@ -129,6 +131,7 @@ const PLAIN: Words = {
     expandAll: "Expand all",
     collapseAll: "Collapse all",
     writeMessage: "Generate a commit message",
+    writePull: "Generate the title and description",
     actions: "Actions",
     moreActions: "More actions…",
 };
@@ -181,6 +184,7 @@ const SWARM: Words = {
     expandAll: "Unburrow all",
     collapseAll: "Burrow all",
     writeMessage: "Spin a commit message",
+    writePull: "Spin the title and description",
     actions: "Instincts",
     moreActions: "More instincts…",
 };

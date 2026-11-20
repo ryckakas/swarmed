@@ -289,6 +289,13 @@ code {
     field-sizing: content;
 }
 
+/* The title leaves room for the button that writes it. */
+.publish-title-input {
+    flex: 1;
+    min-width: 0;
+    padding-right: 28px;
+}
+
 /* The message over its button: side by side, a written message has no room in the panel. */
 .publish-commit {
     flex-direction: column;

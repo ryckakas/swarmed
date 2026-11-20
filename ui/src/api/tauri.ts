@@ -100,6 +100,8 @@ export const tauriApi: Api = {
         invoke<void>("environment_save", { project, name, environment }),
     environmentRemove: (project, name) => invoke<void>("environment_remove", { project, name }),
     taskUnpublished: (project, name) => invoke<Unpublished>("task_unpublished", { project, name }),
+    taskPullMessage: (project, name, session) =>
+        invoke<PullDraft>("task_pull_message", { project, name, session }),
     taskCommitMessage: (project, name, session) =>
         invoke<string>("task_commit_message", { project, name, session }),
     taskCommit: (project, name, message) => invoke<void>("task_commit", { project, name, message }),

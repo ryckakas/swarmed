@@ -328,6 +328,11 @@ impl Namer for FixedNamer {
         // What it was shown, so that a test can see it.
         Box::pin(async move { Some(format!("```\nfeat: written\n\n{changes}\n```")) })
     }
+
+    fn pull_message(&self, branch: String) -> Naming {
+        // What it was shown, so that a test can see it.
+        Box::pin(async move { Some(format!("# feat: add notes\n\n**Adds notes.**\n\n{branch}")) })
+    }
 }
 
 /// Skips ahead to the next change of title.
@@ -1058,6 +1063,50 @@ async fn a_commit_message_is_written_from_what_changed_and_commits_nothing() {
     assert!(message.contains("new file notes.txt:\none"), "{message}");
     let left = core.task_unpublished("demo", "one").await.expect("reads");
     assert_eq!((left.changed, left.unpushed), (1, 0));
+}
+
+#[tokio::test]
+async fn a_pull_request_is_written_from_the_branch_and_opens_nothing() {
+    let fx = fixture();
+    let mut core = core_with_task(&fx).await;
+    core.set_namer(Arc::new(FixedNamer("unused")));
+    let worktree = core.task("demo", "one").expect("exists").1.worktree_path;
+    // A branch with no commits of its own has nothing to describe.
+    let nothing = core.task_pull_message("demo", "one", None).await;
+    assert!(nothing.is_err());
+
+    std::fs::write(worktree.join("notes.txt"), "one\n").expect("writes");
+    std::fs::create_dir_all(worktree.join(".github")).expect("creates");
+    let template = worktree.join(".github/pull_request_template.md");
+    std::fs::write(template, "## What\n## Why\n").expect("writes");
+    core.task_commit(
+        "demo",
+        "one",
+        "feat: add notes\n\nSo there is somewhere to write.",
+    )
+    .await
+    .expect("commits");
+
+    let draft = core
+        .task_pull_message("demo", "one", None)
+        .await
+        .expect("writes");
+    // The first line is the title, without the heading mark some models put before it.
+    assert_eq!(draft.title, "feat: add notes");
+    assert!(draft.body.starts_with("**Adds notes.**"), "{}", draft.body);
+    // The writer was shown the commits, the diff and the repository's own template.
+    assert!(draft.body.contains("So there is somewhere to write."));
+    assert!(draft.body.contains("+one"), "{}", draft.body);
+    assert!(draft.body.contains("2 files changed"), "{}", draft.body);
+    assert!(draft.body.contains("pull request template:\n## What"));
+
+    // Without anything that can write, it says so.
+    let bare = Core::with_backend(fx.paths.clone(), Arc::new(FakeBackend::default()));
+    let refused = bare
+        .expect("opens")
+        .task_pull_message("demo", "one", None)
+        .await;
+    assert!(refused.is_err());
 }
 
 #[tokio::test]
