@@ -1,8 +1,11 @@
+import { useState } from "react";
 import { api } from "../api";
 import type { Project, Task } from "../api/types";
 import { PANEL_WIDTH } from "../resize";
 import { useStore } from "../store";
 import { findSession, findSessionHome } from "../tree";
+import { useWords } from "../useWords";
+import { Background, runningCount, useBackground } from "./Background";
 import { Changes } from "./Changes";
 import { CloseIcon, IconButton } from "./IconButton";
 import { editorChoices, editorName } from "./options";
@@ -39,8 +42,52 @@ export function TaskPanel({ width, onResize }: Props) {
             <aside className="task-panel" aria-label={`Task ${home.task.name}`}>
                 <div className="drag-strip" data-tauri-drag-region />
                 <TaskHead project={home.project} task={home.task} />
-                <Changes key={home.task.id} project={home.project} task={home.task} />
+                <Tabs key={home.task.id} project={home.project} task={home.task} />
             </aside>
+        </>
+    );
+}
+
+type Tab = "changes" | "background";
+
+/**
+ * The lower part of the panel, one tab at a time: what the task changed, and what its agents
+ * left running. The second tab says how many of those still run.
+ */
+function Tabs({ project, task }: { project: Project; task: Task }) {
+    const words = useWords();
+    const [tab, setTab] = useState<Tab>("changes");
+    const { tasks, read } = useBackground(project.name, task.name);
+    const running = runningCount(tasks);
+    const tabs: [Tab, string][] = [
+        ["changes", words.changes],
+        ["background", running > 0 ? `${words.background} (${running})` : words.background],
+    ];
+    return (
+        <>
+            <div className="panel-tabs" role="tablist" aria-label="What to show of the task">
+                {tabs.map(([id, label]) => (
+                    <button
+                        key={id}
+                        type="button"
+                        role="tab"
+                        className="panel-tab"
+                        aria-selected={tab === id}
+                        onClick={() => setTab(id)}
+                    >
+                        {label}
+                    </button>
+                ))}
+            </div>
+            {tab === "changes" ? (
+                <Changes project={project} task={task} />
+            ) : (
+                <section className="changes" aria-label={words.background}>
+                    <div className="changes-scroll">
+                        <Background tasks={tasks} onChanged={() => void read()} />
+                    </div>
+                </section>
+            )}
         </>
     );
 }
@@ -77,16 +124,17 @@ function TaskHead({ project, task }: { project: Project; task: Task }) {
                     onChange={(editor) => void changeSettings(api, { editor })}
                     options={editorChoices(editor)}
                 />
-                {task.url !== null && (
+                {task.urls.map((url) => (
                     <button
+                        key={url}
                         type="button"
                         className="button"
-                        title={`Opens ${task.url}`}
-                        onClick={() => api.taskOpenUrl(project.name, task.name).catch(report)}
+                        title={`Opens ${url}`}
+                        onClick={() => api.openLink(url).catch(report)}
                     >
-                        Open in browser
+                        {browserLabel(url, task.urls.length)}
                     </button>
-                )}
+                ))}
             </div>
             <StackControls project={project.name} task={task} />
             <CompareWith project={project} task={task} />
@@ -94,6 +142,13 @@ function TaskHead({ project, task }: { project: Project; task: Task }) {
             <PullSection project={project.name} task={task} />
         </header>
     );
+}
+
+/** What the button that opens a stack's address says: which address, when there are several. */
+export function browserLabel(url: string, of: number): string {
+    return of > 1
+        ? `Open ${url.replace(/^https?:\/\//, "").replace(/\/$/, "")}`
+        : "Open in browser";
 }
 
 /** Sets this task beside another of the same repository. Nothing without another task. */

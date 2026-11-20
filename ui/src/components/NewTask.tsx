@@ -20,13 +20,22 @@ import {
 import { expandPastes, forgetPastes } from "../pastes";
 import { useStore } from "../store";
 import { taskNameForPrompt, taskNameFrom, uniqueTaskName } from "../tree";
+import { useWords } from "../useWords";
 import { wordsFor } from "../wording";
 import { AgentNotice } from "./AgentNotice";
 import { ComposerBox } from "./ComposerBox";
 import { EffortPicker } from "./EffortPicker";
+import { FastToggle } from "./FastToggle";
 import { Incubating } from "./Incubating";
 import { ModePicker } from "./ModePicker";
-import { CLAUDE, modelChoices, takesEffort, useAgents, useSlashCommands } from "./options";
+import {
+    CLAUDE,
+    modelChoices,
+    takesEffort,
+    takesFast,
+    useAgents,
+    useSlashCommands,
+} from "./options";
 import { Picker } from "./Picker";
 
 /** The value of the branch picker that means "create a new branch". */
@@ -46,6 +55,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
     const [agentId, setAgentId] = useState(CLAUDE);
     const [model, setModel] = useState("");
     const [effort, setEffort] = useState<Effort | null>(null);
+    const [fast, setFast] = useState(false);
     // More agents to run the same prompt on, each in a task of its own.
     const [variants, setVariants] = useState<Variant[]>([]);
     const agents = useAgents();
@@ -87,7 +97,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 title: naming?.title ?? null,
                 branch: branch === NEW_BRANCH ? null : branch,
                 environment: chosenEnvironment(environments, environment),
-                setup: setupFor(agentId, model, supervision, effort),
+                setup: setupFor(agentId, model, supervision, effort, fast),
                 prompt: expandPastes(prompt.trim()),
                 files,
             };
@@ -156,6 +166,8 @@ export function NewTask({ projects }: { projects: Project[] }) {
                     onModel={setModel}
                     effort={effort}
                     onEffort={setEffort}
+                    fast={fast}
+                    onFast={setFast}
                 />
                 <Variants
                     offered={branch === NEW_BRANCH}
@@ -308,6 +320,8 @@ interface AgentPickersProps {
     onModel(model: string): void;
     effort: Effort | null;
     onEffort(effort: Effort | null): void;
+    fast: boolean;
+    onFast(fast: boolean): void;
 }
 
 /** What the session is created with. An effort only goes to an agent that takes one. */
@@ -316,6 +330,7 @@ function setupFor(
     model: string,
     supervision: Supervision,
     effort: Effort | null,
+    fast = false,
 ): SessionSetup {
     const claude = agentId === CLAUDE;
     return {
@@ -323,6 +338,7 @@ function setupFor(
         model: model || null,
         supervision,
         effort: takesEffort(agentId) ? effort : null,
+        fast: fast && takesFast(agentId),
     };
 }
 
@@ -342,6 +358,7 @@ function AgentPickers(props: AgentPickersProps) {
             )}
             <Picker label="Model" value={model} onChange={onModel} options={modelChoices(agent)} />
             {takesEffort(agentId) && <EffortPicker value={effort} onChange={onEffort} />}
+            {takesFast(agentId) && <FastToggle on={props.fast} onChange={props.onFast} />}
         </>
     );
 }
@@ -358,12 +375,13 @@ function EnvironmentPicker(props: {
     value: string;
     onChange(value: string): void;
 }) {
+    const words = useWords();
     if (props.names.length === 0) {
         return null;
     }
     return (
         <Picker
-            label="Environment"
+            label={words.environment}
             value={chosenEnvironment(props.names, props.value) ?? ""}
             onChange={props.onChange}
             options={[

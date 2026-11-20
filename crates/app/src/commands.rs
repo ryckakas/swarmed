@@ -8,14 +8,14 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
-    AgentInfo, AgentSetup, ApiKeyInfo, BranchChoices, CloudOrigin, CloudProvider, CloudTask, Core,
-    Costs, Environment, FileChange, FileDiff, McpServerInput, McpServerView, NewTaskOptions,
-    Project, ProjectOverview, Pull, PullDraft, QueuedMessage, RemoveOptions, SearchHit, Session,
-    SessionOptions, SessionSettings, Settings, Skill, Task, TaskNaming, Template, Unpublished,
-    Usage, with_files,
+    AgentInfo, AgentSetup, ApiKeyInfo, BackgroundTask, BranchChoices, CloudOrigin, CloudProvider,
+    CloudTask, Core, Costs, Environment, FileChange, FileDiff, McpServerInput, McpServerView,
+    NewTaskOptions, Project, ProjectOverview, Pull, PullDraft, QueuedMessage, RemoveOptions,
+    SearchHit, Session, SessionOptions, SessionSettings, Settings, Skill, Snapshot, Task,
+    TaskNaming, Template, TurnStats, Unpublished, Usage, with_files,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -413,6 +413,12 @@ pub(crate) fn task_open_url(core: CoreState<'_>, project: String, name: String) 
     Ok(core.task_open_url(&project, &name)?)
 }
 
+/// Opens a link from a conversation in the user's browser.
+#[tauri::command]
+pub(crate) fn open_link(url: String) -> Command<()> {
+    Ok(swarmed_core::open_link(&url)?)
+}
+
 /// What of a task's work is not committed, and what is not pushed.
 #[tauri::command]
 pub(crate) async fn task_unpublished(
@@ -531,22 +537,32 @@ pub(crate) fn delete_api_key(core: CoreState<'_>, name: String) -> Command<()> {
     Ok(core.delete_api_key(&name)?)
 }
 
+/// What a session runs with, as the UI chooses it.
+#[derive(Debug, Deserialize)]
+pub(crate) struct Running {
+    model: Option<String>,
+    supervision: Supervision,
+    effort: Option<Effort>,
+    /// Absent from a front end that knows nothing of it, which is the same as off.
+    #[serde(default)]
+    fast: bool,
+}
+
 #[tauri::command]
 pub(crate) fn session_new(
     core: CoreState<'_>,
     project: String,
     task: String,
     agent: Option<String>,
-    model: Option<String>,
-    supervision: Supervision,
-    effort: Option<Effort>,
+    how: Running,
 ) -> Command<Session> {
     let options = SessionOptions {
         agent,
         title: None,
-        model,
-        supervision,
-        effort,
+        model: how.model,
+        supervision: how.supervision,
+        effort: how.effort,
+        fast: how.fast,
     };
     Ok(core.session_new(&project, &task, &options)?)
 }
@@ -657,6 +673,58 @@ pub(crate) fn session_interrupt(core: CoreState<'_>, id: i64) -> Command<()> {
     Ok(core.session_interrupt(id)?)
 }
 
+/// The project's snapshots: what tasks of each environment start from.
+#[tauri::command]
+pub(crate) fn snapshots(core: CoreState<'_>, project: String) -> Command<Vec<Snapshot>> {
+    Ok(core.snapshots(&project)?)
+}
+
+/// Keeps what a task's setup produced as the snapshot of its environment.
+#[tauri::command]
+pub(crate) async fn snapshot_save(
+    core: CoreState<'_>,
+    project: String,
+    task: String,
+) -> Command<Snapshot> {
+    Ok(core.snapshot_save(&project, &task).await?)
+}
+
+/// Forgets the snapshot of an environment, or of tasks without one.
+#[tauri::command]
+pub(crate) fn snapshot_remove(
+    core: CoreState<'_>,
+    project: String,
+    environment: Option<String>,
+) -> Command<()> {
+    Ok(core.snapshot_remove(&project, environment.as_deref())?)
+}
+
+/// The sessions' turns added up by day, task, agent and model, for drawing.
+#[tauri::command]
+pub(crate) fn analytics(core: CoreState<'_>) -> Command<Vec<TurnStats>> {
+    Ok(core.analytics()?)
+}
+
+/// What a task's agents left running in the background, and how what ended did.
+#[tauri::command]
+pub(crate) fn task_background(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+) -> Command<Vec<BackgroundTask>> {
+    Ok(core.task_background(&project, &name)?)
+}
+
+/// Asks a session's agent to stop something it left running.
+#[tauri::command]
+pub(crate) fn session_stop_background(
+    core: CoreState<'_>,
+    id: i64,
+    task_id: String,
+) -> Command<()> {
+    Ok(core.session_stop_background(id, &task_id)?)
+}
+
 #[tauri::command]
 pub(crate) fn session_stop(core: CoreState<'_>, id: i64) {
     core.session_stop(id);
@@ -668,17 +736,12 @@ pub(crate) fn slash_commands(core: CoreState<'_>, id: Option<i64>) -> Command<Ve
 }
 
 #[tauri::command]
-pub(crate) fn session_configure(
-    core: CoreState<'_>,
-    id: i64,
-    model: Option<String>,
-    supervision: Supervision,
-    effort: Option<Effort>,
-) -> Command<Session> {
+pub(crate) fn session_configure(core: CoreState<'_>, id: i64, how: Running) -> Command<Session> {
     let settings = SessionSettings {
-        model,
-        supervision,
-        effort,
+        model: how.model,
+        supervision: how.supervision,
+        effort: how.effort,
+        fast: how.fast,
     };
     Ok(core.session_configure(id, &settings)?)
 }

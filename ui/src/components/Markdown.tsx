@@ -2,6 +2,7 @@ import { type ComponentProps, isValidElement, memo, type ReactNode, useState } f
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
+import { api } from "../api";
 import { HTML_LANGUAGE, splitPendingView, VIEW_LANGUAGE } from "../htmlview";
 import { useStore } from "../store";
 import { HtmlView, ViewPending } from "./HtmlView";
@@ -28,7 +29,7 @@ export const Markdown = memo(function Markdown({ text, streaming = false }: Prop
             <ReactMarkdown
                 remarkPlugins={PLUGINS}
                 rehypePlugins={REHYPE_PLUGINS}
-                {...(views ? { components: VIEW_COMPONENTS } : {})}
+                components={views ? VIEW_COMPONENTS : COMPONENTS}
             >
                 {shown}
             </ReactMarkdown>
@@ -86,4 +87,27 @@ function HtmlCode({ html, children }: { html: string; children: ReactNode }) {
     );
 }
 
-const VIEW_COMPONENTS = { pre: Pre };
+/**
+ * A link the agent wrote. It opens in the user's browser: followed here it would replace
+ * Swarmed's window with a web page that has no way back.
+ */
+function Link({ href, children, node: _node, ...rest }: ComponentProps<"a"> & { node?: unknown }) {
+    const report = useStore((state) => state.report);
+    return (
+        <a
+            {...rest}
+            href={href}
+            onClick={(event) => {
+                event.preventDefault();
+                if (href) {
+                    api.openLink(href).catch(report);
+                }
+            }}
+        >
+            {children}
+        </a>
+    );
+}
+
+const COMPONENTS = { a: Link };
+const VIEW_COMPONENTS = { ...COMPONENTS, pre: Pre };

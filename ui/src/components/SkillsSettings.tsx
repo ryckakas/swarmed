@@ -98,6 +98,11 @@ export function SkillsSettings() {
                     Add a skill
                 </button>
             )}
+            <p className="settings-hint">
+                A repository can keep skills of its own in .claude/skills or .agents/skills. Those
+                go with its tasks: a session is offered the ones in its worktree that its agent does
+                not read by itself.
+            </p>
             {SKILL_ORIGINS.map((group) => (
                 <details key={group.origin} className="mcp-group">
                     <summary>

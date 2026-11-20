@@ -160,7 +160,7 @@ fn the_ui_can_go_from_an_empty_app_to_an_answered_permission_request() {
     );
     let session = app.ok(
         "session_new",
-        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "ask", "effort": null }),
+        json!({ "project": "demo", "task": "one", "agent": null, "how": { "model": null, "supervision": "ask", "effort": null } }),
     );
     let id = &session["id"];
 
@@ -204,7 +204,7 @@ fn the_ui_can_deny_interrupt_stop_and_remove() {
     );
     let session = app.ok(
         "session_new",
-        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "auto", "effort": "high" }),
+        json!({ "project": "demo", "task": "one", "agent": null, "how": { "model": null, "supervision": "auto", "effort": "high" } }),
     );
     let id = &session["id"];
     assert_eq!(session["supervision"], "auto");
@@ -219,11 +219,12 @@ fn the_ui_can_deny_interrupt_stop_and_remove() {
     app.ok("session_send", json!({ "id": id, "text": "slow" }));
     app.wait_for_event(id, "text");
     assert_eq!(session["effort"], "high");
-    let settings = json!({ "id": id, "model": "opus", "supervision": "ask", "effort": "high" });
+    let how = json!({ "model": "opus", "supervision": "ask", "effort": "high", "fast": true });
+    let settings = json!({ "id": id, "how": how });
     let changed = app.ok("session_configure", settings);
     assert_eq!(
-        (&changed["model"], &changed["supervision"]),
-        (&json!("opus"), &json!("ask"))
+        (&changed["model"], &changed["supervision"], &changed["fast"]),
+        (&json!("opus"), &json!("ask"), &json!(true))
     );
     app.ok("session_interrupt", json!({ "id": id }));
     app.ok("session_stop", json!({ "id": id }));
@@ -319,7 +320,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
         app.ok("settings", json!({})),
         json!({
             "editor": "code", "auto_title": true, "theme": "system", "palette": "swarm",
-            "style": "swarm",
+            "style": "colony",
             "text_scale": 100,
             "html_views": true, "notifications": true, "default_supervision": "auto",
             "status_items": ["branch", "changes", "model", "context", "cost"],
@@ -365,6 +366,33 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
 }
 
 #[test]
+fn the_ui_can_list_what_was_left_running_and_cannot_stop_what_no_agent_runs() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    app.ok(
+        "task_new",
+        json!({ "project": "demo", "name": "one", "branch": null }),
+    );
+    let target = json!({ "project": "demo", "name": "one" });
+    assert_eq!(app.invoke("task_background", target), Ok(json!([])));
+    let stop = json!({ "id": 999, "taskId": "b1" });
+    assert!(app.invoke("session_stop_background", stop).is_err());
+}
+
+#[test]
+fn a_link_that_is_not_a_web_link_is_not_opened() {
+    let app = app();
+    let refused = app.invoke("open_link", json!({ "url": "file:///etc/passwd" }));
+    let message = refused.expect_err("refused");
+    assert!(
+        message
+            .as_str()
+            .is_some_and(|m| m.contains("only web and mail links")),
+        "{message}"
+    );
+}
+
+#[test]
 fn the_ui_can_remove_a_repository_with_its_tasks() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
@@ -386,7 +414,7 @@ fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
     app.ok("task_new", task);
     let session = app.ok(
         "session_new",
-        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "ask", "effort": null }),
+        json!({ "project": "demo", "task": "one", "agent": null, "how": { "model": null, "supervision": "ask", "effort": null } }),
     );
     let id = &session["id"];
     app.ok("session_send", json!({ "id": id, "text": "run: ls" }));
@@ -525,7 +553,7 @@ fn the_ui_can_list_closed_sessions_and_reopen_one() {
     );
     let session = app.ok(
         "session_new",
-        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "ask", "effort": null }),
+        json!({ "project": "demo", "task": "one", "agent": null, "how": { "model": null, "supervision": "ask", "effort": null } }),
     );
     let id = &session["id"];
     app.ok("session_close", json!({ "id": id }));
@@ -554,7 +582,7 @@ fn the_ui_can_point_the_agent_at_files_with_a_message() {
     app.ok("task_new", task);
     let session = app.ok(
         "session_new",
-        json!({ "project": "demo", "task": "one", "agent": null, "model": null, "supervision": "ask", "effort": null }),
+        json!({ "project": "demo", "task": "one", "agent": null, "how": { "model": null, "supervision": "ask", "effort": null } }),
     );
     let id = &session["id"];
     let readme = app.repo.join("README.md");

@@ -20,6 +20,8 @@ export interface Session {
     unread: boolean;
     /** The session that started this one, if an agent did and not the user. */
     spawned_by: number | null;
+    /** Whether the agent is asked for its fast mode, where it has one. */
+    fast: boolean;
 }
 
 export interface Task {
@@ -35,17 +37,25 @@ export interface Task {
     sessions: Session[];
     /** Ids of the sessions whose agent is running. */
     running: number[];
-    /** Where the task's running stack is reached in a browser, if its project says so. */
+    /** Where the task's stack is opened by default: what its project says, or what it printed. */
     url: string | null;
+    /** Every address the stack can be opened at, `url` first. */
+    urls: string[];
     /** Whether the user keeps a note on the task. */
     has_note: boolean;
     /** How many closed sessions the task has, which can be listed and reopened. */
     closed: number;
     /** The environment of its project the task was set up in, if any. */
     environment: string | null;
-    /** Whether what the task keeps running is up; `null` if its project has no start command. */
-    stack: boolean | null;
+    /** How far along what the task keeps running is; `null` if its project starts nothing. */
+    stack: StackState | null;
 }
+
+/**
+ * A stack whose command runs is "starting" until something answers at its address: it may
+ * still be installing or building what it serves.
+ */
+export type StackState = "stopped" | "starting" | "running";
 
 /** A prompt kept to be sent again. `{{something}}` in its text marks a place to fill in. */
 export interface Template {
@@ -63,6 +73,35 @@ export interface Costs {
     tasks: { project: string; task: string; usd: number }[];
     /** The last days on which something was spent, the newest first. */
     days: { day: string; usd: number }[];
+}
+
+/** What a task's setup produced, kept for new tasks of its environment to start from. */
+export interface Snapshot {
+    /** The environment whose tasks start from it; `null` for tasks without one. */
+    environment: string | null;
+    /** The task it was taken from. */
+    task: string;
+    /** When it was taken, in seconds since 1970. */
+    taken_at: number;
+    /** How many files and folders git ignores were kept, counted at the top of each. */
+    entries: number;
+}
+
+/** The turns of one day on one model of one agent in one task, added up. */
+export interface TurnStats {
+    /** The day, as `YYYY-MM-DD` in local time. */
+    day: string;
+    project: string;
+    task: string;
+    agent: string;
+    model: string;
+    turns: number;
+    /** How many of the turns failed or were interrupted. */
+    failed: number;
+    /** In US dollars at API prices, as the agents report it. */
+    usd: number;
+    /** How long the turns took in all, as far as that was measured. */
+    duration_ms: number;
 }
 
 /** One session in which the words searched for were said. */
@@ -173,7 +212,15 @@ export type Palette = "dusk" | "graphite" | "forest" | "plum" | "ember" | "swarm
 export type Style = "plain" | "swarm" | "colony";
 
 /** One built-in piece of the status line. */
-export type StatusItem = "branch" | "changes" | "model" | "context" | "cost" | "agent" | "worktree";
+export type StatusItem =
+    | "branch"
+    | "changes"
+    | "model"
+    | "context"
+    | "cost"
+    | "agent"
+    | "worktree"
+    | "duration";
 
 /** The user's own preferences. */
 export interface Settings {
@@ -402,9 +449,41 @@ export type AgentEvent =
     | { type: "permission_answered"; request_id: string; allowed: boolean }
     | { type: "permission_withdrawn"; request_id: string }
     | { type: "rate_limit"; status: string; resets_at: number | null; raw: unknown }
-    | { type: "turn_done"; is_error: boolean; result: string | null; cost_usd: number | null }
+    | {
+          type: "turn_done";
+          is_error: boolean;
+          result: string | null;
+          cost_usd: number | null;
+          /** How long the turn took, in milliseconds; absent from turns recorded before it was. */
+          duration_ms?: number | null;
+      }
     | { type: "exited"; code: number | null; stderr: string }
+    | {
+          type: "background";
+          task_id: string;
+          description: string;
+          kind: string;
+          state: BackgroundState;
+          summary: string | null;
+      }
     | { type: "other"; raw: unknown };
+
+/** How far along something an agent left running is. */
+export type BackgroundState = "running" | "completed" | "failed" | "stopped";
+
+/** One thing an agent left running behind its turn, as last heard of. */
+export interface BackgroundTask {
+    session_id: number;
+    session_title: string;
+    /** The agent's own id for it, which is how it is stopped. */
+    task_id: string;
+    description: string;
+    /** What kind of thing it is, as the agent names it: `local_bash`, `local_agent`. */
+    kind: string;
+    state: BackgroundState;
+    /** The agent's own line about how it ended. */
+    summary: string | null;
+}
 
 export interface SessionEvent {
     session_id: number;
@@ -454,6 +533,11 @@ export interface SessionSettings {
      * starts, so a running one is restarted between turns and carries on the conversation.
      */
     effort: Effort | null;
+    /**
+     * Whether the agent is asked for its fast mode: quicker answers at a higher price. Like
+     * the effort, it is taken when the agent starts. Left out, it is off.
+     */
+    fast?: boolean;
 }
 
 /** How hard the model thinks before it answers. */
@@ -466,4 +550,6 @@ export interface SessionSetup {
     model: string | null;
     supervision: Supervision;
     effort: Effort | null;
+    /** Whether the agent is asked for its fast mode, where it has one. Left out, it is off. */
+    fast?: boolean;
 }

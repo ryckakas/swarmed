@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activityWords, pickWord, statusKind, wordsFor } from "./wording";
+import { activityWords, pickWord, statusKind, withArticle, wordsFor } from "./wording";
 
 describe("wordsFor", () => {
     it("keeps the plain words in the plain style", () => {
@@ -12,7 +12,7 @@ describe("wordsFor", () => {
     });
 
     it("uses the default style's words before the settings are read", () => {
-        expect(wordsFor(undefined)).toEqual(wordsFor("swarm"));
+        expect(wordsFor(undefined)).toEqual(wordsFor("colony"));
     });
 
     it("names things after the swarm in the Swarm style", () => {
@@ -86,5 +86,31 @@ describe("pickWord", () => {
         expect(pickWord(["a", "b"], 1)).toBe("b");
         expect(pickWord(["a", "b"], -1)).toBe("a");
         expect(pickWord([], 0.3)).toBe("");
+    });
+
+    it("renames closing a session and the environments in the swarm's styles only", () => {
+        expect(wordsFor("plain").closeSession).toBe("Close session");
+        expect(wordsFor("plain").environments).toBe("Environments");
+        for (const style of ["swarm", "colony"] as const) {
+            expect(wordsFor(style).closeSession).toBe("Terminate spawn");
+            expect(wordsFor(style).closeAsk).toBe("Terminate this spawn?");
+            expect(wordsFor(style).environment).toBe("Spawning pool");
+        }
+    });
+
+    it("puts the right article before a name", () => {
+        expect(withArticle("Environment")).toBe("an environment");
+        expect(withArticle("Spawning pool")).toBe("a spawning pool");
+    });
+
+    it("has the swarm's own words for a turn's end, a stack and the time worked", () => {
+        expect(wordsFor("plain").stack.starting).toBe("Stack starting");
+        expect(wordsFor("colony").stack).toEqual({
+            stopped: "Pool dormant",
+            starting: "Pool gestating",
+            running: "Pool thriving",
+        });
+        expect(wordsFor("swarm").turnDone).toBe("Molt complete");
+        expect(wordsFor("swarm").timeWorked).toBe("Time mutating");
     });
 });

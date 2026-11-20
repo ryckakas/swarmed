@@ -7,9 +7,17 @@ import { useStore } from "../store";
 import { suggestionOf } from "../suggestion";
 import { ComposerBox } from "./ComposerBox";
 import { EffortPicker } from "./EffortPicker";
+import { FastToggle } from "./FastToggle";
 import { MessageQueue } from "./MessageQueue";
 import { ModePicker, TerminalIcon } from "./ModePicker";
-import { CLAUDE, modelChoices, takesEffort, useAgents, useSlashCommands } from "./options";
+import {
+    CLAUDE,
+    modelChoices,
+    takesEffort,
+    takesFast,
+    useAgents,
+    useSlashCommands,
+} from "./options";
 import { Picker } from "./Picker";
 
 // The terminal emulator is a large library; it is only fetched when a terminal is first shown.
@@ -125,10 +133,10 @@ export function Composer({ session }: { session: Session }) {
 function SessionPickers({ session }: { session: Session }) {
     const configure = useStore((state) => state.configure);
     const agent = useAgents().find((candidate) => candidate.id === session.agent);
-    const { id, model, supervision, effort } = session;
+    const { id, model, supervision, effort, fast } = session;
     // What the agent last said its effort comes to, for when none was chosen.
     const applied = useStore((state) => appliedEffort(state.events[id]));
-    const current = { model, supervision, effort };
+    const current = { model, supervision, effort, fast };
     return (
         <>
             <ModePicker
@@ -151,6 +159,12 @@ function SessionPickers({ session }: { session: Session }) {
                     value={effort}
                     applied={applied}
                     onChange={(value) => void configure(api, id, { ...current, effort: value })}
+                />
+            )}
+            {takesFast(session.agent) && (
+                <FastToggle
+                    on={fast}
+                    onChange={(value) => void configure(api, id, { ...current, fast: value })}
                 />
             )}
         </>

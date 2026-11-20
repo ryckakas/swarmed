@@ -7,6 +7,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod navigation;
 mod notify;
 
 use std::borrow::Cow;
@@ -121,6 +122,7 @@ fn view_response(core: &Core, path: &str) -> Response<Cow<'static, [u8]>> {
 /// tests can drive the same commands without a window.
 fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
     builder
+        .plugin(navigation::guard())
         .manage(Arc::clone(&core))
         .register_uri_scheme_protocol(VIEW_SCHEME, move |_context, request| {
             view_response(&core, request.uri().path())
@@ -129,6 +131,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
             commands::agents,
             commands::usage,
             commands::costs,
+            commands::analytics,
             commands::mcp_servers,
             commands::mcp_save,
             commands::mcp_remove,
@@ -163,9 +166,13 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
             commands::cloud_task_apply,
             commands::environment_save,
             commands::environment_remove,
+            commands::snapshots,
+            commands::snapshot_save,
+            commands::snapshot_remove,
             commands::task_remove,
             commands::task_open_editor,
             commands::task_open_url,
+            commands::open_link,
             commands::task_unpublished,
             commands::task_commit,
             commands::task_push,
@@ -194,6 +201,8 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
             commands::session_deny,
             commands::session_interrupt,
             commands::session_stop,
+            commands::session_stop_background,
+            commands::task_background,
             commands::session_configure,
             commands::slash_commands,
             commands::badge_set,

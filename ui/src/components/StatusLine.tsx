@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type CSSProperties, useEffect, useState } from "react";
 import { api } from "../api";
 import type { AgentEvent, FileChange, Session, Task } from "../api/types";
 import {
@@ -12,6 +12,7 @@ import {
     statusParts,
 } from "../statusline";
 import { useStore } from "../store";
+import { useWords } from "../useWords";
 
 interface Props {
     project: string;
@@ -74,9 +75,14 @@ function BuiltIn({ project, task, session, events }: Props) {
         };
     }, [project, task.name, wanted, tick]);
 
-    const parts = statusParts(items, { session, task, events, changes });
+    const words = useWords();
+    const running = useRunning(session.id, items.includes("duration"));
+    const parts = statusParts(items, { session, task, events, changes, running });
     const usage = contextUsage(events);
-    const [detail, setDetail] = useState(false);
+    // Where the context badge starts, while its overview is shown: the overview stands over it.
+    const [detail, setDetail] = useState<number | null>(null);
+    const show = (badge: HTMLElement) => setDetail(badge.offsetLeft);
+    const hide = () => setDetail(null);
     return (
         <>
             <p className="status-text">
@@ -88,12 +94,12 @@ function BuiltIn({ project, task, session, events }: Props) {
                             key={part.item}
                             type="button"
                             className="status-part status-context"
-                            aria-expanded={detail}
+                            aria-expanded={detail !== null}
                             aria-label={`Context window: ${part.text}`}
-                            onMouseEnter={() => setDetail(true)}
-                            onMouseLeave={() => setDetail(false)}
-                            onFocus={() => setDetail(true)}
-                            onBlur={() => setDetail(false)}
+                            onMouseEnter={(event) => show(event.currentTarget)}
+                            onMouseLeave={hide}
+                            onFocus={(event) => show(event.currentTarget)}
+                            onBlur={hide}
                         >
                             <Runs part={part} />
                         </button>
@@ -101,16 +107,39 @@ function BuiltIn({ project, task, session, events }: Props) {
                         <span
                             key={part.item}
                             className={`status-part status-${part.item}`}
-                            title={STATUS_ITEM_LABELS[part.item]}
+                            title={
+                                part.item === "duration"
+                                    ? words.timeWorked
+                                    : STATUS_ITEM_LABELS[part.item]
+                            }
                         >
                             <Runs part={part} />
                         </span>
                     ),
                 )}
             </p>
-            {detail && usage && <ContextCard usage={usage} />}
+            {detail !== null && usage && <ContextCard usage={usage} at={detail} />}
         </>
     );
+}
+
+/**
+ * How long the session's running turn has run, counted up once a second while that is shown.
+ * `null` between turns, and for a turn that began before this window was looking.
+ */
+function useRunning(sessionId: number, wanted: boolean): number | null {
+    const began = useStore((state) => state.turnBegan[sessionId]);
+    const [now, setNow] = useState(Date.now);
+    const ticking = wanted && began !== undefined;
+    useEffect(() => {
+        if (!ticking) {
+            return;
+        }
+        setNow(Date.now());
+        const timer = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, [ticking]);
+    return ticking ? Math.max(0, now - began) : null;
 }
 
 function Runs({ part }: { part: StatusPart }) {
@@ -122,11 +151,13 @@ function Runs({ part }: { part: StatusPart }) {
 }
 
 /** What fills the context window, part by part, shown over the status line. */
-function ContextCard({ usage }: { usage: ContextUsage }) {
+function ContextCard({ usage, at }: { usage: ContextUsage; at: number }) {
     const percent = contextPercent(usage);
     const parts = contextBreakdown(usage);
+    // The stylesheet keeps it inside the line when the badge is near the right edge.
+    const place = { "--badge-left": `${at}px` } as CSSProperties;
     return (
-        <div className="context-card" role="tooltip">
+        <div className="context-card" role="tooltip" style={place}>
             <p className="context-title">
                 Context window
                 <span>

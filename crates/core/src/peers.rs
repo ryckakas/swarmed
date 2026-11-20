@@ -219,6 +219,7 @@ impl Core {
             model: parent.model.clone(),
             supervision: parent.supervision,
             effort: parent.effort,
+            fast: parent.fast,
         };
         let child = {
             let store = self.store();
@@ -324,8 +325,9 @@ impl Core {
                 ))
             }
             "use_skill" => {
-                let agent = self.session(from)?.agent;
-                self.skill_for_session(&agent, word("name").unwrap_or_default())
+                let session = self.session(from)?;
+                let worktree = self.task_of(&session)?.worktree_path;
+                self.skill_for_session(&session.agent, &worktree, word("name").unwrap_or_default())
             }
             _ => Err(refused(format!("Swarmed has no tool called `{tool}`"))),
         }

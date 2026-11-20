@@ -132,6 +132,16 @@ impl Core {
                 return Err(e);
             }
         };
+        // What an earlier task's setup produced, so that this one's has less to do. Not
+        // having it is no reason to fail: setup then does all the work, as it always could.
+        let seeded = self
+            .seed_from_snapshot(&project.name, options.environment, &worktree)
+            .await;
+        match seeded {
+            Ok(true) => sink("started from the snapshot of this environment"),
+            Ok(false) => {}
+            Err(error) => sink(&format!("the snapshot could not be used: {error}")),
+        }
         self.run_setup(&project, &config, task, sink).await
     }
 
@@ -267,11 +277,15 @@ impl Core {
         git::worktree_remove(&project.repo_path, &task.worktree_path).await
     }
 
-    /// Where the task's running stack is reached in a browser, if its project says so.
+    /// Where the task's stack is opened in a browser: what its project says, or else the
+    /// first address the running stack printed that answers.
     pub fn task_url(&self, project: &str, task: &str) -> Result<Option<String>> {
         let (project, task) = self.task(project, task)?;
         let config = self.config_in(&project.name, task.environment.as_deref())?;
-        self.url_of(&project, &config, &task)
+        // Asked for by name first, so that a URL that cannot be rendered is said.
+        let named = self.url_of(&project, &config, &task)?;
+        let printed = || self.reach(&project, &config, &task).urls.into_iter().next();
+        Ok(named.or_else(printed))
     }
 
     pub(crate) fn url_of(

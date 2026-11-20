@@ -3,6 +3,7 @@ import type {
     AgentInfo,
     AgentSetup,
     ApiKeyInfo,
+    BackgroundTask,
     BranchChoices,
     CloudProvider,
     CloudTask,
@@ -24,10 +25,12 @@ import type {
     SessionSetup,
     Settings,
     Skill,
+    Snapshot,
     Task,
     TaskNaming,
     Template,
     TerminalOutput,
+    TurnStats,
     Unpublished,
     Usage,
 } from "./types";
@@ -56,6 +59,14 @@ export interface Api {
     usage(): Promise<Usage>;
     /** What the agents report their work has cost: by day and by task. */
     costs(): Promise<Costs>;
+    /** The project's snapshots: what new tasks of each environment start from. */
+    snapshots(project: string): Promise<Snapshot[]>;
+    /** Keeps what the task's setup produced as the snapshot of its environment. */
+    snapshotSave(project: string, task: string): Promise<Snapshot>;
+    /** Forgets the snapshot of an environment; `null` is the one of tasks without any. */
+    snapshotRemove(project: string, environment: string | null): Promise<void>;
+    /** The sessions' turns added up by day, task, agent and model, the oldest day first. */
+    analytics(): Promise<TurnStats[]>;
     /** The agents that can be set up from the settings, and how far along each is. */
     agentSetups(): Promise<AgentSetup[]>;
     /** Installs a known agent and configures it. Its installer's output comes as hook output. */
@@ -168,6 +179,8 @@ export interface Api {
     taskOpenEditor(project: string, name: string): Promise<void>;
     /** Opens the task's running stack in the default browser. */
     taskOpenUrl(project: string, name: string): Promise<void>;
+    /** Opens a web or mail link in the user's browser, never in Swarmed's own window. */
+    openLink(url: string): Promise<void>;
     /** The user's note on a repository, or on one of its tasks; empty if there is none. */
     note(project: string, task: string | null): Promise<string>;
     /** Replaces that note. Nothing but blank space removes it. */
@@ -208,6 +221,10 @@ export interface Api {
     sessionDeny(id: number, requestId: string, reason: string): Promise<void>;
     /** Stops the current turn; the session stays usable. */
     sessionInterrupt(id: number): Promise<void>;
+    /** What a task's agents left running in the background, the running ones first. */
+    taskBackground(project: string, name: string): Promise<BackgroundTask[]>;
+    /** Asks a session's agent to stop something it left running. */
+    sessionStopBackground(id: number, taskId: string): Promise<void>;
     /**
      * The commands and skills a message can call by starting with `/`, as last reported by the
      * session's agent; for `null` or a session that has not run, by the newest session.

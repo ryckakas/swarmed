@@ -1,9 +1,11 @@
+import { lastDays } from "../analytics";
 import { PLAN_TOOL, withFiles } from "../transcript";
 import type { Api } from "./client";
 import type {
     AgentEvent,
     AgentSetup,
     ApiKeyInfo,
+    BackgroundTask,
     CloudProvider,
     CloudTask,
     Costs,
@@ -22,9 +24,12 @@ import type {
     SessionStatus,
     Settings,
     Skill,
+    Snapshot,
+    StackState,
     Task,
     Template,
     TerminalOutput,
+    TurnStats,
     Unpublished,
     Usage,
 } from "./types";
@@ -50,6 +55,7 @@ function session(id: number, taskId: number, title: string, status: SessionStatu
         // One sample session has answered and not been looked at.
         unread: id === 5,
         spawned_by: null,
+        fast: false,
     };
 }
 
@@ -67,11 +73,12 @@ function task(id: number, projectId: number, name: string, sessions: Session[]):
         sessions,
         running: sessions.filter((s) => s.status !== "idle").map((s) => s.id),
         url: `http://localhost:${3000 + id * 100}`,
+        urls: [`http://localhost:${3000 + id * 100}`],
         has_note: id === 1,
         closed: 0,
         environment: null,
         // One sample task has a dev server to start and stop.
-        stack: id === 1 ? true : null,
+        stack: id === 1 ? "running" : null,
     };
 }
 
@@ -372,19 +379,125 @@ function cloudApi(
     };
 }
 
+/** Snapshots of the sample projects: none to begin with, kept as they are taken. */
+function snapshotApi(
+    projects: () => Project[],
+): Pick<Api, "snapshots" | "snapshotSave" | "snapshotRemove"> {
+    const kept = new Map<string, Snapshot[]>();
+    const of = (project: string) => kept.get(project) ?? [];
+    return {
+        snapshots: async (project) => [...of(project)],
+        snapshotSave: async (project, name) => {
+            const tasks = projects().find((one) => one.name === project)?.tasks ?? [];
+            const environment = tasks.find((task) => task.name === name)?.environment ?? null;
+            const snapshot = {
+                environment,
+                task: name,
+                taken_at: Math.floor(Date.now() / 1000),
+                entries: 3,
+            };
+            const others = of(project).filter((one) => one.environment !== environment);
+            kept.set(project, [...others, snapshot]);
+            return snapshot;
+        },
+        snapshotRemove: async (project, environment) => {
+            kept.set(
+                project,
+                of(project).filter((one) => one.environment !== environment),
+            );
+        },
+    };
+}
+
+/** A few weeks of made-up work on three models, ending today, with two quiet days. */
+function sampleAnalytics(today: Date): TurnStats[] {
+    const models: [agent: string, model: string, usd: number][] = [
+        ["claude", "claude-opus-5-5", 2.4],
+        ["claude", "claude-haiku-5-5", 0.3],
+        ["codex", "gpt-6.1-sol", 0.9],
+    ];
+    return lastDays(today, 24).flatMap((day, index) =>
+        models
+            .filter((_, at) => index % 7 !== 5 && (index + at) % 4 !== 0)
+            .map(([agent, model, usd], at): TurnStats => {
+                const busy = 1 + ((index * 7 + at * 3) % 5);
+                return {
+                    day,
+                    project: "hero",
+                    task: "fix-login-redirect",
+                    agent,
+                    model,
+                    turns: busy * 3,
+                    failed: busy === 4 ? 1 : 0,
+                    usd: usd * busy,
+                    duration_ms: busy * 190_000,
+                };
+            }),
+    );
+}
+
+/** Things the sample agents left running: one still going, two that ended. */
+function backgroundApi(): Pick<Api, "taskBackground" | "sessionStopBackground"> {
+    const tasks: BackgroundTask[] = [
+        {
+            session_id: 1,
+            session_title: "Fix the redirect loop after login",
+            task_id: "b1",
+            description: "Run the dev server on port 3100",
+            kind: "local_bash",
+            state: "running",
+            summary: null,
+        },
+        {
+            session_id: 1,
+            session_title: "Fix the redirect loop after login",
+            task_id: "b2",
+            description: "Run the whole test suite",
+            kind: "local_bash",
+            state: "completed",
+            summary: 'Background command "Run the whole test suite" completed (exit code 0)',
+        },
+        {
+            session_id: 2,
+            session_title: "Write a regression test for the loop",
+            task_id: "b3",
+            description: "Look for other callers of the redirect helper",
+            kind: "local_agent",
+            state: "failed",
+            summary: "The agent stopped with an error",
+        },
+    ];
+    return {
+        taskBackground: async (_project, name) =>
+            name === "fix-login-redirect" ? tasks.map((task) => ({ ...task })) : [],
+        sessionStopBackground: async (id, taskId) => {
+            const task = tasks.find((one) => one.session_id === id && one.task_id === taskId);
+            if (task) {
+                task.state = "stopped";
+            }
+        },
+    };
+}
+
 /** Starting and stopping what a sample task keeps running. */
 function stackApi(projects: () => Project[]): Pick<Api, "stackStart" | "stackStop" | "stackLog"> {
-    const set = (project: string, name: string, running: boolean) => {
+    const set = (project: string, name: string, state: StackState) => {
         const tasks = projects().find((candidate) => candidate.name === project)?.tasks ?? [];
         const task = tasks.find((candidate) => candidate.name === name);
         if (task && task.stack !== null) {
-            task.stack = running;
+            task.stack = state;
+            // A sample stack takes a moment to answer, as a real one does.
+            if (state === "starting") {
+                setTimeout(() => {
+                    task.stack = task.stack === "starting" ? "running" : task.stack;
+                }, 6000);
+            }
         }
         return task?.stack ?? null;
     };
     return {
-        stackStart: async (project, name) => set(project, name, true) !== null,
-        stackStop: async (project, name) => void set(project, name, false),
+        stackStart: async (project, name) => set(project, name, "starting") !== null,
+        stackStop: async (project, name) => void set(project, name, "stopped"),
         stackLog: async () => "Starting dev server…\nListening on http://localhost:3100\n",
     };
 }
@@ -874,6 +987,7 @@ class MockAgent {
             is_error: false,
             result: null,
             cost_usd: 0.0123,
+            duration_ms: 72_000,
         };
         if (text === "slow") {
             this.later(id, { type: "text", text: "Working on it…" }, "working");
@@ -984,7 +1098,13 @@ class MockAgent {
             );
             this.later(
                 id,
-                { type: "turn_done", is_error: false, result: null, cost_usd: 0.31 },
+                {
+                    type: "turn_done",
+                    is_error: false,
+                    result: null,
+                    cost_usd: 0.31,
+                    duration_ms: 4_200,
+                },
                 "idle",
             );
         }
@@ -1172,7 +1292,7 @@ export function createMockApi(): Api {
         html_views: true,
         notifications: true,
         rules: "",
-        status_items: ["branch", "changes", "model", "context", "cost"],
+        status_items: ["branch", "changes", "model", "context", "cost", "duration"],
         status_command: "",
     };
     return {
@@ -1181,6 +1301,8 @@ export function createMockApi(): Api {
         ...templatesApi(),
         usage: async () => SAMPLE_USAGE,
         costs: async () => SAMPLE_COSTS,
+        ...snapshotApi(() => agent.projects),
+        analytics: async () => sampleAnalytics(new Date()),
         ...setupApi(hookListeners),
         agents: async () => [
             { id: "claude", name: "Claude Code", models: ["opus", "sonnet", "haiku", "fable"] },
@@ -1254,6 +1376,9 @@ export function createMockApi(): Api {
         taskDiff: sampleDiff,
         taskOpenEditor: async () => undefined,
         taskOpenUrl: async () => undefined,
+        openLink: async (url) => {
+            window.open(url, "_blank", "noopener");
+        },
         ...noteApi(() => agent.projects),
         apiKeys: async () => structuredClone(keys),
         setApiKey: async (name, key) => storeKey(keys, name, key.trim() !== ""),
@@ -1293,6 +1418,7 @@ export function createMockApi(): Api {
         sessionAllow: async (id, requestId) => agent.decide(id, requestId, true),
         sessionDeny: async (id, requestId) => agent.decide(id, requestId, false),
         sessionInterrupt: async (id) => agent.interrupt(id),
+        ...backgroundApi(),
         slashCommands: async () => [
             "code-review",
             "context",

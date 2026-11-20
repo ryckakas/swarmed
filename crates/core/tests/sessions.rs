@@ -567,6 +567,7 @@ async fn settings_can_change_while_running_and_apply_to_the_next_start() {
         model: Some("opus".into()),
         supervision: Supervision::Auto,
         effort: None,
+        fast: false,
     };
     let changed = core
         .session_configure(session.id, &settings)

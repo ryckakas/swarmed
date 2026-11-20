@@ -40,6 +40,11 @@ export function takesEffort(agentId: string): boolean {
     return agentId === CLAUDE || agentId === "codex";
 }
 
+/** Whether an agent has a fast mode to ask for. Of the ones known here, only Codex does. */
+export function takesFast(agentId: string): boolean {
+    return agentId === "codex";
+}
+
 /** A model name as shown: Claude Code's short names get labels, other names are shown as they are. */
 export function modelLabel(model: string | null): string {
     return MODEL_LABELS[model ?? ""] ?? model ?? "";

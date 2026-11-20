@@ -121,6 +121,7 @@ impl Script {
             is_error,
             result: result.map(String::from),
             cost_usd: Some(0.0),
+            duration_ms: None,
         };
         if let Some(name) = message.strip_prefix("env:") {
             let found = self

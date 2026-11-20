@@ -27,7 +27,14 @@ export type Item =
     /** What happened in the terminal, as the agent was told with the message before it. */
     | { kind: "terminal"; key: number; text: string }
     | { kind: "session"; key: number; model: string; login: string; mcp: string; skills: number }
-    | { kind: "turn"; key: number; isError: boolean; costUsd: number | null }
+    | {
+          kind: "turn";
+          key: number;
+          isError: boolean;
+          costUsd: number | null;
+          /** How long the turn took, if it was measured. */
+          durationMs: number | null;
+      }
     | { kind: "notice"; key: number; tone: "error" | "warning"; text: string }
     /** Where the copy of an earlier conversation ends and the fork's own begins. */
     | { kind: "forked"; key: number; from: number };
@@ -130,7 +137,13 @@ function single(event: AgentEvent, key: number): Item | null {
         case "init":
             return sessionItem(event, key);
         case "turn_done":
-            return { kind: "turn", key, isError: event.is_error, costUsd: event.cost_usd };
+            return {
+                kind: "turn",
+                key,
+                isError: event.is_error,
+                costUsd: event.cost_usd,
+                durationMs: event.duration_ms ?? null,
+            };
         case "rate_limit":
             return rateLimitNotice(event, key);
         case "exited":

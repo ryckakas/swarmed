@@ -11,6 +11,12 @@ export const SKILL_ORIGINS: { origin: string; name: string; agent: string; about
         about: "From ~/.claude/skills. Claude Code has these by itself; other agents are offered the ticked ones.",
     },
     {
+        origin: "plugins",
+        name: "Claude Code plugins",
+        agent: "claude",
+        about: "From the plugins installed in Claude Code for you, named plugin:skill as Claude Code names them. Other agents are offered the ticked ones.",
+    },
+    {
         origin: "codex",
         name: "Codex",
         agent: "codex",

@@ -1,7 +1,7 @@
 // What things are called, by the style the user chose: the plain words, or a swarm's. Apart from
 // the palette, so either goes with any colours. Pure, so it can be tested.
 
-import type { SessionStatus, Style } from "./api/types";
+import type { BackgroundState, SessionStatus, StackState, Style } from "./api/types";
 import { DEFAULT_STYLE } from "./appearance";
 
 /** What a session is doing, as the marks tell it: its status, or idle with an unseen answer. */
@@ -43,6 +43,36 @@ export interface Words {
     reopen: string;
     /** What handing work to a cloud agent is called, before "from <where>". */
     delegate: string;
+    /** What ending a session and taking it out of the sidebar is called. */
+    closeSession: string;
+    /** The question asked before a session is closed. */
+    closeAsk: string;
+    /** One way of setting a task up, and several of them. */
+    environment: string;
+    environments: string;
+    /** How a turn's end reads: one that finished, and one that was stopped or failed. */
+    turnDone: string;
+    turnStopped: string;
+    /** What each state of a task's stack is called. */
+    stack: Record<StackState, string>;
+    /** The status line's piece that adds up how long the agent has worked. */
+    timeWorked: string;
+    /** The task panel's two tabs: what the task changed, and what its agents left running. */
+    changes: string;
+    background: string;
+    /** What each state of something left running is called. */
+    backgroundState: Record<BackgroundState, string>;
+    /** The button that stops something left running. */
+    stopBackground: string;
+    /** What the background tab says when nothing was left running. */
+    noBackground: string;
+    /** The heading over the charts of what the sessions did. */
+    activityTitle: string;
+    /** The switch that asks an agent for its fast mode. */
+    fast: string;
+    /** What a task's setup produced, kept for new tasks to start from; and several. */
+    snapshot: string;
+    snapshots: string;
 }
 
 const PLAIN: Words = {
@@ -66,6 +96,28 @@ const PLAIN: Words = {
     closed: (count) => `${count} closed`,
     reopen: "Reopen",
     delegate: "Delegate to the cloud",
+    closeSession: "Close session",
+    closeAsk: "Close this session?",
+    environment: "Environment",
+    environments: "Environments",
+    turnDone: "Turn finished",
+    turnStopped: "Turn stopped",
+    stack: { stopped: "Stack stopped", starting: "Stack starting", running: "Stack running" },
+    timeWorked: "Time worked",
+    changes: "Changes",
+    background: "Background",
+    backgroundState: {
+        running: "Running",
+        completed: "Finished",
+        failed: "Failed",
+        stopped: "Stopped",
+    },
+    stopBackground: "Stop",
+    noBackground: "The agents of this task have left nothing running.",
+    activityTitle: "Activity",
+    fast: "Fast",
+    snapshot: "Snapshot",
+    snapshots: "Snapshots",
 };
 
 const SWARM: Words = {
@@ -90,6 +142,29 @@ const SWARM: Words = {
     needYou: (count) => (count === 1 ? "1 awaits you" : `${count} await you`),
     unread: (count) => `${count} hatched`,
     noTasks: "The nest is empty",
+    closeSession: "Terminate spawn",
+    closeAsk: "Terminate this spawn?",
+    environment: "Spawning pool",
+    environments: "Spawning pools",
+    turnDone: "Molt complete",
+    turnStopped: "Molt cut short",
+    stack: { stopped: "Pool dormant", starting: "Pool gestating", running: "Pool thriving" },
+    timeWorked: "Time mutating",
+    changes: "Mutations",
+    background: "Drones",
+    backgroundState: {
+        running: "Foraging",
+        completed: "Returned",
+        // Something went wrong, which the user should not have to decode.
+        failed: "Failed",
+        stopped: "Culled",
+    },
+    stopBackground: "Cull",
+    noBackground: "No drones are out for this task.",
+    activityTitle: "Hive activity",
+    fast: "Frenzy",
+    snapshot: "Cocoon",
+    snapshots: "Cocoons",
 };
 
 /** The swarm's words, and its names for the tree as well. */
@@ -107,6 +182,12 @@ const WORDS: Record<Style, Words> = { plain: PLAIN, swarm: SWARM, colony: COLONY
 /** The words that go with a style. */
 export function wordsFor(style: Style | undefined): Words {
     return WORDS[style ?? DEFAULT_STYLE];
+}
+
+/** A name as it stands in the middle of a sentence: "an environment", "a spawning pool". */
+export function withArticle(name: string): string {
+    const lower = name.toLowerCase();
+    return `${/^[aeiou]/.test(lower) ? "an" : "a"} ${lower}`;
 }
 
 /** The words on offer for what the agent is doing: the swarm's, or the plain word alone. */

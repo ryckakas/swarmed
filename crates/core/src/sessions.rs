@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::Instant;
 
 use rusqlite::{OptionalExtension, Row, params};
 use serde::Serialize;
@@ -95,6 +96,7 @@ impl SessionStatus {
             | AgentEvent::Applied { .. }
             | AgentEvent::Suggestion { .. }
             | AgentEvent::Closed
+            | AgentEvent::Background { .. }
             | AgentEvent::View { .. }
             | AgentEvent::Queue { .. }
             | AgentEvent::ContextUsage { .. }
@@ -160,6 +162,9 @@ pub struct Session {
     pub unread: bool,
     /// The session that started this one, if an agent did and not the user.
     pub spawned_by: Option<i64>,
+    /// Whether the agent is asked for its fast mode: quicker answers at a higher price, where
+    /// the agent has such a thing. Off leaves the agent as it is set up.
+    pub fast: bool,
 }
 
 /// What can be changed about a session after it was created.
@@ -171,6 +176,8 @@ pub struct SessionSettings {
     pub supervision: Supervision,
     /// How hard the model thinks; `None` is the agent's default.
     pub effort: Option<Effort>,
+    /// Whether the agent is asked for its fast mode, where it has one.
+    pub fast: bool,
 }
 
 /// Options for [`Core::session_new`].
@@ -186,9 +193,11 @@ pub struct SessionOptions {
     pub supervision: Supervision,
     /// How hard the model thinks; `None` leaves the agent's default.
     pub effort: Option<Effort>,
+    /// Whether the agent is asked for its fast mode, where it has one.
+    pub fast: bool,
 }
 
-const SESSION_SELECT: &str = "SELECT id, task_id, title, agent_session_id, model, supervision, status, agent, effort, unread, spawned_by \
+const SESSION_SELECT: &str = "SELECT id, task_id, title, agent_session_id, model, supervision, status, agent, effort, unread, spawned_by, fast \
      FROM sessions";
 
 fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
@@ -206,6 +215,7 @@ fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
             .and_then(|effort| Effort::parse(&effort)),
         unread: row.get(9)?,
         spawned_by: row.get(10)?,
+        fast: row.get(11)?,
     })
 }
 
@@ -214,15 +224,16 @@ impl Store {
         let title = options.title.clone().unwrap_or_default();
         let agent = options.agent.clone().unwrap_or_else(|| CLAUDE.to_string());
         self.conn.execute(
-            "INSERT INTO sessions (task_id, title, model, supervision, agent, effort) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO sessions (task_id, title, model, supervision, agent, effort, fast) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 task_id,
                 title,
                 options.model,
                 options.supervision.as_str(),
                 agent,
-                options.effort.map(Effort::as_str)
+                options.effort.map(Effort::as_str),
+                options.fast
             ],
         )?;
         Ok(Session {
@@ -237,6 +248,7 @@ impl Store {
             status: SessionStatus::Idle,
             unread: false,
             spawned_by: None,
+            fast: options.fast,
         })
     }
 
@@ -275,12 +287,14 @@ impl Store {
 
     fn session_configure(&self, id: i64, settings: &SessionSettings) -> Result<()> {
         self.conn.execute(
-            "UPDATE sessions SET model = ?2, supervision = ?3, effort = ?4 WHERE id = ?1",
+            "UPDATE sessions SET model = ?2, supervision = ?3, effort = ?4, fast = ?5 \
+             WHERE id = ?1",
             params![
                 id,
                 settings.model,
                 settings.supervision.as_str(),
-                settings.effort.map(Effort::as_str)
+                settings.effort.map(Effort::as_str),
+                settings.fast
             ],
         )?;
         Ok(())
@@ -473,7 +487,7 @@ fn leaves_something_to_read(event: &AgentEvent) -> bool {
 }
 
 /// An event written by a newer version may not parse; it is shown as [`AgentEvent::Other`].
-fn event_from_json(text: &str) -> AgentEvent {
+pub(crate) fn event_from_json(text: &str) -> AgentEvent {
     serde_json::from_str(text).unwrap_or_else(|_| AgentEvent::Other {
         raw: serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.to_string())),
     })
@@ -653,11 +667,12 @@ impl Core {
         let handle = backend.start(SessionSpec {
             mcp_servers,
             env,
-            append_system_prompt: self.guidance(&settings, &session.agent),
+            append_system_prompt: self.guidance(&settings, &session.agent, &task.worktree_path),
             cwd: task.worktree_path,
             model: session.model,
             supervision: session.supervision,
             effort: session.effort,
+            fast: session.fast,
             auth,
             resume: session.agent_session_id,
             // Showing a view changes nothing, so it is never worth a question.
@@ -687,12 +702,12 @@ impl Core {
     /// rules, if they wrote any; about the other sessions, when there is a tool server to reach
     /// them through; and about showing views, when the user has those switched on. `None` if
     /// there is nothing to tell.
-    fn guidance(&self, settings: &Settings, agent: &str) -> Option<String> {
+    fn guidance(&self, settings: &Settings, agent: &str, worktree: &Path) -> Option<String> {
         let rules = settings.rules.trim();
         let rules = (!rules.is_empty()).then(|| format!("{RULES_HEADING}\n{rules}"));
         let sessions = self.tool_server.as_ref().map(|_| peers::INSTRUCTIONS);
         // Handed over through the tool server, so only worth naming when there is one.
-        let skills = sessions.and_then(|_| self.skills_guidance(agent));
+        let skills = sessions.and_then(|_| self.skills_guidance(agent, worktree));
         let views = settings.html_views.then_some(views::INSTRUCTIONS);
         let parts: Vec<&str> = [rules.as_deref(), sessions, skills.as_deref(), views]
             .into_iter()
@@ -839,6 +854,7 @@ impl Core {
             model: session.model,
             supervision,
             effort: session.effort,
+            fast: session.fast,
         };
         self.session_configure(id, &settings).map(drop)
     }
@@ -866,7 +882,8 @@ impl Core {
         if let Ok(commands) = self.live.sender(id) {
             tell_agent(&commands, &before, settings);
         }
-        if before.effort != settings.effort {
+        // Like its effort, an agent takes its fast mode when it starts.
+        if before.effort != settings.effort || before.fast != settings.fast {
             self.live.restart_when_idle(id, before.status);
         }
         if before.supervision != settings.supervision {
@@ -999,7 +1016,9 @@ pub(crate) struct Live {
     /// The process of each session's agent, as of when it was last started.
     pub(crate) pids: Mutex<HashMap<i64, u32>>,
     /// The stack each task has running, by task: what its `start` command started.
-    pub(crate) stacks: Mutex<HashMap<i64, tokio::process::Child>>,
+    pub(crate) stacks: Mutex<HashMap<i64, std::process::Child>>,
+    /// When the turn each session is in began: when the message that started it was sent.
+    turns: Mutex<HashMap<i64, Instant>>,
     runs: AtomicU64,
     bus: broadcast::Sender<SessionEvent>,
 }
@@ -1013,6 +1032,7 @@ impl Default for Live {
             queues: Queues::default(),
             pids: Mutex::default(),
             stacks: Mutex::default(),
+            turns: Mutex::default(),
             runs: AtomicU64::new(0),
             bus: broadcast::Sender::new(EVENT_BUFFER),
         }
@@ -1031,7 +1051,7 @@ impl Live {
             .ok_or(Error::SessionNotRunning(id))
     }
 
-    fn command(&self, id: i64, command: AgentCommand) -> Result<()> {
+    pub(crate) fn command(&self, id: i64, command: AgentCommand) -> Result<()> {
         self.sender(id)?
             .send(command)
             .map_err(|_| Error::SessionNotRunning(id))
@@ -1062,6 +1082,7 @@ impl Live {
         session_id: i64,
         event: AgentEvent,
     ) -> Result<()> {
+        let event = self.timed(session_id, event);
         let status = self.status_after(session_id, &event);
         // Pieces of a reply are only shown, the whole reply is what gets stored; and a queue is
         // not part of the conversation.
@@ -1087,6 +1108,39 @@ impl Live {
             self.commands().remove(&session_id);
         }
         stored
+    }
+
+    /// Keeps the time of each turn: a message starts the clock, and the end of the turn is
+    /// told how long it took. A turn that ends with its agent is forgotten.
+    fn timed(&self, session_id: i64, event: AgentEvent) -> AgentEvent {
+        let mut turns = lock(&self.turns);
+        match event {
+            AgentEvent::UserMessage { .. } => {
+                turns.entry(session_id).or_insert_with(Instant::now);
+                event
+            }
+            AgentEvent::TurnDone {
+                is_error,
+                result,
+                cost_usd,
+                duration_ms,
+            } => {
+                let took = turns
+                    .remove(&session_id)
+                    .map(|began| u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX));
+                AgentEvent::TurnDone {
+                    is_error,
+                    result,
+                    cost_usd,
+                    duration_ms: duration_ms.or(took),
+                }
+            }
+            AgentEvent::Exited { .. } => {
+                turns.remove(&session_id);
+                event
+            }
+            _ => event,
+        }
     }
 
     /// Stops the session's agent so it starts again with new settings: at once if it is

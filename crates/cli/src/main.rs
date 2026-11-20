@@ -38,8 +38,15 @@ enum Command {
     Mcp,
     /// Show what Swarmed takes up on disk, and in memory and processor time right now.
     Usage,
+    /// Keep what a task's setup produced, for new tasks of its environment to start from.
+    Snapshot {
+        #[command(subcommand)]
+        command: SnapshotCommand,
+    },
     /// Print what the agents report their work has cost: by day and by task, at API prices.
     Costs,
+    /// Print the sessions' turns by day, task, agent and model, as tab-separated values.
+    Analytics,
     /// List the agents sessions can run on.
     Agents,
     /// Set up an agent other than Claude Code: install it, or choose the models it offers.
@@ -221,6 +228,8 @@ enum TaskCommand {
     },
     /// Show the pull request of the task's branch and how its checks stand.
     Pull { project: String, name: String },
+    /// List what the task's agents left running in the background, and how it ended.
+    Background { project: String, name: String },
     /// Commit everything in the task's worktree.
     Commit {
         project: String,
@@ -319,7 +328,9 @@ async fn run(core: &Core, command: Command) -> Result<()> {
         Command::Agent(command) => agent(core, command).await,
         Command::Mcp => mcp(core),
         Command::Usage => usage(core).await,
+        Command::Snapshot { command } => snapshot(core, command).await,
         Command::Costs => costs(core),
+        Command::Analytics => analytics(core),
         Command::Agents => {
             agents(core);
             Ok(())
@@ -350,6 +361,65 @@ fn costs(core: &Core) -> Result<()> {
         say(&format!(
             "${:.2}\t{} / {}",
             task.usd, task.project, task.task
+        ));
+    }
+    Ok(())
+}
+
+#[derive(Debug, Subcommand)]
+enum SnapshotCommand {
+    /// Keep the files git ignores in the task's worktree as the snapshot of its environment.
+    Save { project: String, task: String },
+    /// List the project's snapshots.
+    List { project: String },
+    /// Forget a snapshot: the one of tasks without an environment, unless one is named.
+    Remove {
+        project: String,
+        #[arg(long)]
+        environment: Option<String>,
+    },
+}
+
+async fn snapshot(core: &Core, command: SnapshotCommand) -> Result<()> {
+    let describe = |snapshot: &swarmed_core::Snapshot| {
+        let environment = snapshot.environment.as_deref().unwrap_or("(none)");
+        format!(
+            "{environment}\tfrom {}\t{} entries",
+            snapshot.task, snapshot.entries
+        )
+    };
+    match command {
+        SnapshotCommand::Save { project, task } => {
+            say(&describe(&core.snapshot_save(&project, &task).await?));
+        }
+        SnapshotCommand::List { project } => {
+            for snapshot in core.snapshots(&project)? {
+                say(&describe(&snapshot));
+            }
+        }
+        SnapshotCommand::Remove {
+            project,
+            environment,
+        } => core.snapshot_remove(&project, environment.as_deref())?,
+    }
+    Ok(())
+}
+
+/// Prints the sessions' turns added up, one day, task, agent and model to a line.
+fn analytics(core: &Core) -> Result<()> {
+    say("day\tproject\ttask\tagent\tmodel\tturns\tfailed\tusd\tseconds");
+    for stats in core.analytics()? {
+        say(&format!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.4}\t{}",
+            stats.day,
+            stats.project,
+            stats.task,
+            stats.agent,
+            stats.model,
+            stats.turns,
+            stats.failed,
+            stats.usd,
+            stats.duration_ms / 1000
         ));
     }
     Ok(())
@@ -406,7 +476,7 @@ fn note(core: &Core, project: &str, task: Option<&str>, set: bool) -> Result<()>
 
 /// One line per skill: whose it is, its name, whether it is shared, and when to use it.
 fn skills(core: &Core, agent: Option<&str>) {
-    let skills = agent.map_or_else(|| core.skills(), |agent| core.skills_offered(agent));
+    let skills = agent.map_or_else(|| core.skills(), |agent| core.skills_offered(agent, None));
     for skill in skills {
         let shared = ["kept back", "shared"][usize::from(skill.shared)];
         say(&format!(
@@ -492,6 +562,21 @@ async fn pull(core: &Core, project: &str, name: &str) -> Result<()> {
     ));
     for check in &pull.checks {
         say(&format!("{:?}\t{}", check.outcome, check.name));
+    }
+    Ok(())
+}
+
+/// Prints what the task's agents left running, one to a line.
+fn background(core: &Core, project: &str, name: &str) -> Result<()> {
+    let tasks = core.task_background(project, name)?;
+    if tasks.is_empty() {
+        say("nothing was left running");
+    }
+    for task in tasks {
+        say(&format!(
+            "{:?}\t{}\t{}\tsession {}",
+            task.state, task.task_id, task.description, task.session_id
+        ));
     }
     Ok(())
 }
@@ -767,6 +852,7 @@ async fn task(core: &Core, command: TaskCommand) -> Result<()> {
             say(&format!("removed task `{name}`"));
         }
         TaskCommand::Pull { project, name } => pull(core, &project, &name).await?,
+        TaskCommand::Background { project, name } => background(core, &project, &name)?,
         TaskCommand::Commit {
             project,
             name,

@@ -141,6 +141,8 @@ pub struct SessionSpec {
     pub supervision: Supervision,
     /// How hard the model thinks; `None` leaves the agent's own default.
     pub effort: Option<Effort>,
+    /// Whether to ask the agent for its fast mode, if it has one.
+    pub fast: bool,
     /// Where the credentials come from.
     pub auth: Auth,
     /// The agent's own session id from an earlier run, to continue that conversation.
@@ -333,6 +335,11 @@ pub enum AgentEvent {
         /// What the agent process has cost since it started, in US dollars. A resumed session
         /// starts counting again.
         cost_usd: Option<f64>,
+        /// How long the turn took, from the message that started it to here, in
+        /// milliseconds. Measured by Swarmed, so it is the same for every agent; absent from
+        /// turns recorded before it was.
+        #[serde(default)]
+        duration_ms: Option<u64>,
     },
     /// The agent process ended. Nothing follows.
     Exited {
@@ -340,6 +347,20 @@ pub enum AgentEvent {
         code: Option<i32>,
         /// The end of what the process wrote to stderr.
         stderr: String,
+    },
+    /// Something the agent left running behind its turn, such as a command it put in the
+    /// background: reported when it starts and again when it ends.
+    Background {
+        /// The agent's own id for it, which is how it is stopped.
+        task_id: String,
+        /// What it is, in the agent's words. Empty when it only reports an end.
+        description: String,
+        /// What kind of thing it is, as the agent names it: `local_bash`, `local_agent`.
+        kind: String,
+        /// Whether it runs, and how it ended if it did.
+        state: BackgroundState,
+        /// The agent's own line about how it ended.
+        summary: Option<String>,
     },
     /// The session was forked from another: what stands before this is a copy of what was
     /// said there. Recorded by the core, not produced by a backend.
@@ -377,6 +398,26 @@ pub enum AgentCommand {
     SetModel(Option<String>),
     /// Change how much the agent may do without asking, from now on.
     SetSupervision(Supervision),
+    /// Stop something the agent left running, by the id it was reported under. An agent that
+    /// reports no such things ignores this.
+    StopBackground {
+        /// The [`AgentEvent::Background`] task to stop.
+        task_id: String,
+    },
+}
+
+/// How far along something an agent left running is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundState {
+    /// Still running.
+    Running,
+    /// Ended by itself, and well.
+    Completed,
+    /// Ended by itself, badly.
+    Failed,
+    /// Stopped: by the user, by the agent, or because the agent itself ended.
+    Stopped,
 }
 
 /// A running session. Dropping `commands` ends it.

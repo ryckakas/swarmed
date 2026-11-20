@@ -71,7 +71,8 @@ branch_pattern = "{{user}}/{{task}}"
 # base_branch = "origin/main"   # default: the remote's default branch
 max_stacks = 2
 port_step = 100                 # task port = base + slot * port_step
-# open_url = "http://localhost:{{port.web}}"   # what "Open in browser" opens for a task
+# open_url = "http://localhost:{{port.web}}"   # what "Open in browser" opens for a task;
+#                                              # without it, the local addresses `start` prints
 
 [ports]
 # web = 3000

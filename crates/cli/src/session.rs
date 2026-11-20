@@ -32,6 +32,9 @@ pub(crate) enum SessionCommand {
         /// How hard the model thinks: low, medium, high, xhigh or max.
         #[arg(long, value_parser = effort)]
         effort: Option<Effort>,
+        /// Ask the agent for its fast mode, where it has one: quicker, at a higher price.
+        #[arg(long)]
+        fast: bool,
         /// Let Claude Code's auto mode decide which actions are safe, instead of asking.
         #[arg(long, conflicts_with = "ask")]
         auto: bool,
@@ -75,6 +78,9 @@ pub(crate) enum SessionCommand {
         /// How hard the model thinks; without it, the agent's own default.
         #[arg(long, value_parser = effort)]
         effort: Option<Effort>,
+        /// Ask the agent for its fast mode, where it has one: quicker, at a higher price.
+        #[arg(long)]
+        fast: bool,
         /// Let Claude Code's auto mode decide which actions are safe, instead of asking.
         #[arg(long)]
         auto: bool,
@@ -126,6 +132,7 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             agent,
             model,
             effort,
+            fast,
             auto,
             ask,
             plan,
@@ -138,6 +145,7 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
                 model,
                 supervision: chosen.unwrap_or(core.settings()?.default_supervision),
                 effort,
+                fast,
             };
             let session = core.session_new(&project, &task, &options)?;
             say(&format!("session {}", session.id));
@@ -182,6 +190,7 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             id,
             model,
             effort,
+            fast,
             auto,
             plan,
         } => {
@@ -189,6 +198,7 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
                 model,
                 supervision: supervision(auto, plan),
                 effort,
+                fast,
             };
             core.session_configure(id, &settings)?;
             Ok(())
@@ -452,6 +462,7 @@ mod tests {
             is_error: false,
             result: None,
             cost_usd: Some(0.0123),
+            duration_ms: None,
         };
         assert_eq!(
             describe(&done).as_deref(),

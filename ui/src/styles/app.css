@@ -389,8 +389,12 @@ code {
     font-size: var(--text-xs);
 }
 
-.stack-state[data-running="true"] {
+.stack-state[data-state="running"] {
     color: var(--moss);
+}
+
+.stack-state[data-state="starting"] {
+    color: var(--pollen);
 }
 
 .stack-log {
@@ -408,6 +412,103 @@ code {
 }
 
 /* Changes: the files a task touched, each opening into its diff. */
+
+/* The panel's tabs: what the task changed, and what its agents left running. */
+.panel-tabs {
+    flex: none;
+    display: flex;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-3) 0;
+    border-bottom: 1px solid var(--line);
+}
+
+.panel-tab {
+    padding: var(--space-1) var(--space-2) var(--space-2);
+    border: 0;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    background: none;
+    color: var(--muted);
+    font-size: var(--text-sm);
+    font-weight: 600;
+}
+
+.panel-tab:hover {
+    color: var(--text);
+}
+
+.panel-tab[aria-selected="true"] {
+    border-bottom-color: var(--focus);
+    color: var(--bright);
+}
+
+.background-list {
+    display: grid;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.background-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 2px var(--space-2);
+    align-items: start;
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--line);
+}
+
+.background-what {
+    grid-column: 1;
+    margin: 0;
+    font-size: var(--text-sm);
+    overflow-wrap: anywhere;
+}
+
+.background-facts,
+.background-summary {
+    grid-column: 1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px var(--space-2);
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--text-xs);
+}
+
+.background-state {
+    color: var(--faint);
+    font-weight: 650;
+}
+
+.background-row[data-state="running"] .background-state {
+    color: var(--moss);
+}
+
+.background-row[data-state="failed"] .background-state {
+    color: var(--clay);
+}
+
+.background-session {
+    max-width: 22ch;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--sky);
+    font: inherit;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.background-session:hover {
+    text-decoration: underline;
+}
+
+.background-stop {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+}
 
 .changes {
     flex: 1;
@@ -2641,6 +2742,10 @@ code {
     color: var(--muted);
 }
 
+.status-duration {
+    color: var(--pollen);
+}
+
 /* A bar between two values that share a badge. */
 .status-run-quiet {
     opacity: 0.5;
@@ -2662,9 +2767,17 @@ code {
 .context-card {
     position: absolute;
     bottom: 100%;
-    left: var(--space-8);
+    /* Over the badge it explains, but never past the right edge of the line. */
+    --card-width: min(34ch, 100% - 2 * var(--space-8));
+    left: clamp(
+        var(--space-8),
+        var(--badge-left, var(--space-8)),
+        100% -
+        var(--card-width) -
+        var(--space-8)
+    );
     z-index: 4;
-    width: min(34ch, 100% - 2 * var(--space-8));
+    width: var(--card-width);
     padding: var(--space-3);
     border: 1px solid var(--line);
     border-radius: 10px;
@@ -2763,6 +2876,57 @@ code {
     padding: 3px var(--space-2);
     color: var(--faint);
     font-size: var(--text-xs);
+}
+
+/* What new tasks start from, one row for each environment. */
+.snapshots {
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--line);
+}
+
+.snapshots h3 {
+    font-size: var(--text-sm);
+    font-weight: 650;
+}
+
+.snapshot-list {
+    display: grid;
+    gap: var(--space-1);
+    margin: var(--space-2) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.snapshot-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.snapshot-row > div {
+    flex: 1;
+    min-width: 0;
+}
+
+/* A switch among the pickers: asks the agent for its fast mode. */
+.fast-toggle {
+    padding: 3px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: none;
+    color: var(--muted);
+    font-size: var(--text-xs);
+}
+
+.fast-toggle:hover {
+    color: var(--text);
+}
+
+.fast-toggle[aria-pressed="true"] {
+    border-color: var(--pollen);
+    background: var(--pollen-wash);
+    color: var(--pollen);
 }
 
 .picker {
@@ -3511,6 +3675,51 @@ code {
     gap: 6px;
 }
 
+/* The status line's pieces, one to a row: the chosen ones in their order, with their arrows. */
+.status-pieces {
+    display: grid;
+    gap: 2px;
+    max-width: 22rem;
+    margin: 0;
+    padding: var(--space-2) 0;
+    list-style: none;
+}
+
+.status-pieces[aria-disabled="true"] {
+    color: var(--faint);
+}
+
+.status-piece {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 26px;
+}
+
+.status-piece-moves {
+    display: flex;
+    gap: 2px;
+}
+
+.status-piece-move {
+    width: 24px;
+    height: 22px;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--muted);
+}
+
+.status-piece-move:hover:not(:disabled),
+.status-piece-move:focus-visible {
+    background: var(--raised);
+    color: var(--text);
+}
+
+.status-piece-move:disabled {
+    opacity: 0.3;
+}
+
 /* The script has room of its own under its explanation, and can be dragged taller. */
 .settings-script {
     display: grid;
@@ -3871,6 +4080,208 @@ kbd {
     margin: 0;
     color: var(--muted);
     font-variant-numeric: tabular-nums;
+}
+
+/* What the sessions did, drawn. The series colours are a set checked for colour-blind
+   separation against these surfaces, in a dark and a light step each; they are not the app's
+   own accents, which sit too close to one another to tell series apart. */
+.activity-charts {
+    --series-0: #3987e5;
+    --series-1: #d95926;
+    --series-2: #199e70;
+    --series-3: #c98500;
+    --series-4: #d55181;
+}
+
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) .activity-charts {
+        --series-0: #2a78d6;
+        --series-1: #eb6834;
+        --series-2: #1baf7a;
+        --series-3: #eda100;
+        --series-4: #e87ba4;
+    }
+}
+
+:root[data-theme="light"] .activity-charts {
+    --series-0: #2a78d6;
+    --series-1: #eb6834;
+    --series-2: #1baf7a;
+    --series-3: #eda100;
+    --series-4: #e87ba4;
+}
+
+.activity-series-0 {
+    fill: var(--series-0);
+    background: var(--series-0);
+}
+
+.activity-series-1 {
+    fill: var(--series-1);
+    background: var(--series-1);
+}
+
+.activity-series-2 {
+    fill: var(--series-2);
+    background: var(--series-2);
+}
+
+.activity-series-3 {
+    fill: var(--series-3);
+    background: var(--series-3);
+}
+
+.activity-series-4 {
+    fill: var(--series-4);
+    background: var(--series-4);
+}
+
+.activity-controls {
+    display: flex;
+    gap: var(--space-2);
+    padding: var(--space-2) 0;
+}
+
+.activity-totals {
+    display: flex;
+    gap: var(--space-6);
+    margin: 0 0 var(--space-2);
+}
+
+.activity-totals dt {
+    color: var(--muted);
+    font-size: var(--text-xs);
+}
+
+.activity-totals dd {
+    margin: 0;
+    color: var(--bright);
+    font-size: var(--text-lg);
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+}
+
+.activity-chart {
+    position: relative;
+}
+
+.activity-chart svg {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+.activity-grid {
+    stroke: var(--line);
+    stroke-width: 1;
+}
+
+.activity-tick {
+    fill: var(--muted);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+}
+
+.activity-hit {
+    fill: transparent;
+}
+
+[data-hovered="true"] > .activity-hit {
+    fill: color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.activity-told {
+    position: absolute;
+    top: 0;
+    z-index: 2;
+    min-width: 13rem;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--raised);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+    font-size: var(--text-xs);
+    pointer-events: none;
+}
+
+.activity-told[data-side="right"] {
+    margin-left: var(--space-4);
+}
+
+.activity-told[data-side="left"] {
+    margin-left: calc(var(--space-4) * -1);
+    transform: translateX(-100%);
+}
+
+.activity-told p {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    padding: 1px 0;
+    color: var(--text);
+}
+
+.activity-told span {
+    margin-left: auto;
+    padding-left: var(--space-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.activity-told-day {
+    font-weight: 650;
+}
+
+.activity-swatch {
+    flex: none;
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+}
+
+.activity-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px var(--space-4);
+    margin: var(--space-1) 0 var(--space-3);
+    padding: 0 0 0 46px;
+    color: var(--muted);
+    font-size: var(--text-xs);
+    list-style: none;
+}
+
+.activity-key {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.activity-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--text-xs);
+}
+
+.activity-table th,
+.activity-table td {
+    padding: 3px var(--space-2) 3px 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.activity-table thead th {
+    color: var(--faint);
+    font-weight: 600;
+}
+
+.activity-table tbody th {
+    font-weight: 500;
+}
+
+.activity-table th:first-child,
+.activity-table td:nth-child(2) {
+    text-align: left;
 }
 
 /* An agent in the settings: what it is, its state, and the models it offers. */

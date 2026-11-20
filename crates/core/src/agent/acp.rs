@@ -129,6 +129,16 @@ fn agent_effort(effort: Effort, offered: &[String]) -> Option<&str> {
     below.or(above).map(|(_, name)| name.as_str())
 }
 
+/// The option Codex offers for quicker answers at a higher price, and the value that turns it on.
+const FAST_MODE: &str = "fast-mode";
+const FAST_ON: &str = "on";
+
+/// What the agent's fast mode is set to: on, if the session asks for it and the agent has
+/// such a mode; otherwise nothing is set and the agent stays as it is.
+fn fast_value(wanted: bool, offered: &[String]) -> Option<&'static str> {
+    (wanted && offered.iter().any(|value| value == FAST_ON)).then_some(FAST_ON)
+}
+
 /// The values the agent offers for its option `id`, from what it answers to opening a session.
 fn option_values(opened: &Value, id: &str) -> Vec<String> {
     let options = opened.get("configOptions").and_then(Value::as_array);
@@ -295,6 +305,7 @@ impl Conversation {
         self.set_mode().await;
         self.set_effort(&option_values(result, "reasoning_effort"))
             .await;
+        self.set_fast(&option_values(result, FAST_MODE)).await;
         self.set_model(self.spec.model.clone()).await;
         while let Some(text) = self.queued.pop_front() {
             self.prompt(text).await;
@@ -326,6 +337,18 @@ impl Conversation {
         };
         let params =
             json!({ "sessionId": session_id, "configId": "reasoning_effort", "value": effort });
+        self.call(Call::SetOption, "session/set_config_option", params)
+            .await;
+    }
+
+    /// Turns the agent's fast mode on, if the session asks for it and the agent offers one.
+    /// A session that does not ask leaves the agent as its own configuration has it.
+    async fn set_fast(&mut self, offered: &[String]) {
+        let value = fast_value(self.spec.fast, offered);
+        let (Some(value), Some(session_id)) = (value, self.session_id.clone()) else {
+            return;
+        };
+        let params = json!({ "sessionId": session_id, "configId": FAST_MODE, "value": value });
         self.call(Call::SetOption, "session/set_config_option", params)
             .await;
     }
@@ -428,6 +451,7 @@ impl Conversation {
             is_error: !finished,
             result: error,
             cost_usd: self.cost,
+            duration_ms: None,
         });
     }
 
@@ -580,6 +604,8 @@ impl Conversation {
                 self.spec.supervision = supervision;
                 self.set_mode().await;
             }
+            // These agents report nothing left running, so there is nothing to stop.
+            AgentCommand::StopBackground { .. } => {}
         }
     }
 
@@ -790,6 +816,18 @@ fn tail(text: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fast_mode_is_turned_on_only_when_asked_for_and_offered() {
+        let opened = json!({ "configOptions": [
+            { "id": "fast-mode", "options": [{ "value": "off" }, { "value": "on" }] },
+        ]});
+        let offered = option_values(&opened, FAST_MODE);
+        assert_eq!(fast_value(true, &offered), Some("on"));
+        assert_eq!(fast_value(false, &offered), None);
+        // An agent without the mode is not asked for it.
+        assert_eq!(fast_value(true, &option_values(&opened, "mode")), None);
+    }
 
     #[test]
     fn supervision_is_matched_to_a_mode_the_agent_offers() {

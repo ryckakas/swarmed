@@ -59,6 +59,25 @@ fn started(core: &Core, supervision: Supervision) -> i64 {
     session.id
 }
 
+/// The events with how long their turns took left out: that differs from run to run.
+fn untimed(events: &[AgentEvent]) -> Vec<AgentEvent> {
+    let untime = |event: &AgentEvent| match event.clone() {
+        AgentEvent::TurnDone {
+            is_error,
+            result,
+            cost_usd,
+            ..
+        } => AgentEvent::TurnDone {
+            is_error,
+            result,
+            cost_usd,
+            duration_ms: None,
+        },
+        other => other,
+    };
+    events.iter().map(untime).collect()
+}
+
 fn text(text: &str) -> AgentEvent {
     AgentEvent::Text {
         text: text.to_string(),
@@ -105,6 +124,7 @@ async fn a_turn_joins_the_streamed_pieces_into_one_reply() {
         is_error: false,
         result: None,
         cost_usd: Some(0.5),
+        duration_ms: None,
     };
     let said = AgentEvent::UserMessage {
         text: "hello".into(),
@@ -114,7 +134,18 @@ async fn a_turn_joins_the_streamed_pieces_into_one_reply() {
         max: 2,
         categories: vec![],
     };
-    assert_eq!(events, [said, init, text("echo: hello"), context, done]);
+    assert_eq!(
+        untimed(&events),
+        [said, init, text("echo: hello"), context, done]
+    );
+    // The end of a turn says how long it took, whatever the agent.
+    assert!(matches!(
+        events.last(),
+        Some(AgentEvent::TurnDone {
+            duration_ms: Some(_),
+            ..
+        })
+    ));
     assert_eq!(
         core.session(id)
             .expect("exists")
@@ -264,8 +295,9 @@ async fn an_interrupt_cancels_the_turn_and_an_agent_error_ends_it() {
         is_error: true,
         result: None,
         cost_usd: None,
+        duration_ms: None,
     };
-    assert_eq!(rest, [text("working"), stopped]);
+    assert_eq!(untimed(&rest), [text("working"), stopped]);
 
     core.session_send(id, "fail").expect("sends");
     let rest = turn(&mut bus, id).await;

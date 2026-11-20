@@ -8,7 +8,7 @@ use common::{core_with_project, fixture, git, write_config};
 use swarmed_core::agent::{AgentEvent, Auth};
 use swarmed_core::{
     ChangeKind, Core, Environment, Error, NewTaskOptions, ProjectConfig, RemoveOptions,
-    SessionOptions, Settings, SetupStatus, hooks,
+    SessionOptions, Settings, SetupStatus, StackState, hooks,
 };
 
 #[tokio::test]
@@ -397,7 +397,7 @@ async fn what_a_task_keeps_running_is_started_after_setup_and_does_not_hold_the_
         .expect("setup ended though `start` did not")
         .expect("creates");
     assert!(task.worktree_path.join("setup.txt").exists());
-    assert_eq!(stack(&core, 0), Some(true));
+    assert_eq!(stack(&core, 0), Some(StackState::Starting));
     let pid_file = task.worktree_path.join("child.pid");
     let started = |core: &Core| {
         pid_file.exists() && !core.stack_log("demo", "one").expect("reads").is_empty()
@@ -427,12 +427,12 @@ async fn what_a_task_keeps_running_is_started_after_setup_and_does_not_hold_the_
         .await
         .expect("stops");
     assert!(task.worktree_path.join("stopped.txt").exists());
-    assert_eq!(stack(&core, 0), Some(false));
+    assert_eq!(stack(&core, 0), Some(StackState::Stopped));
     assert!(!alive(&child), "the stack's child outlived it");
 
     // It can be started again, and goes with its task.
     assert!(core.stack_start("demo", "one").expect("starts"));
-    assert_eq!(stack(&core, 0), Some(true));
+    assert_eq!(stack(&core, 0), Some(StackState::Starting));
     let force = RemoveOptions {
         force: true,
         ..RemoveOptions::default()
@@ -441,6 +441,126 @@ async fn what_a_task_keeps_running_is_started_after_setup_and_does_not_hold_the_
         .await
         .expect("removes");
     core.stacks_stop_all().await;
+}
+
+#[tokio::test]
+async fn a_new_task_starts_from_what_an_earlier_one_was_set_up_with() {
+    let fx = fixture();
+    std::fs::write(fx.repo.join(".gitignore"), "deps/\n").expect("writes");
+    git(&fx.repo, &["add", "."]);
+    git(&fx.repo, &["commit", "--quiet", "-m", "ignore deps"]);
+    // Setup builds only what is not there yet, as installing dependencies does.
+    write_config(
+        &fx,
+        "[hooks]\nsetup = \"mkdir -p deps && test -f deps/lib.txt || echo built-{{task}} > deps/lib.txt\"\n",
+    );
+    let core = core_with_project(&fx).await;
+    let new = |name: &'static str| {
+        core.task_new("demo", name, NewTaskOptions::default(), &hooks::discard)
+    };
+    let built = |task: &swarmed_core::Task| {
+        std::fs::read_to_string(task.worktree_path.join("deps/lib.txt")).expect("built")
+    };
+    let one = new("one").await.expect("creates");
+    assert_eq!(built(&one), "built-one\n");
+    assert_eq!(core.snapshots("demo").expect("reads"), []);
+
+    let snapshot = core.snapshot_save("demo", "one").await.expect("saves");
+    assert_eq!((snapshot.task.as_str(), snapshot.entries), ("one", 1));
+    assert_eq!(snapshot.environment, None);
+    assert_eq!(core.snapshots("demo").expect("reads"), [snapshot]);
+
+    // The next task finds the first one's work in place, and what git checked out untouched.
+    let two = new("two").await.expect("creates");
+    assert_eq!(built(&two), "built-one\n");
+    let readme = std::fs::read_to_string(two.worktree_path.join("README.md")).expect("reads");
+    assert_eq!(readme, "demo\n");
+    let status = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&two.worktree_path)
+        .args(["status", "--porcelain"])
+        .output()
+        .expect("git runs");
+    // Nothing git tracks was changed, and what was put there is all ignored.
+    assert_eq!(String::from_utf8_lossy(&status.stdout), "");
+
+    // Without the snapshot a task is set up from nothing again.
+    core.snapshot_remove("demo", None).expect("removes");
+    let three = new("three").await.expect("creates");
+    assert_eq!(built(&three), "built-three\n");
+}
+
+#[tokio::test]
+async fn a_task_whose_setup_failed_or_left_nothing_cannot_be_kept_as_a_snapshot() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    core.task_new("demo", "plain", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates");
+    let nothing = core.snapshot_save("demo", "plain").await;
+    assert!(matches!(nothing, Err(Error::Snapshot(_))), "{nothing:?}");
+
+    write_config(&fx, "[hooks]\nsetup = \"exit 3\"\n");
+    let broken = core
+        .task_new("demo", "broken", NewTaskOptions::default(), &hooks::discard)
+        .await;
+    assert!(broken.is_err());
+    let refused = core.snapshot_save("demo", "broken").await;
+    assert!(matches!(refused, Err(Error::Snapshot(_))), "{refused:?}");
+}
+
+/// The window's own commands run on a thread with no Tokio runtime. Starting a stack from one
+/// used to bring the whole app down.
+#[test]
+fn a_stack_can_be_started_from_a_thread_that_has_no_runtime() {
+    let fx = fixture();
+    write_config(&fx, "[hooks]\nstart = \"sleep 300\"\n");
+    let runtime = tokio::runtime::Runtime::new().expect("a runtime");
+    let core = runtime.block_on(async {
+        let core = core_with_project(&fx).await;
+        core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+            .await
+            .expect("creates");
+        core.stack_stop("demo", "one", &hooks::discard)
+            .await
+            .expect("stops");
+        core
+    });
+    assert!(core.stack_start("demo", "one").expect("starts"));
+    assert_eq!(
+        core.overview().expect("reads")[0].tasks[0].stack,
+        Some(StackState::Starting)
+    );
+    runtime.block_on(core.stacks_stop_all());
+}
+
+#[tokio::test]
+async fn a_stack_is_starting_until_the_address_it_printed_answers() {
+    let fx = fixture();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("binds");
+    let port = listener.local_addr().expect("an address").port();
+    write_config(
+        &fx,
+        &format!("[hooks]\nstart = \"echo up at http://localhost:{port}/; sleep 300\"\n"),
+    );
+    let core = core_with_project(&fx).await;
+    core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates");
+    let task = |core: &Core| core.overview().expect("reads")[0].tasks[0].clone();
+    let mut waits = 0;
+    while task(&core).stack != Some(StackState::Running) && waits < 200 {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        waits += 1;
+    }
+    let url = format!("http://localhost:{port}/");
+    assert_eq!(task(&core).stack, Some(StackState::Running));
+    assert_eq!(task(&core).urls, std::slice::from_ref(&url));
+    assert_eq!(core.task_url("demo", "one").expect("reads"), Some(url));
+
+    core.stacks_stop_all().await;
+    drop(listener);
+    assert_eq!(task(&core).stack, Some(StackState::Stopped));
 }
 
 #[tokio::test]

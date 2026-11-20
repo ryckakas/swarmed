@@ -7,23 +7,51 @@
 //! Swarmed quits, and can be started again from a front end.
 
 use std::fs::File;
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
-use std::process::Stdio;
-use std::time::Duration;
+use std::process::{Child, Command, Stdio};
+use std::time::{Duration, Instant};
 
-use tokio::process::{Child, Command};
+use serde::Serialize;
+use tokio::process::Command as Signal;
 
 use crate::config::ProjectConfig;
 use crate::error::Result;
 use crate::hooks::OutputSink;
+use crate::reach::{self, Local};
 use crate::store::{Project, Task};
 use crate::{Core, lock};
 
 /// How long a stack is given to stop by itself once asked to, before it is killed.
 const STOP_GRACE: Duration = Duration::from_secs(5);
 
+/// How often a stack that was asked to stop is looked at again.
+const STOP_POLL: Duration = Duration::from_millis(50);
+
 /// How much of the end of a stack's log is given to a front end.
 const LOG_TAIL_BYTES: usize = 64_000;
+
+/// How far along a task's stack is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StackState {
+    /// Its `start` command is not running.
+    Stopped,
+    /// Its `start` command runs, but nothing answers at the stack's address yet: it may still
+    /// be installing or building what it serves.
+    Starting,
+    /// Something answers at the stack's address.
+    Running,
+}
+
+/// A task's stack as a front end shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct Reach {
+    /// `None` for a task whose project has no `start` command.
+    pub(crate) state: Option<StackState>,
+    /// Where it can be opened in a browser, the first being the one to open by default.
+    pub(crate) urls: Vec<String>,
+}
 
 impl Core {
     /// Starts the task's stack with its `start` command, unless it is running already. Says
@@ -53,6 +81,8 @@ impl Core {
         }
         let out = File::create(&log)?;
         let err = out.try_clone()?;
+        // Started with the standard library, not Tokio: a front end may ask for this from a
+        // thread that has no runtime, such as the one a window's own commands run on.
         let child = Command::new("sh")
             .arg("-c")
             .arg(command)
@@ -63,7 +93,6 @@ impl Core {
             .stderr(err)
             // A group of its own, so that everything it starts can be stopped with it.
             .process_group(0)
-            .kill_on_drop(true)
             .spawn()?;
         lock(&self.live.stacks).insert(task.id, child);
         Ok(true)
@@ -81,11 +110,45 @@ impl Core {
         stacks.contains_key(&task)
     }
 
-    /// Whether the task has a stack, and if so whether it is running: `None` for a task whose
-    /// project has no `start` command.
-    pub(crate) fn stack_state(&self, config: &ProjectConfig, task: &Task) -> Option<bool> {
-        let has = !config.hooks.start.trim().is_empty();
-        has.then(|| self.stack_running(task.id))
+    /// How far along the task's stack is and where it is opened. The project's `open_url`
+    /// is what counts if it names one; otherwise the addresses on this machine that the stack
+    /// has printed, once they answer.
+    pub(crate) fn reach(&self, project: &Project, config: &ProjectConfig, task: &Task) -> Reach {
+        let named = self.url_of(project, config, task).ok().flatten();
+        let has_stack = !config.hooks.start.trim().is_empty();
+        let running = has_stack && self.stack_running(task.id);
+        if !running {
+            return Reach {
+                state: has_stack.then_some(StackState::Stopped),
+                urls: named.into_iter().collect(),
+            };
+        }
+        let (state, urls) = match named {
+            Some(url) => (named_state(&url), vec![url]),
+            None => self.printed(task.id),
+        };
+        Reach {
+            state: Some(state),
+            urls,
+        }
+    }
+
+    /// The addresses the running stack printed that answer, and what that says of its state.
+    fn printed(&self, task: i64) -> (StackState, Vec<String>) {
+        let log = std::fs::read(self.stack_log_file(task)).unwrap_or_default();
+        let from = log.len().saturating_sub(LOG_TAIL_BYTES);
+        let found = reach::found_in(&String::from_utf8_lossy(&log[from..]));
+        let urls: Vec<String> = found
+            .into_iter()
+            .filter(Local::answers)
+            .map(|local| local.url)
+            .collect();
+        let state = if urls.is_empty() {
+            StackState::Starting
+        } else {
+            StackState::Running
+        };
+        (state, urls)
     }
 
     /// Stops the task's stack: runs its `stop` command, if it has one, then ends whatever of
@@ -145,18 +208,43 @@ impl Core {
     }
 }
 
+/// Whether a stack whose project names its address answers there. An address that is not on
+/// this machine cannot be asked cheaply, so it is taken to be up.
+fn named_state(url: &str) -> StackState {
+    match reach::local(url) {
+        Some(local) if !local.answers() => StackState::Starting,
+        _ => StackState::Running,
+    }
+}
+
 /// Asks the stack's whole process group to stop, waits a little, then kills what is left.
 async fn end(mut child: Child) {
-    if let Some(pid) = child.id() {
-        // The group's id is that of the process that leads it; a minus addresses the group.
-        let group = format!("-{pid}");
-        let asked = Command::new("kill").args(["-TERM", "--", &group]).status();
-        asked.await.ok();
-        if tokio::time::timeout(STOP_GRACE, child.wait()).await.is_ok() {
-            return;
-        }
-        let killed = Command::new("kill").args(["-KILL", "--", &group]).status();
-        killed.await.ok();
+    // The group's id is that of the process that leads it; a minus addresses the group.
+    let group = format!("-{}", child.id());
+    signal("-TERM", &group).await;
+    if gone_within(&mut child, STOP_GRACE).await {
+        return;
     }
-    child.kill().await.ok();
+    signal("-KILL", &group).await;
+    child.kill().ok();
+    gone_within(&mut child, STOP_GRACE).await;
+}
+
+async fn signal(which: &str, group: &str) {
+    let sent = Signal::new("kill").args([which, "--", group]).status();
+    sent.await.ok();
+}
+
+/// Whether `child` ended within `limit`. Looking is also what reaps it.
+async fn gone_within(child: &mut Child, limit: Duration) -> bool {
+    let until = Instant::now() + limit;
+    loop {
+        if !matches!(child.try_wait(), Ok(None)) {
+            return true;
+        }
+        if Instant::now() >= until {
+            return false;
+        }
+        tokio::time::sleep(STOP_POLL).await;
+    }
 }

@@ -23,13 +23,13 @@ export const DEFAULT_PALETTE: Palette = "swarm";
 
 /** The icons and words on offer, with the names to show. */
 export const STYLES: [Style, string][] = [
-    ["swarm", "Swarm"],
     ["colony", "Swarm, tree renamed too"],
+    ["swarm", "Swarm"],
     ["plain", "Plain"],
 ];
 
 /** The icons and words the app uses until the user chooses others. */
-export const DEFAULT_STYLE: Style = "swarm";
+export const DEFAULT_STYLE: Style = "colony";
 
 /** Whether a style draws the swarm's icons; before the settings are read, the default does. */
 export function isSwarm(style: Style | undefined): boolean {
