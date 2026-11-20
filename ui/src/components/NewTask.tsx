@@ -12,9 +12,11 @@ import type {
 import { expandPastes, forgetPastes } from "../pastes";
 import { useStore } from "../store";
 import { taskNameForPrompt, taskNameFrom, uniqueTaskName } from "../tree";
+import { wordsFor } from "../wording";
 import { AgentNotice } from "./AgentNotice";
 import { ComposerBox } from "./ComposerBox";
 import { EffortPicker } from "./EffortPicker";
+import { Incubating } from "./Incubating";
 import { ModePicker } from "./ModePicker";
 import { CLAUDE, modelChoices, useAgents, useSlashCommands } from "./options";
 import { Picker } from "./Picker";
@@ -26,6 +28,7 @@ const NEW_BRANCH = "";
 export function NewTask({ projects }: { projects: Project[] }) {
     const draftProject = useStore((state) => state.draftProject);
     const hookLine = useStore((state) => state.hookLine);
+    const words = useStore((state) => wordsFor(state.settings?.palette));
     const [chosen, setChosen] = useState<string | null>(null);
     const [branch, setBranch] = useState(NEW_BRANCH);
     // The menu starts on the default from the settings and keeps what the user picks.
@@ -90,7 +93,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
 
     return (
         <div className="new-task">
-            <h1>What should the agent work on?</h1>
+            <h1>{words.newTask}</h1>
             <ComposerBox
                 value={prompt}
                 onChange={setPrompt}
@@ -145,6 +148,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
             </ComposerBox>
             <AgentNotice agentId={agentId} />
             <p className="new-task-note" aria-live="polite">
+                {creating !== null && <Incubating />}
                 {note(creating, prompt, hookLine)}
             </p>
         </div>

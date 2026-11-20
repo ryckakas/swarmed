@@ -7,6 +7,7 @@ import { taskTooltip } from "../environments";
 import { agentName, iconForAgent } from "../providerIcons";
 import { useStore } from "../store";
 import { countUnread, countWaiting, nestedSessions, projectStatus, projectUnread } from "../tree";
+import { wordsFor } from "../wording";
 import { ProviderMark } from "./ProviderMark";
 import { StatusMark } from "./StatusMark";
 
@@ -17,10 +18,12 @@ export function Sidebar() {
     const showSettings = useStore((state) => state.showSettings);
     const waiting = countWaiting(projects);
     const unread = countUnread(projects);
+    const words = useStore((state) => wordsFor(state.settings?.palette));
 
     return (
         <nav className="sidebar" aria-label="Projects, tasks and sessions" onKeyDown={moveFocus}>
             <div className="sidebar-top" data-tauri-drag-region>
+                {words.overview && <span className="sidebar-name">{words.overview}</span>}
                 {waiting > 0 && (
                     <span className="needs-you">
                         {waiting === 1 ? "1 session needs you" : `${waiting} sessions need you`}
@@ -142,6 +145,7 @@ function ProjectGroup({ project }: { project: Project }) {
 }
 
 function TaskGroup({ project, task }: { project: string; task: Task }) {
+    const words = useStore((state) => wordsFor(state.settings?.palette));
     return (
         <div className="task">
             <div className="row-head">
@@ -155,15 +159,15 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
                 <button
                     type="button"
                     className="row-add"
-                    aria-label={`New session in ${task.name}`}
-                    title="New session"
+                    aria-label={`${words.newSession} in ${task.name}`}
+                    title={words.newSession}
                     onClick={() => void newSession(project, task.name)}
                 >
                     +
                 </button>
                 <RemoveButton project={project} task={task.name} />
             </div>
-            {task.sessions.length === 0 && <p className="hint">No sessions</p>}
+            {task.sessions.length === 0 && <p className="hint">{words.noSessions}</p>}
             <ul className="sessions">
                 {nestedSessions(task.sessions).map(({ session, nested }) => (
                     <li key={session.id} data-nested={nested}>
@@ -442,7 +446,10 @@ function SessionRow({ session }: { session: Session }) {
                         aria-label={`Started by session ${session.spawned_by}`}
                         role="img"
                     >
-                        ↳
+                        <svg viewBox="0 0 12 12" aria-hidden="true">
+                            <path d="M2 0.5C2 6.5 4 9 9 9" />
+                            <circle cx="9.6" cy="9" r="1.4" />
+                        </svg>
                     </span>
                 )}
                 <span className="session-title">{title}</span>
