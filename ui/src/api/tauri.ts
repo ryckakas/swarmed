@@ -89,6 +89,7 @@ export const tauriApi: Api = {
     deleteApiKey: (name) => invoke("delete_api_key", { name }),
     settings: () => invoke<Settings>("settings"),
     setSettings: (settings) => invoke("set_settings", { settings }),
+    setBadge: (count) => invoke("badge_set", { count }),
     onHookOutput: (listener) =>
         listen<HookOutput>("hook-output", (event) => listener(event.payload)),
     sessionNew: (project, task, setup) =>

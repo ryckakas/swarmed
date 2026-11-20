@@ -14,6 +14,7 @@ import { Sidebar } from "./components/Sidebar";
 import { TaskPanel } from "./components/TaskPanel";
 import { PANEL_WIDTH, SIDEBAR_WIDTH, widestPanel } from "./resize";
 import { connect, useStore } from "./store";
+import { countUnread, countWaiting } from "./tree";
 import { useHotkeys } from "./useHotkeys";
 
 export function App() {
@@ -22,6 +23,9 @@ export function App() {
     const load = useStore((state) => state.load);
     const settings = useStore((state) => state.settings);
     useEffect(() => applyAppearance(document.documentElement, settings), [settings]);
+    // The app's icon counts what waits for the user: questions, and answers not looked at.
+    const waiting = useStore((state) => countWaiting(state.projects) + countUnread(state.projects));
+    useEffect(() => void api.setBadge(waiting).catch(() => {}), [waiting]);
     const problem = useStore((state) => state.problem);
     const dismissProblem = useStore((state) => state.dismissProblem);
     const [sidebarWidth, setSidebarWidth] = useStoredWidth("swarmed.sidebar-width", SIDEBAR_WIDTH);

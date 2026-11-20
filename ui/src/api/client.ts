@@ -142,6 +142,8 @@ export interface Api {
     deleteApiKey(name: string): Promise<void>;
     settings(): Promise<Settings>;
     setSettings(settings: Settings): Promise<void>;
+    /** Shows on the app's icon how many sessions wait for the user; nothing for none. */
+    setBadge(count: number): Promise<void>;
     /** Calls `listener` for every line a hook prints while a task is created or removed. */
     onHookOutput(listener: (output: HookOutput) => void): Promise<Unsubscribe>;
     /** Creates a session in a task. Its agent starts with the first message. */

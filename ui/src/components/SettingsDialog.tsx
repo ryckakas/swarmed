@@ -237,6 +237,17 @@ function Sessions({ settings }: { settings: Settings }) {
                 />
             </Row>
             <Row
+                label="Notifications"
+                hint="The system tells you when a session needs you, finishes or fails while Swarmed is in the background. The app's icon always counts what waits for you."
+            >
+                <input
+                    type="checkbox"
+                    aria-label="Notify when a session needs you, finishes or fails"
+                    checked={settings.notifications}
+                    onChange={(event) => void change(api, { notifications: event.target.checked })}
+                />
+            </Row>
+            <Row
                 label="HTML views"
                 hint="Agents are told they may answer with a small interactive view, such as a sortable table. It runs in a sandboxed frame with no access to the app or the network. Applies to sessions started from now on."
             >

@@ -190,6 +190,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   the first one when a turn ends well, as if it had just been typed; a turn that was stopped
   or failed leaves the queue standing. The queue lives in memory, and its changes are published
   as `Queue` events that are never stored, like the pieces of a reply.
+- **What is worth interrupting the user for is decided in the core** (`notices.rs`): a session
+  that asks for a decision, finishes a turn, or fails. A front end shows it only while the user
+  looks elsewhere; the app does so as a macOS notification (`crates/app/src/notify.rs`) and
+  counts what waits on its icon. A notice names the tool and the agent's own summary, never the
+  tool's arguments, which may hold anything.
 - **Swarmed never handles Claude.ai credentials.** It only shapes the child's environment (`Auth`).
 - **Session events are stored as JSON** (`AgentEvent`), so its variants and fields are only added,
   never renamed.

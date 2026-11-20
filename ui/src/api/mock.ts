@@ -1020,6 +1020,7 @@ export function createMockApi(): Api {
         text_scale: 100,
         default_supervision: "auto",
         html_views: true,
+        notifications: true,
         rules: "",
         status_items: ["branch", "changes", "model", "context", "cost"],
         status_command: "",
@@ -1099,6 +1100,7 @@ export function createMockApi(): Api {
         setApiKey: async (name, key) => storeKey(keys, name, key.trim() !== ""),
         deleteApiKey: async (name) => storeKey(keys, name, false),
         settings: async () => ({ ...settings }),
+        setBadge: async () => {},
         setSettings: async (changed) => {
             settings = changed;
         },

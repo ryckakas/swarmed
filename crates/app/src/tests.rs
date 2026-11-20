@@ -278,7 +278,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
             "editor": "code", "auto_title": true, "theme": "system", "palette": "swarm",
             "style": "swarm",
             "text_scale": 100,
-            "html_views": true, "default_supervision": "auto",
+            "html_views": true, "notifications": true, "default_supervision": "auto",
             "status_items": ["branch", "changes", "model", "context", "cost"],
             "status_command": "", "rules": "",
         })
@@ -302,7 +302,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     let chosen = json!({ "settings": {
         "editor": "swarmed-no-such-editor", "auto_title": false, "theme": "light",
         "palette": "plum", "style": "plain", "text_scale": 110,
-        "html_views": false, "default_supervision": "ask", "status_items": ["cost"], "status_command": "",
+        "html_views": false, "notifications": false, "default_supervision": "ask", "status_items": ["cost"], "status_command": "",
         "rules": "Keep answers short.",
     } });
     app.ok("set_settings", chosen);
@@ -626,6 +626,13 @@ fn the_ui_can_hand_over_html_for_a_frame() {
     let app = app();
     let id = app.ok("view_put", json!({ "document": "<p>hi</p>" }));
     assert_eq!(id.as_str().map(str::len), Some(16));
+}
+
+#[test]
+fn the_ui_can_set_the_badge_and_clear_it() {
+    let app = app();
+    assert_eq!(app.ok("badge_set", json!({ "count": 3 })), json!(null));
+    assert_eq!(app.ok("badge_set", json!({ "count": 0 })), json!(null));
 }
 
 #[test]

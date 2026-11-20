@@ -122,6 +122,8 @@ export interface Settings {
     default_supervision: Supervision;
     /** Whether agents may answer with small HTML views, and those are shown. */
     html_views: boolean;
+    /** Whether the system notifies when a session needs you, finishes or fails out of sight. */
+    notifications: boolean;
     /** The built-in pieces of the status line under the message box, in order. */
     status_items: StatusItem[];
     /** A command whose first line of output replaces the built-in pieces. Empty for none. */

@@ -16,7 +16,7 @@ use swarmed_core::{
     ProjectOverview, QueuedMessage, RemoveOptions, Session, SessionOptions, SessionSettings,
     Settings, Skill, Task, TaskNaming, Usage, with_files,
 };
-use tauri::{AppHandle, Emitter, Runtime, State};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
 /// The event a hook's output lines are emitted as while a task is created or removed.
 pub(crate) const HOOK_OUTPUT: &str = "hook-output";
@@ -549,6 +549,16 @@ pub(crate) fn session_configure(
         effort,
     };
     Ok(core.session_configure(id, &settings)?)
+}
+
+/// Shows on the app's icon how many sessions wait for the user; nothing for none.
+#[tauri::command]
+pub(crate) fn badge_set<R: Runtime>(app: AppHandle<R>, count: i64) {
+    let Some(window) = app.get_webview_window(crate::MAIN_WINDOW) else {
+        return;
+    };
+    // Not every system has a badge to set, and nothing depends on it.
+    window.set_badge_count((count > 0).then_some(count)).ok();
 }
 
 /// Hands over an HTML document for a sandboxed frame and returns the id the frame loads it by.

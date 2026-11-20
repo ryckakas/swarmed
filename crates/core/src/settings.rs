@@ -27,6 +27,9 @@ pub struct Settings {
     pub text_scale: u16,
     /// How much a new session's agent may do without asking, unless chosen otherwise.
     pub default_supervision: Supervision,
+    /// Whether the system shows a notification when a session needs the user, finishes or
+    /// fails while they look elsewhere.
+    pub notifications: bool,
     /// Whether agents are told they may answer with small HTML views, and those are shown.
     pub html_views: bool,
     /// The built-in pieces of the status line under the message box, in order.
@@ -104,6 +107,7 @@ impl Default for Settings {
             style: Style::Swarm,
             text_scale: 100,
             default_supervision: Supervision::Auto,
+            notifications: true,
             html_views: true,
             status_items: StatusItem::defaults(),
             status_command: String::new(),
@@ -169,6 +173,7 @@ mod tests {
             style: Style::Plain,
             text_scale: 110,
             default_supervision: Supervision::Ask,
+            notifications: false,
             html_views: false,
             status_items: vec![StatusItem::Cost],
             status_command: "~/bin/status".to_string(),
