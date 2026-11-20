@@ -158,5 +158,7 @@ export const tauriApi: Api = {
     sessionReopen: (id) => invoke<Session>("session_reopen", { id }),
     onSessionEvent: (listener) =>
         listen<SessionEvent>("session-event", (event) => listener(event.payload)),
+    onNoticeOpened: (listener) =>
+        listen<number>("notice-opened", (event) => listener(event.payload)),
     onEventsLagged: (listener) => listen("session-events-lagged", () => listener()),
 };
