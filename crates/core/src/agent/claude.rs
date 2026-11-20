@@ -16,8 +16,8 @@ use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
 use tokio::sync::mpsc;
 
 use super::{
-    AgentBackend, AgentCommand, AgentEvent, AgentHandle, Auth, ContextCategory, McpServerInfo,
-    Namer, Naming, SessionSpec, Supervision,
+    AgentBackend, AgentCommand, AgentEvent, AgentHandle, Auth, BackgroundState, ContextCategory,
+    McpServerInfo, Namer, Naming, SessionSpec, Supervision,
 };
 use crate::agent_setup::{default_tool_dirs, find_program};
 use crate::error::{Error, Result};
@@ -435,6 +435,10 @@ fn command_line(command: AgentCommand, pending: &Pending, requests: &mut u64) ->
                 &json!({ "subtype": "set_permission_mode", "mode": mode }),
             )
         }
+        AgentCommand::StopBackground { task_id } => control_request(
+            requests,
+            &json!({ "subtype": "stop_task", "task_id": task_id }),
+        ),
     }
 }
 
@@ -497,11 +501,32 @@ fn parse_message(message: &Value, pending: &Pending) -> Vec<AgentEvent> {
             .or_else(|| parse_applied(message))
             .into_iter()
             .collect(),
-        "system" => vec![],
+        "system" => parse_background(message).into_iter().collect(),
         _ => vec![AgentEvent::Other {
             raw: message.clone(),
         }],
     }
+}
+
+/// What Claude Code says of the things it left running: that one started, and how one ended.
+/// Its other system messages, hooks and counters, are not shown.
+fn parse_background(message: &Value) -> Option<AgentEvent> {
+    let state = match kind_of(message, "subtype")? {
+        "task_started" => BackgroundState::Running,
+        "task_notification" => match kind_of(message, "status")? {
+            "completed" => BackgroundState::Completed,
+            "stopped" | "killed" => BackgroundState::Stopped,
+            _ => BackgroundState::Failed,
+        },
+        _ => return None,
+    };
+    Some(AgentEvent::Background {
+        task_id: kind_of(message, "task_id")?.to_string(),
+        description: str_of(message, "description"),
+        kind: str_of(message, "task_type"),
+        state,
+        summary: kind_of(message, "summary").map(String::from),
+    })
 }
 
 fn parse_init(message: &Value) -> AgentEvent {
@@ -957,6 +982,57 @@ mod tests {
         assert!(
             said.contains("Settings, under Agents") && said.contains("sign in"),
             "{said}"
+        );
+    }
+
+    /// How Claude Code's report of an end with this status is read.
+    fn ended_as(status: &str) -> Option<BackgroundState> {
+        let ended = json!({
+            "type": "system", "subtype": "task_notification", "task_id": "b1",
+            "status": status, "summary": "it ended",
+        });
+        match parse_message(&ended, &Pending::default()).first() {
+            Some(AgentEvent::Background { state, summary, .. }) if summary.is_some() => {
+                Some(*state)
+            }
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn what_claude_code_leaves_running_is_reported_at_its_start_and_its_end() {
+        let pending = Pending::default();
+        let started = json!({
+            "type": "system", "subtype": "task_started", "task_id": "b1",
+            "description": "Run the dev server", "task_type": "local_bash",
+        });
+        assert_eq!(
+            parse_message(&started, &pending),
+            [AgentEvent::Background {
+                task_id: "b1".into(),
+                description: "Run the dev server".into(),
+                kind: "local_bash".into(),
+                state: BackgroundState::Running,
+                summary: None,
+            }]
+        );
+        assert_eq!(ended_as("completed"), Some(BackgroundState::Completed));
+        assert_eq!(ended_as("stopped"), Some(BackgroundState::Stopped));
+        assert_eq!(ended_as("failed"), Some(BackgroundState::Failed));
+        // The other things it says about them are not events of their own.
+        let changed = json!({ "type": "system", "subtype": "background_tasks_changed" });
+        assert_eq!(parse_message(&changed, &pending), []);
+    }
+
+    #[test]
+    fn stopping_what_runs_in_the_background_names_it_to_claude_code() {
+        let stop = AgentCommand::StopBackground {
+            task_id: "b1".into(),
+        };
+        let line = command_line(stop, &Pending::default(), &mut 0);
+        assert_eq!(
+            line.get("request"),
+            Some(&json!({ "subtype": "stop_task", "task_id": "b1" }))
         );
     }
 }

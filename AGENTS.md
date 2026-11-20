@@ -120,6 +120,12 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   own. A server's secrets are named in the file and kept in the keychain under
   `mcp:<server>:<name>`; a front end can set one and never read it. Claude Code's servers are
   shown from its configuration and from what it last reported, and never written.
+- **What agents leave running** (`background.rs`) is read back from the sessions' histories:
+  Claude Code reports a `task_started` and a `task_notification` for each background command
+  or agent, which become `AgentEvent::Background`. Stopping one is the `stop_task` control
+  request. What ran under an agent that is no longer running is listed as stopped. A stack's
+  `start` command is spawned with `std::process`, never Tokio's: window commands that are not
+  `async` run on a thread without a runtime, where a Tokio spawn aborts the app.
 - **Prompts the user keeps** (`templates.rs`) are a name and a text in `templates.toml` in the
   data directory. A front end puts one into the message box; the core never sends one by
   itself, and agents are not told about them. `{{something}}` marks a place to fill in.

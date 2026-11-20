@@ -11,11 +11,11 @@ use std::sync::Arc;
 use serde::Serialize;
 use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
-    AgentInfo, AgentSetup, ApiKeyInfo, BranchChoices, CloudOrigin, CloudProvider, CloudTask, Core,
-    Costs, Environment, FileChange, FileDiff, McpServerInput, McpServerView, NewTaskOptions,
-    Project, ProjectOverview, Pull, PullDraft, QueuedMessage, RemoveOptions, SearchHit, Session,
-    SessionOptions, SessionSettings, Settings, Skill, Task, TaskNaming, Template, Unpublished,
-    Usage, with_files,
+    AgentInfo, AgentSetup, ApiKeyInfo, BackgroundTask, BranchChoices, CloudOrigin, CloudProvider,
+    CloudTask, Core, Costs, Environment, FileChange, FileDiff, McpServerInput, McpServerView,
+    NewTaskOptions, Project, ProjectOverview, Pull, PullDraft, QueuedMessage, RemoveOptions,
+    SearchHit, Session, SessionOptions, SessionSettings, Settings, Skill, Task, TaskNaming,
+    Template, Unpublished, Usage, with_files,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -661,6 +661,26 @@ pub(crate) fn session_deny(
 #[tauri::command]
 pub(crate) fn session_interrupt(core: CoreState<'_>, id: i64) -> Command<()> {
     Ok(core.session_interrupt(id)?)
+}
+
+/// What a task's agents left running in the background, and how what ended did.
+#[tauri::command]
+pub(crate) fn task_background(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+) -> Command<Vec<BackgroundTask>> {
+    Ok(core.task_background(&project, &name)?)
+}
+
+/// Asks a session's agent to stop something it left running.
+#[tauri::command]
+pub(crate) fn session_stop_background(
+    core: CoreState<'_>,
+    id: i64,
+    task_id: String,
+) -> Command<()> {
+    Ok(core.session_stop_background(id, &task_id)?)
 }
 
 #[tauri::command]

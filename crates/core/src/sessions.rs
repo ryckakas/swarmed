@@ -96,6 +96,7 @@ impl SessionStatus {
             | AgentEvent::Applied { .. }
             | AgentEvent::Suggestion { .. }
             | AgentEvent::Closed
+            | AgentEvent::Background { .. }
             | AgentEvent::View { .. }
             | AgentEvent::Queue { .. }
             | AgentEvent::ContextUsage { .. }
@@ -474,7 +475,7 @@ fn leaves_something_to_read(event: &AgentEvent) -> bool {
 }
 
 /// An event written by a newer version may not parse; it is shown as [`AgentEvent::Other`].
-fn event_from_json(text: &str) -> AgentEvent {
+pub(crate) fn event_from_json(text: &str) -> AgentEvent {
     serde_json::from_str(text).unwrap_or_else(|_| AgentEvent::Other {
         raw: serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.to_string())),
     })
@@ -1035,7 +1036,7 @@ impl Live {
             .ok_or(Error::SessionNotRunning(id))
     }
 
-    fn command(&self, id: i64, command: AgentCommand) -> Result<()> {
+    pub(crate) fn command(&self, id: i64, command: AgentCommand) -> Result<()> {
         self.sender(id)?
             .send(command)
             .map_err(|_| Error::SessionNotRunning(id))

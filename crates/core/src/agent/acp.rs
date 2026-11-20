@@ -581,6 +581,8 @@ impl Conversation {
                 self.spec.supervision = supervision;
                 self.set_mode().await;
             }
+            // These agents report nothing left running, so there is nothing to stop.
+            AgentCommand::StopBackground { .. } => {}
         }
     }
 

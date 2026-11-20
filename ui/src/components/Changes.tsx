@@ -4,6 +4,7 @@ import type { FileChange, FileDiff, Project, Task } from "../api/types";
 import { type DiffLine, parseDiff, splitPath } from "../diff";
 import { commentKey, type ReviewComment, reviewMessage } from "../review";
 import { useStore } from "../store";
+import { useWords } from "../useWords";
 
 interface Props {
     project: Project;
@@ -20,11 +21,11 @@ export function Changes({ project, task }: Props) {
     const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
     const files = Array.isArray(changes) ? changes : [];
     const toggle = (path: string) => setOpen((current) => toggled(current, path));
+    const words = useWords();
 
     return (
-        <section className="changes" aria-label="Changes">
+        <section className="changes" aria-label={words.changes}>
             <div className="changes-head">
-                <h3>Changes</h3>
                 {Array.isArray(changes) && <Totals changes={changes} />}
                 {files.length > 0 && (
                     <>

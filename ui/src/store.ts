@@ -56,6 +56,8 @@ interface State {
     edits: Record<number, number>;
     /** When each session's running turn began, as seen from this window. */
     turnBegan: Record<number, number>;
+    /** Goes up each time an agent reports something it left running starting or ending. */
+    backgroundHeard: number;
     /** The latest line a hook printed while a task is being set up or removed. */
     hookLine: string | null;
     /** The last thing that went wrong when acting on a session, shown until dismissed. */
@@ -272,6 +274,7 @@ export const useStore = create<State>((set, get) => ({
     events: {},
     edits: {},
     turnBegan: {},
+    backgroundHeard: 0,
     hookLine: null,
     problem: null,
     settings: null,
@@ -458,6 +461,9 @@ export function connect(api: Api): () => void {
             const turnBegan = turnsBegan(useStore.getState().turnBegan, event, Date.now());
             if (turnBegan !== useStore.getState().turnBegan) {
                 useStore.setState({ turnBegan });
+            }
+            if (event.event.type === "background") {
+                useStore.setState((state) => ({ backgroundHeard: state.backgroundHeard + 1 }));
             }
             readIfSeen();
         }),

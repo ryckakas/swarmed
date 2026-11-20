@@ -365,6 +365,20 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
 }
 
 #[test]
+fn the_ui_can_list_what_was_left_running_and_cannot_stop_what_no_agent_runs() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    app.ok(
+        "task_new",
+        json!({ "project": "demo", "name": "one", "branch": null }),
+    );
+    let target = json!({ "project": "demo", "name": "one" });
+    assert_eq!(app.invoke("task_background", target), Ok(json!([])));
+    let stop = json!({ "id": 999, "taskId": "b1" });
+    assert!(app.invoke("session_stop_background", stop).is_err());
+}
+
+#[test]
 fn a_link_that_is_not_a_web_link_is_not_opened() {
     let app = app();
     let refused = app.invoke("open_link", json!({ "url": "file:///etc/passwd" }));

@@ -3,6 +3,7 @@ import type {
     AgentInfo,
     AgentSetup,
     ApiKeyInfo,
+    BackgroundTask,
     BranchChoices,
     CloudProvider,
     CloudTask,
@@ -210,6 +211,10 @@ export interface Api {
     sessionDeny(id: number, requestId: string, reason: string): Promise<void>;
     /** Stops the current turn; the session stays usable. */
     sessionInterrupt(id: number): Promise<void>;
+    /** What a task's agents left running in the background, the running ones first. */
+    taskBackground(project: string, name: string): Promise<BackgroundTask[]>;
+    /** Asks a session's agent to stop something it left running. */
+    sessionStopBackground(id: number, taskId: string): Promise<void>;
     /**
      * The commands and skills a message can call by starting with `/`, as last reported by the
      * session's agent; for `null` or a session that has not run, by the newest session.

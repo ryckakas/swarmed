@@ -4,6 +4,7 @@ import type {
     AgentEvent,
     AgentSetup,
     ApiKeyInfo,
+    BackgroundTask,
     CloudProvider,
     CloudTask,
     Costs,
@@ -371,6 +372,49 @@ function cloudApi(
         cloudTaskOpen: async () => undefined,
         cloudTaskDiff: async () => SAMPLE_CLOUD_DIFF,
         cloudTaskApply: async () => undefined,
+    };
+}
+
+/** Things the sample agents left running: one still going, two that ended. */
+function backgroundApi(): Pick<Api, "taskBackground" | "sessionStopBackground"> {
+    const tasks: BackgroundTask[] = [
+        {
+            session_id: 1,
+            session_title: "Fix the redirect loop after login",
+            task_id: "b1",
+            description: "Run the dev server on port 3100",
+            kind: "local_bash",
+            state: "running",
+            summary: null,
+        },
+        {
+            session_id: 1,
+            session_title: "Fix the redirect loop after login",
+            task_id: "b2",
+            description: "Run the whole test suite",
+            kind: "local_bash",
+            state: "completed",
+            summary: 'Background command "Run the whole test suite" completed (exit code 0)',
+        },
+        {
+            session_id: 2,
+            session_title: "Write a regression test for the loop",
+            task_id: "b3",
+            description: "Look for other callers of the redirect helper",
+            kind: "local_agent",
+            state: "failed",
+            summary: "The agent stopped with an error",
+        },
+    ];
+    return {
+        taskBackground: async (_project, name) =>
+            name === "fix-login-redirect" ? tasks.map((task) => ({ ...task })) : [],
+        sessionStopBackground: async (id, taskId) => {
+            const task = tasks.find((one) => one.session_id === id && one.task_id === taskId);
+            if (task) {
+                task.state = "stopped";
+            }
+        },
     };
 }
 
@@ -1311,6 +1355,7 @@ export function createMockApi(): Api {
         sessionAllow: async (id, requestId) => agent.decide(id, requestId, true),
         sessionDeny: async (id, requestId) => agent.decide(id, requestId, false),
         sessionInterrupt: async (id) => agent.interrupt(id),
+        ...backgroundApi(),
         slashCommands: async () => [
             "code-review",
             "context",

@@ -221,6 +221,8 @@ enum TaskCommand {
     },
     /// Show the pull request of the task's branch and how its checks stand.
     Pull { project: String, name: String },
+    /// List what the task's agents left running in the background, and how it ended.
+    Background { project: String, name: String },
     /// Commit everything in the task's worktree.
     Commit {
         project: String,
@@ -496,6 +498,21 @@ async fn pull(core: &Core, project: &str, name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Prints what the task's agents left running, one to a line.
+fn background(core: &Core, project: &str, name: &str) -> Result<()> {
+    let tasks = core.task_background(project, name)?;
+    if tasks.is_empty() {
+        say("nothing was left running");
+    }
+    for task in tasks {
+        say(&format!(
+            "{:?}\t{}\t{}\tsession {}",
+            task.state, task.task_id, task.description, task.session_id
+        ));
+    }
+    Ok(())
+}
+
 /// Runs a task's stack until Ctrl-C, printing what it prints, then stops it.
 async fn stack(core: &Core, project: &str, name: &str) -> Result<()> {
     if !core.stack_start(project, name)? {
@@ -767,6 +784,7 @@ async fn task(core: &Core, command: TaskCommand) -> Result<()> {
             say(&format!("removed task `{name}`"));
         }
         TaskCommand::Pull { project, name } => pull(core, &project, &name).await?,
+        TaskCommand::Background { project, name } => background(core, &project, &name)?,
         TaskCommand::Commit {
             project,
             name,

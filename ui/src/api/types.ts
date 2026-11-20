@@ -427,7 +427,32 @@ export type AgentEvent =
           duration_ms?: number | null;
       }
     | { type: "exited"; code: number | null; stderr: string }
+    | {
+          type: "background";
+          task_id: string;
+          description: string;
+          kind: string;
+          state: BackgroundState;
+          summary: string | null;
+      }
     | { type: "other"; raw: unknown };
+
+/** How far along something an agent left running is. */
+export type BackgroundState = "running" | "completed" | "failed" | "stopped";
+
+/** One thing an agent left running behind its turn, as last heard of. */
+export interface BackgroundTask {
+    session_id: number;
+    session_title: string;
+    /** The agent's own id for it, which is how it is stopped. */
+    task_id: string;
+    description: string;
+    /** What kind of thing it is, as the agent names it: `local_bash`, `local_agent`. */
+    kind: string;
+    state: BackgroundState;
+    /** The agent's own line about how it ended. */
+    summary: string | null;
+}
 
 export interface SessionEvent {
     session_id: number;

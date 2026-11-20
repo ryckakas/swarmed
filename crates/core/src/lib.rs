@@ -8,6 +8,7 @@ mod agent_models;
 mod agent_setup;
 mod agents;
 mod attach;
+mod background;
 mod changes;
 mod cloud;
 mod config;
@@ -56,6 +57,7 @@ pub use agent_setup::{AgentSetup, openrouter_models};
 use agents::Agents;
 pub use agents::{AgentInfo, CLAUDE};
 pub use attach::{ATTACHED_FILES, with_files};
+pub use background::BackgroundTask;
 
 pub use changes::{ChangeKind, FileChange, FileDiff};
 pub use cloud::{CloudOrigin, CloudProvider, CloudTask, MAX_DELEGATED};

@@ -197,6 +197,8 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
             commands::session_deny,
             commands::session_interrupt,
             commands::session_stop,
+            commands::session_stop_background,
+            commands::task_background,
             commands::session_configure,
             commands::slash_commands,
             commands::badge_set,

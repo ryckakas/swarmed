@@ -1,7 +1,7 @@
 // What things are called, by the style the user chose: the plain words, or a swarm's. Apart from
 // the palette, so either goes with any colours. Pure, so it can be tested.
 
-import type { SessionStatus, StackState, Style } from "./api/types";
+import type { BackgroundState, SessionStatus, StackState, Style } from "./api/types";
 import { DEFAULT_STYLE } from "./appearance";
 
 /** What a session is doing, as the marks tell it: its status, or idle with an unseen answer. */
@@ -57,6 +57,15 @@ export interface Words {
     stack: Record<StackState, string>;
     /** The status line's piece that adds up how long the agent has worked. */
     timeWorked: string;
+    /** The task panel's two tabs: what the task changed, and what its agents left running. */
+    changes: string;
+    background: string;
+    /** What each state of something left running is called. */
+    backgroundState: Record<BackgroundState, string>;
+    /** The button that stops something left running. */
+    stopBackground: string;
+    /** What the background tab says when nothing was left running. */
+    noBackground: string;
 }
 
 const PLAIN: Words = {
@@ -88,6 +97,16 @@ const PLAIN: Words = {
     turnStopped: "Turn stopped",
     stack: { stopped: "Stack stopped", starting: "Stack starting", running: "Stack running" },
     timeWorked: "Time worked",
+    changes: "Changes",
+    background: "Background",
+    backgroundState: {
+        running: "Running",
+        completed: "Finished",
+        failed: "Failed",
+        stopped: "Stopped",
+    },
+    stopBackground: "Stop",
+    noBackground: "The agents of this task have left nothing running.",
 };
 
 const SWARM: Words = {
@@ -120,6 +139,17 @@ const SWARM: Words = {
     turnStopped: "Molt cut short",
     stack: { stopped: "Pool dormant", starting: "Pool gestating", running: "Pool thriving" },
     timeWorked: "Time mutating",
+    changes: "Mutations",
+    background: "Drones",
+    backgroundState: {
+        running: "Foraging",
+        completed: "Returned",
+        // Something went wrong, which the user should not have to decode.
+        failed: "Failed",
+        stopped: "Culled",
+    },
+    stopBackground: "Cull",
+    noBackground: "No drones are out for this task.",
 };
 
 /** The swarm's words, and its names for the tree as well. */
