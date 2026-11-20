@@ -452,6 +452,7 @@ mod tests {
             is_error: false,
             result: None,
             cost_usd: Some(0.0123),
+            duration_ms: None,
         };
         assert_eq!(
             describe(&done).as_deref(),

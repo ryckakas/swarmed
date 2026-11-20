@@ -4,7 +4,10 @@ import type { AgentEvent } from "../api/types";
 import { messageParts } from "../pastes";
 import { useStore } from "../store";
 import { activity, type Item, PLAN_TOOL, summarize, toItems } from "../transcript";
+import { formatDuration } from "../turns";
 import { useRoll } from "../useRoll";
+import { useWords } from "../useWords";
+import type { Words } from "../wording";
 import { activityWords, pickWord, wordsFor } from "../wording";
 import { FileChips } from "./FileChips";
 import { HtmlView } from "./HtmlView";
@@ -170,7 +173,7 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
         case "turn":
             return (
                 <p className="aside turn-end">
-                    {item.isError ? "Turn stopped" : "Turn finished"}
+                    <TurnEnd isError={item.isError} durationMs={item.durationMs} />
                     {item.costUsd !== null && `, $${item.costUsd.toFixed(2)} so far`}
                 </p>
             );
@@ -196,4 +199,17 @@ function Activity({ events }: { events: AgentEvent[] }) {
     const words = useStore((state) => wordsFor(state.settings?.style));
     const options = activityWords(words, plain);
     return <>{pickWord(options, useRoll(options.length > 1))}…</>;
+}
+
+/** How a turn's end reads: whether it finished, and how long it took if that was measured. */
+export function turnEnd(words: Words, isError: boolean, durationMs: number | null): string {
+    const how = isError ? words.turnStopped : words.turnDone;
+    if (durationMs === null) {
+        return how;
+    }
+    return `${how} ${isError ? "after" : "in"} ${formatDuration(durationMs)}`;
+}
+
+function TurnEnd({ isError, durationMs }: { isError: boolean; durationMs: number | null }) {
+    return turnEnd(useWords(), isError, durationMs);
 }

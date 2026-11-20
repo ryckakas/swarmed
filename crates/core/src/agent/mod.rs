@@ -333,6 +333,11 @@ pub enum AgentEvent {
         /// What the agent process has cost since it started, in US dollars. A resumed session
         /// starts counting again.
         cost_usd: Option<f64>,
+        /// How long the turn took, from the message that started it to here, in
+        /// milliseconds. Measured by Swarmed, so it is the same for every agent; absent from
+        /// turns recorded before it was.
+        #[serde(default)]
+        duration_ms: Option<u64>,
     },
     /// The agent process ended. Nothing follows.
     Exited {

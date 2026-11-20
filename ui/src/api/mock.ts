@@ -882,6 +882,7 @@ class MockAgent {
             is_error: false,
             result: null,
             cost_usd: 0.0123,
+            duration_ms: 72_000,
         };
         if (text === "slow") {
             this.later(id, { type: "text", text: "Working on it…" }, "working");
@@ -992,7 +993,13 @@ class MockAgent {
             );
             this.later(
                 id,
-                { type: "turn_done", is_error: false, result: null, cost_usd: 0.31 },
+                {
+                    type: "turn_done",
+                    is_error: false,
+                    result: null,
+                    cost_usd: 0.31,
+                    duration_ms: 4_200,
+                },
                 "idle",
             );
         }
@@ -1180,7 +1187,7 @@ export function createMockApi(): Api {
         html_views: true,
         notifications: true,
         rules: "",
-        status_items: ["branch", "changes", "model", "context", "cost"],
+        status_items: ["branch", "changes", "model", "context", "cost", "duration"],
         status_command: "",
     };
     return {

@@ -102,4 +102,15 @@ describe("pickWord", () => {
         expect(withArticle("Environment")).toBe("an environment");
         expect(withArticle("Spawning pool")).toBe("a spawning pool");
     });
+
+    it("has the swarm's own words for a turn's end, a stack and the time worked", () => {
+        expect(wordsFor("plain").stack.starting).toBe("Stack starting");
+        expect(wordsFor("colony").stack).toEqual({
+            stopped: "Pool dormant",
+            starting: "Pool gestating",
+            running: "Pool thriving",
+        });
+        expect(wordsFor("swarm").turnDone).toBe("Molt complete");
+        expect(wordsFor("swarm").timeWorked).toBe("Time mutating");
+    });
 });

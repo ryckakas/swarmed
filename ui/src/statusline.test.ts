@@ -6,6 +6,7 @@ import {
     contextBreakdown,
     contextUsage,
     formatTokens,
+    movedItem,
     type StatusSource,
     statusParts,
     withItem,
@@ -159,5 +160,39 @@ describe("appliedEffort", () => {
         expect(appliedEffort(told)).toBe("xhigh");
         expect(appliedEffort([])).toBeNull();
         expect(appliedEffort(undefined)).toBeNull();
+    });
+});
+
+describe("movedItem", () => {
+    it("moves a piece one place and leaves the ends where they are", () => {
+        expect(movedItem(["branch", "cost", "model"], "cost", -1)).toEqual([
+            "cost",
+            "branch",
+            "model",
+        ]);
+        expect(movedItem(["branch", "cost", "model"], "cost", 1)).toEqual([
+            "branch",
+            "model",
+            "cost",
+        ]);
+        const items = ["branch", "cost"] as const;
+        expect(movedItem([...items], "branch", -1)).toEqual(items);
+        expect(movedItem([...items], "cost", 1)).toEqual(items);
+        expect(movedItem([...items], "agent", 1)).toEqual(items);
+    });
+});
+
+describe("the time worked", () => {
+    it("adds the running turn to the finished ones and shows nothing before any", () => {
+        const took: AgentEvent = {
+            type: "turn_done",
+            is_error: false,
+            result: null,
+            cost_usd: null,
+            duration_ms: 61_000,
+        };
+        expect(statusParts(["duration"], source())).toEqual([]);
+        const parts = statusParts(["duration"], source({ events: [took], running: 9_000 }));
+        expect(parts.map((part) => part.text)).toEqual(["1m 10s"]);
     });
 });

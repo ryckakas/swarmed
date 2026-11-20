@@ -1,4 +1,5 @@
 import type { AgentEvent, FileChange, Session, StatusItem, Task } from "./api/types";
+import { formatDuration, timeWorked } from "./turns";
 
 // The built-in pieces of the status line under the message box. Pure, so it can be tested.
 
@@ -10,6 +11,7 @@ export const STATUS_ITEM_LABELS: Record<StatusItem, string> = {
     cost: "Cost",
     agent: "Agent",
     worktree: "Worktree",
+    duration: "Time worked",
 };
 
 /** Every built-in piece, in the order they are offered. */
@@ -21,6 +23,8 @@ export interface StatusSource {
     task: Task;
     events: AgentEvent[];
     changes: FileChange[] | null;
+    /** How long the turn that is running has run so far, in milliseconds, if that is known. */
+    running?: number | null;
 }
 
 /** How a run of text in the status line is coloured: by what it says, not by its piece. */
@@ -144,6 +148,12 @@ function changeRuns({ changes }: StatusSource): StatusPart["runs"] | null {
     ];
 }
 
+/** How long the agent has worked in this session: its turns added up, the running one too. */
+function worked({ events, running }: StatusSource): string | null {
+    const total = timeWorked(events) + (running ?? 0);
+    return total > 0 ? formatDuration(total) : null;
+}
+
 const plain = (text: string | null): StatusPart["runs"] | null =>
     text === null || text === "" ? null : [[text, "plain"]];
 
@@ -155,6 +165,7 @@ const RUNS: Record<StatusItem, (source: StatusSource) => StatusPart["runs"] | nu
     cost: (source) => plain(cost(source)),
     agent: ({ session }) => plain(session.agent),
     worktree: ({ task }) => plain(task.worktree_path),
+    duration: (source) => plain(worked(source)),
 };
 
 /** The chosen pieces that have something to show, in the order chosen. */
@@ -164,6 +175,18 @@ export function statusParts(items: StatusItem[], source: StatusSource): StatusPa
         const text = runs?.map(([run]) => run).join("") ?? "";
         return runs === null ? [] : [{ item, text, runs }];
     });
+}
+
+/** `items` with `item` moved one place earlier (`by` -1) or later (`by` 1), if there is room. */
+export function movedItem(items: StatusItem[], item: StatusItem, by: -1 | 1): StatusItem[] {
+    const from = items.indexOf(item);
+    const to = from + by;
+    if (from === -1 || to < 0 || to >= items.length) {
+        return items;
+    }
+    const moved = [...items];
+    [moved[from], moved[to]] = [moved[to] as StatusItem, moved[from] as StatusItem];
+    return moved;
 }
 
 /** `items` with `item` switched on, at the end, or off. */

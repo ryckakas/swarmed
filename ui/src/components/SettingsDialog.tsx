@@ -1,10 +1,11 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import type { Settings, Style, Supervision, Theme } from "../api/types";
+import type { Settings, StatusItem, Style, Supervision, Theme } from "../api/types";
 import { PALETTES, STYLES } from "../appearance";
 import { keyCaps, LOCAL_HOTKEYS, listedHotkeys } from "../hotkeys";
-import { STATUS_ITEM_LABELS, STATUS_ITEMS, withItem } from "../statusline";
+import { movedItem, STATUS_ITEM_LABELS, STATUS_ITEMS, withItem } from "../statusline";
 import { SETTINGS_TABS, type SettingsTab, useStore } from "../store";
+import { useWords } from "../useWords";
 import { AgentsSettings } from "./AgentsSettings";
 import { ApiKeys } from "./ApiKeys";
 import { CloseIcon, IconButton } from "./IconButton";
@@ -324,6 +325,65 @@ function Rules({ settings }: { settings: Settings }) {
     );
 }
 
+/**
+ * The pieces of the status line: the chosen ones first, in the order they are shown, each with
+ * buttons that move it; then the ones left out.
+ */
+function StatusPieces({ settings, disabled }: { settings: Settings; disabled: boolean }) {
+    const change = useStore((state) => state.changeSettings);
+    const chosen = settings.status_items;
+    const words = useWords();
+    const save = (items: StatusItem[]) => void change(api, { status_items: items });
+    const rest = STATUS_ITEMS.filter((item) => !chosen.includes(item));
+    return (
+        <ul className="status-pieces" aria-disabled={disabled}>
+            {[...chosen, ...rest].map((item) => {
+                const at = chosen.indexOf(item);
+                const name = item === "duration" ? words.timeWorked : STATUS_ITEM_LABELS[item];
+                return (
+                    <li key={item} className="status-piece">
+                        <label className="settings-check">
+                            <input
+                                type="checkbox"
+                                disabled={disabled}
+                                checked={at !== -1}
+                                onChange={(event) =>
+                                    save(withItem(chosen, item, event.target.checked))
+                                }
+                            />
+                            {name}
+                        </label>
+                        {at !== -1 && (
+                            <span className="status-piece-moves">
+                                <button
+                                    type="button"
+                                    className="status-piece-move"
+                                    aria-label={`Move ${name} earlier`}
+                                    title="Earlier"
+                                    disabled={disabled || at === 0}
+                                    onClick={() => save(movedItem(chosen, item, -1))}
+                                >
+                                    ↑
+                                </button>
+                                <button
+                                    type="button"
+                                    className="status-piece-move"
+                                    aria-label={`Move ${name} later`}
+                                    title="Later"
+                                    disabled={disabled || at === chosen.length - 1}
+                                    onClick={() => save(movedItem(chosen, item, 1))}
+                                >
+                                    ↓
+                                </button>
+                            </span>
+                        )}
+                    </li>
+                );
+            })}
+        </ul>
+    );
+}
+
 function StatusLineSettings({ settings }: { settings: Settings }) {
     const change = useStore((state) => state.changeSettings);
     const [command, setCommand] = useState(settings.status_command);
@@ -332,26 +392,10 @@ function StatusLineSettings({ settings }: { settings: Settings }) {
         <section className="settings-group" aria-label="Status line">
             <h3>Status line</h3>
             <p className="settings-hint">
-                The line under the message box. Tick what it shows, or let a script of your own
-                decide.
+                The line under the message box. Tick what it shows and put it in the order you want,
+                or let a script of your own decide.
             </p>
-            <div className="settings-checks" aria-disabled={scripted}>
-                {STATUS_ITEMS.map((item) => (
-                    <label key={item} className="settings-check">
-                        <input
-                            type="checkbox"
-                            disabled={scripted}
-                            checked={settings.status_items.includes(item)}
-                            onChange={(event) => {
-                                const on = event.target.checked;
-                                const items = withItem(settings.status_items, item, on);
-                                void change(api, { status_items: items });
-                            }}
-                        />
-                        {STATUS_ITEM_LABELS[item]}
-                    </label>
-                ))}
-            </div>
+            <StatusPieces settings={settings} disabled={scripted} />
             <label className="settings-script">
                 <span className="settings-label">Custom script</span>
                 <span className="settings-hint">

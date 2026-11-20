@@ -428,6 +428,7 @@ impl Conversation {
             is_error: !finished,
             result: error,
             cost_usd: self.cost,
+            duration_ms: None,
         });
     }
 

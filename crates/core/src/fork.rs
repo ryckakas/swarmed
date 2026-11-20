@@ -118,6 +118,7 @@ mod tests {
             is_error: false,
             result: None,
             cost_usd: None,
+            duration_ms: None,
         }
     }
 

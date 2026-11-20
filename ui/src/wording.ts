@@ -1,7 +1,7 @@
 // What things are called, by the style the user chose: the plain words, or a swarm's. Apart from
 // the palette, so either goes with any colours. Pure, so it can be tested.
 
-import type { SessionStatus, Style } from "./api/types";
+import type { SessionStatus, StackState, Style } from "./api/types";
 import { DEFAULT_STYLE } from "./appearance";
 
 /** What a session is doing, as the marks tell it: its status, or idle with an unseen answer. */
@@ -50,6 +50,13 @@ export interface Words {
     /** One way of setting a task up, and several of them. */
     environment: string;
     environments: string;
+    /** How a turn's end reads: one that finished, and one that was stopped or failed. */
+    turnDone: string;
+    turnStopped: string;
+    /** What each state of a task's stack is called. */
+    stack: Record<StackState, string>;
+    /** The status line's piece that adds up how long the agent has worked. */
+    timeWorked: string;
 }
 
 const PLAIN: Words = {
@@ -77,6 +84,10 @@ const PLAIN: Words = {
     closeAsk: "Close this session?",
     environment: "Environment",
     environments: "Environments",
+    turnDone: "Turn finished",
+    turnStopped: "Turn stopped",
+    stack: { stopped: "Stack stopped", starting: "Stack starting", running: "Stack running" },
+    timeWorked: "Time worked",
 };
 
 const SWARM: Words = {
@@ -105,6 +116,10 @@ const SWARM: Words = {
     closeAsk: "Terminate this spawn?",
     environment: "Spawning pool",
     environments: "Spawning pools",
+    turnDone: "Molt complete",
+    turnStopped: "Molt cut short",
+    stack: { stopped: "Pool dormant", starting: "Pool gestating", running: "Pool thriving" },
+    timeWorked: "Time mutating",
 };
 
 /** The swarm's words, and its names for the tree as well. */

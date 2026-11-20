@@ -181,7 +181,15 @@ export type Palette = "dusk" | "graphite" | "forest" | "plum" | "ember" | "swarm
 export type Style = "plain" | "swarm" | "colony";
 
 /** One built-in piece of the status line. */
-export type StatusItem = "branch" | "changes" | "model" | "context" | "cost" | "agent" | "worktree";
+export type StatusItem =
+    | "branch"
+    | "changes"
+    | "model"
+    | "context"
+    | "cost"
+    | "agent"
+    | "worktree"
+    | "duration";
 
 /** The user's own preferences. */
 export interface Settings {
@@ -410,7 +418,14 @@ export type AgentEvent =
     | { type: "permission_answered"; request_id: string; allowed: boolean }
     | { type: "permission_withdrawn"; request_id: string }
     | { type: "rate_limit"; status: string; resets_at: number | null; raw: unknown }
-    | { type: "turn_done"; is_error: boolean; result: string | null; cost_usd: number | null }
+    | {
+          type: "turn_done";
+          is_error: boolean;
+          result: string | null;
+          cost_usd: number | null;
+          /** How long the turn took, in milliseconds; absent from turns recorded before it was. */
+          duration_ms?: number | null;
+      }
     | { type: "exited"; code: number | null; stderr: string }
     | { type: "other"; raw: unknown };
 

@@ -489,6 +489,7 @@ fn parse_message(message: &Value, pending: &Pending) -> Vec<AgentEvent> {
                 .unwrap_or(false),
             result: kind_of(message, "result").map(String::from),
             cost_usd: message.get("total_cost_usd").and_then(Value::as_f64),
+            duration_ms: None,
         }],
         "prompt_suggestion" => parse_suggestion(message).into_iter().collect(),
         // Of the replies to our own control requests, these two are of use.

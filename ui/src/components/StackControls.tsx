@@ -2,18 +2,17 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { StackState, Task } from "../api/types";
 import { useStore } from "../store";
+import { useWords } from "../useWords";
 
 /** How often a running stack is looked at again: whether it still runs, and what it printed. */
 const POLL_MS = 4000;
 
-/** What each state of a stack is called, and what the longer hint under the pointer says. */
-const STATES: Record<StackState, [label: string, hint: string]> = {
-    stopped: ["Stack stopped", "Its start command is not running."],
-    starting: [
-        "Stack starting",
+/** What the longer hint under the pointer says of each state. */
+const HINTS: Record<StackState, string> = {
+    stopped: "Its start command is not running.",
+    starting:
         "Its start command runs, but nothing answers at its address yet. It may still be installing or building.",
-    ],
-    running: ["Stack running", "Something answers at its address."],
+    running: "Something answers at its address.",
 };
 
 /**
@@ -23,6 +22,7 @@ const STATES: Record<StackState, [label: string, hint: string]> = {
  */
 export function StackControls({ project, task }: { project: string; task: Task }) {
     const report = useStore((state) => state.report);
+    const words = useWords();
     const refresh = useStore((state) => state.refresh);
     const [busy, setBusy] = useState(false);
     const [log, setLog] = useState<string | null>(null);
@@ -65,8 +65,8 @@ export function StackControls({ project, task }: { project: string; task: Task }
 
     return (
         <div className="stack">
-            <p className="stack-state" data-state={task.stack} title={STATES[task.stack][1]}>
-                {STATES[task.stack][0]}
+            <p className="stack-state" data-state={task.stack} title={HINTS[task.stack]}>
+                {words.stack[task.stack]}
             </p>
             <button type="button" className="button" disabled={busy} onClick={toggle}>
                 {stackAction(running, busy)}

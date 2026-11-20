@@ -2645,6 +2645,10 @@ code {
     color: var(--muted);
 }
 
+.status-duration {
+    color: var(--pollen);
+}
+
 /* A bar between two values that share a badge. */
 .status-run-quiet {
     opacity: 0.5;
@@ -3521,6 +3525,51 @@ code {
     display: flex;
     align-items: center;
     gap: 6px;
+}
+
+/* The status line's pieces, one to a row: the chosen ones in their order, with their arrows. */
+.status-pieces {
+    display: grid;
+    gap: 2px;
+    max-width: 22rem;
+    margin: 0;
+    padding: var(--space-2) 0;
+    list-style: none;
+}
+
+.status-pieces[aria-disabled="true"] {
+    color: var(--faint);
+}
+
+.status-piece {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 26px;
+}
+
+.status-piece-moves {
+    display: flex;
+    gap: 2px;
+}
+
+.status-piece-move {
+    width: 24px;
+    height: 22px;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--muted);
+}
+
+.status-piece-move:hover:not(:disabled),
+.status-piece-move:focus-visible {
+    background: var(--raised);
+    color: var(--text);
+}
+
+.status-piece-move:disabled {
+    opacity: 0.3;
 }
 
 /* The script has room of its own under its explanation, and can be dragged taller. */

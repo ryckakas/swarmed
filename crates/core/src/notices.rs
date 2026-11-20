@@ -126,6 +126,7 @@ mod tests {
             is_error,
             result: result.map(str::to_string),
             cost_usd: None,
+            duration_ms: None,
         };
         event(Some(SessionStatus::Idle), done)
     }

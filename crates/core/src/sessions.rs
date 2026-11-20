@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::Instant;
 
 use rusqlite::{OptionalExtension, Row, params};
 use serde::Serialize;
@@ -1000,6 +1001,8 @@ pub(crate) struct Live {
     pub(crate) pids: Mutex<HashMap<i64, u32>>,
     /// The stack each task has running, by task: what its `start` command started.
     pub(crate) stacks: Mutex<HashMap<i64, std::process::Child>>,
+    /// When the turn each session is in began: when the message that started it was sent.
+    turns: Mutex<HashMap<i64, Instant>>,
     runs: AtomicU64,
     bus: broadcast::Sender<SessionEvent>,
 }
@@ -1013,6 +1016,7 @@ impl Default for Live {
             queues: Queues::default(),
             pids: Mutex::default(),
             stacks: Mutex::default(),
+            turns: Mutex::default(),
             runs: AtomicU64::new(0),
             bus: broadcast::Sender::new(EVENT_BUFFER),
         }
@@ -1062,6 +1066,7 @@ impl Live {
         session_id: i64,
         event: AgentEvent,
     ) -> Result<()> {
+        let event = self.timed(session_id, event);
         let status = self.status_after(session_id, &event);
         // Pieces of a reply are only shown, the whole reply is what gets stored; and a queue is
         // not part of the conversation.
@@ -1087,6 +1092,39 @@ impl Live {
             self.commands().remove(&session_id);
         }
         stored
+    }
+
+    /// Keeps the time of each turn: a message starts the clock, and the end of the turn is
+    /// told how long it took. A turn that ends with its agent is forgotten.
+    fn timed(&self, session_id: i64, event: AgentEvent) -> AgentEvent {
+        let mut turns = lock(&self.turns);
+        match event {
+            AgentEvent::UserMessage { .. } => {
+                turns.entry(session_id).or_insert_with(Instant::now);
+                event
+            }
+            AgentEvent::TurnDone {
+                is_error,
+                result,
+                cost_usd,
+                duration_ms,
+            } => {
+                let took = turns
+                    .remove(&session_id)
+                    .map(|began| u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX));
+                AgentEvent::TurnDone {
+                    is_error,
+                    result,
+                    cost_usd,
+                    duration_ms: duration_ms.or(took),
+                }
+            }
+            AgentEvent::Exited { .. } => {
+                turns.remove(&session_id);
+                event
+            }
+            _ => event,
+        }
     }
 
     /// Stops the session's agent so it starts again with new settings: at once if it is

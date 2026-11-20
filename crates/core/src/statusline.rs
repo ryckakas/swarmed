@@ -39,6 +39,8 @@ pub enum StatusItem {
     Agent,
     /// The task's worktree directory.
     Worktree,
+    /// How long the session's agent has worked: its turns added up.
+    Duration,
 }
 
 impl StatusItem {
