@@ -445,8 +445,9 @@ pub(crate) async fn task_commit_message(
     core: CoreState<'_>,
     project: String,
     name: String,
+    session: Option<i64>,
 ) -> Command<String> {
-    Ok(core.task_commit_message(&project, &name).await?)
+    Ok(core.task_commit_message(&project, &name, session).await?)
 }
 
 /// Commits everything in a task's worktree under `message`.

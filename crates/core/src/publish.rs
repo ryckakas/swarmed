@@ -4,14 +4,18 @@
 //! are made by the user's own git, as them, and the pull request is opened by their own `gh`.
 
 use std::path::Path;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
+use crate::agent::{COMMIT_INSTRUCTIONS, Effort, SessionSpec, Supervision};
 use crate::agent_setup::find_program;
+use crate::agents::CLAUDE;
 use crate::error::Error;
 use crate::pulls::Pull;
-use crate::{Core, Result, git};
+use crate::sessions::Session;
+use crate::{Core, Result, asking, git};
 
 /// What of a task's work has not left its worktree yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -68,6 +72,9 @@ fn commits_in(log: &str) -> Vec<(String, String)> {
         .map(|(subject, description)| (subject.trim().to_string(), description.trim().to_string()))
         .collect()
 }
+
+/// How long an agent may take to write a commit message: it has to start first.
+const ASKING_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// The most of a diff a commit message is written from, in characters. A message says what a
 /// change is for, which its beginning and the list of files nearly always show.
@@ -150,31 +157,61 @@ impl Core {
         Ok(())
     }
 
-    /// A commit message for everything in a task's worktree, written by the same small model
-    /// that titles sessions, for the user to read and change before anything is committed.
-    /// The model is shown what git says changed, and nothing is committed here.
-    pub async fn task_commit_message(&self, project: &str, name: &str) -> Result<String> {
+    /// A commit message for everything in a task's worktree, for the user to read and change
+    /// before anything is committed. It is written by the agent of `session`, on that
+    /// session's model, in a conversation of its own; for a session on Claude Code, or without
+    /// one, by the small model that titles sessions. Whoever writes is shown what git says
+    /// changed, and nothing is committed here.
+    pub async fn task_commit_message(
+        &self,
+        project: &str,
+        name: &str,
+        session: Option<i64>,
+    ) -> Result<String> {
         let (_, task) = self.task(project, name)?;
         let worktree = &task.worktree_path;
         let status = git::git(worktree, &["status", "--porcelain"]).await?;
         if status.trim().is_empty() {
             return Err(refused("there is nothing to commit"));
         }
-        let namer = self.namer.clone();
-        let namer = namer.ok_or_else(|| refused("nothing here can write a commit message"))?;
         let mut diff = git::git(worktree, &["diff", "HEAD"]).await?;
         let untracked = ["ls-files", "--others", "--exclude-standard"];
         diff.push('\n');
         diff.push_str(&new_files(worktree, &git::git(worktree, &untracked).await?));
-        let answer = namer
-            .commit_message(changes_for_message(&status, &diff))
-            .await;
+        let changes = changes_for_message(&status, &diff);
+        let writer = session.map(|id| self.session(id)).transpose()?;
+        let answer = match writer.filter(|session| session.agent != CLAUDE) {
+            Some(session) => self.ask_for_message(&session, changes).await?,
+            None => self.name_message(changes).await?,
+        };
         let message = answer.map(|answer| message_of(&answer));
         message
             .filter(|message| !message.is_empty())
-            .ok_or_else(|| {
-                refused("no commit message came back: is Claude Code installed and signed in?")
-            })
+            .ok_or_else(|| refused("no commit message came back: is the agent signed in?"))
+    }
+
+    /// Has the small model that titles sessions write the message.
+    async fn name_message(&self, changes: String) -> Result<Option<String>> {
+        let namer = self.namer.clone();
+        let namer = namer.ok_or_else(|| refused("nothing here can write a commit message"))?;
+        Ok(namer.commit_message(changes).await)
+    }
+
+    /// Has the agent of `session` write the message, on the session's model, in a
+    /// conversation that has nothing to do with the session's own: in no worktree, with no
+    /// tools allowed and none of Swarmed's servers.
+    async fn ask_for_message(&self, session: &Session, changes: String) -> Result<Option<String>> {
+        let backend = self.agents_now().backend(&session.agent)?;
+        let spec = SessionSpec {
+            cwd: std::env::temp_dir(),
+            model: session.model.clone(),
+            supervision: Supervision::Ask,
+            effort: Some(Effort::Low),
+            env: self.key_env()?,
+            ..SessionSpec::default()
+        };
+        let question = format!("{COMMIT_INSTRUCTIONS}\n\n<changes>\n{changes}\n</changes>");
+        Ok(asking::ask(backend, spec, question, ASKING_TIMEOUT).await)
     }
 
     /// Pushes a task's branch to `origin`, and makes that its upstream.

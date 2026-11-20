@@ -74,6 +74,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   its program is found on the machine: configured but not installed, it is in the settings and
   not in the agent menu. The list of OpenRouter's models is fetched
   with `curl` from its public address, with no key and nothing of the user's in the request.
+- **Antigravity** (`agy acp`, Google's agent, on the user's Google sign-in) is a known agent
+  like Codex. It names its effort `thought_level` and its modes `default`, `auto` and `plan`,
+  which `acp.rs` maps supervision onto. What it asks permission for is decided by its own
+  settings as well: with `toolPermission` set to `always-proceed` there, it never asks.
 - **What Swarmed takes up** (`usage.rs`) is measured on request: the database and notes by
   their files, each worktree with `du`, and memory and processor time with `ps`, summed over
   Swarmed's own process and everything started from it. An agent's share is the tree under the
@@ -228,9 +232,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **A task's work leaves its worktree only when asked** (`publish.rs`): commit everything, push
   the branch, open a pull request, each a step of its own behind a button. Commits are made by
   the user's git as them, the pull request by their `gh`; nothing is added to either.
-- **A commit message can be written for the user** (`task_commit_message`): the `Namer`'s small
-  model is shown what git says changed, new files included, and its answer goes into the commit
-  box to be read and changed. Nothing is committed by it.
+- **A commit message can be written for the user** (`task_commit_message`), by the agent of the
+  session on screen: for Claude Code the `Namer`'s small model, for any other agent one question
+  in a conversation of its own (`asking.rs`), on the session's model, in no worktree, with every
+  tool refused. Whoever writes is shown what git says changed, new files included, and the
+  answer goes into the commit box to be read and changed. Nothing is committed by it.
 - **Removing a project** (`project_remove`) removes its tasks as `task_remove` does, keeping
   their branches, then deletes what Swarmed holds about it: sessions, their history and the
   notes. The repository is not touched. Removing a task stops its sessions first. In the UI

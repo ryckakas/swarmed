@@ -132,6 +132,19 @@ const KNOWN: &[Known] = &[
         sign_in: "It uses the API keys stored in Settings.",
         built_in: false,
     },
+    Known {
+        id: "antigravity",
+        name: "Antigravity",
+        about: "Google's coding agent, on your Google account: free, Google AI Pro or Ultra.",
+        program: "agy",
+        args: &["acp"],
+        install: Install::Script("curl -fsSL https://antigravity.google/cli/install.sh | bash"),
+        models: Models::Agent,
+        shares_claude_mcp: true,
+        sign_in: "To sign in, run `agy` in a terminal once and sign in with Google. Versions \
+                  before 1.5 cannot be run from here: `agy update` brings it up to date.",
+        built_in: false,
+    },
 ];
 
 /// Where OpenRouter lists its models. Public: asking needs no key and sends nothing of ours.

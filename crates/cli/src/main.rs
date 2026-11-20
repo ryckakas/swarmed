@@ -239,7 +239,14 @@ enum TaskCommand {
         message: String,
     },
     /// Print a commit message written for the task's uncommitted work. Commits nothing.
-    CommitMessage { project: String, name: String },
+    CommitMessage {
+        project: String,
+        name: String,
+        /// Have this session's agent write it, on the session's model. Without it, and for a
+        /// session on Claude Code, Claude Code's smallest model writes.
+        #[arg(long)]
+        session: Option<i64>,
+    },
     /// Push the task's branch to its remote.
     Push { project: String, name: String },
     /// Open a pull request for the task's branch. Without a title, the task's commits give
@@ -860,8 +867,12 @@ async fn task(core: &Core, command: TaskCommand) -> Result<()> {
             name,
             message,
         } => commit(core, &project, &name, &message).await?,
-        TaskCommand::CommitMessage { project, name } => {
-            say(&core.task_commit_message(&project, &name).await?);
+        TaskCommand::CommitMessage {
+            project,
+            name,
+            session,
+        } => {
+            say(&core.task_commit_message(&project, &name, session).await?);
         }
         TaskCommand::Push { project, name } => {
             core.task_push(&project, &name).await?;

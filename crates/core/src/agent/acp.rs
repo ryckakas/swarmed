@@ -104,12 +104,19 @@ enum Call {
 /// deciding for itself what needs a person, and never asking.
 fn agent_mode(supervision: Supervision, offered: &[String]) -> Option<&str> {
     let names: &[&str] = match supervision {
-        Supervision::Ask | Supervision::Plan => &["read-only", "ask"],
+        Supervision::Ask => &["read-only", "ask", "default"],
+        // A planning mode of its own if it has one; else it asks, which keeps it from acting.
+        Supervision::Plan => &["plan", "read-only", "ask", "default"],
         Supervision::Auto => &["agent", "auto"],
         Supervision::Bypass => &["agent-full-access", "full-access"],
     };
-    let wanted = |mode: &&String| names.contains(&mode.as_str());
-    offered.iter().find(wanted).map(String::as_str)
+    // The first of the names it has, in the order above: the closest match first.
+    let has = |name: &&&str| offered.iter().any(|mode| mode == **name);
+    let found = names.iter().find(has)?;
+    offered
+        .iter()
+        .find(|mode| mode == found)
+        .map(String::as_str)
 }
 
 /// The efforts from least to most, as agents name them. Some offer less than these, and
@@ -313,7 +320,7 @@ impl Conversation {
         }
         self.modes = option_values(result, "mode");
         self.set_mode().await;
-        self.set_effort(&option_values(result, EFFORT_OPTION)).await;
+        self.set_effort(result).await;
         self.set_fast(&option_values(result, FAST_MODE)).await;
         if self.opened_on_another_model(result) {
             self.restore_model().await;
@@ -360,12 +367,13 @@ impl Conversation {
     /// What the conversation runs with once it is set up: the session's model and effort where
     /// it chose them, else what the agent opened with. Nothing for an agent that has no effort.
     fn applied(&self, opened: &Value) -> Option<AgentEvent> {
-        let offered = option_values(opened, EFFORT_OPTION);
+        let option = effort_option(opened)?;
+        let offered = option_values(opened, option);
         let chosen = self
             .spec
             .effort
             .and_then(|effort| agent_effort(effort, &offered));
-        let effort = chosen.or_else(|| current_value(opened, EFFORT_OPTION))?;
+        let effort = chosen.or_else(|| current_value(opened, option))?;
         let model = self.spec.model.clone();
         Some(AgentEvent::Applied {
             model: model.unwrap_or_else(|| current_model(opened)),
@@ -388,15 +396,17 @@ impl Conversation {
     /// Sets how hard the agent's model thinks, to the level of its own nearest the one chosen
     /// for the session. An agent that offers no such choice, or a session without one, is left
     /// at the agent's default.
-    async fn set_effort(&mut self, offered: &[String]) {
-        let effort = self
-            .spec
-            .effort
-            .and_then(|effort| agent_effort(effort, offered));
+    async fn set_effort(&mut self, opened: &Value) {
+        let Some(option) = effort_option(opened) else {
+            return;
+        };
+        let offered = option_values(opened, option);
+        let effort = self.spec.effort;
+        let effort = effort.and_then(|effort| agent_effort(effort, &offered));
         let (Some(effort), Some(session_id)) = (effort, self.session_id.clone()) else {
             return;
         };
-        let params = json!({ "sessionId": session_id, "configId": EFFORT_OPTION, "value": effort });
+        let params = json!({ "sessionId": session_id, "configId": option, "value": effort });
         self.call(Call::SetOption, "session/set_config_option", params)
             .await;
     }
@@ -786,8 +796,14 @@ fn error_text(error: &Value) -> String {
     str_of(error, "message").map_or_else(|| error.to_string(), String::from)
 }
 
-/// The option agents name their effort by.
-const EFFORT_OPTION: &str = "reasoning_effort";
+/// The options agents name their effort by: Codex's, and Antigravity's.
+const EFFORT_OPTIONS: [&str; 2] = ["reasoning_effort", "thought_level"];
+
+/// The one of those a conversation has, if any.
+fn effort_option(opened: &Value) -> Option<&'static str> {
+    let has = |id: &&str| current_value(opened, id).is_some();
+    EFFORT_OPTIONS.into_iter().find(has)
+}
 
 /// What one of a conversation's options stands at when it opens, if the agent says.
 fn current_value<'a>(opened: &'a Value, id: &str) -> Option<&'a str> {
@@ -921,6 +937,12 @@ mod tests {
         assert_eq!(option_values(&json!({}), "mode"), Vec::<String>::new());
         assert_eq!(agent_mode(Supervision::Auto, &[]), None);
         assert_eq!(agent_mode(Supervision::Ask, &["build".to_string()]), None);
+        // Antigravity's: asking is its default, and it has a planning mode of its own.
+        let modes = ["default", "accept-edits", "auto", "plan"].map(String::from);
+        assert_eq!(agent_mode(Supervision::Ask, &modes), Some("default"));
+        assert_eq!(agent_mode(Supervision::Plan, &modes), Some("plan"));
+        assert_eq!(agent_mode(Supervision::Auto, &modes), Some("auto"));
+        assert_eq!(agent_mode(Supervision::Bypass, &modes), None);
     }
 
     #[test]

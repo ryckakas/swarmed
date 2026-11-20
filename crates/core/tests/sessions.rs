@@ -929,13 +929,13 @@ async fn a_commit_message_is_written_from_what_changed_and_commits_nothing() {
     let mut core = core_with_task(&fx).await;
     let worktree = core.task("demo", "one").expect("exists").1.worktree_path;
     // Nothing changed, then nothing to write about; and nobody to write.
-    assert!(core.task_commit_message("demo", "one").await.is_err());
+    assert!(core.task_commit_message("demo", "one", None).await.is_err());
     std::fs::write(worktree.join("notes.txt"), "one\n").expect("writes");
-    assert!(core.task_commit_message("demo", "one").await.is_err());
+    assert!(core.task_commit_message("demo", "one", None).await.is_err());
 
     core.set_namer(Arc::new(FixedNamer("unused")));
     let message = core
-        .task_commit_message("demo", "one")
+        .task_commit_message("demo", "one", None)
         .await
         .expect("writes");
     // The fence is gone, and the model was shown the new file.
