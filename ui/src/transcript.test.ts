@@ -3,6 +3,7 @@ import type { AgentEvent } from "./api/types";
 import {
     activity,
     fileName,
+    messageNumber,
     planOf,
     splitFiles,
     summarize,
@@ -297,5 +298,26 @@ describe("attached files", () => {
         expect(item).toMatchObject({ kind: "user", text: "hi", files: ["/Users/me/a.png"] });
         expect(fileName("/Users/me/a.png")).toBe("a.png");
         expect(fileName("/Users/me/folder/")).toBe("folder");
+    });
+});
+
+describe("messageNumber", () => {
+    const said = (text: string): AgentEvent => ({ type: "user_message", text });
+    const answered = (text: string): AgentEvent => ({ type: "text", text });
+
+    it("counts the messages before an event, whatever else stands between them", () => {
+        const events: AgentEvent[] = [
+            said("one"),
+            answered("first answer"),
+            // Only ever shown: the core's list of this session does not hold it.
+            { type: "queue", messages: [] },
+            { type: "queue", messages: [] },
+            said("two"),
+            answered("second answer"),
+            said("three"),
+        ];
+        expect(messageNumber(events, 0)).toBe(0);
+        expect(messageNumber(events, 4)).toBe(1);
+        expect(messageNumber(events, 6)).toBe(2);
     });
 });

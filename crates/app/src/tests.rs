@@ -625,7 +625,7 @@ fn the_ui_can_list_closed_sessions_and_reopen_one() {
     let nothing = app.ok("sessions_search", json!({ "query": "zeppelin" }));
     assert_eq!(nothing, json!([]));
     assert_eq!(app.ok("session_reopen", json!({ "id": id }))["id"], *id);
-    let fork = app.ok("session_fork", json!({ "id": id, "upto": null }));
+    let fork = app.ok("session_fork", json!({ "id": id, "before": null }));
     assert_ne!(fork["id"], *id);
     assert_eq!(fork["title"], json!("Fork"));
     assert_eq!(app.ok("sessions_closed", task), json!([]));

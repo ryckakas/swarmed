@@ -4,7 +4,8 @@
 //! was said is copied into the new session, for the user to read, and goes to its agent with
 //! the first message, whatever agent that is.
 
-use crate::agent::AgentEvent;
+use crate::agent::{AgentEvent, Supervision};
+use crate::agents::CLAUDE;
 use crate::sessions::{Session, SessionOptions};
 use crate::{Core, Result, lock};
 
@@ -12,9 +13,23 @@ use crate::{Core, Result, lock};
 /// most, so that is what is kept.
 const MAX_CARRIED: usize = 60_000;
 
+/// Where a conversation is cut for a fork that starts before its message number `before`,
+/// counting from 0 every message sent into it: all of it, if there is no such message.
+///
+/// A message is counted, not an event's place: a front end's list of events also holds ones
+/// that are never stored, so a place in it says nothing of a place here.
+fn cut_before(events: &[AgentEvent], before: Option<usize>) -> usize {
+    let messages = events
+        .iter()
+        .enumerate()
+        .filter(|(_, event)| matches!(event, AgentEvent::UserMessage { .. }));
+    let at = before.and_then(|before| messages.map(|(at, _)| at).nth(before));
+    at.unwrap_or(events.len())
+}
+
 /// What of a conversation a fork starts with: what was said and shown, not how it came about.
-fn kept(events: &[AgentEvent], upto: Option<usize>) -> Vec<AgentEvent> {
-    let end = upto.map_or(events.len(), |upto| upto.min(events.len()));
+fn kept(events: &[AgentEvent], before: Option<usize>) -> Vec<AgentEvent> {
+    let end = cut_before(events, before);
     events[..end]
         .iter()
         .filter(|event| {
@@ -71,25 +86,59 @@ pub(crate) fn with_carried(text: &str, earlier: &str) -> String {
     )
 }
 
+/// The supervision a clone on `agent` starts with: the source's, except that only Claude Code
+/// plans before it acts, so a planning session asks instead on any other agent.
+fn supervision_on(agent: &str, supervision: Supervision) -> Supervision {
+    if supervision == Supervision::Plan && agent != CLAUDE {
+        Supervision::Ask
+    } else {
+        supervision
+    }
+}
+
 impl Core {
     /// A new session in the same task and on the same agent, starting with what was said in
-    /// session `id`: all of it, or only its first `upto` events. Nothing runs until it is
-    /// started, and its agent is given the conversation with the first message.
-    pub fn session_fork(&self, id: i64, upto: Option<usize>) -> Result<Session> {
+    /// session `id`: all of it, or what was said before its message number `before`, counting
+    /// from 0 every message sent into it. Nothing runs until it is started, and its agent is
+    /// given the conversation with the first message.
+    ///
+    /// With `agent`, the new session runs on that agent instead: a clone of the conversation
+    /// for another agent to carry on. It gets what was said, as text, and not what the first
+    /// agent did or read to say it. Model, effort and fast mode are that agent's own to start
+    /// with, since they mean something else on every agent.
+    pub fn session_fork(
+        &self,
+        id: i64,
+        before: Option<usize>,
+        agent: Option<&str>,
+    ) -> Result<Session> {
         let source = self.session(id)?;
-        let earlier = kept(&self.session_events(id)?, upto);
+        let earlier = kept(&self.session_events(id)?, before);
         let title = if source.title.is_empty() {
             "Fork".to_string()
         } else {
             format!("{} (fork)", source.title)
         };
-        let options = SessionOptions {
-            agent: Some(source.agent),
-            title: Some(title),
-            model: source.model,
-            supervision: source.supervision,
-            effort: source.effort,
-            fast: source.fast,
+        let options = match agent.filter(|agent| *agent != source.agent) {
+            None => SessionOptions {
+                agent: Some(source.agent),
+                title: Some(title),
+                model: source.model,
+                supervision: source.supervision,
+                effort: source.effort,
+                fast: source.fast,
+            },
+            Some(other) => {
+                self.agents_now().backend(other)?;
+                SessionOptions {
+                    agent: Some(other.to_string()),
+                    title: Some(title),
+                    model: None,
+                    supervision: supervision_on(other, source.supervision),
+                    effort: None,
+                    fast: false,
+                }
+            }
         };
         let store = lock(&self.store);
         let fork = store.session_insert(source.task_id, &options)?;
@@ -124,6 +173,16 @@ mod tests {
     }
 
     #[test]
+    fn a_clone_on_another_agent_asks_where_the_first_one_planned() {
+        assert_eq!(supervision_on("codex", Supervision::Plan), Supervision::Ask);
+        assert_eq!(supervision_on(CLAUDE, Supervision::Plan), Supervision::Plan);
+        assert_eq!(
+            supervision_on("codex", Supervision::Auto),
+            Supervision::Auto
+        );
+    }
+
+    #[test]
     fn a_fork_keeps_what_was_said_up_to_the_point_asked_for() {
         let events = [
             user("one"),
@@ -136,9 +195,11 @@ mod tests {
             kept(&events, None),
             [user("one"), reply("two"), user("three"), reply("four")]
         );
-        assert_eq!(kept(&events, Some(3)), [user("one"), reply("two")]);
-        assert_eq!(kept(&events, Some(99)).len(), 4);
+        // Before the second message: the first and its answer, and nothing after.
+        assert_eq!(kept(&events, Some(1)), [user("one"), reply("two")]);
         assert_eq!(kept(&events, Some(0)), []);
+        // No such message: all of it.
+        assert_eq!(kept(&events, Some(99)).len(), 4);
     }
 
     #[test]

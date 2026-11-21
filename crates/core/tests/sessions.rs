@@ -1252,6 +1252,41 @@ async fn what_was_said_is_found_again_in_open_and_closed_sessions() {
 }
 
 #[tokio::test]
+async fn a_fork_from_a_message_holds_what_was_said_before_it_and_nothing_after() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let source = started_session(&core);
+    for said in ["first question", "second question", "third question"] {
+        core.session_send(source.id, said).expect("sends");
+        turn(&mut bus, source.id).await;
+    }
+    let messages = |id: i64| -> Vec<String> {
+        let events = core.session_events(id).expect("reads");
+        let said = events.into_iter().filter_map(|event| match event {
+            AgentEvent::UserMessage { text } => Some(text),
+            _ => None,
+        });
+        said.collect()
+    };
+    // From the second message: the first and its answer only.
+    let fork = core.session_fork(source.id, Some(1), None).expect("forks");
+    assert_eq!(messages(fork.id), ["first question"]);
+    let copied = core.session_events(fork.id).expect("reads");
+    let answers = copied
+        .iter()
+        .filter(|event| matches!(event, AgentEvent::Text { .. }));
+    assert_eq!(answers.count(), 1);
+    // From the first: nothing but the mark of where it came from.
+    let empty = core.session_fork(source.id, Some(0), None).expect("forks");
+    assert_eq!(
+        core.session_events(empty.id).expect("reads"),
+        [AgentEvent::Forked { from: source.id }]
+    );
+    assert_eq!(messages(source.id).len(), 3);
+}
+
+#[tokio::test]
 async fn a_fork_starts_with_what_was_said_and_tells_its_agent_once() {
     let fx = fixture();
     let core = core_with_task(&fx).await;
@@ -1262,7 +1297,7 @@ async fn a_fork_starts_with_what_was_said_and_tells_its_agent_once() {
     turn(&mut bus, source.id).await;
     let said = core.session_events(source.id).expect("reads");
 
-    let fork = core.session_fork(source.id, None).expect("forks");
+    let fork = core.session_fork(source.id, None, None).expect("forks");
     assert_eq!(fork.task_id, source.task_id);
     assert_eq!(fork.agent, source.agent);
     let fork_row = core.session(fork.id).expect("reads");

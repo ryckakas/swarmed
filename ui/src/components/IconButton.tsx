@@ -50,3 +50,15 @@ export function EndIcon() {
         </>
     );
 }
+
+/** One line that becomes two: a conversation carried on in a second session. */
+export function ForkIcon() {
+    return (
+        <>
+            <circle cx="4.5" cy="3.5" r="1.5" />
+            <circle cx="4.5" cy="12.5" r="1.5" />
+            <circle cx="11.5" cy="6" r="1.5" />
+            <path d="M4.5 5v6M4.5 9c0-1.5 1-3 5.5-3" />
+        </>
+    );
+}
