@@ -759,6 +759,7 @@ impl Core {
         let backend = self.agents_now().backend(&session.agent)?;
         let handle = backend.start(SessionSpec {
             mcp_servers,
+            skills: self.skills_had(&session.agent, &task.worktree_path),
             env,
             append_system_prompt: self.guidance(&settings, &session.agent, &task.worktree_path),
             cwd: task.worktree_path,

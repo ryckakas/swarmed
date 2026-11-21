@@ -319,7 +319,7 @@ impl Conversation {
             permission_mode: self.spec.supervision.as_str().to_string(),
             api_key_source: "agent".to_string(),
             mcp_servers: self.passed_servers(),
-            skills: 0,
+            skills: self.spec.skills,
             slash_commands: vec![],
         });
         if let Some(applied) = self.applied(result) {

@@ -739,6 +739,27 @@ async fn the_agent_is_given_the_mcp_servers_configured_for_claude_code() {
 }
 
 #[tokio::test]
+async fn the_start_of_a_session_counts_the_skills_it_is_offered() {
+    let fx = fixture();
+    // An agent that speaks ACP says nothing of skills, so the count is Swarmed's own.
+    let home = fx.paths.claude_config.parent().expect("has a folder");
+    let folder = home.join(".claude/skills/review");
+    std::fs::create_dir_all(&folder).expect("creates");
+    let text = "---\nname: review\ndescription: Review a change.\n---\nLook closely.\n";
+    std::fs::write(folder.join("SKILL.md"), text).expect("writes");
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+
+    core.session_send(id, "hello").expect("sends");
+    let events = turn(&mut bus, id).await;
+    assert!(
+        matches!(events.get(1), Some(AgentEvent::Init { skills: 1, .. })),
+        "{events:?}"
+    );
+}
+
+#[tokio::test]
 async fn servers_set_up_in_swarmed_are_given_with_their_secrets_and_never_show_them() {
     let fx = fixture();
     write_claude_config(&fx);
