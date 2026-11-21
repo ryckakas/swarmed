@@ -31,6 +31,7 @@ use crate::error::Error;
 use crate::layouts::layout_schema;
 use crate::settings::{Layout, MAX_RULES_BYTES, Settings};
 use crate::store::Project;
+use crate::termconfig::terminal_schema;
 use crate::{Core, Result, lock};
 
 /// A change an agent asked for that the user has to agree to.
@@ -484,6 +485,30 @@ impl Core {
         Ok(format!("Kept, and the app is drawn in it now: {kept}"))
     }
 
+    /// The terminal's configuration: listed with its schema, or replaced as a whole.
+    fn configure_terminal(&self, op: &str, asked: &Asked<'_>) -> Result<String> {
+        if op == "list" {
+            let current = serde_json::to_string(&self.terminal_config()?).unwrap_or_default();
+            return Ok(format!(
+                "The terminal's configuration now: {current}\nIts JSON Schema: {}",
+                terminal_schema()
+            ));
+        }
+        if op != "save" {
+            return Err(refused(
+                "the terminal's configuration can be listed and saved; save {} to empty it",
+            ));
+        }
+        let Some(given) = asked.0.get("json").filter(|given| !given.is_null()) else {
+            return Err(refused("give the whole configuration as `json`"));
+        };
+        let text = given
+            .as_str()
+            .map_or_else(|| given.to_string(), str::to_string);
+        let kept = serde_json::to_string(&self.set_terminal_config(&text)?).unwrap_or_default();
+        Ok(format!("Kept; terminals are redrawn in it: {kept}"))
+    }
+
     fn configure_environment(&self, from: i64, op: &str, asked: &Asked<'_>) -> Result<String> {
         let project = self.project_of_session(from)?.name;
         let environments = self.environments(&project)?;
@@ -544,10 +569,11 @@ impl Core {
             "status_line" => self.configure_status_line(from, op, &asked),
             "appearance" => self.configure_appearance(op, &asked),
             "layout" => self.configure_layout(op, &asked),
+            "terminal" => self.configure_terminal(op, &asked),
             "environment" => self.configure_environment(from, op, &asked),
             _ => Err(refused(
                 "`kind` is one of prompt, action, rule, status_line, appearance, layout, \
-                 environment. \
+                 terminal, environment. \
                  API keys, MCP servers, sign-ins, permissions and notes cannot be changed by \
                  an agent.",
             )),

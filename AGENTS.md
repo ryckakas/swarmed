@@ -131,6 +131,14 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   `customLayout.ts`, which writes only values of a form it knows into the stylesheet it builds.
   Agents save it whole through `configure`'s `layout` kind, at once: it cannot hide or move
   anything, and it has to stay that way for that to be safe.
+- **The terminal is xterm.js, drawn from the palette and the user's `terminal.json`**
+  (`termconfig.rs`, checked like the custom layout; `terminalLook.ts` on the UI side). All
+  sixteen colours come from the palette's tokens unless the configuration names its own, so
+  they follow every palette and layout. Addresses open through `open_link`. Programs may write
+  the clipboard (OSC 52) and are never given its contents: keep the provider write-only.
+  Drawing on the graphics card (`gpu`) is off by default, because it has not been seen to draw
+  right in the app's own window; check there before changing the default. The shell is started
+  with `COLORTERM=truecolor` and `CLICOLOR=1`.
 - **Check UI changes in a browser** with `pnpm dev`. The mock agent answers plain text, asks
   permission for `run: <command>`, and runs until stopped for `slow`; one sample session has
   2,000 messages for checking scroll speed.

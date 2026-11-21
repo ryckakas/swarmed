@@ -75,6 +75,12 @@ impl Paths {
         self.data_dir.join("layout.json")
     }
 
+    /// The file with the user's configuration of the terminal.
+    #[must_use]
+    pub fn terminal_config(&self) -> PathBuf {
+        self.data_dir.join("terminal.json")
+    }
+
     /// The local config file of `project`.
     #[must_use]
     pub fn project_config(&self, project: &str) -> PathBuf {

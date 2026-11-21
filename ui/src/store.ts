@@ -12,6 +12,7 @@ import type {
     SessionSettings,
     Settings,
     Template,
+    TerminalConfig,
 } from "./api/types";
 import type { Comparison } from "./components/CompareDialog";
 import { type ReviewComment, withComment } from "./review";
@@ -37,6 +38,7 @@ export const SETTINGS_TABS = [
     ["skills", "Skills"],
     ["prompts", "Prompts"],
     ["actions", "Actions"],
+    ["terminal", "Terminal"],
     ["mcp", "MCP servers"],
     ["keys", "API keys"],
     ["usage", "Storage and activity"],
@@ -81,6 +83,10 @@ interface State {
     togglePanel(): void;
     /** Changes some of the user's preferences and keeps the rest. */
     changeSettings(api: Api, change: Partial<Settings>): Promise<void>;
+    /** The user's configuration of the terminal, once read. */
+    terminalConfig: TerminalConfig | null;
+    /** Has the core check `text` as the terminal's configuration and keep it; resolves to what is wrong with it, or to nothing. */
+    saveTerminalConfig(api: Api, text: string): Promise<string | null>;
     /** The user's custom layout, once read; drawn when the settings choose it. */
     customLayout: CustomLayout | null;
     /**
@@ -289,10 +295,10 @@ function closed(state: State, sessionId: number): Partial<State> {
     };
 }
 
-/** Has the core keep `text` as the custom layout; what is wrong with it, or nothing once `kept`. */
-async function keptLayout(api: Api, text: string, kept: (layout: CustomLayout) => void) {
+/** Has the core keep something it checks first; what is wrong with it, or nothing once `taken`. */
+async function kept<T>(save: () => Promise<T>, taken: (kept: T) => void) {
     try {
-        kept(await api.customLayoutSave(text));
+        taken(await save());
         return null;
     } catch (error) {
         return String(error);
@@ -334,8 +340,18 @@ export const useStore = create<State>((set, get) => ({
             set({ settings });
             await api.setSettings(settings);
         }),
+    terminalConfig: null,
+    saveTerminalConfig: (api, text) =>
+        kept(
+            () => api.terminalConfigSave(text),
+            (terminalConfig) => set({ terminalConfig }),
+        ),
     customLayout: null,
-    saveCustomLayout: (api, text) => keptLayout(api, text, (customLayout) => set({ customLayout })),
+    saveCustomLayout: (api, text) =>
+        kept(
+            () => api.customLayoutSave(text),
+            (customLayout) => set({ customLayout }),
+        ),
     folded: readIds(FOLDED),
     toggleFolded: (projectId) => {
         const folded = toggledId(get().folded, projectId);
@@ -482,6 +498,7 @@ const inView = typeof window === "undefined" ? null : window;
 function readConfiguration(api: Api) {
     void reporting(async () => useStore.setState({ settings: await api.settings() }));
     void reporting(async () => useStore.setState({ customLayout: await api.customLayout() }));
+    void reporting(async () => useStore.setState({ terminalConfig: await api.terminalConfig() }));
     void reporting(async () => useStore.setState({ templates: await api.templates() }));
 }
 

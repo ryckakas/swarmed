@@ -188,6 +188,9 @@ fn configure_tool() -> Value {
             colours; list it to get its schema, save the whole of it as `json`. Saving \
             switches the app to it; what cannot be read, such as text too close to its \
             background, is refused with the reason. \
+            terminal: how the terminal looks and behaves (font, size, cursor, scrollback, \
+            colours and more), one JSON object; list it for its schema, save the whole of it \
+            as `json`. \
             environment: how a task's stack is set up, started and stopped in this repository; \
             give `name` and any of `setup`, `start`, `stop`, `teardown`, `open_url`, `ports`, \
             `variables`. When asked to set a repository up, read how it starts (README, \
@@ -204,7 +207,7 @@ fn configure_tool() -> Value {
                     "type": "string",
                     "enum": [
                         "prompt", "action", "rule", "status_line", "appearance", "layout",
-                        "environment",
+                        "terminal", "environment",
                     ],
                 },
                 "op": { "type": "string", "enum": ["list", "save", "remove"] },
@@ -227,7 +230,7 @@ fn configure_tool() -> Value {
                 "layout": text("classic, senior for larger text and rows, or custom."),
                 "json": {
                     "type": "object",
-                    "description": "The whole custom layout, for kind layout.",
+                    "description": "The whole custom layout, for kind layout, or the whole terminal configuration, for kind terminal.",
                 },
                 "text_size": { "type": "integer", "description": "In percent, 80 to 150." },
                 "setup": text("An environment's command run once after a worktree is created."),

@@ -32,6 +32,7 @@ import type {
     Task,
     TaskNaming,
     Template,
+    TerminalConfig,
     TerminalOutput,
     TurnStats,
     Unpublished,
@@ -215,6 +216,10 @@ export interface Api {
     deleteApiKey(name: string): Promise<void>;
     settings(): Promise<Settings>;
     setSettings(settings: Settings): Promise<void>;
+    /** The user's configuration of the terminal. */
+    terminalConfig(): Promise<TerminalConfig>;
+    /** Keeps `text`, JSON as written, as the terminal's configuration; fails with the reason if it cannot be used. */
+    terminalConfigSave(text: string): Promise<TerminalConfig>;
     /** The user's custom layout. Fails if its file was edited into something unusable. */
     customLayout(): Promise<CustomLayout>;
     /** Keeps `text`, JSON as written, as the custom layout; fails with the reason if it cannot be drawn. */

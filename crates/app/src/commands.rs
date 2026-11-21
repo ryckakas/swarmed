@@ -15,7 +15,8 @@ use swarmed_core::{
     CloudProvider, CloudTask, Core, Costs, CustomLayout, Environment, FileChange, FileDiff, Mark,
     McpServerInput, McpServerView, NewTaskOptions, Project, ProjectOverview, Pull, PullDraft,
     QueuedMessage, RemoveOptions, SearchHit, Session, SessionOptions, SessionSettings, Settings,
-    Skill, Snapshot, Task, TaskNaming, Template, TurnStats, Unpublished, Usage, with_files,
+    Skill, Snapshot, Task, TaskNaming, Template, TerminalConfig, TurnStats, Unpublished, Usage,
+    with_files,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -614,6 +615,18 @@ pub(crate) fn custom_layout(core: CoreState<'_>) -> Command<CustomLayout> {
 #[tauri::command]
 pub(crate) fn custom_layout_save(core: CoreState<'_>, text: String) -> Command<CustomLayout> {
     Ok(core.set_custom_layout(&text)?)
+}
+
+/// The user's configuration of the terminal, as checked by the core.
+#[tauri::command]
+pub(crate) fn terminal_config(core: CoreState<'_>) -> Command<TerminalConfig> {
+    Ok(core.terminal_config()?)
+}
+
+/// Keeps `text`, JSON as the user wrote it, as the terminal's configuration if it can be used.
+#[tauri::command]
+pub(crate) fn terminal_config_save(core: CoreState<'_>, text: String) -> Command<TerminalConfig> {
+    Ok(core.set_terminal_config(&text)?)
 }
 
 #[tauri::command]

@@ -2763,6 +2763,33 @@ code {
     cursor: text;
 }
 
+.terminal-holder {
+    position: relative;
+}
+
+/* Finding in the terminal's output: a line over its top right corner. */
+.terminal-find {
+    position: absolute;
+    z-index: 2;
+    top: var(--space-2);
+    right: var(--space-4);
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: var(--space-1);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--raised);
+}
+
+.terminal-find input {
+    width: 22ch;
+}
+
+.terminal-find input[data-missing="true"] {
+    border-color: var(--clay);
+}
+
 .terminal-foot {
     display: flex;
     align-items: center;

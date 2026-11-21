@@ -311,6 +311,20 @@ async fn an_agent_changes_what_is_harmless_at_once() {
     assert!(ok, "{said}");
     assert_eq!(core.settings().expect("reads").layout, Layout::Custom);
     assert_eq!(core.custom_layout().expect("reads").icons, Some(140));
+    let terminal =
+        serde_json::json!({ "kind": "terminal", "op": "save", "json": { "cursor": "bar" } });
+    let (ok, said) = configure(&socket, session.id, json(terminal)).await;
+    assert!(ok, "{said}");
+    assert_eq!(
+        core.terminal_config().expect("reads").cursor,
+        Some(swarmed_core::Cursor::Bar)
+    );
+    let listed = serde_json::json!({ "kind": "terminal", "op": "list" });
+    let (_, said) = configure(&socket, session.id, json(listed)).await;
+    assert!(
+        said.contains("\"cursor\":\"bar\"") && said.contains("scrollback"),
+        "{said}"
+    );
     let unreadable = serde_json::json!({ "kind": "layout", "op": "save",
         "json": { "dark": { "dusk": "#202020", "text": "#303030" } } });
     let (ok, said) = configure(&socket, session.id, json(unreadable)).await;

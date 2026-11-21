@@ -166,6 +166,9 @@ pub enum Error {
         "`{0}` cannot name a port: use lowercase letters, digits and underscores, starting with a letter"
     )]
     InvalidPortName(String),
+    /// A terminal's configuration cannot be used as given. Says why.
+    #[error("{0}")]
+    TerminalConfig(String),
     /// A custom layout cannot be drawn or read as given. Says why.
     #[error("{0}")]
     Layout(String),

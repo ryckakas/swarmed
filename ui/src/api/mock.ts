@@ -31,6 +31,7 @@ import type {
     StackState,
     Task,
     Template,
+    TerminalConfig,
     TerminalOutput,
     TurnStats,
     Unpublished,
@@ -853,6 +854,15 @@ function storeKey(keys: ApiKeyInfo[], name: string, stored: boolean) {
 
 const PROMPT = "\u001b[32m~/swarmed/task\u001b[0m $ ";
 
+/** The sixteen colours by name, each in itself, and an address to click: what a fresh shell shows. */
+const COLOUR_NAMES = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"];
+const SWATCHES = [30, 90]
+    .map((first) =>
+        COLOUR_NAMES.map((name, at) => `\u001b[${first + at}m${name}\u001b[0m`).join(" "),
+    )
+    .join("\r\n");
+const GREETING = `${SWATCHES}\r\nDocs at https://example.com/docs\r\n`;
+
 /** A pretend shell: it echoes what is typed and answers every command the same way. */
 class MockTerminal {
     readonly listeners = new Set<(output: TerminalOutput) => void>();
@@ -863,7 +873,7 @@ class MockTerminal {
         if (replay === undefined) {
             // Marked as started at once, so opening it twice in a row starts one shell.
             this.printed.set(id, "");
-            setTimeout(() => this.print(id, PROMPT), 0);
+            setTimeout(() => this.print(id, GREETING + PROMPT), 0);
         }
         return replay ?? "";
     }
@@ -1391,6 +1401,7 @@ export function createMockApi(): Api {
         { name: "GEMINI_API_KEY", provider: "Google Gemini", stored: false },
     ];
     let customLayout: CustomLayout = { base: "classic" };
+    let terminalConfig: TerminalConfig = {};
     let settings: Settings = {
         editor: "code",
         auto_title: true,
@@ -1511,6 +1522,11 @@ export function createMockApi(): Api {
         setBadge: async () => {},
         setSettings: async (changed) => {
             settings = changed;
+        },
+        terminalConfig: async () => ({ ...terminalConfig }),
+        terminalConfigSave: async (text) => {
+            terminalConfig = JSON.parse(text) as TerminalConfig;
+            return { ...terminalConfig };
         },
         customLayout: async () => ({ ...customLayout }),
         // The real check is the core's; here only what is not JSON at all is refused.

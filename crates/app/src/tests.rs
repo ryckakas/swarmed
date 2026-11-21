@@ -375,6 +375,11 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     let kept = json!({ "base": "senior", "text": { "sm": 17 } });
     assert_eq!(app.ok("custom_layout_save", written), kept);
     assert_eq!(app.ok("custom_layout", json!({})), kept);
+    assert_eq!(app.ok("terminal_config", json!({})), json!({}));
+    let written = json!({ "text": "{ \"cursor\": \"bar\", \"font_size\": 14 }" });
+    let kept = json!({ "cursor": "bar", "font_size": 14 });
+    assert_eq!(app.ok("terminal_config_save", written), kept);
+    assert_eq!(app.ok("terminal_config", json!({})), kept);
     let target = json!({ "project": "demo", "name": "one" });
     let failed = app.invoke("task_open_editor", target.clone());
     let message = failed.expect_err("no such editor");

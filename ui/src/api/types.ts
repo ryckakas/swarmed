@@ -265,6 +265,31 @@ export interface CustomLayout {
     light?: LayoutColours;
 }
 
+/**
+ * The user's own configuration of the terminal, as the core checked it. Whatever it leaves out
+ * is as Swarmed draws a terminal by itself.
+ */
+export interface TerminalConfig {
+    font?: string;
+    /** In pixels. */
+    font_size?: number;
+    /** In percent of the text's size. */
+    line_height?: number;
+    cursor?: "block" | "bar" | "underline";
+    cursor_blink?: boolean;
+    scrollback?: number;
+    bold_is_bright?: boolean;
+    option_is_meta?: boolean;
+    copy_on_select?: boolean;
+    /** Whether programs may put text on the clipboard. */
+    clipboard?: boolean;
+    gpu?: boolean;
+    /** In tenths of a contrast ratio. */
+    minimum_contrast?: number;
+    dark?: Record<string, string>;
+    light?: Record<string, string>;
+}
+
 /** One built-in piece of the status line. */
 export type StatusItem =
     | "branch"
