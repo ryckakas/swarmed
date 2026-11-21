@@ -7,6 +7,7 @@ import type {
     AgentSetup,
     ApiKeyInfo,
     BackgroundTask,
+    Check,
     CloudProvider,
     CloudTask,
     Costs,
@@ -827,6 +828,14 @@ async function samplePull(_project: string, name: string): Promise<Pull | null> 
             },
             { name: "Browser tests", outcome: "running", url: null },
             { name: "Deploy preview", outcome: "skipped", url: null },
+            // A matrix, as large repositories have: enough to need narrowing down.
+            ...["18", "20", "22"].flatMap((node): Check[] =>
+                ["macos", "ubuntu"].map((system) => ({
+                    name: `Build (${system}, node ${node})`,
+                    outcome: "passed",
+                    url: null,
+                })),
+            ),
         ],
     };
 }

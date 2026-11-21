@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Check, Pull } from "./api/types";
 import {
+    checkCounts,
     checksShownByDefault,
     checksSummary,
     fixPrompt,
+    listedChecks,
     pullPollMs,
     pullState,
     pullTone,
@@ -99,5 +101,52 @@ describe("pullPollMs", () => {
         const running = pull([check("a", "running")]);
         expect(pullPollMs(running)).toBeLessThan(pullPollMs(pull([check("a", "passed")])));
         expect(pullPollMs({ ...running, state: "merged" })).toBe(pullPollMs(null));
+    });
+});
+
+describe("the list of checks", () => {
+    const check = (name: string, outcome: Check["outcome"]): Check => ({
+        name,
+        outcome,
+        url: null,
+    });
+    const checks = [
+        check("Lint", "passed"),
+        check("Unit tests", "failed"),
+        check("Browser tests", "running"),
+        check("Deploy preview", "skipped"),
+        check("E2E tests", "failed"),
+    ];
+    const names = (listed: Check[]) => listed.map((one) => one.name);
+
+    it("puts what failed first, then what runs, each as GitHub ordered them", () => {
+        expect(names(listedChecks(checks, null, ""))).toEqual([
+            "Unit tests",
+            "E2E tests",
+            "Browser tests",
+            "Lint",
+            "Deploy preview",
+        ]);
+    });
+
+    it("narrows to one outcome, and to names that hold what was typed", () => {
+        expect(names(listedChecks(checks, "failed", ""))).toEqual(["Unit tests", "E2E tests"]);
+        expect(names(listedChecks(checks, null, " TESTS "))).toEqual([
+            "Unit tests",
+            "E2E tests",
+            "Browser tests",
+        ]);
+        expect(names(listedChecks(checks, "failed", "e2e"))).toEqual(["E2E tests"]);
+        expect(listedChecks(checks, "passed", "deploy")).toEqual([]);
+    });
+
+    it("counts each outcome there is, in the order they are listed", () => {
+        expect(checkCounts(checks)).toEqual([
+            ["failed", 2],
+            ["running", 1],
+            ["passed", 1],
+            ["skipped", 1],
+        ]);
+        expect(checkCounts([check("Lint", "passed")])).toEqual([["passed", 1]]);
     });
 });
