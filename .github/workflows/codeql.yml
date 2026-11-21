@@ -2,6 +2,10 @@ name: CodeQL
 
 # Code scanning, on every pull request and on main. There is no schedule: the code only changes
 # through these, and so do its dependencies, by Dependabot's pull requests.
+#
+# A pull request is scanned only in the languages whose files it changes: the Rust analysis takes
+# the longest, and a change to the UI or the docs gives it nothing new to find. main is always
+# scanned in every language, since each pull request is compared with main's latest analysis.
 on:
   pull_request:
   push:
@@ -16,8 +20,59 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  languages:
+    name: Languages to scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      languages: ${{ steps.pick.outputs.languages }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The history, for the merge base the pull request's changes are counted from.
+          fetch-depth: 0
+
+      # Every language CodeQL reads that the repository has, each with the files that are its
+      # code: the workflows, the UI, the test fixture's agent, the Homebrew cask and the crates.
+      # CodeQL fails on a language with no code, so one is added here when its first file is.
+      # A change to this workflow scans them all.
+      - name: Pick the languages
+        id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          languages=(
+            'actions=^\.github/(workflows|actions)/'
+            'javascript-typescript=\.([cm]?[jt]sx?|html)$|(^|/)(package|tsconfig[^/]*)\.json$'
+            'python=\.py$'
+            'ruby=\.rb$|(^|/)Gemfile'
+            'rust=\.rs$|(^|/)Cargo\.(toml|lock)$'
+          )
+          if [ "$EVENT" = pull_request ]; then
+            changed="$(git diff --name-only "$BASE...$HEAD")"
+          fi
+          picked=()
+          for entry in "${languages[@]}"; do
+            language="${entry%%=*}"
+            if [ "$EVENT" != pull_request ] \
+              || grep -qx '\.github/workflows/codeql\.yml' <<<"$changed" \
+              || grep -qE "${entry#*=}" <<<"$changed"; then
+              picked+=("\"$language\"")
+            fi
+          done
+          list="[$(IFS=,; echo "${picked[*]}")]"
+          echo "Scanning: $list"
+          echo "languages=$list" >> "$GITHUB_OUTPUT"
+
   analyze:
     name: Analyze (${{ matrix.language }})
+    needs: languages
+    # A pull request that changes none of them, the docs alone for one, has nothing to scan.
+    if: needs.languages.outputs.languages != '[]'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -25,10 +80,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Every language CodeQL reads that the repository has: the workflows, the UI, the test
-        # fixture's agent, the Homebrew cask and the crates. CodeQL fails on a language with no
-        # code, so one is added here when its first file is.
-        language: [actions, javascript-typescript, python, ruby, rust]
+        language: ${{ fromJSON(needs.languages.outputs.languages) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
