@@ -122,6 +122,9 @@ fn start(cwd: &Path, size: Size) -> Result<(Pty, Child)> {
         .arg("-l")
         .current_dir(cwd)
         .env("TERM", "xterm-256color")
+        // The terminal draws 24-bit colour, and tools on macOS colour nothing unless asked.
+        .env("COLORTERM", "truecolor")
+        .env("CLICOLOR", "1")
         .kill_on_drop(true)
         .spawn(pts)
         .map_err(failed)?;

@@ -314,6 +314,12 @@ impl Core {
         open::in_editor(&self.settings()?.editor, &task.worktree_path)
     }
 
+    /// Opens the task's worktree in the terminal application the user chose.
+    pub fn task_open_terminal(&self, project: &str, task: &str) -> Result<()> {
+        let (_, task) = self.task(project, task)?;
+        open::in_terminal(&self.settings()?.terminal_app, &task.worktree_path)
+    }
+
     /// The user's own preferences.
     pub fn settings(&self) -> Result<Settings> {
         Settings::load(&self.paths.settings())

@@ -97,6 +97,7 @@ function Tabs({ project, task }: { project: Project; task: Task }) {
 function TaskHead({ project, task }: { project: Project; task: Task }) {
     const report = useStore((state) => state.report);
     const editor = useStore((state) => state.settings?.editor ?? "code");
+    const terminalApp = useStore((state) => state.settings?.terminal_app ?? "Terminal");
     const changeSettings = useStore((state) => state.changeSettings);
     const togglePanel = useStore((state) => state.togglePanel);
     return (
@@ -111,6 +112,14 @@ function TaskHead({ project, task }: { project: Project; task: Task }) {
                 {task.branch}
             </p>
             <div className="panel-actions">
+                <button
+                    type="button"
+                    className="button"
+                    title={`Opens ${task.worktree_path} in ${terminalApp}`}
+                    onClick={() => api.taskOpenTerminal(project.name, task.name).catch(report)}
+                >
+                    Open in {terminalApp}
+                </button>
                 <button
                     type="button"
                     className="button"

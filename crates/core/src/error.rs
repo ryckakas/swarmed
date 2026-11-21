@@ -161,6 +161,14 @@ pub enum Error {
     /// A change to Swarmed's configuration that an agent asked for was not made. Says why.
     #[error("{0}")]
     Configure(String),
+    /// A port's name is not one a hook could use.
+    #[error(
+        "`{0}` cannot name a port: use lowercase letters, digits and underscores, starting with a letter"
+    )]
+    InvalidPortName(String),
+    /// A terminal's configuration cannot be used as given. Says why.
+    #[error("{0}")]
+    TerminalConfig(String),
     /// A custom layout cannot be drawn or read as given. Says why.
     #[error("{0}")]
     Layout(String),

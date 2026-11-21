@@ -32,6 +32,7 @@ import type {
     Task,
     TaskNaming,
     Template,
+    TerminalConfig,
     TerminalOutput,
     TurnStats,
     Unpublished,
@@ -57,6 +58,8 @@ export interface Api {
     actions(project: string | null): Promise<Action[]>;
     /** Keeps an action, in `project`'s own or for every repository; returns what is offered. */
     actionSave(project: string | null, action: Action): Promise<Action[]>;
+    /** Moves an action `by` places among those kept with it, earlier if negative; returns what is then offered. */
+    actionMove(project: string | null, name: string, by: number): Promise<Action[]>;
     /** Drops an action; returns what is then offered. */
     actionRemove(project: string | null, name: string): Promise<Action[]>;
     /** The prompts the user keeps to send again, by name. */
@@ -198,6 +201,8 @@ export interface Api {
     taskDiff(project: string, name: string, path: string): Promise<FileDiff>;
     /** Opens the task's worktree, with its branch checked out, in the user's editor. */
     taskOpenEditor(project: string, name: string): Promise<void>;
+    /** Opens the task's worktree in the terminal application the user chose. */
+    taskOpenTerminal(project: string, name: string): Promise<void>;
     /** Opens the task's running stack in the default browser. */
     taskOpenUrl(project: string, name: string): Promise<void>;
     /** Opens a web or mail link in the user's browser, never in Swarmed's own window. */
@@ -213,6 +218,10 @@ export interface Api {
     deleteApiKey(name: string): Promise<void>;
     settings(): Promise<Settings>;
     setSettings(settings: Settings): Promise<void>;
+    /** The user's configuration of the terminal. */
+    terminalConfig(): Promise<TerminalConfig>;
+    /** Keeps `text`, JSON as written, as the terminal's configuration; fails with the reason if it cannot be used. */
+    terminalConfigSave(text: string): Promise<TerminalConfig>;
     /** The user's custom layout. Fails if its file was edited into something unusable. */
     customLayout(): Promise<CustomLayout>;
     /** Keeps `text`, JSON as written, as the custom layout; fails with the reason if it cannot be drawn. */
@@ -301,6 +310,8 @@ export interface Api {
     sessionReopen(id: number): Promise<Session>;
     /** Stops the session's agent and takes the session out of the tree. Its history is kept. */
     sessionClose(id: number): Promise<void>;
+    /** Deletes a session and its conversation for good, open or closed. */
+    sessionDelete(id: number): Promise<void>;
     /** Calls `listener` for every event of every running session, from now on. */
     onSessionEvent(listener: (event: SessionEvent) => void): Promise<Unsubscribe>;
     /** Calls `listener` with the session a notification was about, when the user clicks it. */

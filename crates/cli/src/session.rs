@@ -109,6 +109,8 @@ pub(crate) enum SessionCommand {
     Close { id: i64 },
     /// Put a closed session back in the lists.
     Reopen { id: i64 },
+    /// Delete a session and its conversation for good, open or closed. The task's files stay.
+    Delete { id: i64 },
 }
 
 /// Where the agent's credentials come from.
@@ -235,17 +237,20 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             say(&core.session_set_agent(id, &agent)?.agent);
             Ok(())
         }
-        SessionCommand::Rename { id, title } => {
-            say(&core.session_rename(id, &title)?.title);
-            Ok(())
-        }
+        SessionCommand::Rename { id, title } => renamed(core, id, &title),
         SessionCommand::Mark { id, colour, label } => mark(core, id, &colour, &label),
         SessionCommand::Close { id } => Ok(core.session_close(id)?),
+        SessionCommand::Delete { id } => Ok(core.session_delete(id)?),
         SessionCommand::Reopen { id } => {
             say(&core.session_reopen(id)?.title);
             Ok(())
         }
     }
+}
+
+fn renamed(core: &Core, id: i64, title: &str) -> Result<()> {
+    say(&core.session_rename(id, title)?.title);
+    Ok(())
 }
 
 /// What the list says a session is doing. An answer nobody has read yet says more than "idle".

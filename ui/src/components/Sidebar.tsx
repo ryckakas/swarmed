@@ -399,6 +399,7 @@ function ClosedSessions({ project, task, count }: ClosedProps) {
         }
         api.sessionsClosed(project, task).then(setSessions).catch(report);
     };
+    const askToDelete = useStore((state) => state.askToDelete);
     const reopen = (id: number) =>
         api
             .sessionReopen(id)
@@ -425,6 +426,15 @@ function ClosedSessions({ project, task, count }: ClosedProps) {
                         onClick={() => void reopen(session.id)}
                     >
                         {words.reopen}
+                    </button>
+                    <button
+                        type="button"
+                        className="row-close"
+                        aria-label={`${words.deleteSession} ${session.title || "New session"} for good`}
+                        title={`${words.deleteSession} for good`}
+                        onClick={() => askToDelete({ id: session.id, title: session.title })}
+                    >
+                        ×
                     </button>
                 </div>
             ))}
@@ -490,8 +500,8 @@ function SessionRow({ session }: { session: Session }) {
             <button
                 type="button"
                 className="row-close"
-                aria-label={`Close ${title}`}
-                title={words.closeSession}
+                aria-label={`${words.archiveSession} or ${words.deleteSession.toLowerCase()} ${title}`}
+                title={`${words.archiveSession} or ${words.deleteSession.toLowerCase()}`}
                 onClick={() => askToClose(session.id)}
             >
                 ×

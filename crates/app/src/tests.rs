@@ -194,6 +194,14 @@ fn the_ui_can_go_from_an_empty_app_to_an_answered_permission_request() {
     assert_eq!(unread(&app), false);
 }
 
+/// Closed, a session is still kept; deleted, it is gone for good.
+fn deleted_for_good(app: &App, id: &Value) {
+    assert_eq!(app.ok("overview", json!({}))[0]["tasks"][0]["closed"], 1);
+    app.ok("session_delete", json!({ "id": id }));
+    assert_eq!(app.ok("overview", json!({}))[0]["tasks"][0]["closed"], 0);
+    assert!(app.invoke("session_events", json!({ "id": id })).is_err());
+}
+
 #[test]
 fn the_ui_can_deny_interrupt_stop_and_remove() {
     let app = app();
@@ -260,6 +268,7 @@ fn the_ui_can_deny_interrupt_stop_and_remove() {
         app.ok("overview", json!({}))[0]["tasks"][0]["sessions"],
         json!([])
     );
+    deleted_for_good(&app, id);
 
     let remove = json!({ "project": "demo", "name": "one", "force": false, "deleteBranch": true });
     app.ok("task_remove", remove);
@@ -336,7 +345,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     assert_eq!(
         app.ok("settings", json!({})),
         json!({
-            "editor": "code", "auto_title": true, "theme": "system", "palette": "swarm",
+            "editor": "code", "terminal_app": "Terminal", "auto_title": true, "theme": "system", "palette": "swarm",
             "style": "colony", "layout": "classic",
             "text_scale": 100,
             "html_views": true, "notifications": true, "default_supervision": "auto",
@@ -361,7 +370,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     );
 
     let chosen = json!({ "settings": {
-        "editor": "swarmed-no-such-editor", "auto_title": false, "theme": "light",
+        "editor": "swarmed-no-such-editor", "terminal_app": "Swarmed No Such Terminal", "auto_title": false, "theme": "light",
         "palette": "plum", "style": "plain", "layout": "senior", "text_scale": 110,
         "html_views": false, "notifications": false, "default_supervision": "ask", "status_items": ["cost"], "status_command": "",
         "rules": "Keep answers short.",
@@ -375,7 +384,16 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     let kept = json!({ "base": "senior", "text": { "sm": 17 } });
     assert_eq!(app.ok("custom_layout_save", written), kept);
     assert_eq!(app.ok("custom_layout", json!({})), kept);
+    assert_eq!(app.ok("terminal_config", json!({})), json!({}));
+    let written = json!({ "text": "{ \"cursor\": \"bar\", \"font_size\": 14 }" });
+    let kept = json!({ "cursor": "bar", "font_size": 14 });
+    assert_eq!(app.ok("terminal_config_save", written), kept);
+    assert_eq!(app.ok("terminal_config", json!({})), kept);
     let target = json!({ "project": "demo", "name": "one" });
+    let no_terminal = app.invoke("task_open_terminal", target.clone());
+    let said = no_terminal.expect_err("no such terminal");
+    let named = |m: &str| m.starts_with("could not open Swarmed No Such Terminal");
+    assert!(said.as_str().is_some_and(named), "{said}");
     let failed = app.invoke("task_open_editor", target.clone());
     let message = failed.expect_err("no such editor");
     assert!(
@@ -799,6 +817,17 @@ fn the_ui_can_keep_an_action_as_it_holds_it_and_answer_a_proposal() {
     let kept = app.ok("action_save", json!({ "project": null, "action": action }));
     assert_eq!(kept[0]["name"], "Tests");
     assert_eq!(kept[0]["of_project"], false);
+    let second = json!({ "name": "Lint", "icon": "", "prompt": "", "command": "make lint", "of_project": false });
+    app.ok("action_save", json!({ "project": null, "action": second }));
+    let moved = app.ok(
+        "action_move",
+        json!({ "project": null, "name": "Lint", "by": -1 }),
+    );
+    assert_eq!(
+        (&moved[0]["name"], &moved[1]["name"]),
+        (&json!("Lint"), &json!("Tests"))
+    );
+    app.ok("action_remove", json!({ "project": null, "name": "Lint" }));
     assert_eq!(
         app.ok("action_remove", json!({ "project": null, "name": "Tests" })),
         json!([])

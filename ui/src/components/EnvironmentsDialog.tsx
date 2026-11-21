@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { Environment } from "../api/types";
-import { EMPTY_ENVIRONMENT, envFromText, envToText } from "../environments";
+import {
+    EMPTY_ENVIRONMENT,
+    envFromText,
+    envToText,
+    portsFromText,
+    portsToText,
+} from "../environments";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
 import { withArticle } from "../wording";
@@ -29,6 +35,8 @@ interface Draft {
     openUrl: string;
     /** The variables, as lines of `NAME=value`. */
     variables: string;
+    /** The ports, as lines of `name=3000`. */
+    ports: string;
 }
 
 const NEW: Draft = {
@@ -40,6 +48,7 @@ const NEW: Draft = {
     teardown: "",
     openUrl: "",
     variables: "",
+    ports: "",
 };
 
 function draftOf(name: string, environment: Environment): Draft {
@@ -52,6 +61,7 @@ function draftOf(name: string, environment: Environment): Draft {
         teardown: environment.teardown,
         openUrl: environment.open_url,
         variables: envToText(environment.env),
+        ports: portsToText(environment.ports ?? {}),
     };
 }
 
@@ -64,6 +74,7 @@ function environmentOf(draft: Draft): Environment {
         stop: draft.stop.trim(),
         teardown: draft.teardown.trim(),
         open_url: draft.openUrl.trim(),
+        ports: portsFromText(draft.ports),
         env: envFromText(draft.variables),
     };
 }
@@ -222,6 +233,13 @@ function Form({ draft, onChange, onSave, onRemove, onCancel }: FormProps) {
                 placeholder="devenv up"
                 value={draft.start}
                 onChange={(start) => set({ start })}
+            />
+            <Script
+                label="Ports"
+                hint="One name=number per line. Each task gets its own number for a port, so stacks can run side by side: write {{port.web}} in the commands, variables and address instead of the number."
+                placeholder={"web=3000\ndb=5432"}
+                value={draft.ports}
+                onChange={(ports) => set({ ports })}
             />
             <Script
                 label="Variables"

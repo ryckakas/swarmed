@@ -71,6 +71,30 @@ pub(crate) fn in_editor(editor: &str, folder: &Path) -> Result<()> {
     launch(command).map_err(|e| could_not_open(editor, e))
 }
 
+/// Opens a window of the terminal application called `app` in `folder`.
+pub(crate) fn in_terminal(app: &str, folder: &Path) -> Result<()> {
+    let app = app.trim();
+    if app.is_empty() {
+        return Err(could_not_open(
+            "the terminal",
+            "no terminal application is configured",
+        ));
+    }
+    let mut command = Command::new("open");
+    command.args(["-a", app]).arg(folder);
+    // `open` itself tells whether there is such an application, so it is waited for.
+    let found = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|e| could_not_open(app, e))?;
+    if found.success() {
+        return Ok(());
+    }
+    Err(could_not_open(app, "there is no application of that name"))
+}
+
 /// Opens `url` in the user's default browser.
 pub(crate) fn in_browser(url: &str) -> Result<()> {
     let opener = if cfg!(target_os = "macos") {

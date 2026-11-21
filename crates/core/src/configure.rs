@@ -31,6 +31,7 @@ use crate::error::Error;
 use crate::layouts::layout_schema;
 use crate::settings::{Layout, MAX_RULES_BYTES, Settings};
 use crate::store::Project;
+use crate::termconfig::terminal_schema;
 use crate::{Core, Result, lock};
 
 /// A change an agent asked for that the user has to agree to.
@@ -52,6 +53,10 @@ enum Change {
         project: String,
         name: String,
         environment: Environment,
+        /// The variables this change itself sets or removes, as the user is shown them.
+        /// Those the environment already had stay out of the conversation, where another
+        /// agent could read them.
+        variables: String,
     },
     /// An environment taken away.
     EnvironmentRemove { project: String, name: String },
@@ -103,13 +108,19 @@ impl Change {
             Self::RuleAdd(rule) | Self::RuleRemove(rule) => rule.clone(),
             Self::ActionSave { action, .. } => action.command.clone(),
             Self::StatusCommand(command) => command.clone(),
-            Self::EnvironmentSave { environment, .. } => {
+            Self::EnvironmentSave {
+                environment,
+                variables,
+                ..
+            } => {
                 let lines = [
                     line("setup", &environment.setup),
                     line("start", &environment.start),
                     line("stop", &environment.stop),
                     line("teardown", &environment.teardown),
                     line("address", &environment.open_url),
+                    line("ports", &pairs(&environment.ports)),
+                    line("variables", variables),
                 ];
                 lines.into_iter().flatten().collect::<Vec<_>>().join("\n")
             }
@@ -147,6 +158,40 @@ impl Asked<'_> {
 
     fn has(&self, key: &str) -> bool {
         self.0.get(key).is_some_and(|value| !value.is_null())
+    }
+
+    /// The entries of an object given under `key`; none if it is not given.
+    fn entries(&self, key: &str) -> Result<Vec<(&String, &Value)>> {
+        match self.0.get(key).filter(|given| !given.is_null()) {
+            None => Ok(vec![]),
+            Some(Value::Object(entries)) => Ok(entries.iter().collect()),
+            Some(_) => Err(refused(format!("`{key}` is an object of names and values"))),
+        }
+    }
+
+    /// The ports given, by name: a base number, or nothing for one to remove.
+    fn ports(&self) -> Result<Vec<(String, Option<u16>)>> {
+        let port = |(name, value): (&String, &Value)| {
+            let base = value.as_u64().and_then(|base| u16::try_from(base).ok());
+            let base =
+                base.ok_or_else(|| refused(format!("port `{name}` is a number up to 65535")))?;
+            Ok((name.clone(), (base != 0).then_some(base)))
+        };
+        self.entries("ports")?.into_iter().map(port).collect()
+    }
+
+    /// The variables given, by name: a value, or nothing for one to remove.
+    fn variables(&self) -> Result<Vec<(String, Option<String>)>> {
+        let variable = |(name, value): (&String, &Value)| {
+            let text = value
+                .as_str()
+                .ok_or_else(|| refused(format!("variable `{name}` is a text")))?;
+            Ok((name.clone(), (!text.is_empty()).then(|| text.to_string())))
+        };
+        self.entries("variables")?
+            .into_iter()
+            .map(variable)
+            .collect()
     }
 
     fn flag(&self, key: &str) -> bool {
@@ -238,6 +283,7 @@ impl Core {
                 project,
                 name,
                 environment,
+                ..
             } => self.environment_save(project, name, environment),
             Change::EnvironmentRemove { project, name } => self.environment_remove(project, name),
         }
@@ -439,6 +485,30 @@ impl Core {
         Ok(format!("Kept, and the app is drawn in it now: {kept}"))
     }
 
+    /// The terminal's configuration: listed with its schema, or replaced as a whole.
+    fn configure_terminal(&self, op: &str, asked: &Asked<'_>) -> Result<String> {
+        if op == "list" {
+            let current = serde_json::to_string(&self.terminal_config()?).unwrap_or_default();
+            return Ok(format!(
+                "The terminal's configuration now: {current}\nIts JSON Schema: {}",
+                terminal_schema()
+            ));
+        }
+        if op != "save" {
+            return Err(refused(
+                "the terminal's configuration can be listed and saved; save {} to empty it",
+            ));
+        }
+        let Some(given) = asked.0.get("json").filter(|given| !given.is_null()) else {
+            return Err(refused("give the whole configuration as `json`"));
+        };
+        let text = given
+            .as_str()
+            .map_or_else(|| given.to_string(), str::to_string);
+        let kept = serde_json::to_string(&self.set_terminal_config(&text)?).unwrap_or_default();
+        Ok(format!("Kept; terminals are redrawn in it: {kept}"))
+    }
+
     fn configure_environment(&self, from: i64, op: &str, asked: &Asked<'_>) -> Result<String> {
         let project = self.project_of_session(from)?.name;
         let environments = self.environments(&project)?;
@@ -447,7 +517,9 @@ impl Core {
                 .iter()
                 .map(|(name, environment)| environment_line(name, environment))
                 .collect();
-            return Ok(listed(&lines, "This repository has no environments."));
+            let own = project_line(&self.project_config(&project)?);
+            let listed = listed(&lines, "This repository has no environments.");
+            return Ok(format!("{own}\n{listed}\n{ENVIRONMENT_GUIDE}"));
         }
         let name = asked.word("name").to_string();
         crate::paths::validate_name(&name)?;
@@ -457,8 +529,12 @@ impl Core {
         if op != "save" {
             return self.propose(from, Change::EnvironmentRemove { project, name });
         }
-        // What the call does not name stays as it is; the variables are never touched.
+        // What the call does not name stays as it is, ports and variables one by one.
         let mut environment = environments.get(&name).cloned().unwrap_or_default();
+        merge(&mut environment.ports, asked.ports()?);
+        let given = asked.variables()?;
+        let variables = shown(&given);
+        merge(&mut environment.env, given);
         let parts = [
             ("setup", &mut environment.setup),
             ("start", &mut environment.start),
@@ -473,6 +549,7 @@ impl Core {
             project,
             name,
             environment,
+            variables,
         };
         self.propose(from, change)
     }
@@ -492,10 +569,11 @@ impl Core {
             "status_line" => self.configure_status_line(from, op, &asked),
             "appearance" => self.configure_appearance(op, &asked),
             "layout" => self.configure_layout(op, &asked),
+            "terminal" => self.configure_terminal(op, &asked),
             "environment" => self.configure_environment(from, op, &asked),
             _ => Err(refused(
                 "`kind` is one of prompt, action, rule, status_line, appearance, layout, \
-                 environment. \
+                 terminal, environment. \
                  API keys, MCP servers, sign-ins, permissions and notes cannot be changed by \
                  an agent.",
             )),
@@ -532,6 +610,70 @@ fn action_line(action: &Action) -> String {
 }
 
 /// An environment for an agent to read: its commands, and the names of its variables alone.
+/// What an agent has to know to write an environment that works for several tasks at once.
+const ENVIRONMENT_GUIDE: &str = "How an environment works: `setup` runs once after a task's \
+    worktree is made and has to finish (install, build, seed); `start` is started after it and \
+    left running (the dev stack, in the foreground); `stop` runs before what `start` left \
+    running is ended; `teardown` runs before the worktree is removed. Each runs with `sh -c` in \
+    the task's worktree. Several tasks run side by side, so nothing may use a fixed port or a \
+    fixed name: declare each port under `ports` with its base number and write \
+    `{{port.<name>}}` wherever it is needed, in commands, variables and `open_url`; a task \
+    gets base + slot * step. Also usable: {{project}} {{task}} {{branch}} {{slot}} \
+    {{worktree}} {{repo}} {{user}}; the same reach commands as SWARMED_PROJECT, SWARMED_TASK, \
+    SWARMED_SLOT, SWARMED_WORKTREE, SWARMED_REPO, SWARMED_BRANCH and SWARMED_PORT_<NAME>. \
+    `variables` are exported to the commands and to the agents working in the task. Saving \
+    changes only what you name; a port given as 0 or a variable given as an empty text is \
+    removed. A task takes its environment when it is started, so try the commands in your own \
+    worktree first, with the numbers a task would get, and propose what worked.";
+
+/// `map` as `name=value` pairs in a line.
+fn pairs<V: std::fmt::Display>(map: &std::collections::BTreeMap<String, V>) -> String {
+    let pairs: Vec<String> = map
+        .iter()
+        .map(|(name, value)| format!("{name}={value}"))
+        .collect();
+    pairs.join(", ")
+}
+
+/// The variables a call gives, as the user is shown them: each with its value, or as removed.
+fn shown(given: &[(String, Option<String>)]) -> String {
+    let one = |(name, value): &(String, Option<String>)| match value {
+        Some(value) => format!("{name}={value}"),
+        None => format!("{name} removed"),
+    };
+    given.iter().map(one).collect::<Vec<_>>().join(", ")
+}
+
+/// Puts `given` into `kept`: each entry replaces the one of its name, and `None` removes it.
+fn merge<V>(kept: &mut std::collections::BTreeMap<String, V>, given: Vec<(String, Option<V>)>) {
+    for (name, value) in given {
+        match value {
+            Some(value) => kept.insert(name, value),
+            None => kept.remove(&name),
+        };
+    }
+}
+
+/// What the repository's own config sets up, which every environment starts from.
+fn project_line(config: &crate::config::ProjectConfig) -> String {
+    let variables: Vec<&str> = config.env.keys().map(String::as_str).collect();
+    let parts = [
+        line("setup", &config.hooks.setup),
+        line("start", &config.hooks.start),
+        line("stop", &config.hooks.stop),
+        line("teardown", &config.hooks.teardown),
+        line("address", &config.open_url),
+        line("ports", &pairs(&config.ports)),
+        line("variables (values withheld)", &variables.join(", ")),
+    ];
+    let parts: Vec<String> = parts.into_iter().flatten().collect();
+    format!(
+        "The repository's own config, which an environment adds to (port step {}): {}",
+        config.port_step,
+        listed(&parts, "nothing set").replace('\n', "; ")
+    )
+}
+
 fn environment_line(name: &str, environment: &Environment) -> String {
     let variables: Vec<&str> = environment.env.keys().map(String::as_str).collect();
     let parts = [
@@ -540,6 +682,7 @@ fn environment_line(name: &str, environment: &Environment) -> String {
         line("stop", &environment.stop),
         line("teardown", &environment.teardown),
         line("address", &environment.open_url),
+        line("ports", &pairs(&environment.ports)),
         line("variables (values withheld)", &variables.join(", ")),
     ];
     let parts: Vec<String> = parts.into_iter().flatten().collect();

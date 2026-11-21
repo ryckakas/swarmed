@@ -139,9 +139,9 @@ const ICONS: Range = (80, 220);
 const ROW_HEIGHT: Range = (20, 88);
 const CONTROL_HEIGHT: Range = (20, 72);
 /// The longest name of a font, in characters.
-const MAX_FONT_CHARS: usize = 60;
+pub(crate) const MAX_FONT_CHARS: usize = 60;
 /// How far text has to stand out from its background, as WCAG measures it, times ten.
-const TEXT_CONTRAST: u32 = 45;
+pub(crate) const TEXT_CONTRAST: u32 = 45;
 /// The same for quieter text, which may stand out less.
 const QUIET_CONTRAST: u32 = 30;
 /// The largest file read as a layout, in bytes.
@@ -202,13 +202,13 @@ impl CustomLayout {
     }
 }
 
-fn is_font_name(name: &str) -> bool {
+pub(crate) fn is_font_name(name: &str) -> bool {
     let plain = |c: char| c.is_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.');
     !name.trim().is_empty() && name.chars().count() <= MAX_FONT_CHARS && name.chars().all(plain)
 }
 
 /// The red, green and blue of `#rrggbb`.
-fn rgb(colour: &str) -> Option<[u8; 3]> {
+pub(crate) fn rgb(colour: &str) -> Option<[u8; 3]> {
     let digits = colour
         .strip_prefix('#')
         .filter(|digits| digits.len() == 6)?;
@@ -230,7 +230,7 @@ fn luminance(colour: [u8; 3]) -> f64 {
 }
 
 /// Whether two colours are at least `tenths` tenths apart in contrast: 45 is WCAG's 4.5 to 1.
-fn stands_out(one: [u8; 3], other: [u8; 3], tenths: u32) -> bool {
+pub(crate) fn stands_out(one: [u8; 3], other: [u8; 3], tenths: u32) -> bool {
     let (one, other) = (luminance(one), luminance(other));
     let ratio = (one.max(other) + 0.05) / (one.min(other) + 0.05);
     ratio * 10.0 >= f64::from(tenths)

@@ -15,7 +15,8 @@ use swarmed_core::{
     CloudProvider, CloudTask, Core, Costs, CustomLayout, Environment, FileChange, FileDiff, Mark,
     McpServerInput, McpServerView, NewTaskOptions, Project, ProjectOverview, Pull, PullDraft,
     QueuedMessage, RemoveOptions, SearchHit, Session, SessionOptions, SessionSettings, Settings,
-    Skill, Snapshot, Task, TaskNaming, Template, TurnStats, Unpublished, Usage, with_files,
+    Skill, Snapshot, Task, TaskNaming, Template, TerminalConfig, TurnStats, Unpublished, Usage,
+    with_files,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -213,6 +214,15 @@ pub(crate) async fn task_remove<R: Runtime>(
 }
 
 #[tauri::command]
+pub(crate) fn task_open_terminal(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+) -> Command<()> {
+    Ok(core.task_open_terminal(&project, &name)?)
+}
+
+#[tauri::command]
 pub(crate) fn task_open_editor(core: CoreState<'_>, project: String, name: String) -> Command<()> {
     Ok(core.task_open_editor(&project, &name)?)
 }
@@ -357,6 +367,17 @@ pub(crate) fn action_remove(
     name: String,
 ) -> Command<Vec<Action>> {
     Ok(core.action_remove(project.as_deref(), &name)?)
+}
+
+/// Moves an action `by` places among those kept in the same place.
+#[tauri::command]
+pub(crate) fn action_move(
+    core: CoreState<'_>,
+    project: Option<String>,
+    name: String,
+    by: i32,
+) -> Command<Vec<Action>> {
+    Ok(core.action_move(project.as_deref(), &name, by)?)
 }
 
 /// Puts a mark on a session, or takes it off when `colour` is `none`.
@@ -603,6 +624,18 @@ pub(crate) fn custom_layout(core: CoreState<'_>) -> Command<CustomLayout> {
 #[tauri::command]
 pub(crate) fn custom_layout_save(core: CoreState<'_>, text: String) -> Command<CustomLayout> {
     Ok(core.set_custom_layout(&text)?)
+}
+
+/// The user's configuration of the terminal, as checked by the core.
+#[tauri::command]
+pub(crate) fn terminal_config(core: CoreState<'_>) -> Command<TerminalConfig> {
+    Ok(core.terminal_config()?)
+}
+
+/// Keeps `text`, JSON as the user wrote it, as the terminal's configuration if it can be used.
+#[tauri::command]
+pub(crate) fn terminal_config_save(core: CoreState<'_>, text: String) -> Command<TerminalConfig> {
+    Ok(core.set_terminal_config(&text)?)
 }
 
 #[tauri::command]
@@ -906,4 +939,10 @@ pub(crate) fn session_rename(core: CoreState<'_>, id: i64, title: String) -> Com
 #[tauri::command]
 pub(crate) fn session_close(core: CoreState<'_>, id: i64) -> Command<()> {
     Ok(core.session_close(id)?)
+}
+
+/// Deletes a session and its conversation for good.
+#[tauri::command]
+pub(crate) fn session_delete(core: CoreState<'_>, id: i64) -> Command<()> {
+    Ok(core.session_delete(id)?)
 }

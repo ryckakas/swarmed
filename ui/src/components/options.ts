@@ -141,6 +141,20 @@ export const EDITORS: [command: string, name: string][] = [
     ["idea", "IntelliJ IDEA"],
 ];
 
+/** Terminal applications offered, by the name macOS knows them under. */
+export const TERMINAL_APPS: [app: string, name: string][] = [
+    ["Terminal", "Terminal"],
+    ["iTerm", "iTerm"],
+    ["Ghostty", "Ghostty"],
+    ["Warp", "Warp"],
+];
+
+/** The terminal applications as menu options, with the configured one even if it is none of them. */
+export function terminalAppChoices(current: string): [string, string][] {
+    const known = TERMINAL_APPS.some(([app]) => app === current);
+    return known ? TERMINAL_APPS : [...TERMINAL_APPS, [current, current]];
+}
+
 /** An editor command as shown: a known editor by its name, any other command as it is. */
 export function editorName(command: string): string {
     return EDITORS.find(([known]) => known === command)?.[1] ?? command;
