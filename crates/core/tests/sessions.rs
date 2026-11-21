@@ -1080,8 +1080,24 @@ async fn a_session_left_busy_by_a_swarmed_that_ended_can_be_stopped_and_is_settl
     drop(later);
     let fresh =
         Core::with_backend(fx.paths.clone(), Arc::new(FakeBackend::default())).expect("opens");
-    assert_eq!(fresh.arrive().expect("arrives"), 1);
+    // Not exactly one: within one process the first core's agent, cut off above, may still
+    // have marked its session busy, which a Swarmed that really ended could not.
+    assert!(arrives_first(&fresh).await >= 1);
     assert_eq!(status_of(&fresh, other.id), SessionStatus::Idle);
+}
+
+/// How many sessions a core settles once it is the first on its data. The lock is let go when
+/// its file is closed everywhere, and a program another test is just starting holds a copy of
+/// it for a moment, until it has become that program.
+async fn arrives_first(core: &Core) -> usize {
+    for _ in 0..200 {
+        let settled = core.arrive().expect("arrives");
+        if settled > 0 {
+            return settled;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    0
 }
 
 fn status_of(core: &Core, id: i64) -> SessionStatus {
