@@ -9,8 +9,8 @@ import { ActionBar } from "./ActionBar";
 import { Background, runningCount, useBackground } from "./Background";
 import { Changes } from "./Changes";
 import { Files } from "./Files";
-import { CloseIcon, IconButton } from "./IconButton";
-import { editorChoices, editorName } from "./options";
+import { CloseIcon, EditorIcon, IconButton, TerminalIcon } from "./IconButton";
+import { editorName } from "./options";
 import { Picker } from "./Picker";
 import { Publish } from "./Publish";
 import { PullSection } from "./PullRequest";
@@ -95,16 +95,30 @@ function Tabs({ project, task }: { project: Project; task: Task }) {
     );
 }
 
-/** What the task is, and the buttons that open it elsewhere. */
+/**
+ * What the task is, and the buttons that open it elsewhere. The terminal and the editor are the
+ * ones chosen in the settings, so their buttons are icons beside the one that hides the panel.
+ */
 function TaskHead({ project, task }: { project: Project; task: Task }) {
     const report = useStore((state) => state.report);
     const editor = useStore((state) => state.settings?.editor ?? "code");
     const terminalApp = useStore((state) => state.settings?.terminal_app ?? "Terminal");
-    const changeSettings = useStore((state) => state.changeSettings);
     const togglePanel = useStore((state) => state.togglePanel);
     return (
         <header className="panel-head">
-            <div className="panel-close">
+            <div className="panel-tools">
+                <IconButton
+                    label={`Open in ${terminalApp}`}
+                    onClick={() => api.taskOpenTerminal(project.name, task.name).catch(report)}
+                >
+                    <TerminalIcon />
+                </IconButton>
+                <IconButton
+                    label={`Open in ${editorName(editor)}`}
+                    onClick={() => api.taskOpenEditor(project.name, task.name).catch(report)}
+                >
+                    <EditorIcon />
+                </IconButton>
                 <IconButton label="Hide the task panel" onClick={togglePanel}>
                     <CloseIcon />
                 </IconButton>
@@ -113,41 +127,21 @@ function TaskHead({ project, task }: { project: Project; task: Task }) {
             <p className="mono panel-branch" title={task.worktree_path}>
                 {task.branch}
             </p>
-            <div className="panel-actions">
-                <button
-                    type="button"
-                    className="button"
-                    title={`Opens ${task.worktree_path} in ${terminalApp}`}
-                    onClick={() => api.taskOpenTerminal(project.name, task.name).catch(report)}
-                >
-                    Open in {terminalApp}
-                </button>
-                <button
-                    type="button"
-                    className="button"
-                    title={`Opens ${task.worktree_path}`}
-                    onClick={() => api.taskOpenEditor(project.name, task.name).catch(report)}
-                >
-                    Open in {editorName(editor)}
-                </button>
-                <Picker
-                    label="Editor"
-                    value={editor}
-                    onChange={(editor) => void changeSettings(api, { editor })}
-                    options={editorChoices(editor)}
-                />
-                {task.urls.map((url) => (
-                    <button
-                        key={url}
-                        type="button"
-                        className="button"
-                        title={`Opens ${url}`}
-                        onClick={() => api.openLink(url).catch(report)}
-                    >
-                        {browserLabel(url, task.urls.length)}
-                    </button>
-                ))}
-            </div>
+            {task.urls.length > 0 && (
+                <div className="panel-actions">
+                    {task.urls.map((url) => (
+                        <button
+                            key={url}
+                            type="button"
+                            className="button"
+                            title={`Opens ${url}`}
+                            onClick={() => api.openLink(url).catch(report)}
+                        >
+                            {browserLabel(url, task.urls.length)}
+                        </button>
+                    ))}
+                </div>
+            )}
             <ActionBar project={project.name} />
             <StackControls project={project.name} task={task} />
             <CompareWith project={project} task={task} />

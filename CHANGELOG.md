@@ -14,6 +14,12 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Changed
+
+- **The task panel opens a task in your terminal or editor from two icons** beside the one that
+  hides the panel. Which terminal and editor they open is chosen in Settings, so the panel no
+  longer has a menu of editors of its own.
+
 ## [0.1.0] - 2026-11-21
 
 The first release: a macOS app and a `swarmed` command over one Rust core. Swarmed is not signed
