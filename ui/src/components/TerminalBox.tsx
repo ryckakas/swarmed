@@ -1,5 +1,6 @@
 import "@xterm/xterm/css/xterm.css";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
 import { type RefObject, useEffect, useRef } from "react";
 import { api } from "../api";
@@ -18,6 +19,11 @@ function theme(element: HTMLElement) {
         red: token("--clay"),
         yellow: token("--pollen"),
     };
+}
+
+/** Opens an address from the terminal in the user's browser; one that is no web link is refused. */
+function openLink(uri: string) {
+    api.openLink(uri).catch(useStore.getState().report);
 }
 
 /**
@@ -63,9 +69,15 @@ export function TerminalBox({ sessionId }: { sessionId: number }) {
             fontFamily: getComputedStyle(element).fontFamily,
             fontSize: Number.parseFloat(getComputedStyle(element).fontSize),
             theme: theme(element),
+            // A build's whole output stays within reach of the wheel.
+            scrollback: 10_000,
+            // Links a program marks as such (OSC 8), such as the files `ls --hyperlink` lists.
+            linkHandler: { activate: (_event, uri) => openLink(uri) },
         });
         const fit = new FitAddon();
         terminal.loadAddon(fit);
+        // Addresses in plain output: underlined under the pointer, opened by a click.
+        terminal.loadAddon(new WebLinksAddon((_event, uri) => openLink(uri)));
         terminal.open(element);
         fit.fit();
 
