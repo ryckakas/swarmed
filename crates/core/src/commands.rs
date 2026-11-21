@@ -14,7 +14,7 @@ use serde::Serialize;
 
 use crate::agent::{AgentCommand, AgentEvent, Asked, AskedOption, Auth, Effort, ScreenKind};
 use crate::error::{Error, Result};
-use crate::sessions::{Session, SessionSettings, SessionStatus};
+use crate::sessions::{Session, SessionSettings, SessionStatus, skill_called};
 use crate::{CLAUDE, Core};
 
 /// What Swarmed does with a command when it is sent.
@@ -426,6 +426,8 @@ impl Core {
         };
         let how = match handling(&session.agent, name) {
             None | Some(Send) => return Ok(false),
+            // A skill of the user's by a command's name is what they call: it is sent.
+            Some(_) if self.calls_skill(id, text) => return Ok(false),
             Some(Terminal(instead)) => {
                 return Err(Error::TerminalOnly {
                     command: name.to_string(),
@@ -438,7 +440,9 @@ impl Core {
             (Show(kind), true) => self.show(id, kind, auth)?,
             // With something after it, Claude Code takes the command in words itself:
             // `/mcp reconnect docs`, `/config thinking=false`.
-            (Show(_) | Ask(Setting::Config), false) => self.deliver(id, text.trim(), auth)?,
+            (Show(_) | Ask(Setting::Config), false) => {
+                self.deliver(id, text.trim(), auth)?;
+            }
             (Ask(setting), true) => self.ask(&session, name, setting)?,
             (Ask(setting), false) => {
                 let said = self.set_as_chosen(&session, setting, name, argument)?;
@@ -447,6 +451,29 @@ impl Core {
             (Send | Terminal(_), _) => return Ok(false),
         }
         Ok(true)
+    }
+
+    /// Passes the changes `answers` choose on to Claude Code, and says what came of it. They
+    /// are sent before anything is said: a conversation must not hold that Claude Code was
+    /// told what never left.
+    fn tell_config(
+        &self,
+        id: i64,
+        answers: &BTreeMap<String, String>,
+        auth: Auth,
+    ) -> Result<String> {
+        let Some(message) = config_message(answers) else {
+            return Ok(NOTHING_CHANGED.to_string());
+        };
+        Ok(match self.deliver(id, &message, Some(auth))? {
+            Delivered::Sent => format!("Claude Code was told: {message}"),
+            Delivered::Queued => format!("Claude Code is told once it is free: {message}"),
+        })
+    }
+
+    /// Whether `text` calls a skill that Swarmed sends to the session's agent by name.
+    fn calls_skill(&self, id: i64, text: &str) -> bool {
+        skill_called(&self.store, &self.paths, id, text.trim()).is_some()
     }
 
     /// Asks the session's agent for one of its screens, which arrives as an event.
@@ -462,15 +489,17 @@ impl Core {
 
     /// Sends `text` to the session's agent as it stands, or has it wait while the agent is at
     /// work: sent into a turn, it would take an open request away.
-    fn deliver(&self, id: i64, text: &str, auth: Option<Auth>) -> Result<()> {
+    fn deliver(&self, id: i64, text: &str, auth: Option<Auth>) -> Result<Delivered> {
         let status = self.session(id)?.status;
         if matches!(status, SessionStatus::Working | SessionStatus::Waiting) {
-            return self.session_enqueue(id, text).map(drop);
+            self.session_enqueue(id, text)?;
+            return Ok(Delivered::Queued);
         }
         if let Some(auth) = auth {
             self.session_start(id, auth)?;
         }
-        self.session_send_as_typed(id, text)
+        self.session_send_as_typed(id, text)?;
+        Ok(Delivered::Sent)
     }
 
     /// Puts the choices of a setting's command to the user, in the conversation.
@@ -547,13 +576,8 @@ impl Core {
             return self.live.note(&self.store, id, aside);
         };
         if setting == Setting::Config {
-            let message = config_message(&answers);
-            let said = message.as_ref().map_or_else(
-                || NOTHING_CHANGED.to_string(),
-                |message| format!("Claude Code was told: {message}"),
-            );
-            self.live.note(&self.store, id, answered(said))?;
-            return message.map_or(Ok(()), |message| self.deliver(id, &message, Some(auth)));
+            let said = self.tell_config(id, &answers, auth)?;
+            return self.live.note(&self.store, id, answered(said));
         }
         let first = questions
             .first()
@@ -565,6 +589,14 @@ impl Core {
 }
 
 const NOTHING_CHANGED: &str = "Nothing was changed.";
+
+/// What became of something handed to a session's agent.
+enum Delivered {
+    /// It went to the agent.
+    Sent,
+    /// The agent is at work, and it waits in the queue.
+    Queued,
+}
 
 /// A setting changed by a command that named its value: the question it would have asked is
 /// recorded as answered at once, so the conversation says what was done.

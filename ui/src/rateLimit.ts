@@ -181,12 +181,14 @@ function windowsOf(event: AgentEvent | undefined): LimitWindow[] {
 const LIMIT_KINDS: Record<string, string> = {
     session: "5-hour",
     weekly_all: "weekly",
-    weekly_scoped: "weekly",
 };
 
 /** A limit from Claude Code's answer, as a window: one model's weekly limit is named after it. */
 function askedWindow(limit: UsageLimit): LimitWindow {
-    const kind = LIMIT_KINDS[limit.kind] ?? limit.kind.replaceAll("_", " ");
+    // A weekly limit with no model named is not the weekly limit on everything: it keeps
+    // its own name, so that no two windows are called the same.
+    const scoped = limit.kind === "weekly_scoped" && limit.model !== null;
+    const kind = scoped ? "weekly" : (LIMIT_KINDS[limit.kind] ?? limit.kind.replaceAll("_", " "));
     return {
         name: limit.model ? `${kind} ${limit.model}` : kind,
         used: limit.percent / 100,

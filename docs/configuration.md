@@ -76,7 +76,8 @@ Each hook runs with `sh -c` in the task's worktree, and an empty one is skipped.
    in process groups of their own.
 4. Removing a task stops its agents and its stack, runs `teardown`, ends whatever else still
    runs in the worktree, and removes the worktree. It is refused while the worktree has
-   uncommitted changes or unpushed commits, unless forced; nothing else stops it. A `stop` or
+   uncommitted changes or unpushed commits, or is one git no longer knows, whose work cannot
+   be checked, unless forced; nothing else stops it. A `stop` or
    `teardown` that fails or takes longer than a minute is passed over, and so is a process that
    will not end, and you are told. The worktree is moved aside at once and deleted in the
    background, so a large one does not keep you waiting. The branch stays unless you ask for it

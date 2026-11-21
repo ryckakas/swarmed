@@ -188,6 +188,23 @@ describe("limits Claude Code gave when asked", () => {
         ]);
     });
 
+    it("keep a weekly limit on something unnamed apart from the weekly limit", () => {
+        const both = {
+            type: "usage_limits" as const,
+            limits: ["weekly_all", "weekly_scoped"].map((kind) => ({
+                kind,
+                model: null,
+                percent: 30,
+                resets_at: null,
+                severity: "normal",
+            })),
+        };
+        expect(limitWindows([both]).map((window) => window.name)).toEqual([
+            "weekly",
+            "weekly scoped",
+        ]);
+    });
+
     it("stand until a later report, which stands until they are asked for again", () => {
         expect(limitWindows([reported, asked])[0]?.used).toBe(0.36);
         expect(limitWindows([asked, reported])[0]?.used).toBe(0.1);

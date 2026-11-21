@@ -1244,7 +1244,12 @@ pub(crate) fn send_text(
 }
 
 /// What the agent of session `id` is sent in place of `text`, if `text` calls a skill by name.
-fn skill_called(store: &Mutex<Store>, paths: &Paths, id: i64, text: &str) -> Option<String> {
+pub(crate) fn skill_called(
+    store: &Mutex<Store>,
+    paths: &Paths,
+    id: i64,
+    text: &str,
+) -> Option<String> {
     if !text.starts_with('/') {
         return None;
     }

@@ -54,8 +54,27 @@ notice adds its line under Unreleased.
   is said as a warning, with how much of it is used, once rather than after every turn. When a
   window resets on another day, the day is given as well as the time.
 
+- **A usage limit whose share is not a whole number is no longer missing** from the context
+  card and the coins' warning, where `/usage` already showed it.
+- **A weekly limit that names no model is no longer shown as a second "Weekly".**
+- **Choices of `/config` made while the agent is at work say that Claude Code is told once it
+  is free,** and nothing says it was told when the choices could not be passed on.
+- **A skill of your own named like one of Claude Code's commands,** such as `status` or `diff`,
+  **is called by `/name` again** instead of showing that command's screen or being refused.
+- **A question of `/model`, `/effort` or `/config` left unanswered no longer takes the keyboard
+  when its session is opened again,** where a digit typed into the empty message box chose an
+  answer. It still takes it right after you send the command.
+- **A stack that would not end when Swarmed quits is found again by the next one,** as it
+  already was after stopping a single stack.
+
 ### Changed
 
+- **`/usage` no longer names your plan.** What it shows is kept with the conversation, and the
+  plan's name is not something Swarmed keeps.
+- **`swarmed-core`: `Core::task_remove` and `Core::project_remove` return what was passed
+  over** (`Vec<String>`) instead of nothing; `Core::session_send` and `Core::session_message`
+  do Claude Code's own commands themselves instead of sending them; and `AgentEvent`,
+  `AgentCommand` and `Error` have new variants, which a `match` over them has to cover.
 - **`swarmed-core`: `Core::slash_commands` returns each command with what is done with it**
   (`SlashCommand`: its name, its kind and a note) instead of only its name.
 - **Removing a task no longer waits for its worktree to be deleted, and only unsaved work stops

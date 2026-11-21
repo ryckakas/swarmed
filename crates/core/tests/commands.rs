@@ -128,6 +128,54 @@ async fn a_screen_command_with_words_after_it_and_a_skill_are_sent_as_typed() {
 }
 
 #[tokio::test]
+async fn a_skill_of_the_users_named_like_a_command_is_what_is_called() {
+    let fx = fixture();
+    let (core, session) = core_with_session(&fx).await;
+    // One by the name of a screen, one by the name of a command that needs a terminal.
+    for name in ["status", "login"] {
+        core.skill_save(name, "Say how the work stands.", "Sum it up.")
+            .expect("saves");
+    }
+    let mut bus = core.subscribe();
+    for typed in ["/status", "/login"] {
+        core.session_message(session.id, typed, &[], Auth::Subscription)
+            .expect("sends");
+        let events = turn(&mut bus, session.id).await;
+        let shown = |event: &AgentEvent| matches!(event, AgentEvent::Screen { .. });
+        assert!(!events.iter().any(shown), "{typed}: {events:?}");
+    }
+    assert_eq!(said(&core, session.id), ["/status", "/login"]);
+}
+
+#[tokio::test]
+async fn a_config_answer_given_while_the_agent_works_says_that_it_waits() {
+    let fx = fixture();
+    let (core, session) = core_with_session(&fx).await;
+    let mut bus = core.subscribe();
+    core.session_message(session.id, "/config", &[], Auth::Subscription)
+        .expect("asks");
+    let (request_id, questions) = asked(&mut bus).await;
+    core.session_message(session.id, "slow", &[], Auth::Subscription)
+        .expect("sends");
+    until(&mut bus, |event| matches!(event, AgentEvent::Text { .. })).await;
+    let chosen = [(questions[0].question.as_str(), first_off(0))];
+    core.session_command_answer(
+        session.id,
+        &request_id,
+        Some(answers(&chosen)),
+        Auth::Subscription,
+    )
+    .expect("waits");
+    let (_, what) = answered(&mut bus).await;
+    assert_eq!(
+        what,
+        "Claude Code is told once it is free: /config autoCompact=false"
+    );
+    assert_eq!(core.session_queue(session.id).expect("reads").len(), 1);
+    core.session_interrupt(session.id).expect("stops");
+}
+
+#[tokio::test]
 async fn a_terminal_command_is_refused_before_anything_is_started_or_said() {
     let fx = fixture();
     let (core, session) = core_with_session(&fx).await;

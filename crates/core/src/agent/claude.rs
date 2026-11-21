@@ -516,10 +516,7 @@ fn parse_limit(row: &Value) -> Option<UsageLimit> {
             .pointer("/scope/model/display_name")
             .and_then(Value::as_str)
             .map(str::to_string),
-        percent: row
-            .get("percent")
-            .and_then(Value::as_u64)
-            .and_then(|percent| u32::try_from(percent).ok())?,
+        percent: u32::from(screens::percent(row.get("percent"))?),
         resets_at: kind_of(row, "resets_at").map(str::to_string),
         severity: kind_of(row, "severity").unwrap_or("normal").to_string(),
     })
@@ -1298,6 +1295,12 @@ mod tests {
                 },
             },
         }})
+    }
+
+    #[test]
+    fn a_limit_whose_share_is_not_a_whole_number_is_still_read() {
+        let limit = parse_limit(&json!({ "kind": "session", "percent": 46.4 })).expect("is read");
+        assert_eq!(limit.percent, 46);
     }
 
     /// The figures [`usage_answer`] gives.
