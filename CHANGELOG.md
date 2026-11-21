@@ -27,10 +27,11 @@ notice adds its line under Unreleased.
 ### Changed
 
 - **Removing a task no longer waits for its worktree to be deleted, and only unsaved work stops
-  it.** The worktree is moved
-  aside and deleted in the background. A `stop` or `teardown` that fails or takes over a minute
-  is passed over, and what was passed over is shown afterwards. The dialog's "Keep it" button is
-  now "Close", and closing it does not stop a removal under way.
+  it.** The worktree is moved aside and deleted in the background; what is not deleted yet, or
+  could not be, is counted in Settings under what Swarmed takes up. A `stop` or `teardown` that
+  fails or takes over a minute is passed over, and what was passed over is shown afterwards.
+  The dialog's "Keep it" button is now "Close", and closing it does not stop a removal under
+  way.
 - **An environment cannot be removed while a task still uses it.**
 - **The button that ends a session is the last in the session's header,** at the far right, apart
   from the ones that carry the session on.

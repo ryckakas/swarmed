@@ -16,6 +16,11 @@ const SHELLS: [&str; 11] = [
     "sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh", "nu", "elvish", "xonsh",
 ];
 
+/// Programs that keep a person's terminals open. One started in the worktree has no terminal of
+/// its own and goes on working there, yet it holds every session that person has, those of
+/// other projects too.
+const MULTIPLEXERS: [&str; 3] = ["tmux", "screen", "zellij"];
+
 /// A process found running in a folder.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Running {
@@ -32,8 +37,9 @@ struct Process {
 }
 
 /// The processes working in `dir` or running a program from it. Left out: this process, a
-/// shell open in a terminal, and the processes of an application (an editor's helpers, say),
-/// which see to a folder that went away themselves.
+/// shell open in a terminal, what keeps terminals open ([`MULTIPLEXERS`]), and the processes of
+/// an application from elsewhere (an editor's helpers, say), which see to a folder that went
+/// away themselves.
 pub(crate) async fn running_in(dir: &Path) -> Vec<Running> {
     let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
     let cwds = working_dirs().await;
@@ -47,7 +53,7 @@ pub(crate) async fn running_in(dir: &Path) -> Vec<Running> {
     processes()
         .await
         .into_iter()
-        .filter(|process| process.pid != me && is_inside(process) && !spared(process))
+        .filter(|process| process.pid != me && is_inside(process) && !spared(process, &dir))
         .map(|process| Running {
             pid: process.pid,
             name: program_name(&process.program),
@@ -85,11 +91,24 @@ fn named(running: &[Running]) -> String {
     each.join(", ")
 }
 
-fn spared(process: &Process) -> bool {
-    let in_app = process.program.contains(".app/Contents/");
+/// Whether a process found in `dir` is somebody's own and stays. An application built or
+/// installed inside `dir` is not: it is the task's, and goes with it.
+fn spared(process: &Process, dir: &Path) -> bool {
+    let from_elsewhere = !Path::new(&process.program).starts_with(dir);
+    let in_app = process.program.contains(".app/Contents/") && from_elsewhere;
     let has_terminal = !matches!(process.tty.as_str(), "" | "?" | "??");
-    let shell = SHELLS.contains(&program_name(&process.program).trim_start_matches('-'));
-    in_app || (has_terminal && shell)
+    let name = program_name(&process.program);
+    let name = name.trim_start_matches('-');
+    let shell = SHELLS.contains(&name);
+    in_app || (has_terminal && shell) || multiplexer(name)
+}
+
+/// On Linux a multiplexer's server names itself after what it is, as in `tmux: server`.
+fn multiplexer(name: &str) -> bool {
+    let program = name.split(':').next().unwrap_or(name);
+    MULTIPLEXERS
+        .iter()
+        .any(|known| program.eq_ignore_ascii_case(known))
 }
 
 /// The last part of a program's path: `ps` gives the whole path on a Mac, a name on Linux.
@@ -209,16 +228,50 @@ mod tests {
             tty: tty.to_string(),
             program: program.to_string(),
         };
-        assert!(spared(&process("ttys001", "-zsh")));
-        assert!(spared(&process("ttys002", "/bin/bash")));
-        assert!(spared(&process(
+        let spared = |tty: &str, program: &str| {
+            spared(
+                &process(tty, program),
+                Path::new("/Users/me/swarmed/demo/one"),
+            )
+        };
+        assert!(spared("ttys001", "-zsh"));
+        assert!(spared("ttys002", "/bin/bash"));
+        assert!(spared(
             "??",
             "/Applications/Code.app/Contents/MacOS/Code Helper"
-        )));
+        ));
         // A program started from a terminal is not a shell, and a shell without one is a
         // script's.
-        assert!(!spared(&process("ttys001", "devenv")));
-        assert!(!spared(&process("??", "/bin/sh")));
+        assert!(!spared("ttys001", "devenv"));
+        assert!(!spared("??", "/bin/sh"));
+    }
+
+    #[test]
+    fn an_application_inside_the_worktree_goes_with_it() {
+        let electron = Process {
+            pid: 1,
+            tty: "??".to_string(),
+            program: "/Users/me/swarmed/demo/one/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+                .to_string(),
+        };
+        assert!(!spared(&electron, Path::new("/Users/me/swarmed/demo/one")));
+        // The same application belongs to another task, seen from that one's worktree.
+        assert!(spared(&electron, Path::new("/Users/me/swarmed/demo/two")));
+    }
+
+    #[test]
+    fn what_keeps_terminals_open_is_spared_without_a_terminal_of_its_own() {
+        let server = |program: &str| Process {
+            pid: 1,
+            tty: "??".to_string(),
+            program: program.to_string(),
+        };
+        let dir = Path::new("/Users/me/swarmed/demo/one");
+        assert!(spared(&server("/opt/homebrew/bin/tmux"), dir));
+        assert!(spared(&server("tmux: server"), dir));
+        assert!(spared(&server("SCREEN"), dir));
+        assert!(spared(&server("zellij"), dir));
+        assert!(!spared(&server("tmuxinator"), dir));
     }
 
     #[test]

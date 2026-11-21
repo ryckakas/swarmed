@@ -472,14 +472,18 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   both ask first, and offer to go ahead regardless only after a refusal over unsaved work.
 - **Only unsaved work stops a task's removal** (`task_remove`): changes not committed, commits
   not pushed, or a worktree git no longer knows, whose work cannot be checked. The stack is
-  always stopped. A `stop` or `teardown` that fails or outlasts `HOOK_LIMIT`, a broken
+  always stopped. A `stop` or `teardown` that fails, or outlasts `HOOK_LIMIT` and is then
+  killed with what it started (`hooks::run_within`), a broken
   configuration, and a process that outlives being killed are passed over and returned as
   notes, which the UI shows once the dialog is gone. Before the worktree goes, whatever still
   runs in it is ended (`leftovers.rs`): a stack Swarmed never knew of, or one whose services
   outlived an earlier stop, would otherwise go on recreating files as they are deleted. A shell
-  open in a terminal and an application's own processes are left alone. The worktree is then
+  open in a terminal, what keeps terminals open (tmux and the like) and the processes of an
+  application from outside the worktree are left alone. The worktree is then
   moved into `.removed` beside it, which is instant, and deleted by an `rm` of its own;
-  `Core::arrive` deletes what one that was cut short left. An environment that tasks use
+  `Core::arrive` deletes what one that was cut short left, and `usage.rs` counts what is
+  still there. A removal under way is kept in the UI's store (`removals`), so a dialog closed
+  and asked for again starts no second one. An environment that tasks use
   cannot be removed (`Error::EnvironmentInUse`).
 - **Opening things elsewhere** (`open.rs`) starts the user's editor (`settings.toml`, VS Code by
   default) or the browser and never waits for them.

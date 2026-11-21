@@ -800,6 +800,9 @@ async fn usage(core: &Core) -> Result<()> {
             worktree.project, worktree.task
         ));
     }
+    if usage.removed_bytes > 0 {
+        say(&format!("removed\t{}", bytes(usage.removed_bytes)));
+    }
     let running = usage.running;
     say(&format!(
         "running\t{}\t{:.1}% of a core\t{} processes",

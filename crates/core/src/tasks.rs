@@ -309,11 +309,11 @@ impl Core {
         sink: OutputSink<'_>,
     ) -> Result<Vec<String>> {
         let teardown = &config.hooks.teardown;
-        let tearing_down = self.run_hook("teardown", teardown, project, config, task, sink);
-        let mut notes = match tokio::time::timeout(HOOK_LIMIT, tearing_down).await {
-            Ok(Ok(())) => vec![],
-            Ok(Err(error)) => vec![format!("teardown failed, and was passed over: {error}")],
-            Err(_) => vec!["teardown took longer than a minute, and was passed over".to_string()],
+        let tearing_down = self.run_hook_limited("teardown", teardown, project, config, task, sink);
+        let mut notes = match tearing_down.await {
+            Some(Ok(())) => vec![],
+            Some(Err(error)) => vec![format!("teardown failed, and was passed over: {error}")],
+            None => vec!["teardown took longer than a minute, and was passed over".to_string()],
         };
         notes.extend(leftovers::end_in(&task.worktree_path, sink).await);
         self.take_away_worktree(project, task, known).await?;
@@ -460,6 +460,28 @@ impl Core {
         hooks::run(hook, &command, &task.worktree_path, &env, sink).await
     }
 
+    /// [`run_hook`](Core::run_hook) for no longer than [`HOOK_LIMIT`]: `None` when the hook
+    /// took longer, and was killed with what it had started.
+    pub(crate) async fn run_hook_limited(
+        &self,
+        hook: &'static str,
+        template: &str,
+        project: &Project,
+        config: &ProjectConfig,
+        task: &Task,
+        sink: OutputSink<'_>,
+    ) -> Option<Result<()>> {
+        if template.trim().is_empty() {
+            return Some(Ok(()));
+        }
+        let (command, env) = match self.hook_command(template, project, config, task) {
+            Ok(rendered) => rendered,
+            Err(error) => return Some(Err(error)),
+        };
+        let cwd = &task.worktree_path;
+        hooks::run_within(HOOK_LIMIT, hook, &command, cwd, &env, sink).await
+    }
+
     /// A hook as it is run: its command with the variables filled in, and its environment.
     ///
     /// The command is read by a shell, and a value such as the name of somebody else's
@@ -514,7 +536,6 @@ async fn discard_worktree(project: &Project, worktree: &Path, branch: Option<&st
     }
 }
 
-/// Refuses when removing the worktree would destroy work that exists nowhere else.
 /// Fails, as [`ensure_clean`] does, when removing the worktree would lose work, and also
 /// when git no longer knows it, so that what is in it cannot be checked.
 async fn ensure_removable(task: &Task, known: bool) -> Result<()> {
@@ -546,7 +567,9 @@ fn move_aside(worktree: &Path, id: i64) -> Option<PathBuf> {
 }
 
 /// Deletes a folder in a process of its own, which goes on if Swarmed quits meanwhile; what
-/// it leaves is deleted when Swarmed next starts ([`Core::finish_removals`]).
+/// it leaves is deleted when Swarmed next starts ([`Core::finish_removals`]). Nobody hears of
+/// a file it could not delete, so what stays in [`REMOVED`] is counted with what Swarmed takes
+/// up ([`Usage::removed_bytes`](crate::Usage::removed_bytes)).
 fn delete_later(folder: &Path) {
     let deleting = std::process::Command::new("rm")
         .arg("-rf")
@@ -562,6 +585,7 @@ fn delete_later(folder: &Path) {
     }
 }
 
+/// Refuses when removing the worktree would destroy work that exists nowhere else.
 async fn ensure_clean(task: &Task) -> Result<()> {
     let reason = if git::is_dirty(&task.worktree_path).await? {
         "uncommitted changes".to_string()

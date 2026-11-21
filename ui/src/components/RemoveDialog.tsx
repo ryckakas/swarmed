@@ -12,8 +12,12 @@ export function RemoveDialog() {
     if (removing === null || !project) {
         return null;
     }
-    const key = `${removing.project}/${removing.task ?? ""}`;
-    return <Question key={key} target={removing} project={project} />;
+    return <Question key={removalKey(removing)} target={removing} project={project} />;
+}
+
+/** What names a removal: a repository, or one of its tasks. */
+function removalKey(target: RemoveTarget): string {
+    return `${target.project}/${target.task ?? ""}`;
 }
 
 /** What the dialog says about a repository, or about one of its tasks. */
@@ -39,8 +43,12 @@ function Question({ target, project }: { target: RemoveTarget; project: Project 
     const askToRemove = useStore((state) => state.askToRemove);
     const refresh = useStore((state) => state.refresh);
     const report = useStore((state) => state.report);
+    const removalBegun = useStore((state) => state.removalBegun);
+    const removalEnded = useStore((state) => state.removalEnded);
     const dialog = useRef<HTMLDialogElement>(null);
-    const [busy, setBusy] = useState(false);
+    // Kept in the store: a dialog closed and asked for again must not start a second removal.
+    const key = removalKey(target);
+    const busy = useStore((state) => state.removals.includes(key));
     // What stopped the last attempt. After one, the button removes regardless.
     const [problem, setProblem] = useState<string | null>(null);
     const { title, what, action } = wording(target, project);
@@ -51,11 +59,16 @@ function Question({ target, project }: { target: RemoveTarget; project: Project 
 
     // Closing the dialog does not stop a removal: what comes of it is then said elsewhere.
     const stillAsked = () => useStore.getState().removing === target;
+    // Asked again meanwhile, the dialog on screen is another one about the same thing.
+    const askedAgain = () => {
+        const asked = useStore.getState().removing;
+        return asked !== null && removalKey(asked) === key;
+    };
     const remove = async () => {
-        setBusy(true);
+        removalBegun(key);
         try {
             const passedOver = await removeTarget(target, problem !== null);
-            if (stillAsked()) {
+            if (askedAgain()) {
                 askToRemove(null);
             }
             await refresh(api);
@@ -66,10 +79,11 @@ function Question({ target, project }: { target: RemoveTarget; project: Project 
             const message = String(error).replace(/^Error: /, "");
             if (stillAsked()) {
                 setProblem(message);
-                setBusy(false);
             } else {
                 report(`Not removed: ${message}`);
             }
+        } finally {
+            removalEnded(key);
         }
     };
 

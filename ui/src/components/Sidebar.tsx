@@ -276,7 +276,7 @@ function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] })
             .catch(report);
     };
     return (
-        <ul className="cloud-tasks">
+        <>
             {forgetting && (
                 <ForgetCloudDialog
                     task={forgetting}
@@ -284,45 +284,47 @@ function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] })
                     onKeep={() => setForgetting(null)}
                 />
             )}
-            {tasks.map((task) => (
-                <li key={task.id} className="cloud-line" data-tone={cloudTone(task)}>
-                    <button
-                        type="button"
-                        className="cloud-row"
-                        title={cloudTooltip(task)}
-                        onClick={() => void api.cloudTaskOpen(task.id).catch(report)}
-                    >
-                        <CloudIcon />
-                        <span className="session-title">{cloudTitle(task)}</span>
-                        <span className="cloud-status">{task.status}</span>
-                        <ProviderMark
-                            icon={iconForAgent(cloudProvider(task.provider).agent)}
-                            label={cloudProvider(task.provider).name}
-                        />
-                    </button>
-                    {task.provider === "codex" && !isUnfinished(task) && (
+            <ul className="cloud-tasks">
+                {tasks.map((task) => (
+                    <li key={task.id} className="cloud-line" data-tone={cloudTone(task)}>
                         <button
                             type="button"
-                            className="row-add"
-                            aria-label={`Show what ${cloudTitle(task)} changed`}
-                            title="Show what it changed, and apply that to a local task"
-                            onClick={() => showCloudDiff(task.id)}
+                            className="cloud-row"
+                            title={cloudTooltip(task)}
+                            onClick={() => void api.cloudTaskOpen(task.id).catch(report)}
                         >
-                            ±
+                            <CloudIcon />
+                            <span className="session-title">{cloudTitle(task)}</span>
+                            <span className="cloud-status">{task.status}</span>
+                            <ProviderMark
+                                icon={iconForAgent(cloudProvider(task.provider).agent)}
+                                label={cloudProvider(task.provider).name}
+                            />
                         </button>
-                    )}
-                    <button
-                        type="button"
-                        className="row-close"
-                        aria-label={`Take ${cloudTitle(task)} off the list`}
-                        title="Take off the list. The task itself is not stopped."
-                        onClick={() => setForgetting(task)}
-                    >
-                        ×
-                    </button>
-                </li>
-            ))}
-        </ul>
+                        {task.provider === "codex" && !isUnfinished(task) && (
+                            <button
+                                type="button"
+                                className="row-add"
+                                aria-label={`Show what ${cloudTitle(task)} changed`}
+                                title="Show what it changed, and apply that to a local task"
+                                onClick={() => showCloudDiff(task.id)}
+                            >
+                                ±
+                            </button>
+                        )}
+                        <button
+                            type="button"
+                            className="row-close"
+                            aria-label={`Take ${cloudTitle(task)} off the list`}
+                            title="Take off the list. The task itself is not stopped."
+                            onClick={() => setForgetting(task)}
+                        >
+                            ×
+                        </button>
+                    </li>
+                ))}
+            </ul>
+        </>
     );
 }
 

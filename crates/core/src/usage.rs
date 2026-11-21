@@ -26,6 +26,8 @@ pub struct Usage {
     pub notes_bytes: u64,
     /// Every active task's worktree, largest first.
     pub worktrees: Vec<WorktreeUsage>,
+    /// Removed tasks' worktrees that are not deleted yet, or could not be, in bytes.
+    pub removed_bytes: u64,
     /// Swarmed's own process with everything it started: agents, their tools, terminals.
     pub running: ProcessUsage,
     /// The share of that taken by each session whose agent is running.
@@ -158,13 +160,18 @@ impl Core {
             file_bytes(&database) + file_bytes(&beside("-wal")) + file_bytes(&beside("-shm"));
         let events = self.store().event_count()?;
         let notes = self.paths.data_dir.join("notes");
-        let (notes_bytes, worktrees, processes) =
-            tokio::join!(folder_bytes(&notes), self.worktree_sizes(), processes());
+        let (notes_bytes, worktrees, removed_bytes, processes) = tokio::join!(
+            folder_bytes(&notes),
+            self.worktree_sizes(),
+            self.removed_bytes(),
+            processes()
+        );
         Ok(Usage {
             database_bytes,
             events,
             notes_bytes: notes_bytes.unwrap_or(0),
             worktrees: worktrees?,
+            removed_bytes,
             running: tree_usage(&processes, std::process::id()),
             sessions: self.session_usage(&processes)?,
         })
@@ -194,6 +201,19 @@ impl Core {
         }
         worktrees.sort_by_key(|worktree| std::cmp::Reverse(worktree.bytes));
         Ok(worktrees)
+    }
+
+    /// The size of what removals moved aside, in every project, and is still there.
+    async fn removed_bytes(&self) -> u64 {
+        let Ok(projects) = std::fs::read_dir(&self.paths.worktrees_root) else {
+            return 0;
+        };
+        let mut bytes = 0;
+        for project in projects.flatten() {
+            let folder = project.path().join(crate::tasks::REMOVED);
+            bytes += folder_bytes(&folder).await.unwrap_or(0);
+        }
+        bytes
     }
 
     /// What each running session's agent takes, the hungriest for memory first.

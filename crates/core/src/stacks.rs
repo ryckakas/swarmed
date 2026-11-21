@@ -38,7 +38,7 @@ const LEFTOVER_GRACE: Duration = Duration::from_secs(3);
 
 /// How long a `stop` or `teardown` may run when a stack is stopped or a task removed. One that
 /// takes longer, or leaves something behind that holds its output open, is not waited for:
-/// what it was to stop is ended regardless.
+/// it is killed with what it started, and what it was to stop is ended regardless.
 pub(crate) const HOOK_LIMIT: Duration = Duration::from_secs(60);
 
 /// How often a stack that was asked to stop is looked at again.
@@ -258,13 +258,13 @@ impl Core {
             },
         };
         let stop = &config.hooks.stop;
-        let stopping = self.run_hook("stop", stop, project, config, task, sink);
-        let mut notes: Vec<String> = match tokio::time::timeout(HOOK_LIMIT, stopping).await {
-            Ok(Ok(())) => vec![],
-            Ok(Err(error)) => vec![format!(
+        let stopping = self.run_hook_limited("stop", stop, project, config, task, sink);
+        let mut notes: Vec<String> = match stopping.await {
+            Some(Ok(())) => vec![],
+            Some(Err(error)) => vec![format!(
                 "stop failed, so the stack was ended without it: {error}"
             )],
-            Err(_) => {
+            None => {
                 vec!["stop took longer than a minute, so the stack was ended without it".into()]
             }
         };
