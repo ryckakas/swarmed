@@ -18,15 +18,6 @@ export function pullTone(pull: Pull): PullTone {
     return has("passed") ? "passed" : "none";
 }
 
-/**
- * Whether the list of checks is shown before the user says: it is while something failed or
- * is still running, which is when each check matters, and folded away once all is well.
- */
-export function checksShownByDefault(pull: Pull): boolean {
-    const tone = pullTone(pull);
-    return tone === "failed" || tone === "running";
-}
-
 const STATES: Record<Pull["state"], string> = { open: "open", merged: "merged", closed: "closed" };
 
 /** Where the pull request stands, in a word or two. */
