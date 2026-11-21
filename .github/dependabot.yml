@@ -19,6 +19,14 @@ updates:
     cooldown:
       default-days: 7
 
+  # The Rust that rust-toolchain.toml pins: each new stable release, once it is a week old.
+  - package-ecosystem: rust-toolchain
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+
   # The workflows' actions are pinned to a commit with the version in a comment; Dependabot
   # moves both.
   - package-ecosystem: github-actions

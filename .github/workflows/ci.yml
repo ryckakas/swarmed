@@ -27,11 +27,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install stable Rust
-        run: |
-          rustup toolchain install stable --profile minimal --no-self-update \
-            --component rustfmt,clippy
-          rustup default stable
+      # The version rust-toolchain.toml pins, with its components.
+      - name: Install Rust
+        run: rustup toolchain install --no-self-update
 
       # Tauri links against the system web view, which Linux has to be given.
       - name: Install Tauri's Linux dependencies
@@ -53,11 +51,11 @@ jobs:
 
       # The lint policy, including the complexity limits, lives in Cargo.toml and clippy.toml.
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 
       # A broken intra-doc link only shows when the docs are built, which nothing else here does.
       - name: Docs
-        run: cargo doc --no-deps --workspace --all-features
+        run: cargo doc --locked --no-deps --workspace --all-features
         env:
           RUSTDOCFLAGS: -D warnings
 
@@ -67,7 +65,7 @@ jobs:
 
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
-          tool: taplo,shellcheck@0.11.0
+          tool: taplo@0.10.0,shellcheck@0.11.0
 
       - name: TOML formatting
         run: taplo fmt --check
@@ -131,14 +129,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install stable Rust
-        run: |
-          rustup toolchain install stable --profile minimal --no-self-update
-          rustup default stable
+      - name: Install Rust
+        run: rustup toolchain install --no-self-update
 
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
-          tool: cargo-deny,cargo-shear
+          tool: cargo-deny@0.20.2,cargo-shear@1.14.0
 
       - name: cargo deny
         run: cargo deny check
@@ -175,7 +171,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version-file: .node-version
 
       # pnpm comes from Corepack, at the version package.json pins.
       - name: Install
@@ -213,11 +209,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install stable Rust
-        run: |
-          rustup toolchain install stable --profile minimal --no-self-update \
-            --component clippy
-          rustup default stable
+      - name: Install Rust
+        run: rustup toolchain install --no-self-update
 
       # Tauri links against the system web view, which Linux has to be given.
       - name: Install Tauri's Linux dependencies
@@ -235,10 +228,10 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Test
-        run: cargo test --workspace --all-features
+        run: cargo test --locked --workspace --all-features
 
       # The lint job's Clippy runs on Linux, where the code only a Mac compiles (the
       # notifications, the Dock) is left out. It is held to the same policy here.
       - name: Clippy, for what only a Mac compiles
         if: runner.os == 'macOS'
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings

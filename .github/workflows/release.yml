@@ -57,10 +57,9 @@ jobs:
           name: notes
           path: ${{ runner.temp }}/notes.md
 
-      - name: Install stable Rust
-        run: |
-          rustup toolchain install stable --profile minimal --no-self-update
-          rustup default stable
+      # The version rust-toolchain.toml pins.
+      - name: Install Rust
+        run: rustup toolchain install --no-self-update
 
       # Before anything is published: a crate that cannot be packaged or built from its package
       # stops the release here, not halfway through.
@@ -79,15 +78,14 @@ jobs:
           persist-credentials: false
 
       # No caches anywhere in this workflow: a release must not restore what another run wrote.
-      - name: Install stable Rust for Apple silicon and Intel
+      - name: Install Rust for Apple silicon and Intel
         run: |
-          rustup toolchain install stable --profile minimal --no-self-update \
+          rustup toolchain install --no-self-update \
             --target aarch64-apple-darwin,x86_64-apple-darwin
-          rustup default stable
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version-file: .node-version
           package-manager-cache: false
 
       # pnpm comes from Corepack, at the version package.json pins.
@@ -144,10 +142,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install stable Rust
-        run: |
-          rustup toolchain install stable --profile minimal --no-self-update
-          rustup default stable
+      # The version rust-toolchain.toml pins.
+      - name: Install Rust
+        run: rustup toolchain install --no-self-update
 
       # Trusted publishing: GitHub's identity token for this run buys a crates.io token that lasts
       # 30 minutes and is revoked when the job ends. crates.io offers it only for crates that exist
