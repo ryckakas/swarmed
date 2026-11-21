@@ -38,6 +38,7 @@ function wording(target: RemoveTarget, project: Project) {
 function Question({ target, project }: { target: RemoveTarget; project: Project }) {
     const askToRemove = useStore((state) => state.askToRemove);
     const refresh = useStore((state) => state.refresh);
+    const report = useStore((state) => state.report);
     const dialog = useRef<HTMLDialogElement>(null);
     const [busy, setBusy] = useState(false);
     // What stopped the last attempt. After one, the button removes regardless.
@@ -48,18 +49,27 @@ function Question({ target, project }: { target: RemoveTarget; project: Project 
         dialog.current?.showModal();
     }, []);
 
+    // Closing the dialog does not stop a removal: what comes of it is then said elsewhere.
+    const stillAsked = () => useStore.getState().removing === target;
     const remove = async () => {
         setBusy(true);
-        const force = problem !== null;
         try {
-            await (target.task === null
-                ? api.projectRemove(target.project, force)
-                : api.taskRemove(target.project, target.task, force));
-            askToRemove(null);
+            const passedOver = await removeTarget(target, problem !== null);
+            if (stillAsked()) {
+                askToRemove(null);
+            }
             await refresh(api);
+            if (passedOver.length > 0) {
+                report(`Removed, though not everything went as set up: ${passedOver.join("; ")}`);
+            }
         } catch (error) {
-            setProblem(String(error).replace(/^Error: /, ""));
-            setBusy(false);
+            const message = String(error).replace(/^Error: /, "");
+            if (stillAsked()) {
+                setProblem(message);
+                setBusy(false);
+            } else {
+                report(`Not removed: ${message}`);
+            }
         }
     };
 
@@ -73,15 +83,11 @@ function Question({ target, project }: { target: RemoveTarget; project: Project 
         >
             <h2 id="remove-title">{title}</h2>
             <p>{what}</p>
-            {problem && (
-                <p className="note-problem">
-                    Not removed: {problem}. Removing anyway discards that work.
-                </p>
-            )}
+            <Progress problem={problem} busy={busy} />
             {/* Opening the dialog focuses its first button, so a stray Enter removes nothing. */}
             <div className="confirm-actions">
                 <button type="button" className="button" onClick={() => askToRemove(null)}>
-                    Keep it
+                    Close
                 </button>
                 <button
                     type="button"
@@ -89,9 +95,42 @@ function Question({ target, project }: { target: RemoveTarget; project: Project 
                     disabled={busy}
                     onClick={() => void remove()}
                 >
-                    {busy ? "Removing…" : problem ? "Remove anyway" : action}
+                    {buttonLabel(busy, problem, action)}
                 </button>
             </div>
         </dialog>
     );
+}
+
+/** Removes what the dialog asks about; resolves to what the removal passed over. */
+function removeTarget(target: RemoveTarget, force: boolean): Promise<string[]> {
+    return target.task === null
+        ? api.projectRemove(target.project, force)
+        : api.taskRemove(target.project, target.task, force);
+}
+
+/** What stopped the last attempt, and that one that runs can take a while. */
+function Progress({ problem, busy }: { problem: string | null; busy: boolean }) {
+    return (
+        <>
+            {problem && (
+                <p className="note-problem">
+                    Not removed: {problem}. Removing anyway discards that work.
+                </p>
+            )}
+            {busy && (
+                <p>
+                    Agents and stacks are stopped first, which can take a while. Closing this does
+                    not stop the removal.
+                </p>
+            )}
+        </>
+    );
+}
+
+function buttonLabel(busy: boolean, problem: string | null, action: string): string {
+    if (busy) {
+        return "Removing…";
+    }
+    return problem ? "Remove anyway" : action;
 }

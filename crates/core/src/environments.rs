@@ -145,9 +145,24 @@ impl Core {
         write(&path, &environments)
     }
 
-    /// Removes an environment. Tasks that were in it go on as the project itself is set up.
+    /// Removes an environment. Refused while a task still uses it: its stack, `stop` and
+    /// `teardown` come from the environment, and without them the task could no longer be
+    /// stopped and removed as it was set up.
     pub fn environment_remove(&self, project: &str, name: &str) -> Result<()> {
         let project = self.project(project)?;
+        let users: Vec<String> = self
+            .store()
+            .tasks(project.id, false)?
+            .into_iter()
+            .filter(|task| task.environment.as_deref() == Some(name))
+            .map(|task| task.name)
+            .collect();
+        if !users.is_empty() {
+            return Err(Error::EnvironmentInUse {
+                environment: name.to_string(),
+                tasks: users.join(", "),
+            });
+        }
         let path = self.paths.project_environments(&project.name);
         let mut environments = read(&path)?;
         if environments.remove(name).is_some() {

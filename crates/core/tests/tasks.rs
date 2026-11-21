@@ -249,7 +249,7 @@ async fn remove_refuses_dirty_and_unpushed_work_unless_forced() {
 }
 
 #[tokio::test]
-async fn remove_runs_teardown_and_refuses_when_it_fails() {
+async fn remove_runs_teardown_and_passes_over_one_that_fails() {
     let fx = fixture();
     let marker = fx.repo.parent().expect("test setup").join("torn-down");
     write_config(
@@ -266,25 +266,169 @@ async fn remove_runs_teardown_and_refuses_when_it_fails() {
         .expect("test setup");
 
     std::fs::write(fx.repo.join("block-teardown"), "").expect("test setup");
-    let blocked = core
+    let notes = core
         .task_remove("demo", "one", RemoveOptions::default(), &hooks::discard)
-        .await;
-    assert!(matches!(
-        blocked,
-        Err(Error::HookFailed {
-            hook: "teardown",
-            ..
-        })
-    ));
-    assert!(task.worktree_path.exists());
-    assert_eq!(core.tasks("demo", false).expect("test setup").len(), 1);
+        .await
+        .expect("a failing teardown does not keep the task");
+    assert!(
+        notes.iter().any(|note| note.starts_with("teardown failed")),
+        "{notes:?}"
+    );
+    assert!(!marker.exists());
+    assert!(!task.worktree_path.exists());
+    assert_eq!(core.tasks("demo", false).expect("test setup"), vec![]);
 
     std::fs::remove_file(fx.repo.join("block-teardown")).expect("test setup");
-    core.task_remove("demo", "one", RemoveOptions::default(), &hooks::discard)
+    let task = core
+        .task_new("demo", "two", NewTaskOptions::default(), &hooks::discard)
         .await
         .expect("test setup");
+    let notes = core
+        .task_remove("demo", "two", RemoveOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    assert_eq!(notes, Vec::<String>::new());
     assert!(marker.exists());
     assert!(!task.worktree_path.exists());
+}
+
+#[tokio::test]
+async fn remove_ends_what_still_runs_in_the_worktree() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    let task = core
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    // A stack Swarmed does not know of: started by hand, and still working in the worktree.
+    let mut stray = std::process::Command::new("sleep")
+        .arg("300")
+        .current_dir(&task.worktree_path)
+        .stdin(std::process::Stdio::null())
+        .spawn()
+        .expect("test setup");
+
+    core.task_remove("demo", "one", RemoveOptions::default(), &hooks::discard)
+        .await
+        .expect("removes");
+    let ended = stray.try_wait().expect("asks");
+    stray.kill().ok();
+    assert!(ended.is_some(), "the process in the worktree still runs");
+    assert!(!task.worktree_path.exists());
+}
+
+#[tokio::test]
+async fn remove_finishes_a_worktree_git_has_forgotten() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    let task = core
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    // A removal that failed halfway: git deleted its record of the worktree, and the folder
+    // is still there.
+    std::fs::remove_dir_all(fx.repo.join(".git/worktrees/one")).expect("test setup");
+    let listed = |fx: &common::Fixture| {
+        let out = std::process::Command::new("git")
+            .args(["-C", &fx.repo.to_string_lossy(), "worktree", "list"])
+            .output()
+            .expect("lists");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+
+    let unchecked = core
+        .task_remove("demo", "one", RemoveOptions::default(), &hooks::discard)
+        .await;
+    assert!(
+        matches!(&unchecked, Err(Error::TaskNotClean { reason, .. }) if reason.contains("no longer knows")),
+        "{unchecked:?}"
+    );
+    assert!(task.worktree_path.exists());
+
+    let force = RemoveOptions {
+        force: true,
+        ..RemoveOptions::default()
+    };
+    core.task_remove("demo", "one", force, &hooks::discard)
+        .await
+        .expect("removes");
+    assert!(!task.worktree_path.exists());
+    assert_eq!(core.tasks("demo", false).expect("test setup"), vec![]);
+    assert!(!listed(&fx).contains("/one "), "{}", listed(&fx));
+}
+
+#[tokio::test]
+async fn a_removed_worktree_is_moved_aside_and_deleted_after() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    let task = core
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    std::fs::create_dir_all(task.worktree_path.join("node_modules/a")).expect("test setup");
+    std::fs::write(task.worktree_path.join("node_modules/a/index.js"), "").expect("test setup");
+
+    // Forced: the fixture's repository does not ignore what it holds.
+    let force = RemoveOptions {
+        force: true,
+        ..RemoveOptions::default()
+    };
+    core.task_remove("demo", "one", force, &hooks::discard)
+        .await
+        .expect("removes");
+    assert!(!task.worktree_path.exists());
+    let worktrees = std::process::Command::new("git")
+        .args([
+            "-C",
+            &fx.repo.to_string_lossy(),
+            "worktree",
+            "list",
+            "--porcelain",
+        ])
+        .output()
+        .expect("lists");
+    let worktrees = String::from_utf8_lossy(&worktrees.stdout).into_owned();
+    assert_eq!(worktrees.matches("worktree ").count(), 1, "{worktrees}");
+
+    // Deleted in a process of its own, which is soon done.
+    let removed = task
+        .worktree_path
+        .parent()
+        .expect("has one")
+        .join(".removed");
+    assert!(
+        emptied(&removed).await,
+        "{:?}",
+        std::fs::read_dir(&removed).map(Iterator::count)
+    );
+}
+
+#[tokio::test]
+async fn what_a_removal_left_unfinished_is_deleted_at_the_next_start() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    let left = fx
+        .paths
+        .worktrees_root
+        .join("demo/.removed/one-1-1/node_modules");
+    std::fs::create_dir_all(&left).expect("test setup");
+    std::fs::write(left.join("index.js"), "").expect("test setup");
+
+    core.arrive().expect("arrives");
+    let removed = fx.paths.worktrees_root.join("demo/.removed");
+    assert!(emptied(&removed).await);
+}
+
+/// Whether `folder` is empty, or gone, within a few seconds.
+async fn emptied(folder: &Path) -> bool {
+    for _ in 0..100 {
+        let empty = std::fs::read_dir(folder).map_or(true, |mut entries| entries.next().is_none());
+        if empty {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    false
 }
 
 #[tokio::test]
@@ -359,12 +503,18 @@ async fn a_task_is_set_up_in_the_environment_it_was_created_in() {
     };
     assert!(said.contains(&staging_mode), "{said:?}");
 
-    // One that is not there is refused; one that goes leaves its tasks on the project's own.
+    // One that is not there is refused. One a task uses cannot be removed, and one that goes
+    // all the same, deleted by hand, leaves its tasks on the project's own.
     let missing = core
         .task_new("demo", "three", options(Some("nope")), &hooks::discard)
         .await;
     assert!(matches!(missing, Err(Error::EnvironmentNotFound { .. })));
-    core.environment_remove("demo", "staging").expect("removes");
+    let in_use = core.environment_remove("demo", "staging");
+    assert!(
+        matches!(&in_use, Err(Error::EnvironmentInUse { tasks, .. }) if tasks == "two"),
+        "{in_use:?}"
+    );
+    std::fs::remove_file(&file).expect("deletes");
     assert_eq!(
         core.task_url("demo", "two").expect("reads").as_deref(),
         Some("http://plain")

@@ -155,6 +155,17 @@ pub(crate) async fn worktree_remove(repo: &Path, path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Whether git still knows `path` as a worktree. Not when the repository's record of it is
+/// gone, as a removal that failed halfway leaves it, nor when what git finds is a repository
+/// in a folder above it.
+pub(crate) async fn worktree_known(path: &Path) -> bool {
+    let Ok(top) = git(path, &["rev-parse", "--show-toplevel"]).await else {
+        return false;
+    };
+    let real = |path: &Path| std::fs::canonicalize(path).ok();
+    real(path).is_some_and(|path| real(Path::new(top.trim())) == Some(path))
+}
+
 /// Deletes a local branch, merged or not.
 pub(crate) async fn branch_delete(repo: &Path, branch: &str) -> Result<()> {
     git(repo, &["branch", "-D", branch]).await?;

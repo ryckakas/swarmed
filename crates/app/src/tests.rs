@@ -1095,7 +1095,12 @@ fn the_ui_can_keep_an_environment_start_a_task_in_it_and_snapshot_what_its_setup
     assert_eq!(app.ok("snapshot_remove", forget), json!(null));
     assert_eq!(app.ok("snapshots", project.clone()), json!([]));
 
+    // Not while a task uses it; once the task is gone, it can go too.
     let remove = json!({ "project": "demo", "name": "cached" });
+    app.invoke("environment_remove", remove.clone())
+        .expect_err("refused while the task uses it");
+    let task = json!({ "project": "demo", "name": "one", "force": true, "deleteBranch": false });
+    assert_eq!(app.ok("task_remove", task), json!([]));
     assert_eq!(app.ok("environment_remove", remove), json!(null));
     assert_eq!(app.ok("environments", project), json!({}));
     let unnamed = json!({ "project": "demo", "name": "Bad Name", "environment": environment });

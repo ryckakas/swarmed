@@ -74,9 +74,13 @@ Each hook runs with `sh -c` in the task's worktree, and an empty one is skipped.
    one stack more than `max_stacks` is refused.
 3. Stopping a stack runs `stop`, then ends whatever `start` started, including what it started
    in process groups of their own.
-4. Removing a task stops its agents and its stack, runs `teardown`, and removes the worktree. It
-   is refused while the worktree has uncommitted changes or unpushed commits, unless forced. The
-   branch stays unless you ask for it to go.
+4. Removing a task stops its agents and its stack, runs `teardown`, ends whatever else still
+   runs in the worktree, and removes the worktree. It is refused while the worktree has
+   uncommitted changes or unpushed commits, unless forced; nothing else stops it. A `stop` or
+   `teardown` that fails or takes longer than a minute is passed over, and so is a process that
+   will not end, and you are told. The worktree is moved aside at once and deleted in the
+   background, so a large one does not keep you waiting. The branch stays unless you ask for it
+   to go.
 
 Quitting the app ends its stacks' processes without running `stop`. From the command line,
 `swarmed task new` and `swarmed task setup` end the stack again when they exit, and
@@ -107,7 +111,8 @@ port is `base + slot × port_step`, so with `web = 3000` the first task's is 310
 An environment is another way of setting a task up in the same project, such as with or without
 Docker. It can have its own hooks and `open_url`, which take the place of the project's, and
 ports and variables, which are added to the project's in place of any of the same name. A task
-is created in one environment, or none, and keeps it.
+is created in one environment, or none, and keeps it. An environment cannot be removed while a
+task still uses it.
 
 Environments are edited in the app and kept in `projects/<project>.environments.toml`, which
 Swarmed creates readable by you alone, since their variables may hold credentials. `swarmed environment <project>` lists
