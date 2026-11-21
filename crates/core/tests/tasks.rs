@@ -231,7 +231,8 @@ async fn remove_refuses_dirty_and_unpushed_work_unless_forced() {
         force: true,
         delete_branch: true,
     };
-    core.task_remove("demo", "one", options, &hooks::discard)
+    let notes = core
+        .task_remove("demo", "one", options, &hooks::discard)
         .await
         .expect("test setup");
     assert!(!task.worktree_path.exists());
@@ -239,13 +240,113 @@ async fn remove_refuses_dirty_and_unpushed_work_unless_forced() {
     let archived = core.tasks("demo", true).expect("test setup");
     assert_eq!(archived.len(), 1);
     assert!(archived[0].archived);
+    // The commit is on no other branch, so its branch is kept, and that is said.
+    assert!(
+        notes
+            .iter()
+            .any(|note| note.contains(&task.branch) && note.contains("kept")),
+        "{notes:?}"
+    );
 
-    // The name and the slot are free again.
-    let again = core
+    // A name chosen by the user whose branch is still there is refused, saying why.
+    let refused = core
         .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await;
+    assert!(
+        matches!(&refused, Err(Error::BranchExists(branch)) if *branch == task.branch),
+        "{refused:?}"
+    );
+    // A name made up for the user steps past it. The slot is free again.
+    let free = NewTaskOptions {
+        free_name: true,
+        ..NewTaskOptions::default()
+    };
+    let again = core
+        .task_new("demo", "one", free, &hooks::discard)
         .await
         .expect("test setup");
-    assert_eq!(again.slot, 1);
+    assert_eq!((again.name.as_str(), again.slot), ("one-2", 1));
+}
+
+#[tokio::test]
+async fn a_made_up_name_steps_past_branches_here_and_on_a_remote_and_folders_in_the_way() {
+    let fx = fixture();
+    write_config(&fx, "branch_pattern = \"swarm/{{task}}\"\n");
+    let core = core_with_project(&fx).await;
+    // A branch here, one only on a remote, and a folder where the worktree would go.
+    git(&fx.repo, &["branch", "swarm/fix"]);
+    git(
+        &fx.repo,
+        &["update-ref", "refs/remotes/origin/swarm/fix-2", "HEAD"],
+    );
+    let folder = fx.paths.worktree("demo", "fix-3");
+    std::fs::create_dir_all(&folder).expect("test setup");
+
+    let chosen = |name: &'static str| {
+        core.task_new("demo", name, NewTaskOptions::default(), &hooks::discard)
+    };
+    assert!(
+        matches!(chosen("fix").await, Err(Error::BranchExists(branch)) if branch == "swarm/fix")
+    );
+    let remote = chosen("fix-2").await;
+    assert!(
+        matches!(&remote, Err(Error::BranchExists(branch)) if branch == "swarm/fix-2"),
+        "{remote:?}"
+    );
+    assert!(matches!(chosen("fix-3").await, Err(Error::TaskFolderExists(path)) if path == folder));
+
+    let free = NewTaskOptions {
+        free_name: true,
+        ..NewTaskOptions::default()
+    };
+    let task = core
+        .task_new("demo", "fix", free, &hooks::discard)
+        .await
+        .expect("creates");
+    assert_eq!(
+        (task.name.as_str(), task.branch.as_str()),
+        ("fix-4", "swarm/fix-4")
+    );
+    // Taken by a task now, the name is refused as the user's and stepped past as made up.
+    assert!(matches!(
+        chosen("fix-4").await,
+        Err(Error::TaskExists { .. })
+    ));
+    let next = core
+        .task_new("demo", "fix", free, &hooks::discard)
+        .await
+        .expect("creates");
+    assert_eq!(next.name, "fix-5");
+}
+
+#[tokio::test]
+async fn removing_a_task_deletes_its_branch_when_nothing_on_it_is_lost() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    let task = core
+        .task_new("demo", "done", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    let options = RemoveOptions {
+        force: false,
+        delete_branch: true,
+    };
+    let notes = core
+        .task_remove("demo", "done", options, &hooks::discard)
+        .await
+        .expect("removes");
+    assert!(notes.iter().all(|note| !note.contains("kept")), "{notes:?}");
+    let branches = std::process::Command::new("git")
+        .args([
+            "-C",
+            &fx.repo.to_string_lossy(),
+            "branch",
+            "--list",
+            &task.branch,
+        ])
+        .output()
+        .expect("runs git");
+    assert_eq!(String::from_utf8_lossy(&branches.stdout).trim(), "");
 }
 
 #[tokio::test]

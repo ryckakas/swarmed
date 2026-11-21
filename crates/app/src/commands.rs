@@ -188,9 +188,13 @@ pub(crate) async fn task_new<R: Runtime>(
     branch: Option<String>,
     environment: Option<String>,
 ) -> Command<Task> {
+    // The window makes the name up, from the prompt or a branch: one that is taken, by a task
+    // or a branch here or on a remote, gives way to the first free one, which the task returned
+    // has.
     let options = NewTaskOptions {
         existing_branch: branch.as_deref(),
         environment: environment.as_deref(),
+        free_name: true,
     };
     let sink = hook_sink(&app, &project, &name);
     Ok(core.task_new(&project, &name, options, &sink).await?)

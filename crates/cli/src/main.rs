@@ -248,7 +248,8 @@ enum TaskCommand {
         /// Remove despite uncommitted changes, unpushed commits or a failing teardown.
         #[arg(long)]
         force: bool,
-        /// Also delete the task's local branch.
+        /// Also delete the task's local branch, unless commits on it are on neither the base nor
+        /// a remote: then it is kept, and that is said.
         #[arg(long)]
         delete_branch: bool,
     },
@@ -909,9 +910,11 @@ async fn task(core: &Core, command: TaskCommand) -> Result<()> {
             branch,
             environment,
         } => {
+            // The name is the user's own: one that is taken is refused, not changed.
             let options = NewTaskOptions {
                 existing_branch: branch.as_deref(),
                 environment: environment.as_deref(),
+                free_name: false,
             };
             let task = core.task_new(&project, &name, options, &hook_line).await?;
             say(&format!(

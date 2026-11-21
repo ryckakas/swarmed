@@ -234,6 +234,31 @@ describe("removing", () => {
         expect(projects.map((project) => project.name)).not.toContain("bonsai-lint");
         expect(selectedSessionId).toBeNull();
     });
+
+    it("forgets a culled session's conversation, so a later session cannot show it", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        await useStore.getState().open(api, 4);
+        useStore.setState({ queues: { 4: [{ id: 1, text: "next" }] } });
+        expect(useStore.getState().events[4]?.length).toBeGreaterThan(0);
+        await useStore.getState().deleteSession(api, 4);
+        const { events, queues } = useStore.getState();
+        expect(events[4]).toBeUndefined();
+        expect(queues[4]).toBeUndefined();
+    });
+
+    it("forgets what it kept of a removed task's sessions", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        await useStore.getState().open(api, 4);
+        const task = useStore
+            .getState()
+            .projects.flatMap((project) => project.tasks)
+            .find((candidate) => candidate.sessions.some((session) => session.id === 4));
+        expect(task).toBeDefined();
+        useStore.getState().forgetTasks([task?.id ?? -1]);
+        expect(useStore.getState().events[4]).toBeUndefined();
+    });
 });
 
 describe("the queue of waiting messages", () => {

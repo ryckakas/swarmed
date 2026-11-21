@@ -34,7 +34,7 @@ function wording(target: RemoveTarget, project: Project) {
     const branch = tasks.find((task) => task.name === target.task)?.branch;
     return {
         title: `Remove the task ${target.task}?`,
-        what: `Its worktree, its sessions and your note on it are deleted. ${branch ? `The branch ${branch} stays` : "Its branch stays"} in the repository.`,
+        what: `Its worktree, its sessions and your note on it are deleted, and so is ${branch ? `the branch ${branch}` : "its branch"}, unless commits on it are on neither the base nor a remote. A branch on a remote stays.`,
         action: "Remove task",
     };
 }
@@ -71,6 +71,7 @@ function Question({ target, project }: { target: RemoveTarget; project: Project 
             if (askedAgain()) {
                 askToRemove(null);
             }
+            useStore.getState().forgetTasks(removedTaskIds(target, project));
             await refresh(api);
             if (passedOver.length > 0) {
                 report(`Removed, though not everything went as set up: ${passedOver.join("; ")}`);
@@ -114,6 +115,12 @@ function Question({ target, project }: { target: RemoveTarget; project: Project 
             </div>
         </dialog>
     );
+}
+
+/** The ids of the tasks a removal of `target` takes away: all of a repository's, or one. */
+function removedTaskIds(target: RemoveTarget, project: Project): number[] {
+    const tasks = project.tasks.filter((task) => target.task === null || task.name === target.task);
+    return tasks.map((task) => task.id);
 }
 
 /** Removes what the dialog asks about; resolves to what the removal passed over. */

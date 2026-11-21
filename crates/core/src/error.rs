@@ -47,6 +47,23 @@ pub enum Error {
         /// The name that is taken.
         task: String,
     },
+    /// A new task's branch exists already, here or on a remote, left by an earlier task or
+    /// made outside Swarmed.
+    #[error(
+        "a branch named {0} exists already: name the task differently, or start it from that branch"
+    )]
+    BranchExists(String),
+    /// A new task's worktree folder is there already.
+    #[error("{} exists already: name the task differently", .0.display())]
+    TaskFolderExists(PathBuf),
+    /// No free name for a new task was found among the ones tried.
+    #[error("no free name for a task called {task} in {project}, up to {task}-99")]
+    NoFreeTaskName {
+        /// The project.
+        project: String,
+        /// The name asked for.
+        task: String,
+    },
     /// A project or task name outside the allowed character set.
     #[error("`{0}` is not a valid name: use lowercase letters, digits, `-`, `_` and `.`")]
     InvalidName(String),

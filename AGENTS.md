@@ -312,6 +312,13 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   short timeout, and its answer is both the first session's title and, as lower-case words
   joined by dashes, the task's name. With no answer the front end names the task after the
   prompt. A task is never renamed later: its folder and branch are where the agent works.
+  The core has the last word on a name it makes up (`NewTaskOptions::free_name`, which the app
+  sets): it steps on to `name-2` and so on past any name a task of the project ever had, a
+  folder in the way, and a branch here or on a remote (one `for-each-ref` after the fetch), and
+  the task it returns has the name taken. A name the user chose, as the command line takes it,
+  is refused instead (`BranchExists`, `TaskFolderExists`, `TaskExists`). Removing a task
+  deletes its local branch unless commits on it are on neither the base nor a remote; a remote
+  branch is never touched.
 - **A session is unread** (`Session::unread`) from when its agent ends a turn, or stops with an
   error, until a front end calls `session_mark_read` or the user writes to it. It is a flag
   beside the status, not a status: the UI shows it for idle sessions only, since busy, waiting
@@ -567,6 +574,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **Git is used by shelling out** to the `git` binary (`git.rs`), not through a library.
 - **The store is SQLite** (`store.rs`). Schema changes are appended to `MIGRATIONS` and never
   edited afterwards.
+- **A project's, task's or session's id is never given twice** (`Store::next_id`, `id_marks`).
+  SQLite gives a deleted last row's id to the next row, and what a front end or the core keeps
+  by id (a transcript, a terminal, files) would then turn up in the new one. An insert into
+  those tables takes its id from `next_id`; a deleted session or removed task is also
+  forgotten by the UI (`forgotten` in `store.ts`).
 
 ## Lint policy
 

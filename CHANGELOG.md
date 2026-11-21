@@ -14,6 +14,28 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Changed
+
+- **Removing a task deletes its branch too,** unless commits on it are on neither the base nor
+  a remote, which a forced removal can leave: then the branch is kept, and the removal says so.
+  A branch on a remote is never touched.
+- **`swarmed-core`: `NewTaskOptions` has `free_name`,** which steps past a taken name to
+  `name-2` and so on, and `RemoveOptions::delete_branch` keeps a branch whose commits exist
+  nowhere else. `Error` has the variants `BranchExists`, `TaskFolderExists` and
+  `NoFreeTaskName`.
+
+### Fixed
+
+- **A new session no longer shows the conversation of one culled before it.** A deleted
+  session's number could be given to the next new one, which then showed what the window still
+  kept of the old conversation. Numbers are now never given twice, and what is kept of a culled
+  session, or of a removed task's sessions, is forgotten.
+- **A new task's name no longer collides with a branch.** A name made up from the prompt now
+  steps past the names of removed tasks and branches here or on a remote, to `name-2` and so
+  on, where creating the task used to fail with "a branch named … already exists".
+- **Removing a task also deletes what its sessions left:** messages still waiting to be sent,
+  views nobody read, and the files handed to their agents, which can hold MCP servers' secrets.
+
 ## [0.2.0] - 2026-11-21
 
 ### Added

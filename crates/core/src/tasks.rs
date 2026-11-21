@@ -1,5 +1,6 @@
 //! Task lifecycle: create, set up, remove.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -9,6 +10,7 @@ use serde::Serialize;
 use crate::config::ProjectConfig;
 use crate::error::{Error, Result};
 use crate::hooks::OutputSink;
+use crate::paths::Paths;
 use crate::stacks::HOOK_LIMIT;
 use crate::store::{NewTask, Project, SetupStatus, Task};
 use crate::vars::{Vars, env_name};
@@ -22,6 +24,11 @@ pub struct NewTaskOptions<'a> {
     pub existing_branch: Option<&'a str>,
     /// The project's environment to set the task up in; `None` for the project's own setup.
     pub environment: Option<&'a str>,
+    /// Take the first of the name, `name-2`, `name-3` and so on that is free, as a name made
+    /// up for the user is: one no task of the project has had, whose branch exists neither
+    /// here nor on a remote, and whose folder is free. Without it, a name that is taken is
+    /// refused, as one the user chose is. The task returned has the name taken.
+    pub free_name: bool,
 }
 
 /// What a new task in a project can start from.
@@ -38,7 +45,8 @@ pub struct BranchChoices {
 pub struct RemoveOptions {
     /// Remove even with uncommitted changes, unpushed commits or a failing `teardown` hook.
     pub force: bool,
-    /// Also delete the task's local branch.
+    /// Also delete the task's local branch, unless commits on it exist nowhere else: on neither
+    /// the base nor a remote. Such a branch is kept, and that is said.
     pub delete_branch: bool,
 }
 
@@ -86,12 +94,6 @@ impl Core {
     ) -> Result<Task> {
         paths::validate_name(name)?;
         let project = self.project(project)?;
-        if self.store().task_by_name(project.id, name)?.is_some() {
-            return Err(Error::TaskExists {
-                project: project.name,
-                task: name.to_string(),
-            });
-        }
         if let Some(environment) = options.environment {
             self.require_environment(&project.name, environment)?;
         }
@@ -101,23 +103,26 @@ impl Core {
         git::fetch(repo).await?;
         // A brand new repository has nothing to branch from until it has a commit.
         git::ensure_first_commit(repo).await?;
-        let base = if config.base_branch.is_empty() {
-            git::default_base(repo).await?
-        } else {
-            config.base_branch.clone()
-        };
+        let base = base_of(repo, &config).await?;
+        // After the fetch, so that a branch just pushed from elsewhere counts too.
+        let name = &self
+            .name_for_task(&project, name, &config.branch_pattern, options)
+            .await?;
         let worktree = self.paths.worktree(&project.name, name);
         if let Some(parent) = worktree.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
-        let branch = if let Some(branch) = options.existing_branch {
-            git::worktree_add_existing(repo, &worktree, branch).await?;
-            branch.to_string()
-        } else {
-            let branch = branch_vars(&project, name).render(&config.branch_pattern)?;
-            git::worktree_add_new(repo, &worktree, &branch, &base).await?;
-            branch
+        let branch = match options.existing_branch {
+            Some(branch) => branch.to_string(),
+            None => branch_vars(&project, name).render(&config.branch_pattern)?,
         };
+        add_worktree(
+            repo,
+            &worktree,
+            &branch,
+            (&base, options.existing_branch.is_none()),
+        )
+        .await?;
 
         let new = NewTask {
             project_id: project.id,
@@ -235,9 +240,40 @@ impl Core {
         self.store().task_archive(task.id)?;
         self.forget_note(&project.name, &task.name)?;
         if options.delete_branch && git::local_branch_exists(repo, &task.branch).await {
-            git::branch_delete(repo, &task.branch).await?;
+            notes.extend(delete_branch_if_safe(repo, &task).await?);
         }
         Ok(notes)
+    }
+
+    /// The name a new task gets: `name` itself, or with `free_name` the first of `name`,
+    /// `name-2`, `name-3` and so on that is free. Refused if `name` is taken and may not be
+    /// changed, or if no name up to `name-99` is free.
+    async fn name_for_task(
+        &self,
+        project: &Project,
+        name: &str,
+        pattern: &str,
+        options: NewTaskOptions<'_>,
+    ) -> Result<String> {
+        let tasks = self.store().tasks(project.id, options.free_name)?;
+        let taken = TakenNames {
+            project,
+            tasks: tasks.into_iter().map(|task| task.name).collect(),
+            branches: git::branch_names(&project.repo_path).await?,
+            pattern,
+            existing_branch: options.existing_branch.is_some(),
+            paths: &self.paths,
+        };
+        if !options.free_name {
+            return match taken.reason(name)? {
+                Some(reason) => Err(reason),
+                None => Ok(name.to_string()),
+            };
+        }
+        first_free(name, &taken)?.ok_or_else(|| Error::NoFreeTaskName {
+            project: project.name.clone(),
+            task: name.to_string(),
+        })
     }
 
     /// The configuration the task's hooks run with. One that cannot be read does not keep the
@@ -524,6 +560,99 @@ fn branch_vars(project: &Project, task: &str) -> Vars {
     vars.set("task", task);
     vars.set("project", project.name.as_str());
     vars
+}
+
+/// What a new task's name must not be: a task's, the name of a folder that is there, or
+/// that of a branch, here or on a remote.
+struct TakenNames<'a> {
+    project: &'a Project,
+    /// The project's tasks' names; with `free_name` those of removed tasks too, since a
+    /// removed task's branch can still be there.
+    tasks: Vec<String>,
+    /// Every branch here and on a remote, by its short name.
+    branches: HashSet<String>,
+    /// What a task's name becomes as a branch.
+    pattern: &'a str,
+    /// Whether the task checks out a branch that exists, rather than making one.
+    existing_branch: bool,
+    paths: &'a Paths,
+}
+
+impl TakenNames<'_> {
+    /// Why `name` cannot be a new task's, if it cannot.
+    fn reason(&self, name: &str) -> Result<Option<Error>> {
+        if self.tasks.iter().any(|task| task == name) {
+            return Ok(Some(Error::TaskExists {
+                project: self.project.name.clone(),
+                task: name.to_string(),
+            }));
+        }
+        let worktree = self.paths.worktree(&self.project.name, name);
+        if worktree.exists() {
+            return Ok(Some(Error::TaskFolderExists(worktree)));
+        }
+        // A branch the task is to check out is expected to exist.
+        if self.existing_branch {
+            return Ok(None);
+        }
+        let branch = branch_vars(self.project, name).render(self.pattern)?;
+        Ok(self
+            .branches
+            .contains(&branch)
+            .then_some(Error::BranchExists(branch)))
+    }
+}
+
+/// The first of `name`, `name-2`, `name-3` and so on up to `name-99` that is not taken.
+fn first_free(name: &str, taken: &TakenNames<'_>) -> Result<Option<String>> {
+    let candidates =
+        std::iter::once(name.to_string()).chain((2..100).map(|number| format!("{name}-{number}")));
+    for candidate in candidates {
+        paths::validate_name(&candidate)?;
+        if taken.reason(&candidate)?.is_none() {
+            return Ok(Some(candidate));
+        }
+    }
+    Ok(None)
+}
+
+/// The branch new tasks start from: the configured one, or the repository's default.
+async fn base_of(repo: &Path, config: &ProjectConfig) -> Result<String> {
+    if config.base_branch.is_empty() {
+        git::default_base(repo).await
+    } else {
+        Ok(config.base_branch.clone())
+    }
+}
+
+/// Adds the worktree at `worktree` on `branch`: a new branch from `base` if `new`, the
+/// existing one otherwise.
+async fn add_worktree(
+    repo: &Path,
+    worktree: &Path,
+    branch: &str,
+    (base, new): (&str, bool),
+) -> Result<()> {
+    if new {
+        git::worktree_add_new(repo, worktree, branch, base).await
+    } else {
+        git::worktree_add_existing(repo, worktree, branch).await
+    }
+}
+
+/// Deletes a removed task's local branch, unless commits on it exist nowhere else, which a
+/// forced removal can leave: then the branch is kept, and the note returned says so.
+async fn delete_branch_if_safe(repo: &Path, task: &Task) -> Result<Option<String>> {
+    match git::commits_only_on(repo, &task.branch, &task.base_ref).await? {
+        0 => {
+            git::branch_delete(repo, &task.branch).await?;
+            Ok(None)
+        }
+        count => Ok(Some(format!(
+            "the branch {} was kept: {count} commit(s) on it are on neither {} nor a remote",
+            task.branch, task.base_ref
+        ))),
+    }
 }
 
 /// Best-effort removal of a worktree, and the branch created for it, after a failed creation.

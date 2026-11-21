@@ -167,7 +167,35 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE sessions ADD COLUMN mark_colour TEXT;
     ALTER TABLE sessions ADD COLUMN mark_label TEXT NOT NULL DEFAULT '';
 ",
+    // The highest id each table has given, so that none is given twice (`Store::next_id`).
+    "
+    CREATE TABLE id_marks (
+        tbl  TEXT PRIMARY KEY,
+        last INTEGER NOT NULL
+    );
+    INSERT INTO id_marks (tbl, last) SELECT 'projects', IFNULL(MAX(id), 0) FROM projects;
+    INSERT INTO id_marks (tbl, last) SELECT 'tasks', IFNULL(MAX(id), 0) FROM tasks;
+    INSERT INTO id_marks (tbl, last) SELECT 'sessions', IFNULL(MAX(id), 0) FROM sessions;
+",
 ];
+
+/// The tables whose ids are never given twice.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Numbered {
+    Projects,
+    Tasks,
+    Sessions,
+}
+
+impl Numbered {
+    fn table(self) -> &'static str {
+        match self {
+            Self::Projects => "projects",
+            Self::Tasks => "tasks",
+            Self::Sessions => "sessions",
+        }
+    }
+}
 
 const TASK_SELECT: &str = "SELECT id, project_id, name, branch, base_ref, worktree_path, slot, \
                            setup_status, archived_at IS NOT NULL, environment FROM tasks";
@@ -178,6 +206,21 @@ pub(crate) struct Store {
 }
 
 impl Store {
+    /// The id for a new row of `numbered`: above every id it has and every id it ever had.
+    /// SQLite gives a deleted last row's id to the next one, and a front end still holding
+    /// what it kept under that number, such as a deleted session's conversation, would show
+    /// it as the new row's.
+    pub(crate) fn next_id(&self, numbered: Numbered) -> Result<i64> {
+        let table = numbered.table();
+        let sql = format!(
+            "UPDATE id_marks SET last = MAX(last, (SELECT IFNULL(MAX(id), 0) FROM {table})) + 1 \
+             WHERE tbl = ?1 RETURNING last"
+        );
+        Ok(self
+            .conn
+            .query_row(&sql, params![table], |row| row.get(0))?)
+    }
+
     pub(crate) fn open(path: &Path) -> Result<Self> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
@@ -190,12 +233,13 @@ impl Store {
     }
 
     pub(crate) fn project_insert(&self, name: &str, repo_path: &Path) -> Result<Project> {
+        let id = self.next_id(Numbered::Projects)?;
         self.conn.execute(
-            "INSERT INTO projects (name, repo_path) VALUES (?1, ?2)",
-            params![name, repo_path.to_string_lossy()],
+            "INSERT INTO projects (id, name, repo_path) VALUES (?1, ?2, ?3)",
+            params![id, name, repo_path.to_string_lossy()],
         )?;
         Ok(Project {
-            id: self.conn.last_insert_rowid(),
+            id,
             name: name.to_string(),
             repo_path: repo_path.to_path_buf(),
         })
@@ -236,10 +280,12 @@ impl Store {
     }
 
     pub(crate) fn task_insert(&self, new: &NewTask<'_>) -> Result<Task> {
+        let id = self.next_id(Numbered::Tasks)?;
         self.conn.execute(
-            "INSERT INTO tasks (project_id, name, branch, base_ref, worktree_path, slot, environment)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO tasks (id, project_id, name, branch, base_ref, worktree_path, slot, \
+             environment) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
+                id,
                 new.project_id,
                 new.name,
                 new.branch,
@@ -250,7 +296,7 @@ impl Store {
             ],
         )?;
         Ok(Task {
-            id: self.conn.last_insert_rowid(),
+            id,
             project_id: new.project_id,
             name: new.name.to_string(),
             branch: new.branch.to_string(),
