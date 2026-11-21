@@ -408,7 +408,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   Claude Code reads it from claude.ai with its own sign-in. Only those figures are read, a
   shape it does not know is no answer, and `skip_behaviors` spares the scan of a week of local
   transcripts. The rest of the answer, the plan and the account's other usage, is not kept,
-  passed on or logged.
+  passed on or logged. Nothing asks for usage on its own, on a timer or when the card opens:
+  the figures are as of the session's last turn, and `docs/coding-agents.md` says so. That
+  was the user's choice, so that looking costs nothing. Keep it so.
 - **ACP agents with an effort of their own say what it stands at** when a conversation opens,
   which is recorded as `Applied` too. Before a session's agent has said, a front end shows
   what the agent's default last came to (`effort.rs`, `Core::effort_default`): the latest

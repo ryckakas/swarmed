@@ -77,8 +77,8 @@ hand, macOS stops it the first time it opens: allow it under System Settings →
 
 Swarmed runs agents you have installed and signed in to yourself; Claude Code is the default.
 Open the app, add a repository, start a task and say what the agent should do. The app speaks
-in swarm words until Settings → Appearance switches it to plain ones: adding a repository is
-**Found a colony**, a new task **New brood**.
+in swarm words, unless Icons and words in Settings → Appearance is set to Boring: adding a
+repository is **Found a colony**, a new task **New brood**.
 
 Or from a terminal:
 

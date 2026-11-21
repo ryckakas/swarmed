@@ -33,6 +33,27 @@ Swarmed, and no variable from a task's environment whose name starts with `ANTHR
 you run `swarmed` from, and `--auth inherit` passes that shell's environment on unchanged, for
 Bedrock or Vertex.
 
+### Usage limits and extra usage
+
+The card that opens over the context figure in the status line shows the following for a Claude
+Code session:
+
+- **Usage limits:** how much of each window (5-hour, weekly) is used, and when it resets.
+- **Extra usage:** what is spent beyond your plan this month, against your monthly cap.
+- **Spent in this session:** what the session's own turns cost.
+
+Swarmed only learns these figures from what Claude Code says while it works for a session. It
+never asks for them on a timer or when the card opens. So they can be out of date:
+
+- The usage limits are as Claude Code reported them at the end of the session's last turn.
+- The extra usage is as it stood when Claude Code last started for the session, or last ran a
+  turn on extra usage. Claude Code starts with the session's first message after Swarmed opens,
+  or after the session was stopped. A session that has not done either since this was added
+  shows no extra usage.
+- Usage from other sessions, other devices or claude.ai shows up after the session's next turn.
+
+For figures as they are now, type `/usage` in Claude Code in a terminal.
+
 ## Any other agent
 
 Any agent that speaks the [Agent Client Protocol](https://agentclientprotocol.com) can be added

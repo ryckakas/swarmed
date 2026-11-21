@@ -49,10 +49,11 @@ notice adds its line under Unreleased.
 - **An environment cannot be removed while a task still uses it.**
 - **The button that ends a session is the last in the session's header,** at the far right, apart
   from the ones that carry the session on.
-
 - **The task panel opens a task in your terminal or editor from two icons** beside the one that
   hides the panel. Which terminal and editor they open is chosen in Settings, so the panel no
   longer has a menu of editors of its own.
+- **The plain icons and words are called Boring** in Settings → Appearance. Nothing else about
+  them changed, and a setting saved before keeps them.
 
 ## [0.1.0] - 2026-11-21
 
