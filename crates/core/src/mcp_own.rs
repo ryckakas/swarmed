@@ -271,7 +271,11 @@ impl Core {
             let view = claude_view(&server.name, kind, target, secrets, status);
             views.insert(server.name, view);
         }
-        for name in status.keys() {
+        // What Claude Code was given of another agent's is listed under that agent.
+        let codex = mcp_codex::codex_names(&self.paths.codex_config);
+        let opencode = mcp_opencode::opencode_names(&self.paths.opencode_config_dir);
+        let shared = |name: &String| codex.contains(name) || opencode.contains(name);
+        for name in status.keys().filter(|name| !shared(name)) {
             let reported = || claude_view(name, "", String::new(), Vec::new(), status);
             views.entry(name.clone()).or_insert_with(reported);
         }

@@ -71,10 +71,13 @@ CLI.
 
 What such a session gets:
 
-- **MCP servers:** Swarmed reads the servers configured for Claude Code (your own, the
-  repository's `.mcp.json`, and yours for that repository) and hands them to the agent. Set
-  `claude_code_mcp_servers = false` on an agent to turn that off. HTTP servers only go to agents
-  that accept them.
+- **MCP servers:** one pool for every agent. When a session starts, Swarmed reads the servers
+  configured for Claude Code (your own, the repository's `.mcp.json`, yours for that
+  repository, and the ones its plugins bring), for Codex and for OpenCode, and hands the
+  session's agent the ones it does not have by that name. Nothing is copied into an agent's
+  files. Set `shared_mcp_servers = false` on an agent to turn that off. HTTP servers only go
+  to agents that accept them, and a server you signed in to in a browser stays signed in only
+  in the agent you did that in.
 - **Skills:** nothing to do for agents that read `~/.claude/skills` and `.claude/skills`
   themselves, which OpenCode and Goose do.
 - **Not available:** claude.ai connectors, which are signed in through your Anthropic account,

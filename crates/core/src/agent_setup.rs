@@ -32,9 +32,6 @@ struct Known {
     install: Install,
     /// Where the models offered for it come from.
     models: Models,
-    /// Whether it is given the MCP servers configured for Claude Code. Not for an agent that
-    /// keeps a list of its own, which would refuse the ones it already has.
-    shares_claude_mcp: bool,
     /// How the user gets it to act on their account, once it is installed.
     sign_in: &'static str,
     /// Whether it is the agent Swarmed runs by itself, with no entry in `agents.toml`.
@@ -98,7 +95,6 @@ const KNOWN: &[Known] = &[
         args: &[],
         install: Install::Script("curl -fsSL https://claude.ai/install.sh | bash"),
         models: Models::BuiltIn,
-        shares_claude_mcp: false,
         sign_in: "To sign in, run `claude` in a terminal once and follow /login. Swarmed uses \
                   that login and never sees it.",
         built_in: true,
@@ -111,7 +107,6 @@ const KNOWN: &[Known] = &[
         args: &[],
         install: Install::Brew("codex-acp"),
         models: Models::Agent,
-        shares_claude_mcp: false,
         sign_in: "To sign in, run `codex login` in a terminal once. Without the Codex CLI, \
                   `codex-acp login` does the same.",
         built_in: false,
@@ -128,7 +123,6 @@ const KNOWN: &[Known] = &[
             "openrouter/google/gemini-3.8-flash",
             "openrouter/anthropic/claude-sonnet-5.5",
         ]),
-        shares_claude_mcp: true,
         sign_in: "It uses the API keys stored in Settings.",
         built_in: false,
     },
@@ -140,7 +134,6 @@ const KNOWN: &[Known] = &[
         args: &["acp"],
         install: Install::Script("curl -fsSL https://antigravity.google/cli/install.sh | bash"),
         models: Models::Agent,
-        shares_claude_mcp: true,
         sign_in: "To sign in, run `agy` in a terminal once and sign in with Google. Versions \
                   before 1.5 cannot be run from here: `agy update` brings it up to date.",
         built_in: false,
@@ -363,9 +356,8 @@ impl Core {
         };
         let args: Vec<String> = agent.args.iter().map(ToString::to_string).collect();
         let starting = agent.models.starting();
-        if !agent.shares_claude_mcp {
-            entry.insert("claude_code_mcp_servers".into(), Value::Boolean(false));
-        }
+        // Written for agents with servers of their own while only Claude Code's were shared.
+        entry.remove("claude_code_mcp_servers");
         entry.insert("name".into(), Value::String(agent.name.to_string()));
         entry.insert("command".into(), Value::String(command));
         entry.insert("args".into(), strings(&args));

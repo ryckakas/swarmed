@@ -30,6 +30,8 @@ pub mod mcp;
 mod mcp_codex;
 mod mcp_opencode;
 mod mcp_own;
+mod mcp_plugins;
+mod mcp_pool;
 mod naming;
 mod notes;
 mod notices;

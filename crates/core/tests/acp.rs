@@ -738,6 +738,88 @@ async fn the_agent_is_given_the_mcp_servers_configured_for_claude_code() {
     assert_eq!(reported, [("context7", "passed"), ("files", "passed")]);
 }
 
+/// Writes a server into Codex's configuration, one into OpenCode's, and a plugin with one
+/// into Claude Code's home.
+fn write_other_servers(fx: &common::Fixture) {
+    let codex = "[mcp_servers.tracker]\ncommand = \"tracker\"\n\
+                 [mcp_servers.files]\ncommand = \"codex-files\"\n";
+    std::fs::write(&fx.paths.codex_config, codex).expect("writes");
+    let dir = &fx.paths.opencode_config_dir;
+    std::fs::create_dir_all(dir).expect("creates");
+    let opencode =
+        json!({ "mcp": { "notes": { "type": "local", "command": ["notes", "serve"] } } });
+    std::fs::write(dir.join("opencode.json"), opencode.to_string()).expect("writes");
+
+    let home = fx.paths.claude_config.parent().expect("has a folder");
+    let plugin = home.join(".claude/plugins/cache/design");
+    std::fs::create_dir_all(&plugin).expect("creates");
+    let installed =
+        json!({ "plugins": { "design@m": [{ "scope": "user", "installPath": plugin }] } });
+    let record = home.join(".claude/plugins/installed_plugins.json");
+    std::fs::write(record, installed.to_string()).expect("writes");
+    let servers =
+        json!({ "canvas": { "command": "canvas" }, "files": { "command": "plugin-files" } });
+    std::fs::write(plugin.join(".mcp.json"), servers.to_string()).expect("writes");
+}
+
+#[tokio::test]
+async fn an_agent_is_given_the_servers_of_every_other_agent() {
+    let fx = fixture();
+    write_claude_config(&fx);
+    write_other_servers(&fx);
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+
+    core.session_send(id, "mcp").expect("sends");
+    let events = turn(&mut bus, id).await;
+    let Some(AgentEvent::Init { mcp_servers, .. }) = events.get(1) else {
+        panic!("no init: {events:?}")
+    };
+    let given: Vec<&str> = mcp_servers.iter().map(|s| s.name.as_str()).collect();
+    // Claude Code's own and its plugin's, Codex's and OpenCode's. `files` is configured for
+    // Claude Code, which goes before the plugin's and before Codex's of that name.
+    assert_eq!(given, ["canvas", "context7", "files", "notes", "tracker"]);
+    assert_eq!(
+        events.get(2),
+        Some(&text(
+            "servers: canvas(stdio, 0 set), context7(http, 1 set), files(stdio, 2 set), \
+             notes(stdio, 0 set), tracker(stdio, 0 set)"
+        ))
+    );
+}
+
+#[tokio::test]
+async fn an_agent_with_servers_of_its_own_is_given_only_the_ones_it_lacks() {
+    let fx = fixture();
+    write_claude_config(&fx);
+    write_other_servers(&fx);
+    let mut core = core_with(&fx, scripted_agent(&[])).await;
+    let codex = AgentInfo {
+        id: "codex".into(),
+        name: "Codex".into(),
+        models: vec![],
+    };
+    core.add_agent(codex, Arc::new(scripted_agent(&[])));
+    let mut bus = core.subscribe();
+    let options = SessionOptions {
+        agent: Some("codex".into()),
+        ..Default::default()
+    };
+    let session = core.session_new("demo", "one", &options).expect("creates");
+    core.session_start(session.id, Auth::Subscription)
+        .expect("starts");
+
+    core.session_send(session.id, "mcp").expect("sends");
+    let events = turn(&mut bus, session.id).await;
+    let Some(AgentEvent::Init { mcp_servers, .. }) = events.get(1) else {
+        panic!("no init: {events:?}")
+    };
+    let given: Vec<&str> = mcp_servers.iter().map(|s| s.name.as_str()).collect();
+    // Not `tracker` and `files`, which it has itself.
+    assert_eq!(given, ["canvas", "context7", "notes"]);
+}
+
 #[tokio::test]
 async fn the_start_of_a_session_counts_the_skills_it_is_offered() {
     let fx = fixture();

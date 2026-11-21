@@ -51,8 +51,8 @@ function inputOf(draft: Draft): McpServerInput {
 }
 
 /**
- * MCP servers: the ones set up here, which every agent Swarmed runs is given, and each
- * agent's own, which are only shown. Secrets are typed in and never shown again.
+ * MCP servers: the ones set up here and each agent's own, which are only shown. Every agent
+ * Swarmed runs is given all of them that it lacks. Secrets are typed in and never shown again.
  */
 export function McpSettings() {
     const report = useStore((state) => state.report);
@@ -76,8 +76,9 @@ export function McpSettings() {
         <section className="settings-group" aria-label="MCP servers">
             <h3>MCP servers</h3>
             <p className="settings-hint">
-                Servers set up here are given to every agent Swarmed runs, from the next session
-                started. Their secrets are kept in the macOS Keychain and cannot be shown again.
+                Every agent Swarmed runs is given the servers set up here and the ones the other
+                agents have that it lacks, from the next session started. Secrets of servers set up
+                here are kept in the macOS Keychain and cannot be shown again.
             </p>
             {own.map((server) => (
                 <OwnRow
@@ -118,20 +119,20 @@ const AGENT_GROUPS = [
     {
         origin: "claude",
         name: "Claude Code",
-        about: "Claude Code's own servers and the connectors of your Claude account. They are managed in Claude Code. Agents that keep no list of their own are given the ones Swarmed can read.",
+        about: "Claude Code's own servers and the connectors of your Claude account. They are managed in Claude Code. Other agents are given the ones in its configuration and its plugins that they lack; connectors stay with Claude Code.",
         none: "None found. Claude Code's own servers and connectors show here once a session has run.",
     },
     {
         origin: "codex",
         name: "Codex",
-        about: "The servers in Codex's own configuration. They are managed in Codex, and only Codex uses them.",
+        about: "The servers in Codex's own configuration. They are managed in Codex. Other agents are given the ones switched on that they lack.",
         none: "None found in Codex's configuration.",
     },
     {
         origin: "opencode",
         name: "OpenCode",
-        about: "The servers in OpenCode's own configuration. They are managed in OpenCode. It is also given Swarmed's servers and the ones of Claude Code's that Swarmed can read.",
-        none: "None found in OpenCode's configuration. It is still given Swarmed's servers and the ones of Claude Code's that Swarmed can read.",
+        about: "The servers in OpenCode's own configuration. They are managed in OpenCode. Other agents are given the ones switched on that they lack.",
+        none: "None found in OpenCode's configuration. It is still given Swarmed's servers and the other agents'.",
     },
 ] as const;
 
