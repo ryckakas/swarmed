@@ -16,6 +16,10 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **The context window's card shows your extra usage:** what is spent beyond your plan this
+  month, billed at API prices, against the monthly cap you set, and when this session's turns
+  run on it. When a plan's limit is reached and Claude Code goes on with extra usage, the
+  conversation says so, once, instead of "Usage limit reached".
 - **The context window's card shows your usage limits and what the session has spent.** For
   Claude Code, each usage window (5-hour, weekly and the like) with how much is used and when it
   resets; for any agent that reports a cost, what the session has spent in all, and whether that

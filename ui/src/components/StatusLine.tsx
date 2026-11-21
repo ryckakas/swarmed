@@ -1,6 +1,13 @@
 import { type CSSProperties, useEffect, useState } from "react";
 import { api } from "../api";
 import type { AgentEvent, FileChange, Session, Task } from "../api/types";
+import {
+    type ExtraUsage,
+    latestExtraUsage,
+    money,
+    onExtraUsageNow,
+    spentShare,
+} from "../extraUsage";
 import { type LimitWindow, limitWindows, resetWhen } from "../rateLimit";
 import { type SpendBasis, sessionSpend, spendBasis } from "../spend";
 import {
@@ -192,6 +199,7 @@ function ContextCard({
                 ))}
             </dl>
             <Limits windows={limitWindows(events)} />
+            <Extra usage={latestExtraUsage(events)} inUse={onExtraUsageNow(events)} />
             <Spend spent={sessionSpend(events)} basis={spendBasis(events)} />
         </div>
     );
@@ -231,6 +239,62 @@ function Limits({ windows }: { windows: LimitWindow[] }) {
             </dl>
         </section>
     );
+}
+
+/**
+ * The account's extra usage this billing period: what is spent against the monthly cap, and
+ * whether this session's turns run on it, billed. Only Claude Code reports it.
+ */
+function Extra({ usage, inUse }: { usage: ExtraUsage | null; inUse: boolean }) {
+    const words = useWords();
+    if (usage === null && !inUse) {
+        return null;
+    }
+    const share = usage && spentShare(usage);
+    const note = extraNote(usage, inUse);
+    return (
+        <section className="context-section" aria-label={words.extraUsage}>
+            <p className="context-title">
+                {words.extraUsage}
+                {usage && <span>{spentThisMonth(usage)}</span>}
+            </p>
+            {share != null && (
+                <div className="context-bar context-bar-extra">
+                    <div style={{ width: `${share}%` }} />
+                </div>
+            )}
+            {note && (
+                <p className="context-extra-note" data-tone={note.tone}>
+                    {note.text}
+                </p>
+            )}
+        </section>
+    );
+}
+
+function spentThisMonth(usage: ExtraUsage): string {
+    const spent = money(usage.used, usage.currency, usage.decimals);
+    if (usage.limit === null) {
+        return `${spent} this month, with no cap`;
+    }
+    return `${spent} of ${money(usage.limit, usage.currency, usage.decimals)} this month`;
+}
+
+/** What to say under the figure: the most pressing of a cap reached, use now, and off. */
+function extraNote(
+    usage: ExtraUsage | null,
+    inUse: boolean,
+): { text: string; tone: "warning" | "plain" } | null {
+    if (usage?.limit_reached) {
+        return { text: "The cap is reached: extra usage pays for nothing more.", tone: "warning" };
+    }
+    if (inUse) {
+        return { text: "This session runs on it now: its turns are billed.", tone: "warning" };
+    }
+    if (usage && !usage.enabled) {
+        return { text: "Off: requests stop at the plan's limits.", tone: "plain" };
+    }
+    return null;
 }
 
 /** What each kind of spend is, said after the figure. */

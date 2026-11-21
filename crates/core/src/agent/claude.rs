@@ -413,14 +413,66 @@ async fn write_commands(
 }
 
 /// What to ask the CLI once it has sent `message`. When it starts, which model and effort it
-/// really runs with, since a default says neither. After a turn, that again, as either can have
-/// changed, and how full the context window has become.
+/// really runs with, since a default says neither, and what extra usage stands at. After a
+/// turn, the model and effort again, as either can have changed, and how full the context
+/// window has become. Extra usage again whenever a usage report says it pays for this turn,
+/// which is when its amount moves.
 fn questions_after(message: &Value) -> Vec<Value> {
     match (kind_of(message, "type"), kind_of(message, "subtype")) {
-        (Some("system"), Some("init")) => vec![settings_request()],
+        (Some("system"), Some("init")) => vec![settings_request(), usage_request()],
         (Some("result"), _) => vec![context_request(), settings_request()],
+        (Some("rate_limit_event"), _) if on_extra_usage(message) => vec![usage_request()],
         _ => vec![],
     }
+}
+
+/// Whether a usage report says the turn is paid for by extra usage.
+fn on_extra_usage(message: &Value) -> bool {
+    let flag = |name: &str| {
+        message
+            .pointer(&format!("/rate_limit_info/{name}"))
+            .and_then(Value::as_bool)
+            == Some(true)
+    };
+    flag("isUsingOverage") || flag("overageInUse")
+}
+
+/// The id of the request that asks what the account's usage stands at.
+const USAGE_REQUEST: &str = "swarmed-usage";
+
+/// Asks for the account's usage without the scan of local transcripts that would come with
+/// it otherwise: only the plan's figures are wanted, and the scan reads a week of them.
+fn usage_request() -> Value {
+    json!({
+        "type": "control_request",
+        "request_id": USAGE_REQUEST,
+        "request": { "subtype": "get_usage", "skip_behaviors": true },
+    })
+}
+
+/// The extra usage in the answer to [`usage_request`], if `message` is one and has it.
+///
+/// Claude Code marks this request experimental, so a shape it does not have is no answer.
+/// Only the extra-usage figures are read: the rest of the answer, the plan and the account's
+/// other usage, is not kept, passed on or logged.
+fn parse_extra_usage(message: &Value) -> Option<AgentEvent> {
+    let response = message.get("response")?;
+    if kind_of(response, "request_id") != Some(USAGE_REQUEST) {
+        return None;
+    }
+    let extra = response.pointer("/response/rate_limits/extra_usage")?;
+    Some(AgentEvent::ExtraUsage {
+        enabled: extra.get("is_enabled").and_then(Value::as_bool)?,
+        used: extra.get("used_credits").and_then(Value::as_u64)?,
+        limit: extra.get("monthly_limit").and_then(Value::as_u64),
+        currency: kind_of(extra, "currency")?.to_string(),
+        decimals: extra
+            .get("decimal_places")
+            .and_then(Value::as_u64)
+            .and_then(|digits| u32::try_from(digits).ok())
+            .unwrap_or(2),
+        limit_reached: extra.get("spend_limit_reached").and_then(Value::as_bool) == Some(true),
+    })
 }
 
 /// The id of the request that asks which settings the CLI runs with.
@@ -601,6 +653,7 @@ fn parse_message(message: &Value, pending: &Pending) -> Vec<AgentEvent> {
         // Of the replies to our own control requests, these two are of use.
         "control_response" => parse_context(message)
             .or_else(|| parse_applied(message))
+            .or_else(|| parse_extra_usage(message))
             .into_iter()
             .collect(),
         "system" => parse_background(message).into_iter().collect(),
@@ -1051,9 +1104,105 @@ mod tests {
         assert_eq!(parse(&bare), vec![]);
 
         let asked = |message: Value| questions_after(&message).len();
-        assert_eq!(asked(json!({ "type": "system", "subtype": "init" })), 1);
+        assert_eq!(asked(json!({ "type": "system", "subtype": "init" })), 2);
         assert_eq!(asked(json!({ "type": "result" })), 2);
         assert_eq!(asked(json!({ "type": "assistant" })), 0);
+    }
+
+    #[test]
+    fn extra_usage_is_asked_at_the_start_and_whenever_it_pays_for_a_turn() {
+        let subtypes = |message: Value| -> Vec<Value> {
+            questions_after(&message)
+                .iter()
+                .filter_map(|question| question.pointer("/request/subtype").cloned())
+                .collect()
+        };
+        let report = |info: Value| json!({ "type": "rate_limit_event", "rate_limit_info": info });
+        assert!(
+            subtypes(json!({ "type": "system", "subtype": "init" })).contains(&json!("get_usage"))
+        );
+        assert_eq!(
+            subtypes(report(
+                json!({ "status": "allowed", "isUsingOverage": false })
+            )),
+            Vec::<Value>::new()
+        );
+        assert_eq!(
+            subtypes(report(
+                json!({ "status": "rejected", "isUsingOverage": true })
+            )),
+            vec![json!("get_usage")]
+        );
+        assert_eq!(
+            subtypes(report(
+                json!({ "status": "rejected", "overageInUse": true })
+            )),
+            vec![json!("get_usage")]
+        );
+        // Only the plan's figures are wanted: the scan of a week of transcripts is skipped.
+        assert_eq!(
+            usage_request().pointer("/request/skip_behaviors"),
+            Some(&json!(true))
+        );
+    }
+
+    #[test]
+    fn extra_usage_is_read_from_the_answer_and_nothing_else_is_kept() {
+        // The shape Claude Code 2.1.330 answers with, cut down; the session and the plan's
+        // other figures are there too, and none of them may come through.
+        let answer = |request_id: &str, extra: Value| {
+            json!({ "type": "control_response", "response": {
+                "subtype": "success", "request_id": request_id,
+                "response": {
+                    "session": { "total_cost_usd": 0 },
+                    "subscription_type": "max-secret",
+                    "rate_limits": {
+                        "five_hour": { "utilization": 36, "resets_at": "2026-11-21T19:59:59Z" },
+                        "extra_usage": extra,
+                    },
+                    "behaviors": null,
+                },
+            }})
+        };
+        let extra = json!({
+            "is_enabled": true, "monthly_limit": 40_000, "used_credits": 3871,
+            "utilization": 9.6775, "currency": "EUR", "decimal_places": 2,
+            "spend_limit_reached": false, "user_disabled": false,
+        });
+        let events = parse(&answer(USAGE_REQUEST, extra.clone()));
+        assert_eq!(
+            events,
+            vec![AgentEvent::ExtraUsage {
+                enabled: true,
+                used: 3871,
+                limit: Some(40_000),
+                currency: "EUR".into(),
+                decimals: 2,
+                limit_reached: false,
+            }]
+        );
+        assert!(!format!("{events:?}").contains("secret"));
+        // Somebody else's answer, a plan without extra usage, and a shape it does not know
+        // are nothing.
+        assert_eq!(parse(&answer("other", extra)), vec![]);
+        assert_eq!(parse(&answer(USAGE_REQUEST, Value::Null)), vec![]);
+        assert_eq!(
+            parse(&answer(USAGE_REQUEST, json!({ "used_credits": "?" }))),
+            vec![]
+        );
+        // No cap, and a cap reached.
+        let uncapped = json!({ "is_enabled": false, "used_credits": 0, "currency": "USD", "spend_limit_reached": true });
+        assert_eq!(
+            parse(&answer(USAGE_REQUEST, uncapped)),
+            vec![AgentEvent::ExtraUsage {
+                enabled: false,
+                used: 0,
+                limit: None,
+                currency: "USD".into(),
+                decimals: 2,
+                limit_reached: true,
+            }]
+        );
     }
 
     #[test]

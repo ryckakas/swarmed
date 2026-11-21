@@ -3480,6 +3480,18 @@ code {
     color: var(--clay);
 }
 
+.context-bar-extra div {
+    background: var(--pollen);
+}
+
+.context-extra-note {
+    color: var(--muted);
+}
+
+.context-extra-note[data-tone="warning"] {
+    color: var(--clay);
+}
+
 /* Suggestions for a message that starts with a slash; they open upwards, over the transcript. */
 .slash-menu {
     position: absolute;
