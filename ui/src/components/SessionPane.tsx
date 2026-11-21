@@ -61,13 +61,6 @@ export function SessionPane() {
             <header className="session-head">
                 <div className="session-actions">
                     <IconButton
-                        label={`${words.closeSession}: ${words.archiveSession.toLowerCase()} it, or ${words.deleteSession.toLowerCase()} it for good`}
-                        danger
-                        onClick={() => askToClose(session.id)}
-                    >
-                        <EndIcon />
-                    </IconButton>
-                    <IconButton
                         label={`${words.forkAll}: a new session that starts from all of it, on the same agent`}
                         onClick={() => void forkSession(session.id, null)}
                     >
@@ -90,6 +83,14 @@ export function SessionPane() {
                             <PanelIcon />
                         </IconButton>
                     )}
+                    {/* Last, at the far right: it ends the session, apart from what carries it on. */}
+                    <IconButton
+                        label={`${words.closeSession}: ${words.archiveSession.toLowerCase()} it, or ${words.deleteSession.toLowerCase()} it for good`}
+                        danger
+                        onClick={() => askToClose(session.id)}
+                    >
+                        <EndIcon />
+                    </IconButton>
                 </div>
                 <p className="crumbs">
                     {home.project.name} / {home.task.name}
