@@ -1,5 +1,6 @@
 import type { AgentEvent } from "./api/types";
 import { shownHtml } from "./htmlview";
+import { limitNotice, type RateLimit } from "./rateLimit";
 
 // Turns a session's raw events into what the transcript shows. Pure, so it can be tested.
 
@@ -154,8 +155,6 @@ function single(event: AgentEvent, key: number): Item | null {
                 costUsd: event.cost_usd,
                 durationMs: event.duration_ms ?? null,
             };
-        case "rate_limit":
-            return rateLimitNotice(event, key);
         case "exited":
             return exitNotice(event, key);
         default:
@@ -182,18 +181,6 @@ function sessionItem(event: Extract<AgentEvent, { type: "init" }>, key: number):
     };
 }
 
-function rateLimitNotice(event: Extract<AgentEvent, { type: "rate_limit" }>, key: number) {
-    if (event.status === "allowed") {
-        return null;
-    }
-    const resets =
-        event.resets_at === null
-            ? ""
-            : ` It resets at ${new Date(event.resets_at * 1000).toLocaleTimeString()}.`;
-    const text = `Usage limit reached (${event.status}).${resets}`;
-    return { kind: "notice", key, tone: "warning", text } satisfies Item;
-}
-
 function exitNotice(event: Extract<AgentEvent, { type: "exited" }>, key: number) {
     if (event.code === null || event.code === 0) {
         return null;
@@ -215,6 +202,8 @@ interface Draft {
     settled: Set<Item>;
     /** The proposed changes to the configuration, by request id. */
     proposals: Map<string, Extract<Item, { kind: "proposal" }>>;
+    /** Claude Code's last usage report, so that a warning is said once. */
+    limit: RateLimit | null;
 }
 
 /** The transcript items for a session's events, in order. Tool results join their calls. */
@@ -225,6 +214,7 @@ export function toItems(events: AgentEvent[]): Item[] {
         open: new Map(),
         settled: new Set(),
         proposals: new Map(),
+        limit: null,
     };
     events.forEach((event, key) => {
         add(draft, event, key);
@@ -288,6 +278,8 @@ function add(draft: Draft, event: AgentEvent, key: number) {
             return addProposal(draft, event, key);
         case "config_answered":
             return answerProposal(draft.proposals.get(event.request_id), event.accepted);
+        case "rate_limit":
+            return addLimit(draft, event, key);
         default:
             return addSingle(draft, event, key);
     }
@@ -311,6 +303,14 @@ function answerProposal(
 ) {
     if (proposal) {
         proposal.accepted = accepted;
+    }
+}
+
+function addLimit(draft: Draft, event: RateLimit, key: number) {
+    const text = limitNotice(event, draft.limit, new Date());
+    draft.limit = event;
+    if (text !== null) {
+        draft.items.push({ kind: "notice", key, tone: "warning", text });
     }
 }
 

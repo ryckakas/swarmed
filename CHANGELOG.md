@@ -23,6 +23,9 @@ notice adds its line under Unreleased.
   were deleted, which made the removal fail.
 - **The button that takes a cloud task off the list shows on hover and asks first.** It used to
   be invisible, and one click took the task off at once.
+- **A usage warning from Claude Code no longer reads as a limit reached.** A window filling up
+  is said as a warning, with how much of it is used, once rather than after every turn. When a
+  window resets on another day, the day is given as well as the time.
 
 ### Changed
 

@@ -119,7 +119,7 @@ describe("toItems", () => {
             { type: "exited", code: 1, stderr: "  no such model\n" },
         ]);
         expect(items).toMatchObject([
-            { kind: "notice", tone: "warning", text: "Usage limit reached (rejected)." },
+            { kind: "notice", tone: "warning", text: "Usage limit reached." },
             {
                 kind: "notice",
                 tone: "error",
