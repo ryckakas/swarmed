@@ -372,6 +372,23 @@ pub enum AgentEvent {
         /// The full report, including utilisation per window.
         raw: Value,
     },
+    /// What the account has spent on extra usage this billing period: the use beyond the
+    /// plan's limits, billed at API prices up to a monthly cap the user sets. Asked of Claude
+    /// Code, which reads it from claude.ai with its own sign-in.
+    ExtraUsage {
+        /// Whether extra usage can pay for requests now.
+        enabled: bool,
+        /// Spent this period, in minor units of `currency` (cents for USD).
+        used: u64,
+        /// The monthly cap, in the same units; `None` when there is none.
+        limit: Option<u64>,
+        /// ISO 4217, such as `USD` or `EUR`.
+        currency: String,
+        /// How many digits of `used` and `limit` come after the decimal point.
+        decimals: u32,
+        /// Whether the cap is reached, so that extra usage pays for nothing more.
+        limit_reached: bool,
+    },
     /// The turn ended and the agent waits for the next message.
     TurnDone {
         /// Whether the turn failed or was interrupted.

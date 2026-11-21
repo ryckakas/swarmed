@@ -122,6 +122,7 @@ impl SessionStatus {
             | AgentEvent::TerminalShared { .. }
             | AgentEvent::TextDelta { .. }
             | AgentEvent::RateLimit { .. }
+            | AgentEvent::ExtraUsage { .. }
             | AgentEvent::Forked { .. }
             | AgentEvent::Other { .. } => None,
         }

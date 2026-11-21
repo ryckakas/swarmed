@@ -1077,6 +1077,17 @@ function sampleLimits(): AgentEvent {
     };
 }
 
+/** The account's extra usage, as Claude Code answers when asked: some spent of a monthly cap. */
+const SAMPLE_EXTRA_USAGE: AgentEvent = {
+    type: "extra_usage",
+    enabled: true,
+    used: 3871,
+    limit: 40_000,
+    currency: "USD",
+    decimals: 2,
+    limit_reached: false,
+};
+
 /** A title as the core's namer might suggest it: here, the message's first words, capitalised. */
 export function suggestedTitle(message: string): string {
     const words = titleFrom(message).split(/\s+/).slice(0, 6).join(" ");
@@ -1250,6 +1261,7 @@ class MockAgent {
             this.later(id, done, "idle", 2);
             this.later(id, SAMPLE_CONTEXT, null, 3);
             this.later(id, sampleLimits(), null, 3);
+            this.later(id, SAMPLE_EXTRA_USAGE, null, 3);
             const { model, effort } = this.configure(id, {});
             const applied = { model: model ?? "claude-opus-5-5", effort: effort ?? "xhigh" };
             this.later(id, { type: "applied", ...applied }, null, 3);

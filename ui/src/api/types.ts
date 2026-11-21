@@ -559,6 +559,16 @@ export type AgentEvent =
     | { type: "permission_withdrawn"; request_id: string }
     | { type: "rate_limit"; status: string; resets_at: number | null; raw: unknown }
     | {
+          /** The account's extra usage this billing period, in minor units of `currency`. */
+          type: "extra_usage";
+          enabled: boolean;
+          used: number;
+          limit: number | null;
+          currency: string;
+          decimals: number;
+          limit_reached: boolean;
+      }
+    | {
           type: "turn_done";
           is_error: boolean;
           result: string | null;

@@ -48,6 +48,8 @@ export interface Words {
     /** The context card's parts on the agent's usage windows and on what the session spent. */
     usageLimits: string;
     spentHere: string;
+    /** The context card's part on the account's extra usage, billed beyond the plan. */
+    extraUsage: string;
     /** What ending a session and taking it out of the sidebar is called. */
     closeSession: string;
     /** Starting a session from all of this one, on the same agent and on another. */
@@ -130,6 +132,7 @@ const PLAIN: Words = {
     forgetCloud: "Take off the list",
     usageLimits: "Usage limits",
     spentHere: "Spent in this session",
+    extraUsage: "Extra usage",
     closeSession: "Close session",
     forkAll: "Fork this conversation",
     cloneTo: "Clone to…",
@@ -247,6 +250,7 @@ const COLONY: Words = {
     forgetCloud: "Let it drift",
     usageLimits: "Hunger limits",
     spentHere: "Consumed by this spawn",
+    extraUsage: "Borrowed biomass",
 };
 
 const WORDS: Record<Style, Words> = { plain: PLAIN, swarm: SWARM, colony: COLONY };

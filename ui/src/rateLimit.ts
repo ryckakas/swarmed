@@ -26,6 +26,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null;
 }
 
+/** Whether a report says extra usage pays for the turn: the plan's limit is reached, and the work goes on, billed. */
+export function onExtraUsage(event: RateLimit): boolean {
+    const raw = isRecord(event.raw) ? event.raw : {};
+    return raw.isUsingOverage === true || raw.overageInUse === true;
+}
+
 /** Which window a report is about, and how much of it is used, where Claude Code says. */
 function details(event: RateLimit): { window: string | null; used: number | null } {
     const raw = isRecord(event.raw) ? event.raw : {};
@@ -64,6 +70,9 @@ export function limitNotice(
     }
     const { window, used } = details(event);
     const resets = event.resets_at === null ? "" : ` It resets ${resetWhen(event.resets_at, now)}.`;
+    if (onExtraUsage(event)) {
+        return billedNotice(previous, window, resets);
+    }
     if (event.status !== "allowed_warning") {
         return `Usage limit reached${window ? ` (${window})` : ""}.${resets}`;
     }
@@ -74,6 +83,24 @@ export function limitNotice(
     }
     const share = used === null ? "" : `: ${Math.round(used * 100)}% used`;
     return `Claude Code warns that the ${window ?? "usage"} limit is getting closer${share}. Nothing is limited yet.${resets}`;
+}
+
+/**
+ * A limit reached while extra usage carries the work on: said once, not with every turn that
+ * goes on billed, as long as the reports before it said the same of the same window.
+ */
+function billedNotice(
+    previous: RateLimit | null,
+    window: string | null,
+    resets: string,
+): string | null {
+    const saidAlready =
+        previous !== null && onExtraUsage(previous) && details(previous).window === window;
+    if (saidAlready) {
+        return null;
+    }
+    const which = window ? `The ${window} limit` : "A usage limit";
+    return `${which} is reached: Claude Code goes on with extra usage, which is billed.${resets}`;
 }
 
 /** One of Claude Code's usage windows, as its last report gave it. */

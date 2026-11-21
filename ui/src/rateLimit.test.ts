@@ -113,3 +113,27 @@ describe("limitWindows", () => {
         expect(limitWindows([report("allowed", { unifiedWindows: "?" })])).toEqual([]);
     });
 });
+
+describe("a limit reached while extra usage carries on", () => {
+    // What Claude Code reported on 19 Nov when the 5-hour window filled and work went on.
+    const billed = report("rejected", {
+        status: "rejected",
+        rateLimitType: "five_hour",
+        isUsingOverage: true,
+        overageInUse: true,
+        overageStatus: "allowed",
+    });
+
+    it("says the work goes on, billed, not that it stopped", () => {
+        const text = limitNotice(billed, null, now) ?? "";
+        expect(text).toBe(
+            "The 5-hour limit is reached: Claude Code goes on with extra usage, which is billed.",
+        );
+    });
+
+    it("says it once, not with every billed turn after it", () => {
+        expect(limitNotice(billed, billed, now)).toBeNull();
+        // Back within the plan and over again: news once more.
+        expect(limitNotice(billed, report("allowed", {}), now)).not.toBeNull();
+    });
+});
