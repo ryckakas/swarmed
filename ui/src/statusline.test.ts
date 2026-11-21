@@ -32,7 +32,7 @@ describe("statusParts", () => {
     it("shows the chosen pieces in the chosen order and skips what is not known yet", () => {
         const parts = statusParts(["cost", "changes", "branch"], source());
         expect(parts.map(({ item, text }) => [item, text])).toEqual([
-            ["branch", "ricardas/fix-login-redirect"],
+            ["branch", "you/fix-login-redirect"],
         ]);
     });
 

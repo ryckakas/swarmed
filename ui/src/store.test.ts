@@ -311,7 +311,7 @@ describe("closed sessions", () => {
                 .find((candidate) => candidate.name === "invoice-export");
         expect(task()?.closed).toBe(1);
         expect(task()?.sessions).toEqual([]);
-        const closed = await api.sessionsClosed("hero", "invoice-export");
+        const closed = await api.sessionsClosed("storefront", "invoice-export");
         expect(closed.map((session) => session.id)).toEqual([3]);
 
         await api.sessionReopen(3);

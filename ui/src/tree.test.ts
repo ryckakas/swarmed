@@ -52,8 +52,8 @@ describe("withSession and withoutSession", () => {
 
 describe("a folded repository", () => {
     it("still says what its most urgent session needs", () => {
-        const [hero, bonsai, fsum] = sampleProjects();
-        expect(hero && projectStatus(hero)).toBe("waiting");
+        const [storefront, bonsai, fsum] = sampleProjects();
+        expect(storefront && projectStatus(storefront)).toBe("waiting");
         expect(bonsai && projectStatus(bonsai)).toBe("errored");
         expect(fsum && projectStatus(fsum)).toBeNull();
     });
@@ -166,7 +166,7 @@ describe("lookups", () => {
         expect(session?.title).toContain("CSV export");
         expect(session?.id).toBe(3);
         const home = session && findSessionHome(projects, session);
-        expect(home?.project.name).toBe("hero");
+        expect(home?.project.name).toBe("storefront");
         expect(home?.task.name).toBe("invoice-export");
         expect(findSession(projects, null)).toBeUndefined();
     });
@@ -176,8 +176,8 @@ describe("lookups", () => {
     });
 
     it("describes a task by its most urgent session", () => {
-        const [hero, bonsai] = sampleProjects();
-        expect(hero?.tasks.map(taskStatus)).toEqual(["waiting", "idle", null]);
+        const [storefront, bonsai] = sampleProjects();
+        expect(storefront?.tasks.map(taskStatus)).toEqual(["waiting", "idle", null]);
         expect(bonsai?.tasks.map(taskStatus)).toEqual(["errored"]);
     });
 });
@@ -185,7 +185,7 @@ describe("lookups", () => {
 describe("taskNameFrom", () => {
     it("turns typed text into a name the core accepts", () => {
         expect(taskNameFrom("Fix the Login redirect!")).toBe("fix-the-login-redirect");
-        expect(taskNameFrom("PM-16037")).toBe("pm-16037");
+        expect(taskNameFrom("SHOP-142")).toBe("shop-142");
         expect(taskNameFrom("  ../up  ")).toBe("up");
         expect(taskNameFrom("v1..2")).toBe("v1.2");
         expect(taskNameFrom("???")).toBe("");
@@ -252,14 +252,14 @@ describe("unread sessions", () => {
     });
 
     it("show on a folded repository", () => {
-        const [hero] = applySessionEvent(sampleProjects(), done);
-        expect(hero && projectUnread(hero)).toBe(true);
+        const [storefront] = applySessionEvent(sampleProjects(), done);
+        expect(storefront && projectUnread(storefront)).toBe(true);
     });
 });
 
 describe("nestedSessions", () => {
-    const [hero] = sampleProjects();
-    const base = hero?.tasks[0]?.sessions[0] as Session;
+    const [storefront] = sampleProjects();
+    const base = storefront?.tasks[0]?.sessions[0] as Session;
     const session = (id: number, spawnedBy: number | null): Session => ({
         ...base,
         id,

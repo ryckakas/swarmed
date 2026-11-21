@@ -2,9 +2,47 @@
 
 ![Swarmed, a Rust agent orchestrator: a bear in power armour facing a swarm](docs/cover.jpg)
 
-Coding agents side by side on macOS, each in a git worktree of its own with an isolated dev
-stack: Claude Code, Codex, OpenCode, Antigravity or any agent that speaks the Agent Client
-Protocol. A desktop app and a `swarmed` command over one Rust core.
+**Run coding agents side by side on your Mac, each on a branch and in a worktree of its own.**
+
+Give Swarmed a git repository and say what you want done. It creates a branch and a worktree for
+the task, sets it up with ports of its own, and starts an agent there: Claude Code, Codex,
+OpenCode, Antigravity or any agent that speaks the Agent Client Protocol. Run several tasks at
+once: each has its own worktree and ports, so they don't step on each other. A desktop app and a
+`swarmed` command, over one Rust core.
+
+![macOS](https://img.shields.io/badge/macOS-only-555)
+![Rust 1.100+](https://img.shields.io/badge/rust-1.100%2B-CE422B)
+![License: MIT](https://img.shields.io/badge/license-MIT-blue)
+
+<img src="docs/images/demo.gif" alt="A new task started in plan mode and its plan approved; the agent answering with a chart shown inline, whose buttons redraw it; a diff in the task's panel; a permission request allowed; and the colour palettes switched in Settings">
+
+## Why this one
+
+- **A task is a branch, a worktree and a stack.** Your setup hook runs in each new worktree,
+  your dev server keeps running beside it, and every task gets ports of its own, so two of them
+  can run the same app at once.
+- **Any agent, on its own login.** Claude Code runs as you set it up, with your login,
+  settings and plugins. Others are installed and set up from Settings → Agents. Swarmed never
+  signs you in to anything and keeps no GitHub token: it uses each agent's own login and your
+  `gh`.
+- **One pool of MCP servers and skills.** A server set up for Claude Code, Codex or OpenCode
+  reaches the other agents too, and so does a skill, without copying anything into their
+  configuration.
+- **Supervise from one window.** Permission requests, questions and plans are answered in the
+  conversation, and a notification says when a session needs you.
+- **Answers you can see.** An agent can answer with HTML, such as a chart, a table or a mock-up,
+  and Swarmed shows it in the conversation, in a sandbox with no way out to the app or the
+  network.
+- **From prompt to pull request.** The task's diff, comments on lines sent back to the agent,
+  commit, push, and a pull request with its checks.
+- **No files of its own in your repository.** Swarmed keeps its configuration and state in a
+  folder of its own. The repository gains only the tasks' branches (and an empty first commit
+  if it had none), and their worktrees live under `~/swarmed`.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/app-dark.png">
+  <img src="docs/images/app-light.png" alt="Swarmed with a session open: projects, tasks and sessions in the sidebar, a conversation in which Claude Code asks to push, and the task's panel with its pull request and checks">
+</picture>
 
 ## Install
 
@@ -26,93 +64,32 @@ Swarmed is not signed with an Apple Developer ID yet. Installed with Homebrew or
 hand, macOS stops it the first time it opens: allow it under System Settings → Privacy & Security
 → Open Anyway.
 
-What changed in each release is in [CHANGELOG.md](CHANGELOG.md).
+## Get started
 
-## Layout
+Swarmed runs agents you have installed and signed in to yourself; Claude Code is the default.
+Open the app, add a repository, start a task and say what the agent should do. The app speaks
+in swarm words until Settings → Appearance switches it to plain ones: adding a repository is
+**Found a colony**, a new task **New brood**.
 
-- `crates/core` — `swarmed-core`, the headless core. No UI dependency.
-- `crates/cli` — `swarmed`, the command, a thin front end over the core.
-- `crates/app` — `swarmed-app`, the desktop app: a Tauri shell over the core.
-- `ui` — the app's front end, in React and TypeScript.
-
-## The command
+Or from a terminal:
 
 ```sh
-swarmed project add /path/to/repo
-$EDITOR "$(swarmed project config <project>)"
-swarmed task new <project> <task>
-swarmed task list <project>
-swarmed session run <project> <task> "<prompt>"
-swarmed session send <session-id> "<prompt>"
-swarmed task rm <project> <task>
+swarmed project add ~/code/shop
+swarmed task new shop fix-login
+swarmed session run shop fix-login "Fix the login form's error message"
 ```
 
-From a checkout, `cargo run -p swarmed --` stands in for `swarmed`.
+## Documentation
 
-Sessions run your installed `claude` with its own login and configuration. `--auto` uses Claude
-Code's auto mode; without it, file edits go through and other actions ask. Set
-`SWARMED_FAKE_AGENT=1` to try the commands against a scripted agent that spends no tokens.
+- [Projects and configuration](docs/configuration.md): hooks, ports, environments and where
+  Swarmed keeps things
+- [Coding agents](docs/coding-agents.md): adding agents, MCP servers, skills, and the tools
+  Swarmed gives them
+- [The `swarmed` command](docs/command.md)
+- [Architecture and development](docs/architecture.md): how it is built, and building it
+- [Security](SECURITY.md): what Swarmed keeps, what it hands on, and reporting a vulnerability
+- [Changelog](CHANGELOG.md): what changed in each release
 
-Worktrees are created under `~/swarmed/<project>/<task>`. Config and state live in
-`~/Library/Application Support/swarmed/`; nothing is written into your repositories.
-`SWARMED_DATA_DIR` and `SWARMED_WORKTREES_DIR` override both locations.
+## License
 
-## Building the app
-
-```sh
-corepack enable && pnpm install
-pnpm app            # builds and opens the app
-pnpm dev            # the UI alone in a browser, on sample data
-```
-
-[RELEASING.md](RELEASING.md) says how a release is made.
-
-## Other agents
-
-Sessions run on Claude Code unless told otherwise. Any agent that speaks the
-[Agent Client Protocol](https://agentclientprotocol.com) can be added in `agents.toml` in the data
-directory (`swarmed agents` prints its path):
-
-```toml
-[opencode]
-name = "OpenCode"
-command = "opencode"
-args = ["acp"]
-models = ["openrouter/openai/gpt-5.6"]   # offered in the model menu
-
-[opencode.env]                           # optional extra environment for the agent
-# OPENROUTER_API_KEY = "..."
-```
-
-OpenCode can also be installed and given its models from Settings → Agents, without editing
-the file.
-
-The agent keeps its own credentials: sign in with the agent's own command first (for OpenCode,
-`opencode auth login`). It then appears in the app's agent menu and as `--agent opencode` in the
-CLI.
-
-What such a session gets:
-
-- **MCP servers:** one pool for every agent. When a session starts, Swarmed reads the servers
-  configured for Claude Code (your own, the repository's `.mcp.json` once you approved them
-  there, yours for that repository, and the ones its plugins bring), for Codex and for
-  OpenCode, and hands the
-  session's agent the ones it does not have by that name. Nothing is copied into an agent's
-  files. Set `shared_mcp_servers = false` on an agent to turn that off. HTTP servers only go
-  to agents that accept them, and a server you signed in to in a browser stays signed in only
-  in the agent you did that in.
-- **Skills:** nothing to do for agents that read `~/.claude/skills` and `.claude/skills`
-  themselves, which OpenCode and Goose do.
-- **Not available:** claude.ai connectors, which are signed in through your Anthropic account,
-  and Claude Code's hooks.
-
-## Development
-
-```sh
-cargo fmt --all
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-features
-```
-
-`CLAUDE.md` lists the remaining checks CI runs (docs, cargo-deny, cargo-shear, typos, taplo,
-shellcheck, zizmor, actionlint) and the lint policy.
+MIT
