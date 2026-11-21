@@ -7,6 +7,7 @@ A release ships Swarmed.app, with the `swarmed` command inside it, from one tag:
 | Where | What | Made by |
 | --- | --- | --- |
 | GitHub release | `Swarmed-X.Y.Z-macos-universal.zip` and `.dmg`, each with a `.sha256`; the CHANGELOG section as notes | `release.yml` |
+| GitHub release | `Swarmed-X.Y.Z-macos-universal.app.tar.gz` and its `.sig`, and `latest.json`, which installed apps update from | `release.yml` |
 | `install.sh` | the zip from the latest release, checked against its `.sha256` | read from `main` |
 | `ryckakas/homebrew-tap` | `Casks/swarmed.rb`, from `packaging/homebrew/swarmed.rb` | `release.yml` |
 | crates.io | `swarmed-core`, then `swarmed` (the command alone); `swarmed-app` is not published | `release.yml` |
@@ -45,6 +46,27 @@ install.sh` installs from there.
     write.
   - `CARGO_REGISTRY_TOKEN`: a crates.io API token with the `publish-new` and `publish-update`
     scopes. Only a token can create a crate crates.io has never seen.
+  - `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: the updater's key; see
+    below.
+
+## The updater's key
+
+Installed apps update themselves from `latest.json` on the latest release, and install an archive
+only if it is signed with this key, the version included. The key is not Apple's, and works with
+the ad hoc signing below.
+
+1. Make it once, with a password: `pnpm tauri signer generate -w ~/.tauri/swarmed.key`.
+2. Put the public key, the content of `~/.tauri/swarmed.key.pub`, in
+   `plugins.updater.pubkey` in `crates/app/tauri.conf.json`. `scripts/build-release.sh` refuses
+   to build without it.
+3. Store the private key and its password as secrets:
+   `gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/swarmed.key`, then
+   `gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+4. Keep a copy of the private key and its password somewhere safe, such as a password manager.
+
+Lose the key and installed apps can take no further update: everyone would have to install by
+hand once more, from an app built with a new key. Never change the public key in a release
+without that in mind.
 
 ## After the first release: trusted publishing
 

@@ -34,6 +34,7 @@ import type {
     TerminalOpened,
     TerminalOutput,
     Unpublished,
+    UpdateState,
     Usage,
 } from "./types";
 
@@ -135,6 +136,11 @@ export const tauriApi: Api = {
     settings: () => invoke<Settings>("settings"),
     setSettings: (settings) => invoke("set_settings", { settings }),
     version: () => getVersion(),
+    updateState: () => invoke<UpdateState>("update_state"),
+    updateCheck: () => invoke<UpdateState>("update_check"),
+    updateRestart: () => invoke("update_restart"),
+    onUpdateState: (listener) =>
+        listen<UpdateState>("update-state", (event) => listener(event.payload)),
     terminalConfig: () => invoke("terminal_config"),
     terminalConfigSave: (text) => invoke("terminal_config_save", { text }),
     customLayout: () => invoke("custom_layout"),

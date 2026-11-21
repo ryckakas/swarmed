@@ -167,6 +167,14 @@ export function findSessionHome(
     return undefined;
 }
 
+/** How many sessions are in a turn: at work, or waiting for a decision within it. */
+export function countBusy(projects: Project[]): number {
+    return projects
+        .flatMap((project) => project.tasks)
+        .flatMap((task) => task.sessions)
+        .filter((session) => session.status === "working" || session.status === "waiting").length;
+}
+
 /** How many sessions are waiting for a decision. */
 export function countWaiting(projects: Project[]): number {
     return projects

@@ -22,9 +22,12 @@ tauri-build = { workspace = true }
 [dependencies]
 swarmed-core = { workspace = true }
 serde = { workspace = true }
+# `tauri::generate_context!` writes the plugins' configuration out as `serde_json` values.
+serde_json = { workspace = true }
 tauri = { workspace = true }
 tauri-plugin-dialog = { workspace = true }
-tokio = { workspace = true, features = ["sync"] }
+tauri-plugin-updater = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time"] }
 
 # The system's notifications, where there is a system we know how to ask.
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -37,6 +40,5 @@ objc2-foundation = { workspace = true }
 objc2-user-notifications = { workspace = true }
 
 [dev-dependencies]
-serde_json = { workspace = true }
 tauri = { workspace = true, features = ["test"] }
 tempfile = { workspace = true }

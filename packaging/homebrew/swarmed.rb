@@ -14,6 +14,9 @@ cask "swarmed" do
     strategy :github_latest
   end
 
+  # Swarmed updates itself (Settings → About), so brew leaves it to that.
+  auto_updates true
+
   app "Swarmed.app"
   binary "#{appdir}/Swarmed.app/Contents/MacOS/swarmed"
 

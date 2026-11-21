@@ -44,6 +44,8 @@ pub struct Settings {
     /// Rules of the user's own that every agent is given with its instructions, whatever the
     /// agent or model: plain text, such as "keep answers short". Empty for none.
     pub rules: String,
+    /// How Swarmed gets its new versions.
+    pub updates: UpdateMode,
 }
 
 /// The longest the user's rules may be, in bytes: they travel with every session's
@@ -112,6 +114,18 @@ pub enum Layout {
     Custom,
 }
 
+/// How Swarmed gets its new versions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateMode {
+    /// It looks by itself, at launch and every few hours, downloads what it finds, and
+    /// installs that when it quits.
+    #[default]
+    Automatic,
+    /// It looks only when asked to, in the About view.
+    WhenAsked,
+}
+
 /// The smallest and largest text the app can be set to, in percent.
 const TEXT_SCALE_RANGE: (u16, u16) = (80, 150);
 
@@ -133,6 +147,7 @@ impl Default for Settings {
             status_items: StatusItem::defaults(),
             status_command: String::new(),
             rules: String::new(),
+            updates: UpdateMode::Automatic,
         }
     }
 }
@@ -201,6 +216,7 @@ mod tests {
             status_items: vec![StatusItem::Cost],
             status_command: "~/bin/status".to_string(),
             rules: "Keep answers short.\nNo em dashes.".to_string(),
+            updates: UpdateMode::WhenAsked,
         };
         chosen.save(&path).expect("saves");
         assert_eq!(Settings::load(&path).expect("loads"), chosen);

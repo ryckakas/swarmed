@@ -346,7 +346,28 @@ export interface Settings {
     status_command: string;
     /** The user's own rules, given to every agent whatever the model. Empty for none. */
     rules: string;
+    /** How Swarmed gets its new versions. */
+    updates: UpdateMode;
 }
+
+/**
+ * How Swarmed gets its new versions: by itself, at launch and every few hours, installed as it
+ * quits; or only when the About view looks.
+ */
+export type UpdateMode = "automatic" | "when_asked";
+
+/** Where updating Swarmed stands. */
+export type UpdateState =
+    | { state: "unknown" }
+    | { state: "checking" }
+    | { state: "up_to_date" }
+    /** Out, and not downloaded. */
+    | { state: "available"; version: string }
+    /** Coming in: `received` bytes so far, of `total` if the server said. */
+    | { state: "downloading"; version: string; received: number; total: number | null }
+    /** Downloaded and its signature checked: it goes in when Swarmed quits. */
+    | { state: "ready"; version: string }
+    | { state: "failed"; reason: string };
 
 export interface Project {
     id: number;

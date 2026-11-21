@@ -1904,6 +1904,7 @@ export function createMockApi(): Api {
         rules: "",
         status_items: ["branch", "changes", "model", "context", "cost", "duration"],
         status_command: "",
+        updates: "automatic",
     };
     return {
         overview: async () => structuredClone(agent.projects),
@@ -2019,6 +2020,13 @@ export function createMockApi(): Api {
         settings: async () => ({ ...settings }),
         // The sample's own: a browser has no app to ask.
         version: async () => "0.1.0",
+        // A newer version is out in the sample, so the About view has something to show.
+        updateState: async () => ({ state: "unknown" }),
+        updateCheck: async () => ({ state: "available", version: "0.2.0" }),
+        updateRestart: async () => {
+            throw new Error("A browser has no Swarmed to restart.");
+        },
+        onUpdateState: async () => () => undefined,
         setBadge: async () => {},
         setSettings: async (changed) => {
             settings = changed;

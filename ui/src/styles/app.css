@@ -5307,3 +5307,35 @@ kbd {
 .about .about-maker {
     font-size: var(--text-sm);
 }
+
+/* Where updating Swarmed stands, under the version, and the button that goes on from there. */
+.about .about-update {
+    display: flex;
+    flex-wrap: wrap;
+    grid-column: 1 / -1;
+    gap: var(--space-2) var(--space-3);
+    align-items: center;
+    margin-top: var(--space-3);
+}
+
+.about .about-update p {
+    flex-basis: 100%;
+    margin: 0;
+    color: var(--muted);
+}
+
+.about .about-update .about-update-warning {
+    color: var(--text);
+}
+
+/* A newer version is out or ready: a dot after the version in the corner. */
+.sidebar-version[data-new]::after {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-left: 4px;
+    border-radius: 50%;
+    background: var(--sky);
+    content: "";
+    vertical-align: middle;
+}

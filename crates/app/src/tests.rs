@@ -451,7 +451,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
             "text_scale": 100,
             "html_views": true, "notifications": true, "default_supervision": "auto",
             "status_items": ["branch", "changes", "model", "context", "cost"],
-            "status_command": "", "rules": "",
+            "status_command": "", "rules": "", "updates": "automatic",
         })
     );
 
@@ -522,6 +522,39 @@ fn the_ui_can_list_what_was_left_running_and_cannot_stop_what_no_agent_runs() {
     assert_eq!(app.invoke("task_background", target), Ok(json!([])));
     let stop = json!({ "id": 999, "taskId": "b1" });
     assert!(app.invoke("session_stop_background", stop).is_err());
+}
+
+#[test]
+fn nothing_is_known_of_updates_until_asked_and_a_build_from_the_sources_is_not_updated() {
+    let app = app();
+    assert_eq!(
+        app.invoke("update_state", json!({})),
+        Ok(json!({ "state": "unknown" }))
+    );
+    let refused = app.invoke("update_restart", json!({}));
+    let message = refused.expect_err("refused");
+    assert!(
+        message
+            .as_str()
+            .is_some_and(|m| m.contains("not updated: install a release")),
+        "{message}"
+    );
+}
+
+/// A configuration the updater refused would stop the app as it starts, in a release only.
+#[test]
+fn the_updater_accepts_its_configuration_and_requires_the_signed_version() {
+    let file: Value =
+        serde_json::from_str(include_str!("../tauri.conf.json")).expect("tauri.conf.json is JSON");
+    let section = file.pointer("/plugins/updater").cloned();
+    let config: tauri_plugin_updater::Config =
+        serde_json::from_value(section.expect("configured")).expect("accepted");
+    assert!(config.require_signed_version);
+    let endpoints: Vec<&str> = config.endpoints.iter().map(Url::as_str).collect();
+    assert_eq!(
+        endpoints,
+        ["https://github.com/ryckakas/swarmed/releases/latest/download/latest.json"]
+    );
 }
 
 #[test]

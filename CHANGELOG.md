@@ -14,6 +14,17 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Added
+
+- **Swarmed updates itself.** About shows whether a newer version is out, and **Update and
+  restart** installs it. With **Update automatically** on, as it is unless turned off under
+  Settings → About, Swarmed looks at launch and every few hours, downloads a new version, and
+  installs it when you quit; a dot on the version in the corner says one is ready. Off, nothing
+  is fetched until About opens. An update is installed only if it is signed with the release
+  key, for the version it claims to be. This version still has to be installed by hand: the
+  ones after it update from here.
+- **`swarmed-core`: `Settings` has `updates`,** an `UpdateMode`: `automatic` or `when_asked`.
+
 ### Fixed
 
 - **An OpenCode session left on "Default model" runs on the first model listed for OpenCode

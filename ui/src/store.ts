@@ -13,6 +13,7 @@ import type {
     Settings,
     Template,
     TerminalConfig,
+    UpdateState,
 } from "./api/types";
 import type { CloudTarget } from "./cloud";
 import type { Comparison } from "./components/CompareDialog";
@@ -211,6 +212,8 @@ interface State {
     showBanner(banner: Banner | null): void;
     /** The installed app's version; `null` until it is read. */
     version: string | null;
+    /** Where updating Swarmed stands, as the app last said. */
+    update: UpdateState;
     /** The session the user asked to close, until they confirm or change their mind. */
     closing: number | null;
     /** Asks before closing: `null` withdraws the question. */
@@ -612,6 +615,7 @@ export const useStore = create<State>((set, get) => ({
     banner: null,
     showBanner: (banner) => set({ banner }),
     version: null,
+    update: { state: "unknown" },
     closing: null,
     askToClose: (sessionId) => set({ closing: sessionId }),
     deleting: null,
@@ -761,6 +765,7 @@ export function connect(api: Api): () => void {
     void refresh(api);
     readConfiguration(api);
     void reporting(async () => useStore.setState({ version: await api.version() }));
+    void reporting(async () => useStore.setState({ update: await api.updateState() }));
     // After dropped events nothing on screen can be trusted: forget the transcripts and reload.
     const reload = () => {
         const { selectedSessionId, open } = useStore.getState();
@@ -803,6 +808,7 @@ export function connect(api: Api): () => void {
         api.onNoticeOpened((sessionId) => void useStore.getState().open(api, sessionId)),
         api.onEventsLagged(() => reload()),
         api.onHookOutput((output) => useStore.setState({ hookLine: output.line })),
+        api.onUpdateState((update) => useStore.setState({ update })),
         api.onMenu(menuChosen),
     ];
     return () => {

@@ -20,6 +20,8 @@ use swarmed_core::{
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
+use crate::update::{self, UpdateState, Updates};
+
 /// The event a hook's output lines are emitted as while a task is created or removed.
 pub(crate) const HOOK_OUTPUT: &str = "hook-output";
 
@@ -647,6 +649,24 @@ pub(crate) fn settings(core: CoreState<'_>) -> Command<Settings> {
 #[tauri::command]
 pub(crate) fn set_settings(core: CoreState<'_>, settings: Settings) -> Command<()> {
     Ok(core.set_settings(&settings)?)
+}
+
+/// Where updating Swarmed stands.
+#[tauri::command]
+pub(crate) fn update_state(updates: State<'_, Updates>) -> UpdateState {
+    updates.state()
+}
+
+/// Looks for a new version of Swarmed now.
+#[tauri::command]
+pub(crate) async fn update_check<R: Runtime>(app: AppHandle<R>) -> UpdateState {
+    update::look_now(&app).await
+}
+
+/// Downloads the new version if need be, and restarts Swarmed to install it.
+#[tauri::command]
+pub(crate) async fn update_restart<R: Runtime>(app: AppHandle<R>) -> Command<()> {
+    update::restart(&app).await.map_err(CommandError)
 }
 
 /// The user's custom layout, as checked by the core.

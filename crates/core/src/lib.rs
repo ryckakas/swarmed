@@ -109,7 +109,7 @@ use sessions::Live;
 pub use sessions::{
     EVENT_BUFFER, Session, SessionEvent, SessionOptions, SessionSettings, SessionStatus,
 };
-pub use settings::{Layout, Palette, Settings, Style, Theme};
+pub use settings::{Layout, Palette, Settings, Style, Theme, UpdateMode};
 pub use skills::Skill;
 pub use snapshots::Snapshot;
 pub use stacks::StackState;

@@ -39,6 +39,7 @@ import type {
     TerminalOutput,
     TurnStats,
     Unpublished,
+    UpdateState,
     Usage,
 } from "./types";
 
@@ -241,6 +242,14 @@ export interface Api {
     setSettings(settings: Settings): Promise<void>;
     /** The installed app's version, such as `0.1.0`. */
     version(): Promise<string>;
+    /** Where updating Swarmed stands. */
+    updateState(): Promise<UpdateState>;
+    /** Looks for a new version now; with automatic updates on, downloads it too. */
+    updateCheck(): Promise<UpdateState>;
+    /** Downloads the new version if need be, and restarts Swarmed to install it. */
+    updateRestart(): Promise<void>;
+    /** Calls `listener` whenever where updating stands changes. */
+    onUpdateState(listener: (state: UpdateState) => void): Promise<Unsubscribe>;
     /** The user's configuration of the terminal. */
     terminalConfig(): Promise<TerminalConfig>;
     /** Keeps `text`, JSON as written, as the terminal's configuration; fails with the reason if it cannot be used. */
