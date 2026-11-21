@@ -575,6 +575,11 @@ export type AgentEvent =
           state: BackgroundState;
           summary: string | null;
       }
+    /**
+     * Something a sub-agent said or did. `parent` is the tool call that started it, which
+     * tells one sub-agent from another.
+     */
+    | { type: "sub"; parent: string; event: AgentEvent }
     | { type: "other"; raw: unknown };
 
 /** How far along something an agent left running is. */

@@ -1607,6 +1607,103 @@ code {
     padding-left: calc(9px + var(--space-4));
 }
 
+/* Sub-agents an agent has at work: under their session, set in, and gone when they are done. */
+.sub-agents {
+    margin: 0 0 2px calc(9px + var(--space-4));
+    padding: 0;
+    list-style: none;
+    border-left: 1px dashed var(--line);
+}
+
+.sub-agent-row {
+    width: 100%;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 3px var(--space-2) 3px 9px;
+    border: 0;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: var(--text-sm);
+    text-align: left;
+    cursor: pointer;
+}
+
+.sub-agent-row:hover,
+.sub-agent-row[aria-current="true"] {
+    background: var(--raised);
+    color: var(--text);
+}
+
+.sub-agent-pulse {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--pollen);
+    animation: sub-agent-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes sub-agent-pulse {
+    50% {
+        opacity: 0.3;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sub-agent-pulse {
+        animation: none;
+    }
+}
+
+.sub-agent-kind {
+    flex: none;
+    color: var(--faint);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs, 11px);
+}
+
+/* A sub-agent's own conversation, shown in place of its session's. */
+.sub-agent-name {
+    margin: 0;
+    font-size: var(--text-lg);
+}
+
+.sub-agent-state {
+    color: var(--muted);
+}
+
+.sub-agent-state[data-working="true"] {
+    color: var(--pollen);
+}
+
+.sub-agent-asked,
+.sub-agent-answer {
+    flex: none;
+    margin: var(--space-2) var(--space-8) 0;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+}
+
+.sub-agent-asked summary {
+    color: var(--muted);
+    cursor: pointer;
+}
+
+.sub-agent-answer {
+    margin-bottom: var(--space-4);
+    border-left: 2px solid var(--pollen);
+}
+
+.sub-agent-answer-head {
+    color: var(--muted);
+    font-size: var(--text-sm);
+}
+
 /* A session an agent started, marked as hanging off another. */
 /* A tendril from the session above, ending in a bud. */
 .session-spawned {
@@ -2659,6 +2756,104 @@ code {
 .permission-actions {
     display: flex;
     gap: var(--space-2);
+}
+
+/* Questions from the agent: options to choose by number, arrows or a click. */
+
+.question:focus-visible {
+    outline: none;
+}
+
+.question-steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+}
+
+.question-step {
+    padding: 2px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: var(--text-sm);
+    cursor: pointer;
+}
+
+.question-step[aria-current="true"] {
+    border-color: var(--pollen);
+    color: var(--text);
+}
+
+.question-step[data-answered="true"]::after {
+    content: " ✓";
+    color: var(--pollen);
+}
+
+.question-options {
+    display: grid;
+    gap: var(--space-1);
+}
+
+.question-option {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: baseline;
+    column-gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--dusk);
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.question-option:hover:not(:disabled),
+.question-option[data-on="true"] {
+    border-color: var(--faint);
+}
+
+.question:focus .question-option[data-on="true"],
+.question-own:focus-within {
+    border-color: var(--pollen);
+}
+
+.question-option[aria-pressed="true"] {
+    border-color: var(--pollen);
+    background: var(--pollen-wash);
+}
+
+.question-label {
+    font-weight: 600;
+}
+
+.question-about {
+    grid-column: 2;
+    color: var(--muted);
+    font-size: var(--text-sm);
+}
+
+.question-own {
+    cursor: text;
+}
+
+.question-own input {
+    min-width: 0;
+    border: 0;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    outline: none;
+}
+
+.question-keys {
+    align-self: center;
+    margin-left: auto;
+    color: var(--muted);
+    font-size: var(--text-sm);
 }
 
 /* Composer: one rounded box holding the text, the options and a single round button. */

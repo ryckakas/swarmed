@@ -16,6 +16,7 @@ import type {
 } from "./api/types";
 import type { Comparison } from "./components/CompareDialog";
 import { type ReviewComment, withComment } from "./review";
+import { atWork, atWorkIn, type SubAgent } from "./subagents";
 import {
     applySessionEvent,
     findSession,
@@ -58,6 +59,14 @@ interface State {
     events: Record<number, AgentEvent[]>;
     /** Per task id, a count that goes up whenever its agents may have changed files. */
     edits: Record<number, number>;
+    /** The sub-agents each session's agent has at work, as far as this window has heard. */
+    subAgents: Record<number, SubAgent[]>;
+    /** The sub-agent whose own conversation is on screen in place of its session's, if any. */
+    subView: { sessionId: number; id: string } | null;
+    /** Shows what a sub-agent of a session says and does, in place of the session itself. */
+    openSub(api: Api, sessionId: number, id: string): Promise<void>;
+    /** Goes back from a sub-agent to its session. */
+    closeSub(): void;
     /** When each session's running turn began, as seen from this window. */
     turnBegan: Record<number, number>;
     /** Goes up each time an agent reports something it left running starting or ending. */
@@ -233,6 +242,18 @@ export function withEvent(events: AgentEvent[], event: AgentEvent): AgentEvent[]
     return [...events.slice(0, -1), next];
 }
 
+/** The sub-agents at work after an event, a new record only if the event changed them. */
+function withSubAgents(
+    all: Record<number, SubAgent[]>,
+    published: SessionEvent,
+): Record<number, SubAgent[]> {
+    const before = all[published.session_id] ?? NO_SUB_AGENTS;
+    const after = atWork(before, published.event);
+    return after === before ? all : { ...all, [published.session_id]: after };
+}
+
+const NO_SUB_AGENTS: SubAgent[] = [];
+
 /** The edit counts after an event: one more for the task of a session that may have edited. */
 function countEdit(state: State, published: SessionEvent): Record<number, number> {
     const taskId = taskIdOf(state.projects, published.session_id);
@@ -326,6 +347,13 @@ export const useStore = create<State>((set, get) => ({
     selectedSessionId: null,
     draftProject: null,
     events: {},
+    subAgents: {},
+    subView: null,
+    openSub: async (api, sessionId, id) => {
+        await get().open(api, sessionId);
+        set({ subView: { sessionId, id } });
+    },
+    closeSub: () => set({ subView: null }),
     edits: {},
     turnBegan: {},
     backgroundHeard: 0,
@@ -450,14 +478,17 @@ export const useStore = create<State>((set, get) => ({
         }
     },
     open: async (api, sessionId) => {
-        set({ selectedSessionId: sessionId });
+        set({ selectedSessionId: sessionId, subView: null });
         get().markRead(api, sessionId);
         if (get().events[sessionId] || loading.has(sessionId)) {
             return;
         }
         try {
             const history = await readHistory(api, sessionId);
-            set((state) => ({ events: { ...state.events, [sessionId]: history } }));
+            set((state) => ({
+                events: { ...state.events, [sessionId]: history },
+                subAgents: { ...state.subAgents, [sessionId]: atWorkIn(history) },
+            }));
         } catch (error) {
             get().report(error);
         }
@@ -475,6 +506,7 @@ export const useStore = create<State>((set, get) => ({
         set((state) => ({
             projects: applySessionEvent(state.projects, published),
             events: appendEvent(state.events, published),
+            subAgents: withSubAgents(state.subAgents, published),
             edits: countEdit(state, published),
         }));
     },

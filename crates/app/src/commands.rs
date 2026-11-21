@@ -774,16 +774,16 @@ pub(crate) fn sessions_closed(
     Ok(core.sessions_closed(&project, &task)?)
 }
 
-/// A new session that starts with what was said in session `id` before its message number
-/// `before`, or with all of it; on `agent`, if that is another than the session's own.
+/// A new session that starts with what was said in session `id` from its message number
+/// `from` on, or with all of it; on `agent`, if that is another than the session's own.
 #[tauri::command]
 pub(crate) fn session_fork(
     core: CoreState<'_>,
     id: i64,
-    before: Option<usize>,
+    from: Option<usize>,
     agent: Option<String>,
 ) -> Command<Session> {
-    Ok(core.session_fork(id, before, agent.as_deref())?)
+    Ok(core.session_fork(id, from, agent.as_deref())?)
 }
 
 /// Puts a closed session back in the lists.
@@ -810,6 +810,16 @@ pub(crate) fn config_answer(
 #[tauri::command]
 pub(crate) fn session_allow(core: CoreState<'_>, id: i64, request_id: String) -> Command<()> {
     Ok(core.session_allow(id, &request_id)?)
+}
+
+#[tauri::command]
+pub(crate) fn session_answer(
+    core: CoreState<'_>,
+    id: i64,
+    request_id: String,
+    answers: BTreeMap<String, String>,
+) -> Command<()> {
+    Ok(core.session_answer(id, &request_id, answers)?)
 }
 
 #[tauri::command]

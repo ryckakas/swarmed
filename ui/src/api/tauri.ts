@@ -135,8 +135,8 @@ export const tauriApi: Api = {
     setBadge: (count) => invoke("badge_set", { count }),
     onHookOutput: (listener) =>
         listen<HookOutput>("hook-output", (event) => listener(event.payload)),
-    sessionFork: (id, before, agent) =>
-        invoke<Session>("session_fork", { id, before, agent: agent ?? null }),
+    sessionFork: (id, from, agent) =>
+        invoke<Session>("session_fork", { id, from, agent: agent ?? null }),
     sessionNew: (project, task, { agent, ...how }) =>
         invoke<Session>("session_new", { project, task, agent, how }),
     sessionEvents: (id) => invoke<AgentEvent[]>("session_events", { id }),
@@ -149,6 +149,7 @@ export const tauriApi: Api = {
     sessionSendQueued: (id) => invoke("session_send_queued", { id }),
     sessionMarkRead: (id) => invoke("session_mark_read", { id }),
     sessionAllow: (id, requestId) => invoke("session_allow", { id, requestId }),
+    sessionAnswer: (id, requestId, answers) => invoke("session_answer", { id, requestId, answers }),
     configAnswer: (requestId, accepted) => invoke("config_answer", { requestId, accepted }),
     sessionDeny: (id, requestId, reason) => invoke("session_deny", { id, requestId, reason }),
     sessionInterrupt: (id) => invoke("session_interrupt", { id }),

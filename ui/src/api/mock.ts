@@ -42,7 +42,32 @@ import type {
 
 // Sample data and a scripted agent, for working on the UI in a browser where there is no Tauri
 // shell. The agent behaves like the core's FakeBackend: plain text is echoed, `run: <command>`
-// asks permission first, and `slow` runs until interrupted.
+// asks permission first, `ask` puts questions, `delegate` starts sub-agents, and `slow` runs
+// until interrupted.
+
+// `ask` puts these questions to the user, `ask one` only the first.
+const SAMPLE_QUESTIONS = [
+    {
+        question: "Which database should the service use?",
+        header: "Database",
+        multiSelect: false,
+        options: [
+            { label: "PostgreSQL", description: "What the other services already run on." },
+            { label: "SQLite", description: "One file, nothing to run." },
+            { label: "Keep it in memory", description: "Fine for a prototype, gone on restart." },
+        ],
+    },
+    {
+        question: "Which checks should run before a merge?",
+        header: "Checks",
+        multiSelect: true,
+        options: [
+            { label: "Unit tests", description: "" },
+            { label: "Lint", description: "Formatting and the lint rules." },
+            { label: "End-to-end tests", description: "Slow, and catches the most." },
+        ],
+    },
+];
 
 const SAMPLE_AGENTS: Record<number, string> = { 2: "codex", 4: "opencode" };
 
@@ -949,7 +974,10 @@ class MockAgent {
     readonly events = new Map<number, AgentEvent[]>();
     readonly listeners = new Set<Listener>();
     /** What to do when a session's pending permission request is answered. */
-    private readonly decisions = new Map<number, (allowed: boolean) => void>();
+    private readonly decisions = new Map<
+        number,
+        (allowed: boolean, answers?: Record<string, string>) => void
+    >();
     private readonly interrupts = new Map<number, () => void>();
     private nextId = 100;
 
@@ -1061,6 +1089,10 @@ class MockAgent {
             );
         } else if (this.configure(id, {}).supervision === "plan") {
             this.presentPlan(id, text, done);
+        } else if (text === "delegate") {
+            this.delegate(id, done);
+        } else if (text.startsWith("ask")) {
+            this.askQuestions(id, text === "ask one", done);
         } else if (text.startsWith("run:")) {
             this.askPermission(id, text.slice(4).trim(), done);
         } else {
@@ -1120,6 +1152,86 @@ class MockAgent {
         return toolId;
     }
 
+    /** Starts two sub-agents, which report for a while and hand their answers back in turn. */
+    private delegate(id: number, done: AgentEvent) {
+        const start = (toolId: string, description: string): AgentEvent => ({
+            type: "tool_use",
+            id: toolId,
+            name: "Agent",
+            input: {
+                description,
+                subagent_type: "Explore",
+                prompt: `Please ${description.toLowerCase()} and report what you find.`,
+            },
+        });
+        const said = (parent: string, event: AgentEvent): AgentEvent => ({
+            type: "sub",
+            parent,
+            event,
+        });
+        const [routes, tests] = [`sub-${this.nextId++}`, `sub-${this.nextId++}`];
+        this.later(id, { type: "text", text: "I will look at this from two sides." }, "working");
+        this.later(id, start(routes, "Find the routes"), "working", 2);
+        this.later(id, start(tests, "Read the tests"), "working", 2);
+        const grep: AgentEvent = {
+            type: "tool_use",
+            id: `${routes}-grep`,
+            name: "Grep",
+            input: { pattern: "router\\.(get|post)" },
+        };
+        const found: AgentEvent = {
+            type: "tool_result",
+            tool_use_id: `${routes}-grep`,
+            content: "src/routes.ts:12\nsrc/routes.ts:40",
+            is_error: false,
+        };
+        this.later(id, said(routes, { type: "text", text: "Searching for the routes." }), null, 4);
+        this.later(id, said(routes, grep), null, 6);
+        this.later(id, said(tests, { type: "text", text: "Reading the test folder." }), null, 7);
+        this.later(id, said(routes, found), null, 9);
+        this.later(
+            id,
+            said(routes, { type: "text", text: "Two routes, both in one file." }),
+            null,
+            11,
+        );
+        const answer = (toolId: string, content: string): AgentEvent => ({
+            type: "tool_result",
+            tool_use_id: toolId,
+            content,
+            is_error: false,
+        });
+        this.later(id, answer(routes, "There are two routes, in `src/routes.ts`."), "working", 20);
+        this.later(id, answer(tests, "The tests cover one of them."), "working", 32);
+        this.later(id, { type: "text", text: "Two routes, one of them tested." }, "working", 33);
+        this.later(id, done, "idle", 34);
+    }
+
+    /** Puts questions to the user the way Claude Code does, and says back what was answered. */
+    private askQuestions(id: number, one: boolean, done: AgentEvent) {
+        const toolId = this.ask(id, "AskUserQuestion", {
+            questions: one ? SAMPLE_QUESTIONS.slice(0, 1) : SAMPLE_QUESTIONS,
+        });
+        this.decisions.set(id, (allowed, answers) => {
+            const said = Object.entries(answers ?? {}).map(
+                ([asked, answer]) => `"${asked}"="${answer}"`,
+            );
+            const content = allowed
+                ? `User has answered your questions: ${said.join(", ")}`
+                : "The user chose not to answer these questions.";
+            const result: AgentEvent = {
+                type: "tool_result",
+                tool_use_id: toolId,
+                content,
+                is_error: !allowed,
+            };
+            this.later(id, result, "working");
+            const reply = allowed ? `Going with ${said.join(" and ")}.` : "I will decide myself.";
+            this.later(id, { type: "text", text: reply }, "working", 2);
+            this.later(id, done, "idle", 3);
+        });
+    }
+
     private askPermission(id: number, command: string, done: AgentEvent) {
         const toolId = this.ask(id, "Bash", { command });
         this.decisions.set(id, (allowed) => {
@@ -1142,7 +1254,7 @@ class MockAgent {
         });
     }
 
-    decide(id: number, requestId: string, allowed: boolean) {
+    decide(id: number, requestId: string, allowed: boolean, answers?: Record<string, string>) {
         const decision = this.decisions.get(id);
         this.decisions.delete(id);
         const answered: AgentEvent = {
@@ -1152,7 +1264,7 @@ class MockAgent {
         };
         this.publish(id, answered, "working");
         if (decision) {
-            decision(allowed);
+            decision(allowed, answers);
         } else {
             // The request shown in the sample transcript: just end the turn.
             const content = allowed ? "Everything up-to-date" : "The user declined this action.";
@@ -1300,7 +1412,7 @@ function sampleFork(
     agent: MockAgent,
     tasks: Task[],
     id: number,
-    before: number | null,
+    from: number | null,
     onAgent?: string,
 ): Session {
     const home = tasks.find((task) => task.sessions.some((one) => one.id === id));
@@ -1314,7 +1426,7 @@ function sampleFork(
         agent: onAgent ?? source.agent,
     };
     const history = agent.history(id);
-    const said = history.slice(0, before === null ? undefined : eventOfMessage(history, before));
+    const said = history.slice(from === null ? 0 : eventOfMessage(history, from));
     const kept = said.filter((event) => ["user_message", "text"].includes(event.type));
     agent.events.set(fork.id, [...kept, { type: "forked", from: id }]);
     home.sessions.push(fork);
@@ -1623,7 +1735,7 @@ export function createMockApi(): Api {
             home.sessions.push(created);
             return created;
         },
-        sessionFork: async (id, before, onAgent) => sampleFork(agent, tasks(), id, before, onAgent),
+        sessionFork: async (id, from, onAgent) => sampleFork(agent, tasks(), id, from, onAgent),
         sessionEvents: async (id) => [...agent.history(id)],
         sessionSend: async (id, text, files) => agent.send(id, withFiles(text, files ?? [])),
         sessionQueue: async (id) => agent.queue(id),
@@ -1634,6 +1746,7 @@ export function createMockApi(): Api {
             agent.configure(id, { unread: false });
         },
         sessionAllow: async (id, requestId) => agent.decide(id, requestId, true),
+        sessionAnswer: async (id, requestId, answers) => agent.decide(id, requestId, true, answers),
         configAnswer: async (requestId, accepted) => agent.answerProposal(requestId, accepted),
         sessionDeny: async (id, requestId) => agent.decide(id, requestId, false),
         sessionInterrupt: async (id) => agent.interrupt(id),

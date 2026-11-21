@@ -19,14 +19,14 @@ export async function addProject() {
 }
 
 /**
- * Starts a new session from what was said in another, before its message number `before` if
+ * Starts a new session from what was said in another, from its message number `from` on if
  * given, and opens it. With `agent`, the new session runs on that agent instead of the first
  * one's: a clone of the conversation for another agent to carry on.
  */
-export async function forkSession(id: number, before: number | null, agent?: string) {
+export async function forkSession(id: number, from: number | null, agent?: string) {
     const { refresh, open, report } = useStore.getState();
     try {
-        const fork = await api.sessionFork(id, before, agent);
+        const fork = await api.sessionFork(id, from, agent);
         await refresh(api);
         await open(api, fork.id);
     } catch (error) {
@@ -35,8 +35,8 @@ export async function forkSession(id: number, before: number | null, agent?: str
 }
 
 /**
- * Forks session `id` from the message shown for its event `key`: the new session holds what was
- * said before that message.
+ * Forks session `id` from the message shown for its event `key`: the new session holds that
+ * message and what was said after it, and nothing from before.
  */
 export function forkFromMessage(id: number, key: number) {
     const events = useStore.getState().events[id] ?? [];

@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { api } from "../api";
+import { questionsOf } from "../questions";
 import { useStore } from "../store";
 import { PLAN_TOOL, summarize } from "../transcript";
 import { afterPlan, SUPERVISION_LABELS } from "./options";
+import { QuestionPrompt } from "./QuestionPrompt";
 
 interface Props {
     sessionId: number;
@@ -12,8 +14,21 @@ interface Props {
     description: string | null;
 }
 
-/** The agent asking to do something. It is the loudest thing on screen until it is answered. */
+/**
+ * The agent asking for a decision: questions it puts to the user are answered where they
+ * stand, anything else is allowed or denied.
+ */
 export function PermissionPrompt(props: Props) {
+    const questions = questionsOf(props.toolName, props.input);
+    if (questions) {
+        const { sessionId, requestId } = props;
+        return <QuestionPrompt sessionId={sessionId} requestId={requestId} questions={questions} />;
+    }
+    return <ToolPrompt {...props} />;
+}
+
+/** The agent asking to do something. It is the loudest thing on screen until it is answered. */
+function ToolPrompt(props: Props) {
     const report = useStore((state) => state.report);
     const { sessionId, requestId, toolName, input, description } = props;
     // The prompt leaves the transcript when the app confirms the answer. Until then the buttons

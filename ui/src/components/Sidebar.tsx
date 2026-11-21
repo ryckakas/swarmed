@@ -6,6 +6,7 @@ import { cloudProvider, cloudTitle, cloudTone, cloudTooltip, isUnfinished } from
 import { taskTooltip } from "../environments";
 import { agentName, iconForAgent } from "../providerIcons";
 import { useStore } from "../store";
+import type { SubAgent } from "../subagents";
 import { countUnread, countWaiting, nestedSessions, projectStatus, projectUnread } from "../tree";
 import { useWords } from "../useWords";
 import { wordsFor } from "../wording";
@@ -187,6 +188,7 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
                         data-brood={task.sessions.some((other) => other.spawned_by === session.id)}
                     >
                         <SessionRow session={session} />
+                        <SubAgentRows session={session} />
                     </li>
                 ))}
             </ul>
@@ -507,6 +509,45 @@ function SessionRow({ session }: { session: Session }) {
                 ×
             </button>
         </div>
+    );
+}
+
+const NO_SUB_AGENTS: SubAgent[] = [];
+
+/**
+ * The sub-agents a session's agent has at work, under the session. They are the agent's own
+ * doing: each is there while it works and gone when it has handed its answer back, and
+ * pressing one shows what it says and does. Nothing can be said to one.
+ */
+function SubAgentRows({ session }: { session: Session }) {
+    const words = useWords();
+    const atWork = useStore((state) => state.subAgents[session.id] ?? NO_SUB_AGENTS);
+    const viewed = useStore((state) =>
+        state.subView?.sessionId === session.id ? state.subView.id : null,
+    );
+    const openSub = useStore((state) => state.openSub);
+    // An agent that is not at work has none, whatever was last heard of them.
+    if (atWork.length === 0 || session.status === "idle" || session.status === "errored") {
+        return null;
+    }
+    return (
+        <ul className="sub-agents" aria-label={`${words.subAgent}s of ${session.title}`}>
+            {atWork.map((one) => (
+                <li key={one.id}>
+                    <button
+                        type="button"
+                        className="sub-agent-row"
+                        title={`${words.subAgent}: ${one.name}`}
+                        aria-current={viewed === one.id ? "true" : undefined}
+                        onClick={() => void openSub(api, session.id, one.id)}
+                    >
+                        <span className="sub-agent-pulse" aria-hidden="true" />
+                        <span className="session-title">{one.name}</span>
+                        {one.kind && <span className="sub-agent-kind">{one.kind}</span>}
+                    </button>
+                </li>
+            ))}
+        </ul>
     );
 }
 

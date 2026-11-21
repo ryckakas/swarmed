@@ -218,10 +218,15 @@ impl Script {
             description: None,
         });
         let decision = wait_for(&mut self.commands, |c| decides(c, &request_id)).await?;
-        let allowed = matches!(decision, AgentCommand::Allow { .. });
+        let allowed = !matches!(decision, AgentCommand::Deny { .. });
+        let content = match decision {
+            AgentCommand::Answer { answers, .. } => format!("answered: {answers:?}"),
+            AgentCommand::Allow { .. } => "ok".to_string(),
+            _ => "denied".to_string(),
+        };
         self.emit(AgentEvent::ToolResult {
             tool_use_id,
-            content: if allowed { "ok" } else { "denied" }.to_string(),
+            content,
             is_error: !allowed,
         });
         Some(allowed)
@@ -231,9 +236,9 @@ impl Script {
 /// Whether `command` answers the permission request `request_id`.
 fn decides(command: &AgentCommand, request_id: &str) -> bool {
     match command {
-        AgentCommand::Allow { request_id: id } | AgentCommand::Deny { request_id: id, .. } => {
-            id == request_id
-        }
+        AgentCommand::Allow { request_id: id }
+        | AgentCommand::Answer { request_id: id, .. }
+        | AgentCommand::Deny { request_id: id, .. } => id == request_id,
         _ => false,
     }
 }

@@ -65,6 +65,11 @@ export interface Words {
     timeWorked: string;
     /** The task panel's two tabs: what the task changed, and what its agents left running. */
     files: string;
+    /** An agent a session's agent started for part of its work, and going back from one. */
+    subAgent: string;
+    subAgentWorking: string;
+    subAgentDone: string;
+    backToSession: string;
     changes: string;
     background: string;
     /** What each state of something left running is called. */
@@ -126,6 +131,10 @@ const PLAIN: Words = {
     stack: { stopped: "Stack stopped", starting: "Stack starting", running: "Stack running" },
     timeWorked: "Time worked",
     files: "Files",
+    subAgent: "Sub-agent",
+    subAgentWorking: "At work",
+    subAgentDone: "Done",
+    backToSession: "Back to the session",
     changes: "Changes",
     background: "Background",
     backgroundState: {
@@ -183,6 +192,10 @@ const SWARM: Words = {
     stack: { stopped: "Pool dormant", starting: "Pool gestating", running: "Pool thriving" },
     timeWorked: "Time mutating",
     files: "Tunnels",
+    subAgent: "Hatchling",
+    subAgentWorking: "Foraging",
+    subAgentDone: "Returned",
+    backToSession: "Back to the spawn",
     changes: "Mutations",
     background: "Drones",
     backgroundState: {

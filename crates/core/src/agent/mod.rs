@@ -8,6 +8,7 @@ mod acp;
 mod claude;
 mod fake;
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -405,6 +406,16 @@ pub enum AgentEvent {
         /// The session it was forked from.
         from: i64,
     },
+    /// Something a sub-agent said or did: an agent the session's own agent started for a part
+    /// of its work, and whose answer it gets as the result of the tool it started it with.
+    /// Kept apart from the conversation, which is between the user and the session's agent.
+    Sub {
+        /// The [`AgentEvent::ToolUse`] that started the sub-agent, which is what tells one
+        /// from another.
+        parent: String,
+        /// What it said or did.
+        event: Box<AgentEvent>,
+    },
     /// Something this version does not understand; kept so nothing is lost silently.
     Other {
         /// The message as received.
@@ -421,6 +432,15 @@ pub enum AgentCommand {
     Allow {
         /// The request being answered.
         request_id: String,
+    },
+    /// Answer the questions a pending [`AgentEvent::PermissionRequest`] puts to the user: the
+    /// tool goes ahead and hands the agent what was chosen.
+    Answer {
+        /// The request being answered.
+        request_id: String,
+        /// What the user chose, by the text of each question. Several choices are joined
+        /// with a comma and a space.
+        answers: BTreeMap<String, String>,
     },
     /// Refuse a pending [`AgentEvent::PermissionRequest`].
     Deny {

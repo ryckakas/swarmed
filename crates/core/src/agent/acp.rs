@@ -720,7 +720,10 @@ impl Conversation {
     async fn on_command(&mut self, command: AgentCommand) {
         match command {
             AgentCommand::UserMessage(text) => self.prompt(text).await,
-            AgentCommand::Allow { request_id } => self.decide(&request_id, true).await,
+            // No agent that speaks ACP puts questions this way; one that did is let go ahead.
+            AgentCommand::Allow { request_id } | AgentCommand::Answer { request_id, .. } => {
+                self.decide(&request_id, true).await;
+            }
             AgentCommand::Deny { request_id, .. } => self.decide(&request_id, false).await,
             AgentCommand::Interrupt => self.cancel().await,
             AgentCommand::SetModel(model) => self.set_model(model).await,

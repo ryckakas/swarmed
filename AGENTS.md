@@ -163,8 +163,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **A place in a front end's list of events means nothing to the core.** That list also holds
   events that are only shown and never stored (`TextDelta`, `Queue`, `ConfigChanged`,
   `Deleted`), so it is longer than the core's. Anything a front end points at in a
-  conversation is named by something both sides count alike: a fork is asked for "before
-  message number n" (`session_fork`, `messageNumber`), never "up to event n".
+  conversation is named by something both sides count alike: a fork is asked for "from
+  message number n" (`session_fork`, `messageNumber`), never "from event n".
 - **A session never changes its agent once it has begun; it is cloned instead**
   (`session_fork` with an agent). The clone is a new session in the same task on the other
   agent, given what was said as text with its first message, like any fork. It starts on that
@@ -182,6 +182,23 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   others' too. Nothing is written into an agent's files. `shared_mcp_servers = false` in
   `agents.toml` turns it off for an agent. The definitions hold secrets: they are passed on
   and never logged, and their `Debug` output leaves values out. Keep it that way.
+- **Questions an agent puts to the user are answered where they stand** (`questions.ts`,
+  `QuestionPrompt.tsx`, `session_answer`). Claude Code asks them through its `AskUserQuestion`
+  tool, which arrives as a permission request; answering allows it with the answers added to
+  its input, each under its question's text, several joined by a comma. Allowing it without
+  answers tells the agent nothing, so the UI never offers that. A number, the arrows, the
+  space bar, Enter and a click all choose; one question with one answer is sent as it is
+  chosen. Input the UI cannot show whole falls back to the plain allow-or-deny prompt.
+- **A sub-agent is read from its session's events, never a session of its own**
+  (`AgentEvent::Sub`, `subagents.ts`, `SubAgentPane.tsx`). Claude Code names, on each message
+  of an agent it started, the tool call that started it; `claude.rs` wraps what such a message
+  holds in `Sub` under that call, so it is stored with the session and stays out of the
+  conversation, which is between the user and the session's agent. A sub-agent is at work
+  from its `Agent` (earlier `Task`) call to that call's result, and the UI works that out
+  from the events it hears: the sidebar lists the ones at work under their session and drops
+  them when they are done, and pressing one shows its own conversation, read-only, in place
+  of the session's. Nothing in the store or the database knows of sub-agents. Conversations
+  recorded before this have a sub-agent's words among the agent's own.
 - **A session's title** starts as the first line of its first message. A `Namer` (`ClaudeNamer`:
   one call to Claude Code's smallest model, with none of the user's settings, tools or MCP
   servers) then suggests a better one, unless `auto_title` is off or the user renamed the session
@@ -296,7 +313,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   first message reaches an agent, which from then on holds the conversation. The model goes
   back to the new agent's default. The UI offers the agent menu for exactly that long.
 - **A fork is a new session that starts with a copy of what was said** (`fork.rs`): the user's
-  messages, the replies and the views, up to a chosen event, then a `Forked` event. No agent can
+  messages, the replies and the views, then a `Forked` event. "Fork from here" on a message
+  takes that message and everything after it, and nothing from before; the first session
+  keeps all of it, since its agent cannot be made to forget. No agent can
   be handed another's memory, so the fork's agent is given that conversation as text with the
   first message sent to it, whatever agent it is. What is recorded is what the user typed.
 - **A closed session is put away, not deleted.** Closing is an event, `Closed`, so every front
