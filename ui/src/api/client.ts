@@ -201,6 +201,8 @@ export interface Api {
     taskDiff(project: string, name: string, path: string): Promise<FileDiff>;
     /** Opens the task's worktree, with its branch checked out, in the user's editor. */
     taskOpenEditor(project: string, name: string): Promise<void>;
+    /** Opens the task's worktree in the terminal application the user chose. */
+    taskOpenTerminal(project: string, name: string): Promise<void>;
     /** Opens the task's running stack in the default browser. */
     taskOpenUrl(project: string, name: string): Promise<void>;
     /** Opens a web or mail link in the user's browser, never in Swarmed's own window. */

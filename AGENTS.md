@@ -145,6 +145,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   nobody as their starter. `AgentEvent::Deleted` is published and never stored, since there is
   nothing left to store it in. Swarmed does not touch what an agent keeps of the conversation
   in its own folders. The close button always asks, and offers both.
+- **"Open in Terminal" hands the worktree to a terminal application** (`open::in_terminal`,
+  `Settings::terminal_app`) through macOS's `open -a`, whose exit says whether there is such an
+  application. It is apart from the session's own terminal, which is xterm.js in the window.
 - **Check UI changes in a browser** with `pnpm dev`. The mock agent answers plain text, asks
   permission for `run: <command>`, and runs until stopped for `slow`; one sample session has
   2,000 messages for checking scroll speed.

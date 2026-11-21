@@ -192,7 +192,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::cloud_task_open, commands::cloud_task_diff, commands::cloud_task_apply,
         commands::environment_save, commands::environment_remove, commands::snapshots,
         commands::snapshot_save, commands::snapshot_remove, commands::task_remove,
-        commands::task_open_editor, commands::task_open_url, commands::open_link,
+        commands::task_open_editor, commands::task_open_terminal, commands::task_open_url, commands::open_link,
         commands::task_unpublished, commands::task_commit, commands::task_commit_message, commands::task_pull_message,
         commands::task_push, commands::task_pull_draft, commands::task_pull_create,
         commands::task_pull, commands::task_pull_open, commands::task_changes,

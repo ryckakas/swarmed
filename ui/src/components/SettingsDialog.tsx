@@ -11,7 +11,13 @@ import { AgentsSettings } from "./AgentsSettings";
 import { ApiKeys } from "./ApiKeys";
 import { CloseIcon, IconButton } from "./IconButton";
 import { McpSettings } from "./McpSettings";
-import { editorChoices, supervisionChoices, TEXT_SCALES, THEMES } from "./options";
+import {
+    editorChoices,
+    supervisionChoices,
+    TEXT_SCALES,
+    THEMES,
+    terminalAppChoices,
+} from "./options";
 import { Picker } from "./Picker";
 import { SkillsSettings } from "./SkillsSettings";
 import { TemplatesSettings } from "./TemplatesSettings";
@@ -361,6 +367,17 @@ function Sessions({ settings }: { settings: Settings }) {
                     value={settings.editor}
                     onChange={(editor) => void change(api, { editor })}
                     options={editorChoices(settings.editor)}
+                />
+            </Row>
+            <Row
+                label="Terminal application"
+                hint="What “Open in Terminal” starts in a task's worktree."
+            >
+                <Picker
+                    label="Terminal application"
+                    value={settings.terminal_app}
+                    onChange={(terminal_app) => void change(api, { terminal_app })}
+                    options={terminalAppChoices(settings.terminal_app)}
                 />
             </Row>
             <Row

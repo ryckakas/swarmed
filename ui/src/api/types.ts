@@ -305,6 +305,8 @@ export type StatusItem =
 export interface Settings {
     /** The command that opens a folder in the user's code editor. */
     editor: string;
+    /** The terminal application a task's worktree is opened in, by its name. */
+    terminal_app: string;
     /** Whether a model names a new session once its first message is sent. */
     auto_title: boolean;
     theme: Theme;

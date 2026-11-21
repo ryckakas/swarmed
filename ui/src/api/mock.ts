@@ -1417,6 +1417,7 @@ export function createMockApi(): Api {
     let terminalConfig: TerminalConfig = {};
     let settings: Settings = {
         editor: "code",
+        terminal_app: "Terminal",
         auto_title: true,
         theme: "system",
         palette: "swarm",
@@ -1523,6 +1524,7 @@ export function createMockApi(): Api {
         taskChanges: sampleChanges,
         taskDiff: sampleDiff,
         taskOpenEditor: async () => undefined,
+        taskOpenTerminal: async () => undefined,
         taskOpenUrl: async () => undefined,
         openLink: async (url) => {
             window.open(url, "_blank", "noopener");

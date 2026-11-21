@@ -214,6 +214,15 @@ pub(crate) async fn task_remove<R: Runtime>(
 }
 
 #[tauri::command]
+pub(crate) fn task_open_terminal(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+) -> Command<()> {
+    Ok(core.task_open_terminal(&project, &name)?)
+}
+
+#[tauri::command]
 pub(crate) fn task_open_editor(core: CoreState<'_>, project: String, name: String) -> Command<()> {
     Ok(core.task_open_editor(&project, &name)?)
 }

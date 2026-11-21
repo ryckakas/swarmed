@@ -14,6 +14,9 @@ use crate::statusline::StatusItem;
 pub struct Settings {
     /// The command that opens a folder in the user's code editor, such as `code` or `zed`.
     pub editor: String,
+    /// The terminal application a task's worktree is opened in from the task panel, by its
+    /// name: `Terminal`, `iTerm`, `Ghostty`.
+    pub terminal_app: String,
     /// Whether a new session is given a short title by a model once its first message is sent.
     /// Without it, the title stays the start of that message.
     pub auto_title: bool,
@@ -117,6 +120,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             editor: "code".to_string(),
+            terminal_app: "Terminal".to_string(),
             auto_title: true,
             theme: Theme::System,
             palette: Palette::Swarm,
@@ -184,6 +188,7 @@ mod tests {
 
         let chosen = Settings {
             editor: "zed --new".to_string(),
+            terminal_app: "Ghostty".to_string(),
             auto_title: false,
             theme: Theme::Light,
             palette: Palette::Forest,

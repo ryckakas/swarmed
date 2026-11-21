@@ -345,7 +345,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     assert_eq!(
         app.ok("settings", json!({})),
         json!({
-            "editor": "code", "auto_title": true, "theme": "system", "palette": "swarm",
+            "editor": "code", "terminal_app": "Terminal", "auto_title": true, "theme": "system", "palette": "swarm",
             "style": "colony", "layout": "classic",
             "text_scale": 100,
             "html_views": true, "notifications": true, "default_supervision": "auto",
@@ -370,7 +370,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     );
 
     let chosen = json!({ "settings": {
-        "editor": "swarmed-no-such-editor", "auto_title": false, "theme": "light",
+        "editor": "swarmed-no-such-editor", "terminal_app": "Swarmed No Such Terminal", "auto_title": false, "theme": "light",
         "palette": "plum", "style": "plain", "layout": "senior", "text_scale": 110,
         "html_views": false, "notifications": false, "default_supervision": "ask", "status_items": ["cost"], "status_command": "",
         "rules": "Keep answers short.",
@@ -390,6 +390,10 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     assert_eq!(app.ok("terminal_config_save", written), kept);
     assert_eq!(app.ok("terminal_config", json!({})), kept);
     let target = json!({ "project": "demo", "name": "one" });
+    let no_terminal = app.invoke("task_open_terminal", target.clone());
+    let said = no_terminal.expect_err("no such terminal");
+    let named = |m: &str| m.starts_with("could not open Swarmed No Such Terminal");
+    assert!(said.as_str().is_some_and(named), "{said}");
     let failed = app.invoke("task_open_editor", target.clone());
     let message = failed.expect_err("no such editor");
     assert!(
