@@ -428,6 +428,75 @@ async fn an_environment_is_proposed_and_its_variables_stay_out_of_what_an_agent_
 }
 
 #[tokio::test]
+async fn an_agent_sets_an_environments_ports_and_variables_one_by_one() {
+    let fx = fixture();
+    let core = Arc::new(core_with_task(&fx).await);
+    let mut bus = core.subscribe();
+    let session = new_session(&core);
+    drop(tokio::spawn(serve_session_tools(Arc::clone(&core))));
+    let socket = core.paths().tools_socket();
+    listening(&socket).await;
+    let before = Environment {
+        ports: [("db".to_string(), 5432), ("old".to_string(), 9000)].into(),
+        env: [
+            ("API_TOKEN".to_string(), "s3cret-value".to_string()),
+            ("STALE".to_string(), "x".to_string()),
+        ]
+        .into(),
+        ..Environment::default()
+    };
+    core.environment_save("demo", "local", &before)
+        .expect("test setup");
+
+    let list = serde_json::json!({ "kind": "environment", "op": "list" });
+    let (_, listed) = configure(&socket, session.id, list).await;
+    assert!(listed.contains("ports: db=5432, old=9000"), "{listed}");
+    assert!(listed.contains("{{port.<name>}}"), "{listed}");
+    assert!(!listed.contains("s3cret-value"));
+
+    let change = serde_json::json!({
+        "kind": "environment", "op": "save", "name": "local",
+        "start": "pnpm dev --port {{port.web}}", "open_url": "http://localhost:{{port.web}}",
+        "ports": { "web": 3000, "old": 0 },
+        "variables": { "DATABASE_URL": "postgres://localhost:{{port.db}}/app", "STALE": "" },
+    });
+    let (ok, said) = configure(&socket, session.id, change).await;
+    assert!(ok, "{said}");
+    let (request, _, detail) = proposed(&mut bus).await;
+    assert!(detail.contains("ports: db=5432, web=3000"), "{detail}");
+    assert!(
+        detail.contains(
+            "variables: DATABASE_URL=postgres://localhost:{{port.db}}/app, STALE removed"
+        ),
+        "{detail}"
+    );
+    // A variable the environment already had is no part of what the conversation shows.
+    assert!(!detail.contains("API_TOKEN") && !detail.contains("s3cret-value"));
+    core.config_answer(&request, true).expect("accepts");
+    let kept = &core.environments("demo").expect("reads")["local"];
+    assert_eq!(
+        kept.ports,
+        [("db".to_string(), 5432), ("web".to_string(), 3000)].into()
+    );
+    let names: Vec<&str> = kept.env.keys().map(String::as_str).collect();
+    assert_eq!(names, ["API_TOKEN", "DATABASE_URL"]);
+
+    for unusable in [
+        serde_json::json!({ "ports": { "web": 70000 } }),
+        serde_json::json!({ "ports": "3000" }),
+        serde_json::json!({ "variables": { "A": 1 } }),
+    ] {
+        let mut change =
+            serde_json::json!({ "kind": "environment", "op": "save", "name": "local" });
+        change
+            .as_object_mut()
+            .expect("an object")
+            .extend(unusable.as_object().expect("an object").clone());
+        assert!(!configure(&socket, session.id, change).await.0);
+    }
+}
+
+#[tokio::test]
 async fn the_tool_server_reaches_the_core_over_its_socket() {
     let fx = fixture();
     let core = Arc::new(core_with_task(&fx).await);

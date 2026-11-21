@@ -215,7 +215,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   all: API keys, MCP servers, sign-ins, supervision, notes. Keep it one tool: every tool's
   description is sent to every agent in every session. A new setting goes into one of the three
   kinds on purpose; when unsure, propose. An environment's variable values are never told to
-  an agent, only their names. Proposals are held in memory, so one from before a restart has
+  an agent, only their names. An agent may set variables and ports, one by one; the proposal
+  shows the values that call gives and no others, because a conversation can be read by other
+  agents. Listing the `environment` kind also returns the guide to hooks, `{{port.<name>}}`
+  and the other variables (`ENVIRONMENT_GUIDE`): that is where an agent learns to keep tasks
+  apart, so keep it true. An environment's `ports` add to the project's. Proposals are held in memory, so one from before a restart has
   to be asked for again. `ConfigChanged` is published and never stored: it tells front ends to
   read the settings again.
 - **A mark is a colour and a few words on a session** (`marks.rs`), set by the agent with

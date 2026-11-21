@@ -9,6 +9,7 @@ export const EMPTY_ENVIRONMENT: Environment = {
     stop: "",
     teardown: "",
     open_url: "",
+    ports: {},
     env: {},
 };
 
@@ -38,6 +39,26 @@ export function envFromText(text: string): Record<string, string> {
         env[line.slice(0, at).trim()] = unquoted(line.slice(at + 1).trim());
     }
     return env;
+}
+
+/** Ports as lines of `name=3000`, the way they are typed. */
+export function portsToText(ports: Record<string, number>): string {
+    return envToText(
+        Object.fromEntries(Object.entries(ports).map(([name, base]) => [name, String(base)])),
+    );
+}
+
+/** The ports in lines of `name=3000`. A line whose number is none is an error naming the line. */
+export function portsFromText(text: string): Record<string, number> {
+    const ports: Record<string, number> = {};
+    for (const [name, value] of Object.entries(envFromText(text))) {
+        const base = Number(value);
+        if (!Number.isInteger(base) || base < 1 || base > 65535) {
+            throw new Error(`"${name}=${value}" is not a port: write name=3000`);
+        }
+        ports[name] = base;
+    }
+    return ports;
 }
 
 function unquoted(value: string): string {

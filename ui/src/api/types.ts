@@ -199,6 +199,8 @@ export interface Environment {
     teardown: string;
     /** Where a task's running stack is reached in a browser. */
     open_url: string;
+    /** Base ports by name: a task gets its own number for each as `{{port.<name>}}`. */
+    ports: Record<string, number>;
     /** Variables for the hooks and for the agents working in the task. */
     env: Record<string, string>;
 }

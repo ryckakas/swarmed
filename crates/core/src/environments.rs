@@ -37,6 +37,9 @@ pub struct Environment {
     pub teardown: String,
     /// Where a task's running stack is reached in a browser, in place of the project's.
     pub open_url: String,
+    /// Named base ports, on top of the project's: a task gets `base + slot * port_step` as
+    /// `{{port.<name>}}`, so that stacks running side by side do not meet.
+    pub ports: BTreeMap<String, u16>,
     /// Variables for the hooks and for the agents working in the task, on top of the
     /// project's. Values may use the same `{{variables}}` as the project's.
     pub env: BTreeMap<String, String>,
@@ -51,6 +54,7 @@ impl std::fmt::Debug for Environment {
             .field("stop", &self.stop)
             .field("teardown", &self.teardown)
             .field("open_url", &self.open_url)
+            .field("ports", &self.ports)
             .field("env", &self.env.keys().collect::<Vec<_>>())
             .finish()
     }
@@ -64,6 +68,7 @@ impl Environment {
         replace(&self.stop, &mut config.hooks.stop);
         replace(&self.teardown, &mut config.hooks.teardown);
         replace(&self.open_url, &mut config.open_url);
+        config.ports.extend(self.ports.clone());
         config.env.extend(self.env.clone());
         config
     }
@@ -129,6 +134,10 @@ impl Core {
         if let Some(variable) = environment.env.keys().find(invalid_variable) {
             return Err(Error::InvalidVariable(variable.clone()));
         }
+        let invalid_port = |port: &&String| !is_port_name(port);
+        if let Some(port) = environment.ports.keys().find(invalid_port) {
+            return Err(Error::InvalidPortName(port.clone()));
+        }
         let project = self.project(project)?;
         let path = self.paths.project_environments(&project.name);
         let mut environments = read(&path)?;
@@ -178,6 +187,13 @@ impl Core {
     }
 }
 
+/// Whether `name` can be the name of a port: it is written as `{{port.<name>}}` and exported
+/// as `SWARMED_PORT_<NAME>`.
+fn is_port_name(name: &str) -> bool {
+    let plain = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_';
+    name.starts_with(|c: char| c.is_ascii_lowercase()) && name.chars().all(plain)
+}
+
 /// Whether `name` can be the name of an environment variable.
 fn is_variable_name(name: &str) -> bool {
     let start = |c: char| c.is_ascii_alphabetic() || c == '_';
@@ -220,5 +236,27 @@ mod tests {
         };
         let printed = format!("{secret:?}");
         assert!(printed.contains("TOKEN") && !printed.contains("sk-secret"));
+    }
+
+    #[test]
+    fn an_environments_ports_add_to_the_projects_and_must_be_usable_names() {
+        let mut config = ProjectConfig::default();
+        config.ports.insert("db".into(), 5432);
+        let local = Environment {
+            ports: BTreeMap::from([("web".to_string(), 3000), ("db".to_string(), 6000)]),
+            ..Environment::default()
+        };
+        let seen = local.over(config);
+        assert_eq!(
+            seen.ports,
+            BTreeMap::from([("db".to_string(), 6000), ("web".to_string(), 3000)])
+        );
+        assert!(is_port_name("web_2"));
+        assert!(
+            !is_port_name("Web")
+                && !is_port_name("2nd")
+                && !is_port_name("a-b")
+                && !is_port_name("")
+        );
     }
 }
