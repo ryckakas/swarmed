@@ -43,6 +43,8 @@ export interface Words {
     reopen: string;
     /** What handing work to a cloud agent is called, before "from <where>". */
     delegate: string;
+    /** Taking a cloud task off the list, which leaves it running at its provider. */
+    forgetCloud: string;
     /** What ending a session and taking it out of the sidebar is called. */
     closeSession: string;
     /** Starting a session from all of this one, on the same agent and on another. */
@@ -122,6 +124,7 @@ const PLAIN: Words = {
     closed: (count) => `${count} closed`,
     reopen: "Reopen",
     delegate: "Delegate to the cloud",
+    forgetCloud: "Take off the list",
     closeSession: "Close session",
     forkAll: "Fork this conversation",
     cloneTo: "Clone to…",
@@ -236,6 +239,7 @@ const COLONY: Words = {
     closed: (count) => `${count} burrowed`,
     reopen: "Unburrow",
     delegate: "Send spores to the cloud",
+    forgetCloud: "Let it drift",
 };
 
 const WORDS: Record<Style, Words> = { plain: PLAIN, swarm: SWARM, colony: COLONY };
