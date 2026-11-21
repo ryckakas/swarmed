@@ -47,7 +47,7 @@ Where CI runs is the repository variable `CI_RUNNER`. Unset, the jobs run on Git
 Set to a self-hosted runner's label (`gh variable set CI_RUNNER --body swarmed-mac`), they run on
 that machine with the tools installed there, and the Linux test run is left out. That holds for
 pushes and for this repository's own pull requests: one from a fork or from Dependabot brings
-code nobody here has read, so it always runs on GitHub's runners. The `runner` job decides.
+code nobody here has read, so it always runs on GitHub's runners. Each job's `runs-on` decides.
 
 ## Architecture
 

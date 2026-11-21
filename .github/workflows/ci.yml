@@ -21,7 +21,8 @@ env:
 # request from a branch of this repository that Dependabot did not open. Building runs
 # whatever the dependencies' build scripts and macros say, on a machine that keeps its files
 # between runs, so a pull request from a fork or from Dependabot always runs on GitHub's
-# runners, which are thrown away. The `runner` job decides, once, for all the others.
+# runners, which are thrown away. Every job's `runs-on` asks the same question: a job of its
+# own to decide once would itself need one of GitHub's runners, which may not be there.
 
 # A new push to a PR makes the previous run's result irrelevant.
 concurrency:
@@ -29,39 +30,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  runner:
-    name: Choose the runner
-    # Always one of GitHub's: this job is the one that must not depend on its own answer.
-    runs-on: ubuntu-latest
-    outputs:
-      # The label the jobs run on.
-      label: ${{ steps.choose.outputs.label }}
-      # The systems the tests run on, as a JSON list. A self-hosted runner is one machine, so
-      # the tests run once, there.
-      tests: ${{ steps.choose.outputs.tests }}
-    steps:
-      - name: Choose
-        id: choose
-        env:
-          OWN_RUNNER: ${{ vars.CI_RUNNER }}
-          # A push here is to main, which only this repository's people can do.
-          OWN_CODE: >-
-            ${{ github.event_name == 'push'
-            || (github.event.pull_request.head.repo.full_name == github.repository
-            && github.event.pull_request.user.login != 'dependabot[bot]') }}
-        run: |
-          if [ -n "$OWN_RUNNER" ] && [ "$OWN_CODE" = true ]; then
-            echo "label=$OWN_RUNNER"
-            echo "tests=[\"$OWN_RUNNER\"]"
-          else
-            echo "label=ubuntu-latest"
-            echo 'tests=["macos-latest", "ubuntu-latest"]'
-          fi >> "$GITHUB_OUTPUT"
-
   lint:
     name: Format and lint
-    needs: runner
-    runs-on: ${{ needs.runner.outputs.label }}
+    runs-on: >-
+      ${{ (vars.CI_RUNNER != '' && (github.event_name == 'push'
+      || (github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.user.login != 'dependabot[bot]')))
+      && vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -146,8 +121,11 @@ jobs:
   dependencies:
     # deny.toml holds the policy: advisories, licenses, duplicate crates and allowed sources.
     name: Dependencies
-    needs: runner
-    runs-on: ${{ needs.runner.outputs.label }}
+    runs-on: >-
+      ${{ (vars.CI_RUNNER != '' && (github.event_name == 'push'
+      || (github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.user.login != 'dependabot[bot]')))
+      && vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -175,8 +153,11 @@ jobs:
   workflows:
     # Workflows are audited like code: pinned actions, least-privilege tokens, no template injection.
     name: Workflow security
-    needs: runner
-    runs-on: ${{ needs.runner.outputs.label }}
+    runs-on: >-
+      ${{ (vars.CI_RUNNER != '' && (github.event_name == 'push'
+      || (github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.user.login != 'dependabot[bot]')))
+      && vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -197,8 +178,11 @@ jobs:
 
   ui:
     name: UI
-    needs: runner
-    runs-on: ${{ needs.runner.outputs.label }}
+    runs-on: >-
+      ${{ (vars.CI_RUNNER != '' && (github.event_name == 'push'
+      || (github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.user.login != 'dependabot[bot]')))
+      && vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -237,12 +221,16 @@ jobs:
     # Swarmed is a macOS app first, so that is where the tests have to pass. Linux is kept
     # working because nothing in the core should be tied to one platform.
     name: Test on ${{ matrix.os }}
-    needs: runner
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(needs.runner.outputs.tests) }}
+        # A self-hosted runner is one machine, so the tests run once, there.
+        os: >-
+          ${{ fromJSON((vars.CI_RUNNER != '' && (github.event_name == 'push'
+          || (github.event.pull_request.head.repo.full_name == github.repository
+          && github.event.pull_request.user.login != 'dependabot[bot]')))
+          && format('["{0}"]', vars.CI_RUNNER) || '["macos-latest", "ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
