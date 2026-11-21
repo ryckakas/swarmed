@@ -77,7 +77,9 @@ export function NewTask({ projects }: { projects: Project[] }) {
         return null;
     }
 
-    const taken = project.tasks.filter((task) => !task.archived).map((task) => task.name);
+    // A removed task's name too, since its branch may still be there. The core has the last
+    // word: it steps past branches here and on a remote, and the task it makes says its name.
+    const taken = project.tasks.map((task) => task.name);
     const base = branch === NEW_BRANCH ? taskNameForPrompt(prompt) : taskNameFrom(branch);
     const name = uniqueTaskName(base || "task", taken);
     const canSend = prompt.trim() !== "" && creating === null;
@@ -249,8 +251,9 @@ async function startVariants(
 async function startTask(start: Start, show: boolean) {
     const { project, name, title, setup, prompt, files } = start;
     const { refresh, open } = useStore.getState();
-    await api.taskNew(project, name, start.branch, start.environment);
-    const session = await api.sessionNew(project, name, setup);
+    // The core may have stepped past a name that is taken, to `name-2` and so on.
+    const task = await api.taskNew(project, name, start.branch, start.environment);
+    const session = await api.sessionNew(project, task.name, setup);
     if (title) {
         await api.sessionRename(session.id, title);
     }

@@ -63,8 +63,9 @@ impl Core {
     /// session gets. `None` if the user has naming switched off, nothing here can name, or no
     /// usable answer came in time: the caller then names the task itself.
     pub async fn task_name_for(&self, project: &str, prompt: &str) -> Result<Option<TaskNaming>> {
+        // A removed task's name too: its branch may still be there.
         let taken: Vec<String> = self
-            .tasks(project, false)?
+            .tasks(project, true)?
             .into_iter()
             .map(|task| task.name)
             .collect();

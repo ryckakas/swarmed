@@ -846,6 +846,28 @@ async fn a_new_effort_restarts_the_agent_between_turns_and_keeps_the_conversatio
 }
 
 #[tokio::test]
+async fn a_deleted_sessions_number_is_never_given_to_another() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let new = |core: &Core| {
+        core.session_new("demo", "one", &SessionOptions::default())
+            .expect("test setup")
+    };
+    // The newest session is deleted: SQLite would give its number to the next one.
+    let first = new(&core);
+    core.session_delete(first.id).expect("deletes");
+    let second = new(&core);
+    assert!(second.id > first.id, "{} after {}", second.id, first.id);
+    // Nor after Swarmed starts again.
+    core.session_delete(second.id).expect("deletes");
+    drop(core);
+    let core = Core::with_backend(fx.paths.clone(), Arc::new(FakeBackend::default()))
+        .expect("opens again");
+    let third = new(&core);
+    assert!(third.id > second.id, "{} after {}", third.id, second.id);
+}
+
+#[tokio::test]
 async fn a_deleted_session_is_gone_with_its_history_whether_open_or_closed() {
     let fx = fixture();
     let core = core_with_task(&fx).await;

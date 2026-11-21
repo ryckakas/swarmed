@@ -1,5 +1,6 @@
 //! Git access by shelling out to the `git` binary.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use tokio::process::Command;
@@ -110,6 +111,49 @@ pub(crate) async fn local_branch_exists(repo: &Path, branch: &str) -> bool {
     )
     .await
     .is_ok()
+}
+
+/// The short names of every branch here and on any remote, as last fetched: `main`, and
+/// `feature` for `origin/feature`. A new branch would collide with any of them, with a
+/// remote one as soon as it is pushed.
+pub(crate) async fn branch_names(repo: &Path) -> Result<HashSet<String>> {
+    let local = git(
+        repo,
+        &["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+    )
+    .await?;
+    let remote = git(
+        repo,
+        &[
+            "for-each-ref",
+            "--format=%(refname:lstrip=3)",
+            "refs/remotes",
+        ],
+    )
+    .await?;
+    let names = local.lines().chain(remote.lines()).map(str::trim);
+    Ok(names
+        .filter(|name| !name.is_empty())
+        .map(String::from)
+        .collect())
+}
+
+/// Whether `name` is the local branch `branch`, however it is worded.
+pub(crate) async fn names_branch(repo: &Path, name: &str, branch: &str) -> Result<bool> {
+    let full = git(repo, &["rev-parse", "--symbolic-full-name", name]).await?;
+    Ok(full == format!("refs/heads/{branch}"))
+}
+
+/// How many commits of local branch `branch` exist nowhere else: on neither `base` nor any
+/// remote branch. None means deleting the branch loses nothing.
+pub(crate) async fn commits_only_on(repo: &Path, branch: &str, base: &str) -> Result<u32> {
+    let local = format!("refs/heads/{branch}");
+    let count = git(
+        repo,
+        &["rev-list", "--count", &local, "--not", base, "--remotes"],
+    )
+    .await?;
+    Ok(count.trim().parse().unwrap_or(0))
 }
 
 /// Creates a worktree at `path` on a new branch `branch` starting at `base`.

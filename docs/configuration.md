@@ -80,8 +80,10 @@ Each hook runs with `sh -c` in the task's worktree, and an empty one is skipped.
    be checked, unless forced; nothing else stops it. A `stop` or
    `teardown` that fails or takes longer than a minute is passed over, and so is a process that
    will not end, and you are told. The worktree is moved aside at once and deleted in the
-   background, so a large one does not keep you waiting. The branch stays unless you ask for it
-   to go.
+   background, so a large one does not keep you waiting. Removed in the app, the task's local
+   branch goes too, unless the task started from it or commits on it are on neither the base
+   nor a remote: then it is kept, and you are told. From the command line the branch stays
+   unless you pass `--delete-branch`. A branch on a remote is never touched.
 
 Quitting the app ends its stacks' processes without running `stop`. From the command line,
 `swarmed task new` and `swarmed task setup` end the stack again when they exit, and

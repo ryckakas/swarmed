@@ -220,6 +220,11 @@ interface State {
     askToDelete(session: { id: number; title: string } | null): void;
     /** Deletes a session and its conversation for good, open or closed. */
     deleteSession(api: Api, sessionId: number): Promise<void>;
+    /**
+     * Forgets what this window kept of tasks that were removed, and of their sessions: their
+     * conversations, queues and the like. Nothing reads them again.
+     */
+    forgetTasks(taskIds: number[]): void;
 
     /** Stops a session and takes it out of the tree. */
     close(api: Api, sessionId: number): Promise<void>;
@@ -397,6 +402,43 @@ async function reporting(action: () => Promise<void>) {
     } catch (error) {
         useStore.getState().report(error);
     }
+}
+
+/** `record` without the entries of `ids`; the same object if it had none of them. */
+function without<T>(record: Record<number, T>, ids: number[]): Record<number, T> {
+    if (!ids.some((id) => id in record)) {
+        return record;
+    }
+    const kept = { ...record };
+    for (const id of ids) {
+        delete kept[id];
+    }
+    return kept;
+}
+
+/**
+ * Forgets everything kept of sessions `sessionIds` and tasks `taskIds`, which are gone: a
+ * deleted session's conversation must not stay behind, to be read by mistake or to sit in
+ * memory for nothing.
+ */
+function forgotten(state: State, sessionIds: number[], taskIds: number[]): Partial<State> {
+    for (const id of sessionIds) {
+        loading.delete(id);
+    }
+    const of = <T extends { sessionId: number }>(held: T | null): T | null =>
+        held !== null && sessionIds.includes(held.sessionId) ? null : held;
+    return {
+        events: without(state.events, sessionIds),
+        subAgents: without(state.subAgents, sessionIds),
+        turnBegan: without(state.turnBegan, sessionIds),
+        claudeTerminals: without(state.claudeTerminals, sessionIds),
+        queues: without(state.queues, sessionIds),
+        subView: of(state.subView),
+        terminalCommand: of(state.terminalCommand),
+        edits: without(state.edits, taskIds),
+        reviews: without(state.reviews, taskIds),
+        pulls: without(state.pulls, taskIds),
+    };
 }
 
 /** What changes when a session is closed: it leaves the tree, and the centre if it was there. */
@@ -637,8 +679,19 @@ export const useStore = create<State>((set, get) => ({
     deleteSession: (api, sessionId) =>
         reporting(async () => {
             await api.sessionDelete(sessionId);
-            set((state) => ({ ...closed(state, sessionId), deleting: null }));
+            set((state) => ({
+                ...closed(state, sessionId),
+                ...forgotten(state, [sessionId], []),
+                deleting: null,
+            }));
             await get().refresh(api);
+        }),
+    forgetTasks: (taskIds) =>
+        set((state) => {
+            const tasks = state.projects.flatMap((project) => project.tasks);
+            const gone = tasks.filter((task) => taskIds.includes(task.id));
+            const sessionIds = gone.flatMap((task) => task.sessions.map((session) => session.id));
+            return forgotten(state, sessionIds, taskIds);
         }),
     report: (problem) => set({ problem: String(problem) }),
     dismissProblem: () => set({ problem: null }),
@@ -663,7 +716,10 @@ function heardOfDeletion(api: Api, event: SessionEvent): boolean {
     if (event.event.type !== "deleted") {
         return false;
     }
-    useStore.setState((state) => closed(state, event.session_id));
+    useStore.setState((state) => ({
+        ...closed(state, event.session_id),
+        ...forgotten(state, [event.session_id], []),
+    }));
     void useStore.getState().refresh(api);
     return true;
 }

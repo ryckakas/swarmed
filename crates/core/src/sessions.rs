@@ -1099,6 +1099,14 @@ impl Core {
         self.live.stop(id);
     }
 
+    /// Deletes what a session's agent was handed as files, which can hold the secrets of its
+    /// MCP servers, and the views it showed that nobody read. Best effort: the session is
+    /// going, or its task is, and nothing reads them again.
+    fn forget_session_files(&self, id: i64) {
+        std::fs::remove_dir_all(self.paths.view_spool(id)).ok();
+        std::fs::remove_dir_all(self.private_dir(id)).ok();
+    }
+
     /// Stops the agents of every session of a task, closed ones still on their way out
     /// included, and waits until they have gone: by themselves, or killed for taking too
     /// long. For when the task's worktree is about to go, so that nothing writes into it.
@@ -1112,6 +1120,17 @@ impl Core {
         }
         for ending in endings {
             ending.gone().await;
+        }
+        Ok(())
+    }
+
+    /// Deletes what the sessions of a removed task left behind: messages waiting to be sent,
+    /// unread views and private files. Only once the task is gone: a removal that was refused
+    /// leaves its sessions as they were.
+    pub(crate) fn sessions_forgotten(&self, task_id: i64) -> Result<()> {
+        for id in self.store().session_ids(task_id)? {
+            self.live.queues.clear(id);
+            self.forget_session_files(id);
         }
         Ok(())
     }
@@ -1189,7 +1208,6 @@ impl Core {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
             _ => {}
         }
-        // What its agent was handed as a file. Its number may be given to a later session.
         std::fs::remove_dir_all(self.private_dir(id)).ok();
         self.store().session_delete(id)?;
         // Only told, not recorded: there is no session left to record it in.

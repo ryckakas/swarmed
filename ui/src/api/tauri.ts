@@ -77,7 +77,8 @@ export const tauriApi: Api = {
     projectAdd: (path) => invoke<Project>("project_add", { path, name: null }),
     projectRemove: (name, force) => invoke("project_remove", { name, force }),
     taskRemove: (project, name, force) =>
-        invoke("task_remove", { project, name, force, deleteBranch: false }),
+        // Its branch goes too, unless commits on it exist nowhere else: the core keeps it then.
+        invoke("task_remove", { project, name, force, deleteBranch: true }),
     branchChoices: (project) => invoke<BranchChoices>("branch_choices", { project }),
     taskNameFor: (project, prompt) =>
         invoke<TaskNaming | null>("task_name_for", { project, prompt }),

@@ -2,10 +2,10 @@
 
 use std::path::{Path, PathBuf};
 
-use rusqlite::{Connection, OptionalExtension, Row, params};
+use rusqlite::{Connection, OptionalExtension, Row, ToSql, Transaction, params};
 use serde::Serialize;
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 
 /// A registered git repository.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -167,7 +167,16 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE sessions ADD COLUMN mark_colour TEXT;
     ALTER TABLE sessions ADD COLUMN mark_label TEXT NOT NULL DEFAULT '';
 ",
+    // No id is given twice. Without AUTOINCREMENT, SQLite gives a deleted last row's id to the
+    // next row, and what is kept by that id, such as a window's copy of a deleted session's
+    // conversation, turns up in the new one. A table made from now on is declared with it.
+    AUTOINCREMENT_IDS,
 ];
+
+/// Stands in [`MIGRATIONS`] for the one change SQL in a transaction cannot make: every
+/// table's `INTEGER PRIMARY KEY` becomes `INTEGER PRIMARY KEY AUTOINCREMENT`
+/// ([`rebuild_with_autoincrement`]).
+const AUTOINCREMENT_IDS: &str = "-- every table's id becomes AUTOINCREMENT";
 
 const TASK_SELECT: &str = "SELECT id, project_id, name, branch, base_ref, worktree_path, slot, \
                            setup_status, archived_at IS NOT NULL, environment FROM tasks";
@@ -364,10 +373,200 @@ fn migrate(conn: &mut Connection) -> Result<()> {
         if version <= applied {
             continue;
         }
+        if *sql == AUTOINCREMENT_IDS {
+            rebuild_with_autoincrement(conn, version)?;
+            continue;
+        }
         let tx = conn.transaction()?;
         tx.execute_batch(sql)?;
         tx.pragma_update(None, "user_version", version)?;
         tx.commit()?;
     }
     Ok(())
+}
+
+/// Makes every table's `INTEGER PRIMARY KEY` an `INTEGER PRIMARY KEY AUTOINCREMENT`, which
+/// SQLite only takes when a table is created: each table is made again with it, under another
+/// name, its rows are copied over, the old one is dropped, the new one takes its name, and its
+/// indexes are made again. Copied with their ids, the rows set where AUTOINCREMENT goes on from.
+///
+/// Foreign keys are off meanwhile, as SQLite's own procedure for remaking a table has it:
+/// dropping a table deletes its rows first, and with the keys on, every row that refers to
+/// them as well. They can only be switched outside a transaction, so this one step runs apart
+/// from the others, and checks the keys before it commits. `version` is the step's number.
+fn rebuild_with_autoincrement(conn: &mut Connection, version: i64) -> Result<()> {
+    conn.pragma_update(None, "foreign_keys", "OFF")?;
+    let rebuilt = remake_tables(conn, version);
+    conn.pragma_update(None, "foreign_keys", "ON")?;
+    rebuilt
+}
+
+fn remake_tables(conn: &mut Connection, version: i64) -> Result<()> {
+    let tx = conn.transaction()?;
+    let tables = schema(
+        &tx,
+        "SELECT name, sql FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' \
+         AND sql LIKE '%INTEGER PRIMARY KEY%' AND sql NOT LIKE '%AUTOINCREMENT%'",
+        &[],
+    )?;
+    for (table, sql) in &tables {
+        remake(&tx, table, sql)?;
+    }
+    let broken: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM pragma_foreign_key_check()",
+        [],
+        |row| row.get(0),
+    )?;
+    if broken > 0 {
+        // Dropped without a commit: nothing of it stays.
+        return Err(Error::Migration(format!(
+            "{broken} rows refer to rows that are not there"
+        )));
+    }
+    tx.pragma_update(None, "user_version", version)?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// Remakes `table`, created by `sql`, with an AUTOINCREMENT id, as [`remake_tables`] says.
+fn remake(tx: &Transaction<'_>, table: &str, sql: &str) -> Result<()> {
+    let indexes = schema(
+        tx,
+        "SELECT name, sql FROM sqlite_schema WHERE type IN ('index', 'trigger') \
+         AND tbl_name = ?1 AND sql IS NOT NULL",
+        &[&table],
+    )?;
+    let new = format!("{table}_autoincrement");
+    let created = sql
+        .replacen(
+            &format!("CREATE TABLE {table} "),
+            &format!("CREATE TABLE {new} "),
+            1,
+        )
+        .replacen(
+            "INTEGER PRIMARY KEY",
+            "INTEGER PRIMARY KEY AUTOINCREMENT",
+            1,
+        );
+    if !created.starts_with(&format!("CREATE TABLE {new} ")) {
+        return Err(Error::Migration(format!(
+            "{table} is not created as expected"
+        )));
+    }
+    tx.execute_batch(&format!(
+        "{created};
+         INSERT INTO {new} SELECT * FROM {table};
+         DROP TABLE {table};
+         ALTER TABLE {new} RENAME TO {table};"
+    ))?;
+    for (_, index) in &indexes {
+        tx.execute_batch(index)?;
+    }
+    Ok(())
+}
+
+/// The names and SQL of the schema's entries `query` selects.
+fn schema(
+    tx: &Transaction<'_>,
+    query: &str,
+    parameters: &[&dyn ToSql],
+) -> Result<Vec<(String, String)>> {
+    let mut statement = tx.prepare(query)?;
+    let rows = statement.query_map(parameters, |row| Ok((row.get(0)?, row.get(1)?)))?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The tables that have an integer id, with whether it is AUTOINCREMENT.
+    fn ids(conn: &Connection) -> Vec<(String, bool)> {
+        let mut statement = conn
+            .prepare(
+                "SELECT name, sql LIKE '%AUTOINCREMENT%' FROM sqlite_schema \
+                 WHERE type = 'table' AND sql LIKE '%INTEGER PRIMARY KEY%' ORDER BY name",
+            )
+            .expect("reads the schema");
+        let rows = statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .expect("reads the schema");
+        rows.collect::<rusqlite::Result<_>>()
+            .expect("reads the schema")
+    }
+
+    fn count(conn: &Connection, sql: &str) -> i64 {
+        conn.query_row(sql, [], |row| row.get(0)).expect("counts")
+    }
+
+    #[test]
+    fn every_integer_id_is_autoincrement_in_a_new_store() {
+        let mut conn = Connection::open_in_memory().expect("opens");
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .expect("sets");
+        migrate(&mut conn).expect("migrates");
+        let tables = ids(&conn);
+        // A table added later is held to it too.
+        assert!(tables.len() >= 5, "{tables:?}");
+        assert!(
+            tables.iter().all(|(_, autoincrement)| *autoincrement),
+            "{tables:?}"
+        );
+        assert_eq!(count(&conn, "PRAGMA foreign_keys"), 1);
+    }
+
+    #[test]
+    fn a_store_made_before_keeps_its_rows_links_and_indexes_and_reuses_no_id() {
+        let mut conn = Connection::open_in_memory().expect("opens");
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .expect("sets");
+        // The store as the step before this one left it.
+        let before = MIGRATIONS.len() - 1;
+        for sql in &MIGRATIONS[..before] {
+            conn.execute_batch(sql).expect("migrates");
+        }
+        let version = i64::try_from(before).expect("a few migrations");
+        conn.pragma_update(None, "user_version", version)
+            .expect("sets");
+        conn.execute_batch(
+            "INSERT INTO projects (id, name, repo_path) VALUES (1, 'demo', '/repo');
+             INSERT INTO tasks (id, project_id, name, branch, base_ref, worktree_path, slot)
+                 VALUES (3, 1, 'one', 'b', 'main', '/w', 1);
+             INSERT INTO sessions (id, task_id, supervision) VALUES (7, 3, 'ask');
+             INSERT INTO sessions (id, task_id, supervision) VALUES (8, 3, 'ask');
+             INSERT INTO session_events (session_id, event) VALUES (7, '{}'), (8, '{}');
+             DELETE FROM sessions WHERE id = 8;",
+        )
+        .expect("test setup");
+
+        migrate(&mut conn).expect("migrates");
+        assert!(ids(&conn).iter().all(|(_, autoincrement)| *autoincrement));
+        assert_eq!(count(&conn, "PRAGMA foreign_keys"), 1);
+        assert_eq!(
+            count(
+                &conn,
+                "SELECT COUNT(*) FROM session_events WHERE session_id = 7"
+            ),
+            1
+        );
+        // The indexes were made again: a second active task of that name is refused.
+        let twin = conn.execute(
+            "INSERT INTO tasks (project_id, name, branch, base_ref, worktree_path, slot) \
+             VALUES (1, 'one', 'c', 'main', '/x', 2)",
+            [],
+        );
+        assert!(twin.is_err());
+        // The keys still cascade: a session's events go with it.
+        conn.execute("DELETE FROM sessions WHERE id = 7", [])
+            .expect("deletes");
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM session_events"), 0);
+        // 7 was the last session and is gone: it is not given again. (8 was deleted before the
+        // store counted, and can be: SQLite starts counting from the highest id there is.)
+        conn.execute(
+            "INSERT INTO sessions (task_id, supervision) VALUES (3, 'ask')",
+            [],
+        )
+        .expect("inserts");
+        assert!(conn.last_insert_rowid() > 7);
+    }
 }
