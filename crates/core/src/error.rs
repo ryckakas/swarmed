@@ -219,6 +219,23 @@ pub enum Error {
     /// A message with nothing in it.
     #[error("a message cannot be empty")]
     EmptyMessage,
+    /// A command of the agent's that opens a screen in its terminal and has no meaning
+    /// outside one. It is not sent to the agent.
+    #[error("/{command} only works in a terminal{}", after_colon(.instead))]
+    TerminalOnly {
+        /// The command, without its slash.
+        command: String,
+        /// What to do in Swarmed instead; empty for nothing.
+        instead: String,
+    },
+    /// An answer to a command's question that is none of what the command can be set to.
+    #[error("`{answer}` is not something /{command} can be set to")]
+    NotAChoice {
+        /// The command, without its slash.
+        command: String,
+        /// What was answered.
+        answer: String,
+    },
     /// A session title with nothing in it.
     #[error("a session title cannot be empty")]
     EmptyTitle,
@@ -243,4 +260,13 @@ pub enum Error {
     /// A database error.
     #[error(transparent)]
     Store(#[from] rusqlite::Error),
+}
+
+/// What follows the refusal of a command: what to do instead, or where the command does work.
+fn after_colon(text: &str) -> String {
+    if text.is_empty() {
+        ": open the task in one and run the agent there.".to_string()
+    } else {
+        format!(". {text}")
+    }
 }

@@ -7,7 +7,10 @@ use std::sync::Arc;
 
 use common::{core_with_project, fixture, turn};
 use swarmed_core::agent::{AgentEvent, Auth};
-use swarmed_core::{Core, Error, NewTaskOptions, SessionOptions, hooks, serve_session_tools};
+use swarmed_core::{
+    CommandKind, Core, Error, NewTaskOptions, SessionOptions, SlashCommand, hooks,
+    serve_session_tools,
+};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 
@@ -235,6 +238,14 @@ async fn a_session_is_told_of_its_skills_and_handed_one_when_it_asks() {
     assert_eq!(ask("nope").await["ok"], false);
 }
 
+/// The names of the commands that are sent to the agent as messages, which skills are.
+fn sent_on(commands: &[SlashCommand]) -> Vec<&str> {
+    let sent = commands
+        .iter()
+        .filter(|command| command.kind == CommandKind::Prompt);
+    sent.map(|command| command.name.as_str()).collect()
+}
+
 #[tokio::test]
 async fn a_skill_called_by_name_is_listed_and_sent_with_what_it_says() {
     let fx = fixture();
@@ -249,7 +260,7 @@ async fn a_skill_called_by_name_is_listed_and_sent_with_what_it_says() {
 
     // Before its agent has said what commands it has, the menu holds the skills it is offered.
     let offered = core.slash_commands(Some(session.id)).expect("lists");
-    assert_eq!(offered, ["deploy", "triage"]);
+    assert_eq!(sent_on(&offered), ["deploy", "triage"]);
 
     core.session_start(session.id, Auth::Subscription)
         .expect("starts");
@@ -272,7 +283,8 @@ async fn a_skill_called_by_name_is_listed_and_sent_with_what_it_says() {
 
     // The agent's own commands come first once it has reported them, each name once.
     let listed = core.slash_commands(Some(session.id)).expect("lists");
-    assert_eq!(listed, ["context", "review", "deploy", "triage"]);
+    assert_eq!(listed[0].name, "context");
+    assert_eq!(sent_on(&listed), ["review", "deploy", "triage"]);
 
     // One of its own skills, an unknown name, or a slash in the middle goes as it was typed.
     for plain in ["/review this", "/nope", "see /deploy"] {

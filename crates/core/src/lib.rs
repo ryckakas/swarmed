@@ -14,6 +14,7 @@ mod attach;
 mod background;
 mod changes;
 mod cloud;
+mod commands;
 mod config;
 mod configure;
 mod costs;
@@ -80,6 +81,7 @@ pub use shellenv::learn_shell_path;
 
 pub use changes::{ChangeKind, FileChange, FileDiff};
 pub use cloud::{CloudOrigin, CloudProvider, CloudTask, MAX_DELEGATED};
+pub use commands::{CommandKind, SlashCommand};
 pub use config::{Hooks, ProjectConfig};
 pub use costs::{Costs, DayCost, TaskCost};
 pub use environments::Environment;

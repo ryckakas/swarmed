@@ -208,14 +208,17 @@ fn the_ui_can_go_from_an_empty_app_to_an_answered_permission_request() {
     assert_eq!(overview[0]["tasks"][1]["running"], json!([id]));
     assert_eq!(overview[0]["tasks"][1]["sessions"][0]["title"], "run: ls");
 
-    assert_eq!(
-        app.ok("slash_commands", json!({ "id": id })),
-        json!(["context", "review"])
-    );
-    assert_eq!(
-        app.ok("slash_commands", json!({ "id": null })),
-        json!(["context", "review"])
-    );
+    // Each command comes with what Swarmed does with it when it is sent.
+    for asked_for in [json!({ "id": id }), json!({ "id": null })] {
+        let commands = app.ok("slash_commands", asked_for);
+        let listed = commands.as_array().expect("a list");
+        let shown = json!({ "name": "context", "kind": "screen", "note": "" });
+        let sent = json!({ "name": "review", "kind": "prompt", "note": "" });
+        assert!(
+            listed.contains(&shown) && listed.contains(&sent),
+            "{commands}"
+        );
+    }
     app.ok(
         "session_allow",
         json!({ "id": id, "requestId": request["request_id"] }),
@@ -551,6 +554,56 @@ fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
     assert_eq!(app.ok("session_queue", json!({ "id": id })), json!([]));
     // With nothing waiting, sending the next one is not an error.
     app.ok("session_send_queued", json!({ "id": id }));
+}
+
+#[test]
+fn the_ui_can_send_the_agents_own_commands_and_answer_what_they_ask() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+    let session = app.ok(
+        "session_new",
+        json!({ "project": "demo", "task": "one", "agent": null, "how": { "model": null, "supervision": "ask", "effort": null } }),
+    );
+    let id = &session["id"];
+    // A screen is asked of the agent and arrives as an event; nothing is said to it.
+    app.ok("session_send", json!({ "id": id, "text": "/usage" }));
+    let screen = app.wait_for_event(id, "screen");
+    assert_eq!(screen["command"], "usage");
+    assert_eq!(screen["sections"][0]["rows"][0]["value"], "usage");
+
+    // A setting is asked about where the conversation stands, and set by the answer.
+    app.ok("session_send", json!({ "id": id, "text": "/model" }));
+    let asked = app.wait_for_event(id, "command_asked");
+    let question = asked["questions"][0]["question"]
+        .as_str()
+        .expect("a question");
+    assert_eq!(asked["questions"][0]["multiSelect"], false);
+    app.ok(
+        "session_command_answer",
+        json!({ "id": id, "requestId": asked["request_id"], "answers": { question: "opus" } }),
+    );
+    let answered = app.wait_for_event(id, "command_answered");
+    assert_eq!(answered["request_id"], asked["request_id"]);
+    assert_eq!(answered["said"], "This session's model is now opus.");
+
+    // Put aside, it changes nothing.
+    app.ok("session_send", json!({ "id": id, "text": "/effort" }));
+    let asked = app.wait_for_event(id, "command_asked");
+    app.ok(
+        "session_command_answer",
+        json!({ "id": id, "requestId": asked["request_id"], "answers": null }),
+    );
+    let aside = app.wait_for_event(id, "command_answered");
+    assert_eq!(aside["said"], "Nothing was changed.");
+
+    let events = app.ok("session_events", json!({ "id": id }));
+    let said = |e: &&Value| e["type"] == "user_message";
+    assert_eq!(
+        events.as_array().into_iter().flatten().filter(said).count(),
+        0
+    );
 }
 
 #[test]

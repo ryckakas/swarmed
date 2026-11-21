@@ -9,10 +9,17 @@ import {
     useState,
 } from "react";
 import { api } from "../api";
-import type { Template } from "../api/types";
+import type { SlashCommand, Template } from "../api/types";
 import { type Edit, editFor } from "../editing";
 import { isLargePaste, tokenFor, withToken } from "../pastes";
-import { firstPlaceholder, slashMatches, slashQuery, stepActive, withCommand } from "../slash";
+import {
+    firstPlaceholder,
+    kindLabel,
+    slashMatches,
+    slashQuery,
+    stepActive,
+    withCommand,
+} from "../slash";
 import { useStore } from "../store";
 import { takesSuggestion } from "../suggestion";
 import { FileChips } from "./FileChips";
@@ -29,7 +36,7 @@ interface Props {
     autoFocus?: boolean;
     inputRef?: Ref<HTMLTextAreaElement>;
     /** The commands and skills suggested while a message starts with `/`. */
-    commands?: string[];
+    commands?: SlashCommand[];
     /** The files the message points the agent at. */
     files: string[];
     onFiles(files: string[]): void;
@@ -95,8 +102,8 @@ export function ComposerBox(props: Props) {
                                 onClick={() => menu.choose(name)}
                             >
                                 /{name}
-                                {menu.isTemplate(name) && (
-                                    <span className="slash-kind">your prompt</span>
+                                {menu.kind(name) && (
+                                    <span className="slash-kind">{menu.kind(name)}</span>
                                 )}
                             </button>
                         </li>
@@ -289,7 +296,7 @@ function assign<T>(ref: Ref<T> | undefined, value: T | null) {
  */
 function useSlashMenu(
     value: string,
-    commands: string[],
+    commands: SlashCommand[],
     templates: Template[],
     onChange: (value: string, select?: [number, number] | null) => void,
 ) {
@@ -299,7 +306,8 @@ function useSlashMenu(
     const query = dismissed === value ? null : slashQuery(value);
     const kept = new Map(templates.map((template) => [template.name, template.text]));
     // The user's own prompts stand beside the agent's commands; one of the same name wins.
-    const matches = query === null ? [] : slashMatches(query, [...kept.keys(), ...commands]);
+    const names = commands.map((command) => command.name);
+    const matches = query === null ? [] : slashMatches(query, [...kept.keys(), ...names]);
     const current = Math.min(active, Math.max(matches.length - 1, 0));
     const choose = (name: string) => {
         setActive(0);
@@ -337,6 +345,10 @@ function useSlashMenu(
         active: current,
         choose,
         onKeyDown,
-        isTemplate: (name: string) => kept.has(name),
+        /** What the list says beside a name: that it is the user's own, or what Swarmed does. */
+        kind: (name: string) =>
+            kept.has(name)
+                ? "your prompt"
+                : kindLabel(commands.find((command) => command.name === name)),
     };
 }

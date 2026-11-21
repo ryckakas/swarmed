@@ -643,12 +643,14 @@ function heardOfDeletion(api: Api, event: SessionEvent): boolean {
 }
 
 /**
- * Reads the tree again for an event that changes which sessions it holds: one from a session
- * it does not know, which an agent started, or the closing of one by an agent or another window.
+ * Reads the tree again for an event that changes what it holds: one from a session it does
+ * not know, which an agent started, the closing of one by an agent or another window, or a
+ * command such as `/model` having set something of a session's.
  */
 function readTreeIfChanged(api: Api, event: SessionEvent) {
     const unknown = !findSession(useStore.getState().projects, event.session_id);
-    if (unknown || event.event.type === "closed") {
+    const changes = event.event.type === "closed" || event.event.type === "command_answered";
+    if (unknown || changes) {
         void useStore.getState().refresh(api);
     }
 }

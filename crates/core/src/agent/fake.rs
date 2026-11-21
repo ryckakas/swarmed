@@ -6,7 +6,8 @@ use serde_json::json;
 use tokio::sync::mpsc;
 
 use super::{
-    AgentBackend, AgentCommand, AgentEvent, AgentHandle, PLAN_TOOL, SessionSpec, Supervision,
+    AgentBackend, AgentCommand, AgentEvent, AgentHandle, PLAN_TOOL, ScreenKind, ScreenRow,
+    ScreenSection, SessionSpec, Supervision,
 };
 use crate::error::Result;
 
@@ -89,6 +90,10 @@ impl Script {
             AgentCommand::UserMessage(message) => message,
             AgentCommand::SetSupervision(supervision) => {
                 self.spec.supervision = supervision;
+                return Next::Continue;
+            }
+            AgentCommand::Show(kind) => {
+                self.emit(screen(kind));
                 return Next::Continue;
             }
             _ => return Next::Continue,
@@ -231,6 +236,23 @@ impl Script {
             is_error: !allowed,
         });
         Some(allowed)
+    }
+}
+
+/// The screen the scripted agent has for every command: one row that names it.
+fn screen(kind: ScreenKind) -> AgentEvent {
+    AgentEvent::Screen {
+        command: kind.command().to_string(),
+        title: kind.title().to_string(),
+        note: String::new(),
+        sections: vec![ScreenSection {
+            title: "Scripted".to_string(),
+            rows: vec![ScreenRow {
+                label: "Screen".to_string(),
+                value: kind.command().to_string(),
+                ..ScreenRow::default()
+            }],
+        }],
     }
 }
 

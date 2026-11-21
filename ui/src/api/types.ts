@@ -502,6 +502,43 @@ export interface ContextCategory {
     kind: string;
 }
 
+/** What Swarmed does with a command when it is sent. */
+export type CommandKind = "prompt" | "screen" | "setting" | "terminal";
+
+/** A command or skill a message can call by starting with `/`. */
+export interface SlashCommand {
+    /** The name, without its slash. */
+    name: string;
+    kind: CommandKind;
+    /** For one that only works in a terminal, what to do in Swarmed instead; empty for none. */
+    note: string;
+}
+
+/** One line of an agent's screen: a name, what it stands at, and what there is to add. */
+export interface ScreenRow {
+    label: string;
+    value: string;
+    /** How much is used, in percent, where the row is a measure. */
+    share?: number | null;
+    /** When what the row measures starts over, as the agent gave it (RFC 3339). */
+    resets_at?: string | null;
+    note?: string;
+}
+
+/** A part of a screen: a few rows under a heading, which may be empty. */
+export interface ScreenSection {
+    title: string;
+    rows: ScreenRow[];
+}
+
+/** A question a command puts to the user, in the shape of the questions an agent asks. */
+export interface AskedQuestion {
+    question: string;
+    header: string;
+    options: { label: string; description: string }[];
+    multiSelect: boolean;
+}
+
 export type AgentEvent =
     | { type: "user_message"; text: string }
     | {
@@ -591,6 +628,12 @@ export type AgentEvent =
      * Something a sub-agent said or did. `parent` is the tool call that started it, which
      * tells one sub-agent from another.
      */
+    /** One of the agent's own screens, such as `/usage`, with the contents the agent gave. */
+    | { type: "screen"; command: string; title: string; note: string; sections: ScreenSection[] }
+    /** A command that changes a setting, such as `/model`, puts its choices to the user. */
+    | { type: "command_asked"; request_id: string; command: string; questions: AskedQuestion[] }
+    /** The user answered such a question or put it aside; `said` is what came of it. */
+    | { type: "command_answered"; request_id: string; said: string }
     | { type: "sub"; parent: string; event: AgentEvent }
     | { type: "other"; raw: unknown };
 

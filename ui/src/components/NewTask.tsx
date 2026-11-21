@@ -18,6 +18,7 @@ import {
     variantNames,
 } from "../broadcast";
 import { expandPastes, forgetPastes } from "../pastes";
+import { sentOn } from "../slash";
 import { useStore } from "../store";
 import { taskNameForPrompt, taskNameFrom, uniqueTaskName } from "../tree";
 import { useWords } from "../useWords";
@@ -60,7 +61,8 @@ export function NewTask({ projects }: { projects: Project[] }) {
     // More agents to run the same prompt on, each in a task of its own.
     const [variants, setVariants] = useState<Variant[]>([]);
     const agents = useAgents();
-    const commands = useSlashCommands(null);
+    // A task starts with a message to its agent: a screen or a setting has no session yet.
+    const commands = sentOn(useSlashCommands(null));
     const [prompt, setPrompt] = useState("");
     const [files, setFiles] = useState<string[]>([]);
     const [creating, setCreating] = useState<string | null>(null);

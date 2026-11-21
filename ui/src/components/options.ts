@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import type { AgentInfo, Effort, Supervision, Theme } from "../api/types";
+import type { AgentInfo, Effort, SlashCommand, Supervision, Theme } from "../api/types";
 import { useStore } from "../store";
 
 // The choices a session is started with, and how they are named in the UI.
@@ -83,8 +83,8 @@ export function supervisionChoices(current?: Supervision, agentId: string = CLAU
  * The `/` commands a message can call, for a session or, with `null`, for a new one. Read again
  * when `refreshOn` changes: an agent only reports its commands once it has started.
  */
-export function useSlashCommands(sessionId: number | null, refreshOn?: unknown): string[] {
-    const [commands, setCommands] = useState<string[]>([]);
+export function useSlashCommands(sessionId: number | null, refreshOn?: unknown): SlashCommand[] {
+    const [commands, setCommands] = useState<SlashCommand[]>([]);
     // biome-ignore lint/correctness/useExhaustiveDependencies: refreshOn exists to trigger a re-read
     useEffect(() => {
         let current = true;

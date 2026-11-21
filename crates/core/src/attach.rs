@@ -60,8 +60,13 @@ impl Core {
         auth: Auth,
     ) -> Result<()> {
         let message = with_files(text, files)?;
+        // One of the agent's own commands that Swarmed shows, asks about or refuses is not
+        // a message to it, and most need no agent started.
+        if self.command_taken(id, &message, Some(auth.clone()))? {
+            return Ok(());
+        }
         self.session_start(id, auth)?;
-        self.session_send(id, &message)
+        self.session_send_as_typed(id, &message)
     }
 
     /// Adds `text`, with `files` listed under it, to the end of the session's queue and

@@ -15,8 +15,8 @@ use swarmed_core::{
     CloudProvider, CloudTask, Core, Costs, CustomLayout, Environment, FileChange, FileDiff,
     FileListing, McpServerInput, McpServerView, NewTaskOptions, Project, ProjectOverview, Pull,
     PullDraft, QueuedMessage, RemoveOptions, SearchHit, Session, SessionOptions, SessionSettings,
-    Settings, Skill, Snapshot, Task, TaskNaming, Template, TerminalConfig, TerminalOpened,
-    TurnStats, Unpublished, Usage,
+    Settings, Skill, SlashCommand, Snapshot, Task, TaskNaming, Template, TerminalConfig,
+    TerminalOpened, TurnStats, Unpublished, Usage,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -829,6 +829,18 @@ pub(crate) fn session_answer(
     Ok(core.session_answer(id, &request_id, answers)?)
 }
 
+/// Async because the answer may start the session's agent, as `session_send` does, and reads
+/// the conversation to find the question.
+#[tauri::command]
+pub(crate) async fn session_command_answer(
+    core: CoreState<'_>,
+    id: i64,
+    request_id: String,
+    answers: Option<BTreeMap<String, String>>,
+) -> Command<()> {
+    Ok(core.session_command_answer(id, &request_id, answers, Auth::default())?)
+}
+
 #[tauri::command]
 pub(crate) fn session_deny(
     core: CoreState<'_>,
@@ -897,7 +909,7 @@ pub(crate) fn session_stop_background(
 }
 
 #[tauri::command(async)]
-pub(crate) fn slash_commands(core: CoreState<'_>, id: Option<i64>) -> Command<Vec<String>> {
+pub(crate) fn slash_commands(core: CoreState<'_>, id: Option<i64>) -> Command<Vec<SlashCommand>> {
     Ok(core.slash_commands(id)?)
 }
 

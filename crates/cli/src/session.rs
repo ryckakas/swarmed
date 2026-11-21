@@ -5,7 +5,10 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, anyhow};
 use clap::{Subcommand, ValueEnum};
 use serde_json::Value;
-use swarmed_core::agent::{AgentEvent, Auth, Effort, McpServerInfo, PLAN_TOOL, Supervision};
+use swarmed_core::agent::{
+    AgentEvent, Asked, Auth, Effort, McpServerInfo, PLAN_TOOL, ScreenRow, ScreenSection,
+    Supervision,
+};
 use swarmed_core::{Core, Session, SessionEvent, SessionOptions, SessionSettings};
 use tokio::io::{AsyncBufReadExt, BufReader, Lines, Stdin};
 use tokio::sync::broadcast::Receiver;
@@ -308,7 +311,13 @@ fn ending(event: &AgentEvent) -> Option<Result<()>> {
         AgentEvent::Exited {
             code: Some(code), ..
         } if *code != 0 => Some(Err(anyhow!("the agent exited with code {code}"))),
-        AgentEvent::TurnDone { .. } | AgentEvent::Exited { .. } => Some(Ok(())),
+        // The last three are a command of the agent's that Swarmed answered itself: there is
+        // no turn to wait for.
+        AgentEvent::TurnDone { .. }
+        | AgentEvent::Exited { .. }
+        | AgentEvent::Screen { .. }
+        | AgentEvent::CommandAsked { .. }
+        | AgentEvent::CommandAnswered { .. } => Some(Ok(())),
         _ => None,
     }
 }
@@ -320,10 +329,13 @@ async fn run_turn(core: &Core, id: i64, prompt: &str, files: &[PathBuf], auth: A
     let mut bus = core.subscribe();
     core.session_message(id, prompt, files, auth)?;
     let mut answers = BufReader::new(tokio::io::stdin()).lines();
-    // The user's own message is the first event published; it is on screen already.
-    next_or_interrupt(core, &mut bus, id).await?;
+    // The user's own message is the first event published; it is on screen already. A
+    // command Swarmed answers itself is no message, and what comes first is its answer.
+    let mut first = true;
     while let Some(event) = next_or_interrupt(core, &mut bus, id).await? {
-        if let Some(line) = describe(&event) {
+        let own = first && matches!(event, AgentEvent::UserMessage { .. });
+        first = false;
+        if let Some(line) = describe(&event).filter(|_| !own) {
             say(&line);
         }
         if let AgentEvent::PermissionRequest { request_id, .. } = &event {
@@ -440,8 +452,51 @@ fn describe(event: &AgentEvent) -> Option<String> {
             code: Some(code),
             stderr,
         } if *code != 0 => Some(format!("agent exited with code {code}: {}", stderr.trim())),
+        AgentEvent::Screen {
+            title,
+            note,
+            sections,
+            ..
+        } => Some(screen(title, note, sections)),
+        AgentEvent::CommandAsked {
+            command, questions, ..
+        } => Some(asked(command, questions)),
+        AgentEvent::CommandAnswered { said, .. } => Some(said.clone()),
         _ => None,
     }
+}
+
+/// One of the agent's screens as lines of text: its heading, then each part's rows.
+fn screen(title: &str, note: &str, sections: &[ScreenSection]) -> String {
+    let row = |row: &ScreenRow| {
+        let named = [row.label.as_str(), row.value.as_str()];
+        let line = named.into_iter().filter(|part| !part.is_empty());
+        let line = line.collect::<Vec<_>>().join(": ");
+        let resets = row.resets_at.as_ref();
+        let resets = resets.map_or_else(String::new, |at| format!(" (resets {at})"));
+        format!("  {line}{resets}")
+    };
+    let part = |section: &ScreenSection| {
+        let heading = (!section.title.is_empty()).then(|| section.title.clone());
+        let rows = section.rows.iter().map(row);
+        heading.into_iter().chain(rows).collect::<Vec<_>>()
+    };
+    let head = [title, note].into_iter().filter(|line| !line.is_empty());
+    let head = head.map(String::from);
+    let lines = head.chain(sections.iter().flat_map(part));
+    lines.collect::<Vec<_>>().join("\n")
+}
+
+/// What a command asks, with its choices. There is nothing to choose with here, so it says
+/// how to name the choice with the command.
+fn asked(command: &str, questions: &[Asked]) -> String {
+    let one = |asked: &Asked| {
+        let labels = asked.options.iter().map(|option| option.label.as_str());
+        let labels = labels.collect::<Vec<_>>().join(", ");
+        format!("{} ({labels})", asked.question)
+    };
+    let asked = questions.iter().map(one).collect::<Vec<_>>().join("\n");
+    format!("{asked}\nName the choice with the command, as in `/{command} <choice>`.")
 }
 
 /// How many MCP servers a session has. Claude Code reports which connected; other agents are

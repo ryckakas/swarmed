@@ -192,6 +192,129 @@ pub struct ContextCategory {
     pub kind: String,
 }
 
+/// One of an agent's own screens: what its terminal draws for a command such as `/usage`, and
+/// what Swarmed asks the agent for the contents of, to show it itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScreenKind {
+    /// The plan's limits, extra usage and what the session has spent.
+    Usage,
+    /// What the session has cost and how long it has taken.
+    Cost,
+    /// The version, the account, the model and where settings come from.
+    Status,
+    /// What fills the context window.
+    Context,
+    /// The instruction files the agent reads.
+    Memory,
+    /// The skills the agent has.
+    Skills,
+    /// The hooks that run around the agent's tools.
+    Hooks,
+    /// The MCP servers and whether each connected.
+    Mcp,
+}
+
+impl ScreenKind {
+    /// Every screen there is.
+    pub const ALL: [Self; 8] = [
+        Self::Usage,
+        Self::Cost,
+        Self::Status,
+        Self::Context,
+        Self::Memory,
+        Self::Skills,
+        Self::Hooks,
+        Self::Mcp,
+    ];
+
+    /// The command that shows the screen, without its slash.
+    #[must_use]
+    pub fn command(self) -> &'static str {
+        match self {
+            Self::Usage => "usage",
+            Self::Cost => "cost",
+            Self::Status => "status",
+            Self::Context => "context",
+            Self::Memory => "memory",
+            Self::Skills => "skills",
+            Self::Hooks => "hooks",
+            Self::Mcp => "mcp",
+        }
+    }
+
+    /// The inverse of [`ScreenKind::command`].
+    #[must_use]
+    pub fn of(command: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|kind| kind.command() == command)
+    }
+
+    /// What the screen is headed with.
+    #[must_use]
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Usage => "Usage",
+            Self::Cost => "Cost",
+            Self::Status => "Status",
+            Self::Context => "Context",
+            Self::Memory => "Memory",
+            Self::Skills => "Skills",
+            Self::Hooks => "Hooks",
+            Self::Mcp => "MCP servers",
+        }
+    }
+}
+
+/// A part of a screen: a few rows under a heading.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScreenSection {
+    /// The heading; empty for none.
+    pub title: String,
+    /// The rows, in the order they are shown.
+    pub rows: Vec<ScreenRow>,
+}
+
+/// One line of a screen: a name, what it stands at, and what there is to add.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScreenRow {
+    /// What the row is about; empty for a row that is only a remark.
+    pub label: String,
+    /// What it stands at.
+    pub value: String,
+    /// How much of something is used, in percent, where the row is a measure: drawn as a bar.
+    #[serde(default)]
+    pub share: Option<u8>,
+    /// When what the row measures starts over, as the agent gave it (RFC 3339).
+    #[serde(default)]
+    pub resets_at: Option<String>,
+    /// A remark under the row; empty for none.
+    #[serde(default)]
+    pub note: String,
+}
+
+/// A question a command of the agent's puts to the user, in the shape of the questions an
+/// agent asks, so that a front end shows both alike.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Asked {
+    /// The question in full. It is also what its answer is filed under.
+    pub question: String,
+    /// A word or two for it.
+    pub header: String,
+    /// What can be chosen.
+    pub options: Vec<AskedOption>,
+    /// Whether more than one option may be chosen.
+    #[serde(rename = "multiSelect", default)]
+    pub multi_select: bool,
+}
+
+/// One answer a question offers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AskedOption {
+    /// The answer, as it is chosen and sent back.
+    pub label: String,
+    /// What choosing it means; empty for none.
+    pub description: String,
+}
+
 /// What an agent session reports.
 ///
 /// Events are stored as JSON, so variants and fields are only ever added, never renamed.
@@ -441,6 +564,35 @@ pub enum AgentEvent {
         /// What it said or did.
         event: Box<AgentEvent>,
     },
+    /// One of the agent's own screens, such as `/usage`, asked for by the user and answered by
+    /// the agent with the screen's contents. It is the user's to look at: no agent is given it.
+    Screen {
+        /// The command that asked for it, without its slash.
+        command: String,
+        /// What the screen is headed with.
+        title: String,
+        /// A line under the heading: why there is nothing to show, or what else can be done.
+        note: String,
+        /// The screen's parts.
+        sections: Vec<ScreenSection>,
+    },
+    /// A command of the agent's that changes a setting, such as `/model`, puts its choices to
+    /// the user. Recorded by the core, which makes the change once it is answered.
+    CommandAsked {
+        /// What [`AgentEvent::CommandAnswered`] refers to.
+        request_id: String,
+        /// The command, without its slash.
+        command: String,
+        /// What is asked.
+        questions: Vec<Asked>,
+    },
+    /// The user answered a [`AgentEvent::CommandAsked`], or put it aside. Recorded by the core.
+    CommandAnswered {
+        /// The request that was answered.
+        request_id: String,
+        /// What came of it, in a line: what was set, or that nothing was.
+        said: String,
+    },
     /// Something this version does not understand; kept so nothing is lost silently.
     Other {
         /// The message as received.
@@ -486,6 +638,9 @@ pub enum AgentCommand {
         /// The [`AgentEvent::Background`] task to stop.
         task_id: String,
     },
+    /// Report one of the agent's own screens, as an [`AgentEvent::Screen`]. An agent that has
+    /// no such screens ignores this.
+    Show(ScreenKind),
 }
 
 /// How far along something an agent left running is.

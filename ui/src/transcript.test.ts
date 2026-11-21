@@ -362,3 +362,93 @@ describe("sameToolCall", () => {
         expect(sameToolCall(done("a.txt"), { ...done("a.txt"), name: "Read" })).toBe(false);
     });
 });
+
+describe("the agent's own commands", () => {
+    const question = {
+        question: "Which model should this session run on?",
+        header: "Model",
+        options: [
+            { label: "Default", description: "" },
+            { label: "opus", description: "" },
+        ],
+        multiSelect: false,
+    };
+    const asked: AgentEvent = {
+        type: "command_asked",
+        request_id: "model-1",
+        command: "model",
+        questions: [question],
+    };
+
+    it("shows a screen where it was asked for, with what the agent said is on it", () => {
+        const sections = [{ title: "Plan limits", rows: [{ label: "Session", value: "40%" }] }];
+        const screen: AgentEvent = {
+            type: "screen",
+            command: "usage",
+            title: "Usage",
+            note: "On the team plan.",
+            sections,
+        };
+        const [item] = toItems([screen]);
+        expect(item).toEqual({
+            kind: "screen",
+            key: 0,
+            command: "usage",
+            title: "Usage",
+            note: "On the team plan.",
+            sections,
+        });
+        // The parts are the event's own, so a screen drawn once is not drawn again.
+        expect(item?.kind === "screen" && item.sections).toBe(sections);
+    });
+
+    it("puts a command's question where it stands until it is answered, then says what came of it", () => {
+        const [open] = toItems([asked]);
+        expect(open).toMatchObject({ kind: "asked", requestId: "model-1", said: null });
+        expect(open?.kind === "asked" && open.questions[0]?.options[1]?.label).toBe("opus");
+        const answered: AgentEvent = {
+            type: "command_answered",
+            request_id: "model-1",
+            said: "This session's model is now opus.",
+        };
+        const items = toItems([asked, answered]);
+        expect(items).toHaveLength(1);
+        expect(items[0]).toMatchObject({
+            kind: "asked",
+            command: "model",
+            said: "This session's model is now opus.",
+        });
+    });
+
+    it("is not closed by a message or a turn, as an agent's request is", () => {
+        const turn: AgentEvent[] = [
+            { type: "user_message", text: "carry on" },
+            { type: "turn_done", is_error: false, result: null, cost_usd: null },
+        ];
+        const items = toItems([asked, ...turn]);
+        expect(items.find((item) => item.kind === "asked")).toMatchObject({ said: null });
+    });
+
+    it("says a setting named with its command in a line of its own", () => {
+        const set: AgentEvent = {
+            type: "command_answered",
+            request_id: "output-style-17",
+            said: "Done.",
+        };
+        expect(toItems([set])).toEqual([
+            {
+                kind: "asked",
+                key: 0,
+                requestId: "output-style-17",
+                command: "output-style",
+                questions: [],
+                said: "Done.",
+            },
+        ]);
+    });
+
+    it("draws nothing for questions with nothing to choose from", () => {
+        const empty: AgentEvent = { ...asked, questions: [{ ...question, options: [] }] };
+        expect(toItems([empty])).toEqual([]);
+    });
+});

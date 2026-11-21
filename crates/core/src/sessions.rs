@@ -17,6 +17,7 @@ use crate::agent::{
     Supervision,
 };
 use crate::agents::CLAUDE;
+use crate::commands::SlashCommand;
 use crate::error::{Error, Result};
 use crate::fork;
 use crate::marks::{Mark, MarkColour};
@@ -124,6 +125,9 @@ impl SessionStatus {
             | AgentEvent::RateLimit { .. }
             | AgentEvent::ExtraUsage { .. }
             | AgentEvent::Forked { .. }
+            | AgentEvent::Screen { .. }
+            | AgentEvent::CommandAsked { .. }
+            | AgentEvent::CommandAnswered { .. }
             | AgentEvent::Other { .. } => None,
         }
     }
@@ -717,7 +721,7 @@ impl Core {
     /// They are known from the last time the session's agent started. A session that has not
     /// run yet, or `None`, gets what the newest session on the same agent reported, which may
     /// differ where projects bring their own commands.
-    pub fn slash_commands(&self, session: Option<i64>) -> Result<Vec<String>> {
+    pub fn slash_commands(&self, session: Option<i64>) -> Result<Vec<SlashCommand>> {
         let agent = match session {
             Some(id) => self.session(id)?.agent,
             None => CLAUDE.to_string(),
@@ -737,7 +741,7 @@ impl Core {
         let known: HashSet<String> = commands.iter().cloned().collect();
         let names = skills.into_iter().map(|skill| skill.name);
         commands.extend(names.filter(|name| !known.contains(name)));
-        Ok(commands)
+        Ok(crate::commands::offered(&agent, commands))
     }
 
     /// Where session `id` works, if its task is still there.
@@ -927,8 +931,18 @@ impl Core {
         drop(tokio::spawn(naming));
     }
 
-    /// Starts a turn with `text` in a running session.
+    /// Starts a turn with `text` in a running session. A message that is one of the agent's
+    /// own commands which Swarmed shows or asks about itself starts no turn: that is done
+    /// instead.
     pub fn session_send(&self, id: i64, text: &str) -> Result<()> {
+        if self.command_taken(id, text, None)? {
+            return Ok(());
+        }
+        self.session_send_as_typed(id, text)
+    }
+
+    /// Starts a turn with `text` in a running session, whatever `text` is.
+    pub(crate) fn session_send_as_typed(&self, id: i64, text: &str) -> Result<()> {
         self.live.sender(id)?;
         if self.session(id)?.title.is_empty() {
             self.name_later(id, text);
