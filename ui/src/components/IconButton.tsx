@@ -63,6 +63,21 @@ export function ForkIcon() {
     );
 }
 
+/** A window with a prompt in it: a terminal. */
+export function TerminalIcon() {
+    return (
+        <>
+            <rect x="2" y="3" width="12" height="10" rx="2" />
+            <path d="M5 6.5l2 1.5-2 1.5M8.5 10H11" />
+        </>
+    );
+}
+
+/** Angle brackets around a slash: code, in an editor. */
+export function EditorIcon() {
+    return <path d="M5.5 4.5L2.5 8l3 3.5M10.5 4.5l3 3.5-3 3.5M9 3.5l-2 9" />;
+}
+
 /** A cloud: work handed to an agent that runs in one. */
 export function CloudIcon() {
     return <path d="M4.5 12.5a3 3 0 0 1-.4-5.97 4 4 0 0 1 7.7-.9A3.4 3.4 0 0 1 11.5 12.5z" />;
