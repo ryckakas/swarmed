@@ -11,7 +11,13 @@ import { AgentsSettings } from "./AgentsSettings";
 import { ApiKeys } from "./ApiKeys";
 import { CloseIcon, IconButton } from "./IconButton";
 import { McpSettings } from "./McpSettings";
-import { editorChoices, supervisionChoices, TEXT_SCALES, THEMES } from "./options";
+import {
+    editorChoices,
+    supervisionChoices,
+    TEXT_SCALES,
+    THEMES,
+    terminalAppChoices,
+} from "./options";
 import { Picker } from "./Picker";
 import { SkillsSettings } from "./SkillsSettings";
 import { TemplatesSettings } from "./TemplatesSettings";
@@ -136,6 +142,8 @@ function Panel({ tab, settings }: { tab: SettingsTab; settings: Settings }) {
             return <TemplatesSettings />;
         case "actions":
             return <ActionsSettings />;
+        case "terminal":
+            return <TerminalSettings />;
         case "mcp":
             return <McpSettings />;
         case "keys":
@@ -243,22 +251,82 @@ const LAYOUT_FIELDS =
 function LayoutEditor() {
     const kept = useStore((state) => state.customLayout);
     const save = useStore((state) => state.saveCustomLayout);
+    return (
+        <JsonEditor
+            label="Custom layout, as JSON"
+            hint={LAYOUT_FIELDS}
+            kept={kept ?? { base: "classic" }}
+            saveLabel="Save layout"
+            onSave={(text) => save(api, text)}
+        />
+    );
+}
+
+/** The fields a terminal's configuration may hold, as the hint over its editor. */
+const TERMINAL_FIELDS =
+    "font, font_size in pixels, line_height in percent, cursor (block, bar or underline), cursor_blink, " +
+    "scrollback in lines, bold_is_bright, option_is_meta, copy_on_select, clipboard (programs may copy), gpu, " +
+    "minimum_contrast in tenths, and dark and light colours: background, foreground, cursor, selection, black, " +
+    "red, green, yellow, blue, magenta, cyan, white and each with bright_ in front. Leave out what should stay " +
+    "as it is: the colours then follow the palette. An agent can write it for you: ask one to change the terminal.";
+
+/** How the terminal looks and behaves, as JSON the core checks. */
+function TerminalSettings() {
+    const kept = useStore((state) => state.terminalConfig);
+    const save = useStore((state) => state.saveTerminalConfig);
+    return (
+        <section className="settings-group" aria-label="Terminal">
+            <h3>Terminal</h3>
+            <p className="settings-hint">
+                The terminal of a session: a shell in the task's worktree. Addresses in its output
+                open with a click, and Cmd+F finds in what it printed. Kept in{" "}
+                <code>terminal.json</code> in Swarmed's data folder.
+            </p>
+            <JsonEditor
+                label="Terminal, as JSON"
+                hint={TERMINAL_FIELDS}
+                kept={kept ?? {}}
+                saveLabel="Save terminal"
+                onSave={(text) => save(api, text)}
+            />
+        </section>
+    );
+}
+
+interface JsonEditorProps {
+    /** What the editor is, for screen readers. */
+    label: string;
+    /** Which fields there are. */
+    hint: string;
+    /** What is kept now. */
+    kept: object;
+    saveLabel: string;
+    /** Keeps the text; resolves to what is wrong with it, or to nothing. */
+    onSave(text: string): Promise<string | null>;
+}
+
+/** A piece of configuration as the JSON it is. The core checks it on saving and says what is wrong. */
+function JsonEditor({ label, hint, kept, saveLabel, onSave }: JsonEditorProps) {
     const [text, setText] = useState<string | null>(null);
     const [problem, setProblem] = useState<string | null>(null);
-    const written = JSON.stringify(kept ?? { base: "classic" }, null, 2);
+    const written = JSON.stringify(kept, null, 2);
     const shown = text ?? written;
     const keep = async () => {
-        const wrong = await save(api, shown);
+        const wrong = await onSave(shown);
         setProblem(wrong);
         // Once kept, the editor shows it as the core wrote it down.
         setText(wrong === null ? null : shown);
     };
+    const revert = () => {
+        setText(null);
+        setProblem(null);
+    };
     return (
         <div className="layout-editor">
-            <p className="settings-hint">{LAYOUT_FIELDS}</p>
+            <p className="settings-hint">{hint}</p>
             <textarea
                 className="layout-json"
-                aria-label="Custom layout, as JSON"
+                aria-label={label}
                 spellCheck={false}
                 value={shown}
                 onChange={(event) => setText(event.target.value)}
@@ -271,7 +339,7 @@ function LayoutEditor() {
                     type="button"
                     className="button"
                     disabled={shown === written}
-                    onClick={() => setText(null)}
+                    onClick={revert}
                 >
                     Revert
                 </button>
@@ -281,7 +349,7 @@ function LayoutEditor() {
                     disabled={shown === written}
                     onClick={keep}
                 >
-                    Save layout
+                    {saveLabel}
                 </button>
             </div>
         </div>
@@ -299,6 +367,17 @@ function Sessions({ settings }: { settings: Settings }) {
                     value={settings.editor}
                     onChange={(editor) => void change(api, { editor })}
                     options={editorChoices(settings.editor)}
+                />
+            </Row>
+            <Row
+                label="Terminal application"
+                hint="What “Open in Terminal” starts in a task's worktree."
+            >
+                <Picker
+                    label="Terminal application"
+                    value={settings.terminal_app}
+                    onChange={(terminal_app) => void change(api, { terminal_app })}
+                    options={terminalAppChoices(settings.terminal_app)}
                 />
             </Row>
             <Row

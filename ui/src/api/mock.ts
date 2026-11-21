@@ -7,6 +7,7 @@ import type {
     AgentSetup,
     ApiKeyInfo,
     BackgroundTask,
+    Check,
     CloudProvider,
     CloudTask,
     Costs,
@@ -31,6 +32,7 @@ import type {
     StackState,
     Task,
     Template,
+    TerminalConfig,
     TerminalOutput,
     TurnStats,
     Unpublished,
@@ -567,7 +569,8 @@ function environmentApi(): Pick<Api, "environments" | "environmentSave" | "envir
                     start: "npm run dev",
                     stop: "",
                     teardown: "",
-                    open_url: "",
+                    open_url: "http://localhost:{{port.web}}",
+                    ports: { web: 3000 },
                     env: { APP_ENV: "staging", DATABASE_URL: "postgres://localhost/{{task}}" },
                 },
             },
@@ -825,6 +828,14 @@ async function samplePull(_project: string, name: string): Promise<Pull | null> 
             },
             { name: "Browser tests", outcome: "running", url: null },
             { name: "Deploy preview", outcome: "skipped", url: null },
+            // A matrix, as large repositories have: enough to need narrowing down.
+            ...["18", "20", "22"].flatMap((node): Check[] =>
+                ["macos", "ubuntu"].map((system) => ({
+                    name: `Build (${system}, node ${node})`,
+                    outcome: "passed",
+                    url: null,
+                })),
+            ),
         ],
     };
 }
@@ -852,6 +863,15 @@ function storeKey(keys: ApiKeyInfo[], name: string, stored: boolean) {
 
 const PROMPT = "\u001b[32m~/swarmed/task\u001b[0m $ ";
 
+/** The sixteen colours by name, each in itself, and an address to click: what a fresh shell shows. */
+const COLOUR_NAMES = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"];
+const SWATCHES = [30, 90]
+    .map((first) =>
+        COLOUR_NAMES.map((name, at) => `\u001b[${first + at}m${name}\u001b[0m`).join(" "),
+    )
+    .join("\r\n");
+const GREETING = `${SWATCHES}\r\nDocs at https://example.com/docs\r\n`;
+
 /** A pretend shell: it echoes what is typed and answers every command the same way. */
 class MockTerminal {
     readonly listeners = new Set<(output: TerminalOutput) => void>();
@@ -862,7 +882,7 @@ class MockTerminal {
         if (replay === undefined) {
             // Marked as started at once, so opening it twice in a row starts one shell.
             this.printed.set(id, "");
-            setTimeout(() => this.print(id, PROMPT), 0);
+            setTimeout(() => this.print(id, GREETING + PROMPT), 0);
         }
         return replay ?? "";
     }
@@ -1180,6 +1200,18 @@ class MockAgent {
         }
     }
 
+    /** Gone for good, from the open ones and the closed ones alike. */
+    delete(id: number) {
+        this.interrupt(id);
+        for (const task of this.tasks()) {
+            const others = (sessions: Session[]) =>
+                sessions.filter((candidate) => candidate.id !== id);
+            task.sessions = others(task.sessions);
+            this.closedSessions.set(task.id, others(this.closed(task.id)));
+            task.closed = this.closed(task.id).length;
+        }
+    }
+
     closed(taskId: number): Session[] {
         return this.closedSessions.get(taskId) ?? [];
     }
@@ -1243,8 +1275,20 @@ function sampleFork(agent: MockAgent, tasks: Task[], id: number, upto: number | 
     return fork;
 }
 
+/** `actions` with the one called `name` moved `by` places, no further than either end. */
+function movedAction(actions: Action[], name: string, by: number): Action[] {
+    const from = actions.findIndex((action) => action.name === name);
+    const one = actions[from];
+    if (!one) {
+        return actions;
+    }
+    const rest = actions.filter((action) => action !== one);
+    const to = Math.min(rest.length, Math.max(0, from + by));
+    return [...rest.slice(0, to), one, ...rest.slice(to)];
+}
+
 /** The user's own buttons, held in memory: some for every repository, one for the first. */
-function actionsApi(): Pick<Api, "actions" | "actionSave" | "actionRemove"> {
+function actionsApi(): Pick<Api, "actions" | "actionSave" | "actionMove" | "actionRemove"> {
     const one = (name: string, icon: string, prompt: string, command: string): Action => ({
         name,
         icon,
@@ -1274,6 +1318,14 @@ function actionsApi(): Pick<Api, "actions" | "actionSave" | "actionRemove"> {
                 general = [...without(general, action.name), action];
             } else {
                 own.set(project, [...without(own.get(project) ?? [], action.name), action]);
+            }
+            return offered(project);
+        },
+        actionMove: async (project, name, by) => {
+            if (project === null) {
+                general = movedAction(general, name, by);
+            } else {
+                own.set(project, movedAction(own.get(project) ?? [], name, by));
             }
             return offered(project);
         },
@@ -1341,11 +1393,12 @@ const SAMPLE_COSTS: Costs = {
 
 function closingApi(
     agent: MockAgent,
-): Pick<Api, "sessionClose" | "sessionsClosed" | "sessionReopen"> {
+): Pick<Api, "sessionClose" | "sessionDelete" | "sessionsClosed" | "sessionReopen"> {
     const taskNamed = (name: string) =>
         agent.projects.flatMap((project) => project.tasks).find((task) => task.name === name);
     return {
         sessionClose: async (id) => agent.close(id),
+        sessionDelete: async (id) => agent.delete(id),
         sessionsClosed: async (_project, name) => agent.closed(taskNamed(name)?.id ?? -1),
         sessionReopen: async (id) => agent.reopen(id),
     };
@@ -1370,8 +1423,10 @@ export function createMockApi(): Api {
         { name: "GEMINI_API_KEY", provider: "Google Gemini", stored: false },
     ];
     let customLayout: CustomLayout = { base: "classic" };
+    let terminalConfig: TerminalConfig = {};
     let settings: Settings = {
         editor: "code",
+        terminal_app: "Terminal",
         auto_title: true,
         theme: "system",
         palette: "swarm",
@@ -1478,6 +1533,7 @@ export function createMockApi(): Api {
         taskChanges: sampleChanges,
         taskDiff: sampleDiff,
         taskOpenEditor: async () => undefined,
+        taskOpenTerminal: async () => undefined,
         taskOpenUrl: async () => undefined,
         openLink: async (url) => {
             window.open(url, "_blank", "noopener");
@@ -1490,6 +1546,11 @@ export function createMockApi(): Api {
         setBadge: async () => {},
         setSettings: async (changed) => {
             settings = changed;
+        },
+        terminalConfig: async () => ({ ...terminalConfig }),
+        terminalConfigSave: async (text) => {
+            terminalConfig = JSON.parse(text) as TerminalConfig;
+            return { ...terminalConfig };
         },
         customLayout: async () => ({ ...customLayout }),
         // The real check is the core's; here only what is not JSON at all is refused.

@@ -2,10 +2,13 @@ import { useState } from "react";
 import { api } from "../api";
 import type { Check, Pull, Task } from "../api/types";
 import {
+    CHECKS_SEARCHED_FROM,
+    checkCounts,
     checksShownByDefault,
     checksSummary,
     failedChecks,
     fixPrompt,
+    listedChecks,
     pullState,
     pullTone,
     pullTooltip,
@@ -128,23 +131,75 @@ function Checks({ pull, summary, onOpen }: ChecksProps) {
     );
 }
 
+/** What each outcome is called on the buttons that narrow the list to it. */
+const OUTCOME_NAMES: Record<Check["outcome"], string> = {
+    failed: "Failed",
+    running: "Running",
+    passed: "Passed",
+    skipped: "Skipped",
+};
+
+/**
+ * The checks, what failed first. Over the list, a button per outcome narrows it to that one,
+ * and a long list has a line to find a check by name.
+ */
 function CheckList({ pull, onOpen }: { pull: Pull; onOpen(name: string): void }) {
+    const [outcome, setOutcome] = useState<Check["outcome"] | null>(null);
+    const [typed, setTyped] = useState("");
+    const counts = checkCounts(pull.checks);
+    // An outcome no check has any more, after a re-run, narrows to nothing: it is let go.
+    const narrowed = counts.some(([known]) => known === outcome) ? outcome : null;
+    const listed = listedChecks(pull.checks, narrowed, typed);
     return (
-        <ul className="pull-checks">
-            {pull.checks.map((check) => (
-                <li key={check.name}>
-                    <button
-                        type="button"
-                        className="pull-check"
-                        data-outcome={check.outcome}
-                        title={`Opens the details of ${check.name}`}
-                        onClick={() => onOpen(check.name)}
-                    >
-                        <span className="pull-check-name">{check.name}</span>
-                        <span className="pull-check-outcome">{OUTCOMES[check.outcome]}</span>
-                    </button>
-                </li>
-            ))}
-        </ul>
+        <>
+            <div className="pull-check-filters">
+                {counts.length > 1 &&
+                    counts.map(([known, count]) => (
+                        <button
+                            key={known}
+                            type="button"
+                            className="pull-check-filter"
+                            data-outcome={known}
+                            aria-pressed={narrowed === known}
+                            title={
+                                narrowed === known
+                                    ? "Shows every check again"
+                                    : `Shows only what ${OUTCOME_NAMES[known].toLowerCase()}`
+                            }
+                            onClick={() => setOutcome(narrowed === known ? null : known)}
+                        >
+                            {OUTCOME_NAMES[known]} {count}
+                        </button>
+                    ))}
+                {pull.checks.length >= CHECKS_SEARCHED_FROM && (
+                    <input
+                        className="key-input pull-check-search"
+                        type="search"
+                        aria-label="Find a check by name"
+                        placeholder="Find a check"
+                        spellCheck={false}
+                        value={typed}
+                        onChange={(event) => setTyped(event.target.value)}
+                    />
+                )}
+            </div>
+            <ul className="pull-checks">
+                {listed.map((check) => (
+                    <li key={check.name}>
+                        <button
+                            type="button"
+                            className="pull-check"
+                            data-outcome={check.outcome}
+                            title={`Opens the details of ${check.name}`}
+                            onClick={() => onOpen(check.name)}
+                        >
+                            <span className="pull-check-name">{check.name}</span>
+                            <span className="pull-check-outcome">{OUTCOMES[check.outcome]}</span>
+                        </button>
+                    </li>
+                ))}
+                {listed.length === 0 && <li className="pull-check-none">No check matches.</li>}
+            </ul>
+        </>
     );
 }

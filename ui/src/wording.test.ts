@@ -90,10 +90,17 @@ describe("pickWord", () => {
 
     it("renames closing a session and the environments in the swarm's styles only", () => {
         expect(wordsFor("plain").closeSession).toBe("Close session");
+        expect([wordsFor("plain").archiveSession, wordsFor("plain").deleteSession]).toEqual([
+            "Archive",
+            "Delete",
+        ]);
         expect(wordsFor("plain").environments).toBe("Environments");
         for (const style of ["swarm", "colony"] as const) {
             expect(wordsFor(style).closeSession).toBe("Terminate spawn");
             expect(wordsFor(style).closeAsk).toBe("Terminate this spawn?");
+            // Put away with its conversation kept, or gone for good.
+            expect(wordsFor(style).archiveSession).toBe("Burrow");
+            expect(wordsFor(style).deleteSession).toBe("Cull");
             expect(wordsFor(style).environment).toBe("Spawning pool");
         }
     });

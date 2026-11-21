@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { envFromText, envToText, taskTooltip } from "./environments";
+import { envFromText, envToText, portsFromText, portsToText, taskTooltip } from "./environments";
 
 describe("an environment's variables", () => {
     it("are typed as lines, the way a .env file has them", () => {
@@ -38,5 +38,21 @@ describe("taskTooltip", () => {
         expect(taskTooltip({ ...task, environment: "staging" })).toBe(
             "Worktree one, on me/one, set up in staging",
         );
+    });
+});
+
+describe("an environment's ports", () => {
+    it("are typed as lines of a name and a number", () => {
+        expect(portsFromText("web=3000\n# the database\ndb = 5432")).toEqual({
+            web: 3000,
+            db: 5432,
+        });
+        expect(portsToText({ web: 3000, db: 5432 })).toBe("web=3000\ndb=5432");
+        expect(portsFromText("")).toEqual({});
+    });
+
+    it("say which line holds no port", () => {
+        expect(() => portsFromText("web=three")).toThrow('"web=three" is not a port');
+        expect(() => portsFromText("web=70000")).toThrow("is not a port");
     });
 });

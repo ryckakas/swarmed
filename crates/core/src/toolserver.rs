@@ -188,8 +188,14 @@ fn configure_tool() -> Value {
             colours; list it to get its schema, save the whole of it as `json`. Saving \
             switches the app to it; what cannot be read, such as text too close to its \
             background, is refused with the reason. \
-            environment: a way of setting a task up in this repository; give `name` and any \
-            of `setup`, `start`, `stop`, `teardown`, `open_url`. \
+            terminal: how the terminal looks and behaves (font, size, cursor, scrollback, \
+            colours and more), one JSON object; list it for its schema, save the whole of it \
+            as `json`. \
+            environment: how a task's stack is set up, started and stopped in this repository; \
+            give `name` and any of `setup`, `start`, `stop`, `teardown`, `open_url`, `ports`, \
+            `variables`. When asked to set a repository up, read how it starts (README, \
+            package scripts, compose files, Makefile), list this kind first for the rules \
+            and the variables that keep tasks apart, try the commands, then save. \
             Rules, environments, a command for an action and a script for the status line are \
             not made at once: they are proposed to the user, who accepts or declines them in \
             the conversation. API keys, MCP servers, sign-ins, permissions and notes cannot be \
@@ -201,7 +207,7 @@ fn configure_tool() -> Value {
                     "type": "string",
                     "enum": [
                         "prompt", "action", "rule", "status_line", "appearance", "layout",
-                        "environment",
+                        "terminal", "environment",
                     ],
                 },
                 "op": { "type": "string", "enum": ["list", "save", "remove"] },
@@ -224,7 +230,7 @@ fn configure_tool() -> Value {
                 "layout": text("classic, senior for larger text and rows, or custom."),
                 "json": {
                     "type": "object",
-                    "description": "The whole custom layout, for kind layout.",
+                    "description": "The whole custom layout, for kind layout, or the whole terminal configuration, for kind terminal.",
                 },
                 "text_size": { "type": "integer", "description": "In percent, 80 to 150." },
                 "setup": text("An environment's command run once after a worktree is created."),
@@ -232,6 +238,17 @@ fn configure_tool() -> Value {
                 "stop": text("An environment's command run when its stack is stopped."),
                 "teardown": text("An environment's command run before a worktree is removed."),
                 "open_url": text("Where an environment's running stack is reached."),
+                "ports": {
+                    "type": "object",
+                    "additionalProperties": { "type": "integer" },
+                    "description": "An environment's base ports by name, used as {{port.<name>}}; 0 removes one.",
+                },
+                "variables": {
+                    "type": "object",
+                    "additionalProperties": { "type": "string" },
+                    "description": "An environment's variables by name; an empty text removes one. \
+                        Their values are shown to the user and never read back to you.",
+                },
             },
             "required": ["kind", "op"],
         },

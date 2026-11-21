@@ -705,6 +705,49 @@ async fn a_new_effort_restarts_the_agent_between_turns_and_keeps_the_conversatio
 }
 
 #[tokio::test]
+async fn a_deleted_session_is_gone_with_its_history_whether_open_or_closed() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let (open, closed) = (started_session(&core), started_session(&core));
+    core.session_send(open.id, "hello").expect("sends");
+    turn(&mut bus, open.id).await;
+    core.session_close(closed.id).expect("closes");
+    while next(&mut bus).await.event != AgentEvent::Closed {}
+
+    // Deleted while its agent runs: every front end is told, and the agent is stopped.
+    core.session_delete(open.id).expect("deletes");
+    let mut told = next(&mut bus).await;
+    while told.event != AgentEvent::Deleted {
+        told = next(&mut bus).await;
+    }
+    assert_eq!(told.session_id, open.id);
+    core.session_delete(closed.id).expect("deletes");
+    for gone in [open.id, closed.id] {
+        assert!(matches!(core.session(gone), Err(Error::SessionNotFound(id)) if id == gone));
+        assert!(core.session_events(gone).is_err());
+    }
+    let overview = core.overview().expect("reads");
+    assert_eq!(
+        (
+            overview[0].tasks[0].sessions.len(),
+            overview[0].tasks[0].closed
+        ),
+        (0, 0)
+    );
+    assert_eq!(core.sessions_closed("demo", "one").expect("lists"), vec![]);
+    // What its agent still says while it winds down has nowhere to go and breaks nothing.
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert_eq!(core.running_sessions(), [0_i64; 0]);
+    assert!(matches!(
+        core.session_delete(open.id),
+        Err(Error::SessionNotFound(_))
+    ));
+    // The task itself is as it was, and takes new sessions.
+    started_session(&core);
+}
+
+#[tokio::test]
 async fn a_closed_session_stops_and_leaves_the_lists_but_keeps_its_history() {
     let fx = fixture();
     let core = core_with_task(&fx).await;

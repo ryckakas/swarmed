@@ -208,6 +208,28 @@ impl Core {
         self.actions_write(project, &kept)?;
         self.actions(project)
     }
+
+    /// Moves an action `by` places among those kept in the same place, earlier for a negative
+    /// number: the order they are kept in is the order their buttons are shown in. Returns
+    /// what is then offered.
+    pub fn action_move(&self, project: Option<&str>, name: &str, by: i32) -> Result<Vec<Action>> {
+        let kept = moved(self.actions_in(project)?, name, by)?;
+        self.actions_write(project, &kept)?;
+        self.actions(project)
+    }
+}
+
+/// `actions` with the one called `name` moved `by` places, earlier for a negative number, and
+/// no further than either end.
+fn moved(mut actions: Vec<Action>, name: &str, by: i32) -> Result<Vec<Action>> {
+    let found = actions.iter().position(|action| action.name == name.trim());
+    let at = found.ok_or_else(|| refused(format!("there is no action `{}` here", name.trim())))?;
+    let last = actions.len() - 1;
+    let wanted = i64::try_from(at).unwrap_or(0) + i64::from(by);
+    let to = usize::try_from(wanted.max(0)).map_or(last, |to| to.min(last));
+    let action = actions.remove(at);
+    actions.insert(to, action);
+    Ok(actions)
 }
 
 #[cfg(test)]
@@ -222,5 +244,34 @@ mod tests {
         let action: Action = serde_json::from_str(sent).unwrap_or_default();
         assert_eq!(action.name, "Tests");
         assert_eq!(action.command, "make test");
+    }
+
+    #[test]
+    fn an_action_moves_among_the_others_and_stops_at_the_ends() {
+        let named = |name: &str| Action {
+            name: name.to_string(),
+            ..Action::default()
+        };
+        let order = |actions: Vec<Action>| -> Vec<String> {
+            actions.into_iter().map(|action| action.name).collect()
+        };
+        let three = || vec![named("a"), named("b"), named("c")];
+        assert_eq!(
+            order(moved(three(), "c", -1).expect("moves")),
+            ["a", "c", "b"]
+        );
+        assert_eq!(
+            order(moved(three(), "a", 1).expect("moves")),
+            ["b", "a", "c"]
+        );
+        assert_eq!(
+            order(moved(three(), "a", -1).expect("stays")),
+            ["a", "b", "c"]
+        );
+        assert_eq!(
+            order(moved(three(), "a", 9).expect("to the end")),
+            ["b", "c", "a"]
+        );
+        assert!(moved(three(), "missing", 1).is_err());
     }
 }

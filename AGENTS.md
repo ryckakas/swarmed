@@ -131,6 +131,23 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   `customLayout.ts`, which writes only values of a form it knows into the stylesheet it builds.
   Agents save it whole through `configure`'s `layout` kind, at once: it cannot hide or move
   anything, and it has to stay that way for that to be safe.
+- **The terminal is xterm.js, drawn from the palette and the user's `terminal.json`**
+  (`termconfig.rs`, checked like the custom layout; `terminalLook.ts` on the UI side). All
+  sixteen colours come from the palette's tokens unless the configuration names its own, so
+  they follow every palette and layout. Addresses open through `open_link`. Programs may write
+  the clipboard (OSC 52) and are never given its contents: keep the provider write-only.
+  Drawing on the graphics card (`gpu`) is off by default, because it has not been seen to draw
+  right in the app's own window; check there before changing the default. The shell is started
+  with `COLORTERM=truecolor` and `CLICOLOR=1`.
+- **Closing a session keeps it; deleting one does not** (`session_close`, `session_delete`).
+  A closed session is put away with its conversation and can be reopened. A deleted one is
+  gone from the database with its events and its spooled views; sessions it started stay, with
+  nobody as their starter. `AgentEvent::Deleted` is published and never stored, since there is
+  nothing left to store it in. Swarmed does not touch what an agent keeps of the conversation
+  in its own folders. The close button always asks, and offers both.
+- **"Open in Terminal" hands the worktree to a terminal application** (`open::in_terminal`,
+  `Settings::terminal_app`) through macOS's `open -a`, whose exit says whether there is such an
+  application. It is apart from the session's own terminal, which is xterm.js in the window.
 - **Check UI changes in a browser** with `pnpm dev`. The mock agent answers plain text, asks
   permission for `run: <command>`, and runs until stopped for `slow`; one sample session has
   2,000 messages for checking scroll speed.
@@ -204,7 +221,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   not a usable action is left out instead of failing the lot. The core only keeps them. The UI
   (`ActionBar`) sends the prompt to the session on screen, or types the command into that
   session's terminal: a command is run where the user sees it and can answer it, never out of
-  sight. However many there are, the first six are buttons and the rest a menu. Do not add a
+  sight. However many there are, the first six are buttons and the rest a menu. They are
+  shown in the order their files keep them, general ones first; `action_move` changes it. Do not add a
   built-in button for one person's workflow: that is what an action is for.
 - **Agents change Swarmed's own configuration through one tool, `configure`** (`configure.rs`),
   in three kinds. Done at once: prompts, actions that send a prompt, the status line's pieces,
@@ -215,7 +233,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   all: API keys, MCP servers, sign-ins, supervision, notes. Keep it one tool: every tool's
   description is sent to every agent in every session. A new setting goes into one of the three
   kinds on purpose; when unsure, propose. An environment's variable values are never told to
-  an agent, only their names. Proposals are held in memory, so one from before a restart has
+  an agent, only their names. An agent may set variables and ports, one by one; the proposal
+  shows the values that call gives and no others, because a conversation can be read by other
+  agents. Listing the `environment` kind also returns the guide to hooks, `{{port.<name>}}`
+  and the other variables (`ENVIRONMENT_GUIDE`): that is where an agent learns to keep tasks
+  apart, so keep it true. An environment's `ports` add to the project's. Proposals are held in memory, so one from before a restart has
   to be asked for again. `ConfigChanged` is published and never stored: it tells front ends to
   read the settings again.
 - **A mark is a colour and a few words on a session** (`marks.rs`), set by the agent with

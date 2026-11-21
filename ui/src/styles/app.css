@@ -450,6 +450,58 @@ code {
     overscroll-behavior: contain;
 }
 
+/* Over the list: a button per outcome that narrows it, and a line to find a check by name. */
+.pull-check-filters {
+    align-self: stretch;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+.pull-check-filter {
+    padding: 1px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: var(--text-xs);
+}
+
+.pull-check-filter:hover {
+    border-color: var(--faint);
+}
+
+.pull-check-filter[data-outcome="failed"] {
+    color: var(--clay);
+}
+
+.pull-check-filter[data-outcome="running"] {
+    color: var(--pollen);
+}
+
+.pull-check-filter[data-outcome="passed"] {
+    color: var(--moss);
+}
+
+.pull-check-filter[aria-pressed="true"] {
+    border-color: currentcolor;
+    background: color-mix(in srgb, currentcolor 14%, transparent);
+}
+
+.pull-check-search {
+    flex: 1 1 12ch;
+    min-width: 0;
+    padding-block: 2px;
+    font-size: var(--text-xs);
+}
+
+.pull-check-none {
+    padding: 3px var(--space-2);
+    color: var(--faint);
+}
+
 .pull-check {
     display: flex;
     justify-content: space-between;
@@ -1251,10 +1303,13 @@ code {
     font: inherit;
     font-size: var(--text-md);
     line-height: 1;
-    /* Always there to be found, and out of the way until its row is pointed at. */
-    opacity: 0.4;
+    /* Out of the way until its row is pointed at or reached with the keyboard. */
+    opacity: 0;
 }
 
+.closed-row:hover .row-close,
+.closed-row:focus-within .row-close,
+.row-head:focus-within .row-close,
 .session-line:hover .row-close,
 .session-line:focus-within .row-close,
 .row-head:hover .row-close,
@@ -1345,6 +1400,13 @@ code {
 
 .action-button {
     display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.action-row-buttons {
+    flex: none;
+    display: flex;
     align-items: center;
     gap: var(--space-2);
 }
@@ -2754,6 +2816,33 @@ code {
     font-family: var(--font-mono);
     font-size: var(--text-sm);
     cursor: text;
+}
+
+.terminal-holder {
+    position: relative;
+}
+
+/* Finding in the terminal's output: a line over its top right corner. */
+.terminal-find {
+    position: absolute;
+    z-index: 2;
+    top: var(--space-2);
+    right: var(--space-4);
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: var(--space-1);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--raised);
+}
+
+.terminal-find input {
+    width: 22ch;
+}
+
+.terminal-find input[data-missing="true"] {
+    border-color: var(--clay);
 }
 
 .terminal-foot {

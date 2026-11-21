@@ -82,3 +82,37 @@ export function fixPrompt(pull: Pull): string {
 export function pullPollMs(pull: Pull | null | undefined): number {
     return pull && pull.state === "open" && pullTone(pull) === "running" ? 20_000 : 90_000;
 }
+
+/** The order checks are listed in: what needs looking at first. */
+export const OUTCOME_ORDER: Check["outcome"][] = ["failed", "running", "passed", "skipped"];
+
+/** How many checks there are of each outcome, for those that have any, in the order they are listed. */
+export function checkCounts(checks: Check[]): [Check["outcome"], number][] {
+    return OUTCOME_ORDER.map((outcome): [Check["outcome"], number] => [
+        outcome,
+        checks.filter((check) => check.outcome === outcome).length,
+    ]).filter(([, count]) => count > 0);
+}
+
+/**
+ * The checks to list: those of the outcome asked for, if any, whose names hold what was typed,
+ * whatever its case. Failed ones come first, then running ones, each group in GitHub's order.
+ */
+export function listedChecks(
+    checks: Check[],
+    outcome: Check["outcome"] | null,
+    typed: string,
+): Check[] {
+    const wanted = typed.trim().toLowerCase();
+    const kept = checks.filter(
+        (check) =>
+            (outcome === null || check.outcome === outcome) &&
+            check.name.toLowerCase().includes(wanted),
+    );
+    const rank = (check: Check) => OUTCOME_ORDER.indexOf(check.outcome);
+    // Sorting keeps the order of what ranks the same.
+    return [...kept].sort((one, other) => rank(one) - rank(other));
+}
+
+/** From how many checks on the list gets a line to find one by name. */
+export const CHECKS_SEARCHED_FROM = 8;

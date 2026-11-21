@@ -3,6 +3,7 @@
 mod action;
 mod layout;
 mod session;
+mod terminal;
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -18,6 +19,7 @@ use swarmed_core::{
     AgentSetup, ApiKeyInfo, CloudOrigin, CloudProvider, CloudTask, Core, McpServerView,
     NewTaskOptions, Paths, RemoveOptions, Settings, SetupStatus, Task,
 };
+use terminal::TerminalCommand;
 
 /// Swarmed: parallel Claude Code sessions in isolated git worktrees.
 #[derive(Debug, Parser)]
@@ -94,6 +96,9 @@ enum Command {
     /// Show or replace your custom layout: sizes, spacing, fonts and colours of your own.
     #[command(subcommand)]
     Layout(LayoutCommand),
+    /// Show or replace how the terminal looks and behaves: font, cursor, colours and more.
+    #[command(subcommand)]
+    Terminal(TerminalCommand),
     /// Find the sessions in which something was said, closed ones included.
     Search {
         /// The words to look for, as they were written.
@@ -377,6 +382,7 @@ async fn run(core: &Core, command: Command) -> Result<()> {
         Command::Rules { set } => rules(core, set),
         Command::Action(command) => action::run(core, command),
         Command::Layout(command) => layout::run(core, &command),
+        Command::Terminal(command) => terminal::run(core, &command),
         Command::Search { query } => search(core, &query),
     }
 }
