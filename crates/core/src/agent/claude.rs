@@ -513,12 +513,14 @@ fn parse_message(message: &Value, pending: &Pending) -> Vec<AgentEvent> {
     match kind_of(message, "type").unwrap_or_default() {
         // Hook activity, thinking-token counters and the like are not shown yet.
         "system" if kind_of(message, "subtype") == Some("init") => vec![parse_init(message)],
-        "assistant" => content_blocks(message)
-            .filter_map(parse_assistant_block)
-            .collect(),
-        "user" => content_blocks(message)
-            .filter_map(parse_tool_result)
-            .collect(),
+        "assistant" => {
+            let said = content_blocks(message).filter_map(parse_assistant_block);
+            said.map(|event| of_sub_agent(message, event)).collect()
+        }
+        "user" => {
+            let results = content_blocks(message).filter_map(parse_tool_result);
+            results.map(|event| of_sub_agent(message, event)).collect()
+        }
         "control_request" => vec![parse_control_request(message, pending)],
         "control_cancel_request" => withdraw(message, pending),
         "stream_event" => text_delta(message).into_iter().collect(),
@@ -542,6 +544,18 @@ fn parse_message(message: &Value, pending: &Pending) -> Vec<AgentEvent> {
         _ => vec![AgentEvent::Other {
             raw: message.clone(),
         }],
+    }
+}
+
+/// `event` as it is, or marked as a sub-agent's if the message it came in belongs to one:
+/// Claude Code names the tool call that started the sub-agent on each of its messages.
+fn of_sub_agent(message: &Value, event: AgentEvent) -> AgentEvent {
+    match kind_of(message, "parent_tool_use_id") {
+        Some(parent) => AgentEvent::Sub {
+            parent: parent.to_string(),
+            event: Box::new(event),
+        },
+        None => event,
     }
 }
 
@@ -802,6 +816,52 @@ mod tests {
             Some(&json!({ "behavior": "allow", "updatedInput": { "command": "git push" } }))
         );
         assert_eq!(pending.take("r1"), None);
+    }
+
+    #[test]
+    fn what_a_sub_agent_says_and_does_is_kept_apart_under_the_call_that_started_it() {
+        let pending = Pending::default();
+        let said = parse_message(
+            &json!({
+                "type": "assistant", "parent_tool_use_id": "toolu_agent",
+                "message": { "content": [
+                    { "type": "text", "text": "Looking." },
+                    { "type": "tool_use", "id": "t1", "name": "Grep", "input": {} },
+                ] },
+            }),
+            &pending,
+        );
+        let inner: Vec<&AgentEvent> = said
+            .iter()
+            .filter_map(|event| match event {
+                AgentEvent::Sub { parent, event } if parent == "toolu_agent" => Some(&**event),
+                _ => None,
+            })
+            .collect();
+        assert!(matches!(
+            inner.as_slice(),
+            [AgentEvent::Text { text }, AgentEvent::ToolUse { name, .. }]
+                if text == "Looking." && name == "Grep"
+        ));
+        let result = parse_message(
+            &json!({
+                "type": "user", "parent_tool_use_id": "toolu_agent",
+                "message": { "content": [
+                    { "type": "tool_result", "tool_use_id": "t1", "content": "found" },
+                ] },
+            }),
+            &pending,
+        );
+        assert!(matches!(result.as_slice(), [AgentEvent::Sub { .. }]));
+        // The agent's own messages name no such call, or name none, and stay as they are.
+        let own = parse_message(
+            &json!({
+                "type": "assistant", "parent_tool_use_id": null,
+                "message": { "content": [{ "type": "text", "text": "Mine." }] },
+            }),
+            &pending,
+        );
+        assert!(matches!(own.as_slice(), [AgentEvent::Text { text }] if text == "Mine."));
     }
 
     #[test]

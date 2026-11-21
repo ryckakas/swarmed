@@ -189,6 +189,16 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   answers tells the agent nothing, so the UI never offers that. A number, the arrows, the
   space bar, Enter and a click all choose; one question with one answer is sent as it is
   chosen. Input the UI cannot show whole falls back to the plain allow-or-deny prompt.
+- **A sub-agent is read from its session's events, never a session of its own**
+  (`AgentEvent::Sub`, `subagents.ts`, `SubAgentPane.tsx`). Claude Code names, on each message
+  of an agent it started, the tool call that started it; `claude.rs` wraps what such a message
+  holds in `Sub` under that call, so it is stored with the session and stays out of the
+  conversation, which is between the user and the session's agent. A sub-agent is at work
+  from its `Agent` (earlier `Task`) call to that call's result, and the UI works that out
+  from the events it hears: the sidebar lists the ones at work under their session and drops
+  them when they are done, and pressing one shows its own conversation, read-only, in place
+  of the session's. Nothing in the store or the database knows of sub-agents. Conversations
+  recorded before this have a sub-agent's words among the agent's own.
 - **A session's title** starts as the first line of its first message. A `Namer` (`ClaudeNamer`:
   one call to Claude Code's smallest model, with none of the user's settings, tools or MCP
   servers) then suggests a better one, unless `auto_title` is off or the user renamed the session

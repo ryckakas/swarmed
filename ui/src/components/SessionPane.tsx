@@ -14,6 +14,7 @@ import { ProviderMark } from "./ProviderMark";
 import { SessionTitle } from "./SessionTitle";
 import { StatusLine } from "./StatusLine";
 import { Egg, StatusMark, useStatusLabel } from "./StatusMark";
+import { SubAgentPane } from "./SubAgentPane";
 import { Transcript } from "./Transcript";
 
 const SUPERVISION = {
@@ -39,9 +40,20 @@ export function SessionPane() {
     const togglePanel = useStore((state) => state.togglePanel);
     const session = findSession(projects, selectedSessionId);
     const home = session && findSessionHome(projects, session);
+    const subView = useStore((state) => state.subView);
 
     if (!(session && home)) {
         return <NewTask projects={projects} />;
+    }
+    if (subView?.sessionId === session.id) {
+        return (
+            <SubAgentPane
+                session={session}
+                crumbs={`${home.project.name} / ${home.task.name}`}
+                id={subView.id}
+                events={events ?? NO_EVENTS}
+            />
+        );
     }
     return (
         <article className="session">

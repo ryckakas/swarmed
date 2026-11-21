@@ -406,6 +406,16 @@ pub enum AgentEvent {
         /// The session it was forked from.
         from: i64,
     },
+    /// Something a sub-agent said or did: an agent the session's own agent started for a part
+    /// of its work, and whose answer it gets as the result of the tool it started it with.
+    /// Kept apart from the conversation, which is between the user and the session's agent.
+    Sub {
+        /// The [`AgentEvent::ToolUse`] that started the sub-agent, which is what tells one
+        /// from another.
+        parent: String,
+        /// What it said or did.
+        event: Box<AgentEvent>,
+    },
     /// Something this version does not understand; kept so nothing is lost silently.
     Other {
         /// The message as received.

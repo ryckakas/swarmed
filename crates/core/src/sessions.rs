@@ -85,7 +85,8 @@ impl SessionStatus {
             | AgentEvent::ToolResult { .. }
             | AgentEvent::PermissionRequest { .. }
             | AgentEvent::PermissionAnswered { .. }
-            | AgentEvent::PermissionWithdrawn { .. } => Some(Self::busy(waiting)),
+            | AgentEvent::PermissionWithdrawn { .. }
+            | AgentEvent::Sub { .. } => Some(Self::busy(waiting)),
             AgentEvent::TurnDone { .. }
             | AgentEvent::Exited {
                 code: None | Some(0),
@@ -1413,9 +1414,9 @@ async fn record_and_publish(
         // A tool has answered or the turn is over: time to show what the agent handed to
         // Swarmed's own tool meanwhile, however it came to call it.
         let settled = matches!(
-            event,
+            &event,
             AgentEvent::ToolResult { .. } | AgentEvent::TurnDone { .. }
-        );
+        ) || matches!(&event, AgentEvent::Sub { event, .. } if matches!(**event, AgentEvent::ToolResult { .. }));
         live.note(&store, id, event).ok();
         if settled {
             show_views(&store, &live, id, &spool);

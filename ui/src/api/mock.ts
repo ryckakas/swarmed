@@ -42,7 +42,8 @@ import type {
 
 // Sample data and a scripted agent, for working on the UI in a browser where there is no Tauri
 // shell. The agent behaves like the core's FakeBackend: plain text is echoed, `run: <command>`
-// asks permission first, `ask` puts questions, and `slow` runs until interrupted.
+// asks permission first, `ask` puts questions, `delegate` starts sub-agents, and `slow` runs
+// until interrupted.
 
 // `ask` puts these questions to the user, `ask one` only the first.
 const SAMPLE_QUESTIONS = [
@@ -1088,6 +1089,8 @@ class MockAgent {
             );
         } else if (this.configure(id, {}).supervision === "plan") {
             this.presentPlan(id, text, done);
+        } else if (text === "delegate") {
+            this.delegate(id, done);
         } else if (text.startsWith("ask")) {
             this.askQuestions(id, text === "ask one", done);
         } else if (text.startsWith("run:")) {
@@ -1147,6 +1150,61 @@ class MockAgent {
         };
         this.later(id, request, "waiting", 2);
         return toolId;
+    }
+
+    /** Starts two sub-agents, which report for a while and hand their answers back in turn. */
+    private delegate(id: number, done: AgentEvent) {
+        const start = (toolId: string, description: string): AgentEvent => ({
+            type: "tool_use",
+            id: toolId,
+            name: "Agent",
+            input: {
+                description,
+                subagent_type: "Explore",
+                prompt: `Please ${description.toLowerCase()} and report what you find.`,
+            },
+        });
+        const said = (parent: string, event: AgentEvent): AgentEvent => ({
+            type: "sub",
+            parent,
+            event,
+        });
+        const [routes, tests] = [`sub-${this.nextId++}`, `sub-${this.nextId++}`];
+        this.later(id, { type: "text", text: "I will look at this from two sides." }, "working");
+        this.later(id, start(routes, "Find the routes"), "working", 2);
+        this.later(id, start(tests, "Read the tests"), "working", 2);
+        const grep: AgentEvent = {
+            type: "tool_use",
+            id: `${routes}-grep`,
+            name: "Grep",
+            input: { pattern: "router\\.(get|post)" },
+        };
+        const found: AgentEvent = {
+            type: "tool_result",
+            tool_use_id: `${routes}-grep`,
+            content: "src/routes.ts:12\nsrc/routes.ts:40",
+            is_error: false,
+        };
+        this.later(id, said(routes, { type: "text", text: "Searching for the routes." }), null, 4);
+        this.later(id, said(routes, grep), null, 6);
+        this.later(id, said(tests, { type: "text", text: "Reading the test folder." }), null, 7);
+        this.later(id, said(routes, found), null, 9);
+        this.later(
+            id,
+            said(routes, { type: "text", text: "Two routes, both in one file." }),
+            null,
+            11,
+        );
+        const answer = (toolId: string, content: string): AgentEvent => ({
+            type: "tool_result",
+            tool_use_id: toolId,
+            content,
+            is_error: false,
+        });
+        this.later(id, answer(routes, "There are two routes, in `src/routes.ts`."), "working", 20);
+        this.later(id, answer(tests, "The tests cover one of them."), "working", 32);
+        this.later(id, { type: "text", text: "Two routes, one of them tested." }, "working", 33);
+        this.later(id, done, "idle", 34);
     }
 
     /** Puts questions to the user the way Claude Code does, and says back what was answered. */
