@@ -8,7 +8,8 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import type { TerminalConfig, TerminalOutput } from "../api/types";
+import type { Unsubscribe } from "../api/client";
+import type { TerminalConfig, TerminalOpened, TerminalOutput } from "../api/types";
 import { useStore } from "../store";
 import { schemeOf, terminalExtras, terminalOptions, terminalTheme } from "../terminalLook";
 import { comesAfter, redrawn } from "../terminalOutput";
@@ -120,10 +121,11 @@ function drawOnGpu(terminal: Terminal) {
  * taken from the store, not read from this render: an effect may run more than once for one
  * render, and each run would type it again.
  */
-function useTypedCommand(sessionId: number, opened: RefObject<Promise<unknown>>) {
+function useTypedCommand(sessionId: number, opened: RefObject<Promise<unknown>>, shell: boolean) {
     const waiting = useStore((state) => state.terminalCommand);
     useEffect(() => {
-        if (waiting === null) {
+        // An action's command is the shell's to run, never a Claude Code's that is shown.
+        if (waiting === null || !shell) {
             return;
         }
         const { report, takeTerminalCommand } = useStore.getState();
@@ -132,7 +134,41 @@ function useTypedCommand(sessionId: number, opened: RefObject<Promise<unknown>>)
             return;
         }
         void opened.current.then(() => api.terminalWrite(sessionId, `${text}\n`)).catch(report);
-    }, [waiting, sessionId, opened]);
+    }, [waiting, sessionId, opened, shell]);
+}
+
+/** What a terminal is tied to: the session's shell, or the Claude Code it opened on a command. */
+interface Line {
+    sessionId: number;
+    listen(listener: (output: TerminalOutput) => void): Promise<Unsubscribe>;
+    open(cols: number, rows: number): Promise<TerminalOpened>;
+    write(data: string): Promise<void>;
+    resize(cols: number, rows: number): Promise<void>;
+    /** What follows when what runs there has ended, or could not be opened. */
+    gone(): void;
+}
+
+/** The session's shell, or with `claude`, Claude Code opened on that command's screen. */
+function lineOf(sessionId: number, claude: string | undefined): Line {
+    if (claude === undefined) {
+        return {
+            sessionId,
+            listen: (listener) => api.onTerminalOutput(listener),
+            open: (cols, rows) => api.terminalOpen(sessionId, cols, rows),
+            write: (data) => api.terminalWrite(sessionId, data),
+            resize: (cols, rows) => api.terminalResize(sessionId, cols, rows),
+            // A shell that exits is started again by what is typed next.
+            gone: () => undefined,
+        };
+    }
+    return {
+        sessionId,
+        listen: (listener) => api.onClaudeTerminalOutput(listener),
+        open: (cols, rows) => api.claudeTerminalOpen(sessionId, claude, cols, rows),
+        write: (data) => api.claudeTerminalWrite(sessionId, data),
+        resize: (cols, rows) => api.claudeTerminalResize(sessionId, cols, rows),
+        gone: () => useStore.getState().leaveClaudeTerminal(sessionId),
+    };
 }
 
 function isFind(event: KeyboardEvent): boolean {
@@ -140,14 +176,14 @@ function isFind(event: KeyboardEvent): boolean {
 }
 
 /**
- * Ties a terminal to the session's shell: what the shell prints is drawn, what is typed goes to
- * it, and it is told the terminal's size. Returns what unties them and takes the terminal down.
+ * Ties a terminal to its line: what runs there prints is drawn, what is typed goes to it, and it
+ * is told the terminal's size. Returns what unties them and takes the terminal down.
  */
 function tied(
     terminal: Terminal,
     fit: FitAddon,
     element: HTMLElement,
-    sessionId: number,
+    line: Line,
     opened: RefObject<Promise<unknown>>,
 ): () => void {
     const { report } = useStore.getState();
@@ -158,11 +194,13 @@ function tied(
     // Where the fetched output ended, once it is drawn. A piece from before that can still
     // arrive afterwards, since it travels apart from the answer, and is in it already.
     let end: number | null = null;
-    const listening = api.onTerminalOutput((output) => {
-        if (output.session_id !== sessionId) {
+    const listening = line.listen((output) => {
+        if (output.session_id !== line.sessionId) {
             return;
         }
-        if (end === null) {
+        if (output.ended) {
+            line.gone();
+        } else if (end === null) {
             early.push(output);
         } else if (comesAfter(output, end)) {
             terminal.write(output.data);
@@ -171,20 +209,23 @@ function tied(
     // Asked for only once this is listening: what is printed in between would be in neither
     // the replay nor anything heard.
     opened.current = listening
-        .then(() => api.terminalOpen(sessionId, terminal.cols, terminal.rows))
+        .then(() => line.open(terminal.cols, terminal.rows))
         .then((shell) => {
             terminal.write(redrawn(shell, early));
             end = shell.end;
             terminal.focus();
         })
-        .catch(report);
+        .catch((error: unknown) => {
+            report(error);
+            line.gone();
+        });
 
     const typing = terminal.onData((data) => {
-        api.terminalWrite(sessionId, data).catch(report);
+        line.write(data).catch(report);
     });
     const resizing = terminal.onResize(({ cols, rows }) => {
-        // The shell may be gone; the next thing typed says so.
-        api.terminalResize(sessionId, cols, rows).catch(() => undefined);
+        // What ran there may be gone; the next thing typed says so.
+        line.resize(cols, rows).catch(() => undefined);
     });
     const observer = new ResizeObserver(() => !closed && fit.fit());
     observer.observe(element);
@@ -243,9 +284,16 @@ function FindBar({ search, onClose }: { search: SearchAddon; onClose(): void }) 
 
 /**
  * A terminal in the task's worktree, in the place of the message box. The shell belongs to the
- * session and keeps running while this is off screen; coming back redraws what it printed.
+ * session and keeps running while this is off screen; coming back redraws what it printed. With
+ * `claude`, it shows Claude Code opened on that command's screen instead, apart from the shell.
  */
-export function TerminalBox({ sessionId }: { sessionId: number }) {
+export function TerminalBox({
+    sessionId,
+    claude,
+}: {
+    sessionId: number;
+    claude: string | undefined;
+}) {
     const holder = useRef<HTMLDivElement>(null);
     const settings = useStore((state) => state.settings);
     const customLayout = useStore((state) => state.customLayout);
@@ -275,9 +323,10 @@ export function TerminalBox({ sessionId }: { sessionId: number }) {
             }
             return !finds;
         });
-        return tied(terminal, fit, element, sessionId, opened);
+        return tied(terminal, fit, element, lineOf(sessionId, claude), opened);
     }, [
         sessionId,
+        claude,
         scheme,
         settings?.palette,
         settings?.layout,
@@ -286,7 +335,7 @@ export function TerminalBox({ sessionId }: { sessionId: number }) {
         config,
     ]);
     // After the effect above, so that on first showing there is a shell being opened to wait for.
-    useTypedCommand(sessionId, opened);
+    useTypedCommand(sessionId, opened, claude === undefined);
 
     const closeFind = () => {
         found?.search.clearDecorations();

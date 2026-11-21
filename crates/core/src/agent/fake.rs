@@ -1,5 +1,6 @@
 //! A scripted agent for tests and for working on a front end without spending tokens.
 
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::json;
@@ -25,6 +26,11 @@ pub struct FakeBackend {
 }
 
 impl AgentBackend for FakeBackend {
+    /// `echo`, as a stand-in for a screen: it prints the command it was opened on, and ends.
+    fn interactive(&self) -> Option<PathBuf> {
+        Some(PathBuf::from("/bin/echo"))
+    }
+
     fn start(&self, spec: SessionSpec) -> Result<AgentHandle> {
         let (event_tx, events) = mpsc::unbounded_channel();
         let (commands, command_rx) = mpsc::unbounded_channel();

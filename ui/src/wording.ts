@@ -54,6 +54,10 @@ export interface Words {
     usage: string;
     /** Its button that asks Claude Code for the figures again. */
     askAgain: string;
+    /** The button on a command Claude Code has a screen for only in its own terminal. */
+    openInClaude: string;
+    /** The button that ends that Claude Code and shows the session's shell again. */
+    backToShell: string;
     /** What ending a session and taking it out of the sidebar is called. */
     closeSession: string;
     /** Starting a session from all of this one, on the same agent and on another. */
@@ -139,6 +143,8 @@ const PLAIN: Words = {
     extraUsage: "Extra usage",
     usage: "Usage",
     askAgain: "Ask again",
+    openInClaude: "Open in Claude Code",
+    backToShell: "Back to the shell",
     closeSession: "Close session",
     forkAll: "Fork this conversation",
     cloneTo: "Clone to…",
@@ -259,6 +265,8 @@ const COLONY: Words = {
     extraUsage: "Borrowed biomass",
     usage: "Hunger",
     askAgain: "Sniff again",
+    openInClaude: "Open in Claude Code's lair",
+    backToShell: "Back to the burrow",
 };
 
 const WORDS: Record<Style, Words> = { plain: PLAIN, swarm: SWARM, colony: COLONY };

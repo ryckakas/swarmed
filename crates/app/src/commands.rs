@@ -973,6 +973,39 @@ pub(crate) fn terminal_resize(core: CoreState<'_>, id: i64, cols: u16, rows: u16
     Ok(core.terminal_resize(id, cols, rows)?)
 }
 
+/// Opens Claude Code on `command`'s screen in a terminal of the session's own, or shows the one
+/// that runs on it. Async for the same reason as [`terminal_open`].
+#[tauri::command]
+pub(crate) async fn claude_terminal_open(
+    core: CoreState<'_>,
+    id: i64,
+    command: String,
+    cols: u16,
+    rows: u16,
+) -> Command<TerminalOpened> {
+    Ok(core.claude_terminal_open(id, &command, (cols, rows))?)
+}
+
+#[tauri::command]
+pub(crate) fn claude_terminal_write(core: CoreState<'_>, id: i64, data: String) -> Command<()> {
+    Ok(core.claude_terminal_write(id, &data)?)
+}
+
+#[tauri::command]
+pub(crate) fn claude_terminal_resize(
+    core: CoreState<'_>,
+    id: i64,
+    cols: u16,
+    rows: u16,
+) -> Command<()> {
+    Ok(core.claude_terminal_resize(id, cols, rows)?)
+}
+
+#[tauri::command]
+pub(crate) fn claude_terminal_close(core: CoreState<'_>, id: i64) {
+    core.claude_terminal_close(id);
+}
+
 #[tauri::command]
 pub(crate) async fn status_line(core: CoreState<'_>, id: i64) -> Command<Option<String>> {
     Ok(core.status_line(id).await?)

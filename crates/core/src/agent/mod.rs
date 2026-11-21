@@ -755,4 +755,10 @@ pub trait Namer: fmt::Debug + Send + Sync {
 pub trait AgentBackend: fmt::Debug + Send + Sync {
     /// Starts a session. Must be called from within a tokio runtime.
     fn start(&self, spec: SessionSpec) -> Result<AgentHandle>;
+
+    /// The program that runs the agent with its own screen, in a terminal, for a command that
+    /// has a screen only there; `None` for an agent Swarmed opens no screen of.
+    fn interactive(&self) -> Option<PathBuf> {
+        None
+    }
 }

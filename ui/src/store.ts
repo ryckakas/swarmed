@@ -122,6 +122,15 @@ interface State {
     /** Shows the terminal and has `text` typed into the terminal of `sessionId`. */
     runInTerminal(sessionId: number, text: string): void;
     /**
+     * The command, without its slash, that each session opened Claude Code on in its terminal,
+     * shown there in place of the shell until it ends or the user goes back to the shell.
+     */
+    claudeTerminals: Record<number, string>;
+    /** Shows the terminal with Claude Code opened on `command`'s screen in place of the shell. */
+    openClaudeTerminal(sessionId: number, command: string): void;
+    /** Shows the session's shell again, once its Claude Code has ended or is being ended. */
+    leaveClaudeTerminal(sessionId: number): void;
+    /**
      * The command waiting for the terminal of `sessionId`, which is then no longer waiting: so
      * however often it is asked for, it is typed once.
      */
@@ -477,6 +486,17 @@ export const useStore = create<State>((set, get) => ({
     terminalCommand: null,
     runInTerminal: (sessionId, text) =>
         set({ terminalOpen: true, terminalCommand: { sessionId, text } }),
+    claudeTerminals: {},
+    openClaudeTerminal: (sessionId, command) =>
+        set((state) => ({
+            terminalOpen: true,
+            claudeTerminals: { ...state.claudeTerminals, [sessionId]: command },
+        })),
+    leaveClaudeTerminal: (sessionId) =>
+        set((state) => {
+            const { [sessionId]: _left, ...others } = state.claudeTerminals;
+            return { claudeTerminals: others };
+        }),
     takeTerminalCommand: (sessionId) =>
         taken(get().terminalCommand, sessionId, () => set({ terminalCommand: null })),
     actionsChanged: 0,

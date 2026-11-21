@@ -335,6 +335,17 @@ describe("runInTerminal", () => {
     });
 });
 
+describe("Claude Code opened in a session's terminal", () => {
+    it("shows the terminal with it, for that session only, until the shell is shown again", () => {
+        useStore.setState({ terminalOpen: false, claudeTerminals: { 3: "vim" } });
+        useStore.getState().openClaudeTerminal(7, "privacy-settings");
+        expect(useStore.getState().terminalOpen).toBe(true);
+        expect(useStore.getState().claudeTerminals).toEqual({ 3: "vim", 7: "privacy-settings" });
+        useStore.getState().leaveClaudeTerminal(7);
+        expect(useStore.getState().claudeTerminals).toEqual({ 3: "vim" });
+    });
+});
+
 describe("the menu bar", () => {
     beforeEach(() => {
         useStore.setState({ banner: null, settingsOpen: false });

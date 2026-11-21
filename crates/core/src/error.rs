@@ -166,6 +166,10 @@ pub enum Error {
     /// The session has no terminal open.
     #[error("session {0} has no terminal open")]
     TerminalNotOpen(i64),
+    /// A command whose screen Swarmed does not open in the agent's own terminal: one Swarmed
+    /// does in its own way or refuses, a name that is no command's, or an agent without one.
+    #[error("/{0} is not opened in Claude Code's own terminal from Swarmed")]
+    NoClaudeScreen(String),
     /// Rules longer than rules may be.
     #[error("the rules can hold at most {0} bytes")]
     RulesTooLong(usize),

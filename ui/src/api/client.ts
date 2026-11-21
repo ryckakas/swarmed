@@ -330,6 +330,23 @@ export interface Api {
     /** Calls `listener` for everything any session's terminal prints, from now on. */
     onTerminalOutput(listener: (output: TerminalOutput) => void): Promise<Unsubscribe>;
     /**
+     * Opens Claude Code on the screen of `command`, named without its slash, in a terminal of
+     * the session's own apart from its shell, or shows the one that runs on it. Nothing it
+     * shows is given to the agent. Refused for a command Swarmed does its own way.
+     */
+    claudeTerminalOpen(
+        id: number,
+        command: string,
+        cols: number,
+        rows: number,
+    ): Promise<TerminalOpened>;
+    claudeTerminalWrite(id: number, data: string): Promise<void>;
+    claudeTerminalResize(id: number, cols: number, rows: number): Promise<void>;
+    /** Ends the Claude Code the session opened, if one runs. */
+    claudeTerminalClose(id: number): Promise<void>;
+    /** Calls `listener` for everything such a Claude Code prints, and when it ends. */
+    onClaudeTerminalOutput(listener: (output: TerminalOutput) => void): Promise<Unsubscribe>;
+    /**
      * What the user's status line script prints for the session, or `null` if no script is
      * configured and the built-in pieces apply.
      */

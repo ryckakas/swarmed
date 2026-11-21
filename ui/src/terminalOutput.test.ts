@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { TerminalOutput } from "./api/types";
 import { comesAfter, redrawn } from "./terminalOutput";
 
-const piece = (offset: number, data: string): TerminalOutput => ({ session_id: 1, data, offset });
+const piece = (offset: number, data: string): TerminalOutput => ({
+    session_id: 1,
+    data,
+    offset,
+    ended: false,
+});
 
 describe("comesAfter", () => {
     it("is for a piece that starts where the replay ends or later, not for one before", () => {

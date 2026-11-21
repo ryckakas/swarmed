@@ -692,6 +692,8 @@ export interface TerminalOutput {
     data: string;
     /** How much the terminal had printed before this piece, as the core counts it. */
     offset: number;
+    /** What runs in it has ended: `data` is empty, and nothing follows. */
+    ended: boolean;
 }
 
 /** A terminal as it stands when it is opened. */

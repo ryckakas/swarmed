@@ -16,6 +16,12 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **A Claude Code command whose screen exists only in its own terminal opens there in one
+  click.** The line that says so, under `/vim` or `/privacy-settings`, has "Open in Claude
+  Code". It starts Claude Code on that command in the session's terminal, in place of the shell
+  until you quit it or go back to the shell. It runs with your own sign-in, in a conversation of
+  its own, and nothing it shows is sent to the agent. The usage screen has the same button for
+  `/usage-credits`, where Claude Code buys usage credits and sets their monthly cap.
 - **The coins warn before a limit is reached.** Once a usage window is 75% used, as Claude Code
   starts to warn, they carry a small yellow triangle, red once a limit is used up, and the bars
   in the card and the overview turn yellow and red likewise. Extra usage's bar is grey now, so

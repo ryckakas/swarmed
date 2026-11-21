@@ -3,10 +3,15 @@
 //! The user types in the terminal as in any other. What happened there since the agent's last
 //! turn travels with the user's next message, so the agent can act on a command it asked for
 //! without the user pasting anything.
+//!
+//! A session on Claude Code can also open Claude Code itself in a terminal of its own, on the
+//! screen of a command that has one only there, such as `/theme`. It runs as the user would
+//! start it, with their own sign-in, and nothing it shows is given to the agent.
 
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -35,10 +40,12 @@ pub struct TerminalOutput {
     pub data: String,
     /// How many bytes the terminal had printed before this piece, since its shell started.
     pub offset: u64,
+    /// What runs in it has ended: `data` is empty, and nothing follows.
+    pub ended: bool,
 }
 
 /// A terminal as it stands when a front end opens it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct TerminalOpened {
     /// What the terminal has printed so far, or the end of it, to redraw it from.
     pub replay: String,
@@ -96,10 +103,26 @@ enum Input {
     Resized(Size),
 }
 
+/// What a terminal runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Program {
+    /// The user's shell, as a login shell.
+    Shell,
+    /// Claude Code with its screen, opened on `command`, such as `/theme`.
+    Claude {
+        /// The `claude` executable.
+        program: PathBuf,
+        /// The command, slash and all.
+        command: String,
+    },
+}
+
 /// A running shell: the way to reach it, and what it has printed.
 struct Terminal {
     /// Tells this shell apart from one opened later for the same session.
     run: u64,
+    /// What it runs.
+    program: Program,
     /// Dropping this ends the shell.
     input: mpsc::UnboundedSender<Input>,
     log: Arc<Mutex<Log>>,
@@ -139,13 +162,11 @@ fn size(cols: u16, rows: u16) -> Size {
     Size::new(rows.max(2), cols.max(10))
 }
 
-/// Starts the user's shell in `cwd` on a new pseudo-terminal.
-fn start(cwd: &Path, size: Size) -> Result<(Pty, Child)> {
+/// Starts `program` in `cwd` on a new pseudo-terminal.
+fn start_in(cwd: &Path, size: Size, program: &Program) -> Result<(Pty, Child)> {
     let (pty, pts) = pty_process::open().map_err(failed)?;
     pty.resize(size).map_err(failed)?;
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-    let child = Command::new(shell)
-        .arg("-l")
+    let child = command(program)
         .current_dir(cwd)
         .env("TERM", "xterm-256color")
         // The terminal draws 24-bit colour, and tools on macOS colour nothing unless asked.
@@ -155,6 +176,32 @@ fn start(cwd: &Path, size: Size) -> Result<(Pty, Child)> {
         .spawn(pts)
         .map_err(failed)?;
     Ok((pty, child))
+}
+
+/// What starts `program`. Claude Code gets the `PATH` a shell would give it, and none of the
+/// variables of Swarmed's own: no credential, and no mark of a Claude Code that Swarmed itself
+/// may have been started from, so that it runs as the user's own does in a terminal.
+fn command(program: &Program) -> Command {
+    match program {
+        Program::Shell => {
+            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+            Command::new(shell).arg("-l")
+        }
+        Program::Claude { program, command } => {
+            let started = Command::new(program)
+                .arg(command)
+                .env("PATH", crate::shellenv::path());
+            claude_variables().fold(started, Command::env_remove)
+        }
+    }
+}
+
+/// The variables of this process that would decide how Claude Code signs in or behaves.
+fn claude_variables() -> impl Iterator<Item = OsString> {
+    std::env::vars_os().map(|(name, _)| name).filter(|name| {
+        let name = name.to_string_lossy();
+        name.starts_with("ANTHROPIC_") || name.starts_with("CLAUDE")
+    })
 }
 
 /// Passes on what is typed until the terminal is closed. Owns the shell: when this ends, the
@@ -172,7 +219,9 @@ async fn feed(mut writer: OwnedWritePty, mut input: mpsc::UnboundedReceiver<Inpu
     drop(child);
 }
 
-/// Publishes what the shell prints until it exits, then forgets the terminal.
+/// Publishes what the program prints until it exits, then that it ended, and forgets the
+/// terminal. Once another run has taken the terminal's place, nothing more of this one is
+/// published: it would be drawn as the new one's.
 async fn pump(
     terminals: Arc<Terminals>,
     (session_id, run): (i64, u64),
@@ -191,13 +240,22 @@ async fn pump(
             session_id,
             data,
             offset,
+            ended: false,
         };
-        // An error only means nobody is listening right now.
-        terminals.bus.send(output).ok();
+        terminals.publish(run, output);
     }
+    let offset = lock(&log).end;
+    let ended = TerminalOutput {
+        session_id,
+        data: String::new(),
+        offset,
+        ended: true,
+    };
     let mut open = lock(&terminals.open);
     if open.get(&session_id).is_some_and(|t| t.run == run) {
         open.remove(&session_id);
+        // An error only means nobody is listening right now.
+        terminals.bus.send(ended).ok();
     }
 }
 
@@ -281,6 +339,51 @@ fn last_lines(mut text: String, limit: usize) -> String {
 }
 
 impl Terminals {
+    /// Publishes `output` of run `run`, unless another run has taken its terminal's place.
+    fn publish(&self, run: u64, output: TerminalOutput) {
+        let open = lock(&self.open);
+        if open.get(&output.session_id).is_some_and(|t| t.run == run) {
+            // An error only means nobody is listening right now.
+            self.bus.send(output).ok();
+        }
+    }
+
+    /// The terminal of `session_id` running `program`, told its size, and what it printed so
+    /// far. It is started in `cwd` if none runs, or if the one that runs runs something else,
+    /// in whose place it then is.
+    ///
+    /// Must be called from within a tokio runtime.
+    fn open(
+        self: &Arc<Self>,
+        session_id: i64,
+        (cwd, size): (&Path, Size),
+        program: &Program,
+    ) -> Result<TerminalOpened> {
+        let mut open = lock(&self.open);
+        let running = open.get(&session_id);
+        if let Some(terminal) = running.filter(|terminal| terminal.program == *program) {
+            terminal.input.send(Input::Resized(size)).ok();
+            return Ok(lock(&terminal.log).opened());
+        }
+        let (pty, child) = start_in(cwd, size, program)?;
+        let (reader, writer) = pty.into_split();
+        let (input, typed) = mpsc::unbounded_channel();
+        let log = Arc::<Mutex<Log>>::default();
+        let run = self.runs.fetch_add(1, Ordering::Relaxed);
+        let terminal = Terminal {
+            run,
+            program: program.clone(),
+            input,
+            log: Arc::clone(&log),
+        };
+        // One this takes the place of ends, as its way in is dropped.
+        open.insert(session_id, terminal);
+        drop(tokio::spawn(feed(writer, typed, child)));
+        let pumped = pump(Arc::clone(self), (session_id, run), reader, log);
+        drop(tokio::spawn(pumped));
+        Ok(TerminalOpened::default())
+    }
+
     /// What the session's terminal printed since this was last asked, as plain text, and
     /// forgets it. Empty if there is no terminal or nothing happened.
     pub(crate) fn take_unshared(&self, session_id: i64) -> String {
@@ -319,38 +422,18 @@ impl Core {
     ///
     /// Must be called from within a tokio runtime.
     pub fn terminal_open(&self, session_id: i64, cols: u16, rows: u16) -> Result<TerminalOpened> {
+        let worktree = self.worktree_of(session_id)?;
+        let size = size(cols, rows);
+        self.terminals
+            .open(session_id, (&worktree, size), &Program::Shell)
+    }
+
+    /// The task's worktree, where a session's terminals start.
+    fn worktree_of(&self, session_id: i64) -> Result<PathBuf> {
         let session = self.session(session_id)?;
         let task = self.store().task_by_id(session.task_id)?;
         let task = task.ok_or(Error::SessionNotFound(session_id))?;
-        let size = size(cols, rows);
-        let mut open = lock(&self.terminals.open);
-        if let Some(terminal) = open.get(&session_id) {
-            terminal.input.send(Input::Resized(size)).ok();
-            return Ok(lock(&terminal.log).opened());
-        }
-        let (pty, child) = start(&task.worktree_path, size)?;
-        let (reader, writer) = pty.into_split();
-        let (input, typed) = mpsc::unbounded_channel();
-        let log = Arc::<Mutex<Log>>::default();
-        let run = self.terminals.runs.fetch_add(1, Ordering::Relaxed);
-        let terminal = Terminal {
-            run,
-            input,
-            log: Arc::clone(&log),
-        };
-        open.insert(session_id, terminal);
-        drop(tokio::spawn(feed(writer, typed, child)));
-        let terminals = Arc::clone(&self.terminals);
-        drop(tokio::spawn(pump(
-            terminals,
-            (session_id, run),
-            reader,
-            log,
-        )));
-        Ok(TerminalOpened {
-            replay: String::new(),
-            end: 0,
-        })
+        Ok(task.worktree_path)
     }
 
     /// Types `data` into the session's terminal.
@@ -365,9 +448,63 @@ impl Core {
             .send(session_id, Input::Resized(size(cols, rows)))
     }
 
-    /// Ends the session's shell. Does nothing if there is none.
+    /// Ends the session's shell, and Claude Code if the session opened it in a terminal.
+    /// Does nothing if there is neither.
     pub fn terminal_close(&self, session_id: i64) {
         self.terminals.close(session_id);
+        self.claude_terminals.close(session_id);
+    }
+
+    /// Opens Claude Code with its screen, on `command`, in a terminal of the session's own:
+    /// for a command whose screen Claude Code has only there, such as `vim`, named without its
+    /// slash. One the session opened on the same command and that still runs is shown as it
+    /// stands; any other is replaced. It starts in the task's worktree as the user would start
+    /// it, with their own sign-in. Nothing it shows is given to the agent.
+    ///
+    /// Must be called from within a tokio runtime.
+    pub fn claude_terminal_open(
+        &self,
+        session_id: i64,
+        command: &str,
+        (cols, rows): (u16, u16),
+    ) -> Result<TerminalOpened> {
+        let session = self.session(session_id)?;
+        let refused = || Error::NoClaudeScreen(command.to_string());
+        if !crate::commands::opens_its_screen(&session.agent, command) {
+            return Err(refused());
+        }
+        let backend = self.agents_now().backend(&session.agent)?;
+        let program = Program::Claude {
+            program: backend.interactive().ok_or_else(refused)?,
+            command: format!("/{command}"),
+        };
+        let worktree = self.worktree_of(session_id)?;
+        let size = size(cols, rows);
+        self.claude_terminals
+            .open(session_id, (&worktree, size), &program)
+    }
+
+    /// Types `data` into the Claude Code the session opened.
+    pub fn claude_terminal_write(&self, session_id: i64, data: &str) -> Result<()> {
+        self.claude_terminals
+            .send(session_id, Input::Typed(data.to_string()))
+    }
+
+    /// Tells the Claude Code the session opened how much room it has.
+    pub fn claude_terminal_resize(&self, session_id: i64, cols: u16, rows: u16) -> Result<()> {
+        self.claude_terminals
+            .send(session_id, Input::Resized(size(cols, rows)))
+    }
+
+    /// Ends the Claude Code the session opened. Does nothing if there is none.
+    pub fn claude_terminal_close(&self, session_id: i64) {
+        self.claude_terminals.close(session_id);
+    }
+
+    /// What every Claude Code the sessions opened prints, from now on, and when each ends.
+    #[must_use]
+    pub fn subscribe_claude_terminals(&self) -> broadcast::Receiver<TerminalOutput> {
+        self.claude_terminals.bus.subscribe()
     }
 
     /// What every session's terminal prints, from now on.

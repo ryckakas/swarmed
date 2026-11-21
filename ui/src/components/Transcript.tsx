@@ -170,7 +170,14 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
         case "view":
             return <HtmlView html={item.html} />;
         case "screen":
-            return <ScreenView item={item} />;
+            return item.command === "usage" ? (
+                <>
+                    <ScreenView item={item} />
+                    <UsageCredits sessionId={sessionId} />
+                </>
+            ) : (
+                <ScreenView item={item} />
+            );
         case "asked":
             if (item.said !== null) {
                 return (
@@ -188,12 +195,7 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
                 />
             );
         case "terminal-only":
-            return (
-                <p className="asked">
-                    <span className="mono">/{item.command}</span> only works in Claude Code's own
-                    terminal, where it opens a screen.
-                </p>
-            );
+            return <TerminalOnly sessionId={sessionId} command={item.command} />;
         case "terminal":
             return (
                 <details className="shared-terminal">
@@ -228,6 +230,54 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
                 </p>
             );
     }
+}
+
+/**
+ * A command whose screen Claude Code has only in its own terminal, with the button that opens
+ * Claude Code there, in the session's terminal and apart from its shell.
+ */
+function TerminalOnly({ sessionId, command }: { sessionId: number; command: string }) {
+    const words = useWords();
+    const openClaudeTerminal = useStore((state) => state.openClaudeTerminal);
+    return (
+        <div className="terminal-only">
+            <p className="asked">
+                <span className="mono">/{command}</span> only works in Claude Code's own terminal,
+                where it opens a screen.
+            </p>
+            <button
+                type="button"
+                className="button"
+                onClick={() => openClaudeTerminal(sessionId, command)}
+            >
+                {words.openInClaude}
+            </button>
+        </div>
+    );
+}
+
+/**
+ * Under the usage screen, the way to what it leaves to Claude Code's own: buying usage credits
+ * and setting their monthly cap, with `/usage-credits` opened in the session's terminal.
+ */
+function UsageCredits({ sessionId }: { sessionId: number }) {
+    const words = useWords();
+    const openClaudeTerminal = useStore((state) => state.openClaudeTerminal);
+    return (
+        <div className="terminal-only">
+            <p className="asked">
+                <span className="mono">/usage-credits</span> buys usage credits and sets their cap
+                in Claude Code's own terminal.
+            </p>
+            <button
+                type="button"
+                className="button"
+                onClick={() => openClaudeTerminal(sessionId, "usage-credits")}
+            >
+                {words.openInClaude}
+            </button>
+        </div>
+    );
 }
 
 /**

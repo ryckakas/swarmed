@@ -176,6 +176,13 @@ export const tauriApi: Api = {
     terminalResize: (id, cols, rows) => invoke("terminal_resize", { id, cols, rows }),
     onTerminalOutput: (listener) =>
         listen<TerminalOutput>("terminal-output", (event) => listener(event.payload)),
+    claudeTerminalOpen: (id, command, cols, rows) =>
+        invoke<TerminalOpened>("claude_terminal_open", { id, command, cols, rows }),
+    claudeTerminalWrite: (id, data) => invoke("claude_terminal_write", { id, data }),
+    claudeTerminalResize: (id, cols, rows) => invoke("claude_terminal_resize", { id, cols, rows }),
+    claudeTerminalClose: (id) => invoke("claude_terminal_close", { id }),
+    onClaudeTerminalOutput: (listener) =>
+        listen<TerminalOutput>("claude-terminal-output", (event) => listener(event.payload)),
     statusLine: (id) => invoke<string | null>("status_line", { id }),
     sessionUsageRefresh: (id) => invoke("session_usage_refresh", { id }),
     sessionRename: (id, title) => invoke<Session>("session_rename", { id, title }),
