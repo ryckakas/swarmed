@@ -210,6 +210,23 @@ fn handling(agent: &str, name: &str) -> Option<Handling> {
     known.map(|(_, how)| *how)
 }
 
+/// Commands Swarmed shows a part of, whose screen in Claude Code's terminal does the rest:
+/// `/usage-credits` buys credits and sets their cap, which Swarmed leaves to Claude Code.
+const SHOWN_IN_PART: &[&str] = &["usage-credits"];
+
+/// Whether Swarmed opens the agent's own screen for `name`, without its slash: a command of
+/// Claude Code's that the table leaves to Claude Code, or one it shows only in part, by a name
+/// that is only a name. The others the table names have a way of Swarmed's, or are refused, as
+/// `/login` and `/cd` are.
+pub(crate) fn opens_its_screen(agent: &str, name: &str) -> bool {
+    // Lower case only, as the table is: `Login` must not pass for a name it does not hold.
+    let letter = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit();
+    let plain = |c: char| letter(c) || matches!(c, '-' | '_' | ':');
+    let named = name.starts_with(letter) && name.chars().all(plain);
+    let left = handling(agent, name).is_none() || SHOWN_IN_PART.contains(&name);
+    agent == CLAUDE && named && left
+}
+
 /// A message taken apart as a command: its name without the slash, and what follows it.
 fn called(text: &str) -> Option<(&str, &str)> {
     let rest = text.trim().strip_prefix('/')?;
@@ -769,6 +786,29 @@ mod tests {
         // come to work without a screen, as `/doctor` has, is not refused by an old guess.
         assert_eq!(handling(CLAUDE, "privacy-settings"), None);
         assert_eq!(handling(CLAUDE, "doctor"), None);
+    }
+
+    #[test]
+    fn only_a_command_left_to_claude_code_opens_its_screen() {
+        assert!(opens_its_screen(CLAUDE, "vim"));
+        assert!(opens_its_screen(CLAUDE, "privacy-settings"));
+        // Shown here in part: Claude Code's own screen buys the credits.
+        assert!(opens_its_screen(CLAUDE, "usage-credits"));
+        // Swarmed's own way, or refused: colours, sign-in, where the session works, what runs it.
+        for name in [
+            "model", "usage", "theme", "login", "cd", "add-dir", "clear", "new", "rc",
+        ] {
+            assert!(!opens_its_screen(CLAUDE, name), "/{name}");
+        }
+        // Only a name: nothing that would be read as an option or a path.
+        for name in ["", "-p", "--resume", "../x", "theme dark", "the/me"] {
+            assert!(!opens_its_screen(CLAUDE, name), "{name:?}");
+        }
+        // Nor a refused command in other letters, should Claude Code take it for the same.
+        for name in ["Login", "CD", "Clear", "Vim"] {
+            assert!(!opens_its_screen(CLAUDE, name), "/{name}");
+        }
+        assert!(!opens_its_screen("codex", "vim"));
     }
 
     #[test]

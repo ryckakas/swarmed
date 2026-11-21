@@ -32,6 +32,8 @@ const SESSION_EVENT: &str = "session-event";
 const SESSION_EVENTS_LAGGED: &str = "session-events-lagged";
 /// The event every piece of terminal output is emitted as.
 const TERMINAL_OUTPUT: &str = "terminal-output";
+/// The event every piece of a Claude Code that a session opened prints is emitted as.
+const CLAUDE_TERMINAL_OUTPUT: &str = "claude-terminal-output";
 /// The label of the app's one window.
 const MAIN_WINDOW: &str = "main";
 /// The event that tells the UI which session a clicked notification was about.
@@ -125,12 +127,16 @@ async fn forward_events<R: Runtime>(
     }
 }
 
-/// Passes on what the sessions' terminals print. Output a slow window missed is not replayed:
-/// reopening the terminal redraws it from what the core kept.
-async fn forward_terminals<R: Runtime>(mut bus: Receiver<TerminalOutput>, app: AppHandle<R>) {
+/// Passes on what the sessions' terminals print, as `event`. Output a slow window missed is
+/// not replayed: reopening the terminal redraws it from what the core kept.
+async fn forward_terminals<R: Runtime>(
+    mut bus: Receiver<TerminalOutput>,
+    app: AppHandle<R>,
+    event: &'static str,
+) {
     loop {
         match bus.recv().await {
-            Ok(output) => app.emit(TERMINAL_OUTPUT, output).ok(),
+            Ok(output) => app.emit(event, output).ok(),
             Err(RecvError::Lagged(_)) => None,
             Err(RecvError::Closed) => return,
         };
@@ -207,7 +213,9 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::session_stop_background, commands::task_background,
         commands::session_configure, commands::slash_commands, commands::badge_set,
         commands::view_put, commands::view_open, commands::terminal_open,
-        commands::terminal_write, commands::terminal_resize,
+        commands::terminal_write, commands::terminal_resize, commands::claude_terminal_open,
+        commands::claude_terminal_write, commands::claude_terminal_resize,
+        commands::claude_terminal_close,
         commands::status_line, commands::session_usage_refresh, commands::session_rename, commands::session_close, commands::session_delete,
         commands::sessions_search, commands::sessions_closed, commands::session_reopen,
         commands::session_fork, commands::session_set_agent,
@@ -240,6 +248,7 @@ fn main() {
     let noticing = Arc::clone(&core);
     let bus = core.subscribe();
     let terminals = core.subscribe_terminals();
+    let claude_terminals = core.subscribe_claude_terminals();
     // The dialog plugin is the native folder picker, for adding a repository.
     with_core(Builder::default().plugin(tauri_plugin_dialog::init()), core)
         .setup(move |app| {
@@ -261,6 +270,12 @@ fn main() {
             drop(tauri::async_runtime::spawn(forward_terminals(
                 terminals,
                 app.handle().clone(),
+                TERMINAL_OUTPUT,
+            )));
+            drop(tauri::async_runtime::spawn(forward_terminals(
+                claude_terminals,
+                app.handle().clone(),
+                CLAUDE_TERMINAL_OUTPUT,
             )));
             Ok(())
         })

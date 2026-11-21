@@ -9,6 +9,7 @@ import { takenBySwarmed } from "../slash";
 import { appliedEffort } from "../statusline";
 import { useStore } from "../store";
 import { suggestionOf } from "../suggestion";
+import { useWords } from "../useWords";
 import { ComposerBox } from "./ComposerBox";
 import { EffortPicker } from "./EffortPicker";
 import { FastToggle } from "./FastToggle";
@@ -37,6 +38,53 @@ const PLACEHOLDER: Record<Session["status"], string> = {
     waiting: "Answer the request above. A message written here waits until the agent is done.",
     errored: "Send a message to start the agent again",
 };
+
+/**
+ * The session's terminal in place of the message box: its shell, whose output goes to the agent,
+ * or Claude Code opened on a command's screen, whose output does not.
+ */
+function TerminalPane({ id, busy }: { id: number; busy: boolean }) {
+    const claude = useStore((state) => state.claudeTerminals[id]);
+    const toggleTerminal = useStore((state) => state.toggleTerminal);
+    const leaveClaudeTerminal = useStore((state) => state.leaveClaudeTerminal);
+    const report = useStore((state) => state.report);
+    const words = useWords();
+    const share = () => api.sessionSend(id, "I ran this in the terminal.").catch(report);
+    const backToShell = () => {
+        leaveClaudeTerminal(id);
+        api.claudeTerminalClose(id).catch(report);
+    };
+    return (
+        <div className="terminal-pane">
+            <Suspense fallback={<div className="terminal-box" />}>
+                <TerminalBox key={claude ?? ""} sessionId={id} claude={claude} />
+            </Suspense>
+            <div className="terminal-foot">
+                {claude === undefined ? (
+                    <>
+                        <p>What you run here goes to the agent with your next message.</p>
+                        <button type="button" className="button" disabled={busy} onClick={share}>
+                            Send to the agent now
+                        </button>
+                    </>
+                ) : (
+                    <>
+                        <p>
+                            Claude Code, opened on <span className="mono">/{claude}</span>: what it
+                            shows stays here, and is not sent to the agent.
+                        </p>
+                        <button type="button" className="button" onClick={backToShell}>
+                            {words.backToShell}
+                        </button>
+                    </>
+                )}
+                <button type="button" className="button" title="Ctrl+`" onClick={toggleTerminal}>
+                    Back to the message
+                </button>
+            </div>
+        </div>
+    );
+}
 
 /** The message box of an existing session. */
 export function Composer({ session }: { session: Session }) {
@@ -91,29 +139,10 @@ export function Composer({ session }: { session: Session }) {
     };
     const stop = () => void api.sessionInterrupt(id).catch(report);
 
-    const share = () => api.sessionSend(id, "I ran this in the terminal.").catch(report);
     return (
         <div className="composer">
             {terminal ? (
-                <div className="terminal-pane">
-                    <Suspense fallback={<div className="terminal-box" />}>
-                        <TerminalBox sessionId={id} />
-                    </Suspense>
-                    <div className="terminal-foot">
-                        <p>What you run here goes to the agent with your next message.</p>
-                        <button type="button" className="button" disabled={busy} onClick={share}>
-                            Send to the agent now
-                        </button>
-                        <button
-                            type="button"
-                            className="button"
-                            title="Ctrl+`"
-                            onClick={toggleTerminal}
-                        >
-                            Back to the message
-                        </button>
-                    </div>
-                </div>
+                <TerminalPane id={id} busy={busy} />
             ) : (
                 <>
                     <MessageQueue sessionId={id} busy={busy} />

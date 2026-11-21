@@ -544,6 +544,14 @@ async fn printed(output: &mut Receiver<TerminalOutput>, wanted: &str) {
         .expect("the terminal never printed what was typed");
 }
 
+/// Waits until what runs in a terminal has ended.
+async fn ended(output: &mut Receiver<TerminalOutput>) {
+    let wait = async { while !output.recv().await.expect("published").ended {} };
+    tokio::time::timeout(std::time::Duration::from_secs(20), wait)
+        .await
+        .expect("it never said it ended");
+}
+
 /// Waits until the terminal has printed nothing for half a second. A shell writes its prompt
 /// after a command's output, on a slow machine well after it, and a test that moves on at the
 /// output alone sees that prompt arrive as something new later.
@@ -610,6 +618,74 @@ async fn what_happens_in_the_terminal_travels_with_the_next_message() {
         core.terminal_write(session.id, "ls\n"),
         Err(Error::TerminalNotOpen(id)) if id == session.id
     ));
+}
+
+#[tokio::test]
+async fn claude_code_opened_on_a_screen_runs_apart_from_the_shell_and_is_not_shared() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let mut output = core.subscribe_claude_terminals();
+    let mut shell = core.subscribe_terminals();
+    let session = started_session(&core);
+    core.terminal_open(session.id, 80, 24).expect("opens");
+
+    // The fake agent's screen is `echo`: it prints the command it was opened on, and ends.
+    let fresh = core
+        .claude_terminal_open(session.id, "vim", (80, 24))
+        .expect("opens");
+    assert_eq!((fresh.replay.as_str(), fresh.end), ("", 0));
+    printed(&mut output, "/vim").await;
+    ended(&mut output).await;
+    // Ended, it is gone: opened again, it starts anew.
+    core.claude_terminal_open(session.id, "vim", (80, 24))
+        .expect("opens again");
+    printed(&mut output, "/vim").await;
+    ended(&mut output).await;
+    assert!(matches!(
+        core.claude_terminal_write(session.id, "q"),
+        Err(Error::TerminalNotOpen(id)) if id == session.id
+    ));
+
+    // The shell was not the terminal it ran in: it is still there, and what it printed goes
+    // to the agent without anything Claude Code showed.
+    core.terminal_write(session.id, "echo shell-$((40 + 2))\n")
+        .expect("the shell is still open");
+    printed(&mut shell, "shell-42").await;
+    settled(&mut shell).await;
+    core.session_send(session.id, "what happened?")
+        .expect("sends");
+    let events = turn(&mut bus, session.id).await;
+    let shared = events.iter().find_map(|event| match event {
+        AgentEvent::TerminalShared { text } => Some(text.as_str()),
+        _ => None,
+    });
+    assert!(
+        shared.is_some_and(|text| text.contains("shell-42") && !text.contains("/vim")),
+        "{events:?}"
+    );
+
+    // Closing the session's terminals ends both.
+    core.claude_terminal_open(session.id, "vim", (80, 24))
+        .expect("opens once more");
+    core.terminal_close(session.id);
+    for gone in [
+        core.terminal_write(session.id, "ls\n"),
+        core.claude_terminal_write(session.id, "q"),
+    ] {
+        assert!(matches!(gone, Err(Error::TerminalNotOpen(id)) if id == session.id));
+    }
+
+    // Commands Swarmed does its own way, refuses, or that are no command's name, are not opened.
+    for refused in ["theme", "login", "Login", "cd", "clear", "../vim", "-p", ""] {
+        assert!(
+            matches!(
+                core.claude_terminal_open(session.id, refused, (80, 24)),
+                Err(Error::NoClaudeScreen(_))
+            ),
+            "/{refused}"
+        );
+    }
 }
 
 #[tokio::test]

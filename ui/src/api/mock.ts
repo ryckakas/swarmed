@@ -1021,7 +1021,7 @@ class MockTerminal {
             this.printed.set(id, "");
             setTimeout(() => this.print(id, GREETING + PROMPT), 0);
         }
-        return { replay: replay ?? "", end: replay?.length ?? 0 };
+        return { replay: replay ?? "", end: replay?.length ?? 0, run: 0 };
     }
 
     type(id: number, data: string) {
@@ -1033,7 +1033,63 @@ class MockTerminal {
         const before = this.printed.get(id) ?? "";
         this.printed.set(id, before + data);
         for (const listener of this.listeners) {
-            listener({ session_id: id, data, offset: before.length });
+            listener({ session_id: id, data, offset: before.length, ended: false, run: 0 });
+        }
+    }
+}
+
+/**
+ * A pretend Claude Code opened on a command's screen: it says it has none for the sample, and
+ * ends when `q` is pressed, as the real one does when the user quits it.
+ */
+class MockClaudeTerminal {
+    readonly listeners = new Set<(output: TerminalOutput) => void>();
+    private readonly running = new Map<number, { command: string; printed: string; run: number }>();
+    private runs = 0;
+
+    open(id: number, command: string): TerminalOpened {
+        const running = this.running.get(id);
+        if (running?.command === command) {
+            return { replay: running.printed, end: running.printed.length, run: running.run };
+        }
+        const run = this.runs++;
+        this.running.set(id, { command, printed: "", run });
+        const screen = `\u001b[1mClaude Code\u001b[0m (sample)\r\n\r\n> /${command}\r\n\r\nThe sample has no screen for /${command}. Press q to quit.\r\n`;
+        setTimeout(() => this.print(id, run, screen), 0);
+        return { replay: "", end: 0, run };
+    }
+
+    type(id: number, data: string) {
+        if (!this.running.has(id)) {
+            throw new Error(`session ${id} has no terminal open`);
+        }
+        if (data.includes("q")) {
+            this.close(id);
+        }
+    }
+
+    close(id: number) {
+        const running = this.running.get(id);
+        if (running === undefined) {
+            return;
+        }
+        this.running.delete(id);
+        const offset = running.printed.length;
+        for (const listener of this.listeners) {
+            listener({ session_id: id, data: "", offset, ended: true, run: running.run });
+        }
+    }
+
+    private print(id: number, run: number, data: string) {
+        const running = this.running.get(id);
+        // Replaced meanwhile: what the one before still prints is dropped, as the core does.
+        if (running?.run !== run) {
+            return;
+        }
+        const offset = running.printed.length;
+        running.printed += data;
+        for (const listener of this.listeners) {
+            listener({ session_id: id, data, offset, ended: false, run });
         }
     }
 }
@@ -1824,6 +1880,7 @@ export function createMockApi(): Api {
     const tasks = () => agent.projects.flatMap((project) => project.tasks);
     const hookListeners = new Set<(output: HookOutput) => void>();
     const terminal = new MockTerminal();
+    const claudeTerminal = new MockClaudeTerminal();
     const keys: ApiKeyInfo[] = [
         { name: "OPENROUTER_API_KEY", provider: "OpenRouter", stored: false },
         { name: "OPENAI_API_KEY", provider: "OpenAI", stored: true },
@@ -2019,6 +2076,14 @@ export function createMockApi(): Api {
         terminalOpen: async (id) => terminal.open(id),
         terminalWrite: async (id, data) => terminal.type(id, data),
         terminalResize: async () => undefined,
+        claudeTerminalOpen: async (id, command) => claudeTerminal.open(id, command),
+        claudeTerminalWrite: async (id, data) => claudeTerminal.type(id, data),
+        claudeTerminalResize: async () => undefined,
+        claudeTerminalClose: async (id) => claudeTerminal.close(id),
+        onClaudeTerminalOutput: async (listener) => {
+            claudeTerminal.listeners.add(listener);
+            return () => claudeTerminal.listeners.delete(listener);
+        },
         onTerminalOutput: async (listener) => {
             terminal.listeners.add(listener);
             return () => terminal.listeners.delete(listener);

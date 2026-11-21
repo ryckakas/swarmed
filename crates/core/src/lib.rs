@@ -142,6 +142,8 @@ pub struct Core {
     secrets: Box<dyn SecretStore>,
     /// The sessions' terminals.
     terminals: Arc<Terminals>,
+    /// The Claude Code the sessions opened in a terminal, on a screen it has only there.
+    claude_terminals: Arc<Terminals>,
     /// The changes to Swarmed's configuration that agents asked for and the user has not
     /// answered yet.
     proposals: configure::Proposals,
@@ -187,6 +189,7 @@ impl Core {
             // Nothing outside this process until `open` says where keys really live.
             secrets: Box::new(MemorySecrets::default()),
             terminals: Arc::default(),
+            claude_terminals: Arc::default(),
             proposals: configure::Proposals::default(),
             views: ViewStore::default(),
             tool_server: None,

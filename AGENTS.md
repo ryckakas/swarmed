@@ -186,6 +186,38 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **"Open in Terminal" hands the worktree to a terminal application** (`open::in_terminal`,
   `Settings::terminal_app`) through macOS's `open -a`, whose exit says whether there is such an
   application. It is apart from the session's own terminal, which is xterm.js in the window.
+- **A command whose screen Claude Code has only in its terminal can be opened there, in the
+  session's terminal, apart from its shell** (`terminal.rs`, `Program::Claude`,
+  `Core::claude_terminal_open`). The transcript's line for `AgentEvent::TerminalOnly` has the
+  button. It is a pseudo-terminal of its own (`claude_terminals`), never the shell's:
+  - **Nothing it prints reaches the agent.** Only the shells' output is shared
+    (`take_unshared`), and a screen such as `/usage-credits` shows a balance and card digits.
+  - **It runs the same `claude` as the session**, from `AgentBackend::interactive`, in the
+    task's worktree, with the shell's `PATH` and none of this process's `ANTHROPIC_*` or
+    `CLAUDE*` variables, so it signs in as the user's own does. Swarmed handles no sign-in.
+  - **It opens only a command the table leaves to Claude Code**, by a plain name in lower
+    case (`commands::opens_its_screen`): never `/login`, `/cd` or one Swarmed does its own way. The
+    exception is `/usage-credits` (`SHOWN_IN_PART`): Swarmed shows the figures, and the button
+    under the usage screen opens Claude Code's own to buy credits or set their cap.
+  - **It is a new conversation, not the session's.** Resuming the session's own would put two
+    Claude Codes on one conversation.
+  - **One per session.** Opened on the same command, the running one is shown again; on
+    another, it is replaced, and what the replaced one still prints is dropped at the source.
+    When it ends, its output says `ended` and the UI shows the shell again. A new worktree
+    gets Claude Code's folder-trust question first, which is the user's to answer.
+  - **An action's command makes it give way.** `runInTerminal` shows the shell again and the
+    command is typed at once; Claude Code keeps running and is shown again when opened on
+    the same command. A command held back until the shell is next shown would run unseen.
+- **Each start of a terminal's program is a run with a number** (`TerminalOpened::run`,
+  `TerminalOutput::run`), the shell's and Claude Code's alike. A piece of a run that another
+  took the place of can already be on its way when the new one is opened, so a front end
+  draws and ends only by pieces of the run it opened (`heard` in `terminalOutput.ts`).
+- **A terminal reads all its program printed before it says the program ended.** `pump` keeps
+  a hold of its own on the program's side of the pseudo-terminal: macOS throws away what is
+  unread when the last holder lets go, and a program that prints and ends at once, with why
+  it could not start for one, would end without a word. Held open, that side never reports
+  its end, so `feed` waits for the program and tells `pump`, which reads on until nothing
+  has come for `LAST_WORDS`.
 - **Claude Code's own `/` commands are each one of four kinds, in one table**
   (`commands.rs`, `CLAUDE_COMMANDS`). In a terminal many of them open a screen; run as Swarmed
   runs it, Claude Code has none. A *screen* (`/usage`, `/status`, `/context`, `/cost`,

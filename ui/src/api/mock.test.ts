@@ -163,10 +163,24 @@ describe("the mock's terminal", () => {
             offsets.push(output.offset);
             printed += output.data;
         });
-        expect(await api.terminalOpen(1, 80, 24)).toEqual({ replay: "", end: 0 });
+        expect(await api.terminalOpen(1, 80, 24)).toEqual({ replay: "", end: 0, run: 0 });
         await expect.poll(() => printed).not.toBe("");
         await api.terminalWrite(1, "ls");
         expect(offsets).toEqual([0, printed.length - 2]);
-        expect(await api.terminalOpen(1, 80, 24)).toEqual({ replay: printed, end: printed.length });
+        const again = await api.terminalOpen(1, 80, 24);
+        expect(again).toEqual({ replay: printed, end: printed.length, run: 0 });
+    });
+
+    it("shows a Claude Code again on the same command, and another run on another", async () => {
+        const api = createMockApi();
+        const heard: { run: number; ended: boolean }[] = [];
+        await api.onClaudeTerminalOutput(({ run, ended }) => heard.push({ run, ended }));
+        const first = await api.claudeTerminalOpen(1, "vim", 80, 24);
+        await expect.poll(() => heard).toEqual([{ run: first.run, ended: false }]);
+        expect((await api.claudeTerminalOpen(1, "vim", 80, 24)).run).toBe(first.run);
+        const other = await api.claudeTerminalOpen(1, "privacy-settings", 80, 24);
+        expect(other.run).not.toBe(first.run);
+        await api.claudeTerminalWrite(1, "q");
+        expect(heard.at(-1)).toEqual({ run: other.run, ended: true });
     });
 });

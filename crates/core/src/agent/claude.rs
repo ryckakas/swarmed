@@ -303,6 +303,10 @@ impl ClaudeBackend {
 }
 
 impl AgentBackend for ClaudeBackend {
+    fn interactive(&self) -> Option<PathBuf> {
+        Some(self.resolved())
+    }
+
     fn start(&self, spec: SessionSpec) -> Result<AgentHandle> {
         let servers = mcp_config(&spec.mcp_servers)
             .map(|servers| PrivateFile::write(spec.private_dir.as_deref(), &servers))
