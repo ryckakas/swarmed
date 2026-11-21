@@ -147,7 +147,7 @@ impl Core {
         // `/.` copies what is in the folder, not the folder; `-n` leaves what exists alone.
         let mut from = files.into_os_string();
         from.push("/.");
-        cp(&["-cRpn"], Path::new(&from), worktree).await?;
+        cp(Path::new(&from), worktree, true).await?;
         Ok(true)
     }
 }
@@ -189,21 +189,30 @@ async fn copy_into(worktree: &Path, path: &str, target: &Path) -> Result<()> {
     if let Some(parent) = to.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    cp(&["-cRp"], &worktree.join(path), &to).await
+    cp(&worktree.join(path), &to, false).await
 }
 
-/// Runs `cp`, cloning where the file system can. Its complaints are passed on without the
-/// paths' contents ever being read here.
-async fn cp(flags: &[&str], from: &Path, to: &Path) -> Result<()> {
+/// How `cp` is told to clone where the file system can: the Mac's with `-c`, GNU's with
+/// `--reflink=auto`. Neither knows the other's.
+#[cfg(target_os = "macos")]
+const CLONING: &str = "-c";
+#[cfg(not(target_os = "macos"))]
+const CLONING: &str = "--reflink=auto";
+
+/// Runs `cp`, cloning where the file system can, and with `keep_existing` leaving what is
+/// already at `to` as it is. Its complaints are passed on without the paths' contents ever
+/// being read here.
+async fn cp(from: &Path, to: &Path, keep_existing: bool) -> Result<()> {
+    let mode = if keep_existing { "-Rpn" } else { "-Rp" };
     let output = Command::new("cp")
-        .args(flags)
+        .arg(CLONING)
+        .arg(mode)
         .arg(from)
         .arg(to)
         .output()
         .await?;
-    // With `-n`, BSD `cp` reports the files it left alone as a failure. They are the point.
-    let skipping = flags.iter().any(|flag| flag.contains('n'));
-    if output.status.success() || skipping {
+    // With `-n`, `cp` may report the files it left alone as a failure. They are the point.
+    if output.status.success() || keep_existing {
         return Ok(());
     }
     let said = String::from_utf8_lossy(&output.stderr);

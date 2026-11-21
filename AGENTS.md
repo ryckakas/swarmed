@@ -46,11 +46,9 @@ ui/dist/index.html`.
 
 CI (`.github/workflows/ci.yml`) runs exactly these. Match them locally before pushing.
 
-Where CI runs is the repository variable `CI_RUNNER`. Unset, the jobs run on GitHub's runners.
-Set to a self-hosted runner's label (`gh variable set CI_RUNNER --body swarmed-mac`), they run on
-that machine with the tools installed there, and the Linux test run is left out. A pull request
-from a fork runs on GitHub's runners whatever the variable says: a self-hosted runner would run a
-stranger's code on that machine.
+CI runs on GitHub's runners: the lint on Linux, and the tests on both macOS and Linux, so code
+that only one of them compiles is checked on each. A self-hosted runner would run a stranger's
+pull request on that machine, now that the repository is public.
 
 A made-up secret in a test is marked `gitleaks:allow` on its line; one already in the history is
 listed by its fingerprint in `.gitleaksignore`.
