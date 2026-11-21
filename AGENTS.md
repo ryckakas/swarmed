@@ -5,9 +5,9 @@ Guidance for coding agents working in this repository.
 ## What this is
 
 Swarmed runs coding agents side by side (Claude Code, and any agent that speaks the Agent Client
-Protocol), each in its own git worktree with an isolated dev stack. It is a macOS desktop app and
-a command over one Rust core. The plan, with its decision log and build steps, is in
-`.plans/rust-agent-orchestrator/plan.md` (local, not committed). What users read is in
+Protocol), each in its own git worktree with an isolated dev stack. It is a desktop app, built for
+macOS so far, and a command over one Rust core. The plan, with its decision log and build steps,
+is in `.plans/rust-agent-orchestrator/plan.md` (local, not committed). What users read is in
 `README.md` and `docs/`: a change that makes a claim there untrue updates it.
 
 ## Commands
