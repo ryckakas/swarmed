@@ -50,6 +50,8 @@ pub enum CheckOutcome {
 pub struct Check {
     /// What the check is called.
     pub name: String,
+    /// The workflow it is a job of, for a check that is one: `E2E` for its job `shard 3`.
+    pub workflow: Option<String>,
     /// How it came out.
     pub outcome: CheckOutcome,
     /// Where its details are, if it said.
@@ -83,6 +85,8 @@ pub struct Pull {
 struct RawCheck {
     #[serde(default)]
     name: String,
+    #[serde(default)]
+    workflow_name: String,
     #[serde(default)]
     context: String,
     #[serde(default)]
@@ -146,6 +150,7 @@ fn check(raw: RawCheck) -> Check {
     };
     Check {
         name,
+        workflow: (!raw.workflow_name.is_empty()).then_some(raw.workflow_name),
         outcome,
         url: (!url.is_empty()).then_some(url),
     }
@@ -222,7 +227,7 @@ mod tests {
         "isDraft": true, "number": 115, "reviewDecision": "CHANGES_REQUESTED", "state": "OPEN",
         "title": "feat: one list", "url": "https://github.com/o/r/pull/115",
         "statusCheckRollup": [
-            {"__typename": "CheckRun", "name": "Format and lint", "status": "QUEUED",
+            {"__typename": "CheckRun", "name": "Format and lint", "workflowName": "CI", "status": "QUEUED",
              "conclusion": "", "detailsUrl": "https://github.com/o/r/actions/runs/1/job/2"},
             {"__typename": "CheckRun", "name": "Test", "status": "COMPLETED",
              "conclusion": "SUCCESS", "detailsUrl": ""},
@@ -263,6 +268,9 @@ mod tests {
             ]
         );
         assert_eq!(pull.checks[1].url, None);
+        // A job says which workflow it belongs to; a status from another service has none.
+        assert_eq!(pull.checks[0].workflow.as_deref(), Some("CI"));
+        assert_eq!(pull.checks[5].workflow, None);
         assert_eq!(pull.checks[5].url.as_deref(), Some("https://cov.example/1"));
     }
 

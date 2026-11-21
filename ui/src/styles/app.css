@@ -528,6 +528,10 @@ code {
     white-space: nowrap;
 }
 
+.pull-check-workflow {
+    color: var(--muted);
+}
+
 .pull-check-outcome {
     flex: none;
     color: var(--muted);

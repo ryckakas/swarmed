@@ -820,18 +820,26 @@ async function samplePull(_project: string, name: string): Promise<Pull | null> 
         draft: false,
         review: "review_required",
         checks: [
-            { name: "Lint", outcome: "passed", url: "https://github.com/example/hero/runs/1" },
+            {
+                name: "Lint",
+                workflow: "CI",
+                outcome: "passed",
+                url: "https://github.com/example/hero/runs/1",
+            },
             {
                 name: "Unit tests",
+                workflow: "CI",
                 outcome: "failed",
                 url: "https://github.com/example/hero/runs/2",
             },
-            { name: "Browser tests", outcome: "running", url: null },
-            { name: "Deploy preview", outcome: "skipped", url: null },
+            { name: "chromium (1/2)", workflow: "E2E", outcome: "running", url: null },
+            { name: "chromium (2/2)", workflow: "E2E", outcome: "passed", url: null },
+            { name: "Deploy preview", workflow: null, outcome: "skipped", url: null },
             // A matrix, as large repositories have: enough to need narrowing down.
             ...["18", "20", "22"].flatMap((node): Check[] =>
                 ["macos", "ubuntu"].map((system) => ({
                     name: `Build (${system}, node ${node})`,
+                    workflow: "CI",
                     outcome: "passed",
                     url: null,
                 })),

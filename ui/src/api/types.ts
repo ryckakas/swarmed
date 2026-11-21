@@ -167,6 +167,8 @@ export interface PullDraft {
 /** One check on a pull request: a CI job, or a status another service reported. */
 export interface Check {
     name: string;
+    /** The workflow it is a job of, if it is one: "E2E" for its job "shard 3". */
+    workflow: string | null;
     outcome: "passed" | "failed" | "running" | "skipped";
     /** Where its details are, if it said. */
     url: string | null;

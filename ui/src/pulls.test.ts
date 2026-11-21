@@ -14,6 +14,7 @@ import {
 
 const check = (name: string, outcome: Check["outcome"], url: string | null = null): Check => ({
     name,
+    workflow: null,
     outcome,
     url,
 });
@@ -105,8 +106,13 @@ describe("pullPollMs", () => {
 });
 
 describe("the list of checks", () => {
-    const check = (name: string, outcome: Check["outcome"]): Check => ({
+    const check = (
+        name: string,
+        outcome: Check["outcome"],
+        workflow: string | null = null,
+    ): Check => ({
         name,
+        workflow,
         outcome,
         url: null,
     });
@@ -148,5 +154,21 @@ describe("the list of checks", () => {
             ["skipped", 1],
         ]);
         expect(checkCounts([check("Lint", "passed")])).toEqual([["passed", 1]]);
+    });
+
+    it("finds a job by the name of its workflow, and by several words in any order", () => {
+        const jobs = [
+            check("chromium (1/2)", "passed", "E2E"),
+            check("chromium (2/2)", "failed", "E2E"),
+            check("chromium", "passed", "Visual tests"),
+            check("Lint", "passed", "CI"),
+        ];
+        expect(names(listedChecks(jobs, null, "e2e"))).toEqual([
+            "chromium (2/2)",
+            "chromium (1/2)",
+        ]);
+        expect(names(listedChecks(jobs, null, "chromium e2e 1/2"))).toEqual(["chromium (1/2)"]);
+        expect(names(listedChecks(jobs, null, "visual"))).toEqual(["chromium"]);
+        expect(listedChecks(jobs, null, "e2e lint")).toEqual([]);
     });
 });

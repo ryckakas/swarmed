@@ -185,7 +185,8 @@ function CheckList({ pull, onOpen }: { pull: Pull; onOpen(name: string): void })
             </div>
             <ul className="pull-checks">
                 {listed.map((check) => (
-                    <li key={check.name}>
+                    // Two workflows may each have a job of the same name; their details differ.
+                    <li key={`${check.workflow ?? ""}/${check.name}/${check.url ?? ""}`}>
                         <button
                             type="button"
                             className="pull-check"
@@ -193,7 +194,12 @@ function CheckList({ pull, onOpen }: { pull: Pull; onOpen(name: string): void })
                             title={`Opens the details of ${check.name}`}
                             onClick={() => onOpen(check.name)}
                         >
-                            <span className="pull-check-name">{check.name}</span>
+                            <span className="pull-check-name">
+                                {check.workflow && (
+                                    <span className="pull-check-workflow">{check.workflow} / </span>
+                                )}
+                                {check.name}
+                            </span>
                             <span className="pull-check-outcome">{OUTCOMES[check.outcome]}</span>
                         </button>
                     </li>
