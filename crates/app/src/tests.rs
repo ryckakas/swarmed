@@ -194,6 +194,14 @@ fn the_ui_can_go_from_an_empty_app_to_an_answered_permission_request() {
     assert_eq!(unread(&app), false);
 }
 
+/// Closed, a session is still kept; deleted, it is gone for good.
+fn deleted_for_good(app: &App, id: &Value) {
+    assert_eq!(app.ok("overview", json!({}))[0]["tasks"][0]["closed"], 1);
+    app.ok("session_delete", json!({ "id": id }));
+    assert_eq!(app.ok("overview", json!({}))[0]["tasks"][0]["closed"], 0);
+    assert!(app.invoke("session_events", json!({ "id": id })).is_err());
+}
+
 #[test]
 fn the_ui_can_deny_interrupt_stop_and_remove() {
     let app = app();
@@ -260,11 +268,7 @@ fn the_ui_can_deny_interrupt_stop_and_remove() {
         app.ok("overview", json!({}))[0]["tasks"][0]["sessions"],
         json!([])
     );
-    // Closed, it is still kept; deleted, it is gone for good.
-    assert_eq!(app.ok("overview", json!({}))[0]["tasks"][0]["closed"], 1);
-    app.ok("session_delete", json!({ "id": id }));
-    assert_eq!(app.ok("overview", json!({}))[0]["tasks"][0]["closed"], 0);
-    assert!(app.invoke("session_events", json!({ "id": id })).is_err());
+    deleted_for_good(&app, id);
 
     let remove = json!({ "project": "demo", "name": "one", "force": false, "deleteBranch": true });
     app.ok("task_remove", remove);

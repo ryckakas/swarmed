@@ -237,10 +237,7 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             say(&core.session_set_agent(id, &agent)?.agent);
             Ok(())
         }
-        SessionCommand::Rename { id, title } => {
-            say(&core.session_rename(id, &title)?.title);
-            Ok(())
-        }
+        SessionCommand::Rename { id, title } => renamed(core, id, &title),
         SessionCommand::Mark { id, colour, label } => mark(core, id, &colour, &label),
         SessionCommand::Close { id } => Ok(core.session_close(id)?),
         SessionCommand::Delete { id } => Ok(core.session_delete(id)?),
@@ -249,6 +246,11 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             Ok(())
         }
     }
+}
+
+fn renamed(core: &Core, id: i64, title: &str) -> Result<()> {
+    say(&core.session_rename(id, title)?.title);
+    Ok(())
 }
 
 /// What the list says a session is doing. An answer nobody has read yet says more than "idle".
