@@ -14,6 +14,8 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-21
+
 ### Added
 
 - **A Claude Code command whose screen exists only in its own terminal opens there in one
@@ -55,43 +57,8 @@ notice adds its line under Unreleased.
   resets; for any agent that reports a cost, what the session has spent in all, and whether that
   is billed or covered by a subscription. Agents over the Agent Client Protocol report no limits.
 
-### Fixed
-
-- **What a program prints as it ends in a session's terminal is no longer lost.** On a Mac, the
-  last lines of one that printed and ended at once could go missing.
-- **What sessions cost is no longer counted many times over.** Claude Code reports the
-  conversation's running total after every turn and keeps it when a session is resumed, but
-  the costs in Settings, the turn statistics and the context card's "spent here" started it
-  over at every turn. So they added each turn's whole running total again, and a session that
-  had spent $1.09 could show $6.47. A total that goes down, as after `/clear`, still counts whole.
-- **A task whose removal failed halfway can be removed.** "Remove anyway" now deletes what is
-  left of its worktree, where it used to fail every time once git had lost track of it.
-- **Removing a task ends what still runs in its worktree,** such as a stack started by hand in
-  its terminal, before deleting it. Such a stack used to keep running, recreating files as they
-  were deleted, which made the removal fail.
-- **The button that takes a cloud task off the list shows on hover and asks first.** It used to
-  be invisible, and one click took the task off at once.
-- **A usage warning from Claude Code no longer reads as a limit reached.** A window filling up
-  is said as a warning, with how much of it is used, once rather than after every turn. When a
-  window resets on another day, the day is given as well as the time.
-
-- **A usage limit whose share is not a whole number is no longer missing** from the context
-  card and the coins' warning, where `/usage` already showed it.
-- **A weekly limit that names no model is no longer shown as a second "Weekly".**
-- **Choices of `/config` made while the agent is at work say that Claude Code is told once it
-  is free,** and nothing says it was told when the choices could not be passed on.
-- **A skill of your own named like one of Claude Code's commands,** such as `status` or `diff`,
-  **is called by `/name` again** instead of showing that command's screen or being refused.
-- **A question of `/model`, `/effort` or `/config` left unanswered no longer takes the keyboard
-  when its session is opened again,** where a digit typed into the empty message box chose an
-  answer. It still takes it right after you send the command.
-- **A stack that would not end when Swarmed quits is found again by the next one,** as it
-  already was after stopping a single stack.
-
 ### Changed
 
-- **`/usage` no longer names your plan.** What it shows is kept with the conversation, and the
-  plan's name is not something Swarmed keeps.
 - **`swarmed-core`: `Core::task_remove` and `Core::project_remove` return what was passed
   over** (`Vec<String>`) instead of nothing; `Core::session_send` and `Core::session_message`
   do Claude Code's own commands themselves instead of sending them; and `AgentEvent`,
@@ -116,6 +83,28 @@ notice adds its line under Unreleased.
   before keeps its choice.
 - **The plain icons and words are called Boring** in Settings → Appearance. Nothing else about
   them changed, and a setting saved before keeps them.
+
+### Fixed
+
+- **What a program prints as it ends in a session's terminal is no longer lost.** On a Mac, the
+  last lines of one that printed and ended at once could go missing.
+- **What sessions cost is no longer counted many times over.** Claude Code reports the
+  conversation's running total after every turn and keeps it when a session is resumed, but
+  the costs in Settings, the turn statistics and the context card's "spent here" started it
+  over at every turn. So they added each turn's whole running total again, and a session that
+  had spent $1.09 could show $6.47. A total that goes down, as after `/clear`, still counts whole.
+- **A task whose removal failed halfway can be removed.** "Remove anyway" now deletes what is
+  left of its worktree, where it used to fail every time once git had lost track of it.
+- **Removing a task ends what still runs in its worktree,** such as a stack started by hand in
+  its terminal, before deleting it. Such a stack used to keep running, recreating files as they
+  were deleted, which made the removal fail.
+- **The button that takes a cloud task off the list shows on hover and asks first.** It used to
+  be invisible, and one click took the task off at once.
+- **A usage warning from Claude Code no longer reads as a limit reached.** A window filling up
+  is said as a warning, with how much of it is used, once rather than after every turn. When a
+  window resets on another day, the day is given as well as the time.
+- **A stack that would not end when Swarmed quits is found again by the next one,** as it
+  already was after stopping a single stack.
 
 ## [0.1.0] - 2026-11-21
 
@@ -179,5 +168,6 @@ through Homebrew or a browser.
 - **Installing:** an install script, a Homebrew cask that also puts `swarmed` on the PATH, and
   `cargo install swarmed` for the command alone.
 
-[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ryckakas/swarmed/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ryckakas/swarmed/releases/tag/v0.1.0
