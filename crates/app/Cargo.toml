@@ -1,6 +1,9 @@
 [package]
 name = "swarmed-app"
 description = "The Swarmed desktop app: a Tauri shell over swarmed-core"
+# It embeds ui/dist, which a crate cannot carry, and a bare binary is not an app bundle: the app
+# ships as Swarmed.app from the GitHub release instead.
+publish = false
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

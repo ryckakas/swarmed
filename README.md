@@ -2,32 +2,52 @@
 
 ![Swarmed, a Rust agent orchestrator: a bear in power armour facing a swarm](docs/cover.jpg)
 
-Parallel Claude Code sessions, each in its own git worktree with a fully isolated dev stack.
-A personal tool with a Rust core; the desktop app (Tauri) comes later.
+Coding agents side by side on macOS, each in a git worktree of its own with an isolated dev
+stack: Claude Code, Codex, OpenCode, Antigravity or any agent that speaks the Agent Client
+Protocol. A desktop app and a `swarmed` command over one Rust core.
 
-Status: early. The core and CLI work. In the desktop app you can start sessions, talk to the
-agent, answer its permission requests and stop a turn. Add a repository from the sidebar, then
-start a task by typing what you want done and choosing the repository, branch, supervision and
-model under the message box. There is no view of the changes yet.
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ryckakas/swarmed/main/install.sh | sh
+```
+
+puts Swarmed.app in `/Applications` (`~/Applications` when that cannot be written to) and links
+the `swarmed` command into `~/.local/bin`. Run it again to update. Or with Homebrew, which puts
+`swarmed` on the PATH as well:
+
+```sh
+brew install --cask ryckakas/tap/swarmed
+```
+
+`cargo install swarmed` builds the command alone.
+
+Swarmed is not signed with an Apple Developer ID yet. Installed with Homebrew or downloaded by
+hand, macOS stops it the first time it opens: allow it under System Settings → Privacy & Security
+→ Open Anyway.
+
+What changed in each release is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Layout
 
 - `crates/core` — `swarmed-core`, the headless core. No UI dependency.
-- `crates/cli` — the `swarmed` command, a thin front end over the core.
+- `crates/cli` — `swarmed`, the command, a thin front end over the core.
 - `crates/app` — `swarmed-app`, the desktop app: a Tauri shell over the core.
 - `ui` — the app's front end, in React and TypeScript.
 
-## Try it
+## The command
 
 ```sh
-cargo run -p swarmed-cli -- project add /path/to/repo
-$EDITOR "$(cargo run -q -p swarmed-cli -- project config <project>)"
-cargo run -p swarmed-cli -- task new <project> <task>
-cargo run -p swarmed-cli -- task list <project>
-cargo run -p swarmed-cli -- session run <project> <task> "<prompt>"
-cargo run -p swarmed-cli -- session send <session-id> "<prompt>"
-cargo run -p swarmed-cli -- task rm <project> <task>
+swarmed project add /path/to/repo
+$EDITOR "$(swarmed project config <project>)"
+swarmed task new <project> <task>
+swarmed task list <project>
+swarmed session run <project> <task> "<prompt>"
+swarmed session send <session-id> "<prompt>"
+swarmed task rm <project> <task>
 ```
+
+From a checkout, `cargo run -p swarmed --` stands in for `swarmed`.
 
 Sessions run your installed `claude` with its own login and configuration. `--auto` uses Claude
 Code's auto mode; without it, file edits go through and other actions ask. Set
@@ -37,13 +57,15 @@ Worktrees are created under `~/swarmed/<project>/<task>`. Config and state live 
 `~/Library/Application Support/swarmed/`; nothing is written into your repositories.
 `SWARMED_DATA_DIR` and `SWARMED_WORKTREES_DIR` override both locations.
 
-## The desktop app
+## Building the app
 
 ```sh
 corepack enable && pnpm install
 pnpm app            # builds and opens the app
 pnpm dev            # the UI alone in a browser, on sample data
 ```
+
+[RELEASING.md](RELEASING.md) says how a release is made.
 
 ## Other agents
 
@@ -92,4 +114,4 @@ cargo test --workspace --all-features
 ```
 
 `CLAUDE.md` lists the remaining checks CI runs (docs, cargo-deny, cargo-shear, typos, taplo,
-zizmor, actionlint) and the lint policy.
+shellcheck, zizmor, actionlint) and the lint policy.
