@@ -1,8 +1,8 @@
 # Swarmed
 
-![Swarmed, a Rust agent orchestrator: a bear in power armour facing a swarm](docs/cover.jpg)
+![Swarmed: a bear in power armour facing a swarm](docs/cover.jpg)
 
-**Run coding agents side by side on your Mac, each on a branch and in a worktree of its own.**
+**Run coding agents side by side, each on a branch and in a worktree of its own.**
 
 Give Swarmed a git repository and say what you want done. It creates a branch and a worktree for
 the task, sets it up with ports of its own, and starts an agent there: Claude Code, Codex,
@@ -10,7 +10,6 @@ OpenCode, Antigravity or any agent that speaks the Agent Client Protocol. Run se
 once: each has its own worktree and ports, so they don't step on each other. A desktop app and a
 `swarmed` command, over one Rust core.
 
-![macOS](https://img.shields.io/badge/macOS-only-555)
 ![Rust 1.100+](https://img.shields.io/badge/rust-1.100%2B-CE422B)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 
@@ -35,6 +34,11 @@ once: each has its own worktree and ports, so they don't step on each other. A d
   network.
 - **From prompt to pull request.** The task's diff, comments on lines sent back to the agent,
   commit, push, and a pull request with its checks.
+- **Made yours, by hand or by an agent.** Six palettes and a layout of your own sizes, fonts and
+  colours; the terminal and the status line; buttons that send a prompt or run a command; saved
+  prompts, rules for every agent, and environments for setting tasks up. Change them in the app,
+  in their files or with `swarmed`, or ask an agent: it changes the looks at once, and proposes
+  rules, environments and commands for your yes.
 - **No files of its own in your repository.** Swarmed keeps its configuration and state in a
   folder of its own. The repository gains only the tasks' branches (and an empty first commit
   if it had none), and their worktrees live under `~/swarmed`.
@@ -58,7 +62,8 @@ the `swarmed` command into `~/.local/bin`. Run it again to update. Or with Homeb
 brew install --cask ryckakas/tap/swarmed
 ```
 
-`cargo install swarmed` builds the command alone.
+`cargo install swarmed` builds the command alone. The releases are built for macOS so far, so
+elsewhere that is how to get the command.
 
 Swarmed is not signed with an Apple Developer ID yet. Installed with Homebrew or downloaded by
 hand, macOS stops it the first time it opens: allow it under System Settings → Privacy & Security

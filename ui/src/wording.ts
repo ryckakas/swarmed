@@ -160,8 +160,7 @@ const PLAIN: Words = {
     actions: "Actions",
     moreActions: "More actions…",
     about: "About Swarmed",
-    aboutLine:
-        "Coding agents side by side on your Mac, each on a branch and in a worktree of its own.",
+    aboutLine: "Coding agents side by side, each on a branch and in a worktree of its own.",
 };
 
 const SWARM: Words = {
