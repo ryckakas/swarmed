@@ -674,13 +674,13 @@ mod tests {
         ] });
         let event = parse(&answer(ScreenKind::Mcp, &body)).expect("a screen");
         let kept = serde_json::to_string(&event).expect("serialises");
-        for secret in [
+        for part in [
             "made-up-secret",
             "made-up-token",
             "example.test",
             "/bin/server",
         ] {
-            assert!(!kept.contains(secret), "{secret} was kept");
+            assert!(!kept.contains(part), "{part} of a definition was kept");
         }
         let (note, sections) = screen(ScreenKind::Mcp, &body);
         assert!(note.contains("/mcp reconnect"));
