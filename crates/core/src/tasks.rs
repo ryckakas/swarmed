@@ -6,7 +6,7 @@ use crate::config::ProjectConfig;
 use crate::error::{Error, Result};
 use crate::hooks::OutputSink;
 use crate::store::{NewTask, Project, SetupStatus, Task};
-use crate::vars::Vars;
+use crate::vars::{Vars, env_name};
 use crate::{Core, git, hooks, paths};
 use crate::{Settings, open};
 
@@ -205,11 +205,9 @@ impl Core {
     ) -> Result<()> {
         let (project, task) = self.task(project, name)?;
         let repo = &project.repo_path;
-        // Nothing may still be running in a directory that is about to go.
-        for session in self.store().sessions(task.id)? {
-            self.session_stop(session.id);
-            self.terminal_close(session.id);
-        }
+        // Nothing may still be running in a directory that is about to go: the agents are
+        // waited for, and killed if they do not go by themselves.
+        self.sessions_ended(task.id).await?;
         if task.worktree_path.exists() {
             self.remove_worktree(&project, &task, options.force, sink)
                 .await?;
@@ -227,8 +225,13 @@ impl Core {
 
     /// Takes a project out of Swarmed. Its tasks are removed as [`Core::task_remove`] removes
     /// them, keeping their branches, and then everything Swarmed holds about the project is
-    /// deleted: its sessions' history and the notes on it. The repository itself stays as it
-    /// is, and so does the project's config file, in case the repository is added again.
+    /// deleted: its sessions' history, the notes on it, its snapshots, its environments and
+    /// its own actions. The repository itself stays as it is, and so does the project's
+    /// config file, in case the repository is added again.
+    ///
+    /// The snapshots and the environments have to go: they hold what git ignores, `.env`
+    /// included, and variables' values, and another repository added under the same name
+    /// later would otherwise be started from them.
     ///
     /// Without `force` this stops at the first task that holds unsaved work. The tasks before
     /// it are removed by then; the project and everything else about it are still there.
@@ -248,7 +251,10 @@ impl Core {
             self.task_remove(name, &task.name, options, sink).await?;
         }
         self.store().project_delete(project.id)?;
-        self.forget_notes(name)
+        self.forget_notes(name)?;
+        self.forget_snapshots(name)?;
+        forget_file(&self.paths.project_environments(name))?;
+        forget_file(&self.paths.project_actions(name))
     }
 
     /// Checks for unsaved work, runs `teardown`, then removes the worktree. `force` skips the
@@ -380,6 +386,10 @@ impl Core {
     }
 
     /// A hook as it is run: its command with the variables filled in, and its environment.
+    ///
+    /// The command is read by a shell, and a value such as the name of somebody else's
+    /// branch is not ours to trust, so it is filled in as [`Vars::render_for_shell`] does:
+    /// always one word, never shell. The environment holds every value as it is.
     pub(crate) fn hook_command(
         &self,
         template: &str,
@@ -388,20 +398,25 @@ impl Core {
         task: &Task,
     ) -> Result<(String, Vec<(String, String)>)> {
         let vars = self.task_vars(project, config, task)?;
-        let command = vars.render(template)?;
-        let mut env: Vec<(String, String)> = vars
-            .iter()
-            .map(|(name, value)| {
-                (
-                    format!("SWARMED_{}", name.replace('.', "_").to_uppercase()),
-                    value.to_string(),
-                )
-            })
-            .collect();
+        let command = vars.render_for_shell(template)?;
+        let mut env: Vec<(String, String)> = Vec::new();
         for (key, value) in &config.env {
             env.push((key.clone(), vars.render(value)?));
         }
+        // Last, so that they are what the command refers to whatever the config sets.
+        env.extend(
+            vars.iter()
+                .map(|(name, value)| (env_name(name), value.to_string())),
+        );
         Ok((command, env))
+    }
+}
+
+/// Removes a file of Swarmed's own. One that is not there is as good as removed.
+fn forget_file(file: &std::path::Path) -> Result<()> {
+    match std::fs::remove_file(file) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error.into()),
+        _ => Ok(()),
     }
 }
 

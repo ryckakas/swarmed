@@ -110,7 +110,8 @@ async fn starting_point(worktree: &Path, base_ref: &str) -> String {
     merge_base.unwrap_or_else(|_| "HEAD".to_string())
 }
 
-async fn untracked(worktree: &Path) -> Result<Vec<String>> {
+/// The files in `worktree` that git neither tracks nor ignores.
+pub(crate) async fn untracked(worktree: &Path) -> Result<Vec<String>> {
     let listed = git::git(
         worktree,
         &["ls-files", "--others", "--exclude-standard", "-z"],
@@ -119,7 +120,9 @@ async fn untracked(worktree: &Path) -> Result<Vec<String>> {
     Ok(nul_separated(&listed).map(String::from).collect())
 }
 
-fn nul_separated(text: &str) -> impl Iterator<Item = &str> {
+/// The parts of what git printed with `-z`: names as they are, whatever is in them, where
+/// a listing by lines puts any unusual name in quotes with its bytes spelt out.
+pub(crate) fn nul_separated(text: &str) -> impl Iterator<Item = &str> {
     text.split('\0').filter(|part| !part.is_empty())
 }
 
@@ -150,23 +153,32 @@ fn tracked_changes(kinds: &str, counts: &str) -> Tracked {
     files
 }
 
-/// The number of lines in a text file of reasonable size.
+/// The number of lines in a text file of reasonable size. A link is not read through: what
+/// it points at may be anywhere on the machine, and is no part of the task's work.
 fn line_count(file: &Path) -> Option<u32> {
-    let size = std::fs::metadata(file).ok()?.len();
-    if size > MAX_COUNTED_BYTES {
+    let found = std::fs::symlink_metadata(file).ok()?;
+    if !found.is_file() || found.len() > MAX_COUNTED_BYTES {
         return None;
     }
     let text = String::from_utf8(std::fs::read(file).ok()?).ok()?;
     u32::try_from(text.lines().count()).ok()
 }
 
-/// A diff for a file git does not track yet, in the shape git gives an added file.
+/// A diff for a file git does not track yet, in the shape git gives an added file. A link is
+/// shown as git shows one, by where it points, and never by what is there.
 fn new_file_diff(path: &str, file: &Path) -> String {
     let header = format!("diff --git a/{path} b/{path}\nnew file\n--- /dev/null\n+++ b/{path}\n");
-    let Some(text) = std::fs::read(file)
-        .ok()
-        .and_then(|bytes| String::from_utf8(bytes).ok())
-    else {
+    let kind = std::fs::symlink_metadata(file).map(|found| found.file_type());
+    if kind.as_ref().is_ok_and(std::fs::FileType::is_symlink) {
+        let target = std::fs::read_link(file).unwrap_or_default();
+        return format!(
+            "{header}@@ -0,0 +1 @@\n+{}\n\\ No newline at end of file\n",
+            target.display()
+        );
+    }
+    let regular = kind.is_ok_and(|kind| kind.is_file());
+    let text = regular.then(|| std::fs::read(file).ok()).flatten();
+    let Some(text) = text.and_then(|bytes| String::from_utf8(bytes).ok()) else {
         return format!("{header}Binary file {path} is new\n");
     };
     let lines: Vec<&str> = text.lines().collect();
@@ -235,6 +247,27 @@ mod tests {
         assert!(!stays_inside("src/../../secrets"));
         assert!(!stays_inside("/etc/passwd"));
         assert!(!stays_inside(""));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_new_link_is_shown_by_where_it_points_and_not_by_what_is_there() {
+        let outside = tempfile::tempdir().expect("temp dir");
+        let secret = outside.path().join("credentials");
+        std::fs::write(&secret, "key = hunter2\nmore\n").expect("writes");
+        let worktree = tempfile::tempdir().expect("temp dir");
+        let link = worktree.path().join("creds");
+        std::os::unix::fs::symlink(&secret, &link).expect("links");
+
+        assert_eq!(line_count(&link), None);
+        let diff = new_file_diff("creds", &link);
+        assert!(!diff.contains("hunter2"), "{diff}");
+        assert!(diff.contains(&format!("+{}\n", secret.display())), "{diff}");
+        // A file of the worktree's own is shown as before.
+        std::fs::write(worktree.path().join("own.txt"), "a\nb\n").expect("writes");
+        assert_eq!(line_count(&worktree.path().join("own.txt")), Some(2));
+        let own = new_file_diff("own.txt", &worktree.path().join("own.txt"));
+        assert!(own.ends_with("@@ -0,0 +1,2 @@\n+a\n+b\n"), "{own}");
     }
 
     #[test]

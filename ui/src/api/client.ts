@@ -34,6 +34,7 @@ import type {
     TaskNaming,
     Template,
     TerminalConfig,
+    TerminalOpened,
     TerminalOutput,
     TurnStats,
     Unpublished,
@@ -296,7 +297,7 @@ export interface Api {
      * Opens the session's terminal, starting a shell in the task's worktree if none runs, and
      * returns what it has printed so far, to redraw it.
      */
-    terminalOpen(id: number, cols: number, rows: number): Promise<string>;
+    terminalOpen(id: number, cols: number, rows: number): Promise<TerminalOpened>;
     /** Types into the session's terminal. */
     terminalWrite(id: number, data: string): Promise<void>;
     terminalResize(id: number, cols: number, rows: number): Promise<void>;

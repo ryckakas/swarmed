@@ -1,5 +1,6 @@
 import { lastDays } from "../analytics";
 import { PLAN_TOOL, withFiles } from "../transcript";
+import { titleFrom } from "../tree";
 import type { Api } from "./client";
 import type {
     Action,
@@ -34,6 +35,7 @@ import type {
     Task,
     Template,
     TerminalConfig,
+    TerminalOpened,
     TerminalOutput,
     TurnStats,
     Unpublished,
@@ -931,14 +933,14 @@ class MockTerminal {
     readonly listeners = new Set<(output: TerminalOutput) => void>();
     private readonly printed = new Map<number, string>();
 
-    open(id: number): string {
+    open(id: number): TerminalOpened {
         const replay = this.printed.get(id);
         if (replay === undefined) {
             // Marked as started at once, so opening it twice in a row starts one shell.
             this.printed.set(id, "");
             setTimeout(() => this.print(id, GREETING + PROMPT), 0);
         }
-        return replay ?? "";
+        return { replay: replay ?? "", end: replay?.length ?? 0 };
     }
 
     type(id: number, data: string) {
@@ -947,9 +949,10 @@ class MockTerminal {
     }
 
     private print(id: number, data: string) {
-        this.printed.set(id, (this.printed.get(id) ?? "") + data);
+        const before = this.printed.get(id) ?? "";
+        this.printed.set(id, before + data);
         for (const listener of this.listeners) {
-            listener({ session_id: id, data });
+            listener({ session_id: id, data, offset: before.length });
         }
     }
 }
@@ -968,6 +971,12 @@ const SAMPLE_CONTEXT: AgentEvent = {
         { name: "Free space", tokens: 937_371, kind: "free" },
     ],
 };
+
+/** A title as the core's namer might suggest it: here, the message's first words, capitalised. */
+export function suggestedTitle(message: string): string {
+    const words = titleFrom(message).split(/\s+/).slice(0, 6).join(" ");
+    return words.charAt(0).toUpperCase() + words.slice(1);
+}
 
 class MockAgent {
     readonly projects = sampleProjects();
@@ -1001,13 +1010,34 @@ class MockAgent {
 
     publish(sessionId: number, event: AgentEvent, status: SessionStatus | null) {
         this.history(sessionId).push(event);
-        if (event.type === "turn_done") {
-            this.configure(sessionId, { unread: true });
-        }
+        this.record(sessionId, event, status);
         this.tell(sessionId, event, status);
         // A turn that ended well makes room for the next waiting message, as in the core.
         if (event.type === "turn_done" && !event.is_error) {
             this.sendQueued(sessionId);
+        }
+    }
+
+    /**
+     * Keeps what an event changes about its session, as the core does: the tree read again
+     * must say what the events said, or a refresh would put a working session back to idle
+     * and take a new session's title away.
+     */
+    private record(sessionId: number, event: AgentEvent, status: SessionStatus | null) {
+        const session = this.tasks()
+            .flatMap((task) => task.sessions)
+            .find((candidate) => candidate.id === sessionId);
+        // A closed session is in no task any more; what is left of its turn changes nothing.
+        if (!session) {
+            return;
+        }
+        session.status = status ?? session.status;
+        if (event.type === "turn_done") {
+            session.unread = true;
+        } else if (event.type === "renamed") {
+            session.title = event.title;
+        } else if (event.type === "user_message" && session.title === "") {
+            session.title = titleFrom(event.text);
         }
     }
 
@@ -1075,6 +1105,8 @@ class MockAgent {
 
     send(id: number, text: string) {
         this.publish(id, { type: "user_message", text }, "working");
+        const said = this.history(id).filter((event) => event.type === "user_message");
+        const first = said.length === 1;
         const done: AgentEvent = {
             type: "turn_done",
             is_error: false,
@@ -1102,6 +1134,11 @@ class MockAgent {
             words.forEach((word, index) => {
                 this.stream(id, { type: "text_delta", text: word }, (index + 1) / words.length);
             });
+            // A better title arrives while the first reply is still being written, as the
+            // core's does: the reply so far must stay on screen through it.
+            if (first) {
+                this.later(id, { type: "renamed", title: suggestedTitle(text) }, null, 0.5);
+            }
             this.later(id, { type: "text", text: reply }, "working");
             this.later(id, done, "idle", 2);
             this.later(id, SAMPLE_CONTEXT, null, 3);

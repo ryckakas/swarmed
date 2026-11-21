@@ -434,6 +434,22 @@ async fn what_a_task_keeps_running_is_started_after_setup_and_does_not_hold_the_
     // It can be started again, and goes with its task.
     assert!(core.stack_start("demo", "one").expect("starts"));
     assert_eq!(stack(&core, 0), Some(StackState::Starting));
+    let mut again = std::fs::read_to_string(&pid_file).expect("written");
+    let mut waits = 0;
+    while (again == child || !alive(&again)) && waits < 300 {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        again = std::fs::read_to_string(&pid_file).unwrap_or_default();
+        waits += 1;
+    }
+    assert!(
+        again != child && alive(&again),
+        "the stack did not start again"
+    );
+    let kept = fx
+        .paths
+        .data_dir
+        .join(format!("run/stacks/{}.pid", task.id));
+    assert!(kept.exists());
     let force = RemoveOptions {
         force: true,
         ..RemoveOptions::default()
@@ -441,7 +457,291 @@ async fn what_a_task_keeps_running_is_started_after_setup_and_does_not_hold_the_
     core.task_remove("demo", "one", force, &hooks::discard)
         .await
         .expect("removes");
+    assert!(!alive(&again), "the stack outlived its task");
+    assert!(!kept.exists());
+    assert!(!task.worktree_path.exists());
     core.stacks_stop_all().await;
+}
+
+/// When the process `pid` started, in the words Swarmed writes it down in, or in those of
+/// wherever this test runs.
+fn start_time(pid: &str, fixed: bool) -> String {
+    let mut ps = std::process::Command::new("ps");
+    if fixed {
+        ps.env("LC_ALL", "C").env("TZ", "UTC");
+    }
+    let asked = ps.args(["-o", "lstart=", "-p", pid.trim()]).output();
+    String::from_utf8_lossy(&asked.expect("ps runs").stdout)
+        .trim()
+        .to_string()
+}
+
+#[tokio::test]
+async fn a_command_beside_a_running_swarmed_leaves_its_stacks_alone() {
+    let fx = fixture();
+    write_config(
+        &fx,
+        "[hooks]\nstart = \"sleep 300 & echo $! > child.pid; wait\"\n",
+    );
+    let app = core_with_project(&fx).await;
+    let task = app
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates");
+    let child = written(&task.worktree_path.join("child.pid")).await;
+    let kept = fx
+        .paths
+        .data_dir
+        .join(format!("run/stacks/{}.pid", task.id));
+    assert!(kept.exists());
+
+    // A second Swarmed on the same data, as a command run beside the app is. It started a
+    // stack of its own, and ends that one and no other when it is done.
+    let command =
+        Core::with_backend(fx.paths.clone(), Arc::new(FakeBackend::default())).expect("opens");
+    write_config(
+        &fx,
+        "max_stacks = 5\n[hooks]\nstart = \"sleep 300 & echo $! > child.pid; wait\"\n",
+    );
+    let own = command
+        .task_new("demo", "two", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates");
+    let own_child = written(&own.worktree_path.join("child.pid")).await;
+    let own_kept = fx.paths.data_dir.join(format!("run/stacks/{}.pid", own.id));
+    assert!(own_kept.exists());
+    command.stacks_stop_started().await;
+    assert!(!process_alive(&own_child));
+    assert!(!own_kept.exists());
+    assert!(process_alive(&child), "the app's stack was ended");
+    assert!(kept.exists(), "the app's stack was forgotten");
+    let stack = |core: &Core| core.overview().expect("reads")[0].tasks[0].stack;
+    assert_eq!(stack(&app), Some(StackState::Starting));
+
+    // Nor does a second Swarmed that quits, when the first has arrived before it.
+    app.arrive().expect("arrives");
+    command.arrive().expect("arrives");
+    command.leave().await;
+    assert!(process_alive(&child), "the app's stack was ended");
+
+    // The first one quitting is another matter: then everything goes.
+    app.leave().await;
+    assert!(!process_alive(&child));
+    assert!(!kept.exists());
+}
+
+#[tokio::test]
+async fn a_stack_is_known_by_a_start_time_that_reads_the_same_everywhere() {
+    let fx = fixture();
+    write_config(&fx, "[hooks]\nstart = \"sleep 300\"\n");
+    let first = core_with_project(&fx).await;
+    let task = first
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates");
+    let kept = fx
+        .paths
+        .data_dir
+        .join(format!("run/stacks/{}.pid", task.id));
+    let written = std::fs::read_to_string(&kept).expect("written");
+    let (pid, started) = written.trim().split_once('\n').expect("two lines");
+    // Not in the words of this machine's language and time zone, which another Swarmed,
+    // started from somewhere else, would not get out of `ps` again.
+    assert_eq!(started, start_time(pid, true));
+    drop(first);
+
+    // A file from before, in the words of wherever that Swarmed ran: if they are this
+    // one's too, the stack is still known, and written down anew.
+    std::fs::write(&kept, format!("{pid}\n{}\n", start_time(pid, false))).expect("writes");
+    let second =
+        Core::with_backend(fx.paths.clone(), Arc::new(FakeBackend::default())).expect("opens");
+    let stack = |core: &Core| core.overview().expect("reads")[0].tasks[0].stack;
+    assert_eq!(stack(&second), Some(StackState::Starting));
+    assert_eq!(std::fs::read_to_string(&kept).expect("kept"), written);
+
+    // A process id that somebody else has by now is forgotten, as ever.
+    std::fs::write(&kept, format!("{pid}\nlong ago\n")).expect("writes");
+    assert_eq!(stack(&second), Some(StackState::Stopped));
+    assert!(!kept.exists());
+    std::process::Command::new("kill")
+        .arg(pid)
+        .status()
+        .expect("kill runs");
+}
+
+#[tokio::test]
+async fn no_more_stacks_of_a_project_run_than_its_config_allows() {
+    let fx = fixture();
+    write_config(&fx, "max_stacks = 1\n[hooks]\nstart = \"sleep 300\"\n");
+    let core = core_with_project(&fx).await;
+    core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates");
+    // A second task is made all the same, and told why its stack is not running.
+    let said = Mutex::new(Vec::new());
+    let sink = |line: &str| said.lock().expect("lock").push(line.to_string());
+    core.task_new("demo", "two", NewTaskOptions::default(), &sink)
+        .await
+        .expect("creates");
+    let said = said.into_inner().expect("lock").join("\n");
+    assert!(said.contains("max_stacks"), "{said}");
+    let refused = core.stack_start("demo", "two");
+    assert!(
+        matches!(&refused, Err(Error::TooManyStacks { limit: 1, .. })),
+        "{refused:?}"
+    );
+    // The one that runs can be asked for again, and makes room when it stops.
+    assert!(core.stack_start("demo", "one").expect("runs already"));
+    core.stack_stop("demo", "one", &hooks::discard)
+        .await
+        .expect("stops");
+    assert!(core.stack_start("demo", "two").expect("starts"));
+    assert!(matches!(
+        core.stack_start("demo", "one"),
+        Err(Error::TooManyStacks { .. })
+    ));
+    core.stacks_stop_all().await;
+}
+
+#[tokio::test]
+async fn a_stacks_log_is_read_on_from_where_it_was_left_and_its_end_is_seen() {
+    let fx = fixture();
+    write_config(
+        &fx,
+        "[hooks]\nstart = \"echo one; sleep 0.3; echo tw\u{f6}\"\n",
+    );
+    let core = core_with_project(&fx).await;
+    core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates");
+    // As a front end follows it: asked whether it runs, then read on, until it has ended.
+    let (mut text, mut at, mut running, mut waits) = (String::new(), 0, true, 0);
+    while running && waits < 300 {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        running = core.stack_is_running("demo", "one").expect("asks");
+        let (new, end) = core.stack_log_from("demo", "one", at).expect("reads");
+        text.push_str(&new);
+        at = end;
+        waits += 1;
+    }
+    assert_eq!(text, "one\ntw\u{f6}\n");
+    assert_eq!(at, 9);
+    assert!(!core.stack_is_running("demo", "one").expect("asks"));
+    // From a place in it, the rest; from its end, nothing; from beyond it, a log begun anew.
+    let from = |at: u64| core.stack_log_from("demo", "one", at).expect("reads");
+    assert_eq!(from(4), ("tw\u{f6}\n".to_string(), 9));
+    assert_eq!(from(9), (String::new(), 9));
+    assert_eq!(from(500), ("one\ntw\u{f6}\n".to_string(), 9));
+}
+
+#[tokio::test]
+async fn a_hook_takes_a_value_as_one_word_whatever_is_in_it() {
+    let fx = fixture();
+    let core = Core::open(fx.paths.clone()).expect("test setup");
+    // A repository in a folder with a space in its name, and in it a branch, as somebody
+    // else might have pushed it, whose name is a command to a shell.
+    let repo = fx.repo.parent().expect("test setup").join("my repo");
+    std::fs::create_dir(&repo).expect("test setup");
+    git(&repo, &["init", "--quiet", "-b", "main"]);
+    std::fs::write(repo.join("README.md"), "spaced\n").expect("test setup");
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "--quiet", "-m", "init"]);
+    let branch = "feature/x;touch${IFS}pwned";
+    git(&repo, &["branch", branch]);
+    core.project_add(&repo, Some("spaced")).await.expect("adds");
+    let config = fx.paths.project_config("spaced");
+    std::fs::write(
+        config,
+        "[hooks]\nsetup = \"cp {{repo}}/README.md copied.md && echo {{branch}} > branch.out && echo \\\"$SWARMED_BRANCH\\\" > env.out\"\n",
+    )
+    .expect("test setup");
+
+    let options = NewTaskOptions {
+        existing_branch: Some(branch),
+        ..NewTaskOptions::default()
+    };
+    let task = core
+        .task_new("spaced", "one", options, &hooks::discard)
+        .await
+        .expect("sets up");
+    let read = |name: &str| std::fs::read_to_string(task.worktree_path.join(name)).expect("reads");
+    assert_eq!(read("copied.md"), "spaced\n");
+    assert_eq!(read("branch.out"), format!("{branch}\n"));
+    assert_eq!(read("env.out"), format!("{branch}\n"));
+    assert!(!task.worktree_path.join("pwned").exists());
+}
+
+#[tokio::test]
+async fn a_folder_that_is_a_link_out_of_the_worktree_is_not_walked_into() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    let task = core
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates");
+    let outside = fx.repo.parent().expect("test setup").join("outside");
+    std::fs::create_dir(&outside).expect("test setup");
+    std::fs::write(outside.join("secret.txt"), "x").expect("test setup");
+    std::os::unix::fs::symlink(&outside, task.worktree_path.join("elsewhere")).expect("links");
+
+    let listing = core.task_files("demo", "one", "").expect("lists");
+    assert!(
+        listing
+            .entries
+            .iter()
+            .any(|entry| entry.name == "elsewhere")
+    );
+    assert!(matches!(
+        core.task_files("demo", "one", "elsewhere"),
+        Err(Error::PathOutsideWorktree(_))
+    ));
+    assert!(matches!(
+        core.task_open_file("demo", "one", "elsewhere/secret.txt"),
+        Err(Error::PathOutsideWorktree(_))
+    ));
+}
+
+#[tokio::test]
+async fn a_snapshot_takes_any_file_name_and_environments_keep_theirs_apart() {
+    let fx = fixture();
+    std::fs::write(fx.repo.join(".gitignore"), "*.cache\n").expect("writes");
+    git(&fx.repo, &["add", "."]);
+    git(&fx.repo, &["commit", "--quiet", "-m", "ignore caches"]);
+    // A name git would spell out in quotes if asked for a list by lines.
+    write_config(
+        &fx,
+        "[hooks]\nsetup = \"test -f na\u{ef}ve.cache || echo {{task}} > na\u{ef}ve.cache\"\n",
+    );
+    let core = core_with_project(&fx).await;
+    // Two environments, one named as the other with something after a dot.
+    for name in ["staging", "staging.new"] {
+        core.environment_save("demo", name, &Environment::default())
+            .expect("saves");
+    }
+    let new = |name: &'static str, environment: &'static str| {
+        let options = NewTaskOptions {
+            environment: Some(environment),
+            ..NewTaskOptions::default()
+        };
+        core.task_new("demo", name, options, &hooks::discard)
+    };
+    new("a", "staging.new").await.expect("creates");
+    let kept = core.snapshot_save("demo", "a").await.expect("saves");
+    assert_eq!(kept.entries, 1);
+    new("b", "staging").await.expect("creates");
+    core.snapshot_save("demo", "b").await.expect("saves");
+
+    // Saving the one did not take the other's away.
+    let snapshots = core.snapshots("demo").expect("reads");
+    let of: Vec<(Option<&str>, &str)> = snapshots
+        .iter()
+        .map(|snapshot| (snapshot.environment.as_deref(), snapshot.task.as_str()))
+        .collect();
+    assert_eq!(of, [(Some("staging"), "b"), (Some("staging.new"), "a")]);
+    // And the file came along, under its own name.
+    let c = new("c", "staging.new").await.expect("creates");
+    let cache = std::fs::read_to_string(c.worktree_path.join("na\u{ef}ve.cache"));
+    assert_eq!(cache.expect("seeded"), "a\n");
 }
 
 /// Whether there is a process with the id written in `pid`.
@@ -960,6 +1260,20 @@ async fn a_removed_project_leaves_swarmed_and_its_repository_stays() {
         .expect("writes");
     core.set_note("demo", Some("one"), "for the task")
         .expect("writes");
+    // What else is kept under the project's name: a snapshot, environments, its own actions.
+    let snapshot = fx.paths.data_dir.join("snapshots/demo");
+    std::fs::create_dir_all(snapshot.join("_default/files")).expect("test setup");
+    std::fs::write(snapshot.join("_default/files/.env"), "KEY=secret").expect("test setup");
+    let staging = Environment {
+        env: [("KEY".to_string(), "secret".to_string())].into(),
+        ..Environment::default()
+    };
+    core.environment_save("demo", "staging", &staging)
+        .expect("saves");
+    core.action_save(Some("demo"), &action("Tests", "", "make test"))
+        .expect("saves");
+    assert!(fx.paths.project_environments("demo").exists());
+    assert!(fx.paths.project_actions("demo").exists());
 
     // Unsaved work in a task stops it, and nothing about the project is gone.
     std::fs::write(task.worktree_path.join("new.txt"), "x").expect("test setup");
@@ -978,6 +1292,11 @@ async fn a_removed_project_leaves_swarmed_and_its_repository_stays() {
     assert_eq!(core.overview().expect("reads"), vec![]);
     assert!(!task.worktree_path.exists());
     assert!(!fx.paths.notes("demo").exists());
+    // Nothing is left that another repository of this name would be started from.
+    assert!(!snapshot.exists());
+    assert!(!fx.paths.project_environments("demo").exists());
+    assert!(!fx.paths.project_actions("demo").exists());
+    assert!(fx.paths.project_config("demo").exists());
     // The repository is as it was, the task's branch included.
     assert!(fx.repo.join("README.md").exists());
     git(
@@ -992,6 +1311,19 @@ async fn a_removed_project_leaves_swarmed_and_its_repository_stays() {
     // It can be added again, and starts empty.
     core.project_add(&fx.repo, None).await.expect("adds again");
     assert_eq!(core.tasks("demo", true).expect("reads"), vec![]);
+    assert_eq!(core.snapshots("demo").expect("reads"), vec![]);
+    assert!(core.environments("demo").expect("reads").is_empty());
+    assert_eq!(core.actions(Some("demo")).expect("reads"), vec![]);
+
+    // Not under a name that is another project's file, though.
+    for name in ["demo.actions", "demo.environments"] {
+        let refused = core.project_add(&fx.repo, Some(name)).await;
+        assert!(
+            matches!(refused, Err(Error::ReservedName(_))),
+            "{refused:?}"
+        );
+    }
+    assert!(!fx.paths.project_config("demo.actions").exists());
 }
 
 #[tokio::test]
@@ -1141,7 +1473,28 @@ async fn an_actions_file_written_by_hand_is_read_and_a_slip_in_it_costs_one_butt
     assert_eq!(offered.len(), 1);
     assert_eq!(offered[0].name, "Call home");
 
-    std::fs::write(&file, "[[action]]\nnmae = \"typo\"\n").expect("test setup");
+    // A misspelt key costs the button it is in, and no other.
+    std::fs::write(
+        &file,
+        "[[action]]\nnmae = \"typo\"\nprompt = \"review this\"\n\n\
+         [[action]]\nname = \"Call home\"\ncommand = \"./call.sh\"\n",
+    )
+    .expect("test setup");
+    let offered = core.actions(None).expect("reads");
+    assert_eq!(offered.len(), 1);
+    assert_eq!(offered[0].name, "Call home");
+    // What could not be read is still in the file after Swarmed wrote it anew.
+    core.action_save(None, &action("Tests", "", "make test"))
+        .expect("saves");
+    core.action_move(None, "Tests", -1).expect("moves");
+    core.action_remove(None, "Call home").expect("removes");
+    let text = std::fs::read_to_string(&file).expect("reads");
+    assert!(text.contains("= \"typo\""), "{text}");
+    assert!(text.contains("review this"), "{text}");
+    assert_eq!(core.actions(None).expect("reads").len(), 1);
+
+    // A file that is not TOML at all is said, not passed over.
+    std::fs::write(&file, "[[action]\nname = ").expect("test setup");
     assert!(matches!(core.actions(None), Err(Error::Config { .. })));
 }
 

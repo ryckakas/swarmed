@@ -2,13 +2,11 @@
 
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use clap::{Subcommand, ValueEnum};
 use serde_json::Value;
 use swarmed_core::agent::{AgentEvent, Auth, Effort, McpServerInfo, PLAN_TOOL, Supervision};
-use swarmed_core::{
-    Core, Mark, Session, SessionEvent, SessionOptions, SessionSettings, with_files,
-};
+use swarmed_core::{Core, Session, SessionEvent, SessionOptions, SessionSettings};
 use tokio::io::{AsyncBufReadExt, BufReader, Lines, Stdin};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
@@ -76,7 +74,8 @@ pub(crate) enum SessionCommand {
         #[arg(long)]
         agent: Option<String>,
     },
-    /// Change the model and supervision a session runs with from now on.
+    /// Change the model and supervision a session runs with from now on. Without `--auto`,
+    /// `--ask` or `--plan` the session stays supervised as it is.
     Set {
         id: i64,
         /// The model to run on; without it, the agent's own default.
@@ -89,8 +88,11 @@ pub(crate) enum SessionCommand {
         #[arg(long)]
         fast: bool,
         /// Let Claude Code's auto mode decide which actions are safe, instead of asking.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "ask")]
         auto: bool,
+        /// Ask before commands.
+        #[arg(long, conflicts_with = "plan")]
+        ask: bool,
         /// Plan mode: the agent only reads, then presents a plan to approve before it acts.
         #[arg(long, conflicts_with = "auto")]
         plan: bool,
@@ -145,7 +147,7 @@ impl AuthMode {
 
 /// Puts a mark on a session, or takes it off, and prints what it then has.
 fn mark(core: &Core, id: i64, colour: &str, label: &str) -> Result<()> {
-    let marked = core.session_mark(id, Mark::named(colour, label)?)?;
+    let marked = core.session_mark_named(id, colour, label)?;
     say(&marked.mark.map_or_else(
         || "no mark".to_string(),
         |mark| format!("{}\t{}", mark.colour.as_str(), mark.label),
@@ -179,7 +181,7 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             };
             let session = core.session_new(&project, &task, &options)?;
             say(&format!("session {}", session.id));
-            run_turn(core, session.id, &prompt, auth.resolve()?).await
+            run_turn(core, session.id, &prompt, &[], auth.resolve()?).await
         }
         SessionCommand::Send {
             id,
@@ -192,8 +194,7 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
                 .iter()
                 .map(std::path::absolute)
                 .collect::<std::io::Result<_>>()?;
-            let prompt = with_files(&prompt, &files)?;
-            run_turn(core, id, &prompt, auth.resolve()?).await
+            run_turn(core, id, &prompt, &files, auth.resolve()?).await
         }
         SessionCommand::List { project, task } => {
             for s in core.sessions(&project, &task)? {
@@ -208,25 +209,21 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             say(&format!("session {}\t{}", fork.id, fork.title));
             Ok(())
         }
-        SessionCommand::Show { id } => {
-            core.session_mark_read(id)?;
-            core.session_events(id)?
-                .iter()
-                .filter_map(describe)
-                .for_each(|line| say(&line));
-            Ok(())
-        }
+        SessionCommand::Show { id } => show(core, id),
         SessionCommand::Set {
             id,
             model,
             effort,
             fast,
             auto,
+            ask,
             plan,
         } => {
+            let chosen = (auto || ask || plan).then(|| supervision(auto, plan));
+            let supervision = chosen_or_kept(core, id, chosen)?;
             let settings = SessionSettings {
                 model,
-                supervision: supervision(auto, plan),
+                supervision,
                 effort,
                 fast,
             };
@@ -250,6 +247,26 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             say(&core.session_reopen(id)?.title);
             Ok(())
         }
+    }
+}
+
+/// Prints everything a session has said and been told, which counts as having read it.
+fn show(core: &Core, id: i64) -> Result<()> {
+    core.session_mark_read(id)?;
+    core.session_events(id)?
+        .iter()
+        .filter_map(describe)
+        .for_each(|line| say(&line));
+    Ok(())
+}
+
+/// How a session is supervised from now on: as `chosen` on the command line, or, with none
+/// of `--auto`, `--ask` and `--plan` given, as it is. A change of model or effort alone must
+/// not turn a session that decides for itself into one that asks.
+fn chosen_or_kept(core: &Core, id: i64, chosen: Option<Supervision>) -> Result<Supervision> {
+    match chosen {
+        Some(supervision) => Ok(supervision),
+        None => Ok(core.session(id)?.supervision),
     }
 }
 
@@ -280,12 +297,28 @@ fn supervision(auto: bool, plan: bool) -> Supervision {
     }
 }
 
-/// Sends `prompt` and shows the session's events until the turn ends. Permission requests are
-/// answered from stdin; Ctrl-C interrupts the turn instead of killing the session.
-async fn run_turn(core: &Core, id: i64, prompt: &str, auth: Auth) -> Result<()> {
+/// How the turn ended, if `event` ends it. A turn that was stopped or failed, and an agent
+/// that exited with a failure, are errors, so that the command's exit code says so to
+/// whatever script ran it.
+fn ending(event: &AgentEvent) -> Option<Result<()>> {
+    match event {
+        AgentEvent::TurnDone { is_error: true, .. } => {
+            Some(Err(anyhow!("the turn was stopped or failed")))
+        }
+        AgentEvent::Exited {
+            code: Some(code), ..
+        } if *code != 0 => Some(Err(anyhow!("the agent exited with code {code}"))),
+        AgentEvent::TurnDone { .. } | AgentEvent::Exited { .. } => Some(Ok(())),
+        _ => None,
+    }
+}
+
+/// Sends `prompt`, with `files` listed under it, and shows the session's events until the
+/// turn ends. Permission requests are answered from stdin; Ctrl-C interrupts the turn instead
+/// of killing the session.
+async fn run_turn(core: &Core, id: i64, prompt: &str, files: &[PathBuf], auth: Auth) -> Result<()> {
     let mut bus = core.subscribe();
-    core.session_start(id, auth)?;
-    core.session_send(id, prompt)?;
+    core.session_message(id, prompt, files, auth)?;
     let mut answers = BufReader::new(tokio::io::stdin()).lines();
     // The user's own message is the first event published; it is on screen already.
     next_or_interrupt(core, &mut bus, id).await?;
@@ -293,12 +326,12 @@ async fn run_turn(core: &Core, id: i64, prompt: &str, auth: Auth) -> Result<()> 
         if let Some(line) = describe(&event) {
             say(&line);
         }
-        match event {
-            AgentEvent::PermissionRequest { request_id, .. } => {
-                decide(core, id, &mut answers, &request_id).await?;
-            }
-            AgentEvent::TurnDone { .. } | AgentEvent::Exited { .. } => break,
-            _ => {}
+        if let AgentEvent::PermissionRequest { request_id, .. } = &event {
+            decide(core, id, &mut answers, request_id).await?;
+        }
+        // The line above has said how it went; the error only carries it to the exit code.
+        if let Some(ended) = ending(&event) {
+            return ended;
         }
     }
     Ok(())
@@ -492,6 +525,30 @@ mod tests {
             "2 passed to the agent"
         );
         assert_eq!(mcp_summary(&[]), "0 of 0 connected");
+    }
+
+    #[test]
+    fn a_turn_that_went_wrong_ends_the_command_with_an_error() {
+        let done = |is_error| AgentEvent::TurnDone {
+            is_error,
+            result: None,
+            cost_usd: None,
+            duration_ms: None,
+        };
+        let exited = |code| AgentEvent::Exited {
+            code,
+            stderr: String::new(),
+        };
+        assert!(matches!(ending(&done(false)), Some(Ok(()))));
+        assert!(matches!(ending(&done(true)), Some(Err(_))));
+        assert!(matches!(ending(&exited(Some(0))), Some(Ok(()))));
+        assert!(matches!(ending(&exited(None)), Some(Ok(()))));
+        let failed = ending(&exited(Some(2))).expect("ends the turn");
+        let said = failed.expect_err("an error").to_string();
+        assert_eq!(said, "the agent exited with code 2");
+        // Anything else is the turn still going.
+        let text = AgentEvent::Text { text: "hi".into() };
+        assert!(ending(&text).is_none());
     }
 
     #[test]

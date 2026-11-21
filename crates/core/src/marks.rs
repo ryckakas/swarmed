@@ -158,6 +158,12 @@ impl Core {
         self.session_mark(from, mark)?;
         Ok(said)
     }
+
+    /// Puts the mark that the words `colour` and `label` ask for on a session, as a front end
+    /// gives them, or takes its mark off if the colour is `none`.
+    pub fn session_mark_named(&self, id: i64, colour: &str, label: &str) -> Result<Session> {
+        self.session_mark(id, mark_of(colour, label)?)
+    }
 }
 
 #[cfg(test)]

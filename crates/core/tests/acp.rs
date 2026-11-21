@@ -9,8 +9,8 @@ use common::{fixture, next, turn};
 use serde_json::json;
 use swarmed_core::agent::{AcpBackend, AgentEvent, Auth, Effort, FakeBackend, Supervision};
 use swarmed_core::{
-    AgentInfo, Core, Error, McpServerInput, NewTaskOptions, SessionEvent, SessionOptions,
-    SessionStatus, hooks,
+    AgentInfo, Core, Error, McpServerInput, NewTaskOptions, RemoveOptions, SessionEvent,
+    SessionOptions, SessionStatus, hooks,
 };
 use tokio::sync::broadcast::Receiver;
 
@@ -467,6 +467,147 @@ async fn a_commit_message_is_written_by_the_agent_the_session_runs_on() {
     assert_eq!(core.running_sessions(), Vec::<i64>::new());
     // Without a session there is nobody to ask here.
     assert!(core.task_commit_message("demo", "one", None).await.is_err());
+}
+
+/// The commit message an agent with these modes of its own writes, if it is asked at all.
+async fn commit_message_from(modes: &str) -> Result<String, Error> {
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[("FAKE_ACP_MODES", modes)])).await;
+    let options = SessionOptions {
+        agent: Some(AGENT.into()),
+        ..Default::default()
+    };
+    let id = core
+        .session_new("demo", "one", &options)
+        .expect("creates")
+        .id;
+    let worktree = core.task("demo", "one").expect("exists").1.worktree_path;
+    std::fs::write(worktree.join("notes.txt"), "one\n").expect("writes");
+    core.task_commit_message("demo", "one", Some(id)).await
+}
+
+#[tokio::test]
+async fn an_agent_asked_for_words_is_held_to_planning_or_not_asked_at_all() {
+    // The changes it is shown are nobody's word to act on: it is put into the mode of its
+    // own that plans, or failing that only reads.
+    let planned = commit_message_from("agent,plan").await.expect("writes");
+    assert!(planned.contains("(mode: plan)"), "{planned}");
+    let read = commit_message_from("workspace-write,read-only").await;
+    let read = read.expect("writes");
+    assert!(read.contains("(mode: read-only)"), "{read}");
+    // With modes none of which holds it back it would act without asking: it is not asked.
+    let refused = commit_message_from("build,yolo").await;
+    assert!(refused.is_err(), "{refused:?}");
+}
+
+/// Skips ahead to the next permission request, as it was published, and the tool it names.
+async fn asked_permission(bus: &mut Receiver<SessionEvent>) -> (SessionEvent, String) {
+    loop {
+        let published = next(bus).await;
+        if let AgentEvent::PermissionRequest { tool_name, .. } = &published.event {
+            let tool_name = tool_name.clone();
+            return (published, tool_name);
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_request_titled_with_its_command_is_named_by_its_kind() {
+    let fx = fixture();
+    let titled = scripted_agent(&[("FAKE_ACP_TITLE_COMMAND", "1")]);
+    let core = core_with(&fx, titled).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+    core.session_send(id, "run: curl -H token:hunter2 example.com")
+        .expect("sends");
+    let (asked, tool_name) = asked_permission(&mut bus).await;
+    assert_eq!(tool_name, "execute");
+    // Which is what keeps the command, an argument, out of the notification.
+    let notice = core.notice_for(&asked).expect("reads").expect("tells");
+    assert!(notice.body.ends_with("Wants to use execute"), "{notice:?}");
+}
+
+/// How much the agent that stays after its input closed has written to show it is alive.
+fn beats(file: &Path) -> u64 {
+    std::fs::metadata(file).map_or(0, |written| written.len())
+}
+
+/// Whether that agent has stopped writing, which it only does by being gone.
+async fn has_gone_quiet(file: &Path) -> bool {
+    let before = beats(file);
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    beats(file) == before
+}
+
+/// A core whose scripted agent carries on after its input has closed, a session on it that
+/// has had one turn, and the file the agent writes to for as long as it lives.
+async fn core_with_an_agent_that_stays(fx: &common::Fixture) -> (Core, i64, std::path::PathBuf) {
+    let beat = fx.repo.with_file_name("beat");
+    let staying = scripted_agent(&[("FAKE_ACP_STAY", &beat.to_string_lossy())]);
+    let core = core_with(fx, staying).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+    core.session_send(id, "hello").expect("sends");
+    turn(&mut bus, id).await;
+    (core, id, beat)
+}
+
+#[tokio::test]
+async fn an_agent_that_carries_on_after_it_was_stopped_is_killed() {
+    let fx = fixture();
+    let (core, id, beat) = core_with_an_agent_that_stays(&fx).await;
+    let mut bus = core.subscribe();
+
+    core.session_stop(id);
+    // It counts as stopped at once, and is given a moment to go by itself, which it does
+    // not take.
+    assert_eq!(core.running_sessions(), Vec::<i64>::new());
+    while beats(&beat) == 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    let ended = next(&mut bus).await;
+    assert_eq!(
+        ended.event,
+        AgentEvent::Exited {
+            code: None,
+            stderr: String::new()
+        }
+    );
+    assert_eq!(ended.status, Some(SessionStatus::Idle));
+    assert!(has_gone_quiet(&beat).await);
+    // The conversation is as it was, and goes on with a new agent.
+    core.session_start(id, Auth::Subscription).expect("starts");
+    core.session_send(id, "again").expect("sends");
+    assert!(turn(&mut bus, id).await.contains(&text("echo: again")));
+}
+
+#[tokio::test]
+async fn a_task_is_not_removed_under_an_agent_that_is_still_at_work() {
+    let fx = fixture();
+    let (core, _, beat) = core_with_an_agent_that_stays(&fx).await;
+    let force = RemoveOptions {
+        force: true,
+        delete_branch: false,
+    };
+    core.task_remove("demo", "one", force, &hooks::discard)
+        .await
+        .expect("removes");
+    // The agent did carry on, and was gone before the worktree went.
+    assert_ne!(beats(&beat), 0);
+    assert!(has_gone_quiet(&beat).await);
+}
+
+#[tokio::test]
+async fn deleting_a_session_kills_its_agent_at_once() {
+    let fx = fixture();
+    let (core, id, beat) = core_with_an_agent_that_stays(&fx).await;
+    let mut bus = core.subscribe();
+    core.session_delete(id).expect("deletes");
+    assert_eq!(next(&mut bus).await.event, AgentEvent::Deleted);
+    // No moment to finish in: nothing is left for it to finish.
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert!(has_gone_quiet(&beat).await);
+    assert!(bus.try_recv().is_err(), "nothing follows the deletion");
 }
 
 #[tokio::test]

@@ -12,6 +12,7 @@ use tokio::process::Command;
 use crate::agent::{COMMIT_INSTRUCTIONS, Effort, PULL_INSTRUCTIONS, SessionSpec, Supervision};
 use crate::agent_setup::find_program;
 use crate::agents::CLAUDE;
+use crate::changes::untracked;
 use crate::error::Error;
 use crate::pulls::Pull;
 use crate::sessions::Session;
@@ -86,17 +87,18 @@ const MAX_NEW_FILES: usize = 20;
 
 /// The text of the new files among `paths`, each under its name. `git diff` says nothing of
 /// files git does not track yet, and a commit of everything takes them along. Large files
-/// and ones that are not text are left to their names.
-fn new_files(worktree: &Path, paths: &str) -> String {
-    let small = |path: &&str| {
-        std::fs::metadata(worktree.join(path))
+/// and ones that are not text are left to their names. So is a link: what it points at may
+/// be anywhere on the machine, is not what would be committed, and is not the model's to read.
+fn new_files(worktree: &Path, paths: &[String]) -> String {
+    let small = |path: &&String| {
+        std::fs::symlink_metadata(worktree.join(path))
             .is_ok_and(|file| file.is_file() && file.len() <= MAX_NEW_FILE)
     };
-    let shown = |path: &str| {
+    let shown = |path: &String| {
         let text = std::fs::read_to_string(worktree.join(path)).ok()?;
         Some(format!("new file {path}:\n{text}\n"))
     };
-    let paths = paths.lines().filter(small).take(MAX_NEW_FILES);
+    let paths = paths.iter().filter(small).take(MAX_NEW_FILES);
     paths.filter_map(shown).collect()
 }
 
@@ -222,9 +224,8 @@ impl Core {
             return Err(refused("there is nothing to commit"));
         }
         let mut diff = git::git(worktree, &["diff", "HEAD"]).await?;
-        let untracked = ["ls-files", "--others", "--exclude-standard"];
         diff.push('\n');
-        diff.push_str(&new_files(worktree, &git::git(worktree, &untracked).await?));
+        diff.push_str(&new_files(worktree, &untracked(worktree).await?));
         let changes = changes_for_message(&status, &diff);
         let writer = session.map(|id| self.session(id)).transpose()?;
         let answer = match writer.filter(|session| session.agent != CLAUDE) {
@@ -396,6 +397,21 @@ mod tests {
         let draft = draft_from(&[], "fix-login-redirect");
         assert_eq!(draft.title, "fix login redirect");
         assert_eq!(draft.body, "");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_new_link_is_named_and_what_it_points_at_is_not_shown() {
+        let outside = tempfile::tempdir().expect("temp dir");
+        let secret = outside.path().join("credentials");
+        std::fs::write(&secret, "key = hunter2\n").expect("writes");
+        let worktree = tempfile::tempdir().expect("temp dir");
+        std::os::unix::fs::symlink(&secret, worktree.path().join("creds")).expect("links");
+        std::fs::write(worktree.path().join("r\u{e9}sum\u{e9}.txt"), "hello\n").expect("writes");
+
+        let paths = ["creds".to_string(), "r\u{e9}sum\u{e9}.txt".to_string()];
+        let shown = new_files(worktree.path(), &paths);
+        assert_eq!(shown, "new file r\u{e9}sum\u{e9}.txt:\nhello\n\n");
     }
 
     #[test]

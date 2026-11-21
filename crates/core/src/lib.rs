@@ -39,6 +39,7 @@ mod open;
 mod overview;
 mod paths;
 mod peers;
+mod presence;
 mod publish;
 mod pulls;
 mod queue;
@@ -112,8 +113,8 @@ pub use store::{Project, SetupStatus, Task};
 pub use tasks::{BranchChoices, NewTaskOptions, RemoveOptions};
 pub use templates::Template;
 pub use termconfig::{Cursor, TerminalColour, TerminalColours, TerminalConfig, terminal_schema};
-pub use terminal::TerminalOutput;
 use terminal::Terminals;
+pub use terminal::{TerminalOpened, TerminalOutput};
 pub use toolserver::{SERVER_NAME, SHOW_HTML, TOOL_SERVER_ARG, serve_tools};
 pub use usage::{ProcessUsage, SessionUsage, Usage, WorktreeUsage};
 pub use views::VIEW_POLICY;
@@ -142,6 +143,8 @@ pub struct Core {
     views: ViewStore,
     /// The executable that serves Swarmed's own tools to agents, if a front end named one.
     tool_server: Option<PathBuf>,
+    /// The lock that says this was the first Swarmed to arrive on its data, once it has it.
+    house: Mutex<Option<std::fs::File>>,
 }
 
 /// The store is only ever locked for one short query, never across an `.await`. A panic while
@@ -181,6 +184,7 @@ impl Core {
             proposals: configure::Proposals::default(),
             views: ViewStore::default(),
             tool_server: None,
+            house: Mutex::new(None),
         })
     }
 
@@ -240,7 +244,7 @@ impl Core {
     pub async fn project_add(&self, path: &Path, name: Option<&str>) -> Result<Project> {
         let repo = git::repo_root(path).await?;
         let name = name.map_or_else(|| paths::name_from_path(&repo), str::to_string);
-        paths::validate_name(&name)?;
+        paths::validate_project_name(&name)?;
         if self.store().project_by_name(&name)?.is_some() {
             return Err(Error::ProjectExists(name));
         }

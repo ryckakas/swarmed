@@ -78,14 +78,15 @@ async fn sessions_see_each_other_and_read_what_was_said() {
     );
     assert!(lines[2].ends_with("hello"), "{listed}");
 
-    let digest = core.peer_digest(second.id, None).expect("reads");
+    let digest = core.peer_digest(first.id, second.id, None).expect("reads");
     assert_eq!(digest, "User: hello\n\nAgent: echo: hello");
     assert_eq!(
-        core.peer_digest(second.id, Some(1)).expect("reads"),
+        core.peer_digest(first.id, second.id, Some(1))
+            .expect("reads"),
         "Agent: echo: hello"
     );
     assert!(
-        core.peer_digest(first.id, None)
+        core.peer_digest(second.id, first.id, None)
             .expect("reads")
             .starts_with("Nothing")
     );
@@ -182,6 +183,97 @@ async fn a_session_starts_others_beside_itself_within_limits() {
     core.session_close(child.id).expect("closes");
     core.peer_spawn(parent.id, "room again", None)
         .expect("spawns");
+}
+
+/// Whether `result` is the refusal an agent gets for a session it may not reach.
+fn out_of_reach<T>(result: Result<T, Error>) -> bool {
+    matches!(result, Err(Error::Peers(reason)) if reason.contains("no open session"))
+}
+
+#[tokio::test]
+async fn a_closed_session_is_neither_read_nor_brought_back_by_a_message() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let parent = new_session(&core);
+    let child = core.peer_spawn(parent.id, "a part", None).expect("spawns");
+    turn(&mut bus, child.id).await;
+    core.session_close(child.id).expect("closes");
+    while !matches!(next(&mut bus).await.event, AgentEvent::Exited { .. }) {}
+
+    // Its agent stays stopped, whoever asks: a message, or a plain start.
+    assert!(out_of_reach(
+        core.peer_message(parent.id, child.id, "wake up")
+    ));
+    assert!(out_of_reach(core.peer_digest(parent.id, child.id, None)));
+    assert!(matches!(
+        core.session_start(child.id, Auth::Subscription),
+        Err(Error::SessionClosed(id)) if id == child.id
+    ));
+    assert_eq!(core.running_sessions(), Vec::<i64>::new());
+    assert_eq!(core.session_queue(child.id).expect("reads"), vec![]);
+
+    // So closing sessions and writing to them is no way past the limit.
+    let mut spawned = vec![];
+    for _ in 0..MAX_SPAWNED {
+        let another = core.peer_spawn(parent.id, "another part", None);
+        spawned.push(another.expect("spawns").id);
+    }
+    for id in &spawned {
+        core.session_close(*id).expect("closes");
+        assert!(out_of_reach(core.peer_message(parent.id, *id, "carry on")));
+    }
+    assert_eq!(core.running_sessions(), Vec::<i64>::new());
+
+    // Reopened by the user, it is a session like any other again.
+    core.session_reopen(child.id).expect("reopens");
+    let sent = core.peer_message(parent.id, child.id, "now you may");
+    assert_eq!(sent.expect("delivers"), Delivery::Sent);
+    assert_eq!(core.running_sessions(), [child.id]);
+    core.session_stop(child.id);
+    core.session_start(child.id, Auth::Subscription)
+        .expect("starts again");
+}
+
+#[tokio::test]
+async fn sessions_of_another_project_are_out_of_reach() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let here = new_session(&core);
+    // A second repository beside the first, with a task and a session of its own.
+    let elsewhere = fx.repo.with_file_name("other");
+    std::fs::create_dir(&elsewhere).expect("test setup");
+    common::git(&elsewhere, &["init", "--quiet", "-b", "main"]);
+    std::fs::write(elsewhere.join("README.md"), "other\n").expect("test setup");
+    common::git(&elsewhere, &["add", "."]);
+    common::git(&elsewhere, &["commit", "--quiet", "-m", "init"]);
+    core.project_add(&elsewhere, None).await.expect("adds");
+    core.task_new("other", "two", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    let there = core
+        .session_new("other", "two", &SessionOptions::default())
+        .expect("creates");
+    core.session_start(there.id, Auth::Subscription)
+        .expect("starts");
+    let mut bus = core.subscribe();
+    core.session_send(there.id, "the secret is swordfish")
+        .expect("sends");
+    turn(&mut bus, there.id).await;
+
+    // It is not in the list, and neither reading it nor writing to it gets around that.
+    let listed = core.peer_sessions(here.id).expect("lists");
+    assert_eq!(listed.lines().count(), 2, "{listed}");
+    assert!(out_of_reach(core.peer_digest(here.id, there.id, None)));
+    assert!(out_of_reach(core.peer_message(here.id, there.id, "hello")));
+    assert!(out_of_reach(core.peer_digest(here.id, 404, None)));
+    let said = core.session_events(there.id).expect("reads").len();
+    assert_eq!(core.session_queue(there.id).expect("reads"), vec![]);
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert_eq!(core.session_events(there.id).expect("reads").len(), said);
+    // Within its own project it is read like any other.
+    let own = core.peer_digest(there.id, there.id, None).expect("reads");
+    assert!(own.contains("swordfish"), "{own}");
 }
 
 #[tokio::test]

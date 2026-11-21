@@ -29,6 +29,7 @@ import type {
     Task,
     TaskNaming,
     Template,
+    TerminalOpened,
     TerminalOutput,
     Unpublished,
     Usage,
@@ -163,7 +164,7 @@ export const tauriApi: Api = {
         return `swarmed-view://localhost/${id}`;
     },
     viewOpen: (document) => invoke("view_open", { document }),
-    terminalOpen: (id, cols, rows) => invoke<string>("terminal_open", { id, cols, rows }),
+    terminalOpen: (id, cols, rows) => invoke<TerminalOpened>("terminal_open", { id, cols, rows }),
     terminalWrite: (id, data) => invoke("terminal_write", { id, data }),
     terminalResize: (id, cols, rows) => invoke("terminal_resize", { id, cols, rows }),
     onTerminalOutput: (listener) =>

@@ -16,6 +16,7 @@ use std::pin::Pin;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::mpsc;
+use tokio::task::AbortHandle;
 
 pub use self::acp::AcpBackend;
 pub use self::claude::{ClaudeBackend, ClaudeNamer};
@@ -162,6 +163,13 @@ pub struct SessionSpec {
     /// The user's API keys, for agents that bring no login of their own. Claude Code is never
     /// given these: its credentials are chosen by [`SessionSpec::auth`].
     pub env: SecretEnv,
+    /// A folder of the session's own in Swarmed's data directory, for what the agent has to
+    /// be handed as a file because it holds secrets and an argument can be read by anyone on
+    /// the machine. `None` leaves the backend to the system's temporary folder.
+    pub private_dir: Option<PathBuf>,
+    /// The agent is asked for words about something nobody vouches for, and must not act on
+    /// it. An agent with modes of its own, none of which holds it back, is not started.
+    pub words_only: bool,
 }
 
 /// One MCP server a session loaded, and whether it connected.
@@ -477,7 +485,7 @@ pub enum BackgroundState {
     Stopped,
 }
 
-/// A running session. Dropping `commands` ends it.
+/// A running session. Dropping `commands` asks it to end; aborting `tasks` ends it for certain.
 #[derive(Debug)]
 pub struct AgentHandle {
     /// Everything the session reports, ending with [`AgentEvent::Exited`].
@@ -486,6 +494,9 @@ pub struct AgentHandle {
     pub commands: mpsc::UnboundedSender<AgentCommand>,
     /// The agent's process, if it is one, for seeing what it takes.
     pub pid: Option<u32>,
+    /// The tasks that drive the agent and hold its process. Aborting them kills the process,
+    /// for an agent that carries on after it was asked to end. Nothing is reported after that.
+    pub tasks: Vec<AbortHandle>,
 }
 
 /// What whoever writes a commit message is told to do with the changes it is shown.

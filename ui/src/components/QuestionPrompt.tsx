@@ -1,5 +1,6 @@
 import { type KeyboardEvent, type RefObject, useEffect, useRef, useState } from "react";
 import { api } from "../api";
+import { focusIsFree } from "../focus";
 import {
     type Asking,
     allAnswered,
@@ -9,6 +10,7 @@ import {
     isAnswered,
     keyed,
     type Question,
+    SKIPPED,
     sendsAtOnce,
     typeOwn,
     unanswered,
@@ -20,8 +22,6 @@ interface Props {
     requestId: string;
     questions: Question[];
 }
-
-const SKIPPED = "The user chose not to answer these questions.";
 
 /** The choosing itself: where the user is, and how answers leave. */
 function useAnswering({ sessionId, requestId, questions }: Props) {
@@ -60,8 +60,13 @@ export function QuestionPrompt(props: Props) {
     const { asking, sent, send, take } = answering;
     const own = useRef<HTMLInputElement>(null);
     const card = useRef<HTMLElement>(null);
-    // A question is what the user must act on next, so the keys go to it as it appears.
-    useEffect(() => card.current?.focus(), []);
+    // A question is what the user must act on next, so the keys go to it as it appears: but
+    // only while nothing else has them. Taken from the message box, a digit typed would answer.
+    useEffect(() => {
+        if (focusIsFree(document.activeElement, document.body)) {
+            card.current?.focus();
+        }
+    }, []);
     const onKey = (event: KeyboardEvent<HTMLElement>) => {
         // What is typed into the user's own answer is text, not a choice.
         if (sent || event.target === own.current || event.metaKey || event.ctrlKey) {

@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
+import { focusIsFree } from "../focus";
 import { questionsOf } from "../questions";
 import { useStore } from "../store";
 import { PLAN_TOOL, summarize } from "../transcript";
@@ -35,6 +36,14 @@ function ToolPrompt(props: Props) {
     // show the click was taken, and cannot be pressed twice.
     const [sent, setSent] = useState<"allow" | "deny" | null>(null);
     const words = useWords(toolName);
+    const allow = useRef<HTMLButtonElement>(null);
+    // Focused as it appears, so Enter allows and Tab then Enter denies: but only while nothing
+    // else has the keyboard. Taken from the message box, the next key typed would answer.
+    useEffect(() => {
+        if (focusIsFree(document.activeElement, document.body)) {
+            allow.current?.focus();
+        }
+    }, []);
     const answer = (choice: "allow" | "deny") => {
         setSent(choice);
         const call =
@@ -57,14 +66,12 @@ function ToolPrompt(props: Props) {
             )}
             {description && <p className="permission-why">{description}</p>}
             <div className="permission-actions">
-                {/* Focused as it appears, so Enter allows and Tab then Enter denies. */}
                 <button
+                    ref={allow}
                     type="button"
                     className="button button-primary"
                     onClick={() => answer("allow")}
                     disabled={sent !== null}
-                    // biome-ignore lint/a11y/noAutofocus: a pending request is what the user must act on next
-                    autoFocus
                 >
                     {sent === "allow" ? words.allowing : words.allow}
                 </button>

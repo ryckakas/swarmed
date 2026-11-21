@@ -8,6 +8,7 @@ import {
     needsNetwork,
     nextFrameSize,
     requestedHeight,
+    requestedLink,
     shownHtml,
     splitPendingView,
     viewDocument,
@@ -43,6 +44,38 @@ describe("requestedHeight", () => {
         expect(requestedHeight({ swarmedViewHeight: "240" })).toBeNull();
         expect(requestedHeight("anything")).toBeNull();
         expect(requestedHeight(null)).toBeNull();
+    });
+});
+
+describe("requestedLink", () => {
+    it("reads a web or mail link a view asks to have opened", () => {
+        expect(requestedLink({ swarmedViewLink: "https://example.test/a?b=1" })).toBe(
+            "https://example.test/a?b=1",
+        );
+        expect(requestedLink({ swarmedViewLink: "HTTP://example.test" })).toBe(
+            "HTTP://example.test",
+        );
+        expect(requestedLink({ swarmedViewLink: "mailto:you@example.test" })).toBe(
+            "mailto:you@example.test",
+        );
+    });
+
+    it("refuses every other scheme, and anything that is not that message", () => {
+        const refused = [
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "swarmed-view://localhost/1",
+            "x-apple-systempreferences:",
+            " https://example.test",
+            "https://",
+            "",
+        ];
+        for (const link of refused) {
+            expect(requestedLink({ swarmedViewLink: link })).toBeNull();
+        }
+        expect(requestedLink({ swarmedViewLink: 7 })).toBeNull();
+        expect(requestedLink({ swarmedViewHeight: 240 })).toBeNull();
+        expect(requestedLink(null)).toBeNull();
     });
 });
 
@@ -167,6 +200,15 @@ describe("the script that measures a view", () => {
         expect(shown).toContain("innerHeight - root.clientHeight");
         // Until the host says it has stopped following the view.
         expect(shown).toContain("swarmedViewScrolls");
+    });
+});
+
+describe("the script that hands a view's links to its host", () => {
+    it("asks the host to open a web or mail link instead of going there", () => {
+        const shown = viewDocument('<a href="https://example.test">read</a>', theme);
+        expect(shown).toContain('addEventListener("click"');
+        expect(shown).toContain("/^(?:https?|mailto):/i.test(link.href)");
+        expect(shown).toContain("parent.postMessage({ swarmedViewLink: link.href }");
     });
 });
 

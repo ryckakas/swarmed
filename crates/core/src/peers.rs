@@ -150,10 +150,34 @@ impl Core {
         Ok(lines.join("\n"))
     }
 
+    /// Session `id` as session `from` may reach it: an open session in a task of the project
+    /// `from` works in, which is what [`Core::peer_sessions`] lists. Anything else is refused
+    /// in the same words, so that asking tells an agent nothing about what it may not see.
+    fn peer_in_reach(&self, from: i64, id: i64) -> Result<Session> {
+        let own = self.session(from)?;
+        let project = self.task_of(&own)?.project_id;
+        let found = || {
+            let other = self.session(id).ok()?;
+            let task = self.task_of(&other).ok()?;
+            let closed = self.store().session_is_closed(id).ok()?;
+            let listed = task.project_id == project && !task.archived && !closed;
+            listed.then_some(other)
+        };
+        found().ok_or_else(|| {
+            refused(format!(
+                "there is no open session {id} in this project; `list_sessions` says which \
+                 there are"
+            ))
+        })
+    }
+
     /// The latest `messages` things said in session `id`, by the user and by its agent, oldest
-    /// first. Tool calls and their output are left out: they are the session's workings, and
-    /// would drown what it concluded.
-    pub fn peer_digest(&self, id: i64, messages: Option<usize>) -> Result<String> {
+    /// first, for session `from` to read. Tool calls and their output are left out: they are
+    /// the session's workings, and would drown what it concluded.
+    ///
+    /// Only an open session of the project `from` works in can be read.
+    pub fn peer_digest(&self, from: i64, id: i64, messages: Option<usize>) -> Result<String> {
+        self.peer_in_reach(from, id)?;
         let events = self.session_events(id)?;
         let said: Vec<String> = events.iter().filter_map(spoken).collect();
         let wanted = messages.unwrap_or(DIGEST_MESSAGES).max(1);
@@ -167,12 +191,16 @@ impl Core {
     /// Leaves session `to` a message from session `from`. It arrives as a message in the
     /// conversation, marked with who sent it: now if `to` is idle, starting its agent if need
     /// be, else when its turn ends.
+    ///
+    /// Only an open session of the project `from` works in can be written to. A closed one
+    /// stays closed: a message must not start an agent where no list shows it, nor bring back
+    /// sessions that were closed to make room under [`MAX_SPAWNED`].
     pub fn peer_message(&self, from: i64, to: i64, text: &str) -> Result<Delivery> {
         let sender = self.session(from)?;
-        let receiver = self.session(to)?;
         if from == to {
             return Err(refused("a session cannot send a message to itself"));
         }
+        let receiver = self.peer_in_reach(from, to)?;
         if text.trim().is_empty() {
             return Err(Error::EmptyMessage);
         }
@@ -307,7 +335,7 @@ impl Core {
             "list_sessions" => self.peer_sessions(from),
             "read_session" => {
                 let messages = number("messages").and_then(|n| usize::try_from(n).ok());
-                self.peer_digest(other()?, messages)
+                self.peer_digest(from, other()?, messages)
             }
             "send_message" => {
                 let text = word("text").unwrap_or_default();

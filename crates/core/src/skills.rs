@@ -409,6 +409,32 @@ impl Core {
             skill.folder.display()
         ))
     }
+
+    /// Adds a skill of Swarmed's own as [`Core::skill_save`] does, and returns every skill as
+    /// the list then stands.
+    pub fn skills_after_save(
+        &self,
+        name: &str,
+        description: &str,
+        body: &str,
+    ) -> Result<Vec<Skill>> {
+        self.skill_save(name, description, body)?;
+        Ok(self.skills())
+    }
+
+    /// Removes a skill of Swarmed's own as [`Core::skill_remove`] does, and returns every
+    /// skill as the list then stands.
+    pub fn skills_after_remove(&self, name: &str) -> Result<Vec<Skill>> {
+        self.skill_remove(name)?;
+        Ok(self.skills())
+    }
+
+    /// Says whether a skill is offered as [`Core::skill_share`] does, and returns every skill
+    /// as the list then stands.
+    pub fn skills_after_share(&self, origin: &str, name: &str, shared: bool) -> Result<Vec<Skill>> {
+        self.skill_share(origin, name, shared)?;
+        Ok(self.skills())
+    }
 }
 
 /// What stands above the list of skills where an agent reads it.

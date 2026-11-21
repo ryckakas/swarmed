@@ -5,6 +5,7 @@ import {
     fileName,
     messageNumber,
     planOf,
+    sameToolCall,
     splitFiles,
     summarize,
     toItems,
@@ -247,6 +248,16 @@ describe("views handed over by the tool", () => {
         expect(opaque.map((item) => item.kind)).toEqual(["tool", "view"]);
     });
 
+    it("hide no tool call when one of them is empty, and are not drawn then", () => {
+        const items = toItems([
+            toolUse("t1", "ls"),
+            toolResult("t1", "a.txt"),
+            { type: "view", html: "" },
+            call("mcp__swarmed__show_html", { html: "" }),
+        ]);
+        expect(items.map((item) => item.kind)).toEqual(["tool", "tool"]);
+    });
+
     it("are not needed for a conversation recorded before they existed", () => {
         const items = toItems([call("mcp__swarmed__show_html", { html: "<p>old</p>" }), result]);
         expect(items.map((item) => item.kind)).toEqual(["tool"]);
@@ -319,5 +330,35 @@ describe("messageNumber", () => {
         expect(messageNumber(events, 0)).toBe(0);
         expect(messageNumber(events, 4)).toBe(1);
         expect(messageNumber(events, 6)).toBe(2);
+    });
+});
+
+describe("sameToolCall", () => {
+    const input = { command: "ls" };
+    const done = (content: string, isError = false) => ({
+        name: "Bash",
+        input,
+        result: { content, isError },
+    });
+
+    it("takes two results that hold the same for one, though they are two objects", () => {
+        expect(sameToolCall(done("a.txt"), done("a.txt"))).toBe(true);
+        const events = [toolUse("t1", "ls"), toolResult("t1", "a.txt")];
+        const [first, second] = [toItems(events)[0], toItems(events)[0]];
+        expect(
+            first?.kind === "tool" && second?.kind === "tool" && sameToolCall(first, second),
+        ).toBe(true);
+    });
+
+    it("tells apart a call that ended, ended otherwise, or has other arguments", () => {
+        const running = { name: "Bash", input, result: null };
+        expect(sameToolCall(running, running)).toBe(true);
+        expect(sameToolCall(running, done("a.txt"))).toBe(false);
+        expect(sameToolCall(done("a.txt"), done("b.txt"))).toBe(false);
+        expect(sameToolCall(done("a.txt"), done("a.txt", true))).toBe(false);
+        expect(sameToolCall(done("a.txt"), { ...done("a.txt"), input: { command: "ls" } })).toBe(
+            false,
+        );
+        expect(sameToolCall(done("a.txt"), { ...done("a.txt"), name: "Read" })).toBe(false);
     });
 });

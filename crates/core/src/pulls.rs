@@ -210,12 +210,14 @@ impl Core {
     ) -> Result<()> {
         let pull = self.task_pull(project, name).await?;
         let pull = pull.ok_or_else(|| Error::Pull(format!("`{name}` has no pull request")))?;
+        // Both addresses are what GitHub answered, which anyone who can add a check has a
+        // say in: only a web address is handed to the system to open.
         let Some(wanted) = check else {
-            return open::in_browser(&pull.url);
+            return open::open_link(&pull.url);
         };
         let found = pull.checks.iter().find(|check| check.name == wanted);
         let url = found.and_then(|check| check.url.as_deref());
-        open::in_browser(url.unwrap_or(&pull.url))
+        open::open_link(url.unwrap_or(&pull.url))
     }
 }
 

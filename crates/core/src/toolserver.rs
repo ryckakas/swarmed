@@ -339,11 +339,7 @@ fn cloud_tool() -> Value {
 /// Hands the HTML of a `show_html` call to the core, by leaving it as a file in `spool`. The
 /// core picks it up when the call's result arrives. Files are named so that they sort in the
 /// order they were written, and appear whole: written under another name, then renamed.
-fn deliver(spool: &Path, params: &Value) -> std::io::Result<()> {
-    let html = params.pointer("/arguments/html").and_then(Value::as_str);
-    let Some(html) = html else {
-        return Ok(());
-    };
+fn deliver(spool: &Path, html: &str) -> std::io::Result<()> {
     std::fs::create_dir_all(spool)?;
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -371,12 +367,18 @@ fn ask_core(link: &Link, tool: &str, arguments: &Value) -> std::io::Result<(Stri
     Ok((text.to_string(), !ok))
 }
 
-/// Shows a view: leaves its HTML for the core and says whether that worked.
+/// Shows a view: leaves its HTML for the core and says whether that worked. A call with no
+/// HTML in it shows nothing, and the agent is told so instead of that it was shown.
 fn show_html(params: &Value, link: &Link) -> (String, bool) {
+    let html = params.pointer("/arguments/html").and_then(Value::as_str);
+    let Some(html) = html.filter(|html| !html.trim().is_empty()) else {
+        let empty = "The `html` was empty, so nothing was shown. Call again with the HTML to show.";
+        return (empty.to_string(), true);
+    };
     let delivered = link
         .spool
         .as_deref()
-        .is_none_or(|spool| deliver(spool, params).is_ok());
+        .is_none_or(|spool| deliver(spool, html).is_ok());
     if delivered {
         let shown = "Shown to the user in the conversation. Do not repeat the HTML in your reply.";
         return (shown.to_string(), false);
@@ -455,7 +457,7 @@ fn serve(input: impl BufRead, mut output: impl Write, link: &Link) -> std::io::R
 }
 
 /// The views left in `spool` since it was last emptied, oldest first. Each is removed as it is
-/// read, so it is handed over once.
+/// read, so it is handed over once. One with nothing in it is no view, and is only removed.
 pub(crate) fn take_views(spool: &Path) -> Vec<String> {
     let Ok(entries) = std::fs::read_dir(spool) else {
         return Vec::new();
@@ -469,7 +471,7 @@ pub(crate) fn take_views(spool: &Path) -> Vec<String> {
     let take = |file: PathBuf| {
         let html = std::fs::read_to_string(&file).ok();
         std::fs::remove_file(&file).ok();
-        html
+        html.filter(|html| !html.trim().is_empty())
     };
     files.into_iter().filter_map(take).collect()
 }
@@ -564,5 +566,30 @@ mod tests {
         assert_eq!(take_views(&spool), ["<p>first</p>", "<p>second</p>"]);
         assert_eq!(take_views(&spool), Vec::<String>::new());
         assert_eq!(take_views(&dir.path().join("none")), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_view_with_nothing_in_it_is_refused_and_never_shown() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let spool = dir.path().join("spool");
+        let link = Link {
+            spool: Some(spool.clone()),
+            ..Link::default()
+        };
+        for arguments in [json!({ "html": "" }), json!({ "html": " \n\t" }), json!({})] {
+            let params = json!({ "name": SHOW_HTML, "arguments": arguments });
+            let (said, is_error) = show_html(&params, &link);
+            assert!(is_error, "{arguments}");
+            assert!(said.contains("empty"), "{said}");
+        }
+        assert_eq!(take_views(&spool), Vec::<String>::new());
+
+        // One that got into the folder some other way is not a view either, and is cleared.
+        std::fs::create_dir_all(&spool).expect("creates");
+        let blank = spool.join(format!("1-1.{VIEW_EXTENSION}"));
+        std::fs::write(&blank, "  \n").expect("writes");
+        std::fs::write(spool.join(format!("2-1.{VIEW_EXTENSION}")), "<p>hi</p>").expect("writes");
+        assert_eq!(take_views(&spool), ["<p>hi</p>"]);
+        assert!(!blank.exists());
     }
 }

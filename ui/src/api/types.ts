@@ -611,6 +611,16 @@ export interface TerminalOutput {
     session_id: number;
     /** The text, with the escape sequences a terminal emulator expects. */
     data: string;
+    /** How much the terminal had printed before this piece, as the core counts it. */
+    offset: number;
+}
+
+/** A terminal as it stands when it is opened. */
+export interface TerminalOpened {
+    /** What the terminal has printed so far, or the end of it, to redraw it from. */
+    replay: string;
+    /** Where the replay ends: output with a lower `offset` is in it, any other came after. */
+    end: number;
 }
 
 /** One line a hook printed, with the task it belongs to. */

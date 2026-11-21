@@ -258,7 +258,10 @@ impl Core {
         let branch = self
             .cloud_branch(&project.name, &project.repo_path, origin.task)
             .await?;
-        let exec = ["cloud", "exec", "--env", repo, "--branch", &branch, prompt];
+        // After `--`, so that a prompt that starts with a dash is not read as an option.
+        let exec = [
+            "cloud", "exec", "--env", repo, "--branch", &branch, "--", prompt,
+        ];
         let ran = self.codex(&exec).await?;
         let url = ran.stdout.lines().find(|line| remote_id(line).is_some());
         let Some((url, id)) = url.and_then(|url| Some((url.trim(), remote_id(url)?))) else {

@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use swarmed_core::agent::FakeBackend;
 use swarmed_core::{Core, Paths};
 use tauri::http::HeaderMap;
-use tauri::ipc::{CallbackFn, InvokeBody};
+use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponse};
 use tauri::test::{
     INVOKE_KEY, MockRuntime, get_ipc_response, mock_builder, mock_context, noop_assets,
 };
@@ -85,20 +85,52 @@ fn app() -> App {
 }
 
 impl App {
-    /// Invokes a command as the UI would; `Err` holds the error the UI would be shown.
-    fn invoke(&self, command: &str, arguments: Value) -> Result<Value, Value> {
-        let request = InvokeRequest {
+    /// A call of a command from the page at `url`, carrying `key` as the window's key.
+    fn request(command: &str, arguments: Value, url: Url, key: &str) -> InvokeRequest {
+        InvokeRequest {
             cmd: command.to_string(),
             callback: CallbackFn(0),
             error: CallbackFn(1),
-            url: self.origin.clone(),
+            url,
             body: InvokeBody::Json(arguments),
             headers: HeaderMap::default(),
-            invoke_key: INVOKE_KEY.to_string(),
-        };
+            invoke_key: key.to_string(),
+        }
+    }
+
+    /// Invokes a command as the UI would; `Err` holds the error the UI would be shown.
+    fn invoke(&self, command: &str, arguments: Value) -> Result<Value, Value> {
+        self.invoke_from(&self.origin, command, arguments)
+    }
+
+    /// Invokes a command as a page at `url` would, with the window's key.
+    fn invoke_from(&self, url: &Url, command: &str, arguments: Value) -> Result<Value, Value> {
+        let request = Self::request(command, arguments, url.clone(), INVOKE_KEY);
         let body = get_ipc_response(&self.window, request)?;
         body.deserialize::<Value>()
             .map_err(|e| json!(e.to_string()))
+    }
+
+    /// Whether a call of `command` carrying `key` is answered at all. A command that is not
+    /// `async` has answered by the time it was handed over.
+    fn answers(&self, command: &str, key: &str) -> bool {
+        let request = Self::request(command, json!({}), self.origin.clone(), key);
+        let (answered, answer) = std::sync::mpsc::channel::<bool>();
+        let window: &tauri::Webview<MockRuntime> = self.window.as_ref();
+        window.clone().on_message(
+            request,
+            Box::new(move |_webview, _command, response, _callback, _error| {
+                answered
+                    .send(matches!(response, InvokeResponse::Ok(_)))
+                    .ok();
+            }),
+        );
+        answer.try_recv().unwrap_or(false)
+    }
+
+    /// The folder Swarmed keeps its own files in, beside the repository.
+    fn data_dir(&self) -> std::path::PathBuf {
+        self.repo.with_file_name("data")
     }
 
     fn ok(&self, command: &str, arguments: Value) -> Value {
@@ -203,7 +235,7 @@ fn deleted_for_good(app: &App, id: &Value) {
 }
 
 #[test]
-fn the_ui_can_deny_interrupt_stop_and_remove() {
+fn the_ui_can_deny_interrupt_and_remove() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
     app.ok(
@@ -241,18 +273,16 @@ fn the_ui_can_deny_interrupt_stop_and_remove() {
         (&json!("opus"), &json!("ask"), &json!(true))
     );
     app.ok("session_interrupt", json!({ "id": id }));
-    app.ok("session_stop", json!({ "id": id }));
-    app.wait_for_event(id, "exited");
+    let stopped = |e: &Value| e["type"] == "turn_done" && e["is_error"] == true;
+    wait_for(&app, id, "the interrupted turn's end", stopped);
     assert_eq!(app.ok("status_line", json!({ "id": id })), json!(null));
     let size = json!({ "id": id, "cols": 80, "rows": 24 });
-    assert_eq!(app.ok("terminal_open", size.clone()), json!(""));
+    assert_eq!(
+        app.ok("terminal_open", size.clone()),
+        json!({ "replay": "", "end": 0 })
+    );
     app.ok("terminal_write", json!({ "id": id, "data": "true\n" }));
     app.ok("terminal_resize", size);
-    app.ok("terminal_close", json!({ "id": id }));
-    assert_eq!(
-        app.invoke("terminal_write", json!({ "id": id, "data": "ls\n" })),
-        Err(json!(format!("session {id} has no terminal open")))
-    );
     let renamed = app.ok(
         "session_rename",
         json!({ "id": id, "title": "  Slow test  " }),
@@ -269,6 +299,11 @@ fn the_ui_can_deny_interrupt_stop_and_remove() {
         json!([])
     );
     deleted_for_good(&app, id);
+    // The UI has no command that closes a terminal: it goes with its session.
+    assert_eq!(
+        app.invoke("terminal_write", json!({ "id": id, "data": "ls\n" })),
+        Err(json!(format!("session {id} has no terminal open")))
+    );
 
     let remove = json!({ "project": "demo", "name": "one", "force": false, "deleteBranch": true });
     app.ok("task_remove", remove);
@@ -311,6 +346,13 @@ fn the_ui_can_commit_a_tasks_work_and_is_told_what_cannot_be_published() {
         )
         .expect_err("no namer");
     assert_eq!(unwritten, json!("nothing here can write a commit message"));
+    // A pull request is described from the branch's commits, and there are none yet.
+    let describe = json!({ "project": "demo", "name": "one", "session": null });
+    let nothing = app.invoke("task_pull_message", describe.clone());
+    assert_eq!(
+        nothing.expect_err("no commits"),
+        json!("there is nothing to describe yet: the branch has no commits of its own")
+    );
     let commit = json!({ "project": "demo", "name": "one", "message": "feat: notes" });
     assert_eq!(app.ok("task_commit", commit), json!(null));
     assert_eq!(
@@ -320,6 +362,12 @@ fn the_ui_can_commit_a_tasks_work_and_is_told_what_cannot_be_published() {
     assert_eq!(
         app.ok("task_pull_draft", target.clone()),
         json!({ "title": "feat: notes", "body": "" })
+    );
+    // With a commit to describe, it comes down to the same as the commit message: no writer.
+    let unwritten = app.invoke("task_pull_message", describe);
+    assert_eq!(
+        unwritten.expect_err("no namer"),
+        json!("nothing here can write a pull request")
     );
     // The test repository has no remote: pushing and opening a pull request both say why not.
     app.invoke("task_push", target.clone())
@@ -547,6 +595,8 @@ fn the_ui_can_ask_for_a_task_name_and_is_told_when_there_is_none() {
 
 // `agent_install` and `openrouter_models` are not called here: one would install software on
 // whoever runs the tests and the other needs the network. The core tests them with stand-ins.
+// `agent_models_refresh` is only asked about an agent there is none of: for a real one it
+// would start that agent's program, if whoever runs the tests has it.
 #[test]
 fn the_ui_can_see_which_agents_can_be_set_up_and_choose_their_models() {
     let app = app();
@@ -575,6 +625,10 @@ fn the_ui_can_see_which_agents_can_be_set_up_and_choose_their_models() {
         app.invoke("agent_configure", json!({ "id": "nope", "models": null })),
         Err(json!("agent `nope` is not configured"))
     );
+    assert_eq!(
+        app.invoke("agent_models_refresh", json!({ "id": "nope" })),
+        Err(json!("agent `nope` is not configured"))
+    );
 }
 
 #[test]
@@ -587,6 +641,7 @@ fn the_ui_can_see_what_swarmed_takes_up() {
     let costs = app.ok("costs", json!({}));
     assert_eq!(costs["total"], json!(0.0));
     assert_eq!(costs["tasks"], json!([]));
+    assert_eq!(app.ok("analytics", json!({})), json!([]));
     let usage = app.ok("usage", json!({}));
     let positive = |value: &Value| value.as_u64().is_some_and(|bytes| bytes > 0);
     assert!(positive(&usage["database_bytes"]), "{usage}");
@@ -631,6 +686,27 @@ fn the_ui_can_set_up_an_mcp_server_and_never_reads_its_secrets_back() {
     );
 }
 
+/// A mark is asked for by its colour's name; `none` takes it off.
+fn marks_are_put_on_and_taken_off(app: &App, id: &Value) {
+    let marked = app.ok(
+        "session_mark",
+        json!({ "id": id, "colour": "green", "label": " tests pass " }),
+    );
+    assert_eq!(
+        marked["mark"],
+        json!({ "colour": "green", "label": "tests pass" })
+    );
+    assert_eq!(app.wait_for_event(id, "marked")["colour"], "green");
+    let no_colour = json!({ "id": id, "colour": "teal", "label": "" });
+    app.invoke("session_mark", no_colour)
+        .expect_err("not a colour");
+    let cleared = app.ok(
+        "session_mark",
+        json!({ "id": id, "colour": "none", "label": "" }),
+    );
+    assert_eq!(cleared["mark"], json!(null));
+}
+
 #[test]
 fn the_ui_can_list_closed_sessions_and_reopen_one() {
     let app = app();
@@ -658,6 +734,13 @@ fn the_ui_can_list_closed_sessions_and_reopen_one() {
     let fork = app.ok("session_fork", json!({ "id": id, "from": null }));
     assert_ne!(fork["id"], *id);
     assert_eq!(fork["title"], json!("Fork"));
+    // A fork may name the agent to carry on with: the session's own, or one that is set up.
+    let same = json!({ "id": id, "from": null, "agent": "claude" });
+    assert_eq!(app.ok("session_fork", same)["agent"], "claude");
+    let unknown = json!({ "id": id, "from": null, "agent": "nope" });
+    app.invoke("session_fork", unknown)
+        .expect_err("not an agent");
+    marks_are_put_on_and_taken_off(&app, id);
     assert_eq!(app.ok("sessions_closed", task), json!([]));
     assert_eq!(closed(&app), 0);
 }
@@ -811,6 +894,43 @@ fn asking_for_the_changes_of_a_cloud_task_that_is_not_there_says_so() {
         applied.expect_err("refused"),
         json!("there is no cloud task 404")
     );
+    // Opening one would start a browser; one that is not there is refused before that.
+    let opened = app.invoke("cloud_task_open", json!({ "id": 404 }));
+    assert_eq!(
+        opened.expect_err("refused"),
+        json!("there is no cloud task 404")
+    );
+    // Forgetting takes a task off the list; one that is not on it is off it already.
+    assert_eq!(
+        app.ok("cloud_task_forget", json!({ "id": 404 })),
+        json!(null)
+    );
+}
+
+// Delegating for real would hand the prompt to a provider's cloud. The test repository is not
+// on GitHub, which the core finds out from git alone and refuses before anything leaves the
+// machine; with no tasks delegated, asking for their statuses again asks nobody either.
+#[test]
+fn the_ui_can_list_cloud_tasks_and_cannot_delegate_from_a_repository_that_is_not_on_github() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let listing = json!({ "project": "demo", "refresh": true });
+    assert_eq!(app.ok("cloud_tasks", listing), json!([]));
+    for provider in ["codex", "claude"] {
+        let delegate = json!({
+            "project": "demo", "prompt": "fix the redirect", "task": null, "provider": provider,
+        });
+        let refused = app.invoke("cloud_delegate", delegate).expect_err("refused");
+        let said = |m: &str| m.starts_with("this repository is not on GitHub");
+        assert!(refused.as_str().is_some_and(said), "{refused}");
+    }
+    assert_eq!(
+        app.ok(
+            "cloud_tasks",
+            json!({ "project": "demo", "refresh": false })
+        ),
+        json!([])
+    );
 }
 
 #[test]
@@ -883,4 +1003,183 @@ fn the_ui_can_keep_an_action_as_it_holds_it_and_answer_a_proposal() {
         json!({ "requestId": "config-0-0", "accepted": true }),
     );
     assert!(gone.is_err());
+}
+
+#[test]
+fn the_ui_can_keep_a_skill_change_it_hold_it_back_and_remove_it() {
+    let app = app();
+    assert_eq!(app.ok("skills", json!({})), json!([]));
+    let skill = json!({
+        "name": "house-style", "description": "How we write commits.", "body": "Use the imperative.",
+    });
+    let kept = app.ok("skill_save", skill);
+    assert_eq!(
+        (&kept[0]["name"], &kept[0]["origin"], &kept[0]["shared"]),
+        (&json!("house-style"), &json!("swarmed"), &json!(true))
+    );
+    assert_eq!(app.ok("skills", json!({})), kept);
+    assert_eq!(
+        app.ok("skill_body", json!({ "name": "house-style" })),
+        "Use the imperative."
+    );
+    let held_back = json!({ "origin": "swarmed", "name": "house-style", "shared": false });
+    assert_eq!(app.ok("skill_share", held_back)[0]["shared"], false);
+    assert_eq!(
+        app.ok("skill_remove", json!({ "name": "house-style" })),
+        json!([])
+    );
+    app.invoke("skill_body", json!({ "name": "house-style" }))
+        .expect_err("removed");
+    let unnamed = json!({ "name": "Bad Name", "description": "d", "body": "b" });
+    app.invoke("skill_save", unnamed).expect_err("refused");
+}
+
+#[test]
+fn the_ui_can_keep_an_environment_start_a_task_in_it_and_snapshot_what_its_setup_left() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let project = json!({ "project": "demo" });
+    assert_eq!(app.ok("environments", project.clone()), json!({}));
+    // Its setup leaves one file that git ignores, as an install or a build would.
+    let environment = json!({
+        "setup": "echo .cache > .gitignore && echo built > .cache",
+        "start": "", "stop": "", "teardown": "", "open_url": "", "ports": {}, "env": {},
+    });
+    let save = json!({ "project": "demo", "name": "cached", "environment": environment });
+    assert_eq!(app.ok("environment_save", save), json!(null));
+    assert_eq!(
+        app.ok("environments", project.clone())["cached"],
+        environment
+    );
+
+    let task = app.ok(
+        "task_new",
+        json!({ "project": "demo", "name": "one", "branch": null, "environment": "cached" }),
+    );
+    assert_eq!(
+        (&task["environment"], &task["setup"]),
+        (&json!("cached"), &json!("ok"))
+    );
+    assert_eq!(app.ok("snapshots", project.clone()), json!([]));
+    let taken = app.ok("snapshot_save", json!({ "project": "demo", "task": "one" }));
+    assert_eq!(
+        (&taken["environment"], &taken["task"], &taken["entries"]),
+        (&json!("cached"), &json!("one"), &json!(1))
+    );
+    assert_eq!(app.ok("snapshots", project.clone()), json!([taken]));
+    let forget = json!({ "project": "demo", "environment": "cached" });
+    assert_eq!(app.ok("snapshot_remove", forget), json!(null));
+    assert_eq!(app.ok("snapshots", project.clone()), json!([]));
+
+    let remove = json!({ "project": "demo", "name": "cached" });
+    assert_eq!(app.ok("environment_remove", remove), json!(null));
+    assert_eq!(app.ok("environments", project), json!({}));
+    let unnamed = json!({ "project": "demo", "name": "Bad Name", "environment": environment });
+    app.invoke("environment_save", unnamed)
+        .expect_err("refused");
+}
+
+/// `stack_start` is not `async`, so Tauri runs it on a thread that has no Tokio runtime, as
+/// this test's thread has none. Were the stack ever spawned with Tokio, the call would panic
+/// here, where in the app it would end the app.
+#[test]
+fn the_ui_can_start_what_a_task_keeps_running_read_what_it_prints_and_stop_it() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+    let target = json!({ "project": "demo", "task": "one" });
+    // A project with no `start` command has no stack, which is an answer and not an error.
+    assert_eq!(app.ok("stack_start", target.clone()), json!(false));
+    assert_eq!(app.ok("stack_log", target.clone()), json!(""));
+
+    // Short enough to be gone soon if this test fails before stopping it.
+    let config = "[hooks]\nstart = \"echo serving {{task}}; sleep 30\"\n";
+    let projects = app.data_dir().join("projects");
+    std::fs::create_dir_all(&projects).expect("config dir");
+    std::fs::write(projects.join("demo.toml"), config).expect("config");
+    let stack = |app: &App| app.ok("overview", json!({}))[0]["tasks"][0]["stack"].clone();
+    assert_eq!(stack(&app), "stopped");
+    assert_eq!(app.ok("stack_start", target.clone()), json!(true));
+    assert_eq!(stack(&app), "starting");
+    for _ in 0..200 {
+        if app.ok("stack_log", target.clone()) != "" {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(app.ok("stack_log", target.clone()), "serving one\n");
+    // Starting what runs already starts nothing more.
+    assert_eq!(app.ok("stack_start", target.clone()), json!(true));
+
+    assert_eq!(app.ok("stack_stop", target.clone()), json!(null));
+    assert_eq!(stack(&app), "stopped");
+    let nowhere = json!({ "project": "demo", "task": "nope" });
+    app.invoke("stack_start", nowhere)
+        .expect_err("no such task");
+}
+
+/// A page from the web, were one ever shown in the window, can call nothing: Tauri refuses a
+/// call from an address that is not the app's own unless a capability names that address,
+/// and no capability of Swarmed's does (see the last test here).
+#[test]
+fn a_page_from_the_web_cannot_call_a_command() {
+    let app = app();
+    for address in ["https://example.com/", "http://localhost:3000/"] {
+        let url: Url = address.parse().expect("url parses");
+        let refused = app.invoke_from(&url, "overview", json!({}));
+        let message = refused.expect_err("refused");
+        let said = |m: &str| m.contains("overview not allowed");
+        assert!(message.as_str().is_some_and(said), "{address}: {message}");
+        let opening = json!({ "url": "https://example.com/" });
+        app.invoke_from(&url, "open_link", opening)
+            .expect_err("refused");
+    }
+}
+
+/// What keeps an agent's view from calling a command is this key, and not the address the
+/// view is served from: Tauri counts every scheme the app registers, `swarmed-view` among
+/// them, as the app's own, and it checks the app's own commands against no capability. The
+/// key is handed to the window's main frame only, never to a frame inside it, and a view's
+/// own policy lets it send no request. A call without the key gets no answer at all.
+#[test]
+fn a_call_without_the_windows_key_is_not_answered() {
+    let app = app();
+    assert!(app.answers("overview", INVOKE_KEY));
+    assert!(!app.answers("overview", ""));
+    assert!(!app.answers("overview", "a-key-a-view-made-up"));
+}
+
+/// The capability file is read when the app is built, and the mock runtime these tests run
+/// on does not load it: so it is read here as text. Only the main window may be named, no
+/// page from elsewhere, and nothing beyond what the description says.
+#[test]
+fn the_one_capability_is_the_main_windows_and_names_no_page_from_elsewhere() {
+    let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities");
+    let files: Vec<_> = std::fs::read_dir(&folder)
+        .expect("capabilities folder")
+        .map(|entry| entry.expect("entry").file_name())
+        .collect();
+    assert_eq!(files, ["default.json"]);
+    let text = std::fs::read_to_string(folder.join("default.json")).expect("capability file");
+    let capability: Value = serde_json::from_str(&text).expect("json");
+    assert_eq!(capability["windows"], json!(["main"]));
+    assert_eq!(
+        capability["permissions"],
+        json!([
+            "core:default",
+            "core:window:allow-start-dragging",
+            "dialog:allow-open"
+        ])
+    );
+    // No address beyond the app's own, no other webview, no other platform's rules.
+    let keys: Vec<&String> = capability.as_object().expect("object").keys().collect();
+    let known = [
+        "$schema",
+        "description",
+        "identifier",
+        "permissions",
+        "windows",
+    ];
+    assert_eq!(keys, known);
 }

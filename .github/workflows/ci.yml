@@ -214,7 +214,8 @@ jobs:
       - name: Install stable Rust
         if: runner.environment == 'github-hosted'
         run: |
-          rustup toolchain install stable --profile minimal --no-self-update
+          rustup toolchain install stable --profile minimal --no-self-update \
+            --component clippy
           rustup default stable
 
       # Tauri links against the system web view, which Linux has to be given.
@@ -235,3 +236,10 @@ jobs:
 
       - name: Test
         run: cargo test --workspace --all-features
+
+      # The lint job's Clippy runs on Linux when GitHub's runners are used, where the code only
+      # a Mac compiles (the notifications, the Dock) is left out. It is held to the same policy
+      # here. On a self-hosted Mac the lint job has done this already.
+      - name: Clippy, for what only a Mac compiles
+        if: runner.os == 'macOS' && runner.environment == 'github-hosted'
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings

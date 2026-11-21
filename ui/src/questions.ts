@@ -4,6 +4,9 @@
 /** The tool an agent puts questions to the user with. */
 export const QUESTION_TOOL = "AskUserQuestion";
 
+/** What the agent is told when the user answers none of its questions. */
+export const SKIPPED = "The user chose not to answer these questions.";
+
 export interface Choice {
     label: string;
     description: string;

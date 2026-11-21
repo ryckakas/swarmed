@@ -346,7 +346,8 @@ async fn main() -> Result<()> {
     }
     let done = run(&core, cli.command).await;
     // A stack a command started lives only as long as this process: it is not left behind.
-    core.stacks_stop_all().await;
+    // Only those: the stacks of a Swarmed running beside this command are its own.
+    core.stacks_stop_started().await;
     // The socket is this process's own; nothing is left to answer on it.
     std::fs::remove_file(core.paths().tools_socket()).ok();
     done
@@ -618,7 +619,7 @@ fn background(core: &Core, project: &str, name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Runs a task's stack until Ctrl-C, printing what it prints, then stops it.
+/// Runs a task's stack until it ends or Ctrl-C, printing what it prints, then stops it.
 async fn stack(core: &Core, project: &str, name: &str) -> Result<()> {
     if !core.stack_start(project, name)? {
         say("this task's project has no `start` command");
@@ -628,10 +629,16 @@ async fn stack(core: &Core, project: &str, name: &str) -> Result<()> {
     let mut printed = 0;
     let mut interrupted = Box::pin(tokio::signal::ctrl_c());
     loop {
-        let log = core.stack_log(project, name)?;
-        if let Some(new) = log.get(printed..).filter(|new| !new.is_empty()) {
+        // Asked before the log is read, so that what a stack printed last is not missed.
+        let running = core.stack_is_running(project, name)?;
+        let (new, end) = core.stack_log_from(project, name, printed)?;
+        printed = end;
+        if !new.is_empty() {
             say(new.trim_end());
-            printed = log.len();
+        }
+        if !running {
+            say("ended by itself");
+            return Ok(());
         }
         let wait = tokio::time::sleep(std::time::Duration::from_millis(500));
         tokio::select! {

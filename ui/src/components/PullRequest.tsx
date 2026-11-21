@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { sendOrQueue } from "../actions";
 import { api } from "../api";
 import type { Check, Pull, Task } from "../api/types";
 import {
@@ -73,7 +74,7 @@ export function PullSection({ project, task }: { project: string; task: Task }) 
                     type="button"
                     className="button"
                     title="Sends the failed checks to the session on screen, as a message"
-                    onClick={() => api.sessionSend(sessionId, fixPrompt(pull)).catch(report)}
+                    onClick={() => sendOrQueue(sessionId, fixPrompt(pull)).catch(report)}
                 >
                     Ask this session to fix them
                 </button>

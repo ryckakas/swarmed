@@ -55,7 +55,7 @@ through Homebrew or a browser.
   new task starts set up like an earlier one.
 - **One pool of MCP servers and skills.** The servers configured for Claude Code (its plugins'
   too), Codex and OpenCode, and Swarmed's own, go to every agent that lacks one by that name, read
-  when a session starts; skills from every agent and from the task's repository likewise.
+  when a session starts (a repository's own `.mcp.json` only once approved in Claude Code); skills from every agent and from the task's repository likewise.
 - **Your own setup.** Rules every agent is given, notes on a repository and on a task, actions of
   your own, a status line from built-in pieces or a script, keyboard shortcuts, and API keys kept
   in the macOS Keychain for agents that need them. Agents can propose configuration changes;

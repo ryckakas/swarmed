@@ -2,7 +2,12 @@
 //!
 //! A link in a conversation is the agent's text. Followed inside the window it would replace
 //! the app with a web page that has no way back, so anything that is not Swarmed's own page
-//! is refused here and handed to the user's browser instead.
+//! is refused here.
+//!
+//! Refused is all it is: nothing is opened in the browser from here. This is asked about every
+//! frame, an agent's view included, and a view's script can send its frame anywhere without a
+//! click, with whatever it likes in the address. A link the user presses is opened by the UI,
+//! through the `open_link` command.
 
 use tauri::plugin::{Builder, TauriPlugin};
 use tauri::{Manager, Runtime, Url};
@@ -18,18 +23,12 @@ fn is_own(url: &Url, dev: Option<&Url>) -> bool {
     OWN_SCHEMES.contains(&url.scheme()) || dev.is_some_and(|dev| dev.origin() == url.origin())
 }
 
-/// Refuses to leave Swarmed's pages, and opens what was asked for in the browser.
+/// Refuses to leave Swarmed's pages, and opens nothing in their place.
 pub(crate) fn guard<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("navigation")
         .on_navigation(|webview, url| {
             let dev = webview.config().build.dev_url.as_ref();
-            if is_own(url, dev.filter(|_| tauri::is_dev())) {
-                return true;
-            }
-            // Refused whether or not the browser takes it: a link that is not a web link opens
-            // nowhere.
-            swarmed_core::open_link(url.as_str()).ok();
-            false
+            is_own(url, dev.filter(|_| tauri::is_dev()))
         })
         .build()
 }

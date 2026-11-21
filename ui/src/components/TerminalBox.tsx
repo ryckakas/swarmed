@@ -8,9 +8,10 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import type { TerminalConfig } from "../api/types";
+import type { TerminalConfig, TerminalOutput } from "../api/types";
 import { useStore } from "../store";
 import { schemeOf, terminalExtras, terminalOptions, terminalTheme } from "../terminalLook";
+import { comesAfter, redrawn } from "../terminalOutput";
 
 /**
  * Turns a colour as the stylesheet writes it, `var(--clay)` or a mix of two, into the `#rrggbb`
@@ -153,23 +154,27 @@ function tied(
     let closed = false;
     // Output that arrives while the shell's earlier output is still being fetched waits
     // here, so nothing is drawn twice or out of order.
-    let early: string[] | null = [];
+    const early: TerminalOutput[] = [];
+    // Where the fetched output ended, once it is drawn. A piece from before that can still
+    // arrive afterwards, since it travels apart from the answer, and is in it already.
+    let end: number | null = null;
     const listening = api.onTerminalOutput((output) => {
         if (output.session_id !== sessionId) {
             return;
         }
-        if (early) {
-            early.push(output.data);
-        } else {
+        if (end === null) {
+            early.push(output);
+        } else if (comesAfter(output, end)) {
             terminal.write(output.data);
         }
     });
-    opened.current = api
-        .terminalOpen(sessionId, terminal.cols, terminal.rows)
-        .then((replay) => {
-            // A replay already holds whatever arrived early; a fresh shell has only that.
-            terminal.write(replay === "" ? (early ?? []).join("") : replay);
-            early = null;
+    // Asked for only once this is listening: what is printed in between would be in neither
+    // the replay nor anything heard.
+    opened.current = listening
+        .then(() => api.terminalOpen(sessionId, terminal.cols, terminal.rows))
+        .then((shell) => {
+            terminal.write(redrawn(shell, early));
+            end = shell.end;
             terminal.focus();
         })
         .catch(report);

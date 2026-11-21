@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import {
+    type FrameSize,
     holdsBack,
     INITIAL_FRAME,
     needsNetwork,
     nextFrameSize,
     requestedHeight,
+    requestedLink,
     type ViewTheme,
     viewDocument,
 } from "../htmlview";
@@ -34,6 +36,42 @@ function currentTheme(element: HTMLElement): ViewTheme {
     };
 }
 
+/** What a view has told its host: how tall it is, and the link it asks to have opened. */
+interface Heard {
+    size: FrameSize;
+    /** The address the view asks for, until the user has opened or dismissed it. */
+    asked: string | null;
+    settle: () => void;
+}
+
+/** Hears what a view tells its host. */
+function useViewMessages(frame: RefObject<HTMLIFrameElement | null>): Heard {
+    const [size, setSize] = useState(INITIAL_FRAME);
+    const [asked, setAsked] = useState<string | null>(null);
+    useEffect(() => {
+        const onMessage = (event: MessageEvent) => {
+            // Only this view's own frame may size it, or ask for one of its links to be opened.
+            if (event.source !== frame.current?.contentWindow) {
+                return;
+            }
+            const wanted = requestedHeight(event.data);
+            if (wanted !== null) {
+                const now = performance.now();
+                setSize((current) => nextFrameSize(current, wanted, MAX_HEIGHT, now));
+            }
+            // A view's own script can send this without a press, with anything in the address:
+            // the link is only shown, and opened when the user says so outside the view.
+            const link = requestedLink(event.data);
+            if (link !== null) {
+                setAsked(link);
+            }
+        };
+        window.addEventListener("message", onMessage);
+        return () => window.removeEventListener("message", onMessage);
+    }, [frame]);
+    return { size, asked, settle: () => setAsked(null) };
+}
+
 /**
  * HTML an agent wrote, in a frame that can run its scripts and reach nothing else: it is loaded
  * from an origin of its own and sandboxed, so it cannot call the app, read the page around it,
@@ -45,7 +83,6 @@ export function HtmlView({ html }: { html: string }) {
     const settings = useStore((state) => state.settings);
     // The document as shown, and the address the frame loads it from.
     const [shown, setShown] = useState<{ document: string; address: string } | null>(null);
-    const [size, setSize] = useState(INITIAL_FRAME);
     const [source, setSource] = useState(false);
     const [folded, setFolded] = useState(false);
 
@@ -65,18 +102,7 @@ export function HtmlView({ html }: { html: string }) {
         };
     }, [html, settings?.theme, settings?.text_scale]);
 
-    useEffect(() => {
-        const onMessage = (event: MessageEvent) => {
-            const wanted = requestedHeight(event.data);
-            // Only this view's own frame may size it.
-            if (wanted !== null && event.source === frame.current?.contentWindow) {
-                const now = performance.now();
-                setSize((current) => nextFrameSize(current, wanted, MAX_HEIGHT, now));
-            }
-        };
-        window.addEventListener("message", onMessage);
-        return () => window.removeEventListener("message", onMessage);
-    }, []);
+    const { size, asked, settle } = useViewMessages(frame);
 
     // A view the frame no longer follows has to scroll inside it, or its end could not be reached.
     const heldBack = holdsBack(size, MAX_HEIGHT);
@@ -124,6 +150,24 @@ export function HtmlView({ html }: { html: string }) {
                 <p className="html-view-note">
                     This view asks for files from the network, which views cannot reach. Parts of it
                     may be missing.
+                </p>
+            )}
+            {!folded && asked !== null && (
+                <p className="html-view-note">
+                    This view asks to open <code>{asked}</code>{" "}
+                    <button
+                        type="button"
+                        className="changes-refresh"
+                        onClick={() => {
+                            api.openLink(asked).catch(useStore.getState().report);
+                            settle();
+                        }}
+                    >
+                        Open
+                    </button>{" "}
+                    <button type="button" className="changes-refresh" onClick={settle}>
+                        Dismiss
+                    </button>
                 </p>
             )}
             {!folded && source && <pre className="tool-body">{html}</pre>}

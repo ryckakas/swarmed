@@ -115,7 +115,7 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
                     <button
                         type="button"
                         className="said-fork"
-                        title="Starts a new session with the conversation as it stood before this message"
+                        title="Starts a new session with this message and everything said after it, and nothing from before"
                         onClick={() => void forkFromMessage(sessionId, item.key)}
                     >
                         Fork from here

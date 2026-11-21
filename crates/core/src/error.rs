@@ -42,6 +42,11 @@ pub enum Error {
     /// A project or task name outside the allowed character set.
     #[error("`{0}` is not a valid name: use lowercase letters, digits, `-`, `_` and `.`")]
     InvalidName(String),
+    /// A project name that would have its files taken for another project's.
+    #[error(
+        "`{0}` cannot be a project's name: a name ending in `.actions` or `.environments` is that of a file of another project's"
+    )]
+    ReservedName(String),
     /// The path is not inside a git repository.
     #[error("{0} is not a git repository")]
     NotARepo(PathBuf),
@@ -60,6 +65,16 @@ pub enum Error {
         hook: &'static str,
         /// The exit status as the platform describes it.
         status: String,
+    },
+    /// As many of the project's stacks run as its config allows.
+    #[error(
+        "`{project}` already has {limit} stack(s) running, which is its `max_stacks`: stop one, or raise the limit in the project's config"
+    )]
+    TooManyStacks {
+        /// The project whose limit is reached.
+        project: String,
+        /// The limit, `max_stacks` in the project's config.
+        limit: u32,
     },
     /// The task holds work that removing it would destroy.
     #[error("task `{task}` has {reason}; pass force to remove it anyway")]
@@ -205,6 +220,9 @@ pub enum Error {
     /// The session has talked to its agent, which holds the conversation from then on.
     #[error("session {0} has begun: another agent would not know what was said")]
     SessionBegun(i64),
+    /// The session was closed. Its agent is not started until it is reopened.
+    #[error("session {0} is closed: reopen it first")]
+    SessionClosed(i64),
     /// The session's agent has not been started, or has exited.
     #[error("session {0} is not running")]
     SessionNotRunning(i64),
