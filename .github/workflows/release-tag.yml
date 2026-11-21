@@ -7,8 +7,8 @@
 # it was merged, against a main that may have moved since. A CI run that fails tags nothing;
 # rerunning it from its page, once it passes, tags then.
 #
-# The push authenticates with RELEASE_PAT: GitHub starts no workflow for a tag pushed with the
-# default GITHUB_TOKEN, so release.yml would never run.
+# The tag is made through the API, with no code checked out, and with RELEASE_PAT: GitHub
+# starts no workflow for a tag made with the default GITHUB_TOKEN, so release.yml would never run.
 name: Release tag
 
 on:
@@ -72,27 +72,26 @@ jobs:
             exit 1
           fi
 
-      # The tags come along for the check that this one does not exist yet.
-      - if: steps.release.outputs.version != ''
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: # zizmor: ignore[artipacked] the tag push below needs this token
-          ref: ${{ github.event.workflow_run.head_sha }}
-          fetch-depth: 0
-          token: ${{ secrets.RELEASE_PAT }}
-
-      - name: Tag and push
+      # Through the API, with no checkout: a tag needs only the commit's id, and no code of any
+      # commit runs here. A ref made with RELEASE_PAT starts release.yml as a pushed tag does.
+      - name: Tag the commit
         if: steps.release.outputs.version != ''
         env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          REPO: ${{ github.repository }}
           VERSION: ${{ steps.release.outputs.version }}
           MERGE_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           tag="v$VERSION"
           # A rerun after the release went out has nothing to do.
-          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+          if gh api "repos/$REPO/git/ref/tags/$tag" --silent 2>/dev/null; then
             echo "$tag exists already"
             exit 0
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$tag" -m "Swarmed $tag" "$MERGE_SHA"
-          git push origin "refs/tags/$tag"
+          object="$(gh api "repos/$REPO/git/tags" \
+            -f tag="$tag" -f message="Swarmed $tag" -f object="$MERGE_SHA" -f type=commit \
+            -f "tagger[name]=github-actions[bot]" \
+            -f "tagger[email]=41898282+github-actions[bot]@users.noreply.github.com" \
+            --jq .sha)"
+          gh api "repos/$REPO/git/refs" -f ref="refs/tags/$tag" -f sha="$object" --silent
+          echo "Tagged $MERGE_SHA $tag"
