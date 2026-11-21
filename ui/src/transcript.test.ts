@@ -138,7 +138,7 @@ describe("toItems", () => {
                 api_key_source: "none",
                 mcp_servers: [
                     { name: "context7", status: "connected" },
-                    { name: "hero", status: "failed" },
+                    { name: "postgres", status: "failed" },
                 ],
                 skills: 89,
                 slash_commands: [],

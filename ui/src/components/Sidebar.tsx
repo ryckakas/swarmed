@@ -20,6 +20,8 @@ export function Sidebar() {
     const startNew = useStore((state) => state.startNew);
     const showSettings = useStore((state) => state.showSettings);
     const showInbox = useStore((state) => state.showInbox);
+    const showBanner = useStore((state) => state.showBanner);
+    const version = useStore((state) => state.version);
     const waiting = countWaiting(projects);
     const unread = countUnread(projects);
     const words = useStore((state) => wordsFor(state.settings?.style));
@@ -27,6 +29,17 @@ export function Sidebar() {
     return (
         <nav className="sidebar" aria-label="Projects, tasks and sessions" onKeyDown={moveFocus}>
             <div className="sidebar-top" data-tauri-drag-region>
+                {version && (
+                    <button
+                        type="button"
+                        className="sidebar-version"
+                        title={words.about}
+                        aria-label={`${words.about}, version ${version}`}
+                        onClick={() => showBanner("about")}
+                    >
+                        v{version}
+                    </button>
+                )}
                 {words.overview && <span className="sidebar-name">{words.overview}</span>}
                 {waiting + unread > 0 && (
                     <button

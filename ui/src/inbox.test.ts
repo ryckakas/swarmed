@@ -10,7 +10,7 @@ const project = (name: string, tasks: Task[]) => ({ name, tasks }) as Project;
 
 describe("inbox", () => {
     const projects = [
-        project("hero", [
+        project("storefront", [
             task("one", [session(1, "idle", true), session(2, "working"), session(3, "errored")]),
             task("old", [session(4, "waiting")], true),
         ]),

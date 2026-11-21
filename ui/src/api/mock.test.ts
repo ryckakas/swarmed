@@ -30,12 +30,12 @@ describe("the mock's notes", () => {
 describe("the mock's removing", () => {
     it("refuses a task with unsaved work until told to remove it anyway", async () => {
         const api = createMockApi();
-        await expect(api.taskRemove("hero", "invoice-export", false)).rejects.toThrow(
+        await expect(api.taskRemove("storefront", "invoice-export", false)).rejects.toThrow(
             "uncommitted changes",
         );
-        await api.taskRemove("hero", "invoice-export", true);
-        const hero = (await api.overview()).find((project) => project.name === "hero");
-        expect(hero?.tasks.map((task) => task.name)).not.toContain("invoice-export");
+        await api.taskRemove("storefront", "invoice-export", true);
+        const storefront = (await api.overview()).find((project) => project.name === "storefront");
+        expect(storefront?.tasks.map((task) => task.name)).not.toContain("invoice-export");
     });
 });
 
@@ -98,7 +98,7 @@ describe("the mock's tree", () => {
 
     it("keeps a new session's title, from its first message and from a renaming", async () => {
         const api = createMockApi();
-        const created = await api.sessionNew("hero", "invoice-export", {
+        const created = await api.sessionNew("storefront", "invoice-export", {
             agent: null,
             model: null,
             supervision: "auto",
@@ -112,11 +112,23 @@ describe("the mock's tree", () => {
 });
 
 describe("the mock's agent", () => {
+    it("answers `show` with an HTML view, then ends its turn", async () => {
+        const api = createMockApi();
+        const heard: SessionEvent["event"][] = [];
+        await api.onSessionEvent((published) => heard.push(published.event));
+        await api.sessionSend(3, "show the invoice totals");
+        await expect
+            .poll(() => heard.some((event) => event.type === "turn_done"), { timeout: 3000 })
+            .toBe(true);
+        const reply = heard.find((event) => event.type === "text");
+        expect(reply?.type === "text" && reply.text).toContain("```html-view\n<style>");
+    });
+
     it("is given a better title while it writes its first reply, and only then", async () => {
         const api = createMockApi();
         const heard: SessionEvent["event"][] = [];
         await api.onSessionEvent((published) => heard.push(published.event));
-        const created = await api.sessionNew("hero", "invoice-export", {
+        const created = await api.sessionNew("storefront", "invoice-export", {
             agent: null,
             model: null,
             supervision: "auto",

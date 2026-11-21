@@ -224,6 +224,8 @@ export interface Api {
     deleteApiKey(name: string): Promise<void>;
     settings(): Promise<Settings>;
     setSettings(settings: Settings): Promise<void>;
+    /** The installed app's version, such as `0.1.0`. */
+    version(): Promise<string>;
     /** The user's configuration of the terminal. */
     terminalConfig(): Promise<TerminalConfig>;
     /** Keeps `text`, JSON as written, as the terminal's configuration; fails with the reason if it cannot be used. */
@@ -328,4 +330,6 @@ export interface Api {
     onNoticeOpened(listener: (sessionId: number) => void): Promise<Unsubscribe>;
     /** Calls `listener` when events were dropped and anything on screen should be reloaded. */
     onEventsLagged(listener: () => void): Promise<Unsubscribe>;
+    /** Calls `listener` with the id of one of Swarmed's own items in the menu bar, when chosen. */
+    onMenu(listener: (item: string) => void): Promise<Unsubscribe>;
 }

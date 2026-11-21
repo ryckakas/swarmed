@@ -44,8 +44,52 @@ import type {
 
 // Sample data and a scripted agent, for working on the UI in a browser where there is no Tauri
 // shell. The agent behaves like the core's FakeBackend: plain text is echoed, `run: <command>`
-// asks permission first, `ask` puts questions, `delegate` starts sub-agents, and `slow` runs
-// until interrupted.
+// asks permission first, `ask` puts questions, `delegate` starts sub-agents, `show` answers
+// with an HTML view, and `slow` runs until interrupted.
+
+// `show` answers with this view: a chart in the app's colours, with buttons that redraw it.
+const SAMPLE_VIEW = `<style>
+.chart { max-width: 560px; }
+.head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.head h3 { margin: 0 0 12px; font-size: 1em; }
+.pick button { border: 1px solid var(--line); border-radius: 6px; background: none;
+    padding: 2px 10px; color: var(--muted); cursor: pointer; }
+.pick button.on { color: var(--text); border-color: var(--accent); }
+.bars { display: flex; align-items: flex-end; gap: 12px; height: 150px;
+    border-bottom: 1px solid var(--line); }
+.bar { flex: 1; display: flex; flex-direction: column; align-items: center;
+    justify-content: flex-end; height: 100%; }
+.bar b { font-weight: normal; font-size: 0.8em; color: var(--muted); margin-bottom: 4px; }
+.bar i { width: 100%; background: var(--accent); border-radius: 4px 4px 0 0;
+    transition: height 0.4s ease; }
+.months { display: flex; gap: 12px; margin-top: 6px; }
+.months span { flex: 1; text-align: center; font-size: 0.8em; color: var(--muted); }
+</style>
+<div class="chart">
+  <div class="head">
+    <h3>Invoiced per month, in €k</h3>
+    <div class="pick"><button class="on" data-by="net">Net</button> <button data-by="gross">With VAT</button></div>
+  </div>
+  <div class="bars" id="bars"></div>
+  <div class="months" id="months"></div>
+</div>
+<script>
+const totals = { net: [42, 48, 45, 57, 61, 66], gross: [50, 57, 54, 68, 73, 79] };
+const months = ["Jun", "Jul", "Aug", "Sep", "Oct", "Nov"];
+const bars = document.getElementById("bars");
+document.getElementById("months").innerHTML = months.map((m) => "<span>" + m + "</span>").join("");
+bars.innerHTML = months.map(() => '<div class="bar"><b></b><i></i></div>').join("");
+function draw(by) {
+  const top = Math.max(...totals.gross);
+  [...bars.children].forEach((bar, n) => {
+    bar.querySelector("b").textContent = totals[by][n];
+    bar.querySelector("i").style.height = (totals[by][n] / top) * 85 + "%";
+  });
+  document.querySelectorAll(".pick button").forEach((b) => b.classList.toggle("on", b.dataset.by === by));
+}
+document.querySelectorAll(".pick button").forEach((b) => (b.onclick = () => draw(b.dataset.by)));
+draw("net");
+</script>`;
 
 // `ask` puts these questions to the user, `ask one` only the first.
 const SAMPLE_QUESTIONS = [
@@ -99,9 +143,9 @@ function task(id: number, projectId: number, name: string, sessions: Session[]):
         id,
         project_id: projectId,
         name,
-        branch: `ricardas/${name}`,
+        branch: `you/${name}`,
         base_ref: "origin/main",
-        worktree_path: `/Users/you/swarmed/hero/${name}`,
+        worktree_path: `/Users/you/swarmed/storefront/${name}`,
         slot: id,
         setup: "ok",
         archived: false,
@@ -122,10 +166,10 @@ const noteKey = (project: string, task: string | null) => `${project}/${task ?? 
 /** The notes the sample data starts with. */
 const notes = new Map<string, string>([
     [
-        noteKey("hero", null),
+        noteKey("storefront", null),
         "Staging: https://staging.example.test\nDeploys go out on Thursdays.\n",
     ],
-    [noteKey("hero", "fix-login-redirect"), "Test user: demo@example.test\n"],
+    [noteKey("storefront", "fix-login-redirect"), "Test user: demo@example.test\n"],
 ]);
 
 /** Marks in the tree whether a repository or a task has a note. */
@@ -214,10 +258,20 @@ const SAMPLE_USAGE: Usage = {
     events: 576,
     notes_bytes: 4100,
     worktrees: [
-        { project: "hero", task: "invoice-export", path: "/w/hero/a", bytes: 365_600_000 },
-        { project: "hero", task: "fix-login-redirect", path: "/w/hero/b", bytes: 282_800_000 },
+        {
+            project: "storefront",
+            task: "invoice-export",
+            path: "/w/storefront/a",
+            bytes: 365_600_000,
+        },
+        {
+            project: "storefront",
+            task: "fix-login-redirect",
+            path: "/w/storefront/b",
+            bytes: 282_800_000,
+        },
         { project: "bonsai-lint", task: "rust-support", path: "/w/b/c", bytes: 540_700 },
-        { project: "hero", task: "pm-16037", path: "/w/hero/d", bytes: null },
+        { project: "storefront", task: "shop-142", path: "/w/storefront/d", bytes: null },
     ],
     running: { processes: 9, memory_bytes: 612_000_000, cpu_percent: 14.2 },
     sessions: [
@@ -363,7 +417,7 @@ function sampleCloudTask(projectId: number, prompt: string, provider: CloudProvi
     };
 }
 
-/** Delegating to the cloud: the sample has an environment for `hero` and for nothing else. */
+/** Delegating to the cloud: the sample has an environment for `storefront` and for nothing else. */
 function cloudApi(
     projects: () => Project[],
 ): Pick<
@@ -385,7 +439,7 @@ function cloudApi(
     return {
         cloudDelegate: async (name, prompt, _task, provider) => {
             const project = find(name);
-            if (provider === "codex" && name !== "hero") {
+            if (provider === "codex" && name !== "storefront") {
                 throw new Error(
                     `you/${name} has no Codex cloud environment. Create one for it at https://chatgpt.com/codex, under Environments, then delegate again`,
                 );
@@ -458,7 +512,7 @@ function sampleAnalytics(today: Date): TurnStats[] {
                 const busy = 1 + ((index * 7 + at * 3) % 5);
                 return {
                     day,
-                    project: "hero",
+                    project: "storefront",
                     task: "fix-login-redirect",
                     agent,
                     model,
@@ -590,7 +644,7 @@ function skillApi(): Pick<
 function environmentApi(): Pick<Api, "environments" | "environmentSave" | "environmentRemove"> {
     const kept = new Map<string, Record<string, Environment>>([
         [
-            "hero",
+            "storefront",
             {
                 staging: {
                     setup: "npm ci && npm run db:seed -- --staging",
@@ -624,8 +678,8 @@ export function sampleProjects(): Project[] {
     return [
         {
             id: 1,
-            name: "hero",
-            repo_path: "/Users/you/code/hero",
+            name: "storefront",
+            repo_path: "/Users/you/code/storefront",
             has_note: true,
             cloud: [
                 {
@@ -648,7 +702,7 @@ export function sampleProjects(): Project[] {
                 task(2, 1, "invoice-export", [
                     session(3, 2, "Why does the CSV export drop the VAT column?", "idle"),
                 ]),
-                task(3, 1, "pm-16037", []),
+                task(3, 1, "shop-142", []),
             ],
         },
         {
@@ -683,7 +737,7 @@ const INIT: AgentEvent = {
     api_key_source: "none",
     mcp_servers: [
         { name: "context7", status: "connected" },
-        { name: "hero-mcp", status: "failed" },
+        { name: "postgres", status: "failed" },
     ],
     skills: 89,
     slash_commands: [],
@@ -843,7 +897,7 @@ async function samplePull(_project: string, name: string): Promise<Pull | null> 
     return {
         number: 412,
         title: "Fix the redirect loop after login",
-        url: "https://github.com/example/hero/pull/412",
+        url: "https://github.com/example/storefront/pull/412",
         state: "open",
         draft: false,
         review: "review_required",
@@ -852,13 +906,13 @@ async function samplePull(_project: string, name: string): Promise<Pull | null> 
                 name: "Lint",
                 workflow: "CI",
                 outcome: "passed",
-                url: "https://github.com/example/hero/runs/1",
+                url: "https://github.com/example/storefront/runs/1",
             },
             {
                 name: "Unit tests",
                 workflow: "CI",
                 outcome: "failed",
-                url: "https://github.com/example/hero/runs/2",
+                url: "https://github.com/example/storefront/runs/2",
             },
             { name: "chromium (1/2)", workflow: "E2E", outcome: "running", url: null },
             { name: "chromium (2/2)", workflow: "E2E", outcome: "passed", url: null },
@@ -877,7 +931,7 @@ async function samplePull(_project: string, name: string): Promise<Pull | null> 
 }
 
 async function sampleChanges(_project: string, name: string): Promise<FileChange[]> {
-    return name === "pm-16037" ? [] : SAMPLE_CHANGES;
+    return name === "shop-142" ? [] : SAMPLE_CHANGES;
 }
 
 async function sampleDiff(_project: string, _name: string, path: string): Promise<FileDiff> {
@@ -1127,6 +1181,8 @@ class MockAgent {
             this.askQuestions(id, text === "ask one", done);
         } else if (text.startsWith("run:")) {
             this.askPermission(id, text.slice(4).trim(), done);
+        } else if (text.startsWith("show")) {
+            this.showView(id, done);
         } else {
             // Written word by word, the way a real reply arrives.
             const reply = `You said: ${text}`;
@@ -1149,6 +1205,17 @@ class MockAgent {
                 this.later(id, { type: "suggestion", text: text.slice(8).trim() }, null, 4);
             }
         }
+    }
+
+    /** Answers with an HTML view, written a line at a time as a real reply arrives. */
+    private showView(id: number, done: AgentEvent) {
+        const reply = `Here is what was invoiced in each of the last six months.\n\n\`\`\`html-view\n${SAMPLE_VIEW}\n\`\`\`\n\nNovember is the highest so far.`;
+        const lines = reply.split(/(?<=\n)/);
+        lines.forEach((line, index) => {
+            this.stream(id, { type: "text_delta", text: line }, (3 * (index + 1)) / lines.length);
+        });
+        this.later(id, { type: "text", text: reply }, "working", 3);
+        this.later(id, done, "idle", 4);
     }
 
     /** In plan mode the agent only proposes; approving the plan ends plan mode. */
@@ -1497,7 +1564,7 @@ function actionsApi(): Pick<Api, "actions" | "actionSave" | "actionMove" | "acti
         one("E2E, then mark", "✅", "Run the e2e tests and mark this session green.", ""),
     ];
     const own = new Map<string, Action[]>([
-        ["hero", [{ ...one("Nix env", "❄️", "", "nix develop"), of_project: true }]],
+        ["storefront", [{ ...one("Nix env", "❄️", "", "nix develop"), of_project: true }]],
     ]);
     const offered = (project: string | null) => {
         const mine = project === null ? [] : (own.get(project) ?? []);
@@ -1575,9 +1642,9 @@ const SAMPLE_COSTS: Costs = {
     week: 18.9,
     total: 212.05,
     tasks: [
-        { project: "hero", task: "fix-login-redirect", usd: 41.3 },
+        { project: "storefront", task: "fix-login-redirect", usd: 41.3 },
         { project: "bonsai-lint", task: "rust-support", usd: 12.75 },
-        { project: "hero", task: "invoice-export", usd: 0.4 },
+        { project: "storefront", task: "invoice-export", usd: 0.4 },
     ],
     days: [
         { day: "2026-11-20", usd: 3.42 },
@@ -1657,7 +1724,7 @@ export function createMockApi(): Api {
         // A browser gives no paths, so the sample hands out two that look real.
         pickFiles: async () => [
             "/Users/you/Desktop/login-error.png",
-            "/Users/you/code/hero/README.md",
+            "/Users/you/code/storefront/README.md",
         ],
         onFilesDropped: async () => () => undefined,
         pickFolder: async () => "/Users/you/code/new-repo",
@@ -1680,7 +1747,8 @@ export function createMockApi(): Api {
         ...removeApi(() => agent.projects),
         branchChoices: async (projectName) => ({
             base: "origin/main",
-            existing: projectName === "hero" ? ["feature/vat-export", "pm-16001-invoices"] : [],
+            existing:
+                projectName === "storefront" ? ["feature/vat-export", "shop-118-invoices"] : [],
         }),
         // The sample data has no model to ask, so tasks are named after their prompts.
         taskNameFor: async () => null,
@@ -1740,6 +1808,8 @@ export function createMockApi(): Api {
         setApiKey: async (name, key) => storeKey(keys, name, key.trim() !== ""),
         deleteApiKey: async (name) => storeKey(keys, name, false),
         settings: async () => ({ ...settings }),
+        // The sample's own: a browser has no app to ask.
+        version: async () => "0.1.0",
         setBadge: async () => {},
         setSettings: async (changed) => {
             settings = changed;
@@ -1827,5 +1897,7 @@ export function createMockApi(): Api {
         },
         onNoticeOpened: async () => () => undefined,
         onEventsLagged: async () => () => undefined,
+        // A browser has no menu bar.
+        onMenu: async () => () => undefined,
     };
 }

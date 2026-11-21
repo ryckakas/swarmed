@@ -4,9 +4,11 @@ Guidance for coding agents working in this repository.
 
 ## What this is
 
-Swarmed runs several Claude Code sessions in parallel, each in its own git worktree with a fully
-isolated dev stack. It is a personal macOS tool with a Rust core. The plan, with its decision log
-and build steps, is in `.plans/rust-agent-orchestrator/plan.md` (local, not committed).
+Swarmed runs coding agents side by side (Claude Code, and any agent that speaks the Agent Client
+Protocol), each in its own git worktree with an isolated dev stack. It is a macOS desktop app and
+a command over one Rust core. The plan, with its decision log and build steps, is in
+`.plans/rust-agent-orchestrator/plan.md` (local, not committed). What users read is in
+`README.md` and `docs/`: a change that makes a claim there untrue updates it.
 
 ## Commands
 
@@ -129,6 +131,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **UI logic lives in pure functions** with tests: `tree.ts` for the sidebar, `transcript.ts`
   for turning a session's events into what the transcript shows. Components and the store stay
   thin.
+- **The menu bar is the app's own** (`crates/app/src/menu.rs`): the system's items, and
+  Swarmed's (About, Settings, Keyboard Shortcuts), whose ids the window hears as a `menu` event
+  and acts on (`menuChosen` in `ui/src/store.ts`). A new item of Swarmed's gets its id in both.
+  Keep the Edit menu's items: on a Mac, undo, copy and paste reach a text field through them.
+  The version shown in the app is the app crate's, which is the workspace's.
 - **Keyboard shortcuts are one table** (`ui/src/hotkeys.ts`), matched in `useHotkeys.ts` and
   listed in Settings from the same table. A new action gets its shortcut there, not a key
   handler of its own. Combinations macOS or the window already use are not taken.
@@ -189,8 +196,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   plans. The first session is untouched. What the first agent read or did is not carried
   over: only what was said.
 - **Check UI changes in a browser** with `pnpm dev`. The mock agent answers plain text, asks
-  permission for `run: <command>`, and runs until stopped for `slow`; one sample session has
-  2,000 messages for checking scroll speed.
+  permission for `run: <command>`, answers `show …` with an HTML view, and runs until stopped
+  for `slow`; one sample session has 2,000 messages for checking scroll speed. The README's
+  screenshot and GIF are of this sample data, never of anyone's real projects.
 - **MCP servers are one pool for every agent** (`mcp_pool.rs`). When a session starts, each
   agent's servers are read from its own configuration (`mcp.rs` and `mcp_plugins.rs` for
   Claude Code and its plugins, `mcp_codex.rs`, `mcp_opencode.rs`), and the session's agent is

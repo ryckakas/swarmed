@@ -44,9 +44,13 @@ export const SETTINGS_TABS = [
     ["keys", "API keys"],
     ["usage", "Storage and activity"],
     ["shortcuts", "Keyboard shortcuts"],
+    ["about", "About"],
 ] as const;
 
 export type SettingsTab = (typeof SETTINGS_TABS)[number][0];
+
+/** What can be shown over the window, from the menu bar or a shortcut, and closed again. */
+export type Banner = "about" | "shortcuts";
 
 interface State {
     projects: Project[];
@@ -184,6 +188,11 @@ interface State {
     /** Whether the list of everything that waits for the user is open. */
     inboxOpen: boolean;
     showInbox(open: boolean): void;
+    /** The About view or the keyboard shortcuts, over the window; `null` when neither is. */
+    banner: Banner | null;
+    showBanner(banner: Banner | null): void;
+    /** The installed app's version; `null` until it is read. */
+    version: string | null;
     /** The session the user asked to close, until they confirm or change their mind. */
     closing: number | null;
     /** Asks before closing: `null` withdraws the question. */
@@ -523,6 +532,9 @@ export const useStore = create<State>((set, get) => ({
     showSearch: (open) => set({ searchOpen: open }),
     inboxOpen: false,
     showInbox: (open) => set({ inboxOpen: open }),
+    banner: null,
+    showBanner: (banner) => set({ banner }),
+    version: null,
     closing: null,
     askToClose: (sessionId) => set({ closing: sessionId }),
     deleting: null,
@@ -640,11 +652,22 @@ function heardOfConfiguration(api: Api, event: SessionEvent) {
     }
 }
 
+/** Shows what one of Swarmed's own items in the menu bar stands for (`menu.rs`). */
+export function menuChosen(item: string) {
+    const { showBanner, showSettings } = useStore.getState();
+    if (item === "about" || item === "shortcuts") {
+        showBanner(item);
+    } else if (item === "settings") {
+        showSettings(true);
+    }
+}
+
 /** Loads the tree and keeps it in step with the sessions. Returns what stops that again. */
 export function connect(api: Api): () => void {
     const { refresh, apply } = useStore.getState();
     void refresh(api);
     readConfiguration(api);
+    void reporting(async () => useStore.setState({ version: await api.version() }));
     // After dropped events nothing on screen can be trusted: forget the transcripts and reload.
     const reload = () => {
         const { selectedSessionId, open } = useStore.getState();
@@ -687,6 +710,7 @@ export function connect(api: Api): () => void {
         api.onNoticeOpened((sessionId) => void useStore.getState().open(api, sessionId)),
         api.onEventsLagged(() => reload()),
         api.onHookOutput((output) => useStore.setState({ hookLine: output.line })),
+        api.onMenu(menuChosen),
     ];
     return () => {
         inView?.removeEventListener("focus", readIfSeen);

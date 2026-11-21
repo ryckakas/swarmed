@@ -6,6 +6,7 @@ import {
     appendEvent,
     connect,
     heardWhileReading,
+    menuChosen,
     type Reading,
     useStore,
     withEvent,
@@ -311,7 +312,7 @@ describe("closed sessions", () => {
                 .find((candidate) => candidate.name === "invoice-export");
         expect(task()?.closed).toBe(1);
         expect(task()?.sessions).toEqual([]);
-        const closed = await api.sessionsClosed("hero", "invoice-export");
+        const closed = await api.sessionsClosed("storefront", "invoice-export");
         expect(closed.map((session) => session.id)).toEqual([3]);
 
         await api.sessionReopen(3);
@@ -331,5 +332,32 @@ describe("runInTerminal", () => {
         expect(useStore.getState().takeTerminalCommand(7)).toBe("make test");
         // Asked again, as an effect that runs twice does: nothing left to type.
         expect(useStore.getState().takeTerminalCommand(7)).toBeNull();
+    });
+});
+
+describe("the menu bar", () => {
+    beforeEach(() => {
+        useStore.setState({ banner: null, settingsOpen: false });
+    });
+
+    it("opens the About view, the shortcuts and the settings for its own items", () => {
+        menuChosen("about");
+        expect(useStore.getState().banner).toBe("about");
+        menuChosen("shortcuts");
+        expect(useStore.getState().banner).toBe("shortcuts");
+        menuChosen("settings");
+        expect(useStore.getState().settingsOpen).toBe(true);
+    });
+
+    it("does nothing for an item it does not know", () => {
+        menuChosen("quit");
+        expect(useStore.getState()).toMatchObject({ banner: null, settingsOpen: false });
+    });
+
+    it("reads the installed version when it connects", async () => {
+        useStore.setState({ version: null });
+        const stop = connect(createMockApi());
+        await expect.poll(() => useStore.getState().version).toBe("0.1.0");
+        stop();
     });
 });

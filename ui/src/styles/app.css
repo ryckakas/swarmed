@@ -132,6 +132,41 @@ code {
     pointer-events: none;
 }
 
+/* The installed version, first in the strip: it opens the About view. */
+.sidebar-version {
+    flex: none;
+    margin-right: auto;
+    padding: 0 var(--space-1);
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--faint);
+    font: inherit;
+    font-size: var(--text-xs);
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+}
+
+.sidebar-version:has(+ .sidebar-name) {
+    margin-right: var(--space-2);
+}
+
+.sidebar-version:hover {
+    color: var(--muted);
+}
+
+/* With the version and the counts both there, a narrow strip has no room for the name as well:
+   it goes, rather than stand cut to a sliver. */
+.sidebar-top {
+    container-type: inline-size;
+}
+
+@container (max-width: 240px) {
+    .sidebar-version ~ .sidebar-name:has(~ .inbox-open) {
+        display: none;
+    }
+}
+
 .needs-you {
     flex: none;
     white-space: nowrap;
@@ -4977,4 +5012,86 @@ kbd {
 .add-first {
     justify-self: start;
     margin-top: var(--space-2);
+}
+
+/* The About view and the keyboard shortcuts, over the window. */
+.banner {
+    width: min(72ch, 100% - 2 * var(--space-6));
+    max-height: min(80vh, 760px);
+    padding: 0;
+}
+
+.banner[open] {
+    display: flex;
+    flex-direction: column;
+}
+
+.banner-about {
+    width: min(50ch, 100% - 2 * var(--space-6));
+}
+
+.banner-head {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-3) var(--space-3) 0 var(--space-6);
+}
+
+.banner-about .banner-head {
+    justify-content: flex-end;
+}
+
+.banner-body {
+    overflow: auto;
+    padding: 0 var(--space-6) var(--space-6);
+}
+
+.about {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: var(--space-4);
+    align-items: center;
+}
+
+.about > p {
+    grid-column: 1 / -1;
+}
+
+.about-icon {
+    border-radius: 14px;
+}
+
+.about .about-name {
+    margin: 0;
+    color: var(--text);
+    font-size: var(--text-xl);
+    font-weight: 650;
+}
+
+.about .about-version {
+    margin: 0;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.about .about-line {
+    margin-top: var(--space-4);
+    color: var(--text);
+}
+
+.about-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+}
+
+.about a {
+    color: var(--sky);
+    text-decoration-color: color-mix(in srgb, var(--sky) 45%, transparent);
+    text-underline-offset: 2px;
+}
+
+.about .about-maker {
+    font-size: var(--text-sm);
 }

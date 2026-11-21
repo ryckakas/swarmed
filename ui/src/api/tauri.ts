@@ -1,3 +1,4 @@
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -129,6 +130,7 @@ export const tauriApi: Api = {
     deleteApiKey: (name) => invoke("delete_api_key", { name }),
     settings: () => invoke<Settings>("settings"),
     setSettings: (settings) => invoke("set_settings", { settings }),
+    version: () => getVersion(),
     terminalConfig: () => invoke("terminal_config"),
     terminalConfigSave: (text) => invoke("terminal_config_save", { text }),
     customLayout: () => invoke("custom_layout"),
@@ -182,4 +184,5 @@ export const tauriApi: Api = {
     onNoticeOpened: (listener) =>
         listen<number>("notice-opened", (event) => listener(event.payload)),
     onEventsLagged: (listener) => listen("session-events-lagged", () => listener()),
+    onMenu: (listener) => listen<string>("menu", (event) => listener(event.payload)),
 };

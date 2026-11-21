@@ -95,6 +95,10 @@ export interface Words {
     /** The row of the user's own buttons on a task, and the menu holding those that do not fit. */
     actions: string;
     moreActions: string;
+    /** What the version in the corner opens, and what the About view is called. */
+    about: string;
+    /** What Swarmed is, in a sentence, in the About view. */
+    aboutLine: string;
 }
 
 const PLAIN: Words = {
@@ -155,6 +159,9 @@ const PLAIN: Words = {
     writePull: "Generate the title and description",
     actions: "Actions",
     moreActions: "More actions…",
+    about: "About Swarmed",
+    aboutLine:
+        "Coding agents side by side on your Mac, each on a branch and in a worktree of its own.",
 };
 
 const SWARM: Words = {
@@ -217,6 +224,9 @@ const SWARM: Words = {
     writePull: "Spin the title and description",
     actions: "Instincts",
     moreActions: "More instincts…",
+    about: "About the hive",
+    aboutLine:
+        "A swarm of coding agents at work side by side, each on a branch and in a worktree of its own.",
 };
 
 /** The swarm's words, and its names for the tree as well. */

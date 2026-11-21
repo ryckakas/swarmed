@@ -2,6 +2,7 @@ import { type CSSProperties, useEffect } from "react";
 import { api } from "./api";
 import { applyAppearance, customCss, drawCustom } from "./appearance";
 import icon from "./assets/icon.jpg";
+import { BannerDialog } from "./components/BannerDialog";
 import { CloseSessionDialog } from "./components/CloseSessionDialog";
 import { CloudDialog } from "./components/CloudDialog";
 import { CloudDiffDialog } from "./components/CloudDiffDialog";
@@ -87,6 +88,7 @@ export function App() {
             <CloudDialog />
             <RemoveDialog />
             <SettingsDialog />
+            <BannerDialog />
         </div>
     );
 }
