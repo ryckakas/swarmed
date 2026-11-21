@@ -122,9 +122,9 @@ function Delegate({ target }: { target: CloudTarget }) {
         <dialog ref={dialog} className="confirm note" aria-labelledby="cloud-title" onClose={close}>
             <h2 id="cloud-title">Delegate to the cloud from {target.task ?? target.project}</h2>
             <p>
-                An agent works on this in the cloud, on the repository as it is on GitHub. It does
-                not see what is only on this Mac, and it carries on when Swarmed is closed. You
-                follow it at {name}.
+                An agent starts on this in the cloud at once, on the repository as it is on GitHub.
+                It does not see what is only on this Mac. It needs neither Swarmed nor this Mac to
+                keep working, and you follow it at {name}.
             </p>
             {unseen && <p className="note-problem">{unseen}</p>}
             <label className="cloud-providers">
