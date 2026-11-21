@@ -21,7 +21,7 @@ use swarmed_core::{
 };
 use terminal::TerminalCommand;
 
-/// Swarmed: parallel Claude Code sessions in isolated git worktrees.
+/// Swarmed: coding agents side by side, each in a git worktree of its own.
 #[derive(Debug, Parser)]
 #[command(name = "swarmed", version)]
 struct Cli {

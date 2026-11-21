@@ -1,0 +1,71 @@
+# Releasing, step 1 of 3: cut the CHANGELOG, set the version and open the release PR.
+#
+#   1. Run this workflow (Actions → "Release prep" → version, e.g. 0.2.0).
+#   2. Merge the "Release vX.Y.Z" PR it opens, after CI passes on it as usual.
+#   3. release-tag.yml tags the merge commit, which starts release.yml. Nothing else is manual.
+#
+# The branch push and the PR authenticate with RELEASE_PAT (a fine-grained token with Contents and
+# Pull requests read and write on this repository, saved as an Actions secret). GitHub starts no
+# workflow for what the default GITHUB_TOKEN creates, so a PR opened with it would never run CI.
+name: Release prep
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, X.Y.Z without the leading v"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  prep:
+    name: Cut the CHANGELOG and open the release PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the RELEASE_PAT secret
+        env:
+          RELEASE_PAT: ${{ secrets.RELEASE_PAT }}
+        run: |
+          if [ -z "$RELEASE_PAT" ]; then
+            echo "::error::The RELEASE_PAT secret is not set: a fine-grained token with Contents and Pull requests read and write on this repository (RELEASING.md)"
+            exit 1
+          fi
+
+      # The tags come along for the script's check that the version is not tagged yet.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: # zizmor: ignore[artipacked] the branch push below needs this token
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
+
+      # Cargo updates the lockfile's entries for the new version.
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+
+      # The input reaches the script through the environment, never the script's text, so a
+      # malformed version cannot become shell syntax.
+      - name: Prepare the release
+        env:
+          VERSION: ${{ inputs.version }}
+        run: scripts/release-prep.sh "$VERSION"
+
+      - name: Push the branch and open the PR
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          branch="release-prep/v$VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add CHANGELOG.md Cargo.toml Cargo.lock package.json
+          git commit -m "chore: release v$VERSION"
+          git push -u origin "$branch"
+          notes="$(scripts/release-notes.sh "$VERSION")"
+          body="$(printf '**Releases Swarmed %s.** Merging tags the merge commit v%s, which builds the app and publishes the GitHub release, the crates and the Homebrew cask. Closing without merging cancels the release.\n\nRisk: the release itself; this PR only sets the version and cuts the CHANGELOG.\n\n## Release notes\n\n%s\n' "$VERSION" "$VERSION" "$notes")"
+          gh pr create --base main --head "$branch" --title "chore: release v$VERSION" --body "$body"

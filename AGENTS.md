@@ -21,6 +21,7 @@ typos                                               # spelling: _typos.toml
 taplo fmt --check                                   # TOML formatting: .taplo.toml
 zizmor .github                                      # workflow security
 actionlint                                          # workflows, shellcheck on run: blocks too
+shellcheck install.sh scripts/*.sh                  # shell scripts
 
 pnpm install                                        # once; pnpm comes from Corepack
 pnpm lint                                           # Biome: format and lint (biome.json)
@@ -33,6 +34,7 @@ pnpm app                                            # the desktop app (tauri dev
 pnpm app:build                                      # Swarmed.app, in target/release/bundle/macos
 pnpm app:install                                    # the same, copied into /Applications
 pnpm app:dmg                                        # a disk image of it, for handing on
+scripts/build-release.sh                            # what a release ships: RELEASING.md
 ```
 
 The Rust app crate embeds `ui/dist` at compile time, so `cargo clippy` and `cargo test` on the
@@ -428,6 +430,9 @@ The UI is held to the same bar: Biome's recommended rules plus cognitive complex
 - Dependencies are declared once in `[workspace.dependencies]` and inherited by the crates.
 - Every action in the workflows is pinned to a commit, with its version in a comment.
 - Commit and PR titles use conventional prefixes (`feat:`, `fix:`, `chore:`).
+- A PR with a change a user would notice adds its line under `## [Unreleased]` in
+  `CHANGELOG.md`, under Added, Changed, Fixed or Removed, written for the user. The release
+  workflow publishes that section as the release's notes; `RELEASING.md` has the steps.
 - No AI attribution anywhere: no `Co-Authored-By`, no "Generated with" lines, no session links.
 - PR descriptions: a bold one-sentence summary, a `Risk:` line, then `## Problem`, `## Change`
   and a `## Verification` table.

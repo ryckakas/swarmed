@@ -1,0 +1,254 @@
+name: Release
+
+# A pushed tag vX.Y.Z releases that version, the last of three steps (RELEASING.md):
+# release-prep.yml opens the release PR, release-tag.yml tags it once merged, and this builds
+# Swarmed.app, publishes the GitHub release with the CHANGELOG section as its notes, the crates on
+# crates.io and the cask in ryckakas/homebrew-tap. A failed job is rerun from the run's page:
+# everything it publishes is skipped when already there.
+#
+# crates.io's trusted publishing names this file, release.yml, as the one allowed to publish.
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions: {}
+
+# Two pushes of one tag must not publish twice at the same time.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Check the tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The history, to see that the tag is on main.
+          fetch-depth: 0
+
+      - name: Check the tag against main, Cargo.toml and the CHANGELOG
+        id: tag
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::$GITHUB_REF_NAME is not on main"
+            exit 1
+          fi
+          manifest="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p' Cargo.toml)"
+          if [ "$manifest" != "$version" ]; then
+            echo "::error::$GITHUB_REF_NAME, but Cargo.toml says $manifest: release-prep.yml sets both"
+            exit 1
+          fi
+          scripts/release-notes.sh "$version" > "$RUNNER_TEMP/notes.md"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: notes
+          path: ${{ runner.temp }}/notes.md
+
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+
+      # Before anything is published: a crate that cannot be packaged or built from its package
+      # stops the release here, not halfway through.
+      - name: Package the crates
+        run: cargo publish --dry-run --locked --workspace --exclude swarmed-app
+
+  build:
+    name: Build Swarmed.app
+    needs: check
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No caches anywhere in this workflow: a release must not restore what another run wrote.
+      - name: Install stable Rust for Apple silicon and Intel
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update \
+            --target aarch64-apple-darwin,x86_64-apple-darwin
+          rustup default stable
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      # pnpm comes from Corepack, at the version package.json pins.
+      - name: Install the UI's dependencies
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      - name: Build
+        run: scripts/build-release.sh
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-assets
+          path: target/release-assets/
+          if-no-files-found: error
+
+  release:
+    name: Publish the GitHub release
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: ${{ runner.temp }}/artifacts
+
+      # A rerun finds the release there already and replaces its files instead.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check.outputs.version }}
+          ARTIFACTS: ${{ runner.temp }}/artifacts
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber \
+              "$ARTIFACTS"/release-assets/*
+          else
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --title "Swarmed $VERSION" --notes-file "$ARTIFACTS/notes/notes.md" \
+              "$ARTIFACTS"/release-assets/*
+          fi
+
+  crates:
+    name: Publish to crates.io
+    needs: [check, release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+
+      # Trusted publishing: GitHub's identity token for this run buys a crates.io token that lasts
+      # 30 minutes and is revoked when the job ends. crates.io offers it only for crates that exist
+      # and whose settings name this workflow, so until then this step fails and the publish falls
+      # back on the CARGO_REGISTRY_TOKEN secret.
+      - name: Authenticate with crates.io
+        id: auth
+        continue-on-error: true
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+
+      # Crates at this version on crates.io already are left out, so a rerun sends only what is
+      # missing. A crate crates.io has never seen can only be created with the API token.
+      # --locked makes a lockfile that disagrees with Cargo.toml a failure, not a silent rewrite.
+      - name: Publish
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+          TRUSTED_TOKEN: ${{ steps.auth.outputs.token }}
+          API_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          missing=()
+          new=false
+          for crate in swarmed-core swarmed; do
+            index="https://index.crates.io/${crate:0:2}/${crate:2:2}/$crate"
+            status="$(curl -sS -o "$RUNNER_TEMP/$crate.index" -w '%{http_code}' "$index")"
+            case "$status" in
+              200)
+                if jq -e --arg v "$VERSION" 'select(.vers == $v)' "$RUNNER_TEMP/$crate.index" >/dev/null; then
+                  echo "$crate $VERSION is on crates.io already"
+                  continue
+                fi ;;
+              404) new=true ;;
+              *) echo "::error::crates.io's index answered $status for $crate"; exit 1 ;;
+            esac
+            missing+=(--package "$crate")
+          done
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "Every crate is on crates.io at $VERSION."
+            exit 0
+          fi
+          if [ "$new" = false ] && [ -n "$TRUSTED_TOKEN" ]; then
+            echo "Publishing with trusted publishing"
+            token="$TRUSTED_TOKEN"
+          elif [ -n "$API_TOKEN" ]; then
+            echo "Publishing with the CARGO_REGISTRY_TOKEN secret"
+            token="$API_TOKEN"
+          else
+            echo "::error::No way to publish: set the CARGO_REGISTRY_TOKEN secret for a crate's first version, then trusted publishing on crates.io (RELEASING.md)"
+            exit 1
+          fi
+          CARGO_REGISTRY_TOKEN="$token" cargo publish --locked "${missing[@]}"
+
+  tap:
+    name: Update the Homebrew cask
+    needs: [check, release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require the HOMEBREW_TAP_TOKEN secret
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "::error::The HOMEBREW_TAP_TOKEN secret is not set: a fine-grained token with Contents read and write on ryckakas/homebrew-tap (RELEASING.md)"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: packaging/homebrew
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-assets
+          path: ${{ runner.temp }}/assets
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: # zizmor: ignore[artipacked] the push to the tap below needs this token
+          repository: ryckakas/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      # The checksum is the one the build wrote beside the archive, the same file install.sh checks.
+      - name: Write the cask and push it
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+          ASSETS: ${{ runner.temp }}/assets
+        run: |
+          archive="Swarmed-$VERSION-macos-universal.zip"
+          sha256="$(cut -d ' ' -f 1 < "$ASSETS/$archive.sha256")"
+          mkdir -p tap/Casks
+          sed -e "s/@VERSION@/$VERSION/" -e "s/@SHA256@/$sha256/" packaging/homebrew/swarmed.rb \
+            > tap/Casks/swarmed.rb
+          cd tap
+          git add Casks/swarmed.rb
+          if git diff --cached --quiet; then
+            echo "The cask is at $VERSION already."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "swarmed $VERSION"
+          git push

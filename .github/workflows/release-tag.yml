@@ -1,0 +1,62 @@
+# Releasing, step 2 of 3: tag the merged release PR.
+#
+# When a release-prep/v* PR opened by release-prep.yml is merged into main, this pushes the
+# annotated tag vX.Y.Z at the merge commit. The push authenticates with RELEASE_PAT: GitHub starts
+# no workflow for a tag pushed with the default GITHUB_TOKEN, so release.yml would never run.
+name: Release tag
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  tag:
+    name: Tag the release's merge commit
+    # A fork's PR gets no secrets anyway; the head.repo check makes that an explicit skip rather
+    # than something the platform happens to do.
+    if: >-
+      github.event.pull_request.merged == true
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && startsWith(github.event.pull_request.head.ref, 'release-prep/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require the RELEASE_PAT secret
+        env:
+          RELEASE_PAT: ${{ secrets.RELEASE_PAT }}
+        run: |
+          if [ -z "$RELEASE_PAT" ]; then
+            echo "::error::The RELEASE_PAT secret is not set, so no tag can start the release (RELEASING.md)"
+            exit 1
+          fi
+
+      # The tags come along for the check that this one does not exist yet.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: # zizmor: ignore[artipacked] the tag push below needs this token
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Tag and push
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          version="${HEAD_REF#release-prep/v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::$HEAD_REF does not name an X.Y.Z version; no tag pushed"
+            exit 1
+          fi
+          tag="v$version"
+          # A rerun after the release went out has nothing to do.
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "$tag exists already"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" -m "Swarmed $tag" "$MERGE_SHA"
+          git push origin "refs/tags/$tag"

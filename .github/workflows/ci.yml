@@ -87,6 +87,9 @@ jobs:
       - name: TOML formatting
         run: taplo fmt --check
 
+      - name: Shell scripts
+        run: git ls-files -z '*.sh' | xargs -0 shellcheck
+
       # install-action has no actionlint, so the release archive is pinned by its hash, the way the
       # actions are pinned by commit. It finds shellcheck on the PATH and runs it over `run:` blocks.
       - name: Install actionlint

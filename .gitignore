@@ -6,3 +6,6 @@ dist
 /.plans
 # Tauri's generated schemas
 /crates/app/gen
+
+# The swarmed command, copied in by scripts/build-release.sh for the app to carry.
+/crates/app/binaries/

@@ -1,6 +1,7 @@
 [package]
-name = "swarmed-cli"
-description = "Command-line front end over swarmed-core"
+# Named after the product, so `cargo install swarmed` installs the `swarmed` command.
+name = "swarmed"
+description = "Run coding agents side by side, each in its own git worktree: the swarmed command"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
