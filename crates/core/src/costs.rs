@@ -1,9 +1,11 @@
 //! What the agents say their work has cost, summed by day and by task.
 //!
-//! An agent reports a running total since its process started, and starts again from nothing
-//! when a session is resumed. What a turn cost is therefore the step from the total before it,
-//! within one run. The figures are the agents' own, at API prices: on a subscription they say
-//! what the work would have cost, not what was paid.
+//! An agent reports a running total at the end of each turn. Claude Code's is the
+//! conversation's: it keeps it when the session is resumed, and says `init` again with every
+//! turn, so neither starts it over. What a turn cost is therefore the step from the total
+//! before it. A total lower than the one before means one that started from nothing, after
+//! `/clear` or an agent that counts per run, and counts whole. The figures are the agents' own,
+//! at API prices: on a subscription they say what the work would have cost, not what was paid.
 
 use rusqlite::params;
 use serde::Serialize;
@@ -57,16 +59,8 @@ struct Reported {
     day: String,
     project: String,
     task: String,
-    mark: Mark,
-}
-
-/// What an event says about an agent's running total.
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Mark {
-    /// The agent's process started: it counts from nothing again.
-    Started,
-    /// The total it reported at the end of a turn.
-    Total(f64),
+    /// The running total the agent reported at the end of a turn.
+    total: f64,
 }
 
 /// One turn's cost: where and when it was spent.
@@ -77,17 +71,14 @@ struct Spent {
     usd: f64,
 }
 
-/// What each turn cost: the step from the total reported before it in the same run.
+/// What each turn cost: the step from the total the session reported before it.
 fn spent(reported: Vec<Reported>) -> Vec<Spent> {
     let mut before: std::collections::HashMap<i64, f64> = std::collections::HashMap::new();
     let mut steps = Vec::new();
     for event in reported {
-        let Mark::Total(total) = event.mark else {
-            before.remove(&event.session);
-            continue;
-        };
+        let total = event.total;
         let last = before.insert(event.session, total).unwrap_or(0.0);
-        // A total below the last one means a run started unnoticed: it counts whole.
+        // A total below the last one started from nothing: it counts whole.
         let usd = if total >= last { total - last } else { total };
         if usd > 0.0 {
             steps.push(Spent {
@@ -165,15 +156,14 @@ fn reported((session, day, project, task, event): Row) -> Option<Reported> {
         day,
         project,
         task,
-        mark: mark_in(&event)?,
+        total: total_in(&event)?,
     })
 }
 
-/// What a stored event says about the running total, if anything.
-fn mark_in(event: &str) -> Option<Mark> {
+/// The running total a stored event reports, if it is the end of a turn that says one.
+fn total_in(event: &str) -> Option<f64> {
     match serde_json::from_str::<AgentEvent>(event).ok()? {
-        AgentEvent::Init { .. } => Some(Mark::Started),
-        AgentEvent::TurnDone { cost_usd, .. } => cost_usd.map(Mark::Total),
+        AgentEvent::TurnDone { cost_usd, .. } => cost_usd,
         _ => None,
     }
 }
@@ -194,7 +184,7 @@ impl Core {
              JOIN sessions s ON s.id = e.session_id
              JOIN tasks t ON t.id = s.task_id
              JOIN projects p ON p.id = t.project_id
-             WHERE e.event LIKE '{\"type\":\"turn_done\"%' OR e.event LIKE '{\"type\":\"init\"%'
+             WHERE e.event LIKE '{\"type\":\"turn_done\"%'
              ORDER BY e.id",
         )?;
         let rows = statement.query_map(params![], |row| {
@@ -211,13 +201,13 @@ impl Core {
 mod tests {
     use super::*;
 
-    fn at(session: i64, day: &str, task: &str, total: Option<f64>) -> Reported {
+    fn at(session: i64, day: &str, task: &str, total: f64) -> Reported {
         Reported {
             session,
             day: day.to_string(),
             project: "demo".to_string(),
             task: task.to_string(),
-            mark: total.map_or(Mark::Started, Mark::Total),
+            total,
         }
     }
 
@@ -228,28 +218,25 @@ mod tests {
     #[test]
     fn a_turn_costs_the_step_from_the_total_before_it() {
         let steps = spent(vec![
-            at(1, "2026-11-19", "one", None),
-            at(1, "2026-11-19", "one", Some(0.10)),
-            at(1, "2026-11-20", "one", Some(0.25)),
-            // The session was resumed: its agent counts from nothing again.
-            at(1, "2026-11-20", "one", None),
-            at(1, "2026-11-20", "one", Some(0.05)),
+            at(1, "2026-11-19", "one", 0.10),
+            // Resumed the next day, Claude Code goes on from the conversation's total.
+            at(1, "2026-11-20", "one", 0.25),
             // Another session's totals are its own.
-            at(2, "2026-11-20", "two", Some(1.00)),
-            // A turn that cost nothing is not a step.
-            at(2, "2026-11-20", "two", Some(1.00)),
+            at(2, "2026-11-20", "two", 1.00),
+            // A turn that cost nothing is not a step, such as a command Claude Code answers.
+            at(2, "2026-11-20", "two", 1.00),
         ]);
         let usd: Vec<f64> = steps.iter().map(|step| step.usd).collect();
-        assert_eq!(usd.len(), 4);
-        assert!(near(usd[0], 0.10) && near(usd[1], 0.15) && near(usd[2], 0.05));
-        assert!(near(usd[3], 1.00));
+        assert_eq!(usd.len(), 3);
+        assert!(near(usd[0], 0.10) && near(usd[1], 0.15) && near(usd[2], 1.00));
     }
 
     #[test]
     fn a_total_that_went_down_counts_whole() {
         let steps = spent(vec![
-            at(1, "d", "one", Some(0.50)),
-            at(1, "d", "one", Some(0.20)),
+            at(1, "d", "one", 0.50),
+            // After `/clear`, Claude Code counts the new conversation from nothing.
+            at(1, "d", "one", 0.20),
         ]);
         assert!(near(steps[1].usd, 0.20));
     }
@@ -257,9 +244,9 @@ mod tests {
     #[test]
     fn steps_are_summed_by_day_and_by_task() {
         let steps = spent(vec![
-            at(1, "2026-11-10", "one", Some(2.0)),
-            at(2, "2026-11-19", "two", Some(0.5)),
-            at(3, "2026-11-20", "one", Some(0.25)),
+            at(1, "2026-11-10", "one", 2.0),
+            at(2, "2026-11-19", "two", 0.5),
+            at(3, "2026-11-20", "one", 0.25),
         ]);
         let costs = summed(&steps, "2026-11-20", "2026-11-14");
         assert!(near(costs.today, 0.25));
@@ -273,12 +260,15 @@ mod tests {
     }
 
     #[test]
-    fn only_starts_and_ended_turns_with_a_cost_are_read() {
-        assert_eq!(mark_in(r#"{"type":"text","text":"hi"}"#), None);
+    fn only_ended_turns_with_a_cost_are_read() {
+        assert_eq!(total_in(r#"{"type":"text","text":"hi"}"#), None);
+        // Claude Code says `init` with every turn: it starts nothing over.
+        let init = r#"{"type":"init","agent_session_id":"a","model":"m","permission_mode":"default","api_key_source":"none","mcp_servers":[],"skills":0,"slash_commands":[]}"#;
+        assert_eq!(total_in(init), None);
         let done = |cost: &str| {
             format!(r#"{{"type":"turn_done","is_error":false,"result":null,"cost_usd":{cost}}}"#)
         };
-        assert_eq!(mark_in(&done("0.5")), Some(Mark::Total(0.5)));
-        assert_eq!(mark_in(&done("null")), None);
+        assert_eq!(total_in(&done("0.5")), Some(0.5));
+        assert_eq!(total_in(&done("null")), None);
     }
 }

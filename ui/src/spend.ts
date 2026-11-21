@@ -1,6 +1,7 @@
-// What a session's agent has spent, from what it reports. An agent reports a running total
-// since its process started, and starts again from nothing when a session is resumed: what the
-// session cost in all is the sum of the steps, as the core's costs count them (`costs.rs`).
+// What a session's agent has spent, from what it reports. An agent reports a running total at
+// the end of each turn. Claude Code's is the conversation's: it keeps it when the session is
+// resumed, and says `init` again with every turn, so neither starts it over. What the session
+// cost in all is the sum of the steps, as the core's costs count them (`costs.rs`).
 
 import type { AgentEvent } from "./api/types";
 
@@ -8,18 +9,16 @@ import type { AgentEvent } from "./api/types";
 export type SpendBasis = "subscription" | "api" | "agent";
 
 /**
- * What the session has spent in all, in US dollars, across every run of its agent; `null` if
- * it never said. A total lower than the last means a run that started unnoticed: it counts
- * whole.
+ * What the session has spent in all, in US dollars; `null` if its agent never said. A total
+ * lower than the last started from nothing, after `/clear` or in an agent that counts per run,
+ * and counts whole.
  */
 export function sessionSpend(events: AgentEvent[]): number | null {
     let spent = 0;
     let last = 0;
     let reported = false;
     for (const event of events) {
-        if (event.type === "init") {
-            last = 0;
-        } else if (event.type === "turn_done" && event.cost_usd !== null) {
+        if (event.type === "turn_done" && event.cost_usd !== null) {
             reported = true;
             spent += event.cost_usd >= last ? event.cost_usd - last : event.cost_usd;
             last = event.cost_usd;

@@ -50,6 +50,11 @@ notice adds its line under Unreleased.
 
 ### Fixed
 
+- **What sessions cost is no longer counted many times over.** Claude Code reports the
+  conversation's running total after every turn and keeps it when a session is resumed, but
+  the costs in Settings, the turn statistics and the context card's "spent here" started it
+  over at every turn. So they added each turn's whole running total again, and a session that
+  had spent $1.09 could show $6.47. A total that goes down, as after `/clear`, still counts whole.
 - **A task whose removal failed halfway can be removed.** "Remove anyway" now deletes what is
   left of its worktree, where it used to fail every time once git had lost track of it.
 - **Removing a task ends what still runs in its worktree,** such as a stack started by hand in
