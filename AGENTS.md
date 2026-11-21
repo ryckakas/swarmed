@@ -130,6 +130,12 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   still being written (`TextDelta`), which are only published: the whole reply follows.
 - **The app crate holds no logic.** A command in `crates/app/src/commands.rs` calls one core
   function. If the UI needs something new, it is added to the core and tested there first.
+- **A command that reads much or starts something runs off the main thread.** Tauri runs a
+  command that is not `async` on the thread that also serves the window, so one that reads a
+  whole conversation, searches, sums up costs or asks the keychain is marked
+  `#[tauri::command(async)]`. Commands whose order matters (what is typed into a terminal,
+  what is sent, queued or answered) stay as they are: the main thread runs them one by one,
+  in the order they came.
 - **`crates/app/src/tests.rs` calls every command the way the UI does,** by name with JSON
   arguments, on Tauri's mock runtime. Nobody can look inside the native window from CI, so a
   new or changed command gets a call there, with the argument names `ui/src/api/tauri.ts` sends.
