@@ -4,6 +4,7 @@ import { api } from "./api";
 import type { Project } from "./api/types";
 import { afterPlan, CLAUDE } from "./components/options";
 import { type HotkeyId, matchHotkey, stepThrough } from "./hotkeys";
+import { type ShortcutRequest, shortcutRequest } from "./pending";
 import { useStore } from "./store";
 import { toItems } from "./transcript";
 import { findSession, findSessionHome, nestedSessions } from "./tree";
@@ -50,24 +51,21 @@ function nextWaiting() {
     openSession(stepThrough(waiting, selectedSessionId, 1));
 }
 
-/** The request the open session is waiting on, if it is waiting on one. */
-function pendingRequest() {
+/** The request of the open session that a shortcut would allow, or with `allow` false deny. */
+function pendingRequest(allow: boolean): (ShortcutRequest & { id: number }) | null {
     const { selectedSessionId: id, events } = useStore.getState();
-    const items = id === null ? [] : toItems(events[id] ?? []);
-    const request = items.findLast((item) => item.kind === "permission");
-    return id !== null && request?.kind === "permission" ? { id, request } : null;
+    const request = id === null ? null : shortcutRequest(toItems(events[id] ?? []), allow);
+    return id !== null && request ? { id, ...request } : null;
 }
 
 function answer(allow: boolean) {
-    const pending = pendingRequest();
+    const pending = pendingRequest(allow);
     if (!pending) {
         return;
     }
-    const { id, request } = pending;
+    const { id, requestId, refusal } = pending;
     const { report } = useStore.getState();
-    const sent = allow
-        ? api.sessionAllow(id, request.requestId)
-        : api.sessionDeny(id, request.requestId, "The user declined this action.");
+    const sent = allow ? api.sessionAllow(id, requestId) : api.sessionDeny(id, requestId, refusal);
     sent.catch(report);
 }
 
@@ -182,20 +180,28 @@ export function useHotkeys() {
     useEffect(() => {
         const onKeyDown = (event: KeyboardEvent) => {
             const id = matchHotkey(event);
-            if (id === null || event.isComposing) {
+            // A key something else has already acted on is not a shortcut as well.
+            if (id === null || event.isComposing || event.defaultPrevented) {
                 return;
             }
             if (document.querySelector("dialog[open]") && !OVER_A_DIALOG.has(id)) {
                 return;
             }
-            // Without a request to answer, these keys keep what they mean in a text field.
-            if (ANSWERS.has(id) && !pendingRequest()) {
-                return;
+            if (ANSWERS.has(id)) {
+                // Without a request to answer, these keys keep what they mean in a text field.
+                if (!pendingRequest(id === "allow")) {
+                    return;
+                }
+                // With one, the key is the answer and nothing else: the message box, which has
+                // the keyboard while a request waits, would send its message on the same key.
+                event.stopPropagation();
             }
             event.preventDefault();
             run(id);
         };
-        window.addEventListener("keydown", onKeyDown);
-        return () => window.removeEventListener("keydown", onKeyDown);
+        // Heard on the way down, before whatever is typed into: only so can an answer keep its
+        // key from the message box, and the terminal cannot take a shortcut for its shell.
+        window.addEventListener("keydown", onKeyDown, true);
+        return () => window.removeEventListener("keydown", onKeyDown, true);
     }, []);
 }

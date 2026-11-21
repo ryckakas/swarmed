@@ -40,11 +40,63 @@ pub struct Action {
     pub of_project: bool,
 }
 
+/// The key a file's actions are listed under.
+const ENTRIES: &str = "action";
+
 /// A file of actions, as read.
-#[derive(Debug, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Debug, Default)]
 struct Kept {
-    action: Vec<Action>,
+    /// Its actions, in the order they are written in.
+    actions: Vec<Action>,
+    /// The entries that could not be read as an action, a key in them misspelt or the like.
+    /// They are not offered, and they are not thrown away either: whoever wrote them wants
+    /// them, so they are written back as they were, after the actions.
+    unread: Vec<toml::Value>,
+    /// Whatever else the file holds, which is written back too.
+    rest: toml::Table,
+}
+
+impl Kept {
+    /// What the text of a file holds. Only a file that is not TOML at all is an error: one
+    /// entry gone wrong costs that one button and no other.
+    fn parse(text: &str) -> std::result::Result<Self, toml::de::Error> {
+        let mut rest: toml::Table = toml::from_str(text)?;
+        let entries = match rest.remove(ENTRIES) {
+            Some(toml::Value::Array(entries)) => entries,
+            // Not a list of actions: kept as it is, to be put right by hand.
+            Some(other) => vec![other],
+            None => Vec::new(),
+        };
+        let mut kept = Self {
+            rest,
+            ..Self::default()
+        };
+        for entry in entries {
+            match entry.clone().try_into::<Action>() {
+                Ok(action) => kept.actions.push(action),
+                Err(_) => kept.unread.push(entry),
+            }
+        }
+        Ok(kept)
+    }
+
+    /// The text of the file that holds all of this.
+    fn text(&self) -> std::result::Result<String, toml::ser::Error> {
+        let written = |action: &Action| {
+            toml::Value::try_from(Written {
+                name: &action.name,
+                icon: &action.icon,
+                prompt: &action.prompt,
+                command: &action.command,
+            })
+        };
+        let actions: std::result::Result<Vec<toml::Value>, _> =
+            self.actions.iter().map(written).collect();
+        let entries = actions?.into_iter().chain(self.unread.clone()).collect();
+        let mut file = self.rest.clone();
+        file.insert(ENTRIES.to_string(), toml::Value::Array(entries));
+        toml::to_string_pretty(&file)
+    }
 }
 
 /// An action as it is written to a file: only what the user gave it.
@@ -57,12 +109,6 @@ struct Written<'a> {
     prompt: &'a str,
     #[serde(skip_serializing_if = "str::is_empty")]
     command: &'a str,
-}
-
-/// A file of actions, as written.
-#[derive(Serialize)]
-struct Writing<'a> {
-    action: Vec<Written<'a>>,
 }
 
 fn refused(why: impl Into<String>) -> Error {
@@ -115,41 +161,29 @@ impl Core {
         }
     }
 
-    /// The actions in one file, as written. None if the file is not there.
-    fn actions_in(&self, project: Option<&str>) -> Result<Vec<Action>> {
+    /// What one file holds, its actions as written. Nothing if the file is not there.
+    fn actions_in(&self, project: Option<&str>) -> Result<Kept> {
         let file = self.actions_file(project);
         let text = match std::fs::read_to_string(&file) {
             Ok(text) => text,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Kept::default());
+            }
             Err(error) => return Err(error.into()),
         };
-        let kept: Kept = toml::from_str(&text).map_err(|error| Error::Config {
+        let mut kept = Kept::parse(&text).map_err(|error| Error::Config {
             path: file,
             message: error.to_string(),
         })?;
-        let of_project = project.is_some();
-        Ok(kept
-            .action
-            .into_iter()
-            .map(|action| Action {
-                of_project,
-                ..action
-            })
-            .collect())
+        for action in &mut kept.actions {
+            action.of_project = project.is_some();
+        }
+        Ok(kept)
     }
 
-    fn actions_write(&self, project: Option<&str>, actions: &[Action]) -> Result<()> {
+    fn actions_write(&self, project: Option<&str>, kept: &Kept) -> Result<()> {
         let file = self.actions_file(project);
-        let action = actions
-            .iter()
-            .map(|action| Written {
-                name: &action.name,
-                icon: &action.icon,
-                prompt: &action.prompt,
-                command: &action.command,
-            })
-            .collect();
-        let text = toml::to_string_pretty(&Writing { action }).map_err(|error| Error::Config {
+        let text = kept.text().map_err(|error| Error::Config {
             path: file.clone(),
             message: error.to_string(),
         })?;
@@ -164,16 +198,17 @@ impl Core {
     /// ones alone.
     ///
     /// One that was written by hand and is not a usable action is left out, so one slip in a
-    /// file does not take every button away.
+    /// file does not take every button away. It stays in its file, also when Swarmed writes
+    /// the file anew, for whoever wrote it to put right.
     pub fn actions(&self, project: Option<&str>) -> Result<Vec<Action>> {
         let own = match project {
             Some(project) => {
                 self.project(project)?;
-                self.actions_in(Some(project))?
+                self.actions_in(Some(project))?.actions
             }
             None => Vec::new(),
         };
-        let general = self.actions_in(None)?;
+        let general = self.actions_in(None)?.actions;
         let general = general
             .into_iter()
             .filter(|action| !own.iter().any(|mine| mine.name == action.name));
@@ -191,9 +226,13 @@ impl Core {
         }
         let action = checked(action)?;
         let mut kept = self.actions_in(project)?;
-        match kept.iter_mut().find(|other| other.name == action.name) {
+        match kept
+            .actions
+            .iter_mut()
+            .find(|other| other.name == action.name)
+        {
             Some(other) => *other = action,
-            None => kept.push(action),
+            None => kept.actions.push(action),
         }
         self.actions_write(project, &kept)?;
         self.actions(project)
@@ -204,7 +243,7 @@ impl Core {
     /// not an error.
     pub fn action_remove(&self, project: Option<&str>, name: &str) -> Result<Vec<Action>> {
         let mut kept = self.actions_in(project)?;
-        kept.retain(|action| action.name != name.trim());
+        kept.actions.retain(|action| action.name != name.trim());
         self.actions_write(project, &kept)?;
         self.actions(project)
     }
@@ -213,7 +252,8 @@ impl Core {
     /// number: the order they are kept in is the order their buttons are shown in. Returns
     /// what is then offered.
     pub fn action_move(&self, project: Option<&str>, name: &str, by: i32) -> Result<Vec<Action>> {
-        let kept = moved(self.actions_in(project)?, name, by)?;
+        let mut kept = self.actions_in(project)?;
+        kept.actions = moved(kept.actions, name, by)?;
         self.actions_write(project, &kept)?;
         self.actions(project)
     }
@@ -244,6 +284,24 @@ mod tests {
         let action: Action = serde_json::from_str(sent).unwrap_or_default();
         assert_eq!(action.name, "Tests");
         assert_eq!(action.command, "make test");
+    }
+
+    #[test]
+    fn an_entry_that_is_no_action_is_left_out_and_written_back() {
+        let text = "note = \"mine\"\n\n[[action]]\nname = \"Tests\"\ncommand = \"make test\"\n\n\
+                    [[action]]\nnmae = \"Typo\"\nprompt = \"review this\"\n";
+        let mut kept = Kept::parse(text).expect("reads");
+        let names: Vec<&str> = kept.actions.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, ["Tests"]);
+        assert_eq!(kept.unread.len(), 1);
+
+        kept.actions.clear();
+        let again = Kept::parse(&kept.text().expect("writes")).expect("reads");
+        assert_eq!(again.actions, []);
+        assert_eq!(again.unread, kept.unread);
+        assert_eq!(again.rest.get("note"), kept.rest.get("note"));
+
+        assert!(Kept::parse("[[action]\nname =").is_err());
     }
 
     #[test]

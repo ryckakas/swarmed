@@ -45,7 +45,9 @@ CI (`.github/workflows/ci.yml`) runs exactly these. Match them locally before pu
 
 Where CI runs is the repository variable `CI_RUNNER`. Unset, the jobs run on GitHub's runners.
 Set to a self-hosted runner's label (`gh variable set CI_RUNNER --body swarmed-mac`), they run on
-that machine with the tools installed there, and the Linux test run is left out.
+that machine with the tools installed there, and the Linux test run is left out. That holds for
+pushes and for this repository's own pull requests: one from a fork or from Dependabot brings
+code nobody here has read, so it always runs on GitHub's runners. The `runner` job decides.
 
 ## Architecture
 
@@ -87,9 +89,22 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   when that started). A Swarmed that ended without stopping its stacks finds them again, counts
   them as running and can stop them. Stopping asks the stack's process group, waits, then
   ends whatever was started from it and is still there: services often sit in groups of their
-  own, where a signal to the stack's group does not reach them.
+  own, where a signal to the stack's group does not reach them. When the process started is
+  asked of `ps` with `LC_ALL=C` and `TZ=UTC`, so it reads the same to every Swarmed. A project
+  runs no more stacks at once than its `max_stacks` (`start_stack` refuses the next).
+- **Two Swarmeds can run on one data directory** (`presence.rs`): the installed app beside a
+  development build, or the app beside a command. Only the first to arrive, known by a lock on
+  `run/first.lock`, settles sessions when it starts and ends stacks it did not start when it
+  quits (`Core::arrive`, `Core::leave`). Any other ends only its own (`stacks_stop_started`),
+  which is all the command line ever does.
 - **A session left busy by a Swarmed that ended mid-turn** is put right: the app settles all
-  of them when it starts (`sessions_settle`), and Stop on one records its turn as stopped.
+  of them when it starts (`Core::arrive`), and Stop on one records its turn as stopped.
+- **A stopped agent is given `GRACE` to go, then killed** (`sessions.rs`): closing its input
+  ends most, and the rest must not write on into a worktree being removed. A backend returns
+  the tasks that hold its process (`AgentHandle::tasks`); aborting them kills it. Removing a
+  task waits until its agents are gone (`sessions_ended`); deleting a session kills at once.
+  A run that went without a word gets its `Exited` from the core. What a run still says after
+  another has taken its place changes nothing about the session, and its end is dropped.
 - **Whatever Swarmed starts gets the `PATH` of the user's shell** (`shellenv.rs`). An app
   started from the Dock has only the system's, so the installed app asks the shell once, before
   the core opens; hooks, stacks, the status command and agents are then given it.
@@ -142,7 +157,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   right in the app's own window; check there before changing the default. The shell is started
   with `COLORTERM=truecolor` and `CLICOLOR=1`.
 - **Closing a session keeps it; deleting one does not** (`session_close`, `session_delete`).
-  A closed session is put away with its conversation and can be reopened. A deleted one is
+  A closed session is put away with its conversation and can be reopened; until it is, its
+  agent cannot be started and nothing can be sent to it (`Error::SessionClosed`). A deleted one is
   gone from the database with its events and its spooled views; sessions it started stay, with
   nobody as their starter. `AgentEvent::Deleted` is published and never stored, since there is
   nothing left to store it in. Swarmed does not touch what an agent keeps of the conversation
@@ -158,7 +174,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   live on `Paths` so that a queued message, sent from a task without the core, gets the same.
 - **The Files tab walks a task's worktree one folder at a time** (`files.rs`, `Files.tsx`,
   `files.ts`). A folder is read when it is unfolded, never the whole tree. Paths come from the
-  front end and are refused unless they stay inside the worktree (`stays_inside`); a link to a
+  front end and are refused unless they stay inside the worktree, by their wording
+  (`stays_inside`) and again once links are followed (`files::inside`); a link to a
   folder is listed as a file, since it may lead out. A file is opened in the user's editor
   together with its worktree, so an editor with a window per folder shows it in that window.
   Swarmed shows no file's contents itself: that is the editor's job.
@@ -181,7 +198,12 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   Claude Code and its plugins, `mcp_codex.rs`, `mcp_opencode.rs`), and the session's agent is
   given the ones it has none of by that name, switched on or off: an agent refuses a second
   server of a name, and one switched off there is off for a reason. Claude Code is given the
-  others' too. Nothing is written into an agent's files. `shared_mcp_servers = false` in
+  others' too. A server from the repository's own `.mcp.json` is the exception: a branch can
+  put anything there, so it goes to other agents only once the user approved it in Claude Code
+  (in their own settings, never in a file the repository tracks) and never when rejected there
+  (`claude_code_servers_to_share`). Claude Code is handed its servers in a file only the user
+  can read, under `run/agents/<session>/`, never on its command line, where `ps` would show
+  their secrets. Nothing is written into an agent's files. `shared_mcp_servers = false` in
   `agents.toml` turns it off for an agent. The definitions hold secrets: they are passed on
   and never logged, and their `Debug` output leaves values out. Keep it that way.
 - **Questions an agent puts to the user are answered where they stand** (`questions.ts`,
@@ -241,14 +263,22 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   the task's worktree, shown in place of the message box. Its output is published on its own
   channel (`Core::subscribe_terminals`) and not stored. What it printed since the agent's last
   turn is appended, as plain text, to the user's next message and recorded as `TerminalShared`.
-  The agent cannot type into the terminal.
+  The agent cannot type into the terminal. Each piece of output says where it starts and
+  `terminal_open` says where its replay ends: a front end listens first, then opens, and draws
+  only what lies past that end, so nothing is lost or shown twice.
 - **Agents may answer with HTML views**: a fenced block with the language `html-view`, which
   they are told about through `views::INSTRUCTIONS`. The UI wraps the fragment in a document
   (`ui/src/htmlview.ts`), hands it to the core (`views.rs`), and shows it in a sandboxed frame
   loaded from `swarmed-view://`, a scheme the app serves with a policy of its own
-  (`view_response` in the app crate). That origin has no capability, so it cannot call a
-  command. Never show agent HTML in the app's own origin, and never loosen the app's policy
-  for it.
+  (`view_response` in the app crate). Tauri counts that scheme as the app's own and checks
+  the app's commands against no capability; a view cannot call one because the window's
+  invoke key is given to the main frame only, the frame is sandboxed, and its policy lets it
+  send no request. Never show agent HTML in the app's own origin, never loosen the app's policy
+  for it, and never hand a frame the key.
+  A view cannot open anything either. A navigation the window refuses is only refused
+  (`navigation.rs`), and a link pressed in a view is shown by the host with its address and
+  opened when the user says so there: a view's script could ask without a press, with anything
+  in the address. A copy opened in the browser carries the policy as its very first tag.
   The instructions are deliberately firm that this is the way to show something and needs no
   tool: without that, agents build a file and drive a browser instead. An ordinary `html` block
   stays code, with a button to show it as a view.
@@ -265,7 +295,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   directory, a repository's own in `projects/<name>.actions.toml`; its own takes the place of a
   general one of the same name. The files are meant to be written by hand or by an agent
   (`configure` on the tool server, `swarmed action` on the command line), so an entry that is
-  not a usable action is left out instead of failing the lot. The core only keeps them. The UI
+  not a usable action is left out instead of failing the lot, and written back as it was when
+  the file is saved. The core only keeps them. The UI
   (`ActionBar`) sends the prompt to the session on screen, or types the command into that
   session's terminal: a command is run where the user sees it and can answer it, never out of
   sight. However many there are, the first six are buttons and the rest a menu. They are
@@ -307,7 +338,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   of Swarmed's own server. The server is a process the agent starts, so it asks the core over
   a socket in the system's temporary folder (`Paths::tools_socket`; short, since a socket's
   path is limited), which a front end serves with `serve_session_tools`. A message arrives as
-  a message in the other conversation, queued if that session is busy. A spawned session runs
+  a message in the other conversation, queued if that session is busy. Only open sessions of
+  the caller's own project can be read or written to (`peer_in_reach`): a closed one would
+  be started out of sight. A spawned session runs
   in its parent's task with its settings, cannot spawn itself, and a session can have
   `MAX_SPAWNED` open. The tools are not on the allow list: in ask mode the user is asked.
   A session can close only sessions it started, and only idle ones (`peer_close`).
@@ -319,7 +352,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   takes that message and everything after it, and nothing from before; the first session
   keeps all of it, since its agent cannot be made to forget. No agent can
   be handed another's memory, so the fork's agent is given that conversation as text with the
-  first message sent to it, whatever agent it is. What is recorded is what the user typed.
+  first message sent to it, whatever agent it is, and again with each message until a turn in
+  the fork has ended well: an agent that died on the first one heard nothing. What is recorded is what the user typed.
 - **A closed session is put away, not deleted.** Closing is an event, `Closed`, so every front
   end drops it from its lists. Its task counts its closed sessions, they can be listed
   (`sessions_closed`) and put back (`session_reopen`) with their conversation as it was.
@@ -351,6 +385,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   which is recorded as `Applied` too. Before a session's agent has said, a front end shows
   what the agent's default last came to (`effort.rs`, `Core::effort_default`): the latest
   `Applied` of a session on the same agent and model that chose no effort.
+- **Whatever sends into a session queues when its agent is busy** (`sendOrQueue` in the UI):
+  a message sent straight in would clear a request the agent waits on. A request takes the
+  keyboard only when nothing has it (`focus.ts`), and the answer shortcuts never allow a
+  question without answers (`pending.ts`).
 - **Messages can wait in a queue** (`queue.rs`) while a session's agent is busy. The core sends
   the first one when a turn ends well, as if it had just been typed; a turn that was stopped
   or failed leaves the queue standing. The queue lives in memory, and its changes are published
@@ -395,14 +433,19 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **A commit message can be written for the user** (`task_commit_message`), by the agent of the
   session on screen: for Claude Code the `Namer`'s small model, for any other agent one question
   in a conversation of its own (`asking.rs`), on the session's model, in no worktree, with every
-  tool refused. Whoever writes is shown what git says changed, new files included, and the
+  tool refused and the agent in its planning or read-only mode. One that has modes and neither
+  of those is not asked: it would not ask before using a tool. New files are read as files
+  only, a link never through to what it points at. Whoever writes is shown what git says changed, new files included, and the
   answer goes into the commit box to be read and changed. Nothing is committed by it.
 - **Removing a project** (`project_remove`) removes its tasks as `task_remove` does, keeping
-  their branches, then deletes what Swarmed holds about it: sessions, their history and the
-  notes. The repository is not touched. Removing a task stops its sessions first. In the UI
+  their branches, then deletes what Swarmed holds about it: sessions, their history, the
+  notes, its snapshots, environments and own actions. Its config file stays. The repository is not touched. Removing a task stops its sessions first. In the UI
   both ask first, and offer to go ahead regardless only after a refusal over unsaved work.
 - **Opening things elsewhere** (`open.rs`) starts the user's editor (`settings.toml`, VS Code by
   default) or the browser and never waits for them.
+- **A hook's command takes each value as one word** (`Vars::render_for_shell`): a value with
+  anything a shell would read is put in by the name of its `SWARMED_*` variable, never as text,
+  so a branch name cannot run. Unknown-length lists from git are read NUL-separated (`-z`).
 - **Git is used by shelling out** to the `git` binary (`git.rs`), not through a library.
 - **The store is SQLite** (`store.rs`). Schema changes are appended to `MIGRATIONS` and never
   edited afterwards.

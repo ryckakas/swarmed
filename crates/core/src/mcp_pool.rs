@@ -43,7 +43,15 @@ impl Paths {
         repo: &Path,
         worktree: &Path,
     ) -> Vec<McpServer> {
-        let claude = self.claude_code_servers(repo, worktree);
+        // Claude Code reads the repository's `.mcp.json` itself and asks the user about it.
+        // What it has counts whole, so that it is given no second server of a name; what
+        // the others are given of it is only what the user approved there.
+        let configured = if agent == CLAUDE {
+            mcp::claude_code_servers(&self.claude_config, repo, worktree)
+        } else {
+            mcp::claude_code_servers_to_share(&self.claude_config, repo, worktree)
+        };
+        let claude = self.claude_code_servers(configured);
         let name = |server: &McpServer| server.name.clone();
         let has = match agent {
             CLAUDE => claude.iter().map(name).collect(),
@@ -61,12 +69,11 @@ impl Paths {
         pooled(agent, sources, &has)
     }
 
-    /// Claude Code's servers: the ones its plugins bring, and the ones configured, which go
-    /// before a plugin's of the same name.
-    fn claude_code_servers(&self, repo: &Path, worktree: &Path) -> Vec<McpServer> {
+    /// Claude Code's servers: the ones its plugins bring, and the ones `configured`, which
+    /// go before a plugin's of the same name.
+    fn claude_code_servers(&self, configured: Vec<McpServer>) -> Vec<McpServer> {
         let home = self.claude_config.parent().map(|home| home.join(".claude"));
         let mut servers = home.map_or_else(Vec::new, |home| mcp_plugins::plugin_servers(&home));
-        let configured = mcp::claude_code_servers(&self.claude_config, repo, worktree);
         servers.retain(|plugin| configured.iter().all(|server| server.name != plugin.name));
         servers.extend(configured);
         servers

@@ -184,6 +184,20 @@ pub(crate) fn validate_name(name: &str) -> Result<()> {
     }
 }
 
+/// What a project's own files end in, before `.toml`, beside its config `<project>.toml`.
+const PROJECT_FILES: [&str; 2] = [".actions", ".environments"];
+
+/// A name a new project can have: a valid one that is not the name of another project's
+/// file. Names may hold dots, and a project called `app.actions` would keep its config in
+/// `app.actions.toml`, which is where the project `app` keeps its actions.
+pub(crate) fn validate_project_name(name: &str) -> Result<()> {
+    validate_name(name)?;
+    if PROJECT_FILES.iter().any(|end| name.ends_with(end)) {
+        return Err(Error::ReservedName(name.to_string()));
+    }
+    Ok(())
+}
+
 /// Turns a directory name into a valid project name, for the default of `project add`.
 pub(crate) fn name_from_path(path: &Path) -> String {
     let raw = path
@@ -219,6 +233,23 @@ mod tests {
         ] {
             assert!(validate_name(bad).is_err(), "{bad:?} should be rejected");
         }
+    }
+
+    #[test]
+    fn a_project_cannot_be_named_like_another_projects_file() {
+        for good in ["app", "app.web", "actions", "my.environments.app"] {
+            assert!(validate_project_name(good).is_ok(), "{good:?}");
+        }
+        for bad in ["app.actions", "app.environments"] {
+            assert!(
+                matches!(validate_project_name(bad), Err(Error::ReservedName(_))),
+                "{bad:?}"
+            );
+        }
+        assert!(matches!(
+            validate_project_name("Has Space"),
+            Err(Error::InvalidName(_))
+        ));
     }
 
     #[test]

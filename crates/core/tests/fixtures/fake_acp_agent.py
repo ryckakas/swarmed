@@ -14,6 +14,11 @@ Set FAKE_ACP_LOAD_ONLY=1 to offer only session/load, which replays a history fir
 Set FAKE_ACP_EFFORT=1 to have an effort setting, standing at medium.
 Set FAKE_ACP_RESUME_NOTICE=1 to remark, as Codex does, on the model an earlier conversation
 was opened with, right after opening it.
+Set FAKE_ACP_MODES=a,b to have modes of its own by these names, standing at the first. An
+echo then ends by naming the mode it was put into.
+Set FAKE_ACP_TITLE_COMMAND=1 to title a shell call with the command itself, as some agents do.
+Set FAKE_ACP_STAY=<file> to carry on after its input has closed, adding to that file as long
+as it lives.
 """
 import json
 import os
@@ -21,6 +26,11 @@ import sys
 import time
 
 LOAD_ONLY = os.environ.get("FAKE_ACP_LOAD_ONLY") == "1"
+MODES = [name for name in os.environ.get("FAKE_ACP_MODES", "").split(",") if name]
+MODE = [{"id": "mode", "currentValue": MODES[0],
+         "options": [{"value": name} for name in MODES]}] if MODES else []
+TITLE_COMMAND = os.environ.get("FAKE_ACP_TITLE_COMMAND") == "1"
+STAY = os.environ.get("FAKE_ACP_STAY")
 # What an agent with an effort of its own says of it when a conversation opens.
 EFFORT = [{"id": "reasoning_effort", "currentValue": "medium",
            "options": [{"value": "low"}, {"value": "medium"}, {"value": "high"}]}
@@ -91,15 +101,19 @@ def on_prompt(request_id, params):
                          "status": "in_progress", "rawInput": {"command": command}})
         state["requests"] += 1
         state["permission_id"] = state["requests"]
+        title = command if TITLE_COMMAND else "Terminal"
         send({"id": state["requests"], "method": "session/request_permission", "params": {
             "sessionId": session,
-            "toolCall": {"toolCallId": "call-1", "title": "Terminal", "rawInput": {"command": command}},
+            "toolCall": {"toolCallId": "call-1", "title": title, "kind": "execute",
+                         "rawInput": {"command": command}},
             "options": [{"optionId": "allow", "name": "Allow", "kind": "allow_once"},
                         {"optionId": "reject", "name": "Reject", "kind": "reject_once"}]}})
         state["session"] = session
     else:
         chunk(session, "echo: ")
         chunk(session, text)
+        if MODES:
+            chunk(session, " (mode: %s)" % state.get("mode", MODES[0]))
         update(session, {"sessionUpdate": "usage_update", "used": 1, "size": 2,
                          "cost": {"amount": 0.5, "currency": "USD"}})
         finish()
@@ -130,7 +144,7 @@ def open_session(request_id, method, params):
             return send({"id": request_id, "error": {"code": -32602, "message": "no such directory"}})
         return send({"id": request_id, "result": {
             "sessionId": "acp-1",
-            "configOptions": [{"id": "model", "currentValue": "fake/default"}] + EFFORT}})
+            "configOptions": [{"id": "model", "currentValue": "fake/default"}] + EFFORT + MODE}})
     if method == "session/load":
         # A real agent replays the conversation before it answers.
         chunk(params["sessionId"], "replayed history")
@@ -151,6 +165,8 @@ for line in sys.stdin:
     elif method in ("session/new", "session/load", "session/resume"):
         open_session(request_id, method, params)
     elif method == "session/set_config_option":
+        if params.get("configId") == "mode":
+            state["mode"] = params.get("value")
         send({"id": request_id, "result": {}})
     elif method == "session/prompt":
         on_prompt(request_id, params)
@@ -158,3 +174,9 @@ for line in sys.stdin:
         finish("cancelled")
     elif method is None and request_id == state["permission_id"]:
         on_permission_answer(message["result"])
+
+# Its input has closed, which asks it to go. An agent that does not take the hint carries on.
+while STAY:
+    with open(STAY, "a") as beat:
+        beat.write(".")
+    time.sleep(0.05)

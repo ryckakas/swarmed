@@ -8,12 +8,18 @@
 //! 2. the repository's, in `.mcp.json` at the top of the checkout;
 //! 3. the user's for that repository, under `projects.<path>.mcpServers` in `~/.claude.json`.
 //!
+//! The second place is not the user's own. Whoever wrote the branch that is checked out
+//! wrote that file, and a server in it is a command to run. Claude Code asks before it uses
+//! one, and writes the answer down; Swarmed asks nothing, so it hands such a server to
+//! another agent only where that answer is yes (`claude_code_servers_to_share`).
+//!
 //! Server definitions hold secrets (tokens in `env` and `headers`). They are passed on and
 //! never logged, which is why [`McpServer`]'s `Debug` output leaves the values out.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::Path;
+use std::process::{Command, Stdio};
 
 use serde_json::Value;
 
@@ -79,30 +85,157 @@ impl fmt::Debug for McpServer {
 /// not stop a session from starting.
 #[must_use]
 pub fn claude_code_servers(claude_config: &Path, repo: &Path, worktree: &Path) -> Vec<McpServer> {
+    servers(claude_config, repo, worktree, None)
+}
+
+/// The servers of Claude Code's that a session of another agent in `worktree` may be given:
+/// the user's own, and of the repository's `.mcp.json` only those the user has approved in
+/// Claude Code and has not rejected or switched off there.
+///
+/// One that is not approved is left out as if the file did not name it, so a server of the
+/// user's own by the same name is still given.
+pub(crate) fn claude_code_servers_to_share(
+    claude_config: &Path,
+    repo: &Path,
+    worktree: &Path,
+) -> Vec<McpServer> {
+    let approvals = Approvals::read(claude_config, repo, worktree);
+    servers(claude_config, repo, worktree, Some(&approvals))
+}
+
+/// The servers from the three places. With `approvals`, the repository's are only those
+/// approved; a definition that is not is not even read, so nothing of this process's
+/// environment is filled into it.
+fn servers(
+    claude_config: &Path,
+    repo: &Path,
+    worktree: &Path,
+    approvals: Option<&Approvals>,
+) -> Vec<McpServer> {
     let user_file = read_json(claude_config);
     let project_file = read_json(&worktree.join(".mcp.json"));
-    let local = format!(
-        "/projects/{}/mcpServers",
-        pointer_escape(&repo.to_string_lossy())
-    );
+    let local = format!("{}/mcpServers", project_pointer(repo));
+    let named = |servers: Option<&Value>| -> Vec<(String, Value)> {
+        let entries = servers.and_then(Value::as_object).into_iter().flatten();
+        entries
+            .map(|(name, definition)| (name.clone(), definition.clone()))
+            .collect()
+    };
+    let mut of_repository = named(project_file.get("mcpServers"));
+    of_repository.retain(|(name, _)| approvals.is_none_or(|approvals| approvals.allow(name)));
     let ordered = [
-        user_file.get("mcpServers"),
-        project_file.get("mcpServers"),
-        user_file.pointer(&local),
+        named(user_file.get("mcpServers")),
+        of_repository,
+        named(user_file.pointer(&local)),
     ];
 
     let mut by_name: BTreeMap<String, McpServer> = BTreeMap::new();
-    let entries = ordered
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_object)
-        .flatten();
-    for (name, definition) in entries {
-        if let Some(server) = parse_server(name, definition) {
-            by_name.insert(name.clone(), server);
+    for (name, definition) in ordered.into_iter().flatten() {
+        if let Some(server) = parse_server(&name, &definition) {
+            by_name.insert(name, server);
         }
     }
     by_name.into_values().collect()
+}
+
+/// Where Claude Code keeps what it knows of the folder `folder`, in its own config file.
+fn project_pointer(folder: &Path) -> String {
+    format!("/projects/{}", pointer_escape(&folder.to_string_lossy()))
+}
+
+/// What the user has told Claude Code about the servers of a repository's `.mcp.json`.
+///
+/// Claude Code writes an approval into `.claude/settings.local.json` of the folder it was
+/// asked in (`enabledMcpjsonServers`, or `enableAllProjectMcpServers` for all of them), and
+/// a rejection there as `disabledMcpjsonServers`. Earlier versions kept the same keys under
+/// the folder's entry in `~/.claude.json`, where a server switched off by hand is also
+/// noted (`disabledMcpServers`). The user's own `~/.claude/settings.json` may hold them too.
+///
+/// An approval only counts from a file the repository cannot have brought along: not from
+/// `.claude/settings.json`, which is checked in, and from `settings.local.json` only if git
+/// does not track it. A rejection counts from anywhere, and goes before any approval.
+#[derive(Debug, Default)]
+struct Approvals {
+    /// Whether every server of the repository's is approved.
+    all: bool,
+    /// Whether some file says that not every server is: that goes before one that says so.
+    not_all: bool,
+    approved: BTreeSet<String>,
+    rejected: BTreeSet<String>,
+}
+
+impl Approvals {
+    /// What is written down for a session in `worktree` of the repository at `repo`. Both
+    /// folders are asked: the user may have answered Claude Code in either.
+    fn read(claude_config: &Path, repo: &Path, worktree: &Path) -> Self {
+        let mut found = Self::default();
+        let user_file = read_json(claude_config);
+        if let Some(home) = claude_config.parent() {
+            found.take(&read_json(&home.join(".claude/settings.json")), true);
+        }
+        for folder in [repo, worktree] {
+            let entry = user_file.pointer(&project_pointer(folder));
+            let entry = entry.unwrap_or(&Value::Null);
+            found.take(entry, true);
+            found.rejected.extend(names(entry, "disabledMcpServers"));
+            let settings = folder.join(".claude");
+            found.take(&read_json(&settings.join("settings.json")), false);
+            let local = read_json(&settings.join("settings.local.json"));
+            let own = approves(&local) && untracked(folder, ".claude/settings.local.json");
+            found.take(&local, own);
+        }
+        found
+    }
+
+    /// Adds what one file says. Its approvals count only if it is `trusted`.
+    fn take(&mut self, settings: &Value, trusted: bool) {
+        self.rejected
+            .extend(names(settings, "disabledMcpjsonServers"));
+        let all = settings.get("enableAllProjectMcpServers");
+        self.not_all |= all.and_then(Value::as_bool) == Some(false);
+        if trusted {
+            self.all |= all.and_then(Value::as_bool) == Some(true);
+            self.approved
+                .extend(names(settings, "enabledMcpjsonServers"));
+        }
+    }
+
+    /// Whether the repository's server `name` may be given to another agent.
+    fn allow(&self, name: &str) -> bool {
+        let approved = (self.all && !self.not_all) || self.approved.contains(name);
+        approved && !self.rejected.contains(name)
+    }
+}
+
+/// The names listed under `key` in a settings file.
+fn names(settings: &Value, key: &str) -> Vec<String> {
+    let listed = settings.get(key).and_then(Value::as_array);
+    let names = listed.into_iter().flatten().filter_map(Value::as_str);
+    names.map(String::from).collect()
+}
+
+/// Whether a settings file approves anything at all.
+fn approves(settings: &Value) -> bool {
+    let all = settings.get("enableAllProjectMcpServers");
+    all.and_then(Value::as_bool) == Some(true)
+        || !names(settings, "enabledMcpjsonServers").is_empty()
+}
+
+/// Whether git, asked in `folder`, says that it does not track `file`. Anything else, git
+/// not answering included, counts as tracked: the file is then not known to be the user's.
+///
+/// Asked without Tokio: sessions are started from threads that have no runtime too.
+fn untracked(folder: &Path, file: &str) -> bool {
+    let asked = Command::new("git")
+        .arg("-C")
+        .arg(folder)
+        .args(["ls-files", "--error-unmatch", "--", file])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    // 1 is git's "no such file among those I track"; a folder that is no repository gives 128.
+    asked.is_ok_and(|status| status.code() == Some(1))
 }
 
 fn read_json(path: &Path) -> Value {
@@ -225,6 +358,125 @@ mod tests {
             &dir.path().join("other"),
         );
         assert_eq!(names(&elsewhere), ["everywhere", "shadowed"]);
+    }
+
+    /// A repository whose `.mcp.json` names `team`, `shadowed`, `other` and `off`, with a
+    /// Claude Code config in which the user has a `shadowed` of their own.
+    fn shared_fixture() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let worktree = dir.path().join("worktree");
+        std::fs::create_dir_all(worktree.join(".claude")).expect("creates");
+        let run = |args: &[&str]| {
+            let git = Command::new("git")
+                .arg("-C")
+                .arg(&worktree)
+                .args(args)
+                .output();
+            assert!(git.expect("git runs").status.success(), "git {args:?}");
+        };
+        run(&["init", "--quiet"]);
+        let stdio = |command: &str| json!({ "command": command });
+        let project = json!({ "mcpServers": {
+            "team": stdio("project"), "shadowed": stdio("project"),
+            "other": stdio("project"), "off": stdio("project"),
+        } });
+        write(&worktree.join(".mcp.json"), &project);
+        let config = dir.path().join("claude.json");
+        write(
+            &config,
+            &json!({ "mcpServers": { "shadowed": stdio("user") } }),
+        );
+        (dir, config, worktree)
+    }
+
+    fn shared(config: &Path, worktree: &Path) -> Vec<(String, String)> {
+        let command = |server: McpServer| match server.transport {
+            McpTransport::Stdio { command, .. } => (server.name, command),
+            McpTransport::Http { url, .. } => (server.name, url),
+        };
+        let servers = claude_code_servers_to_share(config, worktree, worktree);
+        servers.into_iter().map(command).collect()
+    }
+
+    fn pair(name: &str, command: &str) -> (String, String) {
+        (name.to_string(), command.to_string())
+    }
+
+    #[test]
+    fn a_server_of_the_repository_is_shared_only_once_the_user_approved_it() {
+        let (_dir, config, worktree) = shared_fixture();
+        // Nothing is approved: only the user's own is given, under a name the file has too.
+        assert_eq!(shared(&config, &worktree), [pair("shadowed", "user")]);
+        // Claude Code itself is still told of them all, to ask about in its own way.
+        let all = claude_code_servers(&config, &worktree, &worktree);
+        assert_eq!(names(&all), ["off", "other", "shadowed", "team"]);
+
+        // Approved in Claude Code, which writes it into a file git does not track.
+        let local = worktree.join(".claude/settings.local.json");
+        write(
+            &local,
+            &json!({ "enabledMcpjsonServers": ["team", "shadowed", "off"], "disabledMcpjsonServers": ["off"] }),
+        );
+        assert_eq!(
+            shared(&config, &worktree),
+            [pair("shadowed", "project"), pair("team", "project")]
+        );
+    }
+
+    #[test]
+    fn a_repository_cannot_approve_its_own_servers() {
+        let (_dir, config, worktree) = shared_fixture();
+        let everything =
+            json!({ "enableAllProjectMcpServers": true, "enabledMcpjsonServers": ["team"] });
+        // The settings that are checked in are the repository's word, not the user's.
+        write(&worktree.join(".claude/settings.json"), &everything);
+        assert_eq!(shared(&config, &worktree), [pair("shadowed", "user")]);
+        // Nor does the local file count once git tracks it: then a branch brought it.
+        let local = worktree.join(".claude/settings.local.json");
+        write(&local, &everything);
+        let add = Command::new("git")
+            .arg("-C")
+            .arg(&worktree)
+            .args(["add", "--force", ".claude/settings.local.json"])
+            .output();
+        assert!(add.expect("git runs").status.success());
+        assert_eq!(shared(&config, &worktree), [pair("shadowed", "user")]);
+    }
+
+    #[test]
+    fn approvals_in_the_users_own_files_count_and_a_rejection_anywhere_wins() {
+        let (dir, config, worktree) = shared_fixture();
+        // All of them, in the user's settings; one switched off for this folder, and one
+        // rejected by the repository's own settings, which may always say no.
+        std::fs::create_dir_all(dir.path().join(".claude")).expect("creates");
+        write(
+            &dir.path().join(".claude/settings.json"),
+            &json!({ "enableAllProjectMcpServers": true }),
+        );
+        let stdio = |command: &str| json!({ "command": command });
+        write(
+            &config,
+            &json!({
+                "mcpServers": { "shadowed": stdio("user") },
+                "projects": { worktree.to_string_lossy(): { "disabledMcpServers": ["off"] } },
+            }),
+        );
+        write(
+            &worktree.join(".claude/settings.json"),
+            &json!({ "disabledMcpjsonServers": ["other"] }),
+        );
+        assert_eq!(
+            shared(&config, &worktree),
+            [pair("shadowed", "project"), pair("team", "project")]
+        );
+
+        // Approved by name in Claude Code's own file, as its earlier versions wrote it.
+        std::fs::remove_file(dir.path().join(".claude/settings.json")).expect("removes");
+        write(
+            &config,
+            &json!({ "projects": { worktree.to_string_lossy(): { "enabledMcpjsonServers": ["team"] } } }),
+        );
+        assert_eq!(shared(&config, &worktree), [pair("team", "project")]);
     }
 
     #[test]

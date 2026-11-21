@@ -139,8 +139,9 @@ function single(event: AgentEvent, key: number): Item | null {
             return { kind: "text", key, text: event.text, streaming: true };
         case "terminal_shared":
             return { kind: "terminal", key, text: event.text };
+        // A view of nothing is not drawn: there is nothing in it to see.
         case "view":
-            return { kind: "view", key, html: event.html };
+            return event.html.trim() === "" ? null : { kind: "view", key, html: event.html };
         case "forked":
             return { kind: "forked", key, from: event.from };
         case "init":
@@ -231,9 +232,38 @@ export function toItems(events: AgentEvent[]): Item[] {
     // A view the tool handed over stands for the call that showed it. The call itself is only
     // drawn as a view where no such handover was recorded, as in conversations from before.
     const handed = new Set(events.flatMap((event) => (event.type === "view" ? [event.html] : [])));
-    const shownTwice = (item: Item) =>
-        item.kind === "tool" && handed.has(shownHtml(item.name, item.input));
+    const shownTwice = (item: Item) => item.kind === "tool" && handedOver(handed, item);
     return draft.items.filter((item) => !(draft.settled.has(item) || shownTwice(item)));
+}
+
+/**
+ * Whether a tool call showed HTML that a view stands for. A call that shows no HTML is never
+ * one: every ordinary tool shows the empty string, which an empty view must not stand for.
+ */
+function handedOver(handed: Set<string>, tool: Extract<Item, { kind: "tool" }>): boolean {
+    const html = shownHtml(tool.name, tool.input);
+    return html !== "" && handed.has(html);
+}
+
+/** What of a tool call is drawn: its name, its arguments and how it ended. */
+export interface ToolShown {
+    name: string;
+    input: unknown;
+    result: ToolResult | null;
+}
+
+/**
+ * Whether two tool calls are drawn alike. The transcript's items are built again for every
+ * piece of a reply, with a new result object for each call, so the result is compared by what
+ * it holds; the arguments are the event's own and stay the same object.
+ */
+export function sameToolCall(a: ToolShown, b: ToolShown): boolean {
+    return (
+        a.name === b.name &&
+        a.input === b.input &&
+        a.result?.content === b.result?.content &&
+        a.result?.isError === b.result?.isError
+    );
 }
 
 function add(draft: Draft, event: AgentEvent, key: number) {

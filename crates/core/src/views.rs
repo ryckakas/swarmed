@@ -17,25 +17,30 @@ use crate::{Core, lock, open};
 pub const VIEW_POLICY: &str = "default-src 'none'; style-src 'unsafe-inline'; \
     script-src 'unsafe-inline'; img-src data:; font-src data:; form-action 'none'; base-uri 'none'";
 
-/// Where `tag`, such as `<head`, ends in `document`, if it is there. Tag names are matched
-/// whatever their case.
-fn after_tag(document: &str, tag: &str) -> Option<usize> {
-    let start = document.to_ascii_lowercase().find(tag)?;
+/// Where the `<!doctype …>` that `document` begins with ends, if it begins with one.
+fn after_doctype(document: &str) -> Option<usize> {
+    const DOCTYPE: &str = "<!doctype";
+    let start = document.len() - document.trim_start().len();
+    let opening = document[start..].get(..DOCTYPE.len())?;
+    if !opening.eq_ignore_ascii_case(DOCTYPE) {
+        return None;
+    }
     Some(start + document[start..].find('>')? + 1)
 }
 
 /// `document` carrying [`VIEW_POLICY`] inside it, for when no server is there to send it as a
 /// header: a browser reading the file applies it all the same.
+///
+/// The policy goes before everything the agent wrote but a doctype, where a browser takes it
+/// into the head it makes up for a document that has not opened one yet. Nothing is looked
+/// for in the document: a `<head` found there may be a `<header>`, or sit in a comment or a
+/// script, and a policy put after it would be in the body, where browsers ignore it.
 fn with_policy(document: &str) -> String {
     let policy = format!(r#"<meta http-equiv="Content-Security-Policy" content="{VIEW_POLICY}">"#);
-    if let Some(at) = after_tag(document, "<head") {
-        return format!("{}{policy}{}", &document[..at], &document[at..]);
+    match after_doctype(document) {
+        Some(at) => format!("{}{policy}{}", &document[..at], &document[at..]),
+        None => format!("<!doctype html>{policy}{document}"),
     }
-    if let Some(at) = after_tag(document, "<html") {
-        let (before, rest) = document.split_at(at);
-        return format!("{before}<head>{policy}</head>{rest}");
-    }
-    format!("<!doctype html><head>{policy}</head>{document}")
 }
 
 /// Writes `document`, with the policy in it, to a file a browser can open and returns it.
@@ -170,23 +175,39 @@ mod tests {
     }
 
     #[test]
-    fn the_policy_goes_into_the_head_whatever_the_document_has() {
-        let meta = |document: &str| {
+    fn the_policy_comes_before_everything_the_document_holds() {
+        // The policy, and what stands before and after it.
+        let split = |document: &str| {
             let shown = with_policy(document);
             assert_eq!(shown.matches("Content-Security-Policy").count(), 1);
-            shown
+            let (before, rest) = shown
+                .split_once("<meta http-equiv")
+                .expect("has the policy");
+            let (_, after) = rest.split_once("\">").expect("the policy ends");
+            (before.to_string(), after.to_string())
         };
-        let whole = meta(
-            "<!doctype html>\n<HTML lang=\"en\"><Head><title>t</title></head><body></body></html>",
-        );
-        assert!(whole.starts_with("<!doctype html>\n<HTML lang=\"en\"><Head><meta http-equiv"));
-        assert!(whole.ends_with("<title>t</title></head><body></body></html>"));
-        let headless = meta("<html><body><p>hi</p></body></html>");
-        assert!(headless.starts_with("<html><head><meta "));
-        assert!(headless.ends_with("</head><body><p>hi</p></body></html>"));
-        let fragment = meta("<p>hi</p>");
-        assert!(fragment.starts_with("<!doctype html><head><meta "));
-        assert!(fragment.ends_with("</head><p>hi</p>"));
+        let whole =
+            "<!DOCTYPE html>\n<HTML lang=\"en\"><Head><title>t</title></head><body></body></html>";
+        let (before, after) = split(whole);
+        assert_eq!(before, "<!DOCTYPE html>");
+        assert_eq!(format!("{before}{after}"), whole);
+        // Nothing else of the document may come first, whatever it looks like.
+        let documents = [
+            "<p>hi</p>",
+            "<header>Top</header><p>hi</p>",
+            "<!-- <head> --><p>hi</p>",
+            "<script>const s = '<head>';</script><p>hi</p>",
+            "<html><body><p>hi</p></body></html>",
+            "<!-- a comment first --><!doctype html><html><head></head></html>",
+        ];
+        for document in documents {
+            let (before, after) = split(document);
+            assert_eq!(before, "<!doctype html>", "{document}");
+            assert_eq!(after, document);
+        }
+        // Text that only starts like a doctype, or is cut off in one, is not taken for one.
+        assert_eq!(split("<!doctype").0, "<!doctype html>");
+        assert_eq!(split("é").1, "é");
     }
 
     #[test]

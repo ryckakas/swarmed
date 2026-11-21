@@ -78,13 +78,13 @@ impl AgentBackend for AcpBackend {
         let (event_tx, events) = mpsc::unbounded_channel();
         let (commands, command_rx) = mpsc::unbounded_channel();
         let session = Conversation::new(spec, stdin, event_tx);
-        drop(tokio::spawn(drive(
-            session, child, stdout, stderr, command_rx,
-        )));
+        // The task holds the process, which is killed when the task goes.
+        let driving = tokio::spawn(drive(session, child, stdout, stderr, command_rx));
         Ok(AgentHandle {
             events,
             commands,
             pid,
+            tasks: vec![driving.abort_handle()],
         })
     }
 }
@@ -305,6 +305,14 @@ impl Conversation {
 
     async fn on_session_open(&mut self, result: &Value) {
         self.replaying = false;
+        self.modes = option_values(result, "mode");
+        if self.cannot_be_held_back() {
+            // Nothing has been sent to it yet, and nothing is: the conversation ends here.
+            self.failure = Some(
+                "this agent has no mode that keeps it from acting, so it is not asked".to_string(),
+            );
+            return;
+        }
         if let Some(id) = str_of(result, "sessionId") {
             self.session_id = Some(id.to_string());
         }
@@ -325,7 +333,6 @@ impl Conversation {
         if let Some(applied) = self.applied(result) {
             self.emit(applied);
         }
-        self.modes = option_values(result, "mode");
         self.set_mode().await;
         self.set_effort(result).await;
         self.set_fast(&option_values(result, FAST_MODE)).await;
@@ -440,6 +447,14 @@ impl Conversation {
         let params = json!({ "sessionId": session_id, "configId": "mode", "value": mode });
         self.call(Call::SetOption, "session/set_config_option", params)
             .await;
+    }
+
+    /// Whether the agent is wanted for words only and would act without asking all the same:
+    /// it has modes of its own and none of them is one that plans, reads or asks. Swarmed
+    /// refuses what such an agent asks for, but in the mode it is in it may never ask.
+    fn cannot_be_held_back(&self) -> bool {
+        let held = agent_mode(self.spec.supervision, &self.modes).is_some();
+        self.spec.words_only && !self.modes.is_empty() && !held
     }
 
     /// Whether what the agent asks permission for is allowed without showing it to the user.
@@ -560,15 +575,16 @@ impl Conversation {
         if let Some(known) = self.unannounced.get_mut(&tool_id) {
             merge_tool(known, tool);
         }
+        // Named from all that is known of the call: its announcement may say what kind of
+        // call it is where the request does not.
+        let known = self.unannounced.get(&tool_id).unwrap_or(tool);
+        let tool_name = tool_name(known).to_string();
         self.announce_tool(&tool_id);
         self.flush_text();
         let request_id = id.to_string();
         self.emit(AgentEvent::PermissionRequest {
             request_id: request_id.clone(),
-            tool_name: str_of(tool, "title")
-                .or_else(|| str_of(tool, "kind"))
-                .unwrap_or("tool")
-                .to_string(),
+            tool_name,
             input: tool.get("rawInput").cloned().unwrap_or_else(|| json!({})),
             description: None,
         });
@@ -920,21 +936,31 @@ fn merge_tool(known: &mut Value, later: &Value) {
     }
 }
 
-fn tool_use(update: &Value) -> AgentEvent {
-    let input = update.get("rawInput").cloned().unwrap_or_else(|| json!({}));
-    let title = str_of(update, "title");
-    // Some agents title a shell call with the command itself, which the arguments already say.
-    let repeats_command = title.is_some() && title == str_of(&input, "command");
-    let kind = str_of(update, "kind");
+/// What a tool call is named by, wherever it is shown: its title, or failing that its kind.
+///
+/// Some agents title a shell call with the command itself. That is an argument, not a name:
+/// the arguments already say it, and a name goes where arguments must not, such as into a
+/// notification. Such a call is named by its kind, and never by the title.
+fn tool_name(tool: &Value) -> &str {
+    let title = str_of(tool, "title");
+    let command = tool
+        .get("rawInput")
+        .and_then(|input| str_of(input, "command"));
+    let repeats_command = title.is_some() && title == command;
+    let kind = str_of(tool, "kind");
     let name = if repeats_command {
-        kind.or(title)
+        kind
     } else {
         title.or(kind)
     };
+    name.unwrap_or("tool")
+}
+
+fn tool_use(update: &Value) -> AgentEvent {
     AgentEvent::ToolUse {
         id: str_of(update, "toolCallId").unwrap_or_default().to_string(),
-        name: name.unwrap_or("tool").to_string(),
-        input,
+        name: tool_name(update).to_string(),
+        input: update.get("rawInput").cloned().unwrap_or_else(|| json!({})),
     }
 }
 
@@ -1071,6 +1097,9 @@ mod tests {
         let read = json!({ "title": "Read file", "kind": "read", "rawInput": { "path": "a" } });
         assert_eq!(named(read), "Read file");
         assert_eq!(named(json!({})), "tool");
+        // With no kind to go by, the command still does not stand in for a name.
+        let bare = json!({ "title": "rm -rf build", "rawInput": { "command": "rm -rf build" } });
+        assert_eq!(tool_name(&bare), "tool");
     }
 
     #[test]

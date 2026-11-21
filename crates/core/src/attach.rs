@@ -7,7 +7,9 @@
 use std::fmt::Write;
 use std::path::PathBuf;
 
+use crate::agent::Auth;
 use crate::error::{Error, Result};
+use crate::{Core, QueuedMessage};
 
 /// The line that opens the list of attached files in a message.
 pub const ATTACHED_FILES: &str = "Attached files:";
@@ -42,6 +44,36 @@ pub fn with_files(text: &str, files: &[PathBuf]) -> Result<String> {
         write!(message, "\n- {}", file.display()).ok();
     }
     Ok(message)
+}
+
+impl Core {
+    /// Sends `text`, with `files` listed under it, to a session, starting its agent first if
+    /// it is not running.
+    ///
+    /// A message that cannot be sent as it is, such as one naming a file that is not there, is
+    /// refused before the agent is started. Must be called from within a tokio runtime.
+    pub fn session_message(
+        &self,
+        id: i64,
+        text: &str,
+        files: &[PathBuf],
+        auth: Auth,
+    ) -> Result<()> {
+        let message = with_files(text, files)?;
+        self.session_start(id, auth)?;
+        self.session_send(id, &message)
+    }
+
+    /// Adds `text`, with `files` listed under it, to the end of the session's queue and
+    /// returns the queue.
+    pub fn session_enqueue_message(
+        &self,
+        id: i64,
+        text: &str,
+        files: &[PathBuf],
+    ) -> Result<Vec<QueuedMessage>> {
+        self.session_enqueue(id, &with_files(text, files)?)
+    }
 }
 
 #[cfg(test)]

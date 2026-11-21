@@ -2,17 +2,19 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use rusqlite::{OptionalExtension, Row, params};
 use serde::Serialize;
 use serde_json::Value;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, oneshot, watch};
+use tokio::task::AbortHandle;
 
 use crate::agent::{
-    AgentCommand, AgentEvent, Auth, Effort, Namer, PLAN_TOOL, SessionSpec, Supervision,
+    AgentBackend, AgentCommand, AgentEvent, Auth, Effort, Namer, PLAN_TOOL, SessionSpec,
+    Supervision,
 };
 use crate::agents::CLAUDE;
 use crate::error::{Error, Result};
@@ -35,6 +37,15 @@ use crate::{Core, lock, peers, views};
 /// What stands above the user's rules where an agent reads them.
 const RULES_HEADING: &str = "The user has set these rules. They apply to everything you do and \
 write in this session, and come before your own defaults:";
+
+/// Where, in the data directory, each session has a folder for what its agent is handed as a
+/// file and nobody else may read.
+const PRIVATE_DIR: &str = "run/agents";
+
+/// How long an agent that was stopped has to go by itself before it is killed. Closing its
+/// input asks it to; one that carries on regardless would write into a worktree that is
+/// being removed, or wait for ever on an answer nobody will give.
+const GRACE: Duration = Duration::from_secs(3);
 
 const TITLE_CHARS: usize = 60;
 /// How long a title the user typed may be.
@@ -282,6 +293,25 @@ impl Store {
         session.ok_or(Error::SessionNotFound(id))
     }
 
+    /// Whether the session was closed and has not been reopened since.
+    pub(crate) fn session_is_closed(&self, id: i64) -> Result<bool> {
+        let sql = "SELECT closed_at IS NOT NULL FROM sessions WHERE id = ?1";
+        let closed: Option<bool> = self
+            .conn
+            .query_row(sql, params![id], |row| row.get(0))
+            .optional()?;
+        closed.ok_or(Error::SessionNotFound(id))
+    }
+
+    /// The ids of every session of a task, the closed ones too.
+    fn session_ids(&self, task_id: i64) -> Result<Vec<i64>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM sessions WHERE task_id = ?1 ORDER BY id")?;
+        let rows = stmt.query_map(params![task_id], |row| row.get(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     pub(crate) fn sessions(&self, task_id: i64) -> Result<Vec<Session>> {
         let mut stmt = self.conn.prepare(&format!(
             "{SESSION_SELECT} WHERE task_id = ?1 AND closed_at IS NULL ORDER BY id"
@@ -444,6 +474,15 @@ impl Store {
         Ok(texts.iter().map(|text| event_from_json(text)).collect())
     }
 
+    /// Stores an event and nothing else: the session's row stays as it is.
+    fn keep(&self, session_id: i64, event: &AgentEvent) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO session_events (session_id, event) VALUES (?1, ?2)",
+            params![session_id, serde_json::to_string(event)?],
+        )?;
+        Ok(())
+    }
+
     /// Stores an event and applies what it means for the session's row.
     fn record(
         &self,
@@ -451,10 +490,7 @@ impl Store {
         event: &AgentEvent,
         status: Option<SessionStatus>,
     ) -> Result<()> {
-        self.conn.execute(
-            "INSERT INTO session_events (session_id, event) VALUES (?1, ?2)",
-            params![session_id, serde_json::to_string(event)?],
-        )?;
+        self.keep(session_id, event)?;
         if let Some(status) = status {
             self.conn.execute(
                 "UPDATE sessions SET status = ?2 WHERE id = ?1",
@@ -728,31 +764,57 @@ impl Core {
     }
 
     /// Starts the agent for a session, continuing its conversation if it has one. Does
-    /// nothing if it is already running.
+    /// nothing if it is already running. A closed session is refused: it has to be reopened
+    /// first, so that no agent is at work where no list shows it.
     ///
     /// Every event is stored before it is published, so history survives a front end that
     /// stops listening. Must be called from within a tokio runtime.
     pub fn session_start(&self, id: i64, auth: Auth) -> Result<()> {
         let session = self.session(id)?;
+        if self.store().session_is_closed(id)? {
+            return Err(Error::SessionClosed(id));
+        }
+        // Most calls find the agent running, and then nothing needs working out.
+        if self.live.is_running(id) {
+            return Ok(());
+        }
         let task = self
             .store()
             .task_by_id(session.task_id)?
             .ok_or(Error::SessionNotFound(id))?;
-        // Held from the check to the insert, so two callers cannot start the same session twice.
-        let mut running = self.live.commands();
-        if running.contains_key(&id) {
-            return Ok(());
-        }
+        let spool = self.paths.view_spool(id);
+        let backend = self.agents_now().backend(&session.agent)?;
+        // Worked out before the running sessions are locked: reading settings, other agents'
+        // configuration and the keychain takes a while, and nobody else's message, answer or
+        // stop is to wait for that.
+        let spec = self.spec_for(session, task, &spool, auth)?;
+        let shared = Shared {
+            store: Arc::clone(&self.store),
+            live: Arc::clone(&self.live),
+            terminals: Arc::clone(&self.terminals),
+            paths: self.paths.clone(),
+            spool,
+            backend,
+            spec,
+        };
+        launch(shared, id, Launch::UnlessRunning)
+    }
+
+    /// Everything the agent of `session`, which works in `task`, is started with.
+    fn spec_for(
+        &self,
+        session: Session,
+        task: Task,
+        spool: &Path,
+        auth: Auth,
+    ) -> Result<SessionSpec> {
         let settings = self.settings()?;
         let mut mcp_servers = self.mcp_servers_for(&session.agent, &task)?;
-        let spool = self.paths.view_spool(id);
-        // Whatever an earlier run left behind belongs to a conversation that has moved on.
-        std::fs::remove_dir_all(&spool).ok();
         let own = self.own_mcp_servers()?;
         // One set up here goes before another agent's of the same name.
         mcp_servers.retain(|shared| own.iter().all(|server| server.name != shared.name));
         mcp_servers.extend(own);
-        mcp_servers.extend(self.own_tools(id, &spool));
+        mcp_servers.extend(self.own_tools(session.id, spool));
         let mut env = if session.agent == CLAUDE {
             SecretEnv::default()
         } else {
@@ -760,8 +822,7 @@ impl Core {
         };
         // What the task's environment sets for its hooks, the agent working in it gets too.
         env.0.extend(self.task_env(&task)?);
-        let backend = self.agents_now().backend(&session.agent)?;
-        let handle = backend.start(SessionSpec {
+        Ok(SessionSpec {
             mcp_servers,
             skills: self.skills_had(&session.agent, &task.worktree_path),
             env,
@@ -775,26 +836,15 @@ impl Core {
             resume: session.agent_session_id,
             // Showing a view changes nothing, so it is never worth a question.
             allowed_tools: vec![SHOW_HTML_FOR_CLAUDE.to_string()],
+            private_dir: Some(self.private_dir(session.id)),
             ..SessionSpec::default()
-        })?;
-        let run = self.live.runs.fetch_add(1, Ordering::Relaxed);
-        running.insert(id, (run, handle.commands));
-        if let Some(pid) = handle.pid {
-            lock(&self.live.pids).insert(id, pid);
-        }
-        let shared = Shared {
-            store: Arc::clone(&self.store),
-            live: Arc::clone(&self.live),
-            terminals: Arc::clone(&self.terminals),
-            paths: self.paths.clone(),
-            spool,
-        };
-        drop(tokio::spawn(record_and_publish(
-            handle.events,
-            shared,
-            (id, run),
-        )));
-        Ok(())
+        })
+    }
+
+    /// The folder for what the agent of session `id` is handed as a file.
+    fn private_dir(&self, id: i64) -> PathBuf {
+        let folder = self.paths.data_dir.join(PRIVATE_DIR);
+        folder.join(id.to_string())
     }
 
     /// What every agent is told by Swarmed, on top of what it knows by itself: the user's own
@@ -1025,9 +1075,28 @@ impl Core {
 
     /// Stops a session's agent. Its history stays, and [`Core::session_start`] continues it.
     /// Does nothing if it is not running.
+    ///
+    /// The agent is asked to end by closing its input, and counts as stopped at once. One
+    /// that has not gone a few seconds later is killed.
     pub fn session_stop(&self, id: i64) {
-        // Dropping the last command sender closes the agent's input, which ends it.
-        self.live.commands().remove(&id);
+        self.live.stop(id);
+    }
+
+    /// Stops the agents of every session of a task, closed ones still on their way out
+    /// included, and waits until they have gone: by themselves, or killed for taking too
+    /// long. For when the task's worktree is about to go, so that nothing writes into it.
+    pub(crate) async fn sessions_ended(&self, task_id: i64) -> Result<()> {
+        let ids = self.store().session_ids(task_id)?;
+        let mut endings = vec![];
+        for id in ids {
+            self.session_stop(id);
+            self.terminal_close(id);
+            endings.extend(self.live.endings_of(id));
+        }
+        for ending in endings {
+            ending.gone().await;
+        }
+        Ok(())
     }
 
     /// Changes a session's model, supervision and effort. A running agent is told at once: the
@@ -1089,6 +1158,13 @@ impl Core {
     pub fn session_delete(&self, id: i64) -> Result<()> {
         self.session(id)?;
         self.session_stop(id);
+        // Its conversation is going, so the agent is not given time to finish anything: it
+        // is killed, and whatever it still says meanwhile is dropped. That holds for an
+        // earlier run that is still on its way out too.
+        for ending in self.live.endings_of(id) {
+            ending.discard();
+            ending.kill();
+        }
         self.terminal_close(id);
         self.live.queues.clear(id);
         // Views the agent showed and nobody has read yet. Gone already is as good as removed.
@@ -1096,6 +1172,8 @@ impl Core {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
             _ => {}
         }
+        // What its agent was handed as a file. Its number may be given to a later session.
+        std::fs::remove_dir_all(self.private_dir(id)).ok();
         self.store().session_delete(id)?;
         // Only told, not recorded: there is no session left to record it in.
         self.live.note(&self.store, id, AgentEvent::Deleted)
@@ -1193,13 +1271,85 @@ pub struct SessionEvent {
     pub event: AgentEvent,
 }
 
-/// A running session's command channel, with a number that tells one run from the next.
-type Commands = HashMap<i64, (u64, mpsc::UnboundedSender<AgentCommand>)>;
+/// One run of a session's agent, for as long as it counts as running.
+#[derive(Debug)]
+struct Run {
+    /// Tells this run from the session's earlier and later ones.
+    number: u64,
+    commands: mpsc::UnboundedSender<AgentCommand>,
+    /// Never sent on. It goes when the run is dropped from the running ones, which is what
+    /// tells the task following the run that it was stopped.
+    _stop: oneshot::Sender<()>,
+}
+
+/// The running sessions' agents, by session.
+type Commands = HashMap<i64, Run>;
+
+/// A hold on the end of one run: for making it certain, and for waiting until it has come.
+#[derive(Debug, Clone)]
+struct Ending {
+    /// The tasks that hold the agent's process.
+    tasks: Vec<AbortHandle>,
+    /// Closed when the run's last event has been dealt with.
+    gone: watch::Receiver<()>,
+    /// Set when the session was deleted: what the run still says has nowhere to go.
+    discarded: Arc<AtomicBool>,
+}
+
+impl Ending {
+    /// Kills the agent. Nothing more is heard from it.
+    fn kill(&self) {
+        for task in &self.tasks {
+            task.abort();
+        }
+    }
+
+    /// Has whatever the run still says dropped instead of stored and published.
+    fn discard(&self) {
+        self.discarded.store(true, Ordering::Relaxed);
+    }
+
+    /// Waits until the run is over. It is, a little after [`GRACE`] at the latest, once it
+    /// was stopped; the limit here is for a run that was not.
+    async fn gone(mut self) {
+        // Nothing is ever sent, so this waits for the sender to go, which it does with the
+        // task that follows the run.
+        let over = self.gone.wait_for(|()| false);
+        tokio::time::timeout(GRACE * 3, over).await.ok();
+    }
+}
+
+/// How what a run says is to be taken.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Standing {
+    /// It is the session's agent: the one running, or the last that ran.
+    Current,
+    /// Another run of the session has started since. This one no longer says how the
+    /// session stands.
+    Replaced,
+    /// The session was deleted.
+    Discarded,
+}
+
+/// Whether `event` is only ever shown, and not part of what a session keeps: the pieces of a
+/// reply, whose whole follows; a queue; and what only tells front ends to read something again.
+fn shown_only(event: &AgentEvent) -> bool {
+    matches!(
+        event,
+        AgentEvent::TextDelta { .. }
+            | AgentEvent::Queue { .. }
+            | AgentEvent::ConfigChanged { .. }
+            | AgentEvent::Deleted
+    )
+}
 
 /// The sessions whose agent is running, and the channel their events are published on.
 #[derive(Debug)]
 pub(crate) struct Live {
     commands: Mutex<Commands>,
+    /// Every run that has not ended yet, by its number, with its session: the running ones,
+    /// and the ones that were stopped and are on their way out.
+    endings: Mutex<HashMap<u64, (i64, Ending)>>,
     /// The permission requests of each session that nobody has decided yet.
     open_requests: Mutex<HashMap<i64, HashSet<String>>>,
     /// Sessions whose agent is to be stopped when its turn ends, to start again with new settings.
@@ -1220,6 +1370,7 @@ impl Default for Live {
     fn default() -> Self {
         Self {
             commands: Mutex::default(),
+            endings: Mutex::default(),
             open_requests: Mutex::default(),
             restarts: Mutex::default(),
             queues: Queues::default(),
@@ -1240,8 +1391,69 @@ impl Live {
     pub(crate) fn sender(&self, id: i64) -> Result<mpsc::UnboundedSender<AgentCommand>> {
         self.commands()
             .get(&id)
-            .map(|(_, sender)| sender.clone())
+            .map(|run| run.commands.clone())
             .ok_or(Error::SessionNotRunning(id))
+    }
+
+    fn is_running(&self, id: i64) -> bool {
+        self.commands().contains_key(&id)
+    }
+
+    /// Stops the session's agent, if one runs. Dropping the run closes the agent's input,
+    /// which asks it to end, and tells the task following the run to see that it does.
+    fn stop(&self, id: i64) {
+        // A restart that was still to come is settled by this.
+        lock(&self.restarts).remove(&id);
+        let stopped = self.commands().remove(&id);
+        drop(stopped);
+    }
+
+    /// The session's runs that have not ended yet: the one running, and any that were
+    /// stopped and are on their way out.
+    fn endings_of(&self, id: i64) -> Vec<Ending> {
+        let endings = lock(&self.endings);
+        let of_session = endings.values().filter(|(session, _)| *session == id);
+        of_session.map(|(_, ending)| ending.clone()).collect()
+    }
+
+    /// How what run number `run` of session `id` says is to be taken.
+    fn standing(&self, id: i64, run: u64, ending: &Ending) -> Standing {
+        if ending.discarded.load(Ordering::Relaxed) {
+            return Standing::Discarded;
+        }
+        let commands = self.commands();
+        let replaced = commands.get(&id).is_some_and(|live| live.number != run);
+        if replaced {
+            Standing::Replaced
+        } else {
+            Standing::Current
+        }
+    }
+
+    /// Keeps and passes on what a run says after another has taken its place, without
+    /// letting it change how the session stands: no status, no open requests, nothing to
+    /// read. That its turn or its process ended is dropped altogether, since front ends take
+    /// either for the end of the session's own turn, which is the new agent's to report.
+    fn note_late(&self, store: &Mutex<Store>, session_id: i64, event: AgentEvent) {
+        let an_end = matches!(
+            event,
+            AgentEvent::TurnDone { .. } | AgentEvent::Exited { .. }
+        );
+        if an_end {
+            return;
+        }
+        if !shown_only(&event) {
+            lock(store).keep(session_id, &event).ok();
+        }
+        let status = None;
+        // An error only means nobody is subscribed right now.
+        self.bus
+            .send(SessionEvent {
+                session_id,
+                status,
+                event,
+            })
+            .ok();
     }
 
     pub(crate) fn command(&self, id: i64, command: AgentCommand) -> Result<()> {
@@ -1277,21 +1489,11 @@ impl Live {
     ) -> Result<()> {
         let event = self.timed(session_id, event);
         let status = self.status_after(session_id, &event);
-        // Pieces of a reply are only shown, the whole reply is what gets stored; and a queue is
-        // not part of the conversation.
-        let shown_only = matches!(
-            event,
-            AgentEvent::TextDelta { .. }
-                | AgentEvent::Queue { .. }
-                | AgentEvent::ConfigChanged { .. }
-                | AgentEvent::Deleted
-        );
-        let stored = if shown_only {
+        let stored = if shown_only(&event) {
             Ok(())
         } else {
             lock(store).record(session_id, &event, status)
         };
-        let turn_over = matches!(event, AgentEvent::TurnDone { .. });
         // An error only means nobody is subscribed right now.
         self.bus
             .send(SessionEvent {
@@ -1300,9 +1502,6 @@ impl Live {
                 event,
             })
             .ok();
-        if turn_over && lock(&self.restarts).remove(&session_id) {
-            self.commands().remove(&session_id);
-        }
         stored
     }
 
@@ -1353,22 +1552,17 @@ impl Live {
         }
     }
 
-    /// Forgets a session whose agent has exited, unless it was restarted in the meantime.
+    /// Forgets a run whose agent has gone. The session no longer counts as running, unless
+    /// it was started again in the meantime.
     fn forget(&self, id: i64, run: u64) {
+        lock(&self.endings).remove(&run);
         let mut commands = self.commands();
-        if commands
-            .get(&id)
-            .is_some_and(|(current, _)| *current == run)
-        {
+        if commands.get(&id).is_some_and(|live| live.number == run) {
             commands.remove(&id);
         }
     }
 }
 
-/// Stores and publishes a run's events until its agent exits.
-///
-/// Takes only the event half of the agent's handle: holding a command sender here would keep
-/// the agent's input open, and [`Core::session_stop`] could never end it.
 /// Records and publishes the views the session's tool server was given since last time.
 fn show_views(store: &Mutex<Store>, live: &Live, id: i64, spool: &Path) {
     for html in take_views(spool) {
@@ -1377,6 +1571,7 @@ fn show_views(store: &Mutex<Store>, live: &Live, id: i64, spool: &Path) {
 }
 
 /// What the task following one agent's events needs of the core.
+#[derive(Clone)]
 struct Shared {
     store: Arc<Mutex<Store>>,
     live: Arc<Live>,
@@ -1385,47 +1580,196 @@ struct Shared {
     paths: Paths,
     /// Where the session's tool server leaves the views it is given.
     spool: PathBuf,
+    /// What runs the session's agent, and what it was started with: for starting it again
+    /// from here, when new settings are due and a message is waiting for them.
+    backend: Arc<dyn AgentBackend>,
+    spec: SessionSpec,
 }
 
+/// Whether an agent is started only for a session that has none running, or in place of the
+/// one it has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Launch {
+    UnlessRunning,
+    Replacing,
+}
+
+/// Starts the agent `shared` describes for session `id`, and a task that follows it to its
+/// end. Must be called from within a tokio runtime.
+fn launch(shared: Shared, id: i64, how: Launch) -> Result<()> {
+    let live = Arc::clone(&shared.live);
+    // Held from the check to the insert, so two callers cannot start the same session twice.
+    // Only the start itself happens under it: what it needs was worked out before.
+    let mut running = live.commands();
+    if how == Launch::UnlessRunning {
+        if running.contains_key(&id) {
+            return Ok(());
+        }
+        // Whatever an earlier run left behind belongs to a conversation that has moved on.
+        std::fs::remove_dir_all(&shared.spool).ok();
+    }
+    let handle = shared.backend.start(shared.spec.clone())?;
+    let number = live.runs.fetch_add(1, Ordering::Relaxed);
+    let (stop, stopped) = oneshot::channel();
+    let (gone, ended) = watch::channel(());
+    let ending = Ending {
+        tasks: handle.tasks,
+        gone: ended,
+        discarded: Arc::default(),
+    };
+    // A run this takes the place of is dropped here, which stops it.
+    let run = Run {
+        number,
+        commands: handle.commands,
+        _stop: stop,
+    };
+    running.insert(id, run);
+    drop(running);
+    lock(&live.endings).insert(number, (id, ending.clone()));
+    if let Some(pid) = handle.pid {
+        lock(&live.pids).insert(id, pid);
+    }
+    let reaper = Reaper {
+        stopped,
+        kill_at: None,
+        ending,
+        _gone: gone,
+    };
+    drop(tokio::spawn(record_and_publish(
+        handle.events,
+        shared,
+        (id, number),
+        reaper,
+    )));
+    Ok(())
+}
+
+/// Starts the session's agent again, in place of the one running, with the settings the
+/// session has now. Everything else it is started with stays as it was.
+fn relaunch(shared: &Shared, id: i64) -> Result<()> {
+    let session = lock(&shared.store).session_by_id(id)?;
+    let mut next = shared.clone();
+    next.spec.model = session.model;
+    next.spec.supervision = session.supervision;
+    next.spec.effort = session.effort;
+    next.spec.fast = session.fast;
+    next.spec.resume = session.agent_session_id;
+    launch(next, id, Launch::Replacing)
+}
+
+/// Follows one run to its end: hands out its events, and sees that an agent that was stopped
+/// goes, by killing it if it has not gone by itself after [`GRACE`].
+struct Reaper {
+    /// Resolves when the run is dropped from the running ones: stopped, or replaced.
+    stopped: oneshot::Receiver<()>,
+    /// When the agent is killed, once it was stopped.
+    kill_at: Option<tokio::time::Instant>,
+    ending: Ending,
+    /// Dropped with this, which tells whoever waits for the run's end that it has come.
+    _gone: watch::Sender<()>,
+}
+
+impl Reaper {
+    /// The run's next event, or `None` when its agent has gone or was killed.
+    async fn next(
+        &mut self,
+        events: &mut mpsc::UnboundedReceiver<AgentEvent>,
+    ) -> Option<AgentEvent> {
+        loop {
+            let kill_at = self.kill_at;
+            let deadline = kill_at.unwrap_or_else(tokio::time::Instant::now);
+            tokio::select! {
+                event = events.recv() => return event,
+                _ = &mut self.stopped, if kill_at.is_none() => {
+                    self.kill_at = Some(tokio::time::Instant::now() + GRACE);
+                }
+                () = tokio::time::sleep_until(deadline), if kill_at.is_some() => {
+                    self.ending.kill();
+                    return None;
+                }
+            }
+        }
+    }
+}
+
+/// Stores and publishes a run's events until its agent has gone.
+///
+/// Takes only the event half of the agent's handle: holding a command sender here would keep
+/// the agent's input open, and [`Core::session_stop`] could never end it.
 async fn record_and_publish(
     mut events: mpsc::UnboundedReceiver<AgentEvent>,
     shared: Shared,
     (id, run): (i64, u64),
+    mut reaper: Reaper,
 ) {
-    let Shared {
-        store,
-        live,
-        terminals,
-        paths,
-        spool,
-    } = shared;
-    while let Some(event) = events.recv().await {
-        // A turn that ended well makes room for the next message the user left waiting. One
-        // that was stopped or failed does not: what comes next is then theirs to decide.
-        let finished = matches!(
-            event,
-            AgentEvent::TurnDone {
-                is_error: false,
-                ..
-            }
-        );
-        // A full disk must not cut the user off from a running agent: the event is published
-        // even if storing it failed.
-        // A tool has answered or the turn is over: time to show what the agent handed to
-        // Swarmed's own tool meanwhile, however it came to call it.
-        let settled = matches!(
-            &event,
-            AgentEvent::ToolResult { .. } | AgentEvent::TurnDone { .. }
-        ) || matches!(&event, AgentEvent::Sub { event, .. } if matches!(**event, AgentEvent::ToolResult { .. }));
-        live.note(&store, id, event).ok();
-        if settled {
-            show_views(&store, &live, id, &spool);
-        }
-        if finished {
-            queue::send_next(&store, &live, (&terminals, &paths), id).ok();
-        }
+    let mut exited = false;
+    while let Some(event) = reaper.next(&mut events).await {
+        exited |= matches!(event, AgentEvent::Exited { .. });
+        take(&shared, (id, run), &reaper.ending, event);
     }
-    live.forget(id, run);
+    if !exited {
+        // Killed, or gone without a word: that it has ended is said for it.
+        let ended = AgentEvent::Exited {
+            code: None,
+            stderr: String::new(),
+        };
+        take(&shared, (id, run), &reaper.ending, ended);
+    }
+    shared.live.forget(id, run);
+}
+
+/// Deals with one event of run number `run` of session `id`, by how that run stands now.
+fn take(shared: &Shared, (id, run): (i64, u64), ending: &Ending, event: AgentEvent) {
+    match shared.live.standing(id, run, ending) {
+        Standing::Current => on_event(shared, id, event),
+        Standing::Replaced => shared.live.note_late(&shared.store, id, event),
+        // Nothing is left to store it in, and front ends have been told the session is gone.
+        Standing::Discarded => {}
+    }
+}
+
+/// Stores and publishes an event of the session's agent, and does what follows from it.
+fn on_event(shared: &Shared, id: i64, event: AgentEvent) {
+    let (store, live) = (&shared.store, &shared.live);
+    let turn_over = matches!(event, AgentEvent::TurnDone { .. });
+    // A turn that ended well makes room for the next message the user left waiting. One
+    // that was stopped or failed does not: what comes next is then theirs to decide.
+    let finished = matches!(
+        event,
+        AgentEvent::TurnDone {
+            is_error: false,
+            ..
+        }
+    );
+    // A tool has answered or the turn is over: time to show what the agent handed to
+    // Swarmed's own tool meanwhile, however it came to call it.
+    let settled = matches!(
+        &event,
+        AgentEvent::ToolResult { .. } | AgentEvent::TurnDone { .. }
+    ) || matches!(&event, AgentEvent::Sub { event, .. } if matches!(**event, AgentEvent::ToolResult { .. }));
+    // A full disk must not cut the user off from a running agent: the event is published
+    // even if storing it failed.
+    live.note(store, id, event).ok();
+    if settled {
+        show_views(store, live, id, &shared.spool);
+    }
+    if turn_over && lock(&live.restarts).remove(&id) {
+        restart(shared, id, finished);
+    }
+    if finished {
+        queue::send_next(store, live, (&shared.terminals, &shared.paths), id).ok();
+    }
+}
+
+/// Stops the agent of a session whose settings changed during the turn that is now over, so
+/// that it starts again with them. With nothing waiting, it starts with the next message. A
+/// message waiting in the queue is sent as this turn ends, and it is the new settings the
+/// user wants it answered with: the agent is started again here, before the message goes.
+fn restart(shared: &Shared, id: i64, finished: bool) {
+    let waiting = finished && shared.live.queues.is_waiting(id);
+    if !(waiting && relaunch(shared, id).is_ok()) {
+        shared.live.stop(id);
+    }
 }
 
 #[cfg(test)]

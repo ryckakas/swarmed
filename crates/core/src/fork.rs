@@ -64,15 +64,22 @@ fn transcript(events: &[AgentEvent]) -> String {
 }
 
 /// What a fork's agent has to be told with the next message: the conversation it was forked
-/// from, as long as nothing has been said in the fork itself yet.
+/// from, until a turn in the fork itself has ended well. A message alone is not enough: an
+/// agent that died on the first one never heard the conversation, and the next try needs it.
 pub(crate) fn carried(events: &[AgentEvent]) -> Option<String> {
     let forked = events
         .iter()
         .rposition(|event| matches!(event, AgentEvent::Forked { .. }))?;
-    let said_since = events[forked..]
-        .iter()
-        .any(|event| matches!(event, AgentEvent::UserMessage { .. }));
-    if said_since {
+    let ended_well = |event: &AgentEvent| {
+        matches!(
+            event,
+            AgentEvent::TurnDone {
+                is_error: false,
+                ..
+            }
+        )
+    };
+    if events[forked..].iter().any(ended_well) {
         return None;
     }
     let earlier = transcript(&events[..forked]);
@@ -206,14 +213,39 @@ mod tests {
     }
 
     #[test]
-    fn the_earlier_conversation_is_carried_until_something_is_said_in_the_fork() {
+    fn the_earlier_conversation_is_carried_until_a_turn_in_the_fork_ends_well() {
         let forked = AgentEvent::Forked { from: 7 };
+        let earlier = Some("User:\none\n\nAssistant:\ntwo");
         let fresh = [user("one"), reply("two"), forked.clone()];
-        assert_eq!(
-            carried(&fresh).as_deref(),
-            Some("User:\none\n\nAssistant:\ntwo")
-        );
-        let continued = [user("one"), reply("two"), forked.clone(), user("three")];
+        assert_eq!(carried(&fresh).as_deref(), earlier);
+        // The agent died on the first message, or its turn failed: the next try carries it too.
+        let died = AgentEvent::Exited {
+            code: Some(1),
+            stderr: String::new(),
+        };
+        let failed = AgentEvent::TurnDone {
+            is_error: true,
+            result: None,
+            cost_usd: None,
+            duration_ms: None,
+        };
+        for ending in [died, failed] {
+            let retried = [
+                user("one"),
+                reply("two"),
+                forked.clone(),
+                user("three"),
+                ending,
+            ];
+            assert_eq!(carried(&retried).as_deref(), earlier);
+        }
+        let continued = [
+            user("one"),
+            reply("two"),
+            forked.clone(),
+            user("three"),
+            done(),
+        ];
         assert_eq!(carried(&continued), None);
         assert_eq!(carried(&[user("one")]), None);
         // A fork of nothing has nothing to hand on.

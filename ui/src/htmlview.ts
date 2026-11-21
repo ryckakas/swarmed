@@ -175,6 +175,22 @@ export interface HeightMessage {
     swarmedViewHeight: number;
 }
 
+/** The message a view sends its host when a link in it is pressed. */
+export interface LinkMessage {
+    swarmedViewLink: string;
+}
+
+/**
+ * The address a view asks its host to open, if `data` is that message and the address is a
+ * web or mail link. Anything else, a file or another program's own scheme, is not opened:
+ * what a view sends is written by an agent and may be anything.
+ */
+export function requestedLink(data: unknown): string | null {
+    const link = (data as Partial<LinkMessage> | null)?.swarmedViewLink;
+    const known = typeof link === "string" && /^(?:https?:\/\/|mailto:)\S/i.test(link);
+    return known ? link : null;
+}
+
 /** The colours and type a view starts with, taken from the app's theme. */
 export interface ViewTheme {
     text: string;
@@ -198,6 +214,10 @@ export interface ViewTheme {
 // scrollbar goes, and it all starts again: the view flickers between two layouts. So the
 // scrollbar is never shown, and one along the bottom of a view that is too wide is counted into
 // the height. The host says so when it stops following a view, which may then scroll again.
+//
+// Last, a click on a web or mail link is handed to the host, which shows the address and opens
+// it in the user's browser once they agree. The frame cannot go there itself: it may not leave
+// its own origin, nor open a window.
 const REPORT_HEIGHT = `(() => {
     const FRAME_UNITS = /\\d\\s*(?:[sld]?vh|vmin|vmax)\\b/;
     const tame = (style) => {
@@ -225,6 +245,13 @@ const REPORT_HEIGHT = `(() => {
         },
         "*",
     );
+    addEventListener("click", (event) => {
+        const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
+        if (!link || event.defaultPrevented || typeof link.href !== "string") return;
+        if (!/^(?:https?|mailto):/i.test(link.href)) return;
+        event.preventDefault();
+        parent.postMessage({ swarmedViewLink: link.href }, "*");
+    });
     root.style.overflowY = "hidden";
     addEventListener("message", (event) => {
         if (event.source === parent && event.data && event.data.swarmedViewScrolls === true) {

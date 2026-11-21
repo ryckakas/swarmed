@@ -13,6 +13,7 @@
 //! themselves, and can be stopped.
 
 use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -22,7 +23,7 @@ use serde::Serialize;
 use tokio::process::Command as Signal;
 
 use crate::config::ProjectConfig;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::hooks::OutputSink;
 use crate::reach::{self, Local};
 use crate::store::{Project, Task};
@@ -37,6 +38,9 @@ const LEFTOVER_GRACE: Duration = Duration::from_secs(3);
 
 /// How often a stack that was asked to stop is looked at again.
 const STOP_POLL: Duration = Duration::from_millis(50);
+
+/// The most of a stack's log that is read on in one go. What is beyond it comes next time.
+const LOG_STEP_BYTES: u64 = 1_000_000;
 
 /// How much of the end of a stack's log is given to a front end.
 const LOG_TAIL_BYTES: usize = 64_000;
@@ -84,6 +88,7 @@ impl Core {
         if self.stack_running(task.id) {
             return Ok(true);
         }
+        self.room_for_a_stack(project, config, task)?;
         let (command, env) = self.hook_command(&config.hooks.start, project, config, task)?;
         let log = self.stack_log_file(task.id);
         if let Some(dir) = log.parent() {
@@ -110,6 +115,28 @@ impl Core {
         Ok(true)
     }
 
+    /// Refuses when as many of the project's stacks run as its `max_stacks` allows, counting
+    /// the ones an earlier Swarmed left behind.
+    fn room_for_a_stack(
+        &self,
+        project: &Project,
+        config: &ProjectConfig,
+        task: &Task,
+    ) -> Result<()> {
+        let others = self.store().tasks(project.id, false)?;
+        let running = others
+            .iter()
+            .filter(|other| other.id != task.id && self.stack_running(other.id))
+            .count();
+        if u32::try_from(running).unwrap_or(u32::MAX) < config.max_stacks {
+            return Ok(());
+        }
+        Err(Error::TooManyStacks {
+            project: project.name.clone(),
+            limit: config.max_stacks,
+        })
+    }
+
     /// Writes down which process the task's stack is, and when it started: a process id is
     /// handed out again sooner or later, and the next holder of it is no stack of ours.
     fn keep_stack(&self, task: i64, pid: u32) {
@@ -126,7 +153,14 @@ impl Core {
         let written = std::fs::read_to_string(&file).ok()?;
         let (pid, started) = written.trim().split_once('\n')?;
         let pid: u32 = pid.trim().parse().ok()?;
-        if started_at(pid).as_deref() == Some(started.trim()) {
+        let started = started.trim();
+        if started_at(pid).as_deref() == Some(started) {
+            return Some(pid);
+        }
+        // An earlier Swarmed wrote the time in the words of its own language and time zone.
+        // If they are this one's too, the stack is still known, and is written down anew.
+        if started_at_in_local_words(pid).as_deref() == Some(started) {
+            self.keep_stack(task, pid);
             return Some(pid);
         }
         std::fs::remove_file(file).ok();
@@ -223,16 +257,20 @@ impl Core {
         std::fs::remove_file(self.stack_pid_file(task.id)).ok();
     }
 
+    /// Ends the stacks this process started, and no others: a second Swarmed running beside
+    /// this one, such as the app beside a command, keeps its own.
+    pub async fn stacks_stop_started(&self) {
+        let started: Vec<(i64, Child)> = lock(&self.live.stacks).drain().collect();
+        for (task, child) in started {
+            end(Stack::Started(child)).await;
+            std::fs::remove_file(self.stack_pid_file(task)).ok();
+        }
+    }
+
     /// Ends every stack, for when Swarmed quits: nothing it started is left running unseen,
     /// and neither is what an earlier Swarmed left behind.
     pub async fn stacks_stop_all(&self) {
-        let started: Vec<Child> = lock(&self.live.stacks)
-            .drain()
-            .map(|(_, child)| child)
-            .collect();
-        for child in started {
-            end(Stack::Started(child)).await;
-        }
+        self.stacks_stop_started().await;
         let tasks = self.kept_tasks();
         let found: Vec<u32> = tasks
             .iter()
@@ -267,6 +305,37 @@ impl Core {
         };
         let from = bytes.len().saturating_sub(LOG_TAIL_BYTES);
         Ok(String::from_utf8_lossy(&bytes[from..]).into_owned())
+    }
+
+    /// What the task's stack has printed from byte `from` of its log on, and the place to ask
+    /// from next time. A log that is shorter than `from` was begun anew, and is read from its
+    /// start. A great deal that is new comes in several goes.
+    pub fn stack_log_from(&self, project: &str, task: &str, from: u64) -> Result<(String, u64)> {
+        let (_, task) = self.task(project, task)?;
+        let Ok(mut file) = File::open(self.stack_log_file(task.id)) else {
+            return Ok((String::new(), 0));
+        };
+        let from = if from > file.metadata()?.len() {
+            0
+        } else {
+            from
+        };
+        file.seek(SeekFrom::Start(from))?;
+        let mut bytes = Vec::new();
+        file.take(LOG_STEP_BYTES).read_to_end(&mut bytes)?;
+        // A character that is only half written yet is left for the next time.
+        let whole = match std::str::from_utf8(&bytes) {
+            Err(error) if error.error_len().is_none() => error.valid_up_to(),
+            _ => bytes.len(),
+        };
+        let text = String::from_utf8_lossy(&bytes[..whole]).into_owned();
+        Ok((text, from + whole as u64))
+    }
+
+    /// Whether the task's stack is running now. One that has ended by itself is not.
+    pub fn stack_is_running(&self, project: &str, task: &str) -> Result<bool> {
+        let (_, task) = self.task(project, task)?;
+        Ok(self.stack_running(task.id))
     }
 
     fn stack_log_file(&self, task: i64) -> PathBuf {
@@ -326,8 +395,23 @@ async fn gone_within(stack: &mut Stack, limit: Duration) -> bool {
 }
 
 /// When the process `pid` started, as `ps` words it; `None` if there is no such process.
+///
+/// `ps` words a time in the language and the time zone it is run in. Both are fixed here, so
+/// that whoever reads the time back gets the words that were written, whatever it runs in.
 fn started_at(pid: u32) -> Option<String> {
-    let asked = Command::new("ps")
+    let mut ps = Command::new("ps");
+    ps.env("LC_ALL", "C").env("TZ", "UTC");
+    start_time(ps, pid)
+}
+
+/// The same in the language and time zone of this process, as it was written down before
+/// the two were fixed.
+fn started_at_in_local_words(pid: u32) -> Option<String> {
+    start_time(Command::new("ps"), pid)
+}
+
+fn start_time(mut ps: Command, pid: u32) -> Option<String> {
+    let asked = ps
         .args(["-o", "lstart=", "-p", &pid.to_string()])
         .stderr(Stdio::null())
         .output()

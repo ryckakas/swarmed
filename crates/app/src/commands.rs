@@ -13,10 +13,10 @@ use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
     Action, AgentInfo, AgentSetup, ApiKeyInfo, BackgroundTask, BranchChoices, CloudOrigin,
     CloudProvider, CloudTask, Core, Costs, CustomLayout, Environment, FileChange, FileDiff,
-    FileListing, Mark, McpServerInput, McpServerView, NewTaskOptions, Project, ProjectOverview,
-    Pull, PullDraft, QueuedMessage, RemoveOptions, SearchHit, Session, SessionOptions,
-    SessionSettings, Settings, Skill, Snapshot, Task, TaskNaming, Template, TerminalConfig,
-    TurnStats, Unpublished, Usage, with_files,
+    FileListing, McpServerInput, McpServerView, NewTaskOptions, Project, ProjectOverview, Pull,
+    PullDraft, QueuedMessage, RemoveOptions, SearchHit, Session, SessionOptions, SessionSettings,
+    Settings, Skill, Snapshot, Task, TaskNaming, Template, TerminalConfig, TerminalOpened,
+    TurnStats, Unpublished, Usage,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -410,7 +410,7 @@ pub(crate) fn session_mark(
     colour: String,
     label: String,
 ) -> Command<Session> {
-    Ok(core.session_mark(id, Mark::named(&colour, &label)?)?)
+    Ok(core.session_mark_named(id, &colour, &label)?)
 }
 
 /// Adds a skill of Swarmed's own, or replaces the one of that name.
@@ -421,15 +421,13 @@ pub(crate) fn skill_save(
     description: String,
     body: String,
 ) -> Command<Vec<Skill>> {
-    core.skill_save(&name, &description, &body)?;
-    Ok(core.skills())
+    Ok(core.skills_after_save(&name, &description, &body)?)
 }
 
 /// Removes a skill of Swarmed's own.
 #[tauri::command]
 pub(crate) fn skill_remove(core: CoreState<'_>, name: String) -> Command<Vec<Skill>> {
-    core.skill_remove(&name)?;
-    Ok(core.skills())
+    Ok(core.skills_after_remove(&name)?)
 }
 
 /// Says whether a skill is offered to sessions whose agent does not have it by itself.
@@ -440,8 +438,7 @@ pub(crate) fn skill_share(
     name: String,
     shared: bool,
 ) -> Command<Vec<Skill>> {
-    core.skill_share(&origin, &name, shared)?;
-    Ok(core.skills())
+    Ok(core.skills_after_share(&origin, &name, shared)?)
 }
 
 /// A project's environments, by name.
@@ -720,9 +717,8 @@ pub(crate) async fn session_send(
     text: String,
     files: Option<Vec<PathBuf>>,
 ) -> Command<()> {
-    let message = with_files(&text, &files.unwrap_or_default())?;
-    core.session_start(id, Auth::Subscription)?;
-    Ok(core.session_send(id, &message)?)
+    let files = files.unwrap_or_default();
+    Ok(core.session_message(id, &text, &files, Auth::default())?)
 }
 
 #[tauri::command]
@@ -737,8 +733,8 @@ pub(crate) fn session_enqueue(
     text: String,
     files: Option<Vec<PathBuf>>,
 ) -> Command<Vec<QueuedMessage>> {
-    let message = with_files(&text, &files.unwrap_or_default())?;
-    Ok(core.session_enqueue(id, &message)?)
+    let files = files.unwrap_or_default();
+    Ok(core.session_enqueue_message(id, &text, &files)?)
 }
 
 #[tauri::command]
@@ -754,8 +750,7 @@ pub(crate) fn session_queue_edit(
 /// Async for the same reason as `session_send`, which it is a form of.
 #[tauri::command]
 pub(crate) async fn session_send_queued(core: CoreState<'_>, id: i64) -> Command<()> {
-    core.session_start(id, Auth::Subscription)?;
-    Ok(core.session_send_queued(id)?)
+    Ok(core.session_resume_queue(id, Auth::default())?)
 }
 
 /// The sessions in which `query` was said, closed ones included.
@@ -890,11 +885,6 @@ pub(crate) fn session_stop_background(
 }
 
 #[tauri::command]
-pub(crate) fn session_stop(core: CoreState<'_>, id: i64) {
-    core.session_stop(id);
-}
-
-#[tauri::command]
 pub(crate) fn slash_commands(core: CoreState<'_>, id: Option<i64>) -> Command<Vec<String>> {
     Ok(core.slash_commands(id)?)
 }
@@ -945,7 +935,7 @@ pub(crate) async fn terminal_open(
     id: i64,
     cols: u16,
     rows: u16,
-) -> Command<String> {
+) -> Command<TerminalOpened> {
     Ok(core.terminal_open(id, cols, rows)?)
 }
 
@@ -957,11 +947,6 @@ pub(crate) fn terminal_write(core: CoreState<'_>, id: i64, data: String) -> Comm
 #[tauri::command]
 pub(crate) fn terminal_resize(core: CoreState<'_>, id: i64, cols: u16, rows: u16) -> Command<()> {
     Ok(core.terminal_resize(id, cols, rows)?)
-}
-
-#[tauri::command]
-pub(crate) fn terminal_close(core: CoreState<'_>, id: i64) {
-    core.terminal_close(id);
 }
 
 #[tauri::command]

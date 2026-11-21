@@ -18,7 +18,7 @@ case "$*" in
     echo "Error: environment not found; run \`codex cloud\` to list available environments" >&2
     exit 1 ;;
   "cloud exec --env acme/tool --branch "*)
-    echo "$4|$6|$7" > "$(dirname "$0")/asked"
+    echo "$4|$6|$7|$8" > "$(dirname "$0")/asked"
     echo "log" > error.log
     echo "https://chatgpt.com/codex/tasks/task_1" ;;
   *) echo "unexpected: $*" >&2; exit 2 ;;
@@ -111,9 +111,13 @@ async fn work_is_handed_to_a_cloud_agent_and_its_status_followed() {
         ("task_1", "pending")
     );
     assert_eq!((task.provider.as_str(), task.session_id), ("codex", None));
-    // Codex was given the environment, the repository's own branch and the prompt.
+    // Codex was given the environment, the repository's own branch and the prompt, which
+    // comes after `--` so that it is never read as an option.
     let branch = head_branch(&fx.repo);
-    assert_eq!(asked(&fx), format!("acme/tool|{branch}|tidy up the docs"));
+    assert_eq!(
+        asked(&fx),
+        format!("acme/tool|{branch}|--|tidy up the docs")
+    );
     assert_eq!(task.branch, branch);
     // The log Codex leaves where it runs is not kept, and never lands in the repository.
     assert!(!fx.paths.data_dir.join("run/cloud/error.log").exists());

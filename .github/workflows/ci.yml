@@ -16,6 +16,12 @@ env:
 # set to the label of a self-hosted runner, they run there. That machine keeps its own tools
 # (Rust, Node, pnpm, typos, taplo, shellcheck, actionlint, cargo-deny, cargo-shear, zizmor), so
 # the steps that install them are skipped on it, and so is the cache: its checkout stays.
+#
+# Only code from this repository's own people runs on that machine: a push to main, and a pull
+# request from a branch of this repository that Dependabot did not open. Building runs
+# whatever the dependencies' build scripts and macros say, on a machine that keeps its files
+# between runs, so a pull request from a fork or from Dependabot always runs on GitHub's
+# runners, which are thrown away. The `runner` job decides, once, for all the others.
 
 # A new push to a PR makes the previous run's result irrelevant.
 concurrency:
@@ -23,9 +29,39 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  runner:
+    name: Choose the runner
+    # Always one of GitHub's: this job is the one that must not depend on its own answer.
+    runs-on: ubuntu-latest
+    outputs:
+      # The label the jobs run on.
+      label: ${{ steps.choose.outputs.label }}
+      # The systems the tests run on, as a JSON list. A self-hosted runner is one machine, so
+      # the tests run once, there.
+      tests: ${{ steps.choose.outputs.tests }}
+    steps:
+      - name: Choose
+        id: choose
+        env:
+          OWN_RUNNER: ${{ vars.CI_RUNNER }}
+          # A push here is to main, which only this repository's people can do.
+          OWN_CODE: >-
+            ${{ github.event_name == 'push'
+            || (github.event.pull_request.head.repo.full_name == github.repository
+            && github.event.pull_request.user.login != 'dependabot[bot]') }}
+        run: |
+          if [ -n "$OWN_RUNNER" ] && [ "$OWN_CODE" = true ]; then
+            echo "label=$OWN_RUNNER"
+            echo "tests=[\"$OWN_RUNNER\"]"
+          else
+            echo "label=ubuntu-latest"
+            echo 'tests=["macos-latest", "ubuntu-latest"]'
+          fi >> "$GITHUB_OUTPUT"
+
   lint:
     name: Format and lint
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    needs: runner
+    runs-on: ${{ needs.runner.outputs.label }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -110,7 +146,8 @@ jobs:
   dependencies:
     # deny.toml holds the policy: advisories, licenses, duplicate crates and allowed sources.
     name: Dependencies
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    needs: runner
+    runs-on: ${{ needs.runner.outputs.label }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -138,7 +175,8 @@ jobs:
   workflows:
     # Workflows are audited like code: pinned actions, least-privilege tokens, no template injection.
     name: Workflow security
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    needs: runner
+    runs-on: ${{ needs.runner.outputs.label }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -159,7 +197,8 @@ jobs:
 
   ui:
     name: UI
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    needs: runner
+    runs-on: ${{ needs.runner.outputs.label }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -198,12 +237,12 @@ jobs:
     # Swarmed is a macOS app first, so that is where the tests have to pass. Linux is kept
     # working because nothing in the core should be tied to one platform.
     name: Test on ${{ matrix.os }}
+    needs: runner
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        # A self-hosted runner is one machine, so the tests run once, there.
-        os: ${{ fromJSON(vars.CI_RUNNER && format('["{0}"]', vars.CI_RUNNER) || '["macos-latest", "ubuntu-latest"]') }}
+        os: ${{ fromJSON(needs.runner.outputs.tests) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -214,7 +253,8 @@ jobs:
       - name: Install stable Rust
         if: runner.environment == 'github-hosted'
         run: |
-          rustup toolchain install stable --profile minimal --no-self-update
+          rustup toolchain install stable --profile minimal --no-self-update \
+            --component clippy
           rustup default stable
 
       # Tauri links against the system web view, which Linux has to be given.
@@ -235,3 +275,10 @@ jobs:
 
       - name: Test
         run: cargo test --workspace --all-features
+
+      # The lint job's Clippy runs on Linux when GitHub's runners are used, where the code only
+      # a Mac compiles (the notifications, the Dock) is left out. It is held to the same policy
+      # here. On a self-hosted Mac the lint job has done this already.
+      - name: Clippy, for what only a Mac compiles
+        if: runner.os == 'macOS' && runner.environment == 'github-hosted'
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings

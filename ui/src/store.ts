@@ -200,12 +200,68 @@ interface State {
     dismissProblem(): void;
 }
 
-/** Sessions whose history is being read, and whether an event arrived for them meanwhile. */
-const loading = new Map<number, { missedEvent: boolean }>();
+/** What was heard of a session while its history was being read. */
+export interface Reading {
+    /** Whether an event arrived that the history may not hold yet, so it is read again. */
+    missedEvent: boolean;
+    /** The pieces of a reply still being written, which no history holds. */
+    streamed: string;
+}
+
+/** Sessions whose history is being read, and what arrived for them meanwhile. */
+const loading = new Map<number, Reading>();
+
+/**
+ * The events the core publishes and never stores. Reading the history again finds none of
+ * them, so they are no reason to.
+ */
+const NEVER_STORED = new Set<AgentEvent["type"]>([
+    "text_delta",
+    "queue",
+    "config_changed",
+    "deleted",
+]);
+
+/**
+ * The events that end the reply being written, or take its place: the whole reply, a tool call
+ * the agent goes on to, and the end of the turn however it came. The core sends the whole
+ * reply before any of the others, so they only find pieces still standing after a turn that
+ * was cut short.
+ */
+const ENDS_REPLY = new Set<AgentEvent["type"]>([
+    "text",
+    "tool_use",
+    "turn_done",
+    "exited",
+    "user_message",
+]);
+
+/**
+ * Takes note of an event that arrived while its session's history was being read. Only an
+ * event the core stores is a reason to read again: a reply arrives in many pieces that are
+ * never stored, and reading again for each would go on for as long as the agent writes. The
+ * pieces are kept instead, to stand at the end of the history once it is read.
+ */
+export function heardWhileReading(reading: Reading, event: AgentEvent): void {
+    if (event.type === "text_delta") {
+        reading.streamed += event.text;
+    }
+    if (ENDS_REPLY.has(event.type)) {
+        reading.streamed = "";
+    }
+    if (!NEVER_STORED.has(event.type)) {
+        reading.missedEvent = true;
+    }
+}
+
+/** A history that was just read, with the reply that is still being written at its end. */
+export function withStreamed(history: AgentEvent[], streamed: string): AgentEvent[] {
+    return streamed === "" ? history : [...history, { type: "text_delta", text: streamed }];
+}
 
 /** Reads a session's history, again if an event arrived while reading, so none is lost. */
 async function readHistory(api: Api, sessionId: number): Promise<AgentEvent[]> {
-    const state = { missedEvent: false };
+    const state: Reading = { missedEvent: false, streamed: "" };
     loading.set(sessionId, state);
     try {
         let events = await api.sessionEvents(sessionId);
@@ -213,7 +269,7 @@ async function readHistory(api: Api, sessionId: number): Promise<AgentEvent[]> {
             state.missedEvent = false;
             events = await api.sessionEvents(sessionId);
         }
-        return events;
+        return withStreamed(events, state.streamed);
     } finally {
         loading.delete(sessionId);
     }
@@ -230,16 +286,20 @@ export function appendEvent(
 
 /**
  * `events` with one more. The pieces of a reply that is still being written are kept as one
- * growing event at the end, which whatever comes next replaces: the whole reply follows them.
+ * growing event at the end. The whole reply takes its place, as does anything else that ends
+ * it. Whatever else arrives meanwhile, a new title or a sub-agent's word, has nothing to do
+ * with the reply and goes in before it, so the text written so far stays on screen.
  */
 export function withEvent(events: AgentEvent[], event: AgentEvent): AgentEvent[] {
     const last = events.at(-1);
     if (last?.type !== "text_delta") {
         return [...events, event];
     }
-    const next: AgentEvent =
-        event.type === "text_delta" ? { ...event, text: last.text + event.text } : event;
-    return [...events.slice(0, -1), next];
+    const earlier = events.slice(0, -1);
+    if (event.type === "text_delta") {
+        return [...earlier, { ...event, text: last.text + event.text }];
+    }
+    return ENDS_REPLY.has(event.type) ? [...earlier, event] : [...earlier, event, last];
 }
 
 /** The sub-agents at work after an event, a new record only if the event changed them. */
@@ -501,7 +561,7 @@ export const useStore = create<State>((set, get) => ({
         }
         const reading = loading.get(published.session_id);
         if (reading) {
-            reading.missedEvent = true;
+            heardWhileReading(reading, published.event);
         }
         set((state) => ({
             projects: applySessionEvent(state.projects, published),

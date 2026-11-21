@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
-use crate::agent::AgentEvent;
+use crate::agent::{AgentEvent, Auth};
 use crate::error::{Error, Result};
 use crate::paths::Paths;
 use crate::sessions::{Live, send_text};
@@ -41,6 +41,12 @@ impl Queues {
             .get(&session)
             .cloned()
             .unwrap_or_default()
+    }
+
+    /// Whether a message is waiting to be sent to the session.
+    pub(crate) fn is_waiting(&self, session: i64) -> bool {
+        let waiting = lock(&self.waiting);
+        waiting.get(&session).is_some_and(|queue| !queue.is_empty())
     }
 
     fn push(&self, session: i64, text: &str) {
@@ -145,5 +151,13 @@ impl Core {
     fn queue_changed(&self, id: i64) -> Result<Vec<QueuedMessage>> {
         publish(&self.store, &self.live, id)?;
         Ok(self.live.queues.list(id))
+    }
+
+    /// Sends the first waiting message now, starting the session's agent first if it is not
+    /// running: a queue can be left standing by an agent that has since been stopped. Must be
+    /// called from within a tokio runtime.
+    pub fn session_resume_queue(&self, id: i64, auth: Auth) -> Result<()> {
+        self.session_start(id, auth)?;
+        self.session_send_queued(id)
     }
 }

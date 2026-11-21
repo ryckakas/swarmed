@@ -1,8 +1,20 @@
 import { api } from "./api";
+import { delivered } from "./sending";
 import { useStore } from "./store";
 import { messageNumber } from "./transcript";
+import { findSession } from "./tree";
 
 // Things the user can ask for from more than one place: a button, and a keyboard shortcut.
+
+/**
+ * Sends a message to a session, or has it wait in the session's queue while its agent is at
+ * work or waiting for an answer: whatever sends a message, a button as much as the message
+ * box, must not take an open request away. Rejects if the message could not be handed over.
+ */
+export function sendOrQueue(id: number, text: string, files: string[] = []): Promise<void> {
+    const status = findSession(useStore.getState().projects, id)?.status;
+    return delivered(api, status, id, text, files);
+}
 
 /** Asks for a folder and registers the repository it is in. */
 export async function addProject() {

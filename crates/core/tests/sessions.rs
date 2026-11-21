@@ -506,16 +506,16 @@ async fn what_happens_in_the_terminal_travels_with_the_next_message() {
     let mut output = core.subscribe_terminals();
     let session = started_session(&core);
 
-    assert_eq!(core.terminal_open(session.id, 80, 24).expect("opens"), "");
+    let fresh = core.terminal_open(session.id, 80, 24).expect("opens");
+    assert_eq!((fresh.replay.as_str(), fresh.end), ("", 0));
     // The sum shows the command ran: its text alone would also match what the terminal echoes.
     core.terminal_write(session.id, "echo term-$((40 + 2))\n")
         .expect("types");
     printed(&mut output, "term-42").await;
-    assert!(
-        core.terminal_open(session.id, 100, 30)
-            .expect("reopens")
-            .contains("term-42")
-    );
+    let reopened = core.terminal_open(session.id, 100, 30).expect("reopens");
+    assert!(reopened.replay.contains("term-42"));
+    // Nothing was cut from so short a replay, so it ends where its own text does.
+    assert_eq!(reopened.end, reopened.replay.len() as u64);
 
     core.session_send(session.id, "what happened?")
         .expect("sends");
@@ -1060,6 +1060,7 @@ async fn a_session_left_busy_by_a_swarmed_that_ended_can_be_stopped_and_is_settl
     ));
 
     // And a front end that starts settles whatever is left busy, all at once.
+    later.arrive().expect("arrives");
     let other = later
         .session_new("demo", "one", &SessionOptions::default())
         .expect("creates");
@@ -1071,10 +1072,15 @@ async fn a_session_left_busy_by_a_swarmed_that_ended_can_be_stopped_and_is_settl
     while status_of(&later, other.id) != SessionStatus::Working {
         next(&mut bus).await;
     }
+    // Not one that starts beside a Swarmed still running, though: the session is that one's.
+    let beside =
+        Core::with_backend(fx.paths.clone(), Arc::new(FakeBackend::default())).expect("opens");
+    assert_eq!(beside.arrive().expect("arrives"), 0);
+    assert_eq!(status_of(&beside, other.id), SessionStatus::Working);
     drop(later);
     let fresh =
         Core::with_backend(fx.paths.clone(), Arc::new(FakeBackend::default())).expect("opens");
-    assert_eq!(fresh.sessions_settle().expect("settles"), 1);
+    assert_eq!(fresh.arrive().expect("arrives"), 1);
     assert_eq!(status_of(&fresh, other.id), SessionStatus::Idle);
 }
 
@@ -1333,4 +1339,183 @@ async fn a_fork_starts_with_what_was_said_and_tells_its_agent_once() {
     core.session_send(fork.id, "echo: and again?")
         .expect("sends");
     assert!(!heard(&turn(&mut bus, fork.id).await));
+}
+
+#[tokio::test]
+async fn a_fork_whose_agent_died_on_the_first_message_is_told_again() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let source = started_session(&core);
+    core.session_send(source.id, "The password is swordfish")
+        .expect("sends");
+    turn(&mut bus, source.id).await;
+    let fork = core.session_fork(source.id, None, None).expect("forks");
+
+    // The first message got the conversation, but its agent went before the turn was over.
+    core.session_start(fork.id, Auth::Subscription)
+        .expect("starts");
+    core.session_send(fork.id, "run: ls").expect("sends");
+    permission_request(&mut bus).await;
+    core.session_stop(fork.id);
+    while !matches!(next(&mut bus).await.event, AgentEvent::Exited { .. }) {}
+
+    let heard = |events: &[AgentEvent]| {
+        events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::Text { text } if text.contains("swordfish")))
+    };
+    // So the next try carries it too, and from the first turn that ends well no more.
+    core.session_start(fork.id, Auth::Subscription)
+        .expect("starts");
+    core.session_send(fork.id, "what was it?").expect("sends");
+    let retried = turn(&mut bus, fork.id).await;
+    assert!(heard(&retried), "{retried:?}");
+    core.session_send(fork.id, "and again?").expect("sends");
+    assert!(!heard(&turn(&mut bus, fork.id).await));
+}
+
+#[tokio::test]
+async fn a_queued_message_is_sent_to_the_agent_restarted_for_new_settings() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    // A turn is under way, a message waits for its end, and the effort is changed meanwhile.
+    core.session_send(session.id, "run: ls").expect("sends");
+    let (request_id, _) = permission_request(&mut bus).await;
+    core.session_enqueue(session.id, "next").expect("queues");
+    let high = SessionSettings {
+        effort: Some(Effort::High),
+        ..SessionSettings::default()
+    };
+    core.session_configure(session.id, &high).expect("changes");
+    core.session_allow(session.id, &request_id).expect("sends");
+    turn(&mut bus, session.id).await;
+
+    // The message goes out all the same, and to an agent started with the new effort: it
+    // says that it has started, which an agent does once, and continues the conversation.
+    let queued = turn(&mut bus, session.id).await;
+    assert!(queued.contains(&text("echo: next")), "{queued:?}");
+    assert!(
+        queued.iter().any(|event| matches!(
+            event,
+            AgentEvent::Init { agent_session_id, .. } if agent_session_id == "fake-1"
+        )),
+        "{queued:?}"
+    );
+    assert_eq!(core.session_queue(session.id).expect("reads"), vec![]);
+    assert_eq!(core.running_sessions(), [session.id]);
+    assert_eq!(status_of(&core, session.id), SessionStatus::Idle);
+    // The agent it took over from goes quietly: its end is not the session's.
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    while let Ok(late) = bus.try_recv() {
+        assert!(!matches!(late.event, AgentEvent::Exited { .. }), "{late:?}");
+    }
+    assert_eq!(core.running_sessions(), [session.id]);
+}
+
+/// Everything published up to the next permission request, and that request's id.
+async fn heard_until_asked(bus: &mut Receiver<SessionEvent>) -> (Vec<AgentEvent>, String) {
+    let mut heard = vec![];
+    loop {
+        let published = next(bus).await.event;
+        if let AgentEvent::PermissionRequest { request_id, .. } = &published {
+            return (heard, request_id.clone());
+        }
+        heard.push(published);
+    }
+}
+
+#[tokio::test]
+async fn what_a_replaced_agent_still_says_does_not_change_how_the_session_stands() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+    core.session_send(session.id, "slow").expect("sends");
+    while next(&mut bus).await.event != text("working…") {}
+
+    // Stopped and started again at once, before the first agent has had time to go. The new
+    // one is asked for something that needs a decision.
+    core.session_stop(session.id);
+    core.session_start(session.id, Auth::Subscription)
+        .expect("restarts");
+    core.session_send(session.id, "run: ls").expect("sends");
+    let (mut heard, request_id) = heard_until_asked(&mut bus).await;
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    while let Ok(late) = bus.try_recv() {
+        heard.push(late.event);
+    }
+
+    // The first agent has ended its turn and gone by now. None of that is the session's:
+    // it still waits, on a request that is still open, with nothing new to read.
+    let an_end = |event: &AgentEvent| {
+        matches!(
+            event,
+            AgentEvent::TurnDone { .. } | AgentEvent::Exited { .. }
+        )
+    };
+    assert!(!heard.iter().any(an_end), "{heard:?}");
+    let stands = core.session(session.id).expect("exists");
+    assert_eq!(stands.status, SessionStatus::Waiting);
+    assert!(!stands.unread);
+    assert_eq!(core.running_sessions(), [session.id]);
+    core.session_allow(session.id, &request_id).expect("sends");
+    let rest = turn(&mut bus, session.id).await;
+    assert!(rest.contains(&text("ran it")), "{rest:?}");
+}
+
+#[tokio::test]
+async fn nothing_is_heard_of_a_session_after_it_was_deleted() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+    core.session_send(session.id, "slow").expect("sends");
+    while next(&mut bus).await.event != text("working…") {}
+
+    core.session_delete(session.id).expect("deletes");
+    assert_eq!(next(&mut bus).await.event, AgentEvent::Deleted);
+    // Its agent was in the middle of a turn. How that ends is nobody's business any more.
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert!(bus.try_recv().is_err(), "something followed the deletion");
+    assert_eq!(core.running_sessions(), [0_i64; 0]);
+}
+
+/// Starts the session's agent from a task of its own, which may run on another thread.
+fn start_elsewhere(core: &Arc<Core>, id: i64) -> tokio::task::JoinHandle<Result<(), Error>> {
+    let core = Arc::clone(core);
+    tokio::spawn(async move { core.session_start(id, Auth::Subscription) })
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_session_started_from_two_places_at_once_gets_one_agent() {
+    let fx = fixture();
+    let core = Arc::new(core_with_task(&fx).await);
+    let mut bus = core.subscribe();
+    let session = core
+        .session_new("demo", "one", &SessionOptions::default())
+        .expect("creates");
+    let starts: Vec<_> = (0..8).map(|_| start_elsewhere(&core, session.id)).collect();
+    for start in starts {
+        start.await.expect("runs").expect("starts");
+    }
+    assert_eq!(core.running_sessions(), [session.id]);
+    core.session_send(session.id, "hello").expect("sends");
+    turn(&mut bus, session.id).await;
+
+    // The scripted agent numbers the agents it starts: had the session been given two, the
+    // next session's would be the third.
+    let other = started_session(&core);
+    core.session_send(other.id, "hello").expect("sends");
+    let events = turn(&mut bus, other.id).await;
+    assert!(
+        events.iter().any(|event| matches!(
+            event,
+            AgentEvent::Init { agent_session_id, .. } if agent_session_id == "fake-2"
+        )),
+        "{events:?}"
+    );
 }

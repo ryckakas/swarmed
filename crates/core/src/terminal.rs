@@ -33,6 +33,18 @@ pub struct TerminalOutput {
     pub session_id: i64,
     /// The text, with the escape sequences a terminal emulator expects.
     pub data: String,
+    /// How many bytes the terminal had printed before this piece, since its shell started.
+    pub offset: u64,
+}
+
+/// A terminal as it stands when a front end opens it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TerminalOpened {
+    /// What the terminal has printed so far, or the end of it, to redraw it from.
+    pub replay: String,
+    /// How many bytes it had printed when `replay` was taken. A piece of output whose
+    /// `offset` is lower is already in the replay; any other came after it.
+    pub end: u64,
 }
 
 /// What a terminal has printed: all of it for redrawing, and what the agent has not seen.
@@ -40,15 +52,29 @@ pub struct TerminalOutput {
 struct Log {
     replay: String,
     unshared: String,
+    /// How many bytes were printed in all, whatever of them `replay` still holds.
+    end: u64,
 }
 
 impl Log {
-    fn push(&mut self, text: &str) {
+    /// Keeps `text`, and returns how much had been printed before it.
+    fn push(&mut self, text: &str) -> u64 {
+        let offset = self.end;
+        self.end += text.len() as u64;
         self.replay.push_str(text);
         self.unshared.push_str(text);
         keep_end(&mut self.replay, REPLAY_BYTES);
         // Twice what is shared: escape sequences are stripped before the limit applies.
         keep_end(&mut self.unshared, SHARED_BYTES * 2);
+        offset
+    }
+
+    /// What there is to redraw, with where it ends: taken together, so no output falls between.
+    fn opened(&self) -> TerminalOpened {
+        TerminalOpened {
+            replay: self.replay.clone(),
+            end: self.end,
+        }
     }
 }
 
@@ -160,9 +186,14 @@ async fn pump(
     {
         pending.extend_from_slice(&buffer[..read]);
         let data = take_text(&mut pending);
-        lock(&log).push(&data);
+        let offset = lock(&log).push(&data);
+        let output = TerminalOutput {
+            session_id,
+            data,
+            offset,
+        };
         // An error only means nobody is listening right now.
-        terminals.bus.send(TerminalOutput { session_id, data }).ok();
+        terminals.bus.send(output).ok();
     }
     let mut open = lock(&terminals.open);
     if open.get(&session_id).is_some_and(|t| t.run == run) {
@@ -172,14 +203,22 @@ async fn pump(
 
 /// Takes the text at the start of `bytes`, leaving a character that is still arriving.
 fn take_text(bytes: &mut Vec<u8>) -> String {
-    let whole = match std::str::from_utf8(bytes) {
-        // Up to three bytes can be the start of a character; anything more is not text.
-        Err(error) if bytes.len() - error.valid_up_to() <= 3 => error.valid_up_to(),
-        _ => bytes.len(),
-    };
+    let whole = bytes.len() - unfinished(bytes);
     let text = String::from_utf8_lossy(&bytes[..whole]).into_owned();
     bytes.drain(..whole);
     text
+}
+
+/// How many bytes at the end of `bytes` are the start of a character whose rest has not come
+/// yet. A byte that can never be part of text is not waited for: it is passed on as it is.
+fn unfinished(bytes: &[u8]) -> usize {
+    let cut_short = |held: &usize| {
+        let end = std::str::from_utf8(&bytes[bytes.len() - held..]);
+        // No length for the error means the bytes ran out in the middle of a character.
+        end.is_err_and(|error| error.valid_up_to() == 0 && error.error_len().is_none())
+    };
+    // A character is four bytes at most, so its start is three at most.
+    (1..=bytes.len().min(3)).find(cut_short).unwrap_or(0)
 }
 
 /// What a person would read on the screen: the text without colours, cursor movement and
@@ -274,8 +313,12 @@ impl Core {
     /// Opens the session's terminal, starting the user's shell in the task's worktree if it is
     /// not running, and returns what it has printed so far so it can be redrawn.
     ///
+    /// Output goes on being published while the answer travels. A front end that listens
+    /// before it asks draws the replay and then every piece from `end` on, and so shows
+    /// each piece once.
+    ///
     /// Must be called from within a tokio runtime.
-    pub fn terminal_open(&self, session_id: i64, cols: u16, rows: u16) -> Result<String> {
+    pub fn terminal_open(&self, session_id: i64, cols: u16, rows: u16) -> Result<TerminalOpened> {
         let session = self.session(session_id)?;
         let task = self.store().task_by_id(session.task_id)?;
         let task = task.ok_or(Error::SessionNotFound(session_id))?;
@@ -283,7 +326,7 @@ impl Core {
         let mut open = lock(&self.terminals.open);
         if let Some(terminal) = open.get(&session_id) {
             terminal.input.send(Input::Resized(size)).ok();
-            return Ok(lock(&terminal.log).replay.clone());
+            return Ok(lock(&terminal.log).opened());
         }
         let (pty, child) = start(&task.worktree_path, size)?;
         let (reader, writer) = pty.into_split();
@@ -304,7 +347,10 @@ impl Core {
             reader,
             log,
         )));
-        Ok(String::new())
+        Ok(TerminalOpened {
+            replay: String::new(),
+            end: 0,
+        })
     }
 
     /// Types `data` into the session's terminal.
@@ -349,6 +395,42 @@ mod tests {
         assert_eq!(take_text(&mut bytes), "é");
         let mut binary = vec![0xff, 0xfe, 0xfd, 0xfc, b'a'];
         assert_eq!(take_text(&mut binary).chars().last(), Some('a'));
+    }
+
+    #[test]
+    fn each_piece_of_output_knows_where_it_starts_and_a_replay_where_it_ends() {
+        let mut log = Log::default();
+        assert_eq!(log.push("$ ls\r\n"), 0);
+        // Counted in bytes, as the text is published: "é" is two.
+        assert_eq!(log.push("né"), 6);
+        let opened = log.opened();
+        assert_eq!((opened.replay.as_str(), opened.end), ("$ ls\r\nné", 9));
+        // What comes after the replay was taken starts where it ends, and is not in it.
+        assert_eq!(log.push("late"), opened.end);
+    }
+
+    #[test]
+    fn a_replay_cut_short_still_ends_where_the_output_does() {
+        let mut log = Log::default();
+        let filler = "x".repeat(REPLAY_BYTES);
+        log.push(&filler);
+        log.push("tail");
+        let opened = log.opened();
+        assert_eq!(opened.replay.len(), REPLAY_BYTES);
+        assert_eq!(opened.end, (REPLAY_BYTES + 4) as u64);
+    }
+
+    #[test]
+    fn a_byte_that_is_not_text_does_not_hold_back_what_follows_it() {
+        // Latin-1 for é, then a prompt: nothing more will come to complete it.
+        let mut bytes = vec![0xe9, b'$', b' '];
+        assert_eq!(take_text(&mut bytes), "\u{fffd}$ ");
+        assert_eq!(bytes, Vec::<u8>::new());
+        // A character cut short after such a byte is still waited for.
+        let mut mixed = vec![0xe9, b'a', 0xc3];
+        assert_eq!(take_text(&mut mixed), "\u{fffd}a");
+        mixed.push(0xa9);
+        assert_eq!(take_text(&mut mixed), "é");
     }
 
     #[test]

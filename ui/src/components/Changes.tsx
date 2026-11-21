@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useState } from "react";
+import { sendOrQueue } from "../actions";
 import { api } from "../api";
 import type { FileChange, FileDiff, Project, Task } from "../api/types";
 import { type DiffLine, parseDiff, splitPath } from "../diff";
@@ -152,7 +153,7 @@ function ReviewBar({ taskId }: { taskId: number }) {
         if (sessionId === null) {
             return;
         }
-        api.sessionSend(sessionId, reviewMessage(comments))
+        sendOrQueue(sessionId, reviewMessage(comments))
             .then(() => clearReview(taskId))
             .catch(report);
     };

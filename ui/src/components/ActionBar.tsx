@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { actionLabel, actionTooltip, splitActions } from "../actionbar";
+import { sendOrQueue } from "../actions";
 import { api } from "../api";
 import type { Action } from "../api/types";
 import { useStore } from "../store";
@@ -37,7 +38,7 @@ export function ActionBar({ project }: { project: string }) {
         }
         const { report, runInTerminal } = useStore.getState();
         if (action.command === "") {
-            api.sessionSend(sessionId, action.prompt).catch(report);
+            sendOrQueue(sessionId, action.prompt).catch(report);
         } else {
             runInTerminal(sessionId, action.command);
         }

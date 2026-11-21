@@ -36,11 +36,12 @@ impl AgentBackend for FakeBackend {
             requests: 0,
             initialised: false,
         };
-        drop(tokio::spawn(script.run()));
+        let script = tokio::spawn(script.run());
         Ok(AgentHandle {
             events,
             commands,
             pid: None,
+            tasks: vec![script.abort_handle()],
         })
     }
 }

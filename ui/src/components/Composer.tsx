@@ -1,7 +1,9 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { sendOrQueue } from "../actions";
 import { api } from "../api";
 import type { AgentEvent, Session } from "../api/types";
 import { expandPastes, forgetPastes } from "../pastes";
+import { type Draft, putBack, waitsItsTurn } from "../sending";
 import { appliedEffort } from "../statusline";
 import { useStore } from "../store";
 import { suggestionOf } from "../suggestion";
@@ -43,7 +45,10 @@ export function Composer({ session }: { session: Session }) {
     const report = useStore((state) => state.report);
     const input = useRef<HTMLTextAreaElement>(null);
     const { id, status } = session;
-    const busy = status === "working" || status === "waiting";
+    const busy = waitsItsTurn(status);
+    // What the box holds right now, for when a send fails after it was emptied.
+    const draft = useRef<Draft>({ text, files });
+    draft.current = { text, files };
     const commands = useSlashCommands(id, status);
     const suggestion = useStore((state) => suggestionOf(state.events[id]));
     const canSend = text.trim() !== "" || files.length > 0;
@@ -61,16 +66,21 @@ export function Composer({ session }: { session: Session }) {
         if (!canSend) {
             return;
         }
+        const unsent: Draft = { text, files };
         setText("");
         setFiles([]);
         // What was pasted large goes out in full, in place of the token that stood for it.
-        const message = expandPastes(text.trim());
-        forgetPastes(text);
         // A busy agent is not interrupted: the message waits its turn, and can still be changed.
-        const sent = busy
-            ? api.sessionEnqueue(id, message, files)
-            : api.sessionSend(id, message, files);
-        sent.catch(report);
+        sendOrQueue(id, expandPastes(text.trim()), files)
+            // The pastes are only forgotten once they are sent: a message that comes back
+            // still has their tokens in it.
+            .then(() => forgetPastes(unsent.text))
+            .catch((error: unknown) => {
+                report(error);
+                const back = putBack(draft.current, unsent);
+                setText(back.text);
+                setFiles(back.files);
+            });
     };
     const stop = () => void api.sessionInterrupt(id).catch(report);
 

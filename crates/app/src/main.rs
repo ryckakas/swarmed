@@ -202,10 +202,10 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::session_send, commands::session_mark_read, commands::session_queue,
         commands::session_enqueue, commands::session_queue_edit, commands::session_send_queued,
         commands::session_allow, commands::session_answer, commands::session_deny, commands::session_interrupt,
-        commands::session_stop, commands::session_stop_background, commands::task_background,
+        commands::session_stop_background, commands::task_background,
         commands::session_configure, commands::slash_commands, commands::badge_set,
         commands::view_put, commands::view_open, commands::terminal_open,
-        commands::terminal_write, commands::terminal_resize, commands::terminal_close,
+        commands::terminal_write, commands::terminal_resize,
         commands::status_line, commands::session_rename, commands::session_close, commands::session_delete,
         commands::sessions_search, commands::sessions_closed, commands::session_reopen,
         commands::session_fork, commands::session_set_agent,
@@ -229,8 +229,9 @@ fn main() {
     }
     let core = open_core().unwrap_or_else(|e| panic!("could not open Swarmed's data: {e}"));
     // No agent runs yet: a session that still counts as busy was left so by a Swarmed that
-    // ended in the middle of its turn, and would never be anything else.
-    core.sessions_settle().ok();
+    // ended in the middle of its turn, and would never be anything else. Unless another
+    // Swarmed runs beside this one, which the core knows.
+    core.arrive().ok();
     let core = Arc::new(core);
     let listening = Arc::clone(&core);
     let leaving = Arc::clone(&core);
@@ -261,7 +262,7 @@ fn main() {
         .run(move |app, event| match event {
             // What the tasks' `start` commands left running goes with Swarmed: nothing it
             // started is to carry on unseen.
-            tauri::RunEvent::Exit => tauri::async_runtime::block_on(leaving.stacks_stop_all()),
+            tauri::RunEvent::Exit => tauri::async_runtime::block_on(leaving.leave()),
             // Closing the window puts Swarmed away, as it does for most apps on a Mac: the
             // sessions carry on and tell the user when they need them. Quitting is ⌘Q.
             tauri::RunEvent::WindowEvent {

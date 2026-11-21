@@ -22,6 +22,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
+use crate::changes::nul_separated;
 use crate::error::{Error, Result};
 use crate::store::SetupStatus;
 use crate::{Core, git, paths};
@@ -29,6 +30,8 @@ use crate::{Core, git, paths};
 /// The folder a snapshot of tasks without an environment is kept under. No environment can
 /// be called this: names never start with an underscore.
 const NO_ENVIRONMENT: &str = "_default";
+/// What the name of a folder a snapshot is being built in starts with.
+const BUILDING: &str = "_new.";
 /// Inside a snapshot's folder: the files themselves, and what is known about them.
 const FILES: &str = "files";
 const ABOUT: &str = "snapshot.toml";
@@ -63,11 +66,15 @@ impl Core {
         let Ok(entries) = std::fs::read_dir(folder) else {
             return Ok(vec![]);
         };
+        // One that was being built when Swarmed ended is no snapshot.
+        let whole =
+            |entry: &std::fs::DirEntry| !entry.file_name().to_string_lossy().starts_with(BUILDING);
         let read = |entry: std::fs::DirEntry| {
             let text = std::fs::read_to_string(entry.path().join(ABOUT)).ok()?;
             toml::from_str::<Snapshot>(&text).ok()
         };
-        let mut snapshots: Vec<Snapshot> = entries.flatten().filter_map(read).collect();
+        let entries = entries.flatten().filter(whole);
+        let mut snapshots: Vec<Snapshot> = entries.filter_map(read).collect();
         snapshots.sort_by(|a, b| a.environment.cmp(&b.environment));
         Ok(snapshots)
     }
@@ -92,7 +99,7 @@ impl Core {
         }
         let folder = self.snapshot_folder(&project.name, task.environment.as_deref());
         // Built beside the old one and swapped in, so a copy that fails leaves the old one.
-        let building = folder.with_extension("new");
+        let building = building_beside(&folder);
         remove(&building)?;
         private_dir(&building.join(FILES))?;
         for path in &ignored {
@@ -109,6 +116,11 @@ impl Core {
         remove(&folder)?;
         std::fs::rename(&building, &folder)?;
         Ok(snapshot)
+    }
+
+    /// Forgets every snapshot of a project, along with the project.
+    pub(crate) fn forget_snapshots(&self, project: &str) -> Result<()> {
+        remove(&self.paths.data_dir.join("snapshots").join(project))
     }
 
     /// Forgets the snapshot of an environment, or of tasks without one.
@@ -140,6 +152,15 @@ impl Core {
     }
 }
 
+/// Where a snapshot is built before it takes the place of the one in `folder`: beside it,
+/// under a name no environment can have, since none starts with an underscore. Adding to the
+/// name and not replacing what follows a dot in it matters: environments may have dots, and
+/// `v1.2` must not build where `v1.3` does, nor `staging` in the folder of `staging.new`.
+fn building_beside(folder: &Path) -> PathBuf {
+    let name = folder.file_name().unwrap_or_default().to_string_lossy();
+    folder.with_file_name(format!("{BUILDING}{name}"))
+}
+
 /// What git ignores in `worktree`, each file or folder named once at its top: a folder that
 /// is ignored whole is one entry, however much is in it.
 async fn ignored_in(worktree: &Path) -> Result<Vec<String>> {
@@ -151,10 +172,11 @@ async fn ignored_in(worktree: &Path) -> Result<Vec<String>> {
             "--ignored",
             "--exclude-standard",
             "--directory",
+            "-z",
         ],
     )
     .await?;
-    let paths = listed.lines().map(|line| line.trim_end_matches('/'));
+    let paths = nul_separated(&listed).map(|path| path.trim_end_matches('/'));
     Ok(paths
         .filter(|path| !path.is_empty())
         .map(String::from)

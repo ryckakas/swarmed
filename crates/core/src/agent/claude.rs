@@ -5,8 +5,11 @@
 //! and missing fields fall back to defaults, because the CLI changes often.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::io::Write;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -139,7 +142,10 @@ fn permission_mode(supervision: Supervision) -> &'static str {
     }
 }
 
-fn args(spec: &SessionSpec) -> Vec<String> {
+/// The arguments Claude Code is started with. `mcp_config` is the file its MCP servers are
+/// written in: never the servers themselves, since anyone on the machine can read a
+/// process's arguments and the servers come with their secrets.
+fn args(spec: &SessionSpec, mcp_config: Option<&Path>) -> Vec<String> {
     let mut args: Vec<String> = [
         "-p",
         "--input-format",
@@ -174,8 +180,62 @@ fn args(spec: &SessionSpec) -> Vec<String> {
     flag("--allowedTools", joined(&spec.allowed_tools));
     flag("--disallowedTools", joined(&spec.disallowed_tools));
     flag("--append-system-prompt", spec.append_system_prompt.clone());
-    flag("--mcp-config", mcp_config(&spec.mcp_servers));
+    flag(
+        "--mcp-config",
+        mcp_config.map(|file| file.to_string_lossy().into_owned()),
+    );
     args
+}
+
+/// What the files written for an agent are called, before a number that tells them apart.
+const PRIVATE_FILE_PREFIX: &str = "swarmed-mcp-";
+
+/// A file written for an agent to read, which holds secrets: only the user can read it, and
+/// it is removed when this is dropped, which is when the agent's process is.
+#[derive(Debug)]
+struct PrivateFile(PathBuf);
+
+impl PrivateFile {
+    /// Writes `contents` to a new file for one run of an agent. In `folder`, which is the
+    /// session's own, the files earlier runs left behind are removed first; without one the
+    /// file goes among the system's temporary ones.
+    fn write(folder: Option<&Path>, contents: &str) -> std::io::Result<Self> {
+        static WRITTEN: AtomicU64 = AtomicU64::new(0);
+        if let Some(folder) = folder {
+            let mut private = std::fs::DirBuilder::new();
+            private.recursive(true).mode(0o700).create(folder)?;
+            remove_private_files(folder);
+        }
+        let number = WRITTEN.fetch_add(1, Ordering::Relaxed);
+        let name = format!("{PRIVATE_FILE_PREFIX}{}-{number}.json", std::process::id());
+        let file = Self(
+            folder
+                .map_or_else(std::env::temp_dir, Path::to_path_buf)
+                .join(name),
+        );
+        // One of this name is left from a process long gone. Created anew, so that it is
+        // never readable by anyone else, not even until its mode is set.
+        std::fs::remove_file(&file.0).ok();
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true).mode(0o600);
+        options.open(&file.0)?.write_all(contents.as_bytes())?;
+        Ok(file)
+    }
+}
+
+impl Drop for PrivateFile {
+    fn drop(&mut self) {
+        std::fs::remove_file(&self.0).ok();
+    }
+}
+
+/// Removes the files written for earlier runs of an agent from a session's own `folder`.
+fn remove_private_files(folder: &Path) {
+    let entries = std::fs::read_dir(folder).into_iter().flatten().flatten();
+    let ours = |name: &std::ffi::OsStr| name.to_string_lossy().starts_with(PRIVATE_FILE_PREFIX);
+    for entry in entries.filter(|entry| ours(&entry.file_name())) {
+        std::fs::remove_file(entry.path()).ok();
+    }
 }
 
 /// The servers as the `--mcp-config` JSON Claude Code takes, or `None` if there are none.
@@ -242,9 +302,12 @@ impl ClaudeBackend {
 
 impl AgentBackend for ClaudeBackend {
     fn start(&self, spec: SessionSpec) -> Result<AgentHandle> {
+        let servers = mcp_config(&spec.mcp_servers)
+            .map(|servers| PrivateFile::write(spec.private_dir.as_deref(), &servers))
+            .transpose()?;
         let mut command = Command::new(self.resolved());
         command
-            .args(args(&spec))
+            .args(args(&spec, servers.as_ref().map(|file| file.0.as_path())))
             .current_dir(&spec.cwd)
             .env("PATH", crate::shellenv::path())
             .stdin(Stdio::piped())
@@ -269,29 +332,29 @@ impl AgentBackend for ClaudeBackend {
         let pending = Pending::default();
         // Requests of Swarmed's own, which the reading side raises and the writing side sends.
         let (asks, ask_rx) = mpsc::unbounded_channel();
-        drop(tokio::spawn(write_commands(
-            stdin,
-            (command_rx, ask_rx),
-            pending.clone(),
-        )));
-        drop(tokio::spawn(read_events(
-            child,
+        let writing = tokio::spawn(write_commands(stdin, (command_rx, ask_rx), pending.clone()));
+        let reading = tokio::spawn(read_events(
+            (child, servers),
             (stdout, stderr),
             event_tx,
             pending,
             asks,
-        )));
+        ));
         Ok(AgentHandle {
             events,
             commands,
             pid,
+            tasks: vec![reading.abort_handle(), writing.abort_handle()],
         })
     }
 }
 
 /// Forwards the process's output as events until it exits, then reports the exit.
+///
+/// The process and the file its MCP servers are written in are held here, so both go when
+/// this ends, however it ends: the process is killed if it still runs, the file removed.
 async fn read_events(
-    mut child: Child,
+    (mut child, _servers): (Child, Option<PrivateFile>),
     (stdout, mut stderr): (ChildStdout, ChildStderr),
     events: mpsc::UnboundedSender<AgentEvent>,
     pending: Pending,
@@ -1068,7 +1131,7 @@ mod tests {
             }],
             ..SessionSpec::default()
         };
-        let args = args(&spec).join(" ");
+        let args = args(&spec, Some(Path::new("/private/servers.json"))).join(" ");
         assert!(args.contains("--permission-mode acceptEdits"), "{args}");
         assert!(args.contains("--prompt-suggestions"), "{args}");
         assert!(
@@ -1083,11 +1146,97 @@ mod tests {
             args.contains("--disallowedTools Bash(git push --force:*)"),
             "{args}"
         );
+        // The servers are named by the file they are in, never written out.
         assert!(
-            args.contains(r#"--mcp-config {"mcpServers":{"swarmed":"#),
+            args.contains("--mcp-config /private/servers.json"),
             "{args}"
         );
+        assert!(!args.contains("mcpServers"), "{args}");
         assert!(!args.contains("--append-system-prompt"), "{args}");
+    }
+
+    /// A stand-in for `claude` in `folder`: it notes its arguments, copies the file it is
+    /// given for its MCP servers and notes who may read that, then waits for its input to end.
+    fn noting_program(folder: &Path) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let program = folder.join("claude");
+        let script = "#!/bin/sh\nout=$(dirname \"$0\")\nprintf '%s\\n' \"$@\" > \"$out/args\"\n\
+            while [ $# -gt 0 ]; do\n  if [ \"$1\" = --mcp-config ]; then\n    \
+            cp \"$2\" \"$out/servers\"\n    ls -l \"$2\" | cut -c1-10 > \"$out/mode\"\n  fi\n  \
+            shift\ndone\ncat > /dev/null\n";
+        std::fs::write(&program, script).expect("writes");
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755))
+            .expect("makes it a program");
+        program
+    }
+
+    /// Starts `backend`, trying again while the system still counts its program as being
+    /// written, which it can for a moment when another test starts a process meanwhile.
+    async fn start_noting(backend: &ClaudeBackend, spec: &SessionSpec) -> AgentHandle {
+        let mut started = backend.start(spec.clone());
+        let mut tries = 0;
+        while started.is_err() && tries < 50 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            started = backend.start(spec.clone());
+            tries += 1;
+        }
+        started.expect("starts")
+    }
+
+    /// Whether `folder` is empty, or becomes so within a couple of seconds.
+    async fn emptied(folder: &Path) -> bool {
+        let left = || std::fs::read_dir(folder).expect("reads").count();
+        let mut waited = 0;
+        while left() != 0 && waited < 100 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            waited += 1;
+        }
+        left() == 0
+    }
+
+    #[tokio::test]
+    async fn mcp_servers_reach_claude_code_in_a_private_file_that_goes_with_it() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let private = dir.path().join("run").join("7");
+        let secret = BTreeMap::from([("TOKEN".to_string(), "hunter2".to_string())]);
+        let spec = SessionSpec {
+            cwd: dir.path().to_path_buf(),
+            auth: Auth::Inherit,
+            mcp_servers: vec![McpServer {
+                name: "db".into(),
+                transport: McpTransport::Stdio {
+                    command: "npx".into(),
+                    args: vec![],
+                    env: secret,
+                },
+            }],
+            private_dir: Some(private.clone()),
+            ..SessionSpec::default()
+        };
+        // What a run that never cleaned up left in the session's folder goes at the start.
+        std::fs::create_dir_all(&private).expect("creates");
+        let stale = private.join(format!("{PRIVATE_FILE_PREFIX}1-1.json"));
+        std::fs::write(&stale, "{}").expect("writes");
+        let backend = ClaudeBackend {
+            program: noting_program(dir.path()),
+        };
+        let mut handle = start_noting(&backend, &spec).await;
+        drop(handle.commands);
+        let ended = tokio::time::timeout(Duration::from_secs(10), handle.events.recv()).await;
+        assert!(
+            matches!(ended, Ok(Some(AgentEvent::Exited { code: Some(0), .. }))),
+            "{ended:?}"
+        );
+
+        let read = |name: &str| std::fs::read_to_string(dir.path().join(name)).expect("noted");
+        let args = read("args");
+        assert!(!args.contains("hunter2"), "{args}");
+        assert!(args.contains(&*private.to_string_lossy()), "{args}");
+        assert!(read("servers").contains(r#""TOKEN":"hunter2""#));
+        assert_eq!(read("mode").trim(), "-rw-------");
+        assert!(!stale.exists());
+        // The agent has gone, and its file with it.
+        assert!(emptied(&private).await, "the file was left behind");
     }
 
     #[tokio::test]

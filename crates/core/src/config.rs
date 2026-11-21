@@ -13,7 +13,7 @@ pub struct ProjectConfig {
     pub branch_pattern: String,
     /// Ref new tasks branch from. Empty means the remote's default branch.
     pub base_branch: String,
-    /// How many stacks of this project may run at once.
+    /// How many stacks of this project may run at once. Starting one more is refused.
     pub max_stacks: u32,
     /// A task's port is `base + slot * port_step`; slot 0 is left to the main checkout.
     pub port_step: u16,
@@ -29,7 +29,8 @@ pub struct ProjectConfig {
 }
 
 /// A project's hook commands. Each runs with `sh -c` in the task's worktree; an empty one is
-/// skipped.
+/// skipped. A `{{variable}}` in one is filled in as one word of the command, whatever its
+/// value holds.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Hooks {
@@ -66,6 +67,8 @@ const TEMPLATE: &str = r#"# Swarmed project config. This file is local to this m
 # Hooks run with `sh -c` in the task's worktree. The same values are also exported as
 # SWARMED_PROJECT, SWARMED_TASK, SWARMED_SLOT, SWARMED_WORKTREE, SWARMED_REPO, SWARMED_BRANCH
 # and SWARMED_PORT_<NAME>.
+# In a hook a value is always one word, whatever is in it: a path with a space needs no
+# quotes around it, and a branch's name is never read as a command.
 
 branch_pattern = "{{user}}/{{task}}"
 # base_branch = "origin/main"   # default: the remote's default branch

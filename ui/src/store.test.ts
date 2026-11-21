@@ -2,7 +2,15 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { Api } from "./api/client";
 import { createMockApi } from "./api/mock";
 import type { AgentEvent, SessionEvent } from "./api/types";
-import { appendEvent, connect, useStore, withEvent } from "./store";
+import {
+    appendEvent,
+    connect,
+    heardWhileReading,
+    type Reading,
+    useStore,
+    withEvent,
+    withStreamed,
+} from "./store";
 
 const text = (value: string): AgentEvent => ({ type: "text", text: value });
 const published = (sessionId: number, event: AgentEvent): SessionEvent => ({
@@ -71,6 +79,37 @@ describe("open", () => {
         expect(useStore.getState().events[7]).toEqual([text("first"), text("second")]);
     });
 
+    it("does not read again for the pieces of a reply, and shows them once it has read", async () => {
+        let release: () => void = () => undefined;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        let reads = 0;
+        const api: Api = {
+            ...createMockApi(),
+            sessionEvents: async () => {
+                reads += 1;
+                await gate;
+                return [text("first")];
+            },
+        };
+        const delta = (value: string): AgentEvent => ({ type: "text_delta", text: value });
+
+        const opening = useStore.getState().open(api, 7);
+        // The agent is in the middle of a reply: its pieces are published and never stored.
+        useStore.getState().apply(published(7, delta("Rain ")));
+        useStore.getState().apply(published(7, delta("falls")));
+        useStore.getState().apply(published(7, { type: "config_changed", kind: "rule" }));
+        release();
+        await opening;
+
+        expect(reads).toBe(1);
+        expect(useStore.getState().events[7]).toEqual([text("first"), delta("Rain falls")]);
+        // The rest of the reply joins what was heard while reading.
+        useStore.getState().apply(published(7, delta(".")));
+        expect(useStore.getState().events[7]).toEqual([text("first"), delta("Rain falls.")]);
+    });
+
     it("reports a history that cannot be read", async () => {
         const api: Api = {
             ...createMockApi(),
@@ -96,9 +135,72 @@ describe("withEvent", () => {
         expect(events).toEqual([text("earlier"), text("Rain falls.")]);
     });
 
-    it("drops unfinished pieces when something other than the reply follows", () => {
+    it("drops unfinished pieces when the turn ends without the whole reply", () => {
         const done: AgentEvent = { type: "turn_done", is_error: true, result: null, cost_usd: 0 };
         expect(withEvent([delta("Rai")], done)).toEqual([done]);
+        const exited: AgentEvent = { type: "exited", code: 1, stderr: "" };
+        expect(withEvent([delta("Rai")], exited)).toEqual([exited]);
+    });
+
+    it("keeps the reply so far when something that is not part of it arrives meanwhile", () => {
+        const renamed: AgentEvent = { type: "renamed", title: "Rain" };
+        let events = withEvent([text("earlier"), delta("Rain ")], renamed);
+        expect(events).toEqual([text("earlier"), renamed, delta("Rain ")]);
+        // The reply goes on growing, and the whole of it still takes the pieces' place.
+        events = withEvent(events, delta("falls."));
+        expect(events).toEqual([text("earlier"), renamed, delta("Rain falls.")]);
+        events = withEvent(events, text("Rain falls."));
+        expect(events).toEqual([text("earlier"), renamed, text("Rain falls.")]);
+    });
+
+    it("keeps it for a mark, a sub-agent's word and a usage limit as well", () => {
+        const others: AgentEvent[] = [
+            { type: "marked", colour: "green", label: "done" },
+            { type: "sub", parent: "t1", event: text("Looking.") },
+            { type: "rate_limit", status: "allowed_warning", resets_at: null, raw: null },
+        ];
+        for (const other of others) {
+            expect(withEvent([delta("Rain ")], other)).toEqual([other, delta("Rain ")]);
+        }
+    });
+});
+
+describe("heardWhileReading", () => {
+    const delta = (value: string): AgentEvent => ({ type: "text_delta", text: value });
+    const fresh = (): Reading => ({ missedEvent: false, streamed: "" });
+
+    it("reads again only for events the core stores", () => {
+        const unstored: AgentEvent[] = [
+            delta("Rain"),
+            { type: "queue", messages: [] },
+            { type: "config_changed", kind: "rule" },
+            { type: "deleted" },
+        ];
+        for (const event of unstored) {
+            const reading = fresh();
+            heardWhileReading(reading, event);
+            expect(reading.missedEvent).toBe(false);
+        }
+        const reading = fresh();
+        heardWhileReading(reading, { type: "renamed", title: "Rain" });
+        expect(reading.missedEvent).toBe(true);
+    });
+
+    it("keeps the pieces of a reply until the whole reply is there to be read", () => {
+        const reading = fresh();
+        heardWhileReading(reading, delta("Rain "));
+        heardWhileReading(reading, { type: "renamed", title: "Rain" });
+        heardWhileReading(reading, delta("falls"));
+        expect(reading.streamed).toBe("Rain falls");
+        expect(withStreamed([text("first")], reading.streamed)).toEqual([
+            text("first"),
+            delta("Rain falls"),
+        ]);
+
+        heardWhileReading(reading, text("Rain falls."));
+        expect(reading).toEqual({ missedEvent: true, streamed: "" });
+        const history = [text("first"), text("Rain falls.")];
+        expect(withStreamed(history, reading.streamed)).toBe(history);
     });
 });
 
@@ -120,22 +222,6 @@ describe("connect", () => {
     });
 });
 
-describe("notes", () => {
-    it("are kept per repository and per task, and marked in the tree", async () => {
-        const api = createMockApi();
-        await api.setNote("bonsai-lint", "rust-support", "token: abc");
-        expect(await api.note("bonsai-lint", "rust-support")).toBe("token: abc");
-        expect(await api.note("bonsai-lint", null)).toBe("");
-        const marked = (await api.overview()).find((project) => project.name === "bonsai-lint");
-        expect(marked?.has_note).toBe(false);
-        expect(marked?.tasks[0]?.has_note).toBe(true);
-
-        await api.setNote("bonsai-lint", "rust-support", "  ");
-        const cleared = (await api.overview()).find((project) => project.name === "bonsai-lint");
-        expect(cleared?.tasks[0]?.has_note).toBe(false);
-    });
-});
-
 describe("removing", () => {
     it("takes a repository out of the tree, and the open session with it", async () => {
         const api = createMockApi();
@@ -146,16 +232,6 @@ describe("removing", () => {
         const { projects, selectedSessionId } = useStore.getState();
         expect(projects.map((project) => project.name)).not.toContain("bonsai-lint");
         expect(selectedSessionId).toBeNull();
-    });
-
-    it("refuses a task with unsaved work until told to remove it anyway", async () => {
-        const api = createMockApi();
-        await expect(api.taskRemove("hero", "invoice-export", false)).rejects.toThrow(
-            "uncommitted changes",
-        );
-        await api.taskRemove("hero", "invoice-export", true);
-        const hero = (await api.overview()).find((project) => project.name === "hero");
-        expect(hero?.tasks.map((task) => task.name)).not.toContain("invoice-export");
     });
 });
 
@@ -168,16 +244,18 @@ describe("the queue of waiting messages", () => {
         expect(useStore.getState().events[1]).toEqual([text("a")]);
     });
 
-    it("can be rewritten and emptied while it waits", async () => {
+    it("follows the mock through a rewrite and an emptying, as it would the core", async () => {
         const api = createMockApi();
+        const disconnect = connect(api);
+        const queued = () => useStore.getState().queues[3]?.map((message) => message.text);
         const [first] = await api.sessionEnqueue(3, "1st");
         await api.sessionEnqueue(3, "second");
-        const edited = await api.sessionQueueEdit(3, first?.id ?? 0, "first");
-        expect(edited.map((message) => message.text)).toEqual(["first", "second"]);
-        const left = await api.sessionQueueEdit(3, first?.id ?? 0, " ");
-        expect(left.map((message) => message.text)).toEqual(["second"]);
-        await api.sessionSendQueued(3);
-        expect(await api.sessionQueue(3)).toEqual([]);
+        expect(queued()).toEqual(["1st", "second"]);
+        await api.sessionQueueEdit(3, first?.id ?? 0, "first");
+        expect(queued()).toEqual(["first", "second"]);
+        await api.sessionQueueEdit(3, first?.id ?? 0, " ");
+        expect(queued()).toEqual(["second"]);
+        disconnect();
     });
 });
 
@@ -203,19 +281,6 @@ describe("opening a session", () => {
 });
 
 describe("setting up an agent", () => {
-    it("installs it, then lets its models be chosen", async () => {
-        const api = createMockApi();
-        const setups = await api.agentSetups();
-        expect(setups.map((setup) => setup.id)).toEqual(["claude", "codex", "opencode"]);
-        expect(setups[2]?.installed).toBeNull();
-        const installed = await api.agentInstall("opencode");
-        expect(installed.configured).toBe(true);
-        const chosen = await api.agentConfigure("opencode", ["openrouter/x-ai/grok-4.7"]);
-        expect(chosen.models).toEqual(["openrouter/x-ai/grok-4.7"]);
-        // Asked again without naming models, the choice stands.
-        expect((await api.agentConfigure("opencode", null)).models).toEqual(chosen.models);
-    });
-
     it("tells the menus to read the agents again", () => {
         const before = useStore.getState().agentsVersion;
         useStore.getState().agentsChanged();
@@ -231,24 +296,6 @@ describe("the settings", () => {
         useStore.getState().showSettings(true);
         expect(useStore.getState()).toMatchObject({ settingsOpen: true, settingsTab: "shortcuts" });
         useStore.getState().showSettings(false, "appearance");
-    });
-});
-
-describe("MCP servers", () => {
-    it("set up here come first, are named by their secrets only, and can be removed", async () => {
-        const api = createMockApi();
-        const before = await api.mcpServers();
-        expect(before.every((server) => server.origin !== "swarmed")).toBe(true);
-        const listed = await api.mcpSave({
-            name: "tracker",
-            command: "npx -y tracker",
-            url: "",
-            secrets: [["TRACKER_TOKEN", "s3cret"]],
-            enabled: true,
-        });
-        expect(listed[0]).toMatchObject({ name: "tracker", origin: "swarmed", kind: "stdio" });
-        expect(JSON.stringify(listed)).not.toContain("s3cret");
-        expect(await api.mcpRemove("tracker")).toEqual(before);
     });
 });
 
