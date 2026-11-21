@@ -1080,8 +1080,33 @@ function sampleLimits(): AgentEvent {
     };
 }
 
+/** The plan's limits as Claude Code answers when asked: one model's weekly limit nearly reached. */
+function sampleUsageLimits(): AgentEvent {
+    const at = (hours: number) => new Date(Date.now() + hours * 3_600_000).toISOString();
+    return {
+        type: "usage_limits",
+        limits: [
+            { kind: "session", model: null, percent: 34, resets_at: at(3), severity: "normal" },
+            {
+                kind: "weekly_all",
+                model: null,
+                percent: 30,
+                resets_at: at(140),
+                severity: "normal",
+            },
+            {
+                kind: "weekly_scoped",
+                model: "Fable",
+                percent: 87,
+                resets_at: at(140),
+                severity: "warning",
+            },
+        ],
+    };
+}
+
 /** The account's extra usage, as Claude Code answers when asked: some spent of a monthly cap. */
-const SAMPLE_EXTRA_USAGE: AgentEvent = {
+const SAMPLE_EXTRA_USAGE: Extract<AgentEvent, { type: "extra_usage" }> = {
     type: "extra_usage",
     enabled: true,
     used: 3871,
@@ -1529,6 +1554,16 @@ class MockAgent {
         marked.mark = colour === "none" ? null : { colour, label: label.trim() };
         this.publish(id, { type: "marked", colour: marked.mark?.colour ?? null, label }, null);
         return marked;
+    }
+
+    /** Asks for the account's usage: the figures arrive as events a moment later. */
+    refreshUsage(id: number) {
+        const asked = this.configure(id, {}) as Session;
+        if (asked.agent !== "claude") {
+            throw `only Claude Code reports usage, and this session runs \`${asked.agent}\``;
+        }
+        this.later(id, sampleUsageLimits(), null, 4);
+        this.later(id, { ...SAMPLE_EXTRA_USAGE, used: 4126 }, null, 4);
     }
 
     rename(id: number, title: string): Session {
@@ -1984,6 +2019,7 @@ export function createMockApi(): Api {
             return () => terminal.listeners.delete(listener);
         },
         statusLine: async (id) => scriptedStatus(settings.status_command, id),
+        sessionUsageRefresh: async (id) => agent.refreshUsage(id),
         sessionRename: async (id, title) => agent.rename(id, title),
         sessionMark: async (id, colour, label) => agent.mark(id, colour, label),
         sessionsSearch: async (query) => sampleSearch(agent.projects, query),

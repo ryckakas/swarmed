@@ -3476,12 +3476,18 @@ code {
     font-family: var(--font-ui);
 }
 
-.context-limit[data-near="true"] dd:not(.context-reset) {
+.context-limit[data-level="warning"] dd:not(.context-reset) {
+    color: var(--pollen);
+}
+
+.context-limit[data-level="reached"] dd:not(.context-reset) {
     color: var(--clay);
 }
 
+/* Plain, so that yellow means a warning everywhere it is used: this is money spent, not a
+   state. */
 .context-bar-extra div {
-    background: var(--pollen);
+    background: var(--muted);
 }
 
 .context-extra-note {
@@ -3490,6 +3496,156 @@ code {
 
 .context-extra-note[data-tone="warning"] {
     color: var(--clay);
+}
+
+/* A thin bar under each window's figure in the context card, as full as the window is used. */
+.context-limit .context-limit-bar {
+    grid-column: 1 / -1;
+    height: 3px;
+    margin: 2px 0 1px;
+    border-radius: 2px;
+    background: var(--line);
+    overflow: hidden;
+}
+
+.context-limit-fill {
+    height: 100%;
+    background: var(--moss);
+}
+
+.context-limit[data-level="warning"] .context-limit-fill {
+    background: var(--pollen);
+}
+
+.context-limit[data-level="reached"] .context-limit-fill {
+    background: var(--clay);
+}
+
+/* The coins in a Claude Code session's header, and the overview of the plan's usage they open
+   under them, at the header's right edge. */
+.usage-wrap {
+    position: relative;
+}
+
+.usage-overview {
+    position: absolute;
+    top: calc(100% + var(--space-1));
+    right: 0;
+    z-index: 6;
+    width: min(40ch, 80vw);
+    padding: var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--raised);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: var(--text-xs);
+}
+
+.usage-overview-title {
+    display: grid;
+    gap: 2px;
+    font-size: var(--text-sm);
+    font-weight: 650;
+}
+
+.usage-overview-title span {
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 400;
+}
+
+.usage-window {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    column-gap: var(--space-4);
+    align-items: baseline;
+    padding: var(--space-1) 0;
+}
+
+.usage-reset {
+    color: var(--muted);
+}
+
+.usage-window-meter {
+    grid-column: 1 / -1;
+}
+
+/* A bar that carries its own figure: inside the filled part when that is wide enough, in the
+   colour of the page so that it reads on the fill in either theme, and past its end if not. */
+.usage-meter {
+    position: relative;
+    height: 16px;
+    margin-top: 3px;
+    border-radius: 5px;
+    background: var(--line);
+    overflow: hidden;
+}
+
+.usage-meter-fill {
+    width: var(--fill);
+    height: 100%;
+    border-radius: 5px;
+    background: var(--moss);
+}
+
+.usage-meter[data-tone="extra"] .usage-meter-fill {
+    background: var(--muted);
+}
+
+.usage-meter[data-level="warning"] .usage-meter-fill {
+    background: var(--pollen);
+}
+
+.usage-meter[data-level="reached"] .usage-meter-fill {
+    background: var(--clay);
+}
+
+.usage-meter-label {
+    position: absolute;
+    top: 50%;
+    left: calc(var(--fill) + 6px);
+    transform: translateY(-50%);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-weight: 650;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.usage-meter[data-inside="true"] .usage-meter-label {
+    right: calc(100% - var(--fill) + 6px);
+    left: auto;
+    color: var(--dusk);
+}
+
+/* Once a usage window is past the warning, the coins carry a small triangle: yellow, or red
+   when one is used up. Ringed in the page's colour, so it stands off the coins. */
+.usage-coins {
+    position: relative;
+}
+
+.icon-button .usage-mark {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    width: 10px;
+    height: 10px;
+    fill: var(--pollen);
+    stroke: var(--dusk);
+    stroke-width: 1.6;
+    paint-order: stroke;
+}
+
+.icon-button .usage-mark[data-level="reached"] {
+    fill: var(--clay);
+}
+
+.usage-overview-foot {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: var(--space-3);
 }
 
 /* Suggestions for a message that starts with a slash; they open upwards, over the transcript. */

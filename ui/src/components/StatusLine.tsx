@@ -2,15 +2,6 @@ import { type CSSProperties, useEffect, useState } from "react";
 import { api } from "../api";
 import type { AgentEvent, FileChange, Session, Task } from "../api/types";
 import {
-    type ExtraUsage,
-    latestExtraUsage,
-    money,
-    onExtraUsageNow,
-    spentShare,
-} from "../extraUsage";
-import { type LimitWindow, limitWindows, resetWhen } from "../rateLimit";
-import { type SpendBasis, sessionSpend, spendBasis } from "../spend";
-import {
     type ContextUsage,
     contextBreakdown,
     contextPercent,
@@ -23,6 +14,7 @@ import {
 import { useStore } from "../store";
 import { useWords } from "../useWords";
 import { useEffortDefault } from "./options";
+import { UsageSections } from "./UsageSections";
 
 interface Props {
     project: string;
@@ -198,133 +190,9 @@ function ContextCard({
                     </div>
                 ))}
             </dl>
-            <Limits windows={limitWindows(events)} />
-            <Extra usage={latestExtraUsage(events)} inUse={onExtraUsageNow(events)} />
-            <Spend spent={sessionSpend(events)} basis={spendBasis(events)} />
+            <UsageSections events={events} look="card" />
         </div>
     );
-}
-
-/** A window this full is drawn as nearly used up. */
-const LIMIT_NEARLY_REACHED = 0.8;
-
-/** Claude Code's usage windows: how much of each is used, and when it resets. */
-function Limits({ windows }: { windows: LimitWindow[] }) {
-    const words = useWords();
-    if (windows.length === 0) {
-        return null;
-    }
-    const now = new Date();
-    return (
-        <section className="context-section" aria-label={words.usageLimits}>
-            <p className="context-title">{words.usageLimits}</p>
-            <dl className="context-limits">
-                {windows.map((window) => (
-                    <div
-                        key={window.name}
-                        className="context-limit"
-                        data-near={
-                            window.used >= LIMIT_NEARLY_REACHED || window.status !== "allowed"
-                        }
-                    >
-                        <dt>{capitalized(window.name)}</dt>
-                        <dd>{Math.round(window.used * 100)}%</dd>
-                        {window.resetsAt !== null && (
-                            <dd className="context-reset">
-                                Resets {resetWhen(window.resetsAt, now)}
-                            </dd>
-                        )}
-                    </div>
-                ))}
-            </dl>
-        </section>
-    );
-}
-
-/**
- * The account's extra usage this billing period: what is spent against the monthly cap, and
- * whether this session's turns run on it, billed. Only Claude Code reports it.
- */
-function Extra({ usage, inUse }: { usage: ExtraUsage | null; inUse: boolean }) {
-    const words = useWords();
-    if (usage === null && !inUse) {
-        return null;
-    }
-    const share = usage && spentShare(usage);
-    const note = extraNote(usage, inUse);
-    return (
-        <section className="context-section" aria-label={words.extraUsage}>
-            <p className="context-title">
-                {words.extraUsage}
-                {usage && <span>{spentThisMonth(usage)}</span>}
-            </p>
-            {share != null && (
-                <div className="context-bar context-bar-extra">
-                    <div style={{ width: `${share}%` }} />
-                </div>
-            )}
-            {note && (
-                <p className="context-extra-note" data-tone={note.tone}>
-                    {note.text}
-                </p>
-            )}
-        </section>
-    );
-}
-
-function spentThisMonth(usage: ExtraUsage): string {
-    const spent = money(usage.used, usage.currency, usage.decimals);
-    if (usage.limit === null) {
-        return `${spent} this month, with no cap`;
-    }
-    return `${spent} of ${money(usage.limit, usage.currency, usage.decimals)} this month`;
-}
-
-/** What to say under the figure: the most pressing of a cap reached, use now, and off. */
-function extraNote(
-    usage: ExtraUsage | null,
-    inUse: boolean,
-): { text: string; tone: "warning" | "plain" } | null {
-    if (usage?.limit_reached) {
-        return { text: "The cap is reached: extra usage pays for nothing more.", tone: "warning" };
-    }
-    if (inUse) {
-        return { text: "This session runs on it now: its turns are billed.", tone: "warning" };
-    }
-    if (usage && !usage.enabled) {
-        return { text: "Off: requests stop at the plan's limits.", tone: "plain" };
-    }
-    return null;
-}
-
-/** What each kind of spend is, said after the figure. */
-const SPEND_BASIS: Record<SpendBasis, string> = {
-    subscription: ", at API prices: your subscription covers it",
-    api: ", billed to the API key it runs on",
-    agent: ", as the agent reports it",
-};
-
-/** What the session has spent in all, across every run of its agent. */
-function Spend({ spent, basis }: { spent: number | null; basis: SpendBasis | null }) {
-    const words = useWords();
-    if (spent === null) {
-        return null;
-    }
-    return (
-        <section className="context-section" aria-label={words.spentHere}>
-            <p className="context-title">
-                {words.spentHere}
-                <span>
-                    ${spent.toFixed(2)}
-                    {basis && SPEND_BASIS[basis]}
-                </span>
-            </p>
-        </section>
-    );
-}
-
-function capitalized(text: string): string {
-    return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function Scripted({ task, session }: Props) {

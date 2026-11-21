@@ -78,6 +78,17 @@ export function EditorIcon() {
     return <path d="M5.5 4.5L2.5 8l3 3.5M10.5 4.5l3 3.5-3 3.5M9 3.5l-2 9" />;
 }
 
+/** Two coins, one over the other: what is used, and what it costs. */
+export function CoinsIcon() {
+    return (
+        <>
+            <circle cx="6" cy="6.2" r="4.2" />
+            <path d="M10.18 5.8A4.2 4.2 0 1 1 5.82 10.4" />
+            <path d="M5.3 4.7h.9v3M11.4 9.6l.5.5-1.9 1.9" />
+        </>
+    );
+}
+
 /** A cloud: work handed to an agent that runs in one. */
 export function CloudIcon() {
     return <path d="M4.5 12.5a3 3 0 0 1-.4-5.97 4 4 0 0 1 7.7-.9A3.4 3.4 0 0 1 11.5 12.5z" />;

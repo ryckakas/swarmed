@@ -285,6 +285,9 @@ fn the_ui_can_deny_interrupt_and_remove() {
     let stopped = |e: &Value| e["type"] == "turn_done" && e["is_error"] == true;
     wait_for(&app, id, "the interrupted turn's end", stopped);
     assert_eq!(app.ok("status_line", json!({ "id": id })), json!(null));
+    app.ok("session_usage_refresh", json!({ "id": id }));
+    let usage = app.wait_for_event(id, "usage_limits");
+    assert_eq!(usage["limits"][0]["kind"], "session");
     let size = json!({ "id": id, "cols": 80, "rows": 24 });
     assert_eq!(
         app.ok("terminal_open", size.clone()),

@@ -3,6 +3,7 @@
 //! Every front end (the CLI, the desktop app) drives this crate and nothing else. It has no
 //! UI dependency.
 
+mod account_usage;
 mod actions;
 pub mod agent;
 mod agent_models;

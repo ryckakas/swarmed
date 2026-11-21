@@ -750,7 +750,9 @@ impl Conversation {
             }
             // These agents report nothing left running, so there is nothing to stop, and
             // describe no screens of their own.
-            AgentCommand::StopBackground { .. } | AgentCommand::Show(_) => {}
+            AgentCommand::StopBackground { .. }
+            | AgentCommand::Show(_)
+            | AgentCommand::AskUsage => {}
         }
     }
 

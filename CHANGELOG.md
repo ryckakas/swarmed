@@ -16,6 +16,15 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **The coins warn before a limit is reached.** Once a usage window is 75% used, as Claude Code
+  starts to warn, they carry a small yellow triangle, red once a limit is used up, and the bars
+  in the card and the overview turn yellow and red likewise. Extra usage's bar is grey now, so
+  that yellow always means a warning.
+- **The coins at the top right of a Claude Code session show your usage as it is now.** They
+  open an overview of the plan's limits, extra usage and what the session spent, with a bar for
+  each that carries its share, and ask Claude Code for the figures as they open, with nothing
+  sent to the model and nothing added to the conversation. The context card keeps the figures
+  last heard, from a turn, the coins or `/usage`, now with a thin bar under each limit.
 - **Claude Code's own commands do in Swarmed what they do in a terminal.** `/usage`, `/status`,
   `/context`, `/cost`, `/memory`, `/skills`, `/hooks` and `/mcp` show their screen in the
   conversation, with your plan's limits as bars, instead of a block of text or "isn't available

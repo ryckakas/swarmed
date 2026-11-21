@@ -3,7 +3,7 @@
 // status once a limit is reached. A warning is not a limit reached, and is said once, when it
 // starts, not again with every turn.
 
-import type { AgentEvent } from "./api/types";
+import type { AgentEvent, UsageLimit } from "./api/types";
 
 /** One usage report of Claude Code's. */
 export type RateLimit = Extract<AgentEvent, { type: "rate_limit" }>;
@@ -115,16 +115,104 @@ export interface LimitWindow {
     status: string;
 }
 
+/** Claude Code warns once a window is this full, and so does Swarmed. */
+export const LIMIT_WARNING = 0.75;
+
+/** How a window stands: well within, past the warning, or used up. */
+export type LimitLevel = "fine" | "warning" | "reached";
+
 /**
- * Every usage window of the latest report, in the order Claude Code lists them. Only Claude
- * Code reports them: the Agent Client Protocol has no message for an account's limits.
+ * How a window stands, by how full it is. A report's own word for it is not taken: Claude Code
+ * has said `allowed_warning` of a window less than a third full.
+ */
+export function limitLevel(window: LimitWindow): LimitLevel {
+    if (window.used >= 1 || window.status === "rejected") {
+        return "reached";
+    }
+    return window.used >= LIMIT_WARNING ? "warning" : "fine";
+}
+
+/**
+ * The window most worth a warning: one used up before one past the warning, and of those the
+ * fullest. `null` while all are fine.
+ */
+export function limitWarning(windows: LimitWindow[]): LimitWindow | null {
+    const weight = (window: LimitWindow) =>
+        (limitLevel(window) === "reached" ? 2 : 0) + window.used;
+    const pressing = windows.filter((window) => limitLevel(window) !== "fine");
+    return pressing.reduce<LimitWindow | null>(
+        (worst, window) => (worst === null || weight(window) > weight(worst) ? window : worst),
+        null,
+    );
+}
+
+/** What a window past the warning comes to, in a sentence of its own. */
+export function warningLine(window: LimitWindow): string {
+    const name = window.name.charAt(0).toUpperCase() + window.name.slice(1);
+    if (limitLevel(window) === "reached") {
+        return `${name}: used up.`;
+    }
+    return `${name}: ${Math.round(window.used * 100)}% used.`;
+}
+
+/**
+ * Every usage window, from whichever came last: the report after a turn, or the limits Claude
+ * Code gave when asked for them. In the order Claude Code lists them. Only Claude Code reports
+ * them: the Agent Client Protocol has no message for an account's limits.
  */
 export function limitWindows(events: AgentEvent[]): LimitWindow[] {
-    const latest = events.findLast((event) => event.type === "rate_limit");
-    if (latest?.type !== "rate_limit" || !isRecord(latest.raw)) {
+    for (let at = events.length - 1; at >= 0; at--) {
+        const windows = windowsOf(events[at]);
+        if (windows.length > 0) {
+            return windows;
+        }
+    }
+    return [];
+}
+
+function windowsOf(event: AgentEvent | undefined): LimitWindow[] {
+    if (event?.type === "usage_limits") {
+        return event.limits.map(askedWindow);
+    }
+    return event?.type === "rate_limit" ? reportedWindows(event) : [];
+}
+
+/** What Claude Code's `/usage` calls its limits, and what they are called here. */
+const LIMIT_KINDS: Record<string, string> = {
+    session: "5-hour",
+    weekly_all: "weekly",
+    weekly_scoped: "weekly",
+};
+
+/** A limit from Claude Code's answer, as a window: one model's weekly limit is named after it. */
+function askedWindow(limit: UsageLimit): LimitWindow {
+    const kind = LIMIT_KINDS[limit.kind] ?? limit.kind.replaceAll("_", " ");
+    return {
+        name: limit.model ? `${kind} ${limit.model}` : kind,
+        used: limit.percent / 100,
+        resetsAt: isoSeconds(limit.resets_at),
+        status: limit.severity === "normal" ? "allowed" : limit.severity,
+    };
+}
+
+/**
+ * An ISO 8601 time as seconds since 1970; `null` for none, or one that cannot be read. Claude
+ * Code gives microseconds, which are cut to milliseconds first: not every engine reads more.
+ */
+export function isoSeconds(text: string | null): number | null {
+    if (text === null) {
+        return null;
+    }
+    const ms = Date.parse(text.replace(/(\.\d{3})\d+/, "$1"));
+    return Number.isNaN(ms) ? null : ms / 1000;
+}
+
+/** The windows a report after a turn lists. */
+function reportedWindows(report: RateLimit): LimitWindow[] {
+    if (!isRecord(report.raw)) {
         return [];
     }
-    const windows = latest.raw.unifiedWindows;
+    const windows = report.raw.unifiedWindows;
     if (!isRecord(windows)) {
         return [];
     }

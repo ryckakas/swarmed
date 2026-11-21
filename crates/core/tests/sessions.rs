@@ -9,8 +9,8 @@ use swarmed_core::agent::{
     AgentEvent, Auth, Effort, FakeBackend, Namer, Naming, PLAN_TOOL, Supervision,
 };
 use swarmed_core::{
-    Core, Error, Mark, MarkColour, NewTaskOptions, Session, SessionEvent, SessionOptions,
-    SessionSettings, SessionStatus, Settings, TerminalOutput, hooks,
+    AgentInfo, Core, Error, Mark, MarkColour, NewTaskOptions, Session, SessionEvent,
+    SessionOptions, SessionSettings, SessionStatus, Settings, TerminalOutput, hooks,
 };
 use tokio::sync::broadcast::Receiver;
 
@@ -333,6 +333,52 @@ impl Namer for FixedNamer {
         // What it was shown, so that a test can see it.
         Box::pin(async move { Some(format!("# feat: add notes\n\n**Adds notes.**\n\n{branch}")) })
     }
+}
+
+#[tokio::test]
+async fn usage_asked_for_comes_from_the_sessions_agent_and_stays_out_of_the_conversation() {
+    let fx = fixture();
+    let mut core = core_with_task(&fx).await;
+    let session = core
+        .session_new("demo", "one", &SessionOptions::default())
+        .expect("creates");
+    let mut bus = core.subscribe();
+    // The session's agent is started for it, and asked.
+    core.session_usage_refresh(session.id, Auth::Subscription)
+        .expect("asks");
+    let answered = next(&mut bus).await;
+    assert!(
+        matches!(answered.event, AgentEvent::UsageLimits { .. }),
+        "{answered:?}"
+    );
+    assert_eq!(answered.status, None);
+    assert_eq!(core.running_sessions(), vec![session.id]);
+    // Nothing was said, and the session is as idle as it was.
+    let events = core.session_events(session.id).expect("reads");
+    assert_eq!(events, vec![answered.event]);
+    assert_eq!(
+        core.session(session.id).expect("exists").status,
+        SessionStatus::Idle
+    );
+
+    // Another agent reports no usage, and is not started for it.
+    let other = AgentInfo {
+        id: "other".into(),
+        name: "Other".into(),
+        models: vec![],
+    };
+    core.add_agent(other, Arc::new(FakeBackend::default()));
+    let options = SessionOptions {
+        agent: Some("other".into()),
+        ..SessionOptions::default()
+    };
+    let elsewhere = core.session_new("demo", "one", &options).expect("creates");
+    let refused = core.session_usage_refresh(elsewhere.id, Auth::Subscription);
+    assert!(
+        matches!(&refused, Err(Error::UsageNotReported(agent)) if agent == "other"),
+        "{refused:?}"
+    );
+    assert_eq!(core.running_sessions(), vec![session.id]);
 }
 
 /// Skips ahead to the next change of title.

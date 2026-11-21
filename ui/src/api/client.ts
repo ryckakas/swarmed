@@ -334,6 +334,12 @@ export interface Api {
      * configured and the built-in pieces apply.
      */
     statusLine(id: number): Promise<string | null>;
+    /**
+     * Asks the session's Claude Code for the account's usage now, starting it if it is not
+     * running. Returns once asked; the plan's limits and the extra usage arrive as the
+     * session's events, with nothing in the conversation. Only for a Claude Code session.
+     */
+    sessionUsageRefresh(id: number): Promise<void>;
     /** Gives the session a title of the user's choosing. Every front end hears of it as an event. */
     sessionRename(id: number, title: string): Promise<Session>;
     /** Puts a mark on a session; the colour `none` takes it off. */
