@@ -2,10 +2,10 @@ import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 
 import { api } from "../api";
 import type { Settings, StatusItem, Style, Supervision, Theme } from "../api/types";
 import { LAYOUTS, PALETTES, STYLES } from "../appearance";
-import { keyCaps, LOCAL_HOTKEYS, listedHotkeys } from "../hotkeys";
 import { movedItem, STATUS_ITEM_LABELS, STATUS_ITEMS, withItem } from "../statusline";
 import { SETTINGS_TABS, type SettingsTab, useStore } from "../store";
 import { useWords } from "../useWords";
+import { About } from "./About";
 import { ActionsSettings } from "./ActionsSettings";
 import { AgentsSettings } from "./AgentsSettings";
 import { ApiKeys } from "./ApiKeys";
@@ -19,6 +19,7 @@ import {
     terminalAppChoices,
 } from "./options";
 import { Picker } from "./Picker";
+import { ShortcutLists } from "./Shortcuts";
 import { SkillsSettings } from "./SkillsSettings";
 import { TemplatesSettings } from "./TemplatesSettings";
 import { UsageSettings } from "./UsageSettings";
@@ -152,6 +153,8 @@ function Panel({ tab, settings }: { tab: SettingsTab; settings: Settings }) {
             return <UsageSettings />;
         case "shortcuts":
             return <Shortcuts />;
+        case "about":
+            return <AboutSection />;
     }
 }
 
@@ -581,47 +584,22 @@ function StatusLineSettings({ settings }: { settings: Settings }) {
     );
 }
 
-const SHORTCUT_GROUPS = ["Sessions", "In a session", "Task", "Window"] as const;
-
-/** Every keyboard shortcut, by where it applies. Folded away until asked for: it is a long list. */
+/** Every keyboard shortcut, by where it applies. */
 function Shortcuts() {
     return (
         <section className="settings-group" aria-label="Keyboard shortcuts">
             <h3>Keyboard shortcuts</h3>
-            {SHORTCUT_GROUPS.map((group) => (
-                <ShortcutList
-                    key={group}
-                    title={group}
-                    shortcuts={listedHotkeys().filter((hotkey) => hotkey.group === group)}
-                />
-            ))}
-            <ShortcutList title="While typing or in the sidebar" shortcuts={LOCAL_HOTKEYS} />
+            <ShortcutLists />
         </section>
     );
 }
 
-interface ShortcutListProps {
-    title: string;
-    shortcuts: { keys: string; label: string }[];
-}
-
-function ShortcutList({ title, shortcuts }: ShortcutListProps) {
+function AboutSection() {
     return (
-        <>
-            <p className="shortcut-group">{title}</p>
-            <dl className="shortcuts">
-                {shortcuts.map((shortcut) => (
-                    <div key={shortcut.keys} className="shortcut">
-                        <dt>{shortcut.label}</dt>
-                        <dd>
-                            {keyCaps(shortcut.keys).map((cap) => (
-                                <kbd key={cap}>{cap}</kbd>
-                            ))}
-                        </dd>
-                    </div>
-                ))}
-            </dl>
-        </>
+        <section className="settings-group" aria-label="About">
+            <h3>About</h3>
+            <About />
+        </section>
     );
 }
 

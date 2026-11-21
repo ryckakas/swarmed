@@ -131,6 +131,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **UI logic lives in pure functions** with tests: `tree.ts` for the sidebar, `transcript.ts`
   for turning a session's events into what the transcript shows. Components and the store stay
   thin.
+- **The menu bar is the app's own** (`crates/app/src/menu.rs`): the system's items, and
+  Swarmed's (About, Settings, Keyboard Shortcuts), whose ids the window hears as a `menu` event
+  and acts on (`menuChosen` in `ui/src/store.ts`). A new item of Swarmed's gets its id in both.
+  Keep the Edit menu's items: on a Mac, undo, copy and paste reach a text field through them.
+  The version shown in the app is the app crate's, which is the workspace's.
 - **Keyboard shortcuts are one table** (`ui/src/hotkeys.ts`), matched in `useHotkeys.ts` and
   listed in Settings from the same table. A new action gets its shortcut there, not a key
   handler of its own. Combinations macOS or the window already use are not taken.

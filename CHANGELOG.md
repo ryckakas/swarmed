@@ -65,6 +65,9 @@ through Homebrew or a browser.
   senior and custom layouts, and the text size.
 - **What it costs.** What the agents report their work cost, by day and by task; turns by day and
   model in charts; and what Swarmed takes up on disk and is using right now.
+- **About, and a menu bar of its own.** Swarmed's menu has About, Settings and Keyboard
+  Shortcuts. The About view, also in Settings and behind the version in the sidebar's top corner,
+  says what Swarmed is and which version is installed, and links to its source.
 - **The `swarmed` command** for repositories, tasks, sessions, agents, keys and snapshots from a
   terminal. `SWARMED_FAKE_AGENT=1` swaps in a scripted agent that spends no tokens.
 - **Installing:** an install script, a Homebrew cask that also puts `swarmed` on the PATH, and

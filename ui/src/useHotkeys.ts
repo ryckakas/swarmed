@@ -114,7 +114,7 @@ function focusMessage() {
 }
 
 function showShortcuts() {
-    useStore.getState().showSettings(true, "shortcuts");
+    useStore.getState().showBanner("shortcuts");
 }
 
 /** What each shortcut does. Those that act on a session do nothing when none is open. */

@@ -7,6 +7,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod menu;
 mod navigation;
 mod notify;
 
@@ -251,6 +252,11 @@ fn main() {
             drop(tauri::async_runtime::spawn(serve_session_tools(listening)));
             // Asked once, by the system; from then on its settings hold the answer.
             notify::ask_permission();
+            // In place of the default menu bar, whose About is the system's bare panel.
+            if cfg!(target_os = "macos") {
+                app.set_menu(menu::build(app.handle())?)?;
+                app.on_menu_event(|app, event| menu::chosen(app, &event));
+            }
             drop(tauri::async_runtime::spawn(forward_terminals(
                 terminals,
                 app.handle().clone(),

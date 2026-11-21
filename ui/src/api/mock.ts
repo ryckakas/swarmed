@@ -1808,6 +1808,8 @@ export function createMockApi(): Api {
         setApiKey: async (name, key) => storeKey(keys, name, key.trim() !== ""),
         deleteApiKey: async (name) => storeKey(keys, name, false),
         settings: async () => ({ ...settings }),
+        // The sample's own: a browser has no app to ask.
+        version: async () => "0.1.0",
         setBadge: async () => {},
         setSettings: async (changed) => {
             settings = changed;
@@ -1895,5 +1897,7 @@ export function createMockApi(): Api {
         },
         onNoticeOpened: async () => () => undefined,
         onEventsLagged: async () => () => undefined,
+        // A browser has no menu bar.
+        onMenu: async () => () => undefined,
     };
 }
