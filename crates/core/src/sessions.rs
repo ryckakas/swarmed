@@ -1109,20 +1109,28 @@ impl Core {
 
     /// Stops the agents of every session of a task, closed ones still on their way out
     /// included, and waits until they have gone: by themselves, or killed for taking too
-    /// long. For when the task's worktree is about to go, so that nothing writes into it. What
-    /// they leave behind goes too: messages waiting to be sent, unread views and private files.
+    /// long. For when the task's worktree is about to go, so that nothing writes into it.
     pub(crate) async fn sessions_ended(&self, task_id: i64) -> Result<()> {
         let ids = self.store().session_ids(task_id)?;
         let mut endings = vec![];
         for id in ids {
             self.session_stop(id);
             self.terminal_close(id);
-            self.live.queues.clear(id);
-            self.forget_session_files(id);
             endings.extend(self.live.endings_of(id));
         }
         for ending in endings {
             ending.gone().await;
+        }
+        Ok(())
+    }
+
+    /// Deletes what the sessions of a removed task left behind: messages waiting to be sent,
+    /// unread views and private files. Only once the task is gone: a removal that was refused
+    /// leaves its sessions as they were.
+    pub(crate) fn sessions_forgotten(&self, task_id: i64) -> Result<()> {
+        for id in self.store().session_ids(task_id)? {
+            self.live.queues.clear(id);
+            self.forget_session_files(id);
         }
         Ok(())
     }

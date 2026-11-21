@@ -349,6 +349,130 @@ async fn removing_a_task_deletes_its_branch_when_nothing_on_it_is_lost() {
     assert_eq!(String::from_utf8_lossy(&branches.stdout).trim(), "");
 }
 
+/// Whether the repository still has the local branch.
+fn has_branch(repo: &Path, branch: &str) -> bool {
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["show-ref", "--verify", "--quiet"])
+        .arg(format!("refs/heads/{branch}"))
+        .status()
+        .expect("runs git")
+        .success()
+}
+
+#[tokio::test]
+async fn the_branch_a_task_started_from_is_kept_even_as_its_own_base() {
+    let fx = fixture();
+    git(&fx.repo, &["branch", "release"]);
+    write_config(&fx, "base_branch = \"release\"\n");
+    let core = core_with_project(&fx).await;
+    let options = NewTaskOptions {
+        existing_branch: Some("release"),
+        ..NewTaskOptions::default()
+    };
+    let task = core
+        .task_new("demo", "on-release", options, &hooks::discard)
+        .await
+        .expect("test setup");
+    // A commit only this branch has, which no comparison with the base, itself, can see.
+    std::fs::write(task.worktree_path.join("new.txt"), "x").expect("test setup");
+    git(&task.worktree_path, &["add", "."]);
+    git(&task.worktree_path, &["commit", "--quiet", "-m", "work"]);
+
+    let options = RemoveOptions {
+        force: false,
+        delete_branch: true,
+    };
+    let notes = core
+        .task_remove("demo", "on-release", options, &hooks::discard)
+        .await
+        .expect("removes");
+    assert!(
+        notes
+            .iter()
+            .any(|note| note.contains("release") && note.contains("kept")),
+        "{notes:?}"
+    );
+    assert!(has_branch(&fx.repo, "release"));
+}
+
+#[tokio::test]
+async fn a_branch_that_cannot_be_checked_is_kept_and_the_removal_still_done() {
+    let fx = fixture();
+    git(&fx.repo, &["branch", "release"]);
+    write_config(&fx, "base_branch = \"release\"\n");
+    let core = core_with_project(&fx).await;
+    let task = core
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    // The base goes, as a remote's branch does once merged and pruned.
+    git(&fx.repo, &["branch", "-D", "release"]);
+
+    let options = RemoveOptions {
+        force: true,
+        delete_branch: true,
+    };
+    let notes = core
+        .task_remove("demo", "one", options, &hooks::discard)
+        .await
+        .expect("the removal is done, whatever became of the branch");
+    assert!(
+        notes
+            .iter()
+            .any(|note| note.contains(&task.branch) && note.contains("kept")),
+        "{notes:?}"
+    );
+    assert!(has_branch(&fx.repo, &task.branch));
+    assert_eq!(core.tasks("demo", false).expect("lists"), vec![]);
+}
+
+#[tokio::test]
+async fn what_a_tasks_sessions_left_goes_with_the_task_and_not_with_a_refused_removal() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    let task = core
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    let session = core
+        .session_new("demo", "one", &SessionOptions::default())
+        .expect("creates");
+    core.session_enqueue(session.id, "later").expect("queues");
+    let spool = fx.paths.view_spool(session.id);
+    let private = fx
+        .paths
+        .data_dir
+        .join("run/agents")
+        .join(session.id.to_string());
+    for folder in [&spool, &private] {
+        std::fs::create_dir_all(folder).expect("test setup");
+        std::fs::write(folder.join("left"), "x").expect("test setup");
+    }
+
+    std::fs::write(task.worktree_path.join("new.txt"), "x").expect("test setup");
+    let refused = core
+        .task_remove("demo", "one", RemoveOptions::default(), &hooks::discard)
+        .await;
+    assert!(
+        matches!(refused, Err(Error::TaskNotClean { .. })),
+        "{refused:?}"
+    );
+    assert_eq!(core.session_queue(session.id).expect("reads").len(), 1);
+    assert!(spool.join("left").exists() && private.join("left").exists());
+
+    let options = RemoveOptions {
+        force: true,
+        delete_branch: false,
+    };
+    core.task_remove("demo", "one", options, &hooks::discard)
+        .await
+        .expect("removes");
+    assert_eq!(core.session_queue(session.id).expect("reads"), vec![]);
+    assert!(!spool.exists() && !private.exists());
+}
+
 #[tokio::test]
 async fn remove_runs_teardown_and_passes_over_one_that_fails() {
     let fx = fixture();

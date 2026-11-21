@@ -404,7 +404,6 @@ async function reporting(action: () => Promise<void>) {
     }
 }
 
-/** What changes when a session is closed: it leaves the tree, and the centre if it was there. */
 /** `record` without the entries of `ids`; the same object if it had none of them. */
 function without<T>(record: Record<number, T>, ids: number[]): Record<number, T> {
     if (!ids.some((id) => id in record)) {
@@ -442,6 +441,7 @@ function forgotten(state: State, sessionIds: number[], taskIds: number[]): Parti
     };
 }
 
+/** What changes when a session is closed: it leaves the tree, and the centre if it was there. */
 function closed(state: State, sessionId: number): Partial<State> {
     const selected = state.selectedSessionId;
     return {

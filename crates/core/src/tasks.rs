@@ -239,8 +239,9 @@ impl Core {
         }
         self.store().task_archive(task.id)?;
         self.forget_note(&project.name, &task.name)?;
+        self.sessions_forgotten(task.id)?;
         if options.delete_branch && git::local_branch_exists(repo, &task.branch).await {
-            notes.extend(delete_branch_if_safe(repo, &task).await?);
+            notes.extend(delete_branch_if_safe(repo, &task).await);
         }
         Ok(notes)
     }
@@ -640,9 +641,25 @@ async fn add_worktree(
     }
 }
 
-/// Deletes a removed task's local branch, unless commits on it exist nowhere else, which a
-/// forced removal can leave: then the branch is kept, and the note returned says so.
-async fn delete_branch_if_safe(repo: &Path, task: &Task) -> Result<Option<String>> {
+/// Deletes a removed task's local branch if nothing is lost by it; the note returned says why
+/// it was kept. The task is gone by now, so a branch git would not check or delete is kept
+/// and said too, instead of failing a removal that has been done.
+async fn delete_branch_if_safe(repo: &Path, task: &Task) -> Option<String> {
+    match delete_safe_branch(repo, task).await {
+        Ok(note) => note,
+        Err(error) => Some(format!("the branch {} was kept: {error}", task.branch)),
+    }
+}
+
+/// Deletes the branch unless it is the one the task started from, whose commits cannot be
+/// told from the base's, or commits on it exist nowhere else, which a forced removal can leave.
+async fn delete_safe_branch(repo: &Path, task: &Task) -> Result<Option<String>> {
+    if git::names_branch(repo, &task.base_ref, &task.branch).await? {
+        return Ok(Some(format!(
+            "the branch {} was kept: the task started from it",
+            task.branch
+        )));
+    }
     match git::commits_only_on(repo, &task.branch, &task.base_ref).await? {
         0 => {
             git::branch_delete(repo, &task.branch).await?;

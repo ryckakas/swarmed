@@ -317,8 +317,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   folder in the way, and a branch here or on a remote (one `for-each-ref` after the fetch), and
   the task it returns has the name taken. A name the user chose, as the command line takes it,
   is refused instead (`BranchExists`, `TaskFolderExists`, `TaskExists`). Removing a task
-  deletes its local branch unless commits on it are on neither the base nor a remote; a remote
-  branch is never touched.
+  deletes its local branch (`delete_branch`, which the app sets) unless the task started from
+  it or commits on it are on neither the base nor a remote; a branch git will not check or
+  delete is kept and noted, since the task is gone by then. A remote branch is never touched.
+  What a task's sessions left (waiting messages, unread views, private files) is deleted only
+  once the removal has gone through (`sessions_forgotten`), never by one that was refused.
 - **A session is unread** (`Session::unread`) from when its agent ends a turn, or stops with an
   error, until a front end calls `session_mark_read` or the user writes to it. It is a flag
   beside the status, not a status: the UI shows it for idle sessions only, since busy, waiting

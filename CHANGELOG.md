@@ -16,13 +16,14 @@ notice adds its line under Unreleased.
 
 ### Changed
 
-- **Removing a task deletes its branch too,** unless commits on it are on neither the base nor
-  a remote, which a forced removal can leave: then the branch is kept, and the removal says so.
-  A branch on a remote is never touched.
+- **Removing a task in the app deletes its local branch too,** unless the task started from
+  that branch, or commits on it are on neither the base nor a remote, which a forced removal
+  can leave: then the branch is kept, and the removal says so. A branch on a remote is never
+  touched. `swarmed task rm` keeps the branch as before, unless given `--delete-branch`.
 - **`swarmed-core`: `NewTaskOptions` has `free_name`,** which steps past a taken name to
   `name-2` and so on, and `RemoveOptions::delete_branch` keeps a branch whose commits exist
-  nowhere else. `Error` has the variants `BranchExists`, `TaskFolderExists` and
-  `NoFreeTaskName`.
+  nowhere else. `Error` has the variants `BranchExists`, `TaskFolderExists`,
+  `NoFreeTaskName` and `Migration`.
 
 ### Fixed
 

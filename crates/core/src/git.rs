@@ -138,6 +138,12 @@ pub(crate) async fn branch_names(repo: &Path) -> Result<HashSet<String>> {
         .collect())
 }
 
+/// Whether `name` is the local branch `branch`, however it is worded.
+pub(crate) async fn names_branch(repo: &Path, name: &str, branch: &str) -> Result<bool> {
+    let full = git(repo, &["rev-parse", "--symbolic-full-name", name]).await?;
+    Ok(full == format!("refs/heads/{branch}"))
+}
+
 /// How many commits of local branch `branch` exist nowhere else: on neither `base` nor any
 /// remote branch. None means deleting the branch loses nothing.
 pub(crate) async fn commits_only_on(repo: &Path, branch: &str, base: &str) -> Result<u32> {
