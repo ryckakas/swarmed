@@ -207,6 +207,20 @@ export interface Environment {
     env: Record<string, string>;
 }
 
+/** One file or folder in a folder of a task's worktree. */
+export interface FileEntry {
+    name: string;
+    /** Whether it is a folder that can be listed in turn. */
+    dir: boolean;
+}
+
+/** What one folder of a task's worktree holds: folders first, then files. */
+export interface FileListing {
+    entries: FileEntry[];
+    /** How many more there are than are listed. */
+    more: number;
+}
+
 /** One file a task has changed since its branch left its base. */
 export interface FileChange {
     /** The path, relative to the worktree. */

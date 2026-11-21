@@ -13,6 +13,7 @@ import type {
     Environment,
     FileChange,
     FileDiff,
+    FileListing,
     HookOutput,
     MarkColour,
     McpServerInput,
@@ -201,6 +202,10 @@ export interface Api {
     taskDiff(project: string, name: string, path: string): Promise<FileDiff>;
     /** Opens the task's worktree, with its branch checked out, in the user's editor. */
     taskOpenEditor(project: string, name: string): Promise<void>;
+    /** What the folder `dir` of a task's worktree holds; the worktree itself for an empty `dir`. */
+    taskFiles(project: string, name: string, dir: string): Promise<FileListing>;
+    /** Opens a file of a task's worktree in the user's editor. */
+    taskOpenFile(project: string, name: string, path: string): Promise<void>;
     /** Opens the task's worktree in the terminal application the user chose. */
     taskOpenTerminal(project: string, name: string): Promise<void>;
     /** Opens the task's running stack in the default browser. */

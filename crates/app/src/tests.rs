@@ -332,6 +332,20 @@ fn the_ui_can_commit_a_tasks_work_and_is_told_what_cannot_be_published() {
     assert_eq!(untitled, json!("a pull request needs a title"));
 }
 
+/// A task's files are listed folder by folder, and nothing above its worktree is.
+fn files_are_listed_within_the_worktree(app: &App) {
+    let top = app.ok(
+        "task_files",
+        json!({ "project": "demo", "name": "one", "dir": "" }),
+    );
+    let listed = top["entries"].as_array().map_or(0, Vec::len);
+    assert!(listed > 0, "{top}");
+    let above = json!({ "project": "demo", "name": "one", "dir": "../.." });
+    assert!(app.invoke("task_files", above).is_err());
+    let missing = json!({ "project": "demo", "name": "one", "path": "no/such.file" });
+    assert!(app.invoke("task_open_file", missing).is_err());
+}
+
 #[test]
 fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     let app = app();
@@ -390,6 +404,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     assert_eq!(app.ok("terminal_config_save", written), kept);
     assert_eq!(app.ok("terminal_config", json!({})), kept);
     let target = json!({ "project": "demo", "name": "one" });
+    files_are_listed_within_the_worktree(&app);
     let no_terminal = app.invoke("task_open_terminal", target.clone());
     let said = no_terminal.expect_err("no such terminal");
     let named = |m: &str| m.starts_with("could not open Swarmed No Such Terminal");

@@ -8,6 +8,7 @@ import { useWords } from "../useWords";
 import { ActionBar } from "./ActionBar";
 import { Background, runningCount, useBackground } from "./Background";
 import { Changes } from "./Changes";
+import { Files } from "./Files";
 import { CloseIcon, IconButton } from "./IconButton";
 import { editorChoices, editorName } from "./options";
 import { Picker } from "./Picker";
@@ -49,11 +50,11 @@ export function TaskPanel({ width, onResize }: Props) {
     );
 }
 
-type Tab = "changes" | "background";
+type Tab = "files" | "changes" | "background";
 
 /**
- * The lower part of the panel, one tab at a time: what the task changed, and what its agents
- * left running. The second tab says how many of those still run.
+ * The lower part of the panel, one tab at a time: the task's files, what the task changed, and
+ * what its agents left running. The last tab says how many of those still run.
  */
 function Tabs({ project, task }: { project: Project; task: Task }) {
     const words = useWords();
@@ -61,6 +62,7 @@ function Tabs({ project, task }: { project: Project; task: Task }) {
     const { tasks, read } = useBackground(project.name, task.name);
     const running = runningCount(tasks);
     const tabs: [Tab, string][] = [
+        ["files", words.files],
         ["changes", words.changes],
         ["background", running > 0 ? `${words.background} (${running})` : words.background],
     ];
@@ -80,9 +82,9 @@ function Tabs({ project, task }: { project: Project; task: Task }) {
                     </button>
                 ))}
             </div>
-            {tab === "changes" ? (
-                <Changes project={project} task={task} />
-            ) : (
+            {tab === "files" && <Files project={project} task={task} />}
+            {tab === "changes" && <Changes project={project} task={task} />}
+            {tab === "background" && (
                 <section className="changes" aria-label={words.background}>
                     <div className="changes-scroll">
                         <Background tasks={tasks} onChanged={() => void read()} />

@@ -99,7 +99,7 @@ fn file_change((path, (kind, counts)): (String, (ChangeKind, Option<(u32, u32)>)
 }
 
 /// Whether a path from a front end names something in the worktree and nothing above it.
-fn stays_inside(path: &str) -> bool {
+pub(crate) fn stays_inside(path: &str) -> bool {
     let mut components = Path::new(path).components();
     !path.is_empty() && components.all(|part| matches!(part, Component::Normal(_)))
 }

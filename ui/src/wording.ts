@@ -61,6 +61,7 @@ export interface Words {
     /** The status line's piece that adds up how long the agent has worked. */
     timeWorked: string;
     /** The task panel's two tabs: what the task changed, and what its agents left running. */
+    files: string;
     changes: string;
     background: string;
     /** What each state of something left running is called. */
@@ -119,6 +120,7 @@ const PLAIN: Words = {
     turnStopped: "Turn stopped",
     stack: { stopped: "Stack stopped", starting: "Stack starting", running: "Stack running" },
     timeWorked: "Time worked",
+    files: "Files",
     changes: "Changes",
     background: "Background",
     backgroundState: {
@@ -173,6 +175,7 @@ const SWARM: Words = {
     turnStopped: "Molt cut short",
     stack: { stopped: "Pool dormant", starting: "Pool gestating", running: "Pool thriving" },
     timeWorked: "Time mutating",
+    files: "Tunnels",
     changes: "Mutations",
     background: "Drones",
     backgroundState: {
