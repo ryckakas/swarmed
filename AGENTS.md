@@ -574,10 +574,13 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **Git is used by shelling out** to the `git` binary (`git.rs`), not through a library.
 - **The store is SQLite** (`store.rs`). Schema changes are appended to `MIGRATIONS` and never
   edited afterwards.
-- **A project's, task's or session's id is never given twice** (`Store::next_id`, `id_marks`).
-  SQLite gives a deleted last row's id to the next row, and what a front end or the core keeps
-  by id (a transcript, a terminal, files) would then turn up in the new one. An insert into
-  those tables takes its id from `next_id`; a deleted session or removed task is also
+- **No id is given twice: every table's integer id is `INTEGER PRIMARY KEY AUTOINCREMENT`.**
+  Without it, SQLite gives a deleted last row's id to the next row, and what a front end or
+  the core keeps by id (a transcript, a terminal, files) turns up in the new one. A new table
+  is declared with it; a test holds every table to it. The tables made before were remade
+  with it by `rebuild_with_autoincrement`, the one migration that is not SQL alone: SQLite
+  only takes the keyword when a table is created, and remaking one needs foreign keys off,
+  which a transaction cannot switch. A culled session, or a removed task's sessions, are also
   forgotten by the UI (`forgotten` in `store.ts`).
 
 ## Lint policy

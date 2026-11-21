@@ -47,6 +47,9 @@ pub enum Error {
         /// The name that is taken.
         task: String,
     },
+    /// Swarmed's data could not be brought up to this version's form. Nothing was changed.
+    #[error("Swarmed's data could not be brought up to date: {0}")]
+    Migration(String),
     /// A new task's branch exists already, here or on a remote, left by an earlier task or
     /// made outside Swarmed.
     #[error(

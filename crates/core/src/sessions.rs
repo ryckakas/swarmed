@@ -26,7 +26,7 @@ use crate::paths::Paths;
 use crate::queue::{self, Queues};
 use crate::secrets::SecretEnv;
 use crate::settings::Settings;
-use crate::store::{Numbered, Store, Task};
+use crate::store::{Store, Task};
 use crate::terminal::Terminals;
 use crate::toolserver::{
     SERVER_NAME, SESSION_ENV, SHOW_HTML_FOR_CLAUDE, SOCKET_ENV, TOOL_SERVER_ARG, VIEW_SPOOL_ENV,
@@ -261,12 +261,10 @@ impl Store {
     pub(crate) fn session_insert(&self, task_id: i64, options: &SessionOptions) -> Result<Session> {
         let title = options.title.clone().unwrap_or_default();
         let agent = options.agent.clone().unwrap_or_else(|| CLAUDE.to_string());
-        let id = self.next_id(Numbered::Sessions)?;
         self.conn.execute(
-            "INSERT INTO sessions (id, task_id, title, model, supervision, agent, effort, fast) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO sessions (task_id, title, model, supervision, agent, effort, fast) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
-                id,
                 task_id,
                 title,
                 options.model,
@@ -277,7 +275,7 @@ impl Store {
             ],
         )?;
         Ok(Session {
-            id,
+            id: self.conn.last_insert_rowid(),
             task_id,
             agent,
             title,
