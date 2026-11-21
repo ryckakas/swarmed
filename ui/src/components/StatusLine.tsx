@@ -1,6 +1,8 @@
 import { type CSSProperties, useEffect, useState } from "react";
 import { api } from "../api";
 import type { AgentEvent, FileChange, Session, Task } from "../api/types";
+import { type LimitWindow, limitWindows, resetWhen } from "../rateLimit";
+import { type SpendBasis, sessionSpend, spendBasis } from "../spend";
 import {
     type ContextUsage,
     contextBreakdown,
@@ -120,7 +122,7 @@ function BuiltIn({ project, task, session, events }: Props) {
                     ),
                 )}
             </p>
-            {detail !== null && usage && <ContextCard usage={usage} at={detail} />}
+            {detail !== null && usage && <ContextCard usage={usage} events={events} at={detail} />}
         </>
     );
 }
@@ -152,8 +154,19 @@ function Runs({ part }: { part: StatusPart }) {
     ));
 }
 
-/** What fills the context window, part by part, shown over the status line. */
-function ContextCard({ usage, at }: { usage: ContextUsage; at: number }) {
+/**
+ * What fills the context window, part by part, shown over the status line; under it the agent's
+ * usage windows and what the session has spent, where the agent reports them.
+ */
+function ContextCard({
+    usage,
+    events,
+    at,
+}: {
+    usage: ContextUsage;
+    events: AgentEvent[];
+    at: number;
+}) {
     const percent = contextPercent(usage);
     const parts = contextBreakdown(usage);
     // The stylesheet keeps it inside the line when the badge is near the right edge.
@@ -178,8 +191,76 @@ function ContextCard({ usage, at }: { usage: ContextUsage; at: number }) {
                     </div>
                 ))}
             </dl>
+            <Limits windows={limitWindows(events)} />
+            <Spend spent={sessionSpend(events)} basis={spendBasis(events)} />
         </div>
     );
+}
+
+/** A window this full is drawn as nearly used up. */
+const LIMIT_NEARLY_REACHED = 0.8;
+
+/** Claude Code's usage windows: how much of each is used, and when it resets. */
+function Limits({ windows }: { windows: LimitWindow[] }) {
+    const words = useWords();
+    if (windows.length === 0) {
+        return null;
+    }
+    const now = new Date();
+    return (
+        <section className="context-section" aria-label={words.usageLimits}>
+            <p className="context-title">{words.usageLimits}</p>
+            <dl className="context-limits">
+                {windows.map((window) => (
+                    <div
+                        key={window.name}
+                        className="context-limit"
+                        data-near={
+                            window.used >= LIMIT_NEARLY_REACHED || window.status !== "allowed"
+                        }
+                    >
+                        <dt>{capitalized(window.name)}</dt>
+                        <dd>{Math.round(window.used * 100)}%</dd>
+                        {window.resetsAt !== null && (
+                            <dd className="context-reset">
+                                Resets {resetWhen(window.resetsAt, now)}
+                            </dd>
+                        )}
+                    </div>
+                ))}
+            </dl>
+        </section>
+    );
+}
+
+/** What each kind of spend is, said after the figure. */
+const SPEND_BASIS: Record<SpendBasis, string> = {
+    subscription: ", at API prices: your subscription covers it",
+    api: ", billed to the API key it runs on",
+    agent: ", as the agent reports it",
+};
+
+/** What the session has spent in all, across every run of its agent. */
+function Spend({ spent, basis }: { spent: number | null; basis: SpendBasis | null }) {
+    const words = useWords();
+    if (spent === null) {
+        return null;
+    }
+    return (
+        <section className="context-section" aria-label={words.spentHere}>
+            <p className="context-title">
+                {words.spentHere}
+                <span>
+                    ${spent.toFixed(2)}
+                    {basis && SPEND_BASIS[basis]}
+                </span>
+            </p>
+        </section>
+    );
+}
+
+function capitalized(text: string): string {
+    return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function Scripted({ task, session }: Props) {

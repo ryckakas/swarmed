@@ -45,6 +45,9 @@ export interface Words {
     delegate: string;
     /** Taking a cloud task off the list, which leaves it running at its provider. */
     forgetCloud: string;
+    /** The context card's parts on the agent's usage windows and on what the session spent. */
+    usageLimits: string;
+    spentHere: string;
     /** What ending a session and taking it out of the sidebar is called. */
     closeSession: string;
     /** Starting a session from all of this one, on the same agent and on another. */
@@ -125,6 +128,8 @@ const PLAIN: Words = {
     reopen: "Reopen",
     delegate: "Delegate to the cloud",
     forgetCloud: "Take off the list",
+    usageLimits: "Usage limits",
+    spentHere: "Spent in this session",
     closeSession: "Close session",
     forkAll: "Fork this conversation",
     cloneTo: "Clone to…",
@@ -240,6 +245,8 @@ const COLONY: Words = {
     reopen: "Unburrow",
     delegate: "Send spores to the cloud",
     forgetCloud: "Let it drift",
+    usageLimits: "Hunger limits",
+    spentHere: "Consumed by this spawn",
 };
 
 const WORDS: Record<Style, Words> = { plain: PLAIN, swarm: SWARM, colony: COLONY };

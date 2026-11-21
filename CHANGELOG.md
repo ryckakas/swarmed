@@ -14,6 +14,13 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Added
+
+- **The context window's card shows your usage limits and what the session has spent.** For
+  Claude Code, each usage window (5-hour, weekly and the like) with how much is used and when it
+  resets; for any agent that reports a cost, what the session has spent in all, and whether that
+  is billed or covered by a subscription. Agents over the Agent Client Protocol report no limits.
+
 ### Fixed
 
 - **A task whose removal failed halfway can be removed.** "Remove anyway" now deletes what is

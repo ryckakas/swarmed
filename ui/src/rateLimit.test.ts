@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { limitNotice, type RateLimit, resetWhen } from "./rateLimit";
+import { limitNotice, limitWindows, type RateLimit, resetWhen } from "./rateLimit";
 
 // Noon on a Saturday, in the time zone the tests run in.
 const now = new Date(2026, 10, 21, 12, 0);
@@ -77,5 +77,39 @@ describe("resetWhen", () => {
         expect(today).not.toContain(" on ");
         const later = resetWhen(seconds(new Date(2026, 10, 27, 22, 0)), now);
         expect(later).toMatch(/^on .*27.* at /);
+    });
+});
+
+describe("limitWindows", () => {
+    it("lists every window of the latest report, named, in Claude Code's order", () => {
+        const earlier = report("allowed", {
+            unifiedWindows: { five_hour: { status: "allowed", utilization: 0.1 } },
+        });
+        const latest = report("allowed_warning", {
+            unifiedWindows: {
+                five_hour: { status: "allowed", utilization: 0.31, resetsAt: 100 },
+                seven_day: { status: "allowed", utilization: 0.29, resetsAt: 200 },
+                seven_day_overage_included: { status: "allowed", utilization: 0.44 },
+                seven_day_new_kind: { status: "rejected", utilization: 1 },
+                broken: { status: "allowed" },
+            },
+        });
+        expect(limitWindows([earlier, { type: "text", text: "hi" }, latest])).toEqual([
+            { name: "5-hour", used: 0.31, resetsAt: 100, status: "allowed" },
+            { name: "weekly", used: 0.29, resetsAt: 200, status: "allowed" },
+            {
+                name: "weekly, extra usage included",
+                used: 0.44,
+                resetsAt: null,
+                status: "allowed",
+            },
+            { name: "seven day new kind", used: 1, resetsAt: null, status: "rejected" },
+        ]);
+    });
+
+    it("is empty without a report that lists windows, as from every agent but Claude Code", () => {
+        expect(limitWindows([])).toEqual([]);
+        expect(limitWindows([report("allowed", null)])).toEqual([]);
+        expect(limitWindows([report("allowed", { unifiedWindows: "?" })])).toEqual([]);
     });
 });
