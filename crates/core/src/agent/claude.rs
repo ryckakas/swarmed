@@ -728,7 +728,7 @@ fn parse_message(message: &Value, pending: &Pending) -> Vec<AgentEvent> {
     }
 }
 
-/// A command sent to Claude Code that only opens a screen in its terminal, such as `/theme`.
+/// A command sent to Claude Code that only opens a screen in its terminal, such as `/vim`.
 /// Run without one, Claude Code answers for the command itself, with no model, and marks the
 /// answer `unavailable_headless`. Its words start with the command as it was typed, so that
 /// any such command is known, and none needs naming here. `None` for any other message.

@@ -39,7 +39,7 @@ pub struct SlashCommand {
     pub name: String,
     /// What Swarmed does with it.
     pub kind: CommandKind,
-    /// For one that only works in a terminal, what to do in Swarmed instead; empty for none.
+    /// For one Swarmed does not send on, what to do instead; empty for any other.
     pub note: String,
 }
 
@@ -423,11 +423,28 @@ fn open_questions(events: &[AgentEvent], request_id: &str) -> Option<Vec<Asked>>
 }
 
 impl Core {
+    /// Refuses `text` with [`Error::TerminalOnly`] if it is a command Swarmed does not send
+    /// on. For a message about to wait in a queue: what waits there is sent as typed, and
+    /// never comes by [`Core::command_taken`].
+    pub(crate) fn may_wait(&self, id: i64, text: &str) -> Result<()> {
+        let session = self.session(id)?;
+        let Some((name, _)) = called(text) else {
+            return Ok(());
+        };
+        match handling(&session.agent, name) {
+            Some(Terminal(instead)) if !self.calls_skill(id, text) => Err(Error::TerminalOnly {
+                command: name.to_string(),
+                instead: instead.to_string(),
+            }),
+            _ => Ok(()),
+        }
+    }
+
     /// Does what `text` asks itself, if it is one of the agent's own commands that is not
     /// simply sent on, and says whether it did. With `auth` the session's agent is started
     /// where the command needs it; without, it must be running.
     ///
-    /// A command that only works in a terminal is refused with [`Error::TerminalOnly`].
+    /// A command Swarmed does not send on is refused with [`Error::TerminalOnly`].
     pub(crate) fn command_taken(&self, id: i64, text: &str, auth: Option<Auth>) -> Result<bool> {
         let session = self.session(id)?;
         let Some((name, argument)) = called(text) else {
@@ -672,6 +689,16 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), all, "a command is in the table twice");
+    }
+
+    #[test]
+    fn every_refused_command_says_what_to_do_instead() {
+        for (name, how) in CLAUDE_COMMANDS {
+            assert!(
+                !matches!(how, Terminal(instead) if instead.is_empty()),
+                "/{name}"
+            );
+        }
     }
 
     #[test]

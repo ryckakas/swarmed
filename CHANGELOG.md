@@ -31,8 +31,8 @@ notice adds its line under Unreleased.
   in this environment". `/model`, `/effort` and `/config` ask where the conversation stands and
   are set by your answer; `/model opus` sets it at once. None of them is sent to the model or
   interrupts a turn. The list after `/` says which commands are shown here, which ask here,
-  and which only work in a terminal; those are no longer sent, and say what to do instead.
-  Any other command that only opens a screen in Claude Code's terminal, such as `/theme`, is
+  and which are not sent, with what to do instead; those cannot wait in the queue either.
+  Any other command that only opens a screen in Claude Code's terminal, such as `/vim`, is
   said to, instead of "isn't available in this environment" as if the agent had answered.
   `/usage-credits` shows your usage and extra usage, and says that credits are bought in the
   terminal. `/clear`, `/new` and `/reset` are not sent: Claude Code would forget the

@@ -89,9 +89,9 @@ describe("what becomes of a command", () => {
         expect(kindLabel(commands[1])).toBe("asks here");
         expect(kindLabel(commands[2])).toBeNull();
         expect(kindLabel(commands[3])).toBe(
-            "only in a terminal. A session is renamed by pressing its title.",
+            "not sent. A session is renamed by pressing its title.",
         );
-        expect(kindLabel(commands[4])).toBe("only in a terminal");
+        expect(kindLabel(commands[4])).toBe("not sent");
         expect(kindLabel(undefined)).toBeNull();
     });
 

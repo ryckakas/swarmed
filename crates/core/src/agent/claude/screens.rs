@@ -479,6 +479,9 @@ mod tests {
         let (note, sections) = screen(ScreenKind::Usage, &body);
         // The plan's name is not kept, and a screen is. What only the terminal does is named.
         assert_eq!(note, CREDITS);
+        // Without extra usage there are no credits to speak of.
+        let plain = json!({ "rate_limits": { "limits": [{ "kind": "session", "percent": 40 }] } });
+        assert_eq!(screen(ScreenKind::Usage, &plain).0, "");
         let titles: Vec<&str> = sections.iter().map(|part| part.title.as_str()).collect();
         assert_eq!(titles, ["Plan limits", "Extra usage", "This session"]);
         let limits = &sections[0].rows;

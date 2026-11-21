@@ -27,7 +27,7 @@ export const MOCK_COMMANDS: SlashCommand[] = [
 ];
 
 /** Commands the sample agent only has a screen for in its own terminal, as Claude Code does. */
-const SCREEN_ONLY = ["theme", "vim", "privacy-settings"];
+const SCREEN_ONLY = ["vim", "privacy-settings", "export"];
 
 /** The command `text` calls if it is one the sample agent can only show in its terminal. */
 export function mockScreenOnly(text: string): string | null {

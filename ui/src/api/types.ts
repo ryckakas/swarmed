@@ -524,7 +524,7 @@ export interface SlashCommand {
     /** The name, without its slash. */
     name: string;
     kind: CommandKind;
-    /** For one that only works in a terminal, what to do in Swarmed instead; empty for none. */
+    /** For one Swarmed does not send on, what to do instead; empty for any other. */
     note: string;
 }
 

@@ -1255,7 +1255,7 @@ class MockAgent {
         const command = calledCommand(text, MOCK_COMMANDS);
         const bare = text.trim() === `/${command?.name}`;
         if (command?.kind === "terminal") {
-            throw new Error(`/${command.name} only works in a terminal. ${command.note}`);
+            throw new Error(`/${command.name} is not sent. ${command.note}`);
         }
         const screen = command?.kind === "screen" && bare ? mockScreen(command.name) : null;
         const questions = command?.kind === "setting" ? mockQuestions(command.name) : null;
