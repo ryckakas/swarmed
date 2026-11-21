@@ -193,10 +193,10 @@ pub(crate) async fn check() -> String {
     )
 }
 
-/// Says that there is nothing to check here.
+/// Says that there is nothing to check here. A future, as on macOS, though nothing is waited for.
 #[cfg(not(target_os = "macos"))]
-pub(crate) async fn check() -> String {
-    "notifications are only shown on macOS".to_string()
+pub(crate) fn check() -> std::future::Ready<String> {
+    std::future::ready("notifications are only shown on macOS".to_string())
 }
 
 #[cfg(all(test, target_os = "macos"))]

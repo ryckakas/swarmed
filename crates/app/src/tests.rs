@@ -50,6 +50,9 @@ fn app() -> App {
     let repo = root.join("demo");
     std::fs::create_dir(&repo).expect("repo dir");
     git(&repo, &["init", "--quiet", "-b", "main"]);
+    // Commits Swarmed makes for the user are the user's git's: give it a name, as a user has.
+    git(&repo, &["config", "user.name", "Test"]);
+    git(&repo, &["config", "user.email", "test@example.com"]);
     std::fs::write(repo.join("README.md"), "demo\n").expect("readme");
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "--quiet", "-m", "init"]);
