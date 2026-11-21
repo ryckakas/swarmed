@@ -234,3 +234,57 @@ async fn a_session_is_told_of_its_skills_and_handed_one_when_it_asks() {
     assert_eq!(ask("review").await["ok"], false);
     assert_eq!(ask("nope").await["ok"], false);
 }
+
+#[tokio::test]
+async fn a_skill_called_by_name_is_listed_and_sent_with_what_it_says() {
+    let fx = fixture();
+    let core = core_with_skills(&fx).await;
+    core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    let mut bus = core.subscribe();
+    let session = core
+        .session_new("demo", "one", &SessionOptions::default())
+        .expect("creates");
+
+    // Before its agent has said what commands it has, the menu holds the skills it is offered.
+    let offered = core.slash_commands(Some(session.id)).expect("lists");
+    assert_eq!(offered, ["deploy", "triage"]);
+
+    core.session_start(session.id, Auth::Subscription)
+        .expect("starts");
+    core.session_send(session.id, "/deploy to staging")
+        .expect("sends");
+    let events = turn(&mut bus, session.id).await;
+    // What is recorded is what was typed; what the agent got is the skill and the request.
+    assert!(events.contains(&AgentEvent::UserMessage {
+        text: "/deploy to staging".to_string()
+    }));
+    let got = events.iter().find_map(|event| match event {
+        AgentEvent::Text { text } => Some(text.as_str()),
+        _ => None,
+    });
+    let got = got.expect("the agent answers with what it was sent");
+    assert!(got.contains("The user calls the skill `deploy`"), "{got}");
+    assert!(got.contains("Steps for deploy."), "{got}");
+    assert!(got.contains("to staging"), "{got}");
+    assert!(!got.contains("description:"), "{got}");
+
+    // The agent's own commands come first once it has reported them, each name once.
+    let listed = core.slash_commands(Some(session.id)).expect("lists");
+    assert_eq!(listed, ["context", "review", "deploy", "triage"]);
+
+    // One of its own skills, an unknown name, or a slash in the middle goes as it was typed.
+    for plain in ["/review this", "/nope", "see /deploy"] {
+        core.session_send(session.id, plain).expect("sends");
+        let events = turn(&mut bus, session.id).await;
+        let got = events.iter().find_map(|event| match event {
+            AgentEvent::Text { text } => Some(text.as_str()),
+            _ => None,
+        });
+        assert!(
+            !got.unwrap_or_default().contains("The user calls the skill"),
+            "{plain}"
+        );
+    }
+}

@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::Core;
 use crate::agents::CLAUDE;
 use crate::error::{Error, Result};
-use crate::paths;
+use crate::paths::{self, Paths};
 
 /// The file a skill is written in, inside its folder.
 const SKILL_FILE: &str = "SKILL.md";
@@ -181,21 +181,13 @@ fn reads_itself(agent: &str, origin: &str) -> bool {
     }
 }
 
-impl Core {
+impl Paths {
     /// Where each agent keeps its skills, by whose they are. The folder several agents read
     /// goes by `agents`.
     fn skill_folders(&self) -> Vec<(&'static str, PathBuf)> {
-        let home = self
-            .paths
-            .claude_config
-            .parent()
-            .unwrap_or_else(|| Path::new(""));
-        let codex = self
-            .paths
-            .codex_config
-            .parent()
-            .unwrap_or_else(|| Path::new(""));
-        let opencode = &self.paths.opencode_config_dir;
+        let home = self.claude_config.parent().unwrap_or_else(|| Path::new(""));
+        let codex = self.codex_config.parent().unwrap_or_else(|| Path::new(""));
+        let opencode = &self.opencode_config_dir;
         vec![
             (CLAUDE, home.join(".claude").join("skills")),
             ("codex", codex.join("skills")),
@@ -206,36 +198,110 @@ impl Core {
     }
 
     fn own_skills_folder(&self) -> PathBuf {
-        self.paths.data_dir.join("skills")
+        self.data_dir.join("skills")
     }
 
     fn sharing(&self) -> Sharing {
-        let text = std::fs::read_to_string(self.paths.data_dir.join("skills.toml"));
+        let text = std::fs::read_to_string(self.data_dir.join("skills.toml"));
         text.ok()
             .and_then(|text| toml::from_str(&text).ok())
             .unwrap_or_default()
     }
 
-    /// Every skill Swarmed knows of wherever a session runs: its own first, then each
-    /// agent's by name, then the ones Claude Code's plugins bring.
-    pub fn skills(&self) -> Vec<Skill> {
-        self.skills_with(None)
-    }
-
-    /// The same, with the ones kept in the repository checked out in `worktree` at the end.
+    /// Every skill Swarmed knows of wherever a session runs: its own first, then each agent's
+    /// by name, then the ones Claude Code's plugins bring; and, where a session works in
+    /// `worktree`, the ones kept in the repository checked out there at the end.
     fn skills_with(&self, worktree: Option<&Path>) -> Vec<Skill> {
         let sharing = self.sharing();
         let mut skills = skills_in(&self.own_skills_folder(), OWN);
         for (origin, folder) in self.skill_folders() {
             skills.extend(skills_in(&folder, origin));
         }
-        let home = self.paths.claude_config.parent();
+        let home = self.claude_config.parent();
         skills.extend(home.map_or_else(Vec::new, |home| plugin_skills(&home.join(".claude"))));
         skills.extend(worktree.map_or_else(Vec::new, repo_skills));
         for skill in &mut skills {
             skill.shared = !sharing.hidden.contains(&key(&skill.origin, &skill.name));
         }
         skills
+    }
+
+    /// The skills offered to a session on `agent` that works in `worktree`, if it is known
+    /// where it works: the shared ones its agent does not have by itself, each name once,
+    /// Swarmed's own before the others'.
+    fn skills_offered(&self, agent: &str, worktree: Option<&Path>) -> Vec<Skill> {
+        let all = self.skills_with(worktree);
+        let native = |skill: &Skill| reads_itself(agent, &skill.origin);
+        let has: BTreeSet<&str> = all
+            .iter()
+            .filter(|skill| native(skill))
+            .map(|skill| skill.name.as_str())
+            .collect();
+        let mut taken: BTreeSet<&str> = has.clone();
+        let offered = all
+            .iter()
+            .filter(|skill| skill.shared && !native(skill))
+            // `insert` says whether the name is new: each is offered once.
+            .filter(|skill| taken.insert(skill.name.as_str()));
+        offered.cloned().collect()
+    }
+
+    /// The skills a message to `agent` can call as `/name` with Swarmed handing over what
+    /// the skill says. Claude Code answers to its own skills by itself, so for it these are
+    /// the ones it is offered; no other agent takes a skill by name, so for them they are
+    /// their own and the offered ones alike, their own first.
+    pub(crate) fn skills_by_name(&self, agent: &str, worktree: Option<&Path>) -> Vec<Skill> {
+        let offered = self.skills_offered(agent, worktree);
+        if agent == CLAUDE {
+            return offered;
+        }
+        let own = self.skills_with(worktree);
+        let own = own
+            .into_iter()
+            .filter(|skill| reads_itself(agent, &skill.origin));
+        let mut taken = BTreeSet::new();
+        let all = own.chain(offered);
+        all.filter(|skill| taken.insert(skill.name.clone()))
+            .collect()
+    }
+
+    /// What the agent is sent in place of a message that calls a skill by name, `/name` and
+    /// whatever follows: what the skill says, then the rest of the message. `None` for any
+    /// other message, which goes as it is.
+    pub(crate) fn skill_called(&self, agent: &str, worktree: &Path, text: &str) -> Option<String> {
+        let called = text.strip_prefix('/')?;
+        let (name, rest) = called
+            .split_once(char::is_whitespace)
+            .unwrap_or((called, ""));
+        let skills = self.skills_by_name(agent, Some(worktree));
+        let skill = skills.iter().find(|skill| skill.name == name)?;
+        let said = std::fs::read_to_string(skill.folder.join(SKILL_FILE)).ok()?;
+        let asked = match rest.trim() {
+            "" => "The user gave nothing further: go by what the skill says.".to_string(),
+            rest => format!("What the user asks, with it:\n{rest}"),
+        };
+        Some(format!(
+            "The user calls the skill `{name}`. Follow what it says:\n\n<skill name=\"{name}\">\n{}\n\n\
+             (This skill's folder is {}. Paths it mentions are relative to that folder.)\n</skill>\n\n{asked}",
+            without_front_matter(&said).trim(),
+            skill.folder.display()
+        ))
+    }
+}
+
+impl Core {
+    /// Every skill Swarmed knows of wherever a session runs: its own first, then each
+    /// agent's by name, then the ones Claude Code's plugins bring.
+    pub fn skills(&self) -> Vec<Skill> {
+        self.paths.skills_with(None)
+    }
+
+    fn own_skills_folder(&self) -> PathBuf {
+        self.paths.own_skills_folder()
+    }
+
+    fn sharing(&self) -> Sharing {
+        self.paths.sharing()
     }
 
     /// Says whether a skill is offered to sessions whose agent does not have it by itself.
@@ -304,20 +370,7 @@ impl Core {
     /// where it works: the shared ones its agent does not have by itself, each name once,
     /// Swarmed's own before the others'.
     pub fn skills_offered(&self, agent: &str, worktree: Option<&Path>) -> Vec<Skill> {
-        let all = self.skills_with(worktree);
-        let native = |skill: &Skill| reads_itself(agent, &skill.origin);
-        let has: BTreeSet<&str> = all
-            .iter()
-            .filter(|skill| native(skill))
-            .map(|skill| skill.name.as_str())
-            .collect();
-        let mut taken: BTreeSet<&str> = has.clone();
-        let offered = all
-            .iter()
-            .filter(|skill| skill.shared && !native(skill))
-            // `insert` says whether the name is new: each is offered once.
-            .filter(|skill| taken.insert(skill.name.as_str()));
-        offered.cloned().collect()
+        self.paths.skills_offered(agent, worktree)
     }
 
     /// What a session on `agent` is told about the skills it is offered, or `None` if there

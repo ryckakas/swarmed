@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::AgentEvent;
 use crate::error::{Error, Result};
+use crate::paths::Paths;
 use crate::sessions::{Live, send_text};
 use crate::store::Store;
 use crate::terminal::Terminals;
@@ -91,13 +92,13 @@ fn publish(store: &Mutex<Store>, live: &Live, session: i64) -> Result<()> {
 pub(crate) fn send_next(
     store: &Mutex<Store>,
     live: &Live,
-    terminals: &Terminals,
+    with: (&Terminals, &Paths),
     session: i64,
 ) -> Result<()> {
     let Some(message) = live.queues.take_first(session) else {
         return Ok(());
     };
-    let sent = send_text(store, live, terminals, session, &message.text);
+    let sent = send_text(store, live, with, session, &message.text);
     if sent.is_err() {
         live.queues.put_back(session, message);
     }
@@ -138,7 +139,7 @@ impl Core {
     /// Sends the first waiting message now, instead of when a turn ends. For a queue left
     /// standing by a turn that was stopped or failed.
     pub fn session_send_queued(&self, id: i64) -> Result<()> {
-        send_next(&self.store, &self.live, &self.terminals, id)
+        send_next(&self.store, &self.live, (&*self.terminals, &self.paths), id)
     }
 
     fn queue_changed(&self, id: i64) -> Result<Vec<QueuedMessage>> {

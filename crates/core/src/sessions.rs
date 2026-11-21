@@ -19,6 +19,7 @@ use crate::error::{Error, Result};
 use crate::fork;
 use crate::marks::{Mark, MarkColour};
 use crate::mcp::{self, McpServer, McpTransport};
+use crate::paths::Paths;
 use crate::queue::{self, Queues};
 use crate::secrets::SecretEnv;
 use crate::settings::Settings;
@@ -684,10 +685,28 @@ impl Core {
             None => CLAUDE.to_string(),
         };
         let init = self.store().latest_init(session, &agent)?;
-        let Some(AgentEvent::Init { slash_commands, .. }) = init else {
-            return Ok(vec![]);
+        let mut commands = match init {
+            Some(AgentEvent::Init { slash_commands, .. }) => slash_commands,
+            _ => vec![],
         };
-        Ok(slash_commands)
+        // The skills Swarmed hands over when called by name: the ones shared with this agent,
+        // and for an agent that reports no commands of its own, its own skills as well.
+        let worktree = match session {
+            Some(id) => self.worktree_of_session(id),
+            None => None,
+        };
+        let skills = self.paths.skills_by_name(&agent, worktree.as_deref());
+        let known: HashSet<String> = commands.iter().cloned().collect();
+        let names = skills.into_iter().map(|skill| skill.name);
+        commands.extend(names.filter(|name| !known.contains(name)));
+        Ok(commands)
+    }
+
+    /// Where session `id` works, if its task is still there.
+    fn worktree_of_session(&self, id: i64) -> Option<PathBuf> {
+        let session = self.session(id).ok()?;
+        let task = self.store().task_by_id(session.task_id).ok()??;
+        Some(task.worktree_path)
     }
 
     /// Every event of every running session, from now on.
@@ -762,6 +781,7 @@ impl Core {
             store: Arc::clone(&self.store),
             live: Arc::clone(&self.live),
             terminals: Arc::clone(&self.terminals),
+            paths: self.paths.clone(),
             spool,
         };
         drop(tokio::spawn(record_and_publish(
@@ -860,7 +880,8 @@ impl Core {
         if self.session(id)?.title.is_empty() {
             self.name_later(id, text);
         }
-        send_text(&self.store, &self.live, &self.terminals, id, text)
+        let with = (&*self.terminals, &self.paths);
+        send_text(&self.store, &self.live, with, id, text)
     }
 
     /// Lets a pending permission request go ahead. Does nothing if it is no longer pending.
@@ -1066,11 +1087,14 @@ impl Core {
 pub(crate) fn send_text(
     store: &Mutex<Store>,
     live: &Live,
-    terminals: &Terminals,
+    (terminals, paths): (&Terminals, &Paths),
     id: i64,
     text: &str,
 ) -> Result<()> {
     let commands = live.sender(id)?;
+    // A message that calls a skill the agent would not know by name is sent with what the
+    // skill says. Worked out before anything is recorded; what is recorded is what was typed.
+    let called = skill_called(store, paths, id, text);
     // A fork's agent has not heard the conversation it starts from: it is told with the first
     // message. Looked up before the message is recorded, and the user's own words are
     // recorded as they typed them.
@@ -1080,6 +1104,7 @@ pub(crate) fn send_text(
     };
     live.note(store, id, event)?;
     let shared = terminals.take_unshared(id);
+    let text = called.as_deref().unwrap_or(text);
     let text = &earlier.map_or_else(
         || text.to_string(),
         |earlier| fork::with_carried(text, &earlier),
@@ -1102,6 +1127,18 @@ pub(crate) fn send_text(
     commands
         .send(AgentCommand::UserMessage(message))
         .map_err(|_| Error::SessionNotRunning(id))
+}
+
+/// What the agent of session `id` is sent in place of `text`, if `text` calls a skill by name.
+fn skill_called(store: &Mutex<Store>, paths: &Paths, id: i64, text: &str) -> Option<String> {
+    if !text.starts_with('/') {
+        return None;
+    }
+    let store = lock(store);
+    let session = store.session_by_id(id).ok()?;
+    let task = store.task_by_id(session.task_id).ok()??;
+    drop(store);
+    paths.skill_called(&session.agent, &task.worktree_path, text)
 }
 
 /// Passes on the settings that differ from what the session had.
@@ -1324,6 +1361,8 @@ struct Shared {
     store: Arc<Mutex<Store>>,
     live: Arc<Live>,
     terminals: Arc<Terminals>,
+    /// Where skills are found, for a waiting message that calls one.
+    paths: Paths,
     /// Where the session's tool server leaves the views it is given.
     spool: PathBuf,
 }
@@ -1337,6 +1376,7 @@ async fn record_and_publish(
         store,
         live,
         terminals,
+        paths,
         spool,
     } = shared;
     while let Some(event) = events.recv().await {
@@ -1362,7 +1402,7 @@ async fn record_and_publish(
             show_views(&store, &live, id, &spool);
         }
         if finished {
-            queue::send_next(&store, &live, &terminals, id).ok();
+            queue::send_next(&store, &live, (&terminals, &paths), id).ok();
         }
     }
     live.forget(id, run);
