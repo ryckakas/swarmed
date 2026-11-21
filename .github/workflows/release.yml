@@ -161,6 +161,8 @@ jobs:
       # Crates at this version on crates.io already are left out, so a rerun sends only what is
       # missing. A crate crates.io has never seen can only be created with the API token.
       # --locked makes a lockfile that disagrees with Cargo.toml a failure, not a silent rewrite.
+      # --no-verify: the check job built these very packages from the same commit, so building
+      # them again here would only take time.
       - name: Publish
         env:
           VERSION: ${{ needs.check.outputs.version }}
@@ -197,7 +199,7 @@ jobs:
             echo "::error::No way to publish: set the CARGO_REGISTRY_TOKEN secret for a crate's first version, then trusted publishing on crates.io (RELEASING.md)"
             exit 1
           fi
-          CARGO_REGISTRY_TOKEN="$token" cargo publish --locked "${missing[@]}"
+          CARGO_REGISTRY_TOKEN="$token" cargo publish --locked --no-verify "${missing[@]}"
 
   tap:
     name: Update the Homebrew cask

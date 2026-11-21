@@ -1,5 +1,5 @@
-# The cask release.yml writes to ryckakas/homebrew-tap at every release, with @VERSION@ and
-# @SHA256@ filled in. Change it here: the next release overwrites the tap's copy.
+# The cask release.yml writes to ryckakas/homebrew-tap at every release, with the version and the
+# zip's checksum filled in. Change it here: the next release overwrites the tap's copy.
 cask "swarmed" do
   version "@VERSION@"
   sha256 "@SHA256@"
