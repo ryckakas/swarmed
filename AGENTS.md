@@ -53,9 +53,10 @@ pull request on that machine, now that the repository is public.
 A made-up secret in a test is marked `gitleaks:allow` on its line; one already in the history is
 listed by its fingerprint in `.gitleaksignore`.
 
-CodeQL (`.github/workflows/codeql.yml`) scans every pull request and `main`, with no schedule,
-in every language it reads that the repository has. A file in a language new to the repository
-that CodeQL reads goes into its list there; one the list names must keep at least one file.
+CodeQL (`.github/workflows/codeql.yml`) scans `main` in every language it reads that the
+repository has, and a pull request only in the languages whose files it changes; there is no
+schedule. A file in a language new to the repository that CodeQL reads goes into its list there,
+with the patterns that name its files; one the list names must keep at least one file.
 
 ## Architecture
 
