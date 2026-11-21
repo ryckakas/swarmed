@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { isoSeconds, limitNotice, limitWindows, type RateLimit, resetWhen } from "./rateLimit";
+import {
+    isoSeconds,
+    type LimitWindow,
+    limitLevel,
+    limitNotice,
+    limitWarning,
+    limitWindows,
+    type RateLimit,
+    resetWhen,
+    warningLine,
+} from "./rateLimit";
 
 // Noon on a Saturday, in the time zone the tests run in.
 const now = new Date(2026, 10, 21, 12, 0);
@@ -196,5 +206,37 @@ describe("isoSeconds", () => {
         );
         expect(isoSeconds(null)).toBeNull();
         expect(isoSeconds("soon")).toBeNull();
+    });
+});
+
+describe("warning of a limit", () => {
+    const window = (name: string, used: number, status = "allowed"): LimitWindow => ({
+        name,
+        used,
+        resetsAt: null,
+        status,
+    });
+
+    it("starts at 75% as Claude Code's does, by how full a window is and not by its report", () => {
+        expect(limitLevel(window("5-hour", 0.74))).toBe("fine");
+        expect(limitLevel(window("5-hour", 0.75))).toBe("warning");
+        expect(limitLevel(window("5-hour", 1))).toBe("reached");
+        expect(limitLevel(window("5-hour", 0.4, "rejected"))).toBe("reached");
+        // Claude Code once said `allowed_warning` of a window 29% full.
+        expect(limitLevel(window("weekly", 0.29, "allowed_warning"))).toBe("fine");
+    });
+
+    it("names the window most worth it: a used-up one first, then the fullest", () => {
+        expect(limitWarning([window("5-hour", 0.3), window("weekly", 0.6)])).toBeNull();
+        expect(limitWarning([window("5-hour", 0.78), window("weekly", 0.91)])?.name).toBe("weekly");
+        expect(
+            limitWarning([window("weekly", 0.95), window("5-hour", 0.5, "rejected")])?.name,
+        ).toBe("5-hour");
+        expect(limitWarning([])).toBeNull();
+    });
+
+    it("says what it comes to", () => {
+        expect(warningLine(window("weekly Fable", 0.874))).toBe("Weekly Fable: 87% used.");
+        expect(warningLine(window("5-hour", 1))).toBe("5-hour: used up.");
     });
 });

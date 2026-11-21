@@ -1,6 +1,7 @@
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { AgentEvent, Session } from "../api/types";
+import { limitLevel, limitWarning, limitWindows, warningLine } from "../rateLimit";
 import { type Asked, askedLine, NO_FIGURES, usageFigures } from "../usageAsk";
 import { useWords } from "../useWords";
 import { CoinsIcon } from "./IconButton";
@@ -24,12 +25,15 @@ export function UsageButton({ session, events }: { session: Session; events: Age
         }
         setOpen(!open);
     };
-    const label = `${words.usage}: your plan's limits and extra usage, asked of Claude Code as it opens`;
+    // Past the warning, the coins say so before they are opened.
+    const warning = limitWarning(limitWindows(events));
+    const about = `${words.usage}: your plan's limits and extra usage, asked of Claude Code as it opens.`;
+    const label = warning ? `${about} ${warningLine(warning)}` : about;
     return (
         <div className="usage-wrap" ref={wrap}>
             <button
                 type="button"
-                className="icon-button"
+                className="icon-button usage-coins"
                 aria-label={label}
                 title={label}
                 aria-expanded={open}
@@ -39,6 +43,16 @@ export function UsageButton({ session, events }: { session: Session; events: Age
                 <svg viewBox="0 0 16 16" aria-hidden="true">
                     <CoinsIcon />
                 </svg>
+                {warning && (
+                    <svg
+                        className="usage-mark"
+                        data-level={limitLevel(warning)}
+                        viewBox="0 0 10 10"
+                        aria-hidden="true"
+                    >
+                        <path d="M5 1.2 9.2 8.8H.8z" />
+                    </svg>
+                )}
             </button>
             {open && (
                 <div className="usage-overview" role="dialog" aria-label={words.usage}>

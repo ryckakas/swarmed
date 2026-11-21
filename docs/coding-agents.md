@@ -60,6 +60,11 @@ Typing `/usage` in the session asks the same and shows the answer in the convers
 way, what Claude Code answers is kept, so the card shows it too until a later turn reports
 newer figures. Other agents report no usage, so their sessions have no coins.
 
+Once a window is 75% used, which is when Claude Code itself starts to warn, the coins carry a
+small yellow triangle, red once a limit is used up, and their label names the window. The bars
+are yellow and red likewise. Like the card, the triangle follows the figures last heard, so it
+appears after the turn that passes 75%.
+
 ## Any other agent
 
 Any agent that speaks the [Agent Client Protocol](https://agentclientprotocol.com) can be added

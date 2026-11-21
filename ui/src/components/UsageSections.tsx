@@ -7,7 +7,13 @@ import {
     onExtraUsageNow,
     spentShare,
 } from "../extraUsage";
-import { type LimitWindow, limitWindows, resetWhen } from "../rateLimit";
+import {
+    type LimitLevel,
+    type LimitWindow,
+    limitLevel,
+    limitWindows,
+    resetWhen,
+} from "../rateLimit";
 import { type SpendBasis, sessionSpend, spendBasis } from "../spend";
 import { useWords } from "../useWords";
 
@@ -26,13 +32,6 @@ export function UsageSections({ events, look }: { events: AgentEvent[]; look: Us
             <Spend spent={sessionSpend(events)} basis={spendBasis(events)} />
         </>
     );
-}
-
-/** A window this full is drawn as nearly used up. */
-const LIMIT_NEARLY_REACHED = 0.8;
-
-function isNear(window: LimitWindow): boolean {
-    return window.used >= LIMIT_NEARLY_REACHED || window.status !== "allowed";
 }
 
 /** Claude Code's usage windows: how much of each is used, and when it resets. */
@@ -59,7 +58,7 @@ function Limits({ windows, look }: { windows: LimitWindow[]; look: UsageLook }) 
 function CardWindow({ window, now }: { window: LimitWindow; now: Date }) {
     const percent = Math.round(window.used * 100);
     return (
-        <div className="context-limit" data-near={isNear(window)}>
+        <div className="context-limit" data-level={limitLevel(window)}>
             <dt>{capitalized(window.name)}</dt>
             <dd>{percent}%</dd>
             <dd className="context-limit-bar" aria-hidden="true">
@@ -85,7 +84,7 @@ function OverviewWindow({ window, now }: { window: LimitWindow; now: Date }) {
                 <dd className="usage-reset">Resets {resetWhen(window.resetsAt, now)}</dd>
             )}
             <dd className="usage-window-meter">
-                <Meter share={window.used} near={isNear(window)} label={`${percent}%`} />
+                <Meter share={window.used} level={limitLevel(window)} label={`${percent}%`} />
             </dd>
         </div>
     );
@@ -94,15 +93,18 @@ function OverviewWindow({ window, now }: { window: LimitWindow; now: Date }) {
 /** A share this wide holds its figure inside its bar; a narrower one has it just past its end. */
 const LABEL_FITS = 0.22;
 
-/** A bar filled as far as `share`, from 0 to 1, with `label` on it. */
+/**
+ * A bar filled as far as `share`, from 0 to 1, with `label` on it: yellow past the warning, red
+ * used up. Extra usage is plain grey, so that yellow always means a warning.
+ */
 function Meter({
     share,
-    near,
+    level,
     label,
     tone = "limit",
 }: {
     share: number;
-    near: boolean;
+    level: LimitLevel;
     label: string;
     tone?: "limit" | "extra";
 }) {
@@ -111,7 +113,7 @@ function Meter({
     return (
         <div
             className="usage-meter"
-            data-near={near}
+            data-level={level}
             data-tone={tone}
             data-inside={filled >= LABEL_FITS}
             style={style}
@@ -155,7 +157,7 @@ function Extra({
             {share != null && look === "overview" && (
                 <Meter
                     share={share / 100}
-                    near={usage?.limit_reached === true}
+                    level={usage?.limit_reached ? "reached" : "fine"}
                     label={`${share}%`}
                     tone="extra"
                 />

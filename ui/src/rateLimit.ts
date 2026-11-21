@@ -115,6 +115,46 @@ export interface LimitWindow {
     status: string;
 }
 
+/** Claude Code warns once a window is this full, and so does Swarmed. */
+export const LIMIT_WARNING = 0.75;
+
+/** How a window stands: well within, past the warning, or used up. */
+export type LimitLevel = "fine" | "warning" | "reached";
+
+/**
+ * How a window stands, by how full it is. A report's own word for it is not taken: Claude Code
+ * has said `allowed_warning` of a window less than a third full.
+ */
+export function limitLevel(window: LimitWindow): LimitLevel {
+    if (window.used >= 1 || window.status === "rejected") {
+        return "reached";
+    }
+    return window.used >= LIMIT_WARNING ? "warning" : "fine";
+}
+
+/**
+ * The window most worth a warning: one used up before one past the warning, and of those the
+ * fullest. `null` while all are fine.
+ */
+export function limitWarning(windows: LimitWindow[]): LimitWindow | null {
+    const weight = (window: LimitWindow) =>
+        (limitLevel(window) === "reached" ? 2 : 0) + window.used;
+    const pressing = windows.filter((window) => limitLevel(window) !== "fine");
+    return pressing.reduce<LimitWindow | null>(
+        (worst, window) => (worst === null || weight(window) > weight(worst) ? window : worst),
+        null,
+    );
+}
+
+/** What a window past the warning comes to, in a sentence of its own. */
+export function warningLine(window: LimitWindow): string {
+    const name = window.name.charAt(0).toUpperCase() + window.name.slice(1);
+    if (limitLevel(window) === "reached") {
+        return `${name}: used up.`;
+    }
+    return `${name}: ${Math.round(window.used * 100)}% used.`;
+}
+
 /**
  * Every usage window, from whichever came last: the report after a turn, or the limits Claude
  * Code gave when asked for them. In the order Claude Code lists them. Only Claude Code reports

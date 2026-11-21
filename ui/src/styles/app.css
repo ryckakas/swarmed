@@ -3476,12 +3476,18 @@ code {
     font-family: var(--font-ui);
 }
 
-.context-limit[data-near="true"] dd:not(.context-reset) {
+.context-limit[data-level="warning"] dd:not(.context-reset) {
+    color: var(--pollen);
+}
+
+.context-limit[data-level="reached"] dd:not(.context-reset) {
     color: var(--clay);
 }
 
+/* Plain, so that yellow means a warning everywhere it is used: this is money spent, not a
+   state. */
 .context-bar-extra div {
-    background: var(--pollen);
+    background: var(--muted);
 }
 
 .context-extra-note {
@@ -3507,7 +3513,11 @@ code {
     background: var(--moss);
 }
 
-.context-limit[data-near="true"] .context-limit-fill {
+.context-limit[data-level="warning"] .context-limit-fill {
+    background: var(--pollen);
+}
+
+.context-limit[data-level="reached"] .context-limit-fill {
     background: var(--clay);
 }
 
@@ -3580,12 +3590,16 @@ code {
     background: var(--moss);
 }
 
-.usage-meter[data-near="true"] .usage-meter-fill {
-    background: var(--clay);
+.usage-meter[data-tone="extra"] .usage-meter-fill {
+    background: var(--muted);
 }
 
-.usage-meter[data-tone="extra"]:not([data-near="true"]) .usage-meter-fill {
+.usage-meter[data-level="warning"] .usage-meter-fill {
     background: var(--pollen);
+}
+
+.usage-meter[data-level="reached"] .usage-meter-fill {
+    background: var(--clay);
 }
 
 .usage-meter-label {
@@ -3604,6 +3618,28 @@ code {
     right: calc(100% - var(--fill) + 6px);
     left: auto;
     color: var(--dusk);
+}
+
+/* Once a usage window is past the warning, the coins carry a small triangle: yellow, or red
+   when one is used up. Ringed in the page's colour, so it stands off the coins. */
+.usage-coins {
+    position: relative;
+}
+
+.icon-button .usage-mark {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    width: 10px;
+    height: 10px;
+    fill: var(--pollen);
+    stroke: var(--dusk);
+    stroke-width: 1.6;
+    paint-order: stroke;
+}
+
+.icon-button .usage-mark[data-level="reached"] {
+    fill: var(--clay);
 }
 
 .usage-overview-foot {
