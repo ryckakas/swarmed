@@ -2,7 +2,8 @@
 #
 #   1. Run this workflow (Actions → "Release prep" → version, e.g. 0.2.0).
 #   2. Merge the "Release vX.Y.Z" PR it opens, after CI passes on it as usual.
-#   3. release-tag.yml tags the merge commit, which starts release.yml. Nothing else is manual.
+#   3. Once CI has passed on main for the merge commit, release-tag.yml tags it, which starts
+#      release.yml. Nothing else is manual.
 #
 # The branch push and the PR authenticate with RELEASE_PAT (a fine-grained token with Contents and
 # Pull requests read and write on this repository, saved as an Actions secret). GitHub starts no

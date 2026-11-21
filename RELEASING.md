@@ -19,8 +19,11 @@ A release ships Swarmed.app, with the `swarmed` command inside it, from one tag:
    `scripts/release-prep.sh`, which turns the Unreleased entries into the `## [0.2.0]` section and
    sets the version in `Cargo.toml`, `Cargo.lock` and `package.json`, then opens the PR
    "chore: release v0.2.0".
-3. Read the notes in that PR and merge it once CI passes. `release-tag.yml` tags the merge commit
-   `v0.2.0`, and `release.yml` does the rest.
+3. Read the notes in that PR and merge it once CI passes. CI then runs again on `main`, on the
+   merge commit: once it has passed, `release-tag.yml` tags that commit `v0.2.0`, and
+   `release.yml` does the rest. Nothing is released from a commit whose CI failed; rerun the
+   failed run from its page, and the tag follows once it passes. A failure that is real needs a
+   fix and a new release PR.
 
 If a job of `release.yml` fails, rerun it from the run's page: what is published already is
 skipped. Without the release workflows, `scripts/release-prep.sh 0.2.0` runs the same locally, and

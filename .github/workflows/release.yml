@@ -1,10 +1,10 @@
 name: Release
 
 # A pushed tag vX.Y.Z releases that version, the last of three steps (RELEASING.md):
-# release-prep.yml opens the release PR, release-tag.yml tags it once merged, and this builds
-# Swarmed.app, publishes the GitHub release with the CHANGELOG section as its notes, the crates on
-# crates.io and the cask in ryckakas/homebrew-tap. A failed job is rerun from the run's page:
-# everything it publishes is skipped when already there.
+# release-prep.yml opens the release PR, release-tag.yml tags it once merged and green on main's
+# CI, and this builds Swarmed.app, publishes the GitHub release with the CHANGELOG section as its
+# notes, the crates on crates.io and the cask in ryckakas/homebrew-tap. A failed job is rerun
+# from the run's page: everything it publishes is skipped when already there.
 #
 # crates.io's trusted publishing names this file, release.yml, as the one allowed to publish.
 on:
