@@ -95,19 +95,22 @@ export function checkCounts(checks: Check[]): [Check["outcome"], number][] {
 }
 
 /**
- * The checks to list: those of the outcome asked for, if any, whose names hold what was typed,
- * whatever its case. Failed ones come first, then running ones, each group in GitHub's order.
+ * The checks to list: those of the outcome asked for, if any, that hold every word typed,
+ * whatever its case, in their name or in the name of their workflow. Failed ones come first,
+ * then running ones, each group in GitHub's order.
  */
 export function listedChecks(
     checks: Check[],
     outcome: Check["outcome"] | null,
     typed: string,
 ): Check[] {
-    const wanted = typed.trim().toLowerCase();
+    const words = typed.toLowerCase().split(/\s+/).filter(Boolean);
+    const holds = (check: Check) => {
+        const said = `${check.workflow ?? ""} ${check.name}`.toLowerCase();
+        return words.every((word) => said.includes(word));
+    };
     const kept = checks.filter(
-        (check) =>
-            (outcome === null || check.outcome === outcome) &&
-            check.name.toLowerCase().includes(wanted),
+        (check) => (outcome === null || check.outcome === outcome) && holds(check),
     );
     const rank = (check: Check) => OUTCOME_ORDER.indexOf(check.outcome);
     // Sorting keeps the order of what ranks the same.

@@ -15,6 +15,7 @@ import type {
     Environment,
     FileChange,
     FileDiff,
+    FileListing,
     HookOutput,
     MarkColour,
     McpServerView,
@@ -820,18 +821,26 @@ async function samplePull(_project: string, name: string): Promise<Pull | null> 
         draft: false,
         review: "review_required",
         checks: [
-            { name: "Lint", outcome: "passed", url: "https://github.com/example/hero/runs/1" },
+            {
+                name: "Lint",
+                workflow: "CI",
+                outcome: "passed",
+                url: "https://github.com/example/hero/runs/1",
+            },
             {
                 name: "Unit tests",
+                workflow: "CI",
                 outcome: "failed",
                 url: "https://github.com/example/hero/runs/2",
             },
-            { name: "Browser tests", outcome: "running", url: null },
-            { name: "Deploy preview", outcome: "skipped", url: null },
+            { name: "chromium (1/2)", workflow: "E2E", outcome: "running", url: null },
+            { name: "chromium (2/2)", workflow: "E2E", outcome: "passed", url: null },
+            { name: "Deploy preview", workflow: null, outcome: "skipped", url: null },
             // A matrix, as large repositories have: enough to need narrowing down.
             ...["18", "20", "22"].flatMap((node): Check[] =>
                 ["macos", "ubuntu"].map((system) => ({
                     name: `Build (${system}, node ${node})`,
+                    workflow: "CI",
                     outcome: "passed",
                     url: null,
                 })),
@@ -871,6 +880,26 @@ const SWATCHES = [30, 90]
     )
     .join("\r\n");
 const GREETING = `${SWATCHES}\r\nDocs at https://example.com/docs\r\n`;
+
+/** A small worktree to walk through: each folder by its path, with folders ending in a slash. */
+const SAMPLE_TREE: Record<string, string[]> = {
+    "": [".github/", "public/", "src/", "test/", ".gitignore", "README.md", "package.json"],
+    ".github": ["workflows/"],
+    ".github/workflows": ["ci.yml", "e2e.yml"],
+    public: ["logo.png"],
+    src: ["auth/", "main.ts"],
+    "src/auth": ["login.ts", "safe-next.ts"],
+    test: ["auth/"],
+    "test/auth": ["login.test.ts"],
+};
+
+function sampleFiles(dir: string): FileListing {
+    const names = SAMPLE_TREE[dir] ?? [];
+    return {
+        entries: names.map((name) => ({ name: name.replace(/\/$/, ""), dir: name.endsWith("/") })),
+        more: 0,
+    };
+}
 
 /** A pretend shell: it echoes what is typed and answers every command the same way. */
 class MockTerminal {
@@ -1534,6 +1563,8 @@ export function createMockApi(): Api {
         taskDiff: sampleDiff,
         taskOpenEditor: async () => undefined,
         taskOpenTerminal: async () => undefined,
+        taskFiles: async (_project, _name, dir) => sampleFiles(dir),
+        taskOpenFile: async () => undefined,
         taskOpenUrl: async () => undefined,
         openLink: async (url) => {
             window.open(url, "_blank", "noopener");

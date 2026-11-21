@@ -15,23 +15,23 @@ const APPLICATIONS: &[(&str, &str)] = &[
     ("idea", "IntelliJ IDEA"),
 ];
 
-/// The program and arguments that open `folder` with the editor command the user configured.
-fn editor_command(editor: &str, folder: &Path) -> Result<Command> {
+/// The program and arguments that open `paths` with the editor command the user configured.
+fn editor_command(editor: &str, paths: &[&Path]) -> Result<Command> {
     let mut words = editor.split_whitespace();
     let program = words
         .next()
         .ok_or_else(|| could_not_open("the editor", "no editor command is configured"))?;
     let mut command = Command::new(program);
-    command.args(words).arg(folder);
+    command.args(words).args(paths);
     Ok(command)
 }
 
 /// The same through macOS's `open`, for an editor that is installed but not on `PATH`.
-fn application_command(editor: &str, folder: &Path) -> Option<Command> {
+fn application_command(editor: &str, paths: &[&Path]) -> Option<Command> {
     let program = editor.split_whitespace().next()?;
     let (_, application) = APPLICATIONS.iter().find(|(name, _)| *name == program)?;
     let mut command = Command::new("open");
-    command.args(["-a", application]).arg(folder);
+    command.args(["-a", application]).args(paths);
     Some(command)
 }
 
@@ -60,11 +60,22 @@ fn reap(mut child: Child) {
 
 /// Opens `folder` in the editor the user configured.
 pub(crate) fn in_editor(editor: &str, folder: &Path) -> Result<()> {
-    let direct = launch(editor_command(editor, folder)?);
+    paths_in_editor(editor, &[folder])
+}
+
+/// Opens `file` in the editor the user configured, together with the `folder` it is in: an
+/// editor that keeps a window per folder then shows the file in that one, not in whichever
+/// window it had last.
+pub(crate) fn file_in_editor(editor: &str, folder: &Path, file: &Path) -> Result<()> {
+    paths_in_editor(editor, &[folder, file])
+}
+
+fn paths_in_editor(editor: &str, paths: &[&Path]) -> Result<()> {
+    let direct = launch(editor_command(editor, paths)?);
     let Err(error) = direct else {
         return Ok(());
     };
-    let fallback = application_command(editor, folder).filter(|_| cfg!(target_os = "macos"));
+    let fallback = application_command(editor, paths).filter(|_| cfg!(target_os = "macos"));
     let Some(command) = fallback else {
         return Err(could_not_open(editor, error));
     };
@@ -132,26 +143,34 @@ mod tests {
 
     #[test]
     fn the_editor_command_keeps_its_own_arguments_before_the_folder() {
-        let command = editor_command("code --new-window", Path::new("/w/one")).expect("builds");
+        let command = editor_command("code --new-window", &[Path::new("/w/one")]).expect("builds");
         assert_eq!(command.get_program(), "code");
         let args: Vec<&OsStr> = command.get_args().collect();
         assert_eq!(args, ["--new-window", "/w/one"]);
     }
 
     #[test]
+    fn a_file_is_opened_after_the_folder_it_is_in() {
+        let paths = [Path::new("/w/one"), Path::new("/w/one/src/main.rs")];
+        let command = editor_command("zed", &paths).expect("builds");
+        let args: Vec<&OsStr> = command.get_args().collect();
+        assert_eq!(args, ["/w/one", "/w/one/src/main.rs"]);
+    }
+
+    #[test]
     fn an_empty_editor_command_is_refused() {
         assert!(matches!(
-            editor_command("  ", Path::new("/w/one")),
+            editor_command("  ", &[Path::new("/w/one")]),
             Err(Error::OpenFailed { .. })
         ));
     }
 
     #[test]
     fn known_editors_can_be_opened_as_applications() {
-        let command = application_command("code -n", Path::new("/w/one")).expect("known");
+        let command = application_command("code -n", &[Path::new("/w/one")]).expect("known");
         let args: Vec<&OsStr> = command.get_args().collect();
         assert_eq!(args, ["-a", "Visual Studio Code", "/w/one"]);
-        assert!(application_command("my-editor", Path::new("/w/one")).is_none());
+        assert!(application_command("my-editor", &[Path::new("/w/one")]).is_none());
     }
 
     #[test]

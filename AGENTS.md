@@ -148,6 +148,18 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **"Open in Terminal" hands the worktree to a terminal application** (`open::in_terminal`,
   `Settings::terminal_app`) through macOS's `open -a`, whose exit says whether there is such an
   application. It is apart from the session's own terminal, which is xterm.js in the window.
+- **A skill can be called by name, `/name`, on any agent** (`Paths::skill_called`, used by
+  `send_text`). Claude Code answers to its own skills itself; for every other skill and agent
+  Swarmed sends what the skill says with the rest of the message, and records the message as
+  it was typed. `slash_commands` lists those names after the agent's own commands, which is
+  all the menu has for agents that report none (every ACP agent so far). The skills lookups
+  live on `Paths` so that a queued message, sent from a task without the core, gets the same.
+- **The Files tab walks a task's worktree one folder at a time** (`files.rs`, `Files.tsx`,
+  `files.ts`). A folder is read when it is unfolded, never the whole tree. Paths come from the
+  front end and are refused unless they stay inside the worktree (`stays_inside`); a link to a
+  folder is listed as a file, since it may lead out. A file is opened in the user's editor
+  together with its worktree, so an editor with a window per folder shows it in that window.
+  Swarmed shows no file's contents itself: that is the editor's job.
 - **Check UI changes in a browser** with `pnpm dev`. The mock agent answers plain text, asks
   permission for `run: <command>`, and runs until stopped for `slow`; one sample session has
   2,000 messages for checking scroll speed.

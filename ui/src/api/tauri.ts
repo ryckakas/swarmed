@@ -115,6 +115,8 @@ export const tauriApi: Api = {
         invoke<void>("task_pull_open", { project, name, check }),
     taskChanges: (project, name) => invoke<FileChange[]>("task_changes", { project, name }),
     taskDiff: (project, name, path) => invoke<FileDiff>("task_diff", { project, name, path }),
+    taskFiles: (project, name, dir) => invoke("task_files", { project, name, dir }),
+    taskOpenFile: (project, name, path) => invoke("task_open_file", { project, name, path }),
     taskOpenTerminal: (project, name) => invoke("task_open_terminal", { project, name }),
     taskOpenEditor: (project, name) => invoke("task_open_editor", { project, name }),
     taskOpenUrl: (project, name) => invoke("task_open_url", { project, name }),

@@ -167,6 +167,8 @@ export interface PullDraft {
 /** One check on a pull request: a CI job, or a status another service reported. */
 export interface Check {
     name: string;
+    /** The workflow it is a job of, if it is one: "E2E" for its job "shard 3". */
+    workflow: string | null;
     outcome: "passed" | "failed" | "running" | "skipped";
     /** Where its details are, if it said. */
     url: string | null;
@@ -203,6 +205,20 @@ export interface Environment {
     ports: Record<string, number>;
     /** Variables for the hooks and for the agents working in the task. */
     env: Record<string, string>;
+}
+
+/** One file or folder in a folder of a task's worktree. */
+export interface FileEntry {
+    name: string;
+    /** Whether it is a folder that can be listed in turn. */
+    dir: boolean;
+}
+
+/** What one folder of a task's worktree holds: folders first, then files. */
+export interface FileListing {
+    entries: FileEntry[];
+    /** How many more there are than are listed. */
+    more: number;
 }
 
 /** One file a task has changed since its branch left its base. */

@@ -12,11 +12,11 @@ use serde::{Deserialize, Serialize};
 use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
     Action, AgentInfo, AgentSetup, ApiKeyInfo, BackgroundTask, BranchChoices, CloudOrigin,
-    CloudProvider, CloudTask, Core, Costs, CustomLayout, Environment, FileChange, FileDiff, Mark,
-    McpServerInput, McpServerView, NewTaskOptions, Project, ProjectOverview, Pull, PullDraft,
-    QueuedMessage, RemoveOptions, SearchHit, Session, SessionOptions, SessionSettings, Settings,
-    Skill, Snapshot, Task, TaskNaming, Template, TerminalConfig, TurnStats, Unpublished, Usage,
-    with_files,
+    CloudProvider, CloudTask, Core, Costs, CustomLayout, Environment, FileChange, FileDiff,
+    FileListing, Mark, McpServerInput, McpServerView, NewTaskOptions, Project, ProjectOverview,
+    Pull, PullDraft, QueuedMessage, RemoveOptions, SearchHit, Session, SessionOptions,
+    SessionSettings, Settings, Skill, Snapshot, Task, TaskNaming, Template, TerminalConfig,
+    TurnStats, Unpublished, Usage, with_files,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -211,6 +211,28 @@ pub(crate) async fn task_remove<R: Runtime>(
     };
     let sink = hook_sink(&app, &project, &name);
     Ok(core.task_remove(&project, &name, options, &sink).await?)
+}
+
+/// What one folder of a task's worktree holds; the worktree itself for an empty `dir`.
+#[tauri::command]
+pub(crate) fn task_files(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+    dir: String,
+) -> Command<FileListing> {
+    Ok(core.task_files(&project, &name, &dir)?)
+}
+
+/// Opens a file of a task's worktree in the user's editor.
+#[tauri::command]
+pub(crate) fn task_open_file(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+    path: String,
+) -> Command<()> {
+    Ok(core.task_open_file(&project, &name, &path)?)
 }
 
 #[tauri::command]

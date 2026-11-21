@@ -528,6 +528,10 @@ code {
     white-space: nowrap;
 }
 
+.pull-check-workflow {
+    color: var(--muted);
+}
+
 .pull-check-outcome {
     flex: none;
     color: var(--muted);
@@ -724,6 +728,68 @@ code {
 .changes-refresh:focus-visible {
     background: var(--raised);
     color: var(--text);
+}
+
+/* The files of a worktree: one line each, folders unfolding in place. */
+.file-root {
+    min-width: 0;
+    overflow: hidden;
+    font-family: var(--font-mono);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    /* Cut short at the front, where every worktree's path reads the same. */
+    direction: rtl;
+}
+
+.file-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    padding: 3px var(--space-4) 3px var(--space-3);
+    border: 0;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-size: var(--text-sm);
+    text-align: left;
+}
+
+.file-row:hover,
+.file-row:focus-visible {
+    background: var(--raised);
+}
+
+.file-chevron {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    fill: none;
+    stroke: var(--faint);
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.file-chevron[data-open="true"] {
+    transform: rotate(90deg);
+}
+
+.file-row-gap {
+    flex: none;
+    width: 10px;
+}
+
+.file-row-name {
+    min-width: 0;
+    overflow: hidden;
+    font-family: var(--font-mono);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-row-dir {
+    font-weight: 600;
 }
 
 .changes-scroll {
