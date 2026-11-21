@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { sendOrQueue } from "../actions";
 import { api } from "../api";
 import type { AgentEvent, Session } from "../api/types";
+import { noteCommandSent } from "../commandSent";
 import { expandPastes, forgetPastes } from "../pastes";
 import { type Draft, putBack, waitsItsTurn } from "../sending";
 import { takenBySwarmed } from "../slash";
@@ -73,7 +74,11 @@ export function Composer({ session }: { session: Session }) {
         // What was pasted large goes out in full, in place of the token that stood for it.
         // A busy agent is not interrupted: the message waits its turn, and can still be changed.
         const message = expandPastes(text.trim());
-        sendOrQueue(id, message, files, files.length === 0 && takenBySwarmed(message, commands))
+        const atOnce = files.length === 0 && takenBySwarmed(message, commands);
+        if (atOnce) {
+            noteCommandSent(id);
+        }
+        sendOrQueue(id, message, files, atOnce)
             // The pastes are only forgotten once they are sent: a message that comes back
             // still has their tokens in it.
             .then(() => forgetPastes(unsent.text))

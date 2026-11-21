@@ -1,5 +1,6 @@
 import { type KeyboardEvent, type RefObject, useEffect, useRef, useState } from "react";
 import { api } from "../api";
+import { commandJustSent } from "../commandSent";
 import { focusIsFree, focusIsIdle } from "../focus";
 import {
     type Asking,
@@ -70,9 +71,9 @@ type Answering = ReturnType<typeof useAnswering>;
 /**
  * The card, which takes the keyboard as it appears. A question is what the user must act on
  * next, so the keys go to it: but only while nothing else has them. Taken from the message
- * box, a digit typed would answer. One the user asked for themselves, by sending a command
- * (`byCommand`), also takes them from the message box it was sent from, as long as nothing
- * new is typed there.
+ * box, a digit typed would answer. One the user has just asked for themselves, by sending a
+ * command (`byCommand`), also takes them from the message box it was sent from, as long as
+ * nothing new is typed there.
  */
 function useKeysOnArrival(byCommand: boolean) {
     const card = useRef<HTMLElement>(null);
@@ -91,11 +92,11 @@ function useKeysOnArrival(byCommand: boolean) {
  * the arrows move, Enter confirms, and so does a click.
  */
 export function QuestionPrompt(props: Props) {
-    const { questions, command } = props;
+    const { questions, command, sessionId } = props;
     const answering = useAnswering(props);
     const { asking, sent, send, take } = answering;
     const own = useRef<HTMLInputElement>(null);
-    const card = useKeysOnArrival(command !== undefined);
+    const card = useKeysOnArrival(command !== undefined && commandJustSent(sessionId));
     const onKey = (event: KeyboardEvent<HTMLElement>) => {
         // What is typed into the user's own answer is text, not a choice.
         if (sent || event.target === own.current || event.metaKey || event.ctrlKey) {

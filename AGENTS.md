@@ -440,7 +440,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   `Applied` of a session on the same agent and model that chose no effort.
 - **Whatever sends into a session queues when its agent is busy** (`sendOrQueue` in the UI):
   a message sent straight in would clear a request the agent waits on. A request takes the
-  keyboard only when nothing has it (`focus.ts`), and the answer shortcuts never allow a
+  keyboard only when nothing has it (`focus.ts`); the question of a command the user has just
+  sent (`commandSent.ts`) also takes it from an empty message box, and one drawn again later
+  does not. The answer shortcuts never allow a
   question without answers (`pending.ts`).
 - **Work goes to a cloud agent through the user's own `codex` or `claude`** (`cloud.rs`), which
   works on the repository as GitHub has it. From a session there are two ways to tell it what

@@ -284,8 +284,8 @@ impl Core {
     pub async fn stacks_stop_started(&self) {
         let started: Vec<(i64, Child)> = lock(&self.live.stacks).drain().collect();
         for (task, child) in started {
-            end(Stack::Started(child)).await;
-            std::fs::remove_file(self.stack_pid_file(task)).ok();
+            let gone = end(Stack::Started(child)).await;
+            self.forget_stack_if(task, gone);
         }
     }
 
@@ -293,15 +293,19 @@ impl Core {
     /// and neither is what an earlier Swarmed left behind.
     pub async fn stacks_stop_all(&self) {
         self.stacks_stop_started().await;
-        let tasks = self.kept_tasks();
-        let found: Vec<u32> = tasks
-            .iter()
-            .filter_map(|task| self.kept_stack(*task))
-            .collect();
-        for pid in found {
-            end(Stack::Found(pid)).await;
+        for task in self.kept_tasks() {
+            let gone = match self.kept_stack(task) {
+                Some(pid) => end(Stack::Found(pid)).await,
+                None => true,
+            };
+            self.forget_stack_if(task, gone);
         }
-        for task in tasks {
+    }
+
+    /// Forgets the stack written down for `task` if it is gone. One that would not end stays
+    /// written down, for the next Swarmed to find.
+    fn forget_stack_if(&self, task: i64, gone: bool) {
+        if gone {
             std::fs::remove_file(self.stack_pid_file(task)).ok();
         }
     }

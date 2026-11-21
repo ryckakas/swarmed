@@ -106,7 +106,7 @@ fn list<'a>(value: &'a Value, key: &str) -> impl Iterator<Item = &'a Value> {
 }
 
 /// A percentage as a whole number from 0 to 100, whatever kind of number it came as.
-fn percent(value: Option<&Value>) -> Option<u8> {
+pub(super) fn percent(value: Option<&Value>) -> Option<u8> {
     let share = value?.as_f64()?.clamp(0.0, 100.0);
     format!("{share:.0}").parse().ok()
 }
@@ -169,9 +169,8 @@ fn usage(body: &Value) -> (String, Vec<ScreenSection>) {
         ),
         section("This session", session_rows(body.get("session"))),
     ];
-    let plan = kind_of(body, "subscription_type")
-        .map_or_else(String::new, |plan| format!("On the {plan} plan."));
-    (plan, sections.into_iter().flatten().collect())
+    // The plan's name is in the answer too, and left there: a screen is stored.
+    (String::new(), sections.into_iter().flatten().collect())
 }
 
 fn limit_row(limit: &Value) -> Option<ScreenRow> {
@@ -472,7 +471,8 @@ mod tests {
             },
         });
         let (note, sections) = screen(ScreenKind::Usage, &body);
-        assert_eq!(note, "On the team plan.");
+        // The plan's name is not kept, and a screen is.
+        assert_eq!(note, "");
         let titles: Vec<&str> = sections.iter().map(|part| part.title.as_str()).collect();
         assert_eq!(titles, ["Plan limits", "Extra usage", "This session"]);
         let limits = &sections[0].rows;

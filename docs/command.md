@@ -18,8 +18,8 @@ swarmed task pr shop fix-login                        # through your own gh
 swarmed task rm shop fix-login                        # teardown hook, worktree removed
 ```
 
-`task rm` refuses while the worktree has uncommitted changes or unpushed commits; `--force`
-removes it anyway. A failing `teardown` does not stop it: what it had to pass over is printed.
+`task rm` refuses while the worktree has uncommitted changes or unpushed commits, or is one git
+no longer knows; `--force` removes it anyway. A failing `teardown` does not stop it: what it had to pass over is printed.
 
 `session run` and `session send` print the conversation as it happens and ask on the terminal
 when the agent wants permission (`[y/N]`). Ctrl-C stops the turn, not the session. They exit

@@ -643,16 +643,16 @@ export type AgentEvent =
           state: BackgroundState;
           summary: string | null;
       }
-    /**
-     * Something a sub-agent said or did. `parent` is the tool call that started it, which
-     * tells one sub-agent from another.
-     */
     /** One of the agent's own screens, such as `/usage`, with the contents the agent gave. */
     | { type: "screen"; command: string; title: string; note: string; sections: ScreenSection[] }
     /** A command that changes a setting, such as `/model`, puts its choices to the user. */
     | { type: "command_asked"; request_id: string; command: string; questions: AskedQuestion[] }
     /** The user answered such a question or put it aside; `said` is what came of it. */
     | { type: "command_answered"; request_id: string; said: string }
+    /**
+     * Something a sub-agent said or did. `parent` is the tool call that started it, which
+     * tells one sub-agent from another.
+     */
     | { type: "sub"; parent: string; event: AgentEvent }
     | { type: "other"; raw: unknown };
 
