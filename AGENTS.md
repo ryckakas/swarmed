@@ -49,8 +49,11 @@ CI (`.github/workflows/ci.yml`) runs exactly these. Match them locally before pu
 Where CI runs is the repository variable `CI_RUNNER`. Unset, the jobs run on GitHub's runners.
 Set to a self-hosted runner's label (`gh variable set CI_RUNNER --body swarmed-mac`), they run on
 that machine with the tools installed there, and the Linux test run is left out. A pull request
-from a fork runs on GitHub's runners whatever the variable says: a self-hosted runner would run a
-stranger's code on that machine.
+from a fork runs on GitHub's runners as `ci.yml` has it. A fork brings its own copy of that file,
+so what keeps a stranger's code off a self-hosted runner is the repository's setting that every
+outside contributor's workflow run waits for approval: keep it on while `CI_RUNNER` is set. The
+required checks name the test jobs by runner (`Test on macos-latest`, `Test on ubuntu-latest`), so
+setting `CI_RUNNER` means changing them in the `main` ruleset too.
 
 A made-up secret in a test is marked `gitleaks:allow` on its line; one already in the history is
 listed by its fingerprint in `.gitleaksignore`.

@@ -16,8 +16,9 @@ env:
 # set to the label of a self-hosted runner, they run there. That machine keeps its own tools
 # (Rust, Node, pnpm, typos, taplo, shellcheck, actionlint, cargo-deny, cargo-shear, zizmor,
 # gitleaks), so the steps that install them are skipped on it, and so is the cache: its checkout
-# stays. A pull request from a fork always runs on GitHub's runners: its code is a stranger's, and
-# a self-hosted runner would run it on that machine.
+# stays. A pull request from a fork runs on GitHub's runners as this file has it, since its code
+# is a stranger's. A fork brings its own copy of this file, though: what holds while a self-hosted
+# runner is set is the repository's setting that every outside contributor's run waits for approval.
 
 # A new push to a PR makes the previous run's result irrelevant.
 concurrency:
