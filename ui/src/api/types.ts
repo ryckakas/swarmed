@@ -694,6 +694,8 @@ export interface TerminalOutput {
     offset: number;
     /** What runs in it has ended: `data` is empty, and nothing follows. */
     ended: boolean;
+    /** Which run of the terminal printed this, as `TerminalOpened.run` names it. */
+    run: number;
 }
 
 /** A terminal as it stands when it is opened. */
@@ -702,6 +704,8 @@ export interface TerminalOpened {
     replay: string;
     /** Where the replay ends: output with a lower `offset` is in it, any other came after. */
     end: number;
+    /** Which run of the terminal this is: only output of the same run belongs to it. */
+    run: number;
 }
 
 /** One line a hook printed, with the task it belongs to. */

@@ -219,8 +219,10 @@ const SHOWN_IN_PART: &[&str] = &["usage-credits"];
 /// that is only a name. The others the table names have a way of Swarmed's, or are refused, as
 /// `/login` and `/cd` are.
 pub(crate) fn opens_its_screen(agent: &str, name: &str) -> bool {
-    let plain = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':');
-    let named = name.starts_with(|c: char| c.is_ascii_alphanumeric()) && name.chars().all(plain);
+    // Lower case only, as the table is: `Login` must not pass for a name it does not hold.
+    let letter = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit();
+    let plain = |c: char| letter(c) || matches!(c, '-' | '_' | ':');
+    let named = name.starts_with(letter) && name.chars().all(plain);
     let left = handling(agent, name).is_none() || SHOWN_IN_PART.contains(&name);
     agent == CLAUDE && named && left
 }
@@ -801,6 +803,10 @@ mod tests {
         // Only a name: nothing that would be read as an option or a path.
         for name in ["", "-p", "--resume", "../x", "theme dark", "the/me"] {
             assert!(!opens_its_screen(CLAUDE, name), "{name:?}");
+        }
+        // Nor a refused command in other letters, should Claude Code take it for the same.
+        for name in ["Login", "CD", "Clear", "Vim"] {
+            assert!(!opens_its_screen(CLAUDE, name), "/{name}");
         }
         assert!(!opens_its_screen("codex", "vim"));
     }

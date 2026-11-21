@@ -1021,7 +1021,7 @@ class MockTerminal {
             this.printed.set(id, "");
             setTimeout(() => this.print(id, GREETING + PROMPT), 0);
         }
-        return { replay: replay ?? "", end: replay?.length ?? 0 };
+        return { replay: replay ?? "", end: replay?.length ?? 0, run: 0 };
     }
 
     type(id: number, data: string) {
@@ -1033,7 +1033,7 @@ class MockTerminal {
         const before = this.printed.get(id) ?? "";
         this.printed.set(id, before + data);
         for (const listener of this.listeners) {
-            listener({ session_id: id, data, offset: before.length, ended: false });
+            listener({ session_id: id, data, offset: before.length, ended: false, run: 0 });
         }
     }
 }
@@ -1044,17 +1044,19 @@ class MockTerminal {
  */
 class MockClaudeTerminal {
     readonly listeners = new Set<(output: TerminalOutput) => void>();
-    private readonly running = new Map<number, { command: string; printed: string }>();
+    private readonly running = new Map<number, { command: string; printed: string; run: number }>();
+    private runs = 0;
 
     open(id: number, command: string): TerminalOpened {
         const running = this.running.get(id);
         if (running?.command === command) {
-            return { replay: running.printed, end: running.printed.length };
+            return { replay: running.printed, end: running.printed.length, run: running.run };
         }
-        this.running.set(id, { command, printed: "" });
+        const run = this.runs++;
+        this.running.set(id, { command, printed: "", run });
         const screen = `\u001b[1mClaude Code\u001b[0m (sample)\r\n\r\n> /${command}\r\n\r\nThe sample has no screen for /${command}. Press q to quit.\r\n`;
-        setTimeout(() => this.print(id, screen), 0);
-        return { replay: "", end: 0 };
+        setTimeout(() => this.print(id, run, screen), 0);
+        return { replay: "", end: 0, run };
     }
 
     type(id: number, data: string) {
@@ -1072,21 +1074,22 @@ class MockClaudeTerminal {
             return;
         }
         this.running.delete(id);
-        const output = { session_id: id, data: "", offset: running.printed.length, ended: true };
+        const offset = running.printed.length;
         for (const listener of this.listeners) {
-            listener(output);
+            listener({ session_id: id, data: "", offset, ended: true, run: running.run });
         }
     }
 
-    private print(id: number, data: string) {
+    private print(id: number, run: number, data: string) {
         const running = this.running.get(id);
-        if (running === undefined) {
+        // Replaced meanwhile: what the one before still prints is dropped, as the core does.
+        if (running?.run !== run) {
             return;
         }
         const offset = running.printed.length;
         running.printed += data;
         for (const listener of this.listeners) {
-            listener({ session_id: id, data, offset, ended: false });
+            listener({ session_id: id, data, offset, ended: false, run });
         }
     }
 }

@@ -5,21 +5,23 @@
 //! without the user pasting anything.
 //!
 //! A session on Claude Code can also open Claude Code itself in a terminal of its own, on the
-//! screen of a command that has one only there, such as `/theme`. It runs as the user would
+//! screen of a command that has one only there, such as `/vim`. It runs as the user would
 //! start it, with their own sign-in, and nothing it shows is given to the agent.
 
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fmt;
+use std::os::fd::{AsFd, OwnedFd};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use pty_process::{Command, OwnedReadPty, OwnedWritePty, Pty, Size};
 use serde::Serialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Child;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, oneshot};
 
 use crate::error::{Error, Result};
 use crate::{Core, lock};
@@ -30,6 +32,8 @@ const REPLAY_BYTES: usize = 200_000;
 const SHARED_BYTES: usize = 16_000;
 /// How many chunks of output a slow front end may fall behind.
 const OUTPUT_BUFFER: usize = 4096;
+/// How long a program that has ended may be silent before all it printed counts as read.
+const LAST_WORDS: Duration = Duration::from_millis(100);
 
 /// A piece of what a session's terminal printed, as published to every front end.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -42,6 +46,9 @@ pub struct TerminalOutput {
     pub offset: u64,
     /// What runs in it has ended: `data` is empty, and nothing follows.
     pub ended: bool,
+    /// Which run of the terminal printed this, as [`TerminalOpened::run`] names it. A piece of
+    /// a run that another has since taken the place of may still be on its way.
+    pub run: u64,
 }
 
 /// A terminal as it stands when a front end opens it.
@@ -52,6 +59,8 @@ pub struct TerminalOpened {
     /// How many bytes it had printed when `replay` was taken. A piece of output whose
     /// `offset` is lower is already in the replay; any other came after it.
     pub end: u64,
+    /// Which run of the terminal this is: only output of the same run belongs to it.
+    pub run: u64,
 }
 
 /// What a terminal has printed: all of it for redrawing, and what the agent has not seen.
@@ -76,11 +85,13 @@ impl Log {
         offset
     }
 
-    /// What there is to redraw, with where it ends: taken together, so no output falls between.
-    fn opened(&self) -> TerminalOpened {
+    /// What there is to redraw of run `run`, with where it ends: taken together, so no output
+    /// falls between.
+    fn opened(&self, run: u64) -> TerminalOpened {
         TerminalOpened {
             replay: self.replay.clone(),
             end: self.end,
+            run,
         }
     }
 }
@@ -108,7 +119,7 @@ enum Input {
 pub(crate) enum Program {
     /// The user's shell, as a login shell.
     Shell,
-    /// Claude Code with its screen, opened on `command`, such as `/theme`.
+    /// Claude Code with its screen, opened on `command`, such as `/vim`.
     Claude {
         /// The `claude` executable.
         program: PathBuf,
@@ -162,10 +173,12 @@ fn size(cols: u16, rows: u16) -> Size {
     Size::new(rows.max(2), cols.max(10))
 }
 
-/// Starts `program` in `cwd` on a new pseudo-terminal.
-fn start_in(cwd: &Path, size: Size, program: &Program) -> Result<(Pty, Child)> {
+/// Starts `program` in `cwd` on a new pseudo-terminal, and returns a hold on the program's
+/// side of it too, for [`pump`] to keep open.
+fn start_in(cwd: &Path, size: Size, program: &Program) -> Result<(Pty, OwnedFd, Child)> {
     let (pty, pts) = pty_process::open().map_err(failed)?;
     pty.resize(size).map_err(failed)?;
+    let slave = pts.as_fd().try_clone_to_owned().map_err(failed)?;
     let child = command(program)
         .current_dir(cwd)
         .env("TERM", "xterm-256color")
@@ -175,7 +188,7 @@ fn start_in(cwd: &Path, size: Size, program: &Program) -> Result<(Pty, Child)> {
         .kill_on_drop(true)
         .spawn(pts)
         .map_err(failed)?;
-    Ok((pty, child))
+    Ok((pty, slave, child))
 }
 
 /// What starts `program`. Claude Code gets the `PATH` a shell would give it, and none of the
@@ -204,59 +217,109 @@ fn claude_variables() -> impl Iterator<Item = OsString> {
     })
 }
 
-/// Passes on what is typed until the terminal is closed. Owns the shell: when this ends, the
-/// shell is killed, which is what ends the reading side too.
-async fn feed(mut writer: OwnedWritePty, mut input: mpsc::UnboundedReceiver<Input>, child: Child) {
-    while let Some(input) = input.recv().await {
-        let written = match input {
-            Input::Typed(text) => writer.write_all(text.as_bytes()).await.is_ok(),
-            Input::Resized(size) => writer.resize(size).is_ok(),
+/// Passes on what is typed until the terminal is closed or the program has ended. Owns the
+/// program: when this ends, it is killed if it is still there, and `_gone` is let go of, which
+/// tells [`pump`] either way.
+async fn feed(
+    mut writer: OwnedWritePty,
+    mut input: mpsc::UnboundedReceiver<Input>,
+    mut child: Child,
+    _gone: oneshot::Sender<()>,
+) {
+    loop {
+        let typed = tokio::select! {
+            typed = input.recv() => typed,
+            _ = child.wait() => None,
+        };
+        let written = match typed {
+            Some(Input::Typed(text)) => writer.write_all(text.as_bytes()).await.is_ok(),
+            Some(Input::Resized(size)) => writer.resize(size).is_ok(),
+            None => false,
         };
         if !written {
             break;
         }
     }
-    drop(child);
 }
 
-/// Publishes what the program prints until it exits, then that it ended, and forgets the
-/// terminal. Once another run has taken the terminal's place, nothing more of this one is
-/// published: it would be drawn as the new one's.
-async fn pump(
+/// One run of a terminal, as [`pump`] publishes it.
+struct Printing {
     terminals: Arc<Terminals>,
-    (session_id, run): (i64, u64),
-    mut reader: OwnedReadPty,
+    session_id: i64,
+    run: u64,
     log: Arc<Mutex<Log>>,
-) {
-    let mut pending: Vec<u8> = vec![];
-    let mut buffer = [0_u8; 8192];
-    while let Ok(read) = reader.read(&mut buffer).await
-        && read > 0
-    {
-        pending.extend_from_slice(&buffer[..read]);
-        let data = take_text(&mut pending);
-        let offset = lock(&log).push(&data);
+    /// Bytes read that end in the middle of a character.
+    pending: Vec<u8>,
+}
+
+impl Printing {
+    /// Keeps and publishes `bytes`, as far as they are whole characters.
+    fn print(&mut self, bytes: &[u8]) {
+        self.pending.extend_from_slice(bytes);
+        let data = take_text(&mut self.pending);
+        let offset = lock(&self.log).push(&data);
         let output = TerminalOutput {
-            session_id,
+            session_id: self.session_id,
             data,
             offset,
             ended: false,
+            run: self.run,
         };
-        terminals.publish(run, output);
+        self.terminals.publish(output);
     }
-    let offset = lock(&log).end;
-    let ended = TerminalOutput {
-        session_id,
-        data: String::new(),
-        offset,
-        ended: true,
-    };
-    let mut open = lock(&terminals.open);
-    if open.get(&session_id).is_some_and(|t| t.run == run) {
-        open.remove(&session_id);
-        // An error only means nobody is listening right now.
-        terminals.bus.send(ended).ok();
+
+    /// Publishes that the run has ended, and forgets the terminal, unless another run has
+    /// taken its place.
+    fn end(self) {
+        let ended = TerminalOutput {
+            session_id: self.session_id,
+            data: String::new(),
+            offset: lock(&self.log).end,
+            ended: true,
+            run: self.run,
+        };
+        let mut open = lock(&self.terminals.open);
+        let current = open.get(&self.session_id);
+        if current.is_some_and(|terminal| terminal.run == self.run) {
+            open.remove(&self.session_id);
+            // An error only means nobody is listening right now.
+            self.terminals.bus.send(ended).ok();
+        }
     }
+}
+
+/// Publishes what the program prints until it is gone, then that it ended, and forgets the
+/// terminal. Once another run has taken the terminal's place, nothing more of this one is
+/// published: it would be drawn as the new one's.
+///
+/// The program's side of the pseudo-terminal, `slave`, is held open until all it printed is
+/// read. macOS throws away what is unread when the last holder of that side lets go, so a
+/// program that prints and ends at once, with why it could not start for one, would be seen to
+/// end without a word. Held open, the reading side never says it is over; `gone` does, and
+/// what is printed by then can be read at once.
+async fn pump(
+    mut printing: Printing,
+    (mut reader, slave): (OwnedReadPty, OwnedFd),
+    mut gone: oneshot::Receiver<()>,
+) {
+    let mut buffer = [0_u8; 8192];
+    loop {
+        let read = tokio::select! {
+            read = reader.read(&mut buffer) => read,
+            _ = &mut gone => break,
+        };
+        match read {
+            Ok(read) if read > 0 => printing.print(&buffer[..read]),
+            _ => break,
+        }
+    }
+    while let Ok(Ok(read)) = tokio::time::timeout(LAST_WORDS, reader.read(&mut buffer)).await
+        && read > 0
+    {
+        printing.print(&buffer[..read]);
+    }
+    drop(slave);
+    printing.end();
 }
 
 /// Takes the text at the start of `bytes`, leaving a character that is still arriving.
@@ -339,10 +402,11 @@ fn last_lines(mut text: String, limit: usize) -> String {
 }
 
 impl Terminals {
-    /// Publishes `output` of run `run`, unless another run has taken its terminal's place.
-    fn publish(&self, run: u64, output: TerminalOutput) {
+    /// Publishes `output`, unless another run has taken its terminal's place.
+    fn publish(&self, output: TerminalOutput) {
         let open = lock(&self.open);
-        if open.get(&output.session_id).is_some_and(|t| t.run == run) {
+        let current = open.get(&output.session_id);
+        if current.is_some_and(|terminal| terminal.run == output.run) {
             // An error only means nobody is listening right now.
             self.bus.send(output).ok();
         }
@@ -363,9 +427,9 @@ impl Terminals {
         let running = open.get(&session_id);
         if let Some(terminal) = running.filter(|terminal| terminal.program == *program) {
             terminal.input.send(Input::Resized(size)).ok();
-            return Ok(lock(&terminal.log).opened());
+            return Ok(lock(&terminal.log).opened(terminal.run));
         }
-        let (pty, child) = start_in(cwd, size, program)?;
+        let (pty, slave, child) = start_in(cwd, size, program)?;
         let (reader, writer) = pty.into_split();
         let (input, typed) = mpsc::unbounded_channel();
         let log = Arc::<Mutex<Log>>::default();
@@ -378,10 +442,20 @@ impl Terminals {
         };
         // One this takes the place of ends, as its way in is dropped.
         open.insert(session_id, terminal);
-        drop(tokio::spawn(feed(writer, typed, child)));
-        let pumped = pump(Arc::clone(self), (session_id, run), reader, log);
-        drop(tokio::spawn(pumped));
-        Ok(TerminalOpened::default())
+        let (gone, is_gone) = oneshot::channel();
+        drop(tokio::spawn(feed(writer, typed, child, gone)));
+        let printing = Printing {
+            terminals: Arc::clone(self),
+            session_id,
+            run,
+            log,
+            pending: vec![],
+        };
+        drop(tokio::spawn(pump(printing, (reader, slave), is_gone)));
+        Ok(TerminalOpened {
+            run,
+            ..TerminalOpened::default()
+        })
     }
 
     /// What the session's terminal printed since this was last asked, as plain text, and
@@ -514,6 +588,38 @@ impl Core {
     }
 }
 
+/// What `rounds` runs of a program that prints `last words` and ends at once were each heard
+/// to print by the time they said they ended.
+#[cfg(test)]
+async fn last_words_of_each(terminals: &Arc<Terminals>, rounds: i64) -> Vec<String> {
+    let mut output = terminals.bus.subscribe();
+    let echo = Program::Claude {
+        program: PathBuf::from("/bin/echo"),
+        command: "last words".to_string(),
+    };
+    let at = (Path::new("/"), size(80, 24));
+    let mut printed = vec![];
+    for round in 0..rounds {
+        let opened = terminals.open(round, at, &echo).expect("opens");
+        printed.push(all_of_a_run(&mut output, (round, opened.run)).await);
+    }
+    printed
+}
+
+/// Everything the run printed, once it has said it ended. Nothing else may be published.
+#[cfg(test)]
+async fn all_of_a_run(output: &mut broadcast::Receiver<TerminalOutput>, run: (i64, u64)) -> String {
+    let mut seen = String::new();
+    loop {
+        let heard = output.recv().await.expect("published");
+        assert_eq!((heard.session_id, heard.run), run);
+        seen.push_str(&heard.data);
+        if heard.ended {
+            return seen;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -540,8 +646,9 @@ mod tests {
         assert_eq!(log.push("$ ls\r\n"), 0);
         // Counted in bytes, as the text is published: "é" is two.
         assert_eq!(log.push("né"), 6);
-        let opened = log.opened();
+        let opened = log.opened(3);
         assert_eq!((opened.replay.as_str(), opened.end), ("$ ls\r\nné", 9));
+        assert_eq!(opened.run, 3);
         // What comes after the replay was taken starts where it ends, and is not in it.
         assert_eq!(log.push("late"), opened.end);
     }
@@ -552,7 +659,7 @@ mod tests {
         let filler = "x".repeat(REPLAY_BYTES);
         log.push(&filler);
         log.push("tail");
-        let opened = log.opened();
+        let opened = log.opened(0);
         assert_eq!(opened.replay.len(), REPLAY_BYTES);
         assert_eq!(opened.end, (REPLAY_BYTES + 4) as u64);
     }
@@ -568,6 +675,55 @@ mod tests {
         assert_eq!(take_text(&mut mixed), "\u{fffd}a");
         mixed.push(0xa9);
         assert_eq!(take_text(&mut mixed), "é");
+    }
+
+    /// A program that stays, as Claude Code does on a screen: `sleep`, for `seconds`.
+    fn staying(seconds: &str) -> Program {
+        Program::Claude {
+            program: PathBuf::from("/bin/sleep"),
+            command: seconds.to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_run_is_shown_again_on_the_same_command_and_replaced_on_another() {
+        let terminals = Arc::<Terminals>::default();
+        let mut output = terminals.bus.subscribe();
+        let at = (Path::new("/"), size(80, 24));
+        let first = terminals.open(7, at, &staying("60")).expect("opens");
+        let again = terminals
+            .open(7, at, &staying("60"))
+            .expect("is shown again");
+        assert_eq!(again.run, first.run);
+        let other = terminals
+            .open(7, at, &staying("61"))
+            .expect("takes its place");
+        assert_ne!(other.run, first.run);
+        // Another session's is its own.
+        let apart = terminals.open(8, at, &staying("60")).expect("opens");
+        assert_ne!(apart.run, other.run);
+        let typed = || Input::Typed("q".to_string());
+        terminals.send(7, typed()).expect("types");
+
+        terminals.close(7);
+        let closed = terminals.send(7, typed());
+        assert!(matches!(closed, Err(Error::TerminalNotOpen(7))));
+        terminals.send(8, typed()).expect("types");
+        // Neither the one replaced nor the one closed says it ended: whoever shows the
+        // terminal by then shows another run, or none.
+        tokio::time::sleep(LAST_WORDS * 4).await;
+        let heard: Vec<TerminalOutput> = std::iter::from_fn(|| output.try_recv().ok()).collect();
+        assert!(heard.iter().all(|piece| !piece.ended), "{heard:?}");
+    }
+
+    #[tokio::test]
+    async fn what_a_program_prints_as_it_ends_is_published_before_its_end() {
+        let terminals = Arc::<Terminals>::default();
+        // Often, since what is lost is lost only when the program is gone before it is read.
+        let printed = last_words_of_each(&terminals, 20).await;
+        let whole = |seen: &String| seen.contains("last words");
+        assert!(printed.iter().all(whole), "{printed:?}");
+        assert_eq!(terminals.take_unshared(0), "");
     }
 
     #[test]

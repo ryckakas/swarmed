@@ -626,7 +626,9 @@ async fn claude_code_opened_on_a_screen_runs_apart_from_the_shell_and_is_not_sha
     let core = core_with_task(&fx).await;
     let mut bus = core.subscribe();
     let mut output = core.subscribe_claude_terminals();
+    let mut shell = core.subscribe_terminals();
     let session = started_session(&core);
+    core.terminal_open(session.id, 80, 24).expect("opens");
 
     // The fake agent's screen is `echo`: it prints the command it was opened on, and ends.
     let fresh = core
@@ -645,19 +647,37 @@ async fn claude_code_opened_on_a_screen_runs_apart_from_the_shell_and_is_not_sha
         Err(Error::TerminalNotOpen(id)) if id == session.id
     ));
 
-    // What it showed is not the shell's, and goes to no agent.
+    // The shell was not the terminal it ran in: it is still there, and what it printed goes
+    // to the agent without anything Claude Code showed.
+    core.terminal_write(session.id, "echo shell-$((40 + 2))\n")
+        .expect("the shell is still open");
+    printed(&mut shell, "shell-42").await;
+    settled(&mut shell).await;
     core.session_send(session.id, "what happened?")
         .expect("sends");
     let events = turn(&mut bus, session.id).await;
+    let shared = events.iter().find_map(|event| match event {
+        AgentEvent::TerminalShared { text } => Some(text.as_str()),
+        _ => None,
+    });
     assert!(
-        !events
-            .iter()
-            .any(|event| matches!(event, AgentEvent::TerminalShared { .. })),
+        shared.is_some_and(|text| text.contains("shell-42") && !text.contains("/vim")),
         "{events:?}"
     );
 
+    // Closing the session's terminals ends both.
+    core.claude_terminal_open(session.id, "vim", (80, 24))
+        .expect("opens once more");
+    core.terminal_close(session.id);
+    for gone in [
+        core.terminal_write(session.id, "ls\n"),
+        core.claude_terminal_write(session.id, "q"),
+    ] {
+        assert!(matches!(gone, Err(Error::TerminalNotOpen(id)) if id == session.id));
+    }
+
     // Commands Swarmed does its own way, refuses, or that are no command's name, are not opened.
-    for refused in ["theme", "login", "cd", "clear", "../vim", "-p", ""] {
+    for refused in ["theme", "login", "Login", "cd", "clear", "../vim", "-p", ""] {
         assert!(
             matches!(
                 core.claude_terminal_open(session.id, refused, (80, 24)),

@@ -243,6 +243,32 @@ fn deleted_for_good(app: &App, id: &Value) {
     assert!(app.invoke("session_events", json!({ "id": id })).is_err());
 }
 
+/// Calls the commands of a Claude Code opened in the session's terminal, as the UI does. The
+/// fake agent's screen is `echo`, which ends by itself: typed into, it may be gone already.
+fn claude_code_in_a_terminal(app: &App, id: &Value, size: &Value) {
+    let mut open = size.clone();
+    open["command"] = json!("vim");
+    let opened = app.ok("claude_terminal_open", open.clone());
+    assert_eq!((&opened["replay"], &opened["end"]), (&json!(""), &json!(0)));
+    let gone = Err(json!(format!("session {id} has no terminal open")));
+    for (command, arguments) in [
+        ("claude_terminal_write", json!({ "id": id, "data": "q" })),
+        ("claude_terminal_resize", size.clone()),
+    ] {
+        let answer = app.invoke(command, arguments);
+        assert!(answer.is_ok() || answer == gone, "{command}: {answer:?}");
+    }
+    app.ok("claude_terminal_close", json!({ "id": id }));
+    // One Swarmed refuses is not opened this way either.
+    open["command"] = json!("cd");
+    assert_eq!(
+        app.invoke("claude_terminal_open", open),
+        Err(json!(
+            "/cd is not opened in Claude Code's own terminal from Swarmed"
+        ))
+    );
+}
+
 #[test]
 fn the_ui_can_deny_interrupt_and_remove() {
     let app = app();
@@ -291,10 +317,11 @@ fn the_ui_can_deny_interrupt_and_remove() {
     let size = json!({ "id": id, "cols": 80, "rows": 24 });
     assert_eq!(
         app.ok("terminal_open", size.clone()),
-        json!({ "replay": "", "end": 0 })
+        json!({ "replay": "", "end": 0, "run": 0 })
     );
     app.ok("terminal_write", json!({ "id": id, "data": "true\n" }));
-    app.ok("terminal_resize", size);
+    app.ok("terminal_resize", size.clone());
+    claude_code_in_a_terminal(&app, id, &size);
     let renamed = app.ok(
         "session_rename",
         json!({ "id": id, "title": "  Slow test  " }),

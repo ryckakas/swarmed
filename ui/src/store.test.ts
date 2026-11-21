@@ -333,6 +333,14 @@ describe("runInTerminal", () => {
         // Asked again, as an effect that runs twice does: nothing left to type.
         expect(useStore.getState().takeTerminalCommand(7)).toBeNull();
     });
+
+    it("shows the shell in place of a Claude Code shown there, so the command runs at once", () => {
+        useStore.setState({ terminalCommand: null, claudeTerminals: { 3: "vim", 7: "vim" } });
+        useStore.getState().runInTerminal(7, "make deploy");
+        // Left waiting behind Claude Code, it would run whenever the shell was next shown.
+        expect(useStore.getState().claudeTerminals).toEqual({ 3: "vim" });
+        expect(useStore.getState().takeTerminalCommand(7)).toBe("make deploy");
+    });
 });
 
 describe("Claude Code opened in a session's terminal", () => {

@@ -21,7 +21,8 @@ notice adds its line under Unreleased.
   Code". It starts Claude Code on that command in the session's terminal, in place of the shell
   until you quit it or go back to the shell. It runs with your own sign-in, in a conversation of
   its own, and nothing it shows is sent to the agent. The usage screen has the same button for
-  `/usage-credits`, where Claude Code buys usage credits and sets their monthly cap.
+  `/usage-credits`, where Claude Code buys usage credits and sets their monthly cap. An
+  action's command still goes to the shell, which is shown again for it.
 - **The coins warn before a limit is reached.** Once a usage window is 75% used, as Claude Code
   starts to warn, they carry a small yellow triangle, red once a limit is used up, and the bars
   in the card and the overview turn yellow and red likewise. Extra usage's bar is grey now, so
@@ -56,6 +57,8 @@ notice adds its line under Unreleased.
 
 ### Fixed
 
+- **What a program prints as it ends in a session's terminal is no longer lost.** On a Mac, the
+  last lines of one that printed and ended at once could go missing.
 - **What sessions cost is no longer counted many times over.** Claude Code reports the
   conversation's running total after every turn and keeps it when a session is resumed, but
   the costs in Settings, the turn statistics and the context card's "spent here" started it

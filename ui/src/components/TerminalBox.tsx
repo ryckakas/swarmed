@@ -12,7 +12,7 @@ import type { Unsubscribe } from "../api/client";
 import type { TerminalConfig, TerminalOpened, TerminalOutput } from "../api/types";
 import { useStore } from "../store";
 import { schemeOf, terminalExtras, terminalOptions, terminalTheme } from "../terminalLook";
-import { comesAfter, redrawn } from "../terminalOutput";
+import { endedEarly, heard, redrawn } from "../terminalOutput";
 
 /**
  * Turns a colour as the stylesheet writes it, `var(--clay)` or a mix of two, into the `#rrggbb`
@@ -191,18 +191,22 @@ function tied(
     // Output that arrives while the shell's earlier output is still being fetched waits
     // here, so nothing is drawn twice or out of order.
     const early: TerminalOutput[] = [];
-    // Where the fetched output ended, once it is drawn. A piece from before that can still
-    // arrive afterwards, since it travels apart from the answer, and is in it already.
-    let end: number | null = null;
+    // What was fetched, once it is drawn: which run it is and where its output ended. A piece
+    // from before that can still arrive afterwards, since it travels apart from the answer,
+    // and is in it already; so can one of a run this one took the place of.
+    let shown: TerminalOpened | null = null;
     const listening = line.listen((output) => {
         if (output.session_id !== line.sessionId) {
             return;
         }
-        if (output.ended) {
-            line.gone();
-        } else if (end === null) {
+        if (shown === null) {
             early.push(output);
-        } else if (comesAfter(output, end)) {
+            return;
+        }
+        const what = heard(output, shown);
+        if (what === "ended") {
+            line.gone();
+        } else if (what === "printed") {
             terminal.write(output.data);
         }
     });
@@ -210,10 +214,13 @@ function tied(
     // the replay nor anything heard.
     opened.current = listening
         .then(() => line.open(terminal.cols, terminal.rows))
-        .then((shell) => {
-            terminal.write(redrawn(shell, early));
-            end = shell.end;
+        .then((opened) => {
+            terminal.write(redrawn(opened, early));
+            shown = opened;
             terminal.focus();
+            if (endedEarly(opened, early)) {
+                line.gone();
+            }
         })
         .catch((error: unknown) => {
             report(error);
