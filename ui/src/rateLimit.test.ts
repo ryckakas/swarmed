@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { limitNotice, limitWindows, type RateLimit, resetWhen } from "./rateLimit";
+import { isoSeconds, limitNotice, limitWindows, type RateLimit, resetWhen } from "./rateLimit";
 
 // Noon on a Saturday, in the time zone the tests run in.
 const now = new Date(2026, 10, 21, 12, 0);
@@ -135,5 +135,66 @@ describe("a limit reached while extra usage carries on", () => {
         expect(limitNotice(billed, billed, now)).toBeNull();
         // Back within the plan and over again: news once more.
         expect(limitNotice(billed, report("allowed", {}), now)).not.toBeNull();
+    });
+});
+
+describe("limits Claude Code gave when asked", () => {
+    const asked = {
+        type: "usage_limits" as const,
+        limits: [
+            {
+                kind: "session",
+                model: null,
+                percent: 36,
+                resets_at: "2026-11-21T19:59:59.723480+00:00",
+                severity: "normal",
+            },
+            { kind: "weekly_all", model: null, percent: 30, resets_at: null, severity: "normal" },
+            {
+                kind: "weekly_scoped",
+                model: "Fable",
+                percent: 92,
+                resets_at: null,
+                severity: "warning",
+            },
+            { kind: "monthly_new", model: null, percent: 5, resets_at: null, severity: "normal" },
+        ],
+    };
+    const reported = report("allowed", {
+        unifiedWindows: { five_hour: { status: "allowed", utilization: 0.1 } },
+    });
+
+    it("are named as the reports name them, one model's after it", () => {
+        expect(limitWindows([asked])).toEqual([
+            {
+                name: "5-hour",
+                used: 0.36,
+                resetsAt: Date.UTC(2026, 10, 21, 19, 59, 59, 723) / 1000,
+                status: "allowed",
+            },
+            { name: "weekly", used: 0.3, resetsAt: null, status: "allowed" },
+            { name: "weekly Fable", used: 0.92, resetsAt: null, status: "warning" },
+            { name: "monthly new", used: 0.05, resetsAt: null, status: "allowed" },
+        ]);
+    });
+
+    it("stand until a later report, which stands until they are asked for again", () => {
+        expect(limitWindows([reported, asked])[0]?.used).toBe(0.36);
+        expect(limitWindows([asked, reported])[0]?.used).toBe(0.1);
+        // A report that lists no windows does not hide the ones asked for.
+        expect(limitWindows([asked, report("allowed", null)])[0]?.used).toBe(0.36);
+    });
+});
+
+describe("isoSeconds", () => {
+    it("reads Claude Code's times, microseconds and all, and nothing else", () => {
+        expect(isoSeconds("2026-11-27T20:59:59+00:00")).toBe(
+            Date.UTC(2026, 10, 27, 20, 59, 59) / 1000,
+        );
+        expect(isoSeconds("2026-11-27T20:59:59.723508+00:00")).toBe(
+            Date.UTC(2026, 10, 27, 20, 59, 59, 723) / 1000,
+        );
+        expect(isoSeconds(null)).toBeNull();
+        expect(isoSeconds("soon")).toBeNull();
     });
 });

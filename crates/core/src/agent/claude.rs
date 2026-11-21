@@ -21,7 +21,7 @@ use tokio::sync::mpsc;
 use super::{
     AgentBackend, AgentCommand, AgentEvent, AgentHandle, Auth, BackgroundState,
     COMMIT_INSTRUCTIONS, ContextCategory, McpServerInfo, Namer, Naming, PULL_INSTRUCTIONS,
-    SessionSpec, Supervision,
+    SessionSpec, Supervision, UsageLimit,
 };
 use crate::agent_setup::{default_tool_dirs, find_program};
 use crate::error::{Error, Result};
@@ -452,17 +452,82 @@ fn usage_request() -> Value {
     })
 }
 
-/// The extra usage in the answer to [`usage_request`], if `message` is one and has it.
+/// What Claude Code answered to one of Swarmed's own requests: the state of the context
+/// window, the settings in use, the account's usage, or a screen. The `/usage` screen carries
+/// the account's usage too, which is read from it as well, so that what the user last saw
+/// is what the context card shows.
+fn parse_answer(message: &Value) -> Vec<AgentEvent> {
+    if let Some(event) = parse_context(message).or_else(|| parse_applied(message)) {
+        return vec![event];
+    }
+    if answers(message, USAGE_REQUEST) {
+        return usage_figures(message);
+    }
+    let Some(screen) = screens::parse(message) else {
+        return vec![];
+    };
+    let is_usage = matches!(&screen, AgentEvent::Screen { command, .. } if command == "usage");
+    let figures = if is_usage {
+        usage_figures(message)
+    } else {
+        vec![]
+    };
+    std::iter::once(screen).chain(figures).collect()
+}
+
+/// Whether `message` is the answer to the request `id`.
+fn answers(message: &Value, id: &str) -> bool {
+    message
+        .get("response")
+        .is_some_and(|response| kind_of(response, "request_id") == Some(id))
+}
+
+/// The plan's usage limits and the extra usage in an answer to `get_usage`, those it gives in
+/// a shape known here. An answer that gives neither, such as an error, gives nothing.
 ///
 /// Claude Code marks this request experimental, so a shape it does not have is no answer.
-/// Only the extra-usage figures are read: the rest of the answer, the plan and the account's
-/// other usage, is not kept, passed on or logged.
-fn parse_extra_usage(message: &Value) -> Option<AgentEvent> {
-    let response = message.get("response")?;
-    if kind_of(response, "request_id") != Some(USAGE_REQUEST) {
-        return None;
-    }
-    let extra = response.pointer("/response/rate_limits/extra_usage")?;
+/// Only these figures are read: the rest of the answer, such as the plan and what the
+/// account's sessions cost, is not kept, passed on or logged.
+fn usage_figures(message: &Value) -> Vec<AgentEvent> {
+    let Some(rate_limits) = message.pointer("/response/response/rate_limits") else {
+        return vec![];
+    };
+    [parse_limits(rate_limits), parse_extra_usage(rate_limits)]
+        .into_iter()
+        .flatten()
+        .collect()
+}
+
+/// The plan's usage limits, as `/usage` lists them; `None` without one in a known shape.
+fn parse_limits(rate_limits: &Value) -> Option<AgentEvent> {
+    let limits: Vec<UsageLimit> = rate_limits
+        .get("limits")?
+        .as_array()?
+        .iter()
+        .filter_map(parse_limit)
+        .collect();
+    (!limits.is_empty()).then_some(AgentEvent::UsageLimits { limits })
+}
+
+fn parse_limit(row: &Value) -> Option<UsageLimit> {
+    Some(UsageLimit {
+        kind: kind_of(row, "kind")?.to_string(),
+        model: row
+            .pointer("/scope/model/display_name")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        percent: row
+            .get("percent")
+            .and_then(Value::as_u64)
+            .and_then(|percent| u32::try_from(percent).ok())?,
+        resets_at: kind_of(row, "resets_at").map(str::to_string),
+        severity: kind_of(row, "severity").unwrap_or("normal").to_string(),
+    })
+}
+
+/// The extra usage, if the plan has it and it is in a known shape.
+fn parse_extra_usage(rate_limits: &Value) -> Option<AgentEvent> {
+    let extra = rate_limits.get("extra_usage")?;
     Some(AgentEvent::ExtraUsage {
         enabled: extra.get("is_enabled").and_then(Value::as_bool)?,
         used: extra.get("used_credits").and_then(Value::as_u64)?,
@@ -594,6 +659,7 @@ fn command_line(command: AgentCommand, pending: &Pending, requests: &mut u64) ->
             &json!({ "subtype": "stop_task", "task_id": task_id }),
         ),
         AgentCommand::Show(kind) => screens::request(kind),
+        AgentCommand::AskUsage => usage_request(),
     }
 }
 
@@ -654,12 +720,7 @@ fn parse_message(message: &Value, pending: &Pending) -> Vec<AgentEvent> {
         }],
         "prompt_suggestion" => parse_suggestion(message).into_iter().collect(),
         // The replies to our own control requests that are of use.
-        "control_response" => parse_context(message)
-            .or_else(|| parse_applied(message))
-            .or_else(|| parse_extra_usage(message))
-            .or_else(|| screens::parse(message))
-            .into_iter()
-            .collect(),
+        "control_response" => parse_answer(message),
         "system" => parse_background(message).into_iter().collect(),
         _ => vec![AgentEvent::Other {
             raw: message.clone(),
@@ -1207,6 +1268,98 @@ mod tests {
                 limit_reached: true,
             }]
         );
+    }
+
+    /// Claude Code's answer to `get_usage`, as 2.1.330 gives it, cut down: three limits, one
+    /// of them a single model's, one row it cannot have, extra usage, and figures that must
+    /// not come through.
+    fn usage_answer(request_id: &str) -> Value {
+        json!({ "type": "control_response", "response": {
+            "subtype": "success", "request_id": request_id,
+            "response": {
+                "session": { "total_cost_usd": 0 },
+                "subscription_type": "max-secret",
+                "rate_limits": {
+                    "limits": [
+                        { "kind": "session", "group": "session", "percent": 36,
+                          "severity": "normal", "resets_at": "2026-11-21T19:59:59.723480+00:00",
+                          "scope": null, "is_active": false },
+                        { "kind": "weekly_all", "group": "weekly", "percent": 30,
+                          "severity": "normal", "resets_at": "2026-11-27T20:59:59+00:00" },
+                        { "kind": "weekly_scoped", "group": "weekly", "percent": 92,
+                          "severity": "warning", "resets_at": null,
+                          "scope": { "model": { "id": null, "display_name": "Fable" } } },
+                        { "kind": "broken", "percent": "lots" },
+                    ],
+                    "extra_usage": { "is_enabled": true, "monthly_limit": 50_000,
+                        "used_credits": 1000, "currency": "USD", "decimal_places": 2,
+                        "spend_limit_reached": false },
+                    "spend": { "used": { "amount_minor": 1000, "currency": "USD" } },
+                },
+            },
+        }})
+    }
+
+    /// The figures [`usage_answer`] gives.
+    fn usage_read() -> Vec<AgentEvent> {
+        let limit = |kind: &str, model: Option<&str>, percent, resets: Option<&str>| UsageLimit {
+            kind: kind.into(),
+            model: model.map(Into::into),
+            percent,
+            resets_at: resets.map(Into::into),
+            severity: if percent > 90 { "warning" } else { "normal" }.into(),
+        };
+        vec![
+            AgentEvent::UsageLimits {
+                limits: vec![
+                    limit(
+                        "session",
+                        None,
+                        36,
+                        Some("2026-11-21T19:59:59.723480+00:00"),
+                    ),
+                    limit("weekly_all", None, 30, Some("2026-11-27T20:59:59+00:00")),
+                    limit("weekly_scoped", Some("Fable"), 92, None),
+                ],
+            },
+            AgentEvent::ExtraUsage {
+                enabled: true,
+                used: 1000,
+                limit: Some(50_000),
+                currency: "USD".into(),
+                decimals: 2,
+                limit_reached: false,
+            },
+        ]
+    }
+
+    #[test]
+    fn usage_asked_for_is_read_as_figures_and_put_nowhere_in_the_conversation() {
+        assert_eq!(
+            command_line(AgentCommand::AskUsage, &Pending::default(), &mut 0),
+            usage_request()
+        );
+        let events = parse(&usage_answer(USAGE_REQUEST));
+        assert_eq!(events, usage_read());
+        assert!(!format!("{events:?}").contains("secret"));
+        // An error is no figures.
+        let error = json!({ "type": "control_response", "response": {
+            "subtype": "error", "request_id": USAGE_REQUEST, "error": "not signed in",
+        }});
+        assert_eq!(parse(&error), vec![]);
+    }
+
+    #[test]
+    fn the_usage_screen_brings_the_figures_up_to_date_as_well() {
+        let screen = screens::request(crate::agent::ScreenKind::Usage);
+        let id = screen["request_id"].as_str().expect("an id");
+        let events = parse(&usage_answer(id));
+        assert!(matches!(&events[0], AgentEvent::Screen { command, .. } if command == "usage"));
+        assert_eq!(events[1..], usage_read());
+        // Other screens are only themselves.
+        let status = screens::request(crate::agent::ScreenKind::Status);
+        let id = status["request_id"].as_str().expect("an id");
+        assert_eq!(parse(&usage_answer(id)).len(), 1);
     }
 
     #[test]

@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 
 use super::{
     AgentBackend, AgentCommand, AgentEvent, AgentHandle, PLAN_TOOL, ScreenKind, ScreenRow,
-    ScreenSection, SessionSpec, Supervision,
+    ScreenSection, SessionSpec, Supervision, UsageLimit,
 };
 use crate::error::Result;
 
@@ -94,6 +94,10 @@ impl Script {
             }
             AgentCommand::Show(kind) => {
                 self.emit(screen(kind));
+                return Next::Continue;
+            }
+            AgentCommand::AskUsage => {
+                self.emit(usage_limits());
                 return Next::Continue;
             }
             _ => return Next::Continue,
@@ -236,6 +240,19 @@ impl Script {
             is_error: !allowed,
         });
         Some(allowed)
+    }
+}
+
+/// The usage the scripted agent reports when asked: one limit.
+fn usage_limits() -> AgentEvent {
+    AgentEvent::UsageLimits {
+        limits: vec![UsageLimit {
+            kind: "session".to_string(),
+            model: None,
+            percent: 36,
+            resets_at: None,
+            severity: "normal".to_string(),
+        }],
     }
 }
 

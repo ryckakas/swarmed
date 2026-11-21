@@ -978,6 +978,12 @@ pub(crate) async fn status_line(core: CoreState<'_>, id: i64) -> Command<Option<
     Ok(core.status_line(id).await?)
 }
 
+/// Asks the session's Claude Code for the account's usage now; the answer arrives as events.
+#[tauri::command]
+pub(crate) async fn session_usage_refresh(core: CoreState<'_>, id: i64) -> Command<()> {
+    Ok(core.session_usage_refresh(id, Auth::default())?)
+}
+
 #[tauri::command]
 pub(crate) fn session_rename(core: CoreState<'_>, id: i64, title: String) -> Command<Session> {
     Ok(core.session_rename(id, &title)?)

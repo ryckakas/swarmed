@@ -3,7 +3,7 @@
 // status once a limit is reached. A warning is not a limit reached, and is said once, when it
 // starts, not again with every turn.
 
-import type { AgentEvent } from "./api/types";
+import type { AgentEvent, UsageLimit } from "./api/types";
 
 /** One usage report of Claude Code's. */
 export type RateLimit = Extract<AgentEvent, { type: "rate_limit" }>;
@@ -116,15 +116,63 @@ export interface LimitWindow {
 }
 
 /**
- * Every usage window of the latest report, in the order Claude Code lists them. Only Claude
- * Code reports them: the Agent Client Protocol has no message for an account's limits.
+ * Every usage window, from whichever came last: the report after a turn, or the limits Claude
+ * Code gave when asked for them. In the order Claude Code lists them. Only Claude Code reports
+ * them: the Agent Client Protocol has no message for an account's limits.
  */
 export function limitWindows(events: AgentEvent[]): LimitWindow[] {
-    const latest = events.findLast((event) => event.type === "rate_limit");
-    if (latest?.type !== "rate_limit" || !isRecord(latest.raw)) {
+    for (let at = events.length - 1; at >= 0; at--) {
+        const windows = windowsOf(events[at]);
+        if (windows.length > 0) {
+            return windows;
+        }
+    }
+    return [];
+}
+
+function windowsOf(event: AgentEvent | undefined): LimitWindow[] {
+    if (event?.type === "usage_limits") {
+        return event.limits.map(askedWindow);
+    }
+    return event?.type === "rate_limit" ? reportedWindows(event) : [];
+}
+
+/** What Claude Code's `/usage` calls its limits, and what they are called here. */
+const LIMIT_KINDS: Record<string, string> = {
+    session: "5-hour",
+    weekly_all: "weekly",
+    weekly_scoped: "weekly",
+};
+
+/** A limit from Claude Code's answer, as a window: one model's weekly limit is named after it. */
+function askedWindow(limit: UsageLimit): LimitWindow {
+    const kind = LIMIT_KINDS[limit.kind] ?? limit.kind.replaceAll("_", " ");
+    return {
+        name: limit.model ? `${kind} ${limit.model}` : kind,
+        used: limit.percent / 100,
+        resetsAt: isoSeconds(limit.resets_at),
+        status: limit.severity === "normal" ? "allowed" : limit.severity,
+    };
+}
+
+/**
+ * An ISO 8601 time as seconds since 1970; `null` for none, or one that cannot be read. Claude
+ * Code gives microseconds, which are cut to milliseconds first: not every engine reads more.
+ */
+export function isoSeconds(text: string | null): number | null {
+    if (text === null) {
+        return null;
+    }
+    const ms = Date.parse(text.replace(/(\.\d{3})\d+/, "$1"));
+    return Number.isNaN(ms) ? null : ms / 1000;
+}
+
+/** The windows a report after a turn lists. */
+function reportedWindows(report: RateLimit): LimitWindow[] {
+    if (!isRecord(report.raw)) {
         return [];
     }
-    const windows = latest.raw.unifiedWindows;
+    const windows = report.raw.unifiedWindows;
     if (!isRecord(windows)) {
         return [];
     }

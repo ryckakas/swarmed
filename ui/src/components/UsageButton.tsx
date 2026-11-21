@@ -1,0 +1,132 @@
+import { type RefObject, useEffect, useRef, useState } from "react";
+import { api } from "../api";
+import type { AgentEvent, Session } from "../api/types";
+import { type Asked, askedLine, NO_FIGURES, usageFigures } from "../usageAsk";
+import { useWords } from "../useWords";
+import { CoinsIcon } from "./IconButton";
+import { UsageSections } from "./UsageSections";
+
+/**
+ * The coins in a Claude Code session's header: they open an overview of the plan's usage and
+ * ask Claude Code for it as they do. Until then, and between askings, the figures are what
+ * Claude Code last said while it worked for the session.
+ */
+export function UsageButton({ session, events }: { session: Session; events: AgentEvent[] }) {
+    const words = useWords();
+    const [open, setOpen] = useState(false);
+    const { asked, ask } = useAsking(session.id, events);
+    const wrap = useRef<HTMLDivElement>(null);
+    useDismiss(wrap, open, setOpen);
+
+    const toggle = () => {
+        if (!open && asked?.state !== "asking") {
+            ask();
+        }
+        setOpen(!open);
+    };
+    const label = `${words.usage}: your plan's limits and extra usage, asked of Claude Code as it opens`;
+    return (
+        <div className="usage-wrap" ref={wrap}>
+            <button
+                type="button"
+                className="icon-button"
+                aria-label={label}
+                title={label}
+                aria-expanded={open}
+                aria-haspopup="dialog"
+                onClick={toggle}
+            >
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                    <CoinsIcon />
+                </svg>
+            </button>
+            {open && (
+                <div className="usage-overview" role="dialog" aria-label={words.usage}>
+                    <p className="usage-overview-title">
+                        {words.usage}
+                        <span>{askedLine(asked ?? { state: "asking" })}</span>
+                    </p>
+                    <UsageSections events={events} look="overview" />
+                    <div className="usage-overview-foot">
+                        <button
+                            type="button"
+                            className="button"
+                            disabled={asked?.state === "asking"}
+                            onClick={ask}
+                        >
+                            {words.askAgain}
+                        </button>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+/** How long an answer may take: Claude Code may have to start first. */
+const ANSWER_WAIT_MS = 30_000;
+
+/**
+ * Asking the session's Claude Code for the usage, and where that stands. The call returns once
+ * the question is sent; the answer is the next usage figure among the session's events.
+ */
+function useAsking(sessionId: number, events: AgentEvent[]) {
+    const [asked, setAsked] = useState<Asked | null>(null);
+    // How many figures there were when the question went out, while it waits for an answer.
+    const [waitingFrom, setWaitingFrom] = useState<number | null>(null);
+    const figures = usageFigures(events);
+    useEffect(() => {
+        if (waitingFrom !== null && figures > waitingFrom) {
+            setWaitingFrom(null);
+            setAsked({ state: "asked", at: new Date() });
+        }
+    }, [figures, waitingFrom]);
+    useEffect(() => {
+        if (waitingFrom === null) {
+            return;
+        }
+        const timer = setTimeout(() => {
+            setWaitingFrom(null);
+            setAsked({ state: "failed", error: NO_FIGURES });
+        }, ANSWER_WAIT_MS);
+        return () => clearTimeout(timer);
+    }, [waitingFrom]);
+    const ask = () => {
+        setAsked({ state: "asking" });
+        setWaitingFrom(figures);
+        api.sessionUsageRefresh(sessionId).catch((error: unknown) => {
+            setWaitingFrom(null);
+            setAsked({ state: "failed", error: String(error) });
+        });
+    };
+    return { asked, ask };
+}
+
+/** Closes what is open when the user presses Escape or clicks anywhere outside `inside`. */
+function useDismiss(
+    inside: RefObject<HTMLElement | null>,
+    open: boolean,
+    setOpen: (open: boolean) => void,
+) {
+    useEffect(() => {
+        if (!open) {
+            return;
+        }
+        const onPointer = (event: PointerEvent) => {
+            if (!inside.current?.contains(event.target as Node)) {
+                setOpen(false);
+            }
+        };
+        const onKey = (event: KeyboardEvent) => {
+            if (event.key === "Escape") {
+                setOpen(false);
+            }
+        };
+        document.addEventListener("pointerdown", onPointer);
+        document.addEventListener("keydown", onKey);
+        return () => {
+            document.removeEventListener("pointerdown", onPointer);
+            document.removeEventListener("keydown", onKey);
+        };
+    }, [inside, open, setOpen]);
+}

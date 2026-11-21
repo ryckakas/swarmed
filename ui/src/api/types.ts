@@ -494,6 +494,20 @@ export interface McpServerInfo {
     status: string;
 }
 
+/** One of the plan's usage limits, as Claude Code reports it. */
+export interface UsageLimit {
+    /** `session` for the 5-hour window, `weekly_all`, or `weekly_scoped` for one model's. */
+    kind: string;
+    /** The model a limit of one model's is for. */
+    model: string | null;
+    /** How much of it is used, in percent. */
+    percent: number;
+    /** When it resets, as Claude Code gives it: ISO 8601. */
+    resets_at: string | null;
+    /** `normal`, or Claude Code's word for nearer. */
+    severity: string;
+}
+
 /** One part of what fills an agent's context window. */
 export interface ContextCategory {
     name: string;
@@ -606,6 +620,11 @@ export type AgentEvent =
           currency: string;
           decimals: number;
           limit_reached: boolean;
+      }
+    | {
+          /** The plan's usage limits as Claude Code's `/usage` lists them, asked of it. */
+          type: "usage_limits";
+          limits: UsageLimit[];
       }
     | {
           type: "turn_done";

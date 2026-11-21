@@ -422,15 +422,18 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **The model and effort actually in use** are asked of Claude Code (`get_settings`) when it
   starts and after each turn, and recorded as `Applied`. Only those two values are read: the
   rest of that answer is the user's whole configuration and is never kept or logged.
-- **Extra usage is asked of Claude Code** (`get_usage`, which it marks experimental) when it
-  starts and whenever a usage report says a turn ran on extra usage, and recorded as
-  `ExtraUsage`: what is spent beyond the plan this billing period, against the monthly cap.
-  Claude Code reads it from claude.ai with its own sign-in. Only those figures are read, a
-  shape it does not know is no answer, and `skip_behaviors` spares the scan of a week of local
-  transcripts. The rest of the answer, the plan and the account's other usage, is not kept,
-  passed on or logged. Nothing asks for usage on its own, on a timer or when the card opens:
-  the figures are as of the session's last turn, and `docs/coding-agents.md` says so. That
-  was the user's choice, so that looking costs nothing. Keep it so.
+- **Usage is asked of Claude Code** (`get_usage`, which it marks experimental) when it starts,
+  whenever a usage report says a turn ran on extra usage, and when the user asks: the coins
+  in a session's header (`UsageButton`, `session_usage_refresh`, `AgentCommand::AskUsage`)
+  or `/usage`. Every answer is read into `UsageLimits` (the plan's limits as `/usage` lists
+  them) and `ExtraUsage` (what is spent beyond the plan this billing period, against the
+  monthly cap), so the context card shows what was heard last; `/usage` also shows its
+  screen. Claude Code reads them from claude.ai with its own sign-in. Only those figures are
+  read, a shape it does not know is no answer, and `skip_behaviors` spares the scan of a week
+  of local transcripts. The rest of the answer, the plan and what the account's sessions
+  cost, is not kept, passed on or logged. Nothing asks for usage on its own, on a timer or
+  when a figure is looked at, and `docs/coding-agents.md` says how fresh the figures are
+  because of that. It was the user's choice, so that looking costs nothing. Keep it so.
 - **ACP agents with an effort of their own say what it stands at** when a conversation opens,
   which is recorded as `Applied` too. Before a session's agent has said, a front end shows
   what the agent's default last came to (`effort.rs`, `Core::effort_default`): the latest

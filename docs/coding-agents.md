@@ -52,7 +52,13 @@ never asks for them on a timer or when the card opens. So they can be out of dat
   shows no extra usage.
 - Usage from other sessions, other devices or claude.ai shows up after the session's next turn.
 
-For figures as they are now, type `/usage` in Claude Code in a terminal.
+For figures as they are now, press the coins at the top right of a Claude Code session. They
+open an overview of the same figures, with a larger bar for each, and ask the session's Claude
+Code for them as they open, starting it if it is not running; **Ask again** asks once more.
+Nothing is sent to the model, so it costs nothing, and nothing is added to the conversation.
+Typing `/usage` in the session asks the same and shows the answer in the conversation. Either
+way, what Claude Code answers is kept, so the card shows it too until a later turn reports
+newer figures. Other agents report no usage, so their sessions have no coins.
 
 ## Any other agent
 

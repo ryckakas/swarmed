@@ -8,7 +8,7 @@ import { useWords } from "../useWords";
 import { Composer } from "./Composer";
 import { CloudIcon, EndIcon, ForkIcon, IconButton, PanelIcon } from "./IconButton";
 import { NewTask } from "./NewTask";
-import { useAgents } from "./options";
+import { CLAUDE, useAgents } from "./options";
 import { Picker } from "./Picker";
 import { ProviderMark } from "./ProviderMark";
 import { SessionTitle } from "./SessionTitle";
@@ -16,6 +16,7 @@ import { StatusLine } from "./StatusLine";
 import { Egg, StatusMark, useStatusLabel } from "./StatusMark";
 import { SubAgentPane } from "./SubAgentPane";
 import { Transcript } from "./Transcript";
+import { UsageButton } from "./UsageButton";
 
 const SUPERVISION = {
     ask: "Edits allowed, commands ask",
@@ -60,6 +61,14 @@ export function SessionPane() {
         <article className="session">
             <header className="session-head">
                 <div className="session-actions">
+                    {/* Only Claude Code reports the plan's usage. */}
+                    {session.agent === CLAUDE && (
+                        <UsageButton
+                            key={`usage-${session.id}`}
+                            session={session}
+                            events={events ?? NO_EVENTS}
+                        />
+                    )}
                     <IconButton
                         label={`${words.forkAll}: a new session that starts from all of it, on the same agent`}
                         onClick={() => void forkSession(session.id, null)}

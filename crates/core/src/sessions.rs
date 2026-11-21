@@ -124,6 +124,7 @@ impl SessionStatus {
             | AgentEvent::TextDelta { .. }
             | AgentEvent::RateLimit { .. }
             | AgentEvent::ExtraUsage { .. }
+            | AgentEvent::UsageLimits { .. }
             | AgentEvent::Forked { .. }
             | AgentEvent::Screen { .. }
             | AgentEvent::CommandAsked { .. }

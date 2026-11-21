@@ -172,6 +172,22 @@ pub struct SessionSpec {
     pub words_only: bool,
 }
 
+/// One of the plan's usage limits, as Claude Code reports it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UsageLimit {
+    /// Claude Code's word for it: `session` for the 5-hour window, `weekly_all`, or
+    /// `weekly_scoped` for a weekly limit of one model's.
+    pub kind: String,
+    /// The model a limit of one model's is for, by its display name.
+    pub model: Option<String>,
+    /// How much of it is used, in percent.
+    pub percent: u32,
+    /// When it resets, as Claude Code gives it: ISO 8601.
+    pub resets_at: Option<String>,
+    /// Claude Code's word for how near it is: `normal`, or another as it fills up.
+    pub severity: String,
+}
+
 /// One MCP server a session loaded, and whether it connected.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct McpServerInfo {
@@ -512,6 +528,12 @@ pub enum AgentEvent {
         /// Whether the cap is reached, so that extra usage pays for nothing more.
         limit_reached: bool,
     },
+    /// The plan's usage limits as Claude Code's `/usage` lists them: how much of each is used
+    /// and when it resets. Asked of Claude Code with [`Self::ExtraUsage`].
+    UsageLimits {
+        /// In Claude Code's order: the 5-hour window first, then the weekly ones.
+        limits: Vec<UsageLimit>,
+    },
     /// The turn ended and the agent waits for the next message.
     TurnDone {
         /// Whether the turn failed or was interrupted.
@@ -641,6 +663,10 @@ pub enum AgentCommand {
     /// Report one of the agent's own screens, as an [`AgentEvent::Screen`]. An agent that has
     /// no such screens ignores this.
     Show(ScreenKind),
+    /// Report the account's usage as it is now, as [`AgentEvent::UsageLimits`] and
+    /// [`AgentEvent::ExtraUsage`], and nothing in the conversation. An agent that reports no
+    /// usage ignores this.
+    AskUsage,
 }
 
 /// How far along something an agent left running is.

@@ -245,6 +245,9 @@ pub enum Error {
     /// The session has talked to its agent, which holds the conversation from then on.
     #[error("session {0} has begun: another agent would not know what was said")]
     SessionBegun(i64),
+    /// Only Claude Code reports the account's usage.
+    #[error("only Claude Code reports usage, and this session runs `{0}`")]
+    UsageNotReported(String),
     /// The session was closed. Its agent is not started until it is reopened.
     #[error("session {0} is closed: reopen it first")]
     SessionClosed(i64),
