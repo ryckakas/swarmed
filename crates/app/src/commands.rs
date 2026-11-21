@@ -813,6 +813,16 @@ pub(crate) fn session_allow(core: CoreState<'_>, id: i64, request_id: String) ->
 }
 
 #[tauri::command]
+pub(crate) fn session_answer(
+    core: CoreState<'_>,
+    id: i64,
+    request_id: String,
+    answers: BTreeMap<String, String>,
+) -> Command<()> {
+    Ok(core.session_answer(id, &request_id, answers)?)
+}
+
+#[tauri::command]
 pub(crate) fn session_deny(
     core: CoreState<'_>,
     id: i64,

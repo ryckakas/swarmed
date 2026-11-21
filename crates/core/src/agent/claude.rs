@@ -439,6 +439,20 @@ fn command_line(command: AgentCommand, pending: &Pending, requests: &mut u64) ->
                 &json!({ "behavior": "allow", "updatedInput": input }),
             )
         }
+        AgentCommand::Answer {
+            request_id,
+            answers,
+        } => {
+            // The questions go back as they came, with the answers beside them.
+            let mut input = pending.take(&request_id).unwrap_or_else(|| json!({}));
+            if let Some(input) = input.as_object_mut() {
+                input.insert("answers".to_string(), json!(answers));
+            }
+            control_response(
+                &request_id,
+                &json!({ "behavior": "allow", "updatedInput": input }),
+            )
+        }
         AgentCommand::Deny { request_id, reason } => {
             pending.take(&request_id);
             control_response(
@@ -788,6 +802,32 @@ mod tests {
             Some(&json!({ "behavior": "allow", "updatedInput": { "command": "git push" } }))
         );
         assert_eq!(pending.take("r1"), None);
+    }
+
+    #[test]
+    fn answering_questions_hands_them_back_with_what_was_chosen() {
+        let pending = Pending::default();
+        let questions = json!([{ "question": "Which one?", "header": "Pick", "multiSelect": false,
+            "options": [{ "label": "A", "description": "" }, { "label": "B", "description": "" }] }]);
+        parse_message(
+            &json!({
+                "type": "control_request", "request_id": "q1",
+                "request": { "subtype": "can_use_tool", "tool_name": "AskUserQuestion",
+                             "input": { "questions": questions } },
+            }),
+            &pending,
+        );
+        let answer = AgentCommand::Answer {
+            request_id: "q1".into(),
+            answers: BTreeMap::from([("Which one?".to_string(), "B".to_string())]),
+        };
+        let line = command_line(answer, &pending, &mut 0);
+        assert_eq!(
+            line.pointer("/response/response"),
+            Some(&json!({ "behavior": "allow", "updatedInput": {
+                "questions": questions, "answers": { "Which one?": "B" } } }))
+        );
+        assert_eq!(pending.take("q1"), None);
     }
 
     #[test]

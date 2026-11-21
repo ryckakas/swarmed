@@ -1,6 +1,6 @@
 //! Agent sessions: creating them, running them, and keeping what they said.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -891,6 +891,22 @@ impl Core {
         self.decide(id, true, AgentCommand::Allow { request_id })
     }
 
+    /// Answers the questions a pending request puts to the user, each by its text: the
+    /// agent's tool goes ahead with them. Does nothing if the request is no longer pending.
+    pub fn session_answer(
+        &self,
+        id: i64,
+        request_id: &str,
+        answers: BTreeMap<String, String>,
+    ) -> Result<()> {
+        let request_id = request_id.to_string();
+        let command = AgentCommand::Answer {
+            request_id,
+            answers,
+        };
+        self.decide(id, true, command)
+    }
+
     /// Refuses a pending permission request; the agent is shown `reason`. Does nothing if it
     /// is no longer pending.
     pub fn session_deny(&self, id: i64, request_id: &str, reason: &str) -> Result<()> {
@@ -901,7 +917,9 @@ impl Core {
     /// Records the decision, so every front end sees it at once, then passes it to the agent.
     fn decide(&self, id: i64, allowed: bool, command: AgentCommand) -> Result<()> {
         let commands = self.live.sender(id)?;
-        let (AgentCommand::Allow { request_id } | AgentCommand::Deny { request_id, .. }) = &command
+        let (AgentCommand::Allow { request_id }
+        | AgentCommand::Answer { request_id, .. }
+        | AgentCommand::Deny { request_id, .. }) = &command
         else {
             return Ok(());
         };

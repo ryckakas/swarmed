@@ -8,6 +8,7 @@ mod acp;
 mod claude;
 mod fake;
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -421,6 +422,15 @@ pub enum AgentCommand {
     Allow {
         /// The request being answered.
         request_id: String,
+    },
+    /// Answer the questions a pending [`AgentEvent::PermissionRequest`] puts to the user: the
+    /// tool goes ahead and hands the agent what was chosen.
+    Answer {
+        /// The request being answered.
+        request_id: String,
+        /// What the user chose, by the text of each question. Several choices are joined
+        /// with a comma and a space.
+        answers: BTreeMap<String, String>,
     },
     /// Refuse a pending [`AgentEvent::PermissionRequest`].
     Deny {

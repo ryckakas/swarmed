@@ -500,6 +500,36 @@ fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
 }
 
 #[test]
+fn the_ui_can_answer_what_an_agent_asks() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+    let session = app.ok(
+        "session_new",
+        json!({ "project": "demo", "task": "one", "agent": null, "how": { "model": null, "supervision": "ask", "effort": null } }),
+    );
+    let id = &session["id"];
+    app.ok("session_send", json!({ "id": id, "text": "run: ls" }));
+    let request = app.wait_for_event(id, "permission_request");
+
+    let answers = json!({ "Which one?": "The second" });
+    app.ok(
+        "session_answer",
+        json!({ "id": id, "requestId": request["request_id"], "answers": answers }),
+    );
+    let result = app.wait_for_event(id, "tool_result");
+    assert_eq!(
+        result["content"],
+        r#"answered: {"Which one?": "The second"}"#
+    );
+    assert_eq!(
+        app.wait_for_event(id, "permission_answered")["allowed"],
+        true
+    );
+}
+
+#[test]
 fn the_ui_can_ask_for_a_task_name_and_is_told_when_there_is_none() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));

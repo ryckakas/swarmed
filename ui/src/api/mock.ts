@@ -42,7 +42,31 @@ import type {
 
 // Sample data and a scripted agent, for working on the UI in a browser where there is no Tauri
 // shell. The agent behaves like the core's FakeBackend: plain text is echoed, `run: <command>`
-// asks permission first, and `slow` runs until interrupted.
+// asks permission first, `ask` puts questions, and `slow` runs until interrupted.
+
+// `ask` puts these questions to the user, `ask one` only the first.
+const SAMPLE_QUESTIONS = [
+    {
+        question: "Which database should the service use?",
+        header: "Database",
+        multiSelect: false,
+        options: [
+            { label: "PostgreSQL", description: "What the other services already run on." },
+            { label: "SQLite", description: "One file, nothing to run." },
+            { label: "Keep it in memory", description: "Fine for a prototype, gone on restart." },
+        ],
+    },
+    {
+        question: "Which checks should run before a merge?",
+        header: "Checks",
+        multiSelect: true,
+        options: [
+            { label: "Unit tests", description: "" },
+            { label: "Lint", description: "Formatting and the lint rules." },
+            { label: "End-to-end tests", description: "Slow, and catches the most." },
+        ],
+    },
+];
 
 const SAMPLE_AGENTS: Record<number, string> = { 2: "codex", 4: "opencode" };
 
@@ -949,7 +973,10 @@ class MockAgent {
     readonly events = new Map<number, AgentEvent[]>();
     readonly listeners = new Set<Listener>();
     /** What to do when a session's pending permission request is answered. */
-    private readonly decisions = new Map<number, (allowed: boolean) => void>();
+    private readonly decisions = new Map<
+        number,
+        (allowed: boolean, answers?: Record<string, string>) => void
+    >();
     private readonly interrupts = new Map<number, () => void>();
     private nextId = 100;
 
@@ -1061,6 +1088,8 @@ class MockAgent {
             );
         } else if (this.configure(id, {}).supervision === "plan") {
             this.presentPlan(id, text, done);
+        } else if (text.startsWith("ask")) {
+            this.askQuestions(id, text === "ask one", done);
         } else if (text.startsWith("run:")) {
             this.askPermission(id, text.slice(4).trim(), done);
         } else {
@@ -1120,6 +1149,31 @@ class MockAgent {
         return toolId;
     }
 
+    /** Puts questions to the user the way Claude Code does, and says back what was answered. */
+    private askQuestions(id: number, one: boolean, done: AgentEvent) {
+        const toolId = this.ask(id, "AskUserQuestion", {
+            questions: one ? SAMPLE_QUESTIONS.slice(0, 1) : SAMPLE_QUESTIONS,
+        });
+        this.decisions.set(id, (allowed, answers) => {
+            const said = Object.entries(answers ?? {}).map(
+                ([asked, answer]) => `"${asked}"="${answer}"`,
+            );
+            const content = allowed
+                ? `User has answered your questions: ${said.join(", ")}`
+                : "The user chose not to answer these questions.";
+            const result: AgentEvent = {
+                type: "tool_result",
+                tool_use_id: toolId,
+                content,
+                is_error: !allowed,
+            };
+            this.later(id, result, "working");
+            const reply = allowed ? `Going with ${said.join(" and ")}.` : "I will decide myself.";
+            this.later(id, { type: "text", text: reply }, "working", 2);
+            this.later(id, done, "idle", 3);
+        });
+    }
+
     private askPermission(id: number, command: string, done: AgentEvent) {
         const toolId = this.ask(id, "Bash", { command });
         this.decisions.set(id, (allowed) => {
@@ -1142,7 +1196,7 @@ class MockAgent {
         });
     }
 
-    decide(id: number, requestId: string, allowed: boolean) {
+    decide(id: number, requestId: string, allowed: boolean, answers?: Record<string, string>) {
         const decision = this.decisions.get(id);
         this.decisions.delete(id);
         const answered: AgentEvent = {
@@ -1152,7 +1206,7 @@ class MockAgent {
         };
         this.publish(id, answered, "working");
         if (decision) {
-            decision(allowed);
+            decision(allowed, answers);
         } else {
             // The request shown in the sample transcript: just end the turn.
             const content = allowed ? "Everything up-to-date" : "The user declined this action.";
@@ -1634,6 +1688,7 @@ export function createMockApi(): Api {
             agent.configure(id, { unread: false });
         },
         sessionAllow: async (id, requestId) => agent.decide(id, requestId, true),
+        sessionAnswer: async (id, requestId, answers) => agent.decide(id, requestId, true, answers),
         configAnswer: async (requestId, accepted) => agent.answerProposal(requestId, accepted),
         sessionDeny: async (id, requestId) => agent.decide(id, requestId, false),
         sessionInterrupt: async (id) => agent.interrupt(id),

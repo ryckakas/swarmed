@@ -2661,6 +2661,104 @@ code {
     gap: var(--space-2);
 }
 
+/* Questions from the agent: options to choose by number, arrows or a click. */
+
+.question:focus-visible {
+    outline: none;
+}
+
+.question-steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+}
+
+.question-step {
+    padding: 2px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: var(--text-sm);
+    cursor: pointer;
+}
+
+.question-step[aria-current="true"] {
+    border-color: var(--pollen);
+    color: var(--text);
+}
+
+.question-step[data-answered="true"]::after {
+    content: " ✓";
+    color: var(--pollen);
+}
+
+.question-options {
+    display: grid;
+    gap: var(--space-1);
+}
+
+.question-option {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: baseline;
+    column-gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--dusk);
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.question-option:hover:not(:disabled),
+.question-option[data-on="true"] {
+    border-color: var(--faint);
+}
+
+.question:focus .question-option[data-on="true"],
+.question-own:focus-within {
+    border-color: var(--pollen);
+}
+
+.question-option[aria-pressed="true"] {
+    border-color: var(--pollen);
+    background: var(--pollen-wash);
+}
+
+.question-label {
+    font-weight: 600;
+}
+
+.question-about {
+    grid-column: 2;
+    color: var(--muted);
+    font-size: var(--text-sm);
+}
+
+.question-own {
+    cursor: text;
+}
+
+.question-own input {
+    min-width: 0;
+    border: 0;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    outline: none;
+}
+
+.question-keys {
+    align-self: center;
+    margin-left: auto;
+    color: var(--muted);
+    font-size: var(--text-sm);
+}
+
 /* Composer: one rounded box holding the text, the options and a single round button. */
 
 .composer {

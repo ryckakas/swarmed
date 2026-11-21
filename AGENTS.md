@@ -182,6 +182,13 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   others' too. Nothing is written into an agent's files. `shared_mcp_servers = false` in
   `agents.toml` turns it off for an agent. The definitions hold secrets: they are passed on
   and never logged, and their `Debug` output leaves values out. Keep it that way.
+- **Questions an agent puts to the user are answered where they stand** (`questions.ts`,
+  `QuestionPrompt.tsx`, `session_answer`). Claude Code asks them through its `AskUserQuestion`
+  tool, which arrives as a permission request; answering allows it with the answers added to
+  its input, each under its question's text, several joined by a comma. Allowing it without
+  answers tells the agent nothing, so the UI never offers that. A number, the arrows, the
+  space bar, Enter and a click all choose; one question with one answer is sent as it is
+  chosen. Input the UI cannot show whole falls back to the plain allow-or-deny prompt.
 - **A session's title** starts as the first line of its first message. A `Namer` (`ClaudeNamer`:
   one call to Claude Code's smallest model, with none of the user's settings, tools or MCP
   servers) then suggests a better one, unless `auto_title` is off or the user renamed the session
