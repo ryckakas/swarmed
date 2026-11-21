@@ -86,6 +86,11 @@ function stringAt(source: string, at: number): string | null {
     return null;
 }
 
+/** A regular expression's source that matches `text` exactly, whatever characters it holds. */
+function literally(text: string): string {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
  * The HTML a piece of JavaScript hands to Swarmed's tool. Some agents do not call their tools
  * directly: they write a short script that does, as `tools.swarmed.show_html({ html: … })`,
@@ -102,9 +107,9 @@ export function htmlInCode(code: string): string {
         return direct;
     }
     const name = /^[A-Za-z_$][\w$]*/.exec(code.slice(at))?.[0];
-    const declared = name
-        ? new RegExp(`\\b${name.replace(/\$/g, "\\$")}\\s*=\\s*`).exec(code)
-        : null;
+    // Not `\b` before the name: it counts `$` as no part of a word, so it would refuse `$page`
+    // and find `page` inside `$page`.
+    const declared = name ? new RegExp(`(?<![\\w$])${literally(name)}\\s*=\\s*`).exec(code) : null;
     return declared ? (stringAt(code, declared.index + declared[0].length) ?? "") : "";
 }
 
