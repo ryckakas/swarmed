@@ -158,7 +158,7 @@ pub(crate) async fn project_remove<R: Runtime>(
     core: CoreState<'_>,
     name: String,
     force: bool,
-) -> Command<()> {
+) -> Command<Vec<String>> {
     let sink = hook_sink(&app, &name, "");
     Ok(core.project_remove(&name, force, &sink).await?)
 }
@@ -204,7 +204,7 @@ pub(crate) async fn task_remove<R: Runtime>(
     name: String,
     force: bool,
     delete_branch: bool,
-) -> Command<()> {
+) -> Command<Vec<String>> {
     let options = RemoveOptions {
         force,
         delete_branch,

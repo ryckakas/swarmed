@@ -498,6 +498,17 @@ async fn printed(output: &mut Receiver<TerminalOutput>, wanted: &str) {
         .expect("the terminal never printed what was typed");
 }
 
+/// Waits until the terminal has printed nothing for half a second. A shell writes its prompt
+/// after a command's output, on a slow machine well after it, and a test that moves on at the
+/// output alone sees that prompt arrive as something new later.
+async fn settled(output: &mut Receiver<TerminalOutput>) {
+    let quiet = std::time::Duration::from_millis(500);
+    let wait = async { while let Ok(Ok(_)) = tokio::time::timeout(quiet, output.recv()).await {} };
+    tokio::time::timeout(std::time::Duration::from_secs(20), wait)
+        .await
+        .expect("the terminal never went quiet");
+}
+
 #[tokio::test]
 async fn what_happens_in_the_terminal_travels_with_the_next_message() {
     let fx = fixture();
@@ -512,6 +523,7 @@ async fn what_happens_in_the_terminal_travels_with_the_next_message() {
     core.terminal_write(session.id, "echo term-$((40 + 2))\n")
         .expect("types");
     printed(&mut output, "term-42").await;
+    settled(&mut output).await;
     let reopened = core.terminal_open(session.id, 100, 30).expect("reopens");
     assert!(reopened.replay.contains("term-42"));
     // Nothing was cut from so short a replay, so it ends where its own text does.

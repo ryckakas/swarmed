@@ -36,6 +36,11 @@ const STOP_GRACE: Duration = Duration::from_secs(15);
 /// How long what a stack left behind is given, once asked, before it is killed too.
 const LEFTOVER_GRACE: Duration = Duration::from_secs(3);
 
+/// How long a `stop` or `teardown` may run when a stack is stopped or a task removed. One that
+/// takes longer, or leaves something behind that holds its output open, is not waited for:
+/// it is killed with what it started, and what it was to stop is ended regardless.
+pub(crate) const HOOK_LIMIT: Duration = Duration::from_secs(60);
+
 /// How often a stack that was asked to stop is looked at again.
 const STOP_POLL: Duration = Duration::from_millis(50);
 
@@ -227,34 +232,51 @@ impl Core {
     pub async fn stack_stop(&self, project: &str, task: &str, sink: OutputSink<'_>) -> Result<()> {
         let (project, task) = self.task(project, task)?;
         let config = self.config_in(&project.name, task.environment.as_deref())?;
-        self.stop_stack(&project, &config, &task, sink).await;
+        for note in self.stop_stack(&project, &config, &task, sink).await {
+            sink(&note);
+        }
         Ok(())
     }
 
+    /// Stops the task's stack, and returns what went wrong on the way, to be said: a
+    /// `stop` that failed or took longer than [`HOOK_LIMIT`], after which the stack is ended
+    /// anyway, and a stack that would not end even when killed, which is left running and
+    /// stays written down.
     pub(crate) async fn stop_stack(
         &self,
         project: &Project,
         config: &ProjectConfig,
         task: &Task,
         sink: OutputSink<'_>,
-    ) {
+    ) -> Vec<String> {
         let started = lock(&self.live.stacks).remove(&task.id);
         let stack = match started {
             Some(child) => Stack::Started(child),
             None => match self.kept_stack(task.id) {
                 Some(pid) => Stack::Found(pid),
-                None => return,
+                None => return vec![],
             },
         };
         let stop = &config.hooks.stop;
-        if let Err(error) = self
-            .run_hook("stop", stop, project, config, task, sink)
-            .await
-        {
-            sink(&format!("stop failed, ending the stack anyway: {error}"));
+        let stopping = self.run_hook_limited("stop", stop, project, config, task, sink);
+        let mut notes: Vec<String> = match stopping.await {
+            Some(Ok(())) => vec![],
+            Some(Err(error)) => vec![format!(
+                "stop failed, so the stack was ended without it: {error}"
+            )],
+            None => {
+                vec!["stop took longer than a minute, so the stack was ended without it".into()]
+            }
+        };
+        let pid = stack.pid();
+        if end(stack).await {
+            std::fs::remove_file(self.stack_pid_file(task.id)).ok();
+        } else {
+            notes.push(format!(
+                "the stack (process {pid}) would not end, and is left running"
+            ));
         }
-        end(stack).await;
-        std::fs::remove_file(self.stack_pid_file(task.id)).ok();
+        notes
     }
 
     /// Ends the stacks this process started, and no others: a second Swarmed running beside
@@ -465,24 +487,28 @@ fn below(processes: &[(u32, u32)], root: u32) -> Vec<u32> {
 
 /// Ends a stack. Its whole process group is asked to stop and given time, since a stack
 /// with services of its own winds them down itself; then what is left of the group is killed,
-/// and so is whatever it started that set itself apart and is still there.
-async fn end(mut stack: Stack) {
+/// and so is whatever it started that set itself apart and is still there. Says whether the
+/// leading process is gone: one stuck in the system can outlive being killed.
+async fn end(mut stack: Stack) -> bool {
     let started = started_from(stack.pid()).await;
     // The group's id is that of the process that leads it; a minus addresses the group.
     let group = format!("-{}", stack.pid());
     signal("-TERM", &group).await;
-    if !gone_within(&mut stack, STOP_GRACE).await {
+    let mut gone = gone_within(&mut stack, STOP_GRACE).await;
+    if !gone {
         signal("-KILL", &group).await;
         if let Stack::Started(child) = &mut stack {
             child.kill().ok();
         }
-        gone_within(&mut stack, STOP_GRACE).await;
+        gone = gone_within(&mut stack, STOP_GRACE).await;
     }
     end_leftovers(started).await;
+    gone
 }
 
-/// Ends what a stack started and did not take along: asked first, then killed.
-async fn end_leftovers(started: Vec<u32>) {
+/// Ends what a stack started and did not take along, or whatever else is to go: asked
+/// first, then killed. Returns what outlived even that.
+pub(crate) async fn end_leftovers(started: Vec<u32>) -> Vec<u32> {
     let mut left = still_alive(started).await;
     for pid in &left {
         signal("-TERM", &pid.to_string()).await;
@@ -492,9 +518,16 @@ async fn end_leftovers(started: Vec<u32>) {
         tokio::time::sleep(STOP_POLL).await;
         left = still_alive(left).await;
     }
-    for pid in left {
+    for pid in &left {
         signal("-KILL", &pid.to_string()).await;
     }
+    // A killed process goes at once, unless it is stuck in the system, waiting on a disk.
+    let until = Instant::now() + LEFTOVER_GRACE;
+    while !left.is_empty() && Instant::now() < until {
+        tokio::time::sleep(STOP_POLL).await;
+        left = still_alive(left).await;
+    }
+    left
 }
 
 async fn still_alive(pids: Vec<u32>) -> Vec<u32> {

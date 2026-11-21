@@ -15,8 +15,10 @@ impl Core {
     /// Says a front end that stays, such as the app, has started: sessions left busy by a
     /// Swarmed that ended in the middle of a turn are put back to idle, unless another Swarmed
     /// is running on the same data, whose sessions they may be. Says how many there were.
+    /// Worktrees that removals moved aside and did not see deleted are deleted.
     pub fn arrive(&self) -> Result<usize> {
         if self.keeps_house()? {
+            self.finish_removals();
             self.sessions_settle()
         } else {
             Ok(0)

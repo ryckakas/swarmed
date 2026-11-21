@@ -453,6 +453,8 @@ export interface Usage {
     notes_bytes: number;
     /** Every active task's worktree, largest first; `bytes` is `null` if it was not measured. */
     worktrees: { project: string; task: string; path: string; bytes: number | null }[];
+    /** Removed tasks' worktrees that are not deleted yet, or could not be. */
+    removed_bytes: number;
     /** Swarmed's own process with everything it started. */
     running: ProcessUsage;
     /** The share of that taken by each session whose agent is running. */

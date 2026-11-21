@@ -28,6 +28,14 @@ pub enum Error {
         /// The environment that was asked for.
         environment: String,
     },
+    /// An environment that tasks still use cannot be removed.
+    #[error("environment `{environment}` is used by {tasks}: remove those tasks first")]
+    EnvironmentInUse {
+        /// The environment that was to be removed.
+        environment: String,
+        /// The tasks that use it, by name.
+        tasks: String,
+    },
     /// A name that cannot be an environment variable's.
     #[error("`{0}` cannot be the name of a variable: use letters, digits and underscores")]
     InvalidVariable(String),

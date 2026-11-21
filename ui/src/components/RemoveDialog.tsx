@@ -12,8 +12,12 @@ export function RemoveDialog() {
     if (removing === null || !project) {
         return null;
     }
-    const key = `${removing.project}/${removing.task ?? ""}`;
-    return <Question key={key} target={removing} project={project} />;
+    return <Question key={removalKey(removing)} target={removing} project={project} />;
+}
+
+/** What names a removal: a repository, or one of its tasks. */
+function removalKey(target: RemoveTarget): string {
+    return `${target.project}/${target.task ?? ""}`;
 }
 
 /** What the dialog says about a repository, or about one of its tasks. */
@@ -38,8 +42,13 @@ function wording(target: RemoveTarget, project: Project) {
 function Question({ target, project }: { target: RemoveTarget; project: Project }) {
     const askToRemove = useStore((state) => state.askToRemove);
     const refresh = useStore((state) => state.refresh);
+    const report = useStore((state) => state.report);
+    const removalBegun = useStore((state) => state.removalBegun);
+    const removalEnded = useStore((state) => state.removalEnded);
     const dialog = useRef<HTMLDialogElement>(null);
-    const [busy, setBusy] = useState(false);
+    // Kept in the store: a dialog closed and asked for again must not start a second removal.
+    const key = removalKey(target);
+    const busy = useStore((state) => state.removals.includes(key));
     // What stopped the last attempt. After one, the button removes regardless.
     const [problem, setProblem] = useState<string | null>(null);
     const { title, what, action } = wording(target, project);
@@ -48,18 +57,33 @@ function Question({ target, project }: { target: RemoveTarget; project: Project 
         dialog.current?.showModal();
     }, []);
 
+    // Closing the dialog does not stop a removal: what comes of it is then said elsewhere.
+    const stillAsked = () => useStore.getState().removing === target;
+    // Asked again meanwhile, the dialog on screen is another one about the same thing.
+    const askedAgain = () => {
+        const asked = useStore.getState().removing;
+        return asked !== null && removalKey(asked) === key;
+    };
     const remove = async () => {
-        setBusy(true);
-        const force = problem !== null;
+        removalBegun(key);
         try {
-            await (target.task === null
-                ? api.projectRemove(target.project, force)
-                : api.taskRemove(target.project, target.task, force));
-            askToRemove(null);
+            const passedOver = await removeTarget(target, problem !== null);
+            if (askedAgain()) {
+                askToRemove(null);
+            }
             await refresh(api);
+            if (passedOver.length > 0) {
+                report(`Removed, though not everything went as set up: ${passedOver.join("; ")}`);
+            }
         } catch (error) {
-            setProblem(String(error).replace(/^Error: /, ""));
-            setBusy(false);
+            const message = String(error).replace(/^Error: /, "");
+            if (stillAsked()) {
+                setProblem(message);
+            } else {
+                report(`Not removed: ${message}`);
+            }
+        } finally {
+            removalEnded(key);
         }
     };
 
@@ -73,15 +97,11 @@ function Question({ target, project }: { target: RemoveTarget; project: Project 
         >
             <h2 id="remove-title">{title}</h2>
             <p>{what}</p>
-            {problem && (
-                <p className="note-problem">
-                    Not removed: {problem}. Removing anyway discards that work.
-                </p>
-            )}
+            <Progress problem={problem} busy={busy} />
             {/* Opening the dialog focuses its first button, so a stray Enter removes nothing. */}
             <div className="confirm-actions">
                 <button type="button" className="button" onClick={() => askToRemove(null)}>
-                    Keep it
+                    Close
                 </button>
                 <button
                     type="button"
@@ -89,9 +109,42 @@ function Question({ target, project }: { target: RemoveTarget; project: Project 
                     disabled={busy}
                     onClick={() => void remove()}
                 >
-                    {busy ? "Removing…" : problem ? "Remove anyway" : action}
+                    {buttonLabel(busy, problem, action)}
                 </button>
             </div>
         </dialog>
     );
+}
+
+/** Removes what the dialog asks about; resolves to what the removal passed over. */
+function removeTarget(target: RemoveTarget, force: boolean): Promise<string[]> {
+    return target.task === null
+        ? api.projectRemove(target.project, force)
+        : api.taskRemove(target.project, target.task, force);
+}
+
+/** What stopped the last attempt, and that one that runs can take a while. */
+function Progress({ problem, busy }: { problem: string | null; busy: boolean }) {
+    return (
+        <>
+            {problem && (
+                <p className="note-problem">
+                    Not removed: {problem}. Removing anyway discards that work.
+                </p>
+            )}
+            {busy && (
+                <p>
+                    Agents and stacks are stopped first, which can take a while. Closing this does
+                    not stop the removal.
+                </p>
+            )}
+        </>
+    );
+}
+
+function buttonLabel(busy: boolean, problem: string | null, action: string): string {
+    if (busy) {
+        return "Removing…";
+    }
+    return problem ? "Remove anyway" : action;
 }

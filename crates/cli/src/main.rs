@@ -800,6 +800,9 @@ async fn usage(core: &Core) -> Result<()> {
             worktree.project, worktree.task
         ));
     }
+    if usage.removed_bytes > 0 {
+        say(&format!("removed\t{}", bytes(usage.removed_bytes)));
+    }
     let running = usage.running;
     say(&format!(
         "running\t{}\t{:.1}% of a core\t{} processes",
@@ -849,7 +852,9 @@ async fn project(core: &Core, command: ProjectCommand) -> Result<()> {
             }
         }
         ProjectCommand::Rm { project, force } => {
-            core.project_remove(&project, force, &hook_line).await?;
+            for note in core.project_remove(&project, force, &hook_line).await? {
+                say(&note);
+            }
             say(&format!("removed project `{project}`"));
         }
         ProjectCommand::Config { project } => {
@@ -937,8 +942,12 @@ async fn task(core: &Core, command: TaskCommand) -> Result<()> {
                 force,
                 delete_branch,
             };
-            core.task_remove(&project, &name, options, &hook_line)
-                .await?;
+            for note in core
+                .task_remove(&project, &name, options, &hook_line)
+                .await?
+            {
+                say(&note);
+            }
             say(&format!("removed task `{name}`"));
         }
         TaskCommand::Pull { project, name } => pull(core, &project, &name).await?,

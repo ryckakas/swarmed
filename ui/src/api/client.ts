@@ -107,11 +107,15 @@ export interface Api {
     /**
      * Takes a repository out of Swarmed: its tasks' worktrees, its sessions and the notes on it
      * are deleted, the repository itself is not touched. Without `force` it refuses if a task
-     * holds unsaved work.
+     * holds unsaved work. Resolves to what its tasks' removals passed over, as `taskRemove`.
      */
-    projectRemove(name: string, force: boolean): Promise<void>;
-    /** Removes a task's worktree and takes the task out of the tree. Its branch is kept. */
-    taskRemove(project: string, name: string, force: boolean): Promise<void>;
+    projectRemove(name: string, force: boolean): Promise<string[]>;
+    /**
+     * Removes a task's worktree and takes the task out of the tree. Its branch is kept. Without
+     * `force` it refuses if the worktree holds unsaved work; nothing else stops it. Resolves to
+     * what it passed over to get there, a teardown that failed say, for the user to read.
+     */
+    taskRemove(project: string, name: string, force: boolean): Promise<string[]>;
     /** What a new task in the project can start from. */
     branchChoices(project: string): Promise<BranchChoices>;
     /**

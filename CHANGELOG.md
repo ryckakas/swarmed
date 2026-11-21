@@ -14,7 +14,27 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A task whose removal failed halfway can be removed.** "Remove anyway" now deletes what is
+  left of its worktree, where it used to fail every time once git had lost track of it.
+- **Removing a task ends what still runs in its worktree,** such as a stack started by hand in
+  its terminal, before deleting it. Such a stack used to keep running, recreating files as they
+  were deleted, which made the removal fail.
+- **The button that takes a cloud task off the list shows on hover and asks first.** It used to
+  be invisible, and one click took the task off at once.
+
 ### Changed
+
+- **Removing a task no longer waits for its worktree to be deleted, and only unsaved work stops
+  it.** The worktree is moved aside and deleted in the background; what is not deleted yet, or
+  could not be, is counted in Settings under what Swarmed takes up. A `stop` or `teardown` that
+  fails or takes over a minute is passed over, and what was passed over is shown afterwards.
+  The dialog's "Keep it" button is now "Close", and closing it does not stop a removal under
+  way.
+- **An environment cannot be removed while a task still uses it.**
+- **The button that ends a session is the last in the session's header,** at the far right, apart
+  from the ones that carry the session on.
 
 - **The task panel opens a task in your terminal or editor from two icons** beside the one that
   hides the panel. Which terminal and editor they open is chosen in Settings, so the panel no

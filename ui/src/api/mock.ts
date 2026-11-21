@@ -187,6 +187,7 @@ function removeApi(projects: () => Project[]): Pick<Api, "projectRemove" | "task
         projectRemove: async (name) => {
             const at = projects().findIndex((project) => project.name === name);
             projects().splice(at, at === -1 ? 0 : 1);
+            return [];
         },
         taskRemove: async (projectName, name, force) => {
             // One sample task holds unsaved work, to show what a refusal looks like.
@@ -196,6 +197,7 @@ function removeApi(projects: () => Project[]): Pick<Api, "projectRemove" | "task
             const tasks = projects().find((project) => project.name === projectName)?.tasks ?? [];
             const at = tasks.findIndex((task) => task.name === name);
             tasks.splice(at, at === -1 ? 0 : 1);
+            return [];
         },
     };
 }
@@ -273,6 +275,7 @@ const SAMPLE_USAGE: Usage = {
         { project: "bonsai-lint", task: "rust-support", path: "/w/b/c", bytes: 540_700 },
         { project: "storefront", task: "shop-142", path: "/w/storefront/d", bytes: null },
     ],
+    removed_bytes: 0,
     running: { processes: 9, memory_bytes: 612_000_000, cpu_percent: 14.2 },
     sessions: [
         {

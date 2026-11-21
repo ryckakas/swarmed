@@ -143,6 +143,10 @@ interface State {
     /** The repository or task the user asked to remove, until they confirm or think again. */
     removing: RemoveTarget | null;
     askToRemove(target: RemoveTarget | null): void;
+    /** The removals under way, each by what names it: closing the dialog stops none. */
+    removals: string[];
+    removalBegun(key: string): void;
+    removalEnded(key: string): void;
     /** Notes that the user has looked at a session, here and in the core. */
     markRead(api: Api, sessionId: number): void;
     /** Goes up whenever the agents or their models change, so menus read them again. */
@@ -489,6 +493,10 @@ export const useStore = create<State>((set, get) => ({
         }),
     removing: null,
     askToRemove: (target) => set({ removing: target }),
+    removals: [],
+    removalBegun: (key) => set((state) => ({ removals: [...state.removals, key] })),
+    removalEnded: (key) =>
+        set((state) => ({ removals: state.removals.filter((removal) => removal !== key) })),
     markRead: (api, sessionId) => {
         if (!findSession(get().projects, sessionId)?.unread) {
             return;

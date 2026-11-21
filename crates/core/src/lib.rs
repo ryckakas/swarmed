@@ -26,6 +26,7 @@ mod git;
 mod handoff;
 pub mod hooks;
 mod layouts;
+mod leftovers;
 mod marks;
 pub mod mcp;
 mod mcp_codex;

@@ -2,9 +2,10 @@
 
 use std::path::Path;
 use std::process::Stdio;
+use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
+use tokio::process::{Child, Command};
 
 use crate::error::{Error, Result};
 
@@ -26,7 +27,47 @@ pub(crate) async fn run(
     if command.trim().is_empty() {
         return Ok(());
     }
-    let mut child = Command::new("sh")
+    let mut child = shell(command, cwd, env).spawn()?;
+    follow(hook, &mut child, sink).await
+}
+
+/// Runs a hook as [`run`] does, for no longer than `limit`: `None` when it took longer. It is
+/// then killed with everything it started that is still in its process group, which it is
+/// given for that: killing the shell alone leaves what the shell was waiting for.
+pub(crate) async fn run_within(
+    limit: Duration,
+    hook: &'static str,
+    command: &str,
+    cwd: &Path,
+    env: &[(String, String)],
+    sink: OutputSink<'_>,
+) -> Option<Result<()>> {
+    if command.trim().is_empty() {
+        return Some(Ok(()));
+    }
+    let mut child = match shell(command, cwd, env).process_group(0).spawn() {
+        Ok(child) => child,
+        Err(error) => return Some(Err(error.into())),
+    };
+    let group = child.id();
+    let ran = tokio::time::timeout(limit, follow(hook, &mut child, sink))
+        .await
+        .ok();
+    if let (None, Some(group)) = (&ran, group) {
+        // The group's id is that of the process that leads it; a minus addresses the group.
+        let killing = Command::new("kill")
+            .args(["-KILL", "--", &format!("-{group}")])
+            .stderr(Stdio::null())
+            .status();
+        killing.await.ok();
+    }
+    ran
+}
+
+/// `sh -c command`, with the output piped and the `PATH` of the user's shell.
+fn shell(command: &str, cwd: &Path, env: &[(String, String)]) -> Command {
+    let mut shell = Command::new("sh");
+    shell
         .arg("-c")
         .arg(command)
         .current_dir(cwd)
@@ -36,9 +77,12 @@ pub(crate) async fn run(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()?;
+        .kill_on_drop(true);
+    shell
+}
 
+/// Passes on what a started hook prints until it has closed its output, then waits for it.
+async fn follow(hook: &'static str, child: &mut Child, sink: OutputSink<'_>) -> Result<()> {
     let (stdout, stderr) = child
         .stdout
         .take()
@@ -108,5 +152,53 @@ mod tests {
         let lines = lines.into_inner().expect("lock");
         assert!(lines.contains(&"ol\u{fffd}".to_string()), "{lines:?}");
         assert!(lines.contains(&"last".to_string()), "{lines:?}");
+    }
+
+    #[tokio::test]
+    async fn a_hook_that_takes_too_long_is_killed_with_what_it_started() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let lines = Mutex::new(Vec::new());
+        let sink = |line: &str| lines.lock().expect("lock").push(line.to_string());
+        // What the shell started holds the hook's output open and is waited for.
+        let command = "sleep 60 & echo $!; wait";
+        let limit = Duration::from_millis(500);
+        let ran = run_within(limit, "stop", command, dir.path(), &[], &sink).await;
+        assert!(ran.is_none(), "{ran:?}");
+        let lines = lines.into_inner().expect("lock");
+        let started = lines.first().expect("the hook said what it started");
+        assert!(gone_soon(started).await, "process {started} still runs");
+    }
+
+    /// Whether a process ends within a few seconds.
+    async fn gone_soon(pid: &str) -> bool {
+        let mut asked = 0;
+        while asked < 50 && alive(pid).await {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            asked += 1;
+        }
+        !alive(pid).await
+    }
+
+    /// `kill -0` asks whether a process is there without sending it anything.
+    async fn alive(pid: &str) -> bool {
+        let asked = Command::new("kill")
+            .args(["-0", pid])
+            .stderr(Stdio::null())
+            .status()
+            .await;
+        asked.is_ok_and(|status| status.success())
+    }
+
+    #[tokio::test]
+    async fn a_hook_within_its_limit_is_run_as_any_other() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let limit = Duration::from_secs(20);
+        let ran = run_within(limit, "stop", "exit 3", dir.path(), &[], &discard).await;
+        assert!(
+            matches!(ran, Some(Err(Error::HookFailed { .. }))),
+            "{ran:?}"
+        );
+        let ran = run_within(limit, "stop", "true", dir.path(), &[], &discard).await;
+        assert!(matches!(ran, Some(Ok(()))), "{ran:?}");
     }
 }

@@ -1,13 +1,18 @@
 //! Task lifecycle: create, set up, remove.
 
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use serde::Serialize;
 
 use crate::config::ProjectConfig;
 use crate::error::{Error, Result};
 use crate::hooks::OutputSink;
+use crate::stacks::HOOK_LIMIT;
 use crate::store::{NewTask, Project, SetupStatus, Task};
 use crate::vars::{Vars, env_name};
-use crate::{Core, git, hooks, paths};
+use crate::{Core, git, hooks, leftovers, paths};
 use crate::{Settings, open};
 
 /// Options for [`Core::task_new`].
@@ -192,25 +197,37 @@ impl Core {
         result.map(|()| task)
     }
 
-    /// Removes a task: runs `teardown`, removes the worktree, archives the record.
+    /// Removes a task: stops its agents and its stack, runs `teardown`, ends whatever still
+    /// runs in the worktree, takes the worktree away and archives the record.
     ///
-    /// Without `force` this refuses when the worktree has uncommitted changes or commits that
-    /// were never pushed, and when `teardown` fails.
+    /// Without `force` this refuses when the worktree holds work that would be lost: changes
+    /// not committed, commits not pushed, or a worktree git no longer knows, whose work cannot
+    /// be checked. Nothing else stops it. A `stop` or `teardown` that fails or hangs and a
+    /// process that will not end are passed over, and returned to be said.
     pub async fn task_remove(
         &self,
         project: &str,
         name: &str,
         options: RemoveOptions,
         sink: OutputSink<'_>,
-    ) -> Result<()> {
+    ) -> Result<Vec<String>> {
         let (project, task) = self.task(project, name)?;
         let repo = &project.repo_path;
         // Nothing may still be running in a directory that is about to go: the agents are
         // waited for, and killed if they do not go by themselves.
         self.sessions_ended(task.id).await?;
-        if task.worktree_path.exists() {
-            self.remove_worktree(&project, &task, options.force, sink)
-                .await?;
+        let exists = task.worktree_path.exists();
+        let known = exists && git::worktree_known(&task.worktree_path).await;
+        if exists && !options.force {
+            ensure_removable(&task, known).await?;
+        }
+        let (config, mut notes) = self.config_for_removal(&project, &task);
+        notes.extend(self.stop_stack(&project, &config, &task, sink).await);
+        if exists {
+            notes.extend(
+                self.remove_worktree(&project, &config, &task, known, sink)
+                    .await?,
+            );
         } else {
             // The directory was deleted by hand; make git forget it too.
             git::git(repo, &["worktree", "prune"]).await.ok();
@@ -220,7 +237,22 @@ impl Core {
         if options.delete_branch && git::local_branch_exists(repo, &task.branch).await {
             git::branch_delete(repo, &task.branch).await?;
         }
-        Ok(())
+        Ok(notes)
+    }
+
+    /// The configuration the task's hooks run with. One that cannot be read does not keep the
+    /// task: it goes without its `stop` and `teardown`, and that is said.
+    fn config_for_removal(&self, project: &Project, task: &Task) -> (ProjectConfig, Vec<String>) {
+        match self.config_in(&project.name, task.environment.as_deref()) {
+            Ok(config) => (config, vec![]),
+            Err(error) => (
+                ProjectConfig::default(),
+                vec![format!(
+                    "the project's configuration could not be read, so stop and teardown \
+                     did not run: {error}"
+                )],
+            ),
+        }
     }
 
     /// Takes a project out of Swarmed. Its tasks are removed as [`Core::task_remove`] removes
@@ -235,52 +267,95 @@ impl Core {
     ///
     /// Without `force` this stops at the first task that holds unsaved work. The tasks before
     /// it are removed by then; the project and everything else about it are still there.
+    /// Returns what its tasks' removals passed over, as [`Core::task_remove`] does.
     pub async fn project_remove(
         &self,
         name: &str,
         force: bool,
         sink: OutputSink<'_>,
-    ) -> Result<()> {
+    ) -> Result<Vec<String>> {
         let project = self.project(name)?;
         let options = RemoveOptions {
             force,
             delete_branch: false,
         };
         let tasks = self.store().tasks(project.id, false)?;
+        let mut notes = vec![];
         for task in tasks {
-            self.task_remove(name, &task.name, options, sink).await?;
+            let passed_over = self.task_remove(name, &task.name, options, sink).await?;
+            notes.extend(
+                passed_over
+                    .into_iter()
+                    .map(|note| format!("{}: {note}", task.name)),
+            );
         }
         self.store().project_delete(project.id)?;
         self.forget_notes(name)?;
         self.forget_snapshots(name)?;
         forget_file(&self.paths.project_environments(name))?;
-        forget_file(&self.paths.project_actions(name))
+        forget_file(&self.paths.project_actions(name))?;
+        Ok(notes)
     }
 
-    /// Checks for unsaved work, runs `teardown`, then removes the worktree. `force` skips the
-    /// check and carries on past a failing `teardown`.
+    /// Runs `teardown`, ends whatever still runs in the worktree, then takes the worktree away.
+    /// A `teardown` that fails or takes longer than [`HOOK_LIMIT`] does not keep the worktree,
+    /// and neither does a process that will not end: both are returned, to be said.
     async fn remove_worktree(
         &self,
         project: &Project,
+        config: &ProjectConfig,
         task: &Task,
-        force: bool,
+        known: bool,
         sink: OutputSink<'_>,
-    ) -> Result<()> {
-        if !force {
-            ensure_clean(task).await?;
-        }
-        let config = self.config_in(&project.name, task.environment.as_deref())?;
-        // Nothing may still be running in a directory that is about to go.
-        self.stop_stack(project, &config, task, sink).await;
+    ) -> Result<Vec<String>> {
         let teardown = &config.hooks.teardown;
-        match self
-            .run_hook("teardown", teardown, project, &config, task, sink)
-            .await
-        {
-            Err(e) if force => sink(&format!("teardown failed, removing anyway: {e}")),
-            other => other?,
+        let tearing_down = self.run_hook_limited("teardown", teardown, project, config, task, sink);
+        let mut notes = match tearing_down.await {
+            Some(Ok(())) => vec![],
+            Some(Err(error)) => vec![format!("teardown failed, and was passed over: {error}")],
+            None => vec!["teardown took longer than a minute, and was passed over".to_string()],
+        };
+        notes.extend(leftovers::end_in(&task.worktree_path, sink).await);
+        self.take_away_worktree(project, task, known).await?;
+        Ok(notes)
+    }
+
+    /// Takes a worktree away. It is moved aside, which is instant, and deleted out of the way
+    /// after: dependencies and build output can hold hundreds of thousands of files, and
+    /// deleting them made a removal wait the better part of a minute. One that cannot be moved
+    /// is deleted where it is.
+    async fn take_away_worktree(&self, project: &Project, task: &Task, known: bool) -> Result<()> {
+        let repo = &project.repo_path;
+        let path = &task.worktree_path;
+        if let Some(aside) = move_aside(path, task.id) {
+            // git still has the worktree where it was, which is not there any more.
+            git::git(repo, &["worktree", "prune"]).await.ok();
+            delete_later(&aside);
+            return Ok(());
         }
-        git::worktree_remove(&project.repo_path, &task.worktree_path).await
+        if known {
+            return git::worktree_remove(repo, path).await;
+        }
+        tokio::fs::remove_dir_all(path).await?;
+        git::git(repo, &["worktree", "prune"]).await.ok();
+        Ok(())
+    }
+
+    /// Deletes what removals moved aside and did not see deleted, Swarmed having quit or the
+    /// computer having stopped first.
+    pub(crate) fn finish_removals(&self) {
+        let Ok(projects) = std::fs::read_dir(&self.paths.worktrees_root) else {
+            return;
+        };
+        let folders = projects
+            .flatten()
+            .map(|project| project.path().join(REMOVED));
+        let left = folders
+            .filter_map(|folder| std::fs::read_dir(folder).ok())
+            .flatten();
+        for entry in left.flatten() {
+            delete_later(&entry.path());
+        }
     }
 
     /// Where the task's stack is opened in a browser: what its project says, or else the
@@ -385,6 +460,28 @@ impl Core {
         hooks::run(hook, &command, &task.worktree_path, &env, sink).await
     }
 
+    /// [`run_hook`](Core::run_hook) for no longer than [`HOOK_LIMIT`]: `None` when the hook
+    /// took longer, and was killed with what it had started.
+    pub(crate) async fn run_hook_limited(
+        &self,
+        hook: &'static str,
+        template: &str,
+        project: &Project,
+        config: &ProjectConfig,
+        task: &Task,
+        sink: OutputSink<'_>,
+    ) -> Option<Result<()>> {
+        if template.trim().is_empty() {
+            return Some(Ok(()));
+        }
+        let (command, env) = match self.hook_command(template, project, config, task) {
+            Ok(rendered) => rendered,
+            Err(error) => return Some(Err(error)),
+        };
+        let cwd = &task.worktree_path;
+        hooks::run_within(HOOK_LIMIT, hook, &command, cwd, &env, sink).await
+    }
+
     /// A hook as it is run: its command with the variables filled in, and its environment.
     ///
     /// The command is read by a shell, and a value such as the name of somebody else's
@@ -413,7 +510,7 @@ impl Core {
 }
 
 /// Removes a file of Swarmed's own. One that is not there is as good as removed.
-fn forget_file(file: &std::path::Path) -> Result<()> {
+fn forget_file(file: &Path) -> Result<()> {
     match std::fs::remove_file(file) {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error.into()),
         _ => Ok(()),
@@ -430,12 +527,61 @@ fn branch_vars(project: &Project, task: &str) -> Vars {
 }
 
 /// Best-effort removal of a worktree, and the branch created for it, after a failed creation.
-async fn discard_worktree(project: &Project, worktree: &std::path::Path, branch: Option<&str>) {
+async fn discard_worktree(project: &Project, worktree: &Path, branch: Option<&str>) {
     git::worktree_remove(&project.repo_path, worktree)
         .await
         .ok();
     if let Some(branch) = branch {
         git::branch_delete(&project.repo_path, branch).await.ok();
+    }
+}
+
+/// Fails, as [`ensure_clean`] does, when removing the worktree would lose work, and also
+/// when git no longer knows it, so that what is in it cannot be checked.
+async fn ensure_removable(task: &Task, known: bool) -> Result<()> {
+    if known {
+        return ensure_clean(task).await;
+    }
+    Err(Error::TaskNotClean {
+        task: task.name.clone(),
+        reason: "a worktree git no longer knows, so what is in it cannot be checked".to_string(),
+    })
+}
+
+/// The folder beside a project's worktrees that removed ones are moved into.
+pub(crate) const REMOVED: &str = ".removed";
+
+/// Moves a worktree into [`REMOVED`] beside it: on the same disk, so the move is instant.
+/// `None` when it cannot be moved.
+fn move_aside(worktree: &Path, id: i64) -> Option<PathBuf> {
+    let folder = worktree.parent()?.join(REMOVED);
+    std::fs::create_dir_all(&folder).ok()?;
+    let name = worktree.file_name()?.to_string_lossy();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()?
+        .as_nanos();
+    let aside = folder.join(format!("{name}-{id}-{now}"));
+    std::fs::rename(worktree, &aside).ok()?;
+    Some(aside)
+}
+
+/// Deletes a folder in a process of its own, which goes on if Swarmed quits meanwhile; what
+/// it leaves is deleted when Swarmed next starts ([`Core::finish_removals`]). Nobody hears of
+/// a file it could not delete, so what stays in [`REMOVED`] is counted with what Swarmed takes
+/// up ([`Usage::removed_bytes`](crate::Usage::removed_bytes)).
+fn delete_later(folder: &Path) {
+    let deleting = std::process::Command::new("rm")
+        .arg("-rf")
+        .arg("--")
+        .arg(folder)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+    if let Ok(mut child) = deleting {
+        // Waited for, so that it does not linger as an ended process nobody took note of.
+        std::thread::spawn(move || child.wait());
     }
 }
 

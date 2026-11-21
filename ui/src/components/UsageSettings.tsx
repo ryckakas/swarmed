@@ -102,6 +102,14 @@ function Figures({ usage }: { usage: Usage }) {
             {rest.length > 0 && (
                 <Figure name={`${rest.length} more worktrees`}>{formatBytes(restBytes)}</Figure>
             )}
+            {usage.removed_bytes > 0 && (
+                <Figure
+                    name="Removed tasks"
+                    detail="worktrees not deleted yet, or that could not be"
+                >
+                    {formatBytes(usage.removed_bytes)}
+                </Figure>
+            )}
             <Figure
                 name="Running now"
                 detail={`Swarmed and what it started, ${usage.running.processes} processes`}
