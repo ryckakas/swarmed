@@ -70,6 +70,8 @@ const FORK: &str = "A session is forked from one of its messages.";
 const SIGN_IN: &str = "Swarmed handles no sign-in: run `claude` in a terminal for it.";
 const CLOSE: &str = "A session is closed with the button in its header.";
 const NEW_SESSION: &str = "For an empty conversation, start a new session in the task.";
+const WORKTREE: &str = "A session works in its task's worktree and nowhere else.";
+const IN_SWARMED: &str = "A session runs in Swarmed, and is not handed to another app.";
 
 /// Claude Code's own commands, each in the one kind it is handled as.
 ///
@@ -120,6 +122,13 @@ const CLAUDE_COMMANDS: &[(&str, Handling)] = &[
     ("ultrareview", Send),
     // Screens and switches of the terminal that Swarmed has its own way to do.
     ("clear", Terminal(NEW_SESSION)),
+    // Where a session works, and what runs it, are Swarmed's: these are refused whether or not
+    // Claude Code could do them without its screen, as it can `/add-dir` behind a switch.
+    ("add-dir", Terminal(WORKTREE)),
+    ("cd", Terminal(WORKTREE)),
+    ("desktop", Terminal(IN_SWARMED)),
+    ("remote-control", Terminal(IN_SWARMED)),
+    ("teleport", Terminal(IN_SWARMED)),
     ("branch", Terminal(FORK)),
     (
         "color",
@@ -175,14 +184,17 @@ const CLAUDE_COMMANDS: &[(&str, Handling)] = &[
 /// stands for: `/new` clears a conversation as `/clear` does.
 const CLAUDE_ALIASES: &[(&str, &str)] = &[
     ("allowed-tools", "permissions"),
+    ("app", "desktop"),
     ("bashes", "tasks"),
     ("checkpoint", "rewind"),
     ("name", "rename"),
     ("new", "clear"),
     ("quit", "exit"),
+    ("rc", "remote-control"),
     ("reset", "clear"),
     ("settings", "config"),
     ("stats", "usage"),
+    ("tp", "teleport"),
     ("undo", "rewind"),
 ];
 
@@ -704,6 +716,20 @@ mod tests {
             assert_eq!(
                 handling(CLAUDE, name),
                 Some(Terminal(NEW_SESSION)),
+                "/{name}"
+            );
+        }
+        // Where a session works, and what runs it, are never left to Claude Code.
+        for name in [
+            "cd",
+            "add-dir",
+            "remote-control",
+            "rc",
+            "teleport",
+            "desktop",
+        ] {
+            assert!(
+                matches!(handling(CLAUDE, name), Some(Terminal(note)) if !note.is_empty()),
                 "/{name}"
             );
         }

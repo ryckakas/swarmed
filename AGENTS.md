@@ -197,7 +197,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   model and effort with `session_configure`, Claude Code's settings by sending it
   `/config key=value`, which it takes in words. A command Swarmed has its own way to do
   (`/rename`, `/fork`, `/clear`) is refused (`Error::TerminalOnly`) with what to do instead,
-  under any of its names (`CLAUDE_ALIASES`: `/new` is `/clear`). Anything else, and any name
+  under any of its names (`CLAUDE_ALIASES`: `/new` is `/clear`). So is one that would move
+  the session out of its worktree or hand it to something else (`/cd`, `/add-dir`,
+  `/remote-control`), named in the table even where Claude Code would refuse it itself: it
+  can do `/add-dir` without a screen behind a switch. Anything else, and any name
   the table does not hold, is a message. That includes the commands that only open a screen
   in the terminal (`/theme`, `/vim`): they need no row. Claude Code answers them itself, with
   no model, and marks the answer `local_command_outcome: unavailable_headless`, which
