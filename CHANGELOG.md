@@ -14,6 +14,8 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-21
+
 The first release: a macOS app and a `swarmed` command over one Rust core. Swarmed is not signed
 with an Apple Developer ID yet, so macOS asks before opening it the first time when it comes
 through Homebrew or a browser.
@@ -74,4 +76,5 @@ through Homebrew or a browser.
 - **Installing:** an install script, a Homebrew cask that also puts `swarmed` on the PATH, and
   `cargo install swarmed` for the command alone.
 
-[Unreleased]: https://github.com/ryckakas/swarmed/commits/main
+[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/ryckakas/swarmed/releases/tag/v0.1.0
