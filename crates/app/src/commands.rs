@@ -64,18 +64,18 @@ fn hook_sink<'a, R: Runtime>(
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn agents(core: CoreState<'_>) -> Vec<AgentInfo> {
     core.agents()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn overview(core: CoreState<'_>) -> Command<Vec<ProjectOverview>> {
     Ok(core.overview()?)
 }
 
 /// Every MCP server Swarmed knows of, with secrets by name only.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn mcp_servers(core: CoreState<'_>) -> Command<Vec<McpServerView>> {
     Ok(core.mcp_servers()?)
 }
@@ -99,13 +99,13 @@ pub(crate) async fn usage(core: CoreState<'_>) -> Command<Usage> {
 }
 
 /// What the agents report their work has cost: today, this week, in all, by task and by day.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn costs(core: CoreState<'_>) -> Command<Costs> {
     Ok(core.costs()?)
 }
 
 /// The agents that can be set up from the settings, and how far along each is.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn agent_setups(core: CoreState<'_>) -> Command<Vec<AgentSetup>> {
     Ok(core.agent_setups()?)
 }
@@ -214,7 +214,7 @@ pub(crate) async fn task_remove<R: Runtime>(
 }
 
 /// What one folder of a task's worktree holds; the worktree itself for an empty `dir`.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn task_files(
     core: CoreState<'_>,
     project: String,
@@ -319,7 +319,7 @@ pub(crate) fn cloud_task_open(core: CoreState<'_>, id: i64) -> Command<()> {
 }
 
 /// Starts what a task keeps running, if its project has a `start` command. Says whether it has.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn stack_start(core: CoreState<'_>, project: String, task: String) -> Command<bool> {
     Ok(core.stack_start(&project, &task)?)
 }
@@ -337,25 +337,25 @@ pub(crate) async fn stack_stop<R: Runtime>(
 }
 
 /// The end of what a task's stack has printed since it was last started.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn stack_log(core: CoreState<'_>, project: String, task: String) -> Command<String> {
     Ok(core.stack_log(&project, &task)?)
 }
 
 /// Every skill Swarmed knows of: its own, and each agent's.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn skills(core: CoreState<'_>) -> Vec<Skill> {
     core.skills()
 }
 
 /// What a skill of Swarmed's own says to do, for editing.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn skill_body(core: CoreState<'_>, name: String) -> Command<String> {
     Ok(core.skill_body(&name)?)
 }
 
 /// The prompts the user keeps to send again.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn templates(core: CoreState<'_>) -> Command<Vec<Template>> {
     Ok(core.templates()?)
 }
@@ -377,7 +377,7 @@ pub(crate) fn template_remove(core: CoreState<'_>, name: String) -> Command<Vec<
 }
 
 /// The buttons of the user's own that `project` offers, or those for every repository.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn actions(core: CoreState<'_>, project: Option<String>) -> Command<Vec<Action>> {
     Ok(core.actions(project.as_deref())?)
 }
@@ -454,7 +454,7 @@ pub(crate) fn skill_share(
 }
 
 /// A project's environments, by name.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn environments(
     core: CoreState<'_>,
     project: String,
@@ -483,7 +483,7 @@ pub(crate) fn environment_remove(
     Ok(core.environment_remove(&project, &name)?)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn note(core: CoreState<'_>, project: String, task: Option<String>) -> Command<String> {
     Ok(core.note(&project, task.as_deref())?)
 }
@@ -520,7 +520,7 @@ pub(crate) async fn task_unpublished(
 }
 
 /// The effort an agent last ran a model with when the effort was left to it.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn effort_default(
     core: CoreState<'_>,
     agent: String,
@@ -635,7 +635,7 @@ pub(crate) async fn task_diff(
     Ok(core.task_diff(&project, &name, &path).await?)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn settings(core: CoreState<'_>) -> Command<Settings> {
     Ok(core.settings()?)
 }
@@ -646,7 +646,7 @@ pub(crate) fn set_settings(core: CoreState<'_>, settings: Settings) -> Command<(
 }
 
 /// The user's custom layout, as checked by the core.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn custom_layout(core: CoreState<'_>) -> Command<CustomLayout> {
     Ok(core.custom_layout()?)
 }
@@ -658,7 +658,7 @@ pub(crate) fn custom_layout_save(core: CoreState<'_>, text: String) -> Command<C
 }
 
 /// The user's configuration of the terminal, as checked by the core.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn terminal_config(core: CoreState<'_>) -> Command<TerminalConfig> {
     Ok(core.terminal_config()?)
 }
@@ -669,7 +669,7 @@ pub(crate) fn terminal_config_save(core: CoreState<'_>, text: String) -> Command
     Ok(core.set_terminal_config(&text)?)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn api_keys(core: CoreState<'_>) -> Command<Vec<ApiKeyInfo>> {
     Ok(core.api_keys()?)
 }
@@ -714,7 +714,7 @@ pub(crate) fn session_new(
     Ok(core.session_new(&project, &task, &options)?)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn session_events(core: CoreState<'_>, id: i64) -> Command<Vec<AgentEvent>> {
     Ok(core.session_events(id)?)
 }
@@ -733,7 +733,7 @@ pub(crate) async fn session_send(
     Ok(core.session_message(id, &text, &files, Auth::default())?)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn session_queue(core: CoreState<'_>, id: i64) -> Command<Vec<QueuedMessage>> {
     Ok(core.session_queue(id)?)
 }
@@ -766,13 +766,13 @@ pub(crate) async fn session_send_queued(core: CoreState<'_>, id: i64) -> Command
 }
 
 /// The sessions in which `query` was said, closed ones included.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn sessions_search(core: CoreState<'_>, query: String) -> Command<Vec<SearchHit>> {
     Ok(core.sessions_search(&query)?)
 }
 
 /// A task's closed sessions, the one closed last first.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn sessions_closed(
     core: CoreState<'_>,
     project: String,
@@ -783,7 +783,7 @@ pub(crate) fn sessions_closed(
 
 /// A new session that starts with what was said in session `id` from its message number
 /// `from` on, or with all of it; on `agent`, if that is another than the session's own.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn session_fork(
     core: CoreState<'_>,
     id: i64,
@@ -845,7 +845,7 @@ pub(crate) fn session_interrupt(core: CoreState<'_>, id: i64) -> Command<()> {
 }
 
 /// The project's snapshots: what tasks of each environment start from.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn snapshots(core: CoreState<'_>, project: String) -> Command<Vec<Snapshot>> {
     Ok(core.snapshots(&project)?)
 }
@@ -871,13 +871,13 @@ pub(crate) fn snapshot_remove(
 }
 
 /// The sessions' turns added up by day, task, agent and model, for drawing.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn analytics(core: CoreState<'_>) -> Command<Vec<TurnStats>> {
     Ok(core.analytics()?)
 }
 
 /// What a task's agents left running in the background, and how what ended did.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn task_background(
     core: CoreState<'_>,
     project: String,
@@ -896,7 +896,7 @@ pub(crate) fn session_stop_background(
     Ok(core.session_stop_background(id, &task_id)?)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn slash_commands(core: CoreState<'_>, id: Option<i64>) -> Command<Vec<String>> {
     Ok(core.slash_commands(id)?)
 }

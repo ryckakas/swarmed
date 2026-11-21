@@ -114,8 +114,9 @@ impl App {
             .map_err(|e| json!(e.to_string()))
     }
 
-    /// Whether a call of `command` carrying `key` is answered at all. A command that is not
-    /// `async` has answered by the time it was handed over.
+    /// Whether a call of `command` carrying `key` is answered at all. A command that runs off
+    /// the main thread answers a moment later, so it is waited for; a call that is refused
+    /// over its key is never answered, however long that wait.
     fn answers(&self, command: &str, key: &str) -> bool {
         let request = Self::request(command, json!({}), self.origin.clone(), key);
         let (answered, answer) = std::sync::mpsc::channel::<bool>();
@@ -128,7 +129,9 @@ impl App {
                     .ok();
             }),
         );
-        answer.try_recv().unwrap_or(false)
+        answer
+            .recv_timeout(Duration::from_millis(500))
+            .unwrap_or(false)
     }
 
     /// The folder Swarmed keeps its own files in, beside the repository.
