@@ -141,6 +141,16 @@ export interface Api {
         task: string | null,
         provider: CloudProvider,
     ): Promise<CloudTask>;
+    /**
+     * Hands the conversation of session `id` to a cloud agent, under what it is to do with it;
+     * with no instruction it carries on where the conversation ended. Rejects like
+     * `cloudDelegate`, and if nothing was said in the session.
+     */
+    cloudDelegateConversation(
+        id: number,
+        instruction: string,
+        provider: CloudProvider,
+    ): Promise<CloudTask>;
     /** The project's cloud tasks; with `refresh`, their statuses are asked for again first. */
     cloudTasks(project: string, refresh: boolean): Promise<CloudTask[]>;
     /** Takes a cloud task off the list, without stopping it. */

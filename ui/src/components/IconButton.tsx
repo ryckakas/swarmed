@@ -62,3 +62,8 @@ export function ForkIcon() {
         </>
     );
 }
+
+/** A cloud: work handed to an agent that runs in one. */
+export function CloudIcon() {
+    return <path d="M4.5 12.5a3 3 0 0 1-.4-5.97 4 4 0 0 1 7.7-.9A3.4 3.4 0 0 1 11.5 12.5z" />;
+}

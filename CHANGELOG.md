@@ -43,7 +43,8 @@ through Homebrew or a browser.
 - **Sessions working together.** Agents get tools to see, read, message, start and close other
   sessions, and spawned sessions are listed under the one that started them. Claude Code's
   sub-agents appear under their session while they work. One prompt can go to several agents at
-  once, and work can be handed to a Codex cloud agent or a Claude Code cloud session.
+  once, and work can be handed to a Codex cloud agent or a Claude Code cloud session: from a
+  session too, as a brief its agent writes or with the whole conversation.
 - **The task panel.** Changed files with their diffs, comments on lines sent to a session, a Files
   tab, commit with a message the session's agent writes, push, and a pull request whose title and
   description are written for you, with its checks summed up in a line that unfolds into the list,

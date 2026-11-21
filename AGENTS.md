@@ -399,6 +399,14 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   a message sent straight in would clear a request the agent waits on. A request takes the
   keyboard only when nothing has it (`focus.ts`), and the answer shortcuts never allow a
   question without answers (`pending.ts`).
+- **Work goes to a cloud agent through the user's own `codex` or `claude`** (`cloud.rs`), which
+  works on the repository as GitHub has it. From a session there are two ways to tell it what
+  the session arrived at (`CloudDialog.tsx`). A brief: the session's agent is sent a message
+  asking it to write one and hand it over with its `delegate_to_cloud` tool, in the
+  conversation, where the user sees it. Or the conversation itself (`handoff.rs`,
+  `cloud_delegate_conversation`): what was said and the plans the agent proposed, as text
+  under what to do, its latest `MAX_HANDED` characters. Never what the agent read or ran, which
+  may hold anything, and no file: the form says what of the task is not on GitHub.
 - **Messages can wait in a queue** (`queue.rs`) while a session's agent is busy. The core sends
   the first one when a turn ends well, as if it had just been typed; a turn that was stopped
   or failed leaves the queue standing. The queue lives in memory, and its changes are published

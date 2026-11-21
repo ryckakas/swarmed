@@ -417,12 +417,32 @@ function sampleCloudTask(projectId: number, prompt: string, provider: CloudProvi
     };
 }
 
+/** A session's conversation handed to the cloud: a task under what it was asked to do. */
+function handedOn(
+    projects: Project[],
+    id: number,
+    instruction: string,
+    provider: CloudProvider,
+): CloudTask {
+    const holds = (project: Project) =>
+        project.tasks.some((task) => task.sessions.some((session) => session.id === id));
+    const project = projects.find(holds);
+    if (!project) {
+        throw new Error(`session ${id} not found`);
+    }
+    const asked = instruction.trim() || "Carry on with the work this conversation arrived at.";
+    const task = sampleCloudTask(project.id, asked, provider);
+    project.cloud = [task, ...project.cloud];
+    return task;
+}
+
 /** Delegating to the cloud: the sample has an environment for `storefront` and for nothing else. */
 function cloudApi(
     projects: () => Project[],
 ): Pick<
     Api,
     | "cloudDelegate"
+    | "cloudDelegateConversation"
     | "cloudTasks"
     | "cloudTaskForget"
     | "cloudTaskOpen"
@@ -448,6 +468,8 @@ function cloudApi(
             project.cloud = [task, ...project.cloud];
             return task;
         },
+        cloudDelegateConversation: async (id, instruction, provider) =>
+            handedOn(projects(), id, instruction, provider),
         cloudTasks: async (name, refresh) => {
             const project = find(name);
             if (refresh) {

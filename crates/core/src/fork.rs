@@ -46,20 +46,28 @@ fn kept(events: &[AgentEvent], from: Option<usize>) -> Vec<AgentEvent> {
 
 /// A conversation as text, each turn under who said it.
 fn transcript(events: &[AgentEvent]) -> String {
-    let turns: Vec<String> = events
-        .iter()
-        .filter_map(|event| match event {
-            AgentEvent::UserMessage { text } => Some(format!("User:\n{text}")),
-            AgentEvent::Text { text } => Some(format!("Assistant:\n{text}")),
-            _ => None,
-        })
-        .collect();
+    let turns: Vec<String> = events.iter().filter_map(turn).collect();
+    joined(&turns, MAX_CARRIED)
+}
+
+/// What an event says in a conversation written out as text, under who said it.
+pub(crate) fn turn(event: &AgentEvent) -> Option<String> {
+    match event {
+        AgentEvent::UserMessage { text } => Some(format!("User:\n{text}")),
+        AgentEvent::Text { text } => Some(format!("Assistant:\n{text}")),
+        _ => None,
+    }
+}
+
+/// `turns` as one text of at most `most` characters. The end of a conversation matters most,
+/// so of one that is longer the end is kept, and the text says its beginning is left out.
+pub(crate) fn joined(turns: &[String], most: usize) -> String {
     let whole = turns.join("\n\n");
     let length = whole.chars().count();
-    if length <= MAX_CARRIED {
+    if length <= most {
         return whole;
     }
-    let end: String = whole.chars().skip(length - MAX_CARRIED).collect();
+    let end: String = whole.chars().skip(length - most).collect();
     format!("[The beginning is left out.]\n…{end}")
 }
 

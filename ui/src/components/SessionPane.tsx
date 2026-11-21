@@ -6,7 +6,7 @@ import { useStore } from "../store";
 import { findSession, findSessionHome } from "../tree";
 import { useWords } from "../useWords";
 import { Composer } from "./Composer";
-import { EndIcon, ForkIcon, IconButton, PanelIcon } from "./IconButton";
+import { CloudIcon, EndIcon, ForkIcon, IconButton, PanelIcon } from "./IconButton";
 import { NewTask } from "./NewTask";
 import { useAgents } from "./options";
 import { Picker } from "./Picker";
@@ -35,6 +35,7 @@ export function SessionPane() {
         selectedSessionId === null ? undefined : state.events[selectedSessionId],
     );
     const askToClose = useStore((state) => state.askToClose);
+    const askToDelegate = useStore((state) => state.askToDelegate);
     const words = useWords();
     const panelOpen = useStore((state) => state.panelOpen);
     const togglePanel = useStore((state) => state.togglePanel);
@@ -71,6 +72,18 @@ export function SessionPane() {
                         onClick={() => void forkSession(session.id, null)}
                     >
                         <ForkIcon />
+                    </IconButton>
+                    <IconButton
+                        label={`${words.delegate}: what this session arrived at, as a brief or as the whole conversation`}
+                        onClick={() =>
+                            askToDelegate({
+                                project: home.project.name,
+                                task: home.task.name,
+                                session: session.id,
+                            })
+                        }
+                    >
+                        <CloudIcon />
                     </IconButton>
                     {!panelOpen && (
                         <IconButton label="Show the task panel" onClick={togglePanel}>
