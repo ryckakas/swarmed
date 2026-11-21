@@ -1,6 +1,6 @@
 # Swarmed
 
-![Swarmed: a bear in power armour facing a swarm](docs/cover.jpg)
+![Swarmed, get swarmed by agents: a bear in power armour facing a swarm](docs/cover.jpg)
 
 **Run coding agents side by side, each on a branch and in a worktree of its own.**
 
