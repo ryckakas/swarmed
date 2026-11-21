@@ -195,10 +195,18 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   `/effort`, `/config`) is put to the user as questions, `CommandAsked`, in the shape of an
   agent's own questions, and the answer (`session_command_answer`) is applied by the core:
   model and effort with `session_configure`, Claude Code's settings by sending it
-  `/config key=value`, which it takes in words. A command that only means something in a
-  terminal is refused (`Error::TerminalOnly`) with what to do in Swarmed instead. Anything
-  else, and any name the table does not hold, is a message. None of the first three starts a
-  turn or records a message. A new command of Claude Code's goes into the table on purpose:
+  `/config key=value`, which it takes in words. A command Swarmed has its own way to do
+  (`/rename`, `/fork`, `/clear`) is refused (`Error::TerminalOnly`) with what to do instead,
+  under any of its names (`CLAUDE_ALIASES`: `/new` is `/clear`). So is one that would move
+  the session out of its worktree or hand it to something else (`/cd`, `/add-dir`,
+  `/remote-control`), named in the table even where Claude Code would refuse it itself: it
+  can do `/add-dir` without a screen behind a switch. A refused command cannot wait in the
+  queue either (`may_wait`). Anything else, and any name the table does not hold, is a
+  message. That includes the commands that only open a screen in the terminal (`/vim`,
+  `/privacy-settings`): they need no row. Claude Code answers them itself, with no model,
+  and marks the answer `local_command_outcome: unavailable_headless`, which
+  `agent/claude.rs` turns into `AgentEvent::TerminalOnly` instead of a reply. Neither a
+  screen, a setting nor a refusal starts a turn or records a message. A new command of Claude Code's goes into the table on purpose:
   the test there lists what a known version reports. With words after it a screen's command
   is Claude Code's to take (`/mcp reconnect docs`), and waits in the queue if the agent is
   busy. What waits in the queue is sent as typed. The UI draws a screen as HTML it builds

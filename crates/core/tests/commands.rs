@@ -186,20 +186,48 @@ async fn a_terminal_command_is_refused_before_anything_is_started_or_said() {
     assert_eq!(command, "login");
     assert!(instead.contains("sign-in"), "{instead}");
     let told = refused.expect_err("refused").to_string();
-    assert!(
-        told.starts_with("/login only works in a terminal. "),
-        "{told}"
-    );
-    let plain = core
-        .session_message(session.id, "/vim", &[], Auth::Subscription)
+    assert!(told.starts_with("/login is not sent. "), "{told}");
+    // By another of its names as well: `/new` empties the conversation as `/clear` does.
+    let cleared = core
+        .session_message(session.id, "/new", &[], Auth::Subscription)
         .expect_err("refused")
         .to_string();
     assert!(
-        plain.starts_with("/vim only works in a terminal: open the task in one"),
-        "{plain}"
+        cleared.contains("start a new session in the task"),
+        "{cleared}"
     );
     assert_eq!(core.running_sessions(), [0_i64; 0]);
     assert_eq!(core.session_events(session.id).expect("reads"), []);
+}
+
+#[tokio::test]
+async fn a_refused_command_cannot_wait_in_the_queue_either() {
+    let fx = fixture();
+    let (core, session) = core_with_session(&fx).await;
+    // What waits is sent as typed, so it is refused on its way in, by any of its names.
+    for text in ["/new", "/add-dir /tmp", "/rc"] {
+        let refused = core.session_enqueue(session.id, text);
+        assert!(
+            matches!(refused, Err(Error::TerminalOnly { .. })),
+            "{text}: {refused:?}"
+        );
+    }
+    let [waiting] = &core.session_enqueue(session.id, "hello").expect("waits")[..] else {
+        panic!("one message waits");
+    };
+    // Nor can a message that waits be changed into one.
+    let changed = core.session_queue_edit(session.id, waiting.id, "/clear");
+    assert!(
+        matches!(changed, Err(Error::TerminalOnly { .. })),
+        "{changed:?}"
+    );
+    let texts: Vec<String> = core
+        .session_queue(session.id)
+        .expect("reads")
+        .into_iter()
+        .map(|message| message.text)
+        .collect();
+    assert_eq!(texts, ["hello"]);
 }
 
 #[tokio::test]

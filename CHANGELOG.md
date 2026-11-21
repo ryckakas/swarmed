@@ -31,7 +31,14 @@ notice adds its line under Unreleased.
   in this environment". `/model`, `/effort` and `/config` ask where the conversation stands and
   are set by your answer; `/model opus` sets it at once. None of them is sent to the model or
   interrupts a turn. The list after `/` says which commands are shown here, which ask here,
-  and which only work in a terminal; those are no longer sent, and say what to do instead.
+  and which are not sent, with what to do instead; those cannot wait in the queue either.
+  Any other command that only opens a screen in Claude Code's terminal, such as `/vim`, is
+  said to, instead of "isn't available in this environment" as if the agent had answered.
+  `/usage-credits` shows your usage and extra usage, and says that credits are bought in the
+  terminal. `/clear`, `/new` and `/reset` are not sent: Claude Code would forget the
+  conversation while the session went on showing it, so they point to a new session. `/cd`
+  and `/add-dir` are refused, since a session works in its task's worktree, and so are
+  `/remote-control`, `/teleport` and `/desktop`, which would hand the session elsewhere.
 - **The context window's card shows your extra usage:** what is spent beyond your plan this
   month, billed at API prices, against the monthly cap you set, and when this session's turns
   run on it. When a plan's limit is reached and Claude Code goes on with extra usage, the

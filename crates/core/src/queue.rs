@@ -119,9 +119,10 @@ impl Core {
         Ok(self.live.queues.list(id))
     }
 
-    /// Adds a message to the end of the session's queue and returns the queue.
+    /// Adds a message to the end of the session's queue and returns the queue. A command
+    /// Swarmed does not send on is refused here as it is when sent: [`Error::TerminalOnly`].
     pub fn session_enqueue(&self, id: i64, text: &str) -> Result<Vec<QueuedMessage>> {
-        self.session(id)?;
+        self.may_wait(id, text)?;
         if text.trim().is_empty() {
             return Err(Error::EmptyMessage);
         }
@@ -130,14 +131,15 @@ impl Core {
     }
 
     /// Gives a waiting message new text and returns the queue. Text with nothing in it takes
-    /// the message out; a message that has been sent meanwhile is left alone.
+    /// the message out; a message that has been sent meanwhile is left alone. A command
+    /// Swarmed does not send on is refused, and the message stays as it was.
     pub fn session_queue_edit(
         &self,
         id: i64,
         message: u64,
         text: &str,
     ) -> Result<Vec<QueuedMessage>> {
-        self.session(id)?;
+        self.may_wait(id, text)?;
         self.live.queues.edit(id, message, text);
         self.queue_changed(id)
     }

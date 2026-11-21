@@ -129,6 +129,7 @@ impl SessionStatus {
             | AgentEvent::Screen { .. }
             | AgentEvent::CommandAsked { .. }
             | AgentEvent::CommandAnswered { .. }
+            | AgentEvent::TerminalOnly { .. }
             | AgentEvent::Other { .. } => None,
         }
     }

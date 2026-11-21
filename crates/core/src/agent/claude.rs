@@ -694,10 +694,13 @@ fn parse_message(message: &Value, pending: &Pending) -> Vec<AgentEvent> {
     match kind_of(message, "type").unwrap_or_default() {
         // Hook activity, thinking-token counters and the like are not shown yet.
         "system" if kind_of(message, "subtype") == Some("init") => vec![parse_init(message)],
-        "assistant" => {
-            let said = content_blocks(message).filter_map(parse_assistant_block);
-            said.map(|event| of_sub_agent(message, event)).collect()
-        }
+        "assistant" => terminal_only(message).map_or_else(
+            || {
+                let said = content_blocks(message).filter_map(parse_assistant_block);
+                said.map(|event| of_sub_agent(message, event)).collect()
+            },
+            |refused| vec![refused],
+        ),
         "user" => {
             let results = content_blocks(message).filter_map(parse_tool_result);
             results.map(|event| of_sub_agent(message, event)).collect()
@@ -723,6 +726,22 @@ fn parse_message(message: &Value, pending: &Pending) -> Vec<AgentEvent> {
             raw: message.clone(),
         }],
     }
+}
+
+/// A command sent to Claude Code that only opens a screen in its terminal, such as `/vim`.
+/// Run without one, Claude Code answers for the command itself, with no model, and marks the
+/// answer `unavailable_headless`. Its words start with the command as it was typed, so that
+/// any such command is known, and none needs naming here. `None` for any other message.
+fn terminal_only(message: &Value) -> Option<AgentEvent> {
+    let outcome = message.pointer("/local_command_outcome/kind");
+    if outcome.and_then(Value::as_str) != Some("unavailable_headless") {
+        return None;
+    }
+    let said = content_blocks(message).find_map(|block| kind_of(block, "text"))?;
+    let command = said.strip_prefix('/')?.split_whitespace().next()?;
+    Some(AgentEvent::TerminalOnly {
+        command: command.to_string(),
+    })
 }
 
 /// `event` as it is, or marked as a sub-agent's if the message it came in belongs to one:
@@ -1295,6 +1314,53 @@ mod tests {
                 },
             },
         }})
+    }
+
+    /// Claude Code 2.1.330's answer to a command that only opens a screen in its terminal.
+    fn refused(text: &str, outcome: Option<&str>) -> Value {
+        let mut message = json!({
+            "type": "assistant", "parent_tool_use_id": null,
+            "message": { "model": "<synthetic>", "role": "assistant",
+                "content": [{ "type": "text", "text": text }] },
+            "local_command_source": format!("<local-command-stdout>{text}</local-command-stdout>"),
+        });
+        if let Some(kind) = outcome {
+            message["local_command_outcome"] = json!({ "kind": kind });
+        }
+        message
+    }
+
+    #[test]
+    fn a_command_with_only_a_terminal_screen_is_told_apart_from_a_reply() {
+        let theme = refused(
+            "/theme isn't available in this environment.",
+            Some("unavailable_headless"),
+        );
+        let only = |command: &str| AgentEvent::TerminalOnly {
+            command: command.to_string(),
+        };
+        assert_eq!(parse(&theme), vec![only("theme")]);
+        // Claude Code's other wording for it, with the command as typed, alias and all.
+        let panel = refused(
+            "/allowed-tools opens an interactive panel and isn't available in this environment. \
+             Run it from the Claude Code terminal instead.",
+            Some("unavailable_headless"),
+        );
+        assert_eq!(parse(&panel), vec![only("allowed-tools")]);
+        // Without the mark, or with another, the same words are a reply like any other.
+        let said = "/theme isn't available in this environment.";
+        for outcome in [None, Some("failed")] {
+            let text = AgentEvent::Text {
+                text: said.to_string(),
+            };
+            assert_eq!(parse(&refused(said, outcome)), vec![text]);
+        }
+        // Marked words that name no command are kept as they are.
+        let unnamed = refused("Not here.", Some("unavailable_headless"));
+        let text = AgentEvent::Text {
+            text: "Not here.".to_string(),
+        };
+        assert_eq!(parse(&unnamed), vec![text]);
     }
 
     #[test]

@@ -524,7 +524,7 @@ export interface SlashCommand {
     /** The name, without its slash. */
     name: string;
     kind: CommandKind;
-    /** For one that only works in a terminal, what to do in Swarmed instead; empty for none. */
+    /** For one Swarmed does not send on, what to do instead; empty for any other. */
     note: string;
 }
 
@@ -649,6 +649,11 @@ export type AgentEvent =
     | { type: "command_asked"; request_id: string; command: string; questions: AskedQuestion[] }
     /** The user answered such a question or put it aside; `said` is what came of it. */
     | { type: "command_answered"; request_id: string; said: string }
+    /**
+     * A command that only opens a screen in the agent's own terminal was sent, and the agent
+     * said it has no screen to open it in. `command` is as it was typed, without its slash.
+     */
+    | { type: "terminal_only"; command: string }
     /**
      * Something a sub-agent said or did. `parent` is the tool call that started it, which
      * tells one sub-agent from another.

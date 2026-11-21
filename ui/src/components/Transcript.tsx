@@ -187,6 +187,13 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
                     command={item.command}
                 />
             );
+        case "terminal-only":
+            return (
+                <p className="asked">
+                    <span className="mono">/{item.command}</span> only works in Claude Code's own
+                    terminal, where it opens a screen.
+                </p>
+            );
         case "terminal":
             return (
                 <details className="shared-terminal">

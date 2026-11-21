@@ -3,7 +3,7 @@ import { calledCommand } from "../slash";
 import { PLAN_TOOL, withFiles } from "../transcript";
 import { titleFrom } from "../tree";
 import type { Api } from "./client";
-import { MOCK_COMMANDS, mockQuestions, mockSaid, mockScreen } from "./mockCommands";
+import { MOCK_COMMANDS, mockQuestions, mockSaid, mockScreen, mockScreenOnly } from "./mockCommands";
 import type {
     Action,
     AgentEvent,
@@ -1255,7 +1255,7 @@ class MockAgent {
         const command = calledCommand(text, MOCK_COMMANDS);
         const bare = text.trim() === `/${command?.name}`;
         if (command?.kind === "terminal") {
-            throw new Error(`/${command.name} only works in a terminal. ${command.note}`);
+            throw new Error(`/${command.name} is not sent. ${command.note}`);
         }
         const screen = command?.kind === "screen" && bare ? mockScreen(command.name) : null;
         const questions = command?.kind === "setting" ? mockQuestions(command.name) : null;
@@ -1297,7 +1297,12 @@ class MockAgent {
             cost_usd: 0.0123,
             duration_ms: 72_000,
         };
-        if (text === "slow") {
+        const screenOnly = mockScreenOnly(text);
+        if (screenOnly) {
+            // Claude Code answers such a command itself, with no model and nothing spent.
+            this.later(id, { type: "terminal_only", command: screenOnly }, "working");
+            this.later(id, { ...done, cost_usd: 0, duration_ms: 0 }, "idle");
+        } else if (text === "slow") {
             this.later(id, { type: "text", text: "Working on it…" }, "working");
             this.interrupts.set(id, () =>
                 this.publish(id, { ...done, is_error: true, result: "interrupted" }, "idle"),

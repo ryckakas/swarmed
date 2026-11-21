@@ -462,6 +462,9 @@ fn describe(event: &AgentEvent) -> Option<String> {
             command, questions, ..
         } => Some(asked(command, questions)),
         AgentEvent::CommandAnswered { said, .. } => Some(said.clone()),
+        AgentEvent::TerminalOnly { command } => Some(format!(
+            "/{command} only works in Claude Code's own terminal"
+        )),
         _ => None,
     }
 }
