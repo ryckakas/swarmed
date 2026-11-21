@@ -373,6 +373,12 @@ impl Core {
         self.paths.skills_offered(agent, worktree)
     }
 
+    /// How many skills a session on `agent` in `worktree` has: its agent's own and the ones it
+    /// is offered. For agents that do not count theirs; Claude Code reports its own number.
+    pub(crate) fn skills_had(&self, agent: &str, worktree: &Path) -> usize {
+        self.paths.skills_by_name(agent, Some(worktree)).len()
+    }
+
     /// What a session on `agent` is told about the skills it is offered, or `None` if there
     /// are none.
     pub(crate) fn skills_guidance(&self, agent: &str, worktree: &Path) -> Option<String> {

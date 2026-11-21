@@ -40,13 +40,13 @@ struct AgentConfig {
     /// Model names to offer for it.
     #[serde(default)]
     models: Vec<String>,
-    /// Whether to give it the MCP servers configured for Claude Code. On unless set to false.
-    #[serde(default = "yes")]
-    claude_code_mcp_servers: bool,
-}
-
-fn yes() -> bool {
-    true
+    /// Whether to give it the MCP servers the other agents have. On unless set to false.
+    shared_mcp_servers: Option<bool>,
+    /// The name that setting had while only Claude Code's servers were shared. Swarmed wrote
+    /// `false` here for agents with a list of their own, which now get what they lack, so it
+    /// is read past: a file written then must still load.
+    #[serde(rename = "claude_code_mcp_servers")]
+    _before: Option<bool>,
 }
 
 /// The agents by id, each with the backend that runs it.
@@ -57,9 +57,8 @@ pub(crate) struct Agents(BTreeMap<String, Agent>);
 struct Agent {
     info: AgentInfo,
     backend: Arc<dyn AgentBackend>,
-    /// Whether sessions on it are given the MCP servers configured for Claude Code. Claude Code
-    /// itself is not: it reads them on its own.
-    gets_claude_code_mcp_servers: bool,
+    /// Whether sessions on it are given the MCP servers of the other agents that it lacks.
+    gets_shared_mcp_servers: bool,
     /// Whether it comes from `agents.toml`, and goes when that file is read again without it.
     from_file: bool,
     /// The program that has to be on this machine for the agent to start, if Swarmed knows it.
@@ -92,7 +91,7 @@ impl Agents {
         let agent = Agent {
             info: claude_info(),
             backend: claude,
-            gets_claude_code_mcp_servers: false,
+            gets_shared_mcp_servers: true,
             from_file: false,
             program: None,
         };
@@ -149,7 +148,7 @@ impl Agents {
         let agent = Agent {
             info,
             backend: Arc::new(backend),
-            gets_claude_code_mcp_servers: entry.claude_code_mcp_servers,
+            gets_shared_mcp_servers: entry.shared_mcp_servers.unwrap_or(true),
             from_file: true,
             program: Some(program),
         };
@@ -161,7 +160,7 @@ impl Agents {
         let agent = Agent {
             info,
             backend,
-            gets_claude_code_mcp_servers: true,
+            gets_shared_mcp_servers: true,
             from_file: false,
             program: None,
         };
@@ -203,9 +202,9 @@ impl Agents {
         Ok(Arc::clone(&self.agent(id)?.backend))
     }
 
-    /// Whether sessions on this agent are given the MCP servers configured for Claude Code.
-    pub(crate) fn gets_claude_code_mcp_servers(&self, id: &str) -> Result<bool> {
-        Ok(self.agent(id)?.gets_claude_code_mcp_servers)
+    /// Whether sessions on this agent are given the MCP servers of the other agents.
+    pub(crate) fn gets_shared_mcp_servers(&self, id: &str) -> Result<bool> {
+        Ok(self.agent(id)?.gets_shared_mcp_servers)
     }
 }
 
@@ -248,18 +247,21 @@ OPENCODE_CONFIG = "/tmp/x"
     }
 
     #[test]
-    fn other_agents_get_claude_codes_mcp_servers_unless_told_not_to() {
-        let agents =
-            load("[a]\ncommand = \"a\"\n[b]\ncommand = \"b\"\nclaude_code_mcp_servers = false\n");
+    fn every_agent_gets_the_shared_mcp_servers_unless_told_not_to() {
+        // The setting's earlier name is read past, whatever it says.
+        let agents = load(
+            "[a]\ncommand = \"a\"\nclaude_code_mcp_servers = false\n\
+             [b]\ncommand = \"b\"\nshared_mcp_servers = false\n",
+        );
         let gets = |id: &str| {
             agents
                 .as_ref()
                 .ok()
-                .and_then(|agents| agents.gets_claude_code_mcp_servers(id).ok())
+                .and_then(|agents| agents.gets_shared_mcp_servers(id).ok())
         };
         assert_eq!(
             (gets("a"), gets("b"), gets("claude")),
-            (Some(true), Some(false), Some(false))
+            (Some(true), Some(false), Some(true))
         );
     }
 

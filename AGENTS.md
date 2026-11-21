@@ -174,9 +174,14 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **Check UI changes in a browser** with `pnpm dev`. The mock agent answers plain text, asks
   permission for `run: <command>`, and runs until stopped for `slow`; one sample session has
   2,000 messages for checking scroll speed.
-- **MCP servers are read from Claude Code's configuration** (`mcp.rs`) and handed to every agent
-  that does not read it itself. The definitions hold secrets: they are passed on and never
-  logged, and their `Debug` output leaves values out. Keep it that way.
+- **MCP servers are one pool for every agent** (`mcp_pool.rs`). When a session starts, each
+  agent's servers are read from its own configuration (`mcp.rs` and `mcp_plugins.rs` for
+  Claude Code and its plugins, `mcp_codex.rs`, `mcp_opencode.rs`), and the session's agent is
+  given the ones it has none of by that name, switched on or off: an agent refuses a second
+  server of a name, and one switched off there is off for a reason. Claude Code is given the
+  others' too. Nothing is written into an agent's files. `shared_mcp_servers = false` in
+  `agents.toml` turns it off for an agent. The definitions hold secrets: they are passed on
+  and never logged, and their `Debug` output leaves values out. Keep it that way.
 - **A session's title** starts as the first line of its first message. A `Namer` (`ClaudeNamer`:
   one call to Claude Code's smallest model, with none of the user's settings, tools or MCP
   servers) then suggests a better one, unless `auto_title` is off or the user renamed the session

@@ -153,6 +153,9 @@ pub struct SessionSpec {
     pub disallowed_tools: Vec<String>,
     /// Extra instructions appended to the agent's system prompt.
     pub append_system_prompt: Option<String>,
+    /// How many skills the session has, its agent's own and the ones Swarmed offers it, for an
+    /// agent that does not count them itself.
+    pub skills: usize,
     /// MCP servers to give the agent, on top of any it finds in its own configuration.
     pub mcp_servers: Vec<McpServer>,
     /// The user's API keys, for agents that bring no login of their own. Claude Code is never

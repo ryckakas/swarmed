@@ -18,7 +18,7 @@ use crate::agents::CLAUDE;
 use crate::error::{Error, Result};
 use crate::fork;
 use crate::marks::{Mark, MarkColour};
-use crate::mcp::{self, McpServer, McpTransport};
+use crate::mcp::{McpServer, McpTransport};
 use crate::paths::Paths;
 use crate::queue::{self, Queues};
 use crate::secrets::SecretEnv;
@@ -747,7 +747,10 @@ impl Core {
         let spool = self.paths.view_spool(id);
         // Whatever an earlier run left behind belongs to a conversation that has moved on.
         std::fs::remove_dir_all(&spool).ok();
-        mcp_servers.extend(self.own_mcp_servers()?);
+        let own = self.own_mcp_servers()?;
+        // One set up here goes before another agent's of the same name.
+        mcp_servers.retain(|shared| own.iter().all(|server| server.name != shared.name));
+        mcp_servers.extend(own);
         mcp_servers.extend(self.own_tools(id, &spool));
         let mut env = if session.agent == CLAUDE {
             SecretEnv::default()
@@ -759,6 +762,7 @@ impl Core {
         let backend = self.agents_now().backend(&session.agent)?;
         let handle = backend.start(SessionSpec {
             mcp_servers,
+            skills: self.skills_had(&session.agent, &task.worktree_path),
             env,
             append_system_prompt: self.guidance(&settings, &session.agent, &task.worktree_path),
             cwd: task.worktree_path,
@@ -833,10 +837,10 @@ impl Core {
         })
     }
 
-    /// The MCP servers Swarmed hands the agent: the ones configured for Claude Code, for every
-    /// agent that does not read that configuration itself.
+    /// The MCP servers of the other agents that a session on `agent` lacks: see `mcp_pool`.
+    /// Each agent's are read from its own configuration now, so one added there since is in.
     fn mcp_servers_for(&self, agent: &str, task: &Task) -> Result<Vec<McpServer>> {
-        if !self.agents_now().gets_claude_code_mcp_servers(agent)? {
+        if !self.agents_now().gets_shared_mcp_servers(agent)? {
             return Ok(vec![]);
         }
         let repo = self
@@ -844,11 +848,8 @@ impl Core {
             .project_by_id(task.project_id)?
             .map(|project| project.repo_path);
         let repo = repo.unwrap_or_else(|| task.worktree_path.clone());
-        Ok(mcp::claude_code_servers(
-            &self.paths.claude_config,
-            &repo,
-            &task.worktree_path,
-        ))
+        let paths = &self.paths;
+        Ok(paths.shared_mcp_servers(agent, &repo, &task.worktree_path))
     }
 
     /// Gives a session a title of the user's choosing.

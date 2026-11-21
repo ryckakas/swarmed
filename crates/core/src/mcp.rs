@@ -115,7 +115,8 @@ fn pointer_escape(key: &str) -> String {
     key.replace('~', "~0").replace('/', "~1")
 }
 
-fn parse_server(name: &str, definition: &Value) -> Option<McpServer> {
+/// One server as Claude Code's files write it, if it is of a kind every agent takes.
+pub(crate) fn parse_server(name: &str, definition: &Value) -> Option<McpServer> {
     let text = |key: &str| definition.get(key).and_then(Value::as_str).map(expand);
     let map = |key: &str| {
         let entries = definition.get(key).and_then(Value::as_object);

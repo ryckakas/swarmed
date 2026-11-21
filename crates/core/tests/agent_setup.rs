@@ -90,12 +90,9 @@ sleep 5"#;
     assert_eq!(setup.model_source, "agent");
     let codex = core.agents().into_iter().find(|agent| agent.id == "codex");
     assert_eq!(codex.expect("offered").models, ["gpt-a", "gpt-b"]);
-    // It keeps its own list of MCP servers, so it is not handed Claude Code's.
+    // What kept Claude Code's MCP servers from it is no longer written.
     let written = std::fs::read_to_string(fx.paths.agents_config()).expect("written");
-    assert!(
-        written.contains("claude_code_mcp_servers = false"),
-        "{written}"
-    );
+    assert!(!written.contains("mcp_servers"), "{written}");
 
     // An agent that will not say leaves the models as they were, and says why.
     let unwilling = r#"read greeting
