@@ -567,6 +567,63 @@ async fn a_session_can_change_its_agent_until_it_has_begun() {
 }
 
 #[tokio::test]
+async fn a_conversation_is_cloned_onto_another_agent_and_carried_on_there() {
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    // A conversation on Claude Code, with a model of its own.
+    let options = SessionOptions {
+        model: Some("opus".into()),
+        ..Default::default()
+    };
+    let source = core.session_new("demo", "one", &options).expect("creates");
+    core.session_start(source.id, Auth::Subscription)
+        .expect("starts");
+    core.session_send(source.id, "echo: the password is swordfish")
+        .expect("sends");
+    turn(&mut bus, source.id).await;
+    let said = core.session_events(source.id).expect("reads");
+
+    let clone = core
+        .session_fork(source.id, None, Some(AGENT))
+        .expect("clones");
+    // On the other agent, in the same task, with that agent's own model.
+    assert_eq!(
+        (clone.agent.as_str(), clone.task_id, clone.model.as_deref()),
+        (AGENT, source.task_id, None)
+    );
+    // The first session is as it was, and still on its own agent.
+    assert_eq!(core.session_events(source.id).expect("reads"), said);
+    assert_eq!(core.session(source.id).expect("exists").agent, "claude");
+
+    // The other agent is given what was said with the first message sent to it.
+    core.session_start(clone.id, Auth::Subscription)
+        .expect("starts");
+    core.session_send(clone.id, "what was it?").expect("sends");
+    let events = turn(&mut bus, clone.id).await;
+    let heard = events.iter().find_map(|event| match event {
+        AgentEvent::Text { text } => Some(text.as_str()),
+        _ => None,
+    });
+    let heard = heard.expect("the scripted agent repeats what it is sent");
+    assert!(heard.contains("what was it?"), "{heard}");
+    assert!(heard.contains("the password is swordfish"), "{heard}");
+
+    // The same agent is an ordinary fork, and an agent nobody set up is refused.
+    let same = core
+        .session_fork(source.id, None, Some("claude"))
+        .expect("forks");
+    assert_eq!(
+        (same.agent.as_str(), same.model.as_deref()),
+        ("claude", Some("opus"))
+    );
+    assert!(matches!(
+        core.session_fork(source.id, None, Some("nope")),
+        Err(Error::AgentNotFound(_))
+    ));
+}
+
+#[tokio::test]
 async fn a_session_can_name_its_model_and_only_a_configured_agent() {
     let fx = fixture();
     let core = core_with(&fx, scripted_agent(&[])).await;

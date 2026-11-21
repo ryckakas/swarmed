@@ -45,6 +45,9 @@ export interface Words {
     delegate: string;
     /** What ending a session and taking it out of the sidebar is called. */
     closeSession: string;
+    /** Starting a session from all of this one, on the same agent and on another. */
+    forkAll: string;
+    cloneTo: string;
     /** Closing a session and keeping its conversation, and deleting it with the conversation. */
     archiveSession: string;
     deleteSession: string;
@@ -111,6 +114,8 @@ const PLAIN: Words = {
     reopen: "Reopen",
     delegate: "Delegate to the cloud",
     closeSession: "Close session",
+    forkAll: "Fork this conversation",
+    cloneTo: "Clone to…",
     archiveSession: "Archive",
     deleteSession: "Delete",
     closeAsk: "Close this session?",
@@ -166,6 +171,8 @@ const SWARM: Words = {
     unread: (count) => `${count} hatched`,
     noTasks: "The nest is empty",
     closeSession: "Terminate spawn",
+    forkAll: "Split this spawn",
+    cloneTo: "Clone onto…",
     archiveSession: "Burrow",
     deleteSession: "Cull",
     closeAsk: "Terminate this spawn?",

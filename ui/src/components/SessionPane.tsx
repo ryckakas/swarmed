@@ -1,3 +1,4 @@
+import { forkSession } from "../actions";
 import type { AgentEvent, Session, Task } from "../api/types";
 import { isSwarm } from "../appearance";
 import { agentName, iconForAgent } from "../providerIcons";
@@ -5,8 +6,10 @@ import { useStore } from "../store";
 import { findSession, findSessionHome } from "../tree";
 import { useWords } from "../useWords";
 import { Composer } from "./Composer";
-import { EndIcon, IconButton, PanelIcon } from "./IconButton";
+import { EndIcon, ForkIcon, IconButton, PanelIcon } from "./IconButton";
 import { NewTask } from "./NewTask";
+import { useAgents } from "./options";
+import { Picker } from "./Picker";
 import { ProviderMark } from "./ProviderMark";
 import { SessionTitle } from "./SessionTitle";
 import { StatusLine } from "./StatusLine";
@@ -51,6 +54,12 @@ export function SessionPane() {
                     >
                         <EndIcon />
                     </IconButton>
+                    <IconButton
+                        label={`${words.forkAll}: a new session that starts from all of it, on the same agent`}
+                        onClick={() => void forkSession(session.id, null)}
+                    >
+                        <ForkIcon />
+                    </IconButton>
                     {!panelOpen && (
                         <IconButton label="Show the task panel" onClick={togglePanel}>
                             <PanelIcon />
@@ -67,6 +76,7 @@ export function SessionPane() {
                         <ProviderMark icon={iconForAgent(session.agent)} />
                         {agentName(session.agent)}
                     </p>
+                    <CloneTo session={session} />
                 </div>
             </header>
             {events === undefined && <p className="aside loading">Loading the conversation…</p>}
@@ -87,6 +97,29 @@ export function SessionPane() {
                 events={events ?? NO_EVENTS}
             />
         </article>
+    );
+}
+
+/**
+ * A menu of the other agents: choosing one starts a session on it that begins with all that was
+ * said here. This session stays as it is, on its own agent.
+ */
+function CloneTo({ session }: { session: Session }) {
+    const words = useWords();
+    const others = useAgents().filter((agent) => agent.id !== session.agent);
+    if (others.length === 0) {
+        return null;
+    }
+    return (
+        <Picker
+            label={`${words.cloneTo} another agent: a new session there that starts from this conversation`}
+            value=""
+            onChange={(agent) => agent && void forkSession(session.id, null, agent)}
+            options={[
+                ["", words.cloneTo],
+                ...others.map((agent): [string, string] => [agent.id, agent.name]),
+            ]}
+        />
     );
 }
 

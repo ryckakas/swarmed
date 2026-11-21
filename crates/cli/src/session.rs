@@ -71,6 +71,10 @@ pub(crate) enum SessionCommand {
         /// session from 0.
         #[arg(long)]
         before: Option<usize>,
+        /// Run the new session on this agent instead: a clone of the conversation for
+        /// another agent to carry on.
+        #[arg(long)]
+        agent: Option<String>,
     },
     /// Change the model and supervision a session runs with from now on.
     Set {
@@ -199,8 +203,8 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             }
             Ok(())
         }
-        SessionCommand::Fork { id, before } => {
-            let fork = core.session_fork(id, before)?;
+        SessionCommand::Fork { id, before, agent } => {
+            let fork = core.session_fork(id, before, agent.as_deref())?;
             say(&format!("session {}\t{}", fork.id, fork.title));
             Ok(())
         }

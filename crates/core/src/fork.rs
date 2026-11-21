@@ -4,7 +4,8 @@
 //! was said is copied into the new session, for the user to read, and goes to its agent with
 //! the first message, whatever agent that is.
 
-use crate::agent::AgentEvent;
+use crate::agent::{AgentEvent, Supervision};
+use crate::agents::CLAUDE;
 use crate::sessions::{Session, SessionOptions};
 use crate::{Core, Result, lock};
 
@@ -85,12 +86,32 @@ pub(crate) fn with_carried(text: &str, earlier: &str) -> String {
     )
 }
 
+/// The supervision a clone on `agent` starts with: the source's, except that only Claude Code
+/// plans before it acts, so a planning session asks instead on any other agent.
+fn supervision_on(agent: &str, supervision: Supervision) -> Supervision {
+    if supervision == Supervision::Plan && agent != CLAUDE {
+        Supervision::Ask
+    } else {
+        supervision
+    }
+}
+
 impl Core {
     /// A new session in the same task and on the same agent, starting with what was said in
     /// session `id`: all of it, or what was said before its message number `before`, counting
     /// from 0 every message sent into it. Nothing runs until it is started, and its agent is
     /// given the conversation with the first message.
-    pub fn session_fork(&self, id: i64, before: Option<usize>) -> Result<Session> {
+    ///
+    /// With `agent`, the new session runs on that agent instead: a clone of the conversation
+    /// for another agent to carry on. It gets what was said, as text, and not what the first
+    /// agent did or read to say it. Model, effort and fast mode are that agent's own to start
+    /// with, since they mean something else on every agent.
+    pub fn session_fork(
+        &self,
+        id: i64,
+        before: Option<usize>,
+        agent: Option<&str>,
+    ) -> Result<Session> {
         let source = self.session(id)?;
         let earlier = kept(&self.session_events(id)?, before);
         let title = if source.title.is_empty() {
@@ -98,13 +119,26 @@ impl Core {
         } else {
             format!("{} (fork)", source.title)
         };
-        let options = SessionOptions {
-            agent: Some(source.agent),
-            title: Some(title),
-            model: source.model,
-            supervision: source.supervision,
-            effort: source.effort,
-            fast: source.fast,
+        let options = match agent.filter(|agent| *agent != source.agent) {
+            None => SessionOptions {
+                agent: Some(source.agent),
+                title: Some(title),
+                model: source.model,
+                supervision: source.supervision,
+                effort: source.effort,
+                fast: source.fast,
+            },
+            Some(other) => {
+                self.agents_now().backend(other)?;
+                SessionOptions {
+                    agent: Some(other.to_string()),
+                    title: Some(title),
+                    model: None,
+                    supervision: supervision_on(other, source.supervision),
+                    effort: None,
+                    fast: false,
+                }
+            }
         };
         let store = lock(&self.store);
         let fork = store.session_insert(source.task_id, &options)?;
@@ -136,6 +170,16 @@ mod tests {
             cost_usd: None,
             duration_ms: None,
         }
+    }
+
+    #[test]
+    fn a_clone_on_another_agent_asks_where_the_first_one_planned() {
+        assert_eq!(supervision_on("codex", Supervision::Plan), Supervision::Ask);
+        assert_eq!(supervision_on(CLAUDE, Supervision::Plan), Supervision::Plan);
+        assert_eq!(
+            supervision_on("codex", Supervision::Auto),
+            Supervision::Auto
+        );
     }
 
     #[test]
