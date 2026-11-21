@@ -232,6 +232,23 @@ describe("HTML shown from a script", () => {
         expect(htmlInCode("tools.swarmed.show_html({html:'<b>a\\'b</b>'})")).toBe("<b>a'b</b>");
     });
 
+    it("is found in a constant whose name holds a dollar sign", () => {
+        for (const name of ["$page", "page$", "a$b"]) {
+            const code = `const ${name} = "<p>x</p>";\ntools.swarmed.show_html({ html: ${name} });`;
+            expect(htmlInCode(code)).toBe("<p>x</p>");
+        }
+    });
+
+    it("is taken from the constant of that name, not one whose name ends in it", () => {
+        const code = [
+            'const $page = "<p>no</p>";',
+            'const xpage = "<p>no</p>";',
+            'const page = "<p>yes</p>";',
+            "tools.swarmed.show_html({ html: page });",
+        ].join("\n");
+        expect(htmlInCode(code)).toBe("<p>yes</p>");
+    });
+
     it("is left alone where it cannot be read for certain", () => {
         // Built from pieces: what it comes to is not known without running it.
         const pieced = ["const h = `<p>$", "{x}</p>`; tools.swarmed.show_html({ html: h })"];

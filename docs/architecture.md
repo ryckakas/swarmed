@@ -92,6 +92,8 @@ gitleaks git --redact
 pnpm lint && pnpm typecheck && pnpm complexity && pnpm test
 ```
 
+CodeQL also scans every pull request and `main`, in each language it reads (`codeql.yml`).
+
 The lint policy, which forbids `unsafe` and holds functions to a cognitive complexity of 15 in
 Rust and TypeScript alike, is in [AGENTS.md](../AGENTS.md). [RELEASING.md](../RELEASING.md) says
 how a release is made.
