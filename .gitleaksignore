@@ -1,0 +1,5 @@
+# Findings that are not secrets, by fingerprint. Lines of today are marked gitleaks:allow; these
+# are the commits from before the mark.
+
+# A notification test's made-up token, from before the line was marked.
+6963c13bb45cdf3bd934813a19193b93911cb76b:crates/core/src/notices.rs:curl-auth-header:139

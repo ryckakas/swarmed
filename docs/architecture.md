@@ -88,6 +88,7 @@ cargo test --workspace --all-features
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace --all-features
 cargo deny check && cargo shear && typos && taplo fmt --check
 zizmor .github && actionlint && shellcheck install.sh scripts/*.sh
+gitleaks git --redact
 pnpm lint && pnpm typecheck && pnpm complexity && pnpm test
 ```
 
