@@ -46,6 +46,16 @@ describe("delivered", () => {
     });
 });
 
+describe("delivered at once", () => {
+    it("hands a command Swarmed does itself over whatever the agent is doing", async () => {
+        const { api, calls } = noting();
+        await delivered(api, "working", 1, "/usage", [], true);
+        await delivered(api, "waiting", 1, "/model", [], true);
+        await delivered(api, "idle", 1, "/status", [], true);
+        expect(calls).toEqual(["send 1 /usage ", "send 1 /model ", "send 1 /status "]);
+    });
+});
+
 describe("putBack", () => {
     const unsent = { text: "the message", files: ["/a.txt"] };
 

@@ -27,6 +27,7 @@ import type {
     SessionEvent,
     Settings,
     Skill,
+    SlashCommand,
     Task,
     TaskNaming,
     Template,
@@ -160,7 +161,9 @@ export const tauriApi: Api = {
     sessionInterrupt: (id) => invoke("session_interrupt", { id }),
     taskBackground: (project, name) => invoke("task_background", { project, name }),
     sessionStopBackground: (id, taskId) => invoke("session_stop_background", { id, taskId }),
-    slashCommands: (id) => invoke<string[]>("slash_commands", { id }),
+    slashCommands: (id) => invoke<SlashCommand[]>("slash_commands", { id }),
+    sessionCommandAnswer: (id, requestId, answers) =>
+        invoke("session_command_answer", { id, requestId, answers }),
     sessionSetAgent: (id, agent) => invoke<Session>("session_set_agent", { id, agent }),
     sessionConfigure: (id, settings) => invoke<Session>("session_configure", { id, how: settings }),
     viewUrl: async (document) => {

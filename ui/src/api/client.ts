@@ -29,6 +29,7 @@ import type {
     SessionSetup,
     Settings,
     Skill,
+    SlashCommand,
     Snapshot,
     Task,
     TaskNaming,
@@ -291,7 +292,16 @@ export interface Api {
      * The commands and skills a message can call by starting with `/`, as last reported by the
      * session's agent; for `null` or a session that has not run, by the newest session.
      */
-    slashCommands(id: number | null): Promise<string[]>;
+    slashCommands(id: number | null): Promise<SlashCommand[]>;
+    /**
+     * Answers the questions a command such as `/model` put to the user, each by its text,
+     * which makes the change. `null` puts them aside and changes nothing.
+     */
+    sessionCommandAnswer(
+        id: number,
+        requestId: string,
+        answers: Record<string, string> | null,
+    ): Promise<void>;
     /**
      * Changes the model and supervision. A running agent is told at once: the model applies
      * from its next turn, the supervision from its next action.

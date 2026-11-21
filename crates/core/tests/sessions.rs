@@ -614,19 +614,26 @@ async fn slash_commands_come_from_the_last_start_of_the_session_or_of_another() 
     let fx = fixture();
     let core = core_with_task(&fx).await;
     let mut bus = core.subscribe();
-    assert_eq!(core.slash_commands(None).expect("reads"), [""; 0]);
+    let reported = |session: Option<i64>| -> Vec<String> {
+        let commands = core.slash_commands(session).expect("reads");
+        let own = |name: &str| name == "context" || name == "review";
+        let names = commands.into_iter().map(|command| command.name);
+        names.filter(|name| own(name)).collect()
+    };
+    // Before any agent has started, only what Swarmed shows itself is known.
+    assert_eq!(reported(None), ["context"]);
 
     let session = started_session(&core);
     core.session_send(session.id, "hello").expect("sends");
     turn(&mut bus, session.id).await;
     let known = ["context", "review"];
-    assert_eq!(core.slash_commands(Some(session.id)).expect("reads"), known);
+    assert_eq!(reported(Some(session.id)), known);
 
     let fresh = core
         .session_new("demo", "one", &SessionOptions::default())
         .expect("creates");
-    assert_eq!(core.slash_commands(Some(fresh.id)).expect("reads"), known);
-    assert_eq!(core.slash_commands(None).expect("reads"), known);
+    assert_eq!(reported(Some(fresh.id)), known);
+    assert_eq!(reported(None), known);
     assert!(matches!(
         core.slash_commands(Some(404)),
         Err(Error::SessionNotFound(404))

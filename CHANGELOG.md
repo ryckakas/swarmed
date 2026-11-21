@@ -16,6 +16,13 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **Claude Code's own commands do in Swarmed what they do in a terminal.** `/usage`, `/status`,
+  `/context`, `/cost`, `/memory`, `/skills`, `/hooks` and `/mcp` show their screen in the
+  conversation, with your plan's limits as bars, instead of a block of text or "isn't available
+  in this environment". `/model`, `/effort` and `/config` ask where the conversation stands and
+  are set by your answer; `/model opus` sets it at once. None of them is sent to the model or
+  interrupts a turn. The list after `/` says which commands are shown here, which ask here,
+  and which only work in a terminal; those are no longer sent, and say what to do instead.
 - **The context window's card shows your extra usage:** what is spent beyond your plan this
   month, billed at API prices, against the monthly cap you set, and when this session's turns
   run on it. When a plan's limit is reached and Claude Code goes on with extra usage, the
@@ -40,6 +47,8 @@ notice adds its line under Unreleased.
 
 ### Changed
 
+- **`swarmed-core`: `Core::slash_commands` returns each command with what is done with it**
+  (`SlashCommand`: its name, its kind and a note) instead of only its name.
 - **Removing a task no longer waits for its worktree to be deleted, and only unsaved work stops
   it.** The worktree is moved aside and deleted in the background; what is not deleted yet, or
   could not be, is counted in Settings under what Swarmed takes up. A `stop` or `teardown` that

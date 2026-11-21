@@ -77,7 +77,7 @@ function useViewMessages(frame: RefObject<HTMLIFrameElement | null>): Heard {
  * from an origin of its own and sandboxed, so it cannot call the app, read the page around it,
  * open windows, submit forms or use the network.
  */
-export function HtmlView({ html }: { html: string }) {
+export function HtmlView({ html, label }: { html: string; label?: string }) {
     const holder = useRef<HTMLDivElement>(null);
     const frame = useRef<HTMLIFrameElement>(null);
     const settings = useStore((state) => state.settings);
@@ -130,7 +130,7 @@ export function HtmlView({ html }: { html: string }) {
                     <svg className="fold-chevron" viewBox="0 0 10 10" aria-hidden="true">
                         <path d="M3.5 1.5 7 5 3.5 8.5" />
                     </svg>
-                    View from the agent, sandboxed
+                    {label ?? "View from the agent, sandboxed"}
                 </button>
                 <button type="button" className="changes-refresh" onClick={openInBrowser}>
                     Open in browser

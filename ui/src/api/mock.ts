@@ -1,7 +1,9 @@
 import { lastDays } from "../analytics";
+import { calledCommand } from "../slash";
 import { PLAN_TOOL, withFiles } from "../transcript";
 import { titleFrom } from "../tree";
 import type { Api } from "./client";
+import { MOCK_COMMANDS, mockQuestions, mockSaid, mockScreen } from "./mockCommands";
 import type {
     Action,
     AgentEvent,
@@ -1220,7 +1222,46 @@ class MockAgent {
         return created;
     }
 
+    /**
+     * Does what one of the sample agent's own commands asks, as the core does: a screen is
+     * shown, a setting asked about, and neither is a message. Says whether `text` was one.
+     */
+    private command(id: number, text: string): boolean {
+        const command = calledCommand(text, MOCK_COMMANDS);
+        const bare = text.trim() === `/${command?.name}`;
+        if (command?.kind === "terminal") {
+            throw new Error(`/${command.name} only works in a terminal. ${command.note}`);
+        }
+        const screen = command?.kind === "screen" && bare ? mockScreen(command.name) : null;
+        const questions = command?.kind === "setting" ? mockQuestions(command.name) : null;
+        if (screen) {
+            this.later(id, screen, null);
+        } else if (command && questions) {
+            const request_id = `${command.name}-${this.nextId++}`;
+            this.publish(
+                id,
+                { type: "command_asked", request_id, command: command.name, questions },
+                null,
+            );
+        }
+        return screen !== null || questions !== null;
+    }
+
+    /** Takes the answers to a sample command's questions; `null` puts them aside. */
+    answerCommand(id: number, requestId: string, answers: Record<string, string> | null) {
+        const command = requestId.replace(/-[^-]*$/, "");
+        const said = mockSaid(command, answers);
+        const [chosen] = Object.values(answers ?? {});
+        if (command === "model" && chosen !== undefined) {
+            this.configure(id, { model: chosen === "Default" ? null : chosen });
+        }
+        this.publish(id, { type: "command_answered", request_id: requestId, said }, null);
+    }
+
     send(id: number, text: string) {
+        if (this.command(id, text)) {
+            return;
+        }
         this.publish(id, { type: "user_message", text }, "working");
         const said = this.history(id).filter((event) => event.type === "user_message");
         const first = said.length === 1;
@@ -1923,18 +1964,9 @@ export function createMockApi(): Api {
         sessionDeny: async (id, requestId) => agent.decide(id, requestId, false),
         sessionInterrupt: async (id) => agent.interrupt(id),
         ...backgroundApi(),
-        slashCommands: async () => [
-            "code-review",
-            "context",
-            "frontend-design",
-            "grill-me",
-            "init",
-            "planning",
-            "review",
-            "security-review",
-            "simplify",
-            "tdd",
-        ],
+        slashCommands: async () => MOCK_COMMANDS,
+        sessionCommandAnswer: async (id, requestId, answers) =>
+            agent.answerCommand(id, requestId, answers),
         sessionConfigure: async (id, settings) => agent.configure(id, settings),
         sessionSetAgent: async (id, to) =>
             agent.configure(id, { agent: to, model: null, fast: false }),

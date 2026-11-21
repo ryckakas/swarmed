@@ -186,6 +186,26 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **"Open in Terminal" hands the worktree to a terminal application** (`open::in_terminal`,
   `Settings::terminal_app`) through macOS's `open -a`, whose exit says whether there is such an
   application. It is apart from the session's own terminal, which is xterm.js in the window.
+- **Claude Code's own `/` commands are each one of four kinds, in one table**
+  (`commands.rs`, `CLAUDE_COMMANDS`). In a terminal many of them open a screen; run as Swarmed
+  runs it, Claude Code has none. A *screen* (`/usage`, `/status`, `/context`, `/cost`,
+  `/memory`, `/skills`, `/hooks`, `/mcp`) is asked of Claude Code with one control request
+  (`agent/claude/screens.rs`, the only place that knows their shapes) and arrives as
+  `AgentEvent::Screen`: headed rows, a measure with its share. A *setting* (`/model`,
+  `/effort`, `/config`) is put to the user as questions, `CommandAsked`, in the shape of an
+  agent's own questions, and the answer (`session_command_answer`) is applied by the core:
+  model and effort with `session_configure`, Claude Code's settings by sending it
+  `/config key=value`, which it takes in words. A command that only means something in a
+  terminal is refused (`Error::TerminalOnly`) with what to do in Swarmed instead. Anything
+  else, and any name the table does not hold, is a message. None of the first three starts a
+  turn or records a message. A new command of Claude Code's goes into the table on purpose:
+  the test there lists what a known version reports. With words after it a screen's command
+  is Claude Code's to take (`/mcp reconnect docs`), and waits in the queue if the agent is
+  busy. What waits in the queue is sent as typed. The UI draws a screen as HTML it builds
+  itself (`screens.ts`, every word escaped) in the same sandboxed frame as a view, and sends
+  such commands at once instead of queueing them (`takenBySwarmed`). A screen is the user's:
+  nothing that hands a conversation on (forks, peers, the cloud, search) reads it. Of
+  `mcp_status` only names and states are read, never the definitions, which hold secrets.
 - **A skill can be called by name, `/name`, on any agent** (`Paths::skill_called`, used by
   `send_text`). Claude Code answers to its own skills itself; for every other skill and agent
   Swarmed sends what the skill says with the rest of the message, and records the message as

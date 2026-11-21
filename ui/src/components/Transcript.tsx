@@ -1,7 +1,8 @@
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { memo, useLayoutEffect, useMemo, useRef } from "react";
 import { forkFromMessage } from "../actions";
 import type { AgentEvent } from "../api/types";
 import { messageParts } from "../pastes";
+import { screenHtml } from "../screens";
 import { useStore } from "../store";
 import { activity, type Item, PLAN_TOOL, summarize, toItems } from "../transcript";
 import { formatDuration } from "../turns";
@@ -14,6 +15,7 @@ import { FileChips } from "./FileChips";
 import { HtmlView } from "./HtmlView";
 import { Markdown } from "./Markdown";
 import { PermissionPrompt } from "./PermissionPrompt";
+import { QuestionPrompt } from "./QuestionPrompt";
 import { Spawning } from "./Spawning";
 import { ToolCall } from "./ToolCall";
 
@@ -167,6 +169,24 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
             );
         case "view":
             return <HtmlView html={item.html} />;
+        case "screen":
+            return <ScreenView item={item} />;
+        case "asked":
+            if (item.said !== null) {
+                return (
+                    <p className="asked">
+                        <span className="mono">/{item.command}</span> {item.said}
+                    </p>
+                );
+            }
+            return (
+                <QuestionPrompt
+                    sessionId={sessionId}
+                    requestId={item.requestId}
+                    questions={item.questions}
+                    command={item.command}
+                />
+            );
         case "terminal":
             return (
                 <details className="shared-terminal">
@@ -202,6 +222,23 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
             );
     }
 }
+
+/**
+ * One of the agent's own screens, drawn from what the agent said is on it. The transcript's
+ * items are built again for every piece of a reply; the screen's parts are the event's own and
+ * stay the same object, so its HTML, and with it the frame, is only built once.
+ */
+const ScreenView = memo(
+    function ScreenView({ item }: { item: Extract<Item, { kind: "screen" }> }) {
+        const html = useMemo(
+            () => screenHtml({ note: item.note, sections: item.sections }),
+            [item.note, item.sections],
+        );
+        return <HtmlView html={html} label={`/${item.command}: ${item.title}`} />;
+    },
+    (before, after) =>
+        before.item.sections === after.item.sections && before.item.note === after.item.note,
+);
 
 /** What the agent is doing right now, in the words of the style in use. */
 function Activity({ events }: { events: AgentEvent[] }) {

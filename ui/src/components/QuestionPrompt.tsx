@@ -1,6 +1,6 @@
 import { type KeyboardEvent, type RefObject, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import { focusIsFree } from "../focus";
+import { focusIsFree, focusIsIdle } from "../focus";
 import {
     type Asking,
     allAnswered,
@@ -21,10 +21,16 @@ interface Props {
     sessionId: number;
     requestId: string;
     questions: Question[];
+    /**
+     * The command that asks, without its slash, when the questions are not an agent's but
+     * those of a command the user sent, such as `/model`: the answers then go to Swarmed,
+     * which makes the change.
+     */
+    command?: string;
 }
 
 /** The choosing itself: where the user is, and how answers leave. */
-function useAnswering({ sessionId, requestId, questions }: Props) {
+function useAnswering({ sessionId, requestId, questions, command }: Props) {
     const report = useStore((state) => state.report);
     const [asking, setAsking] = useState<Asking>(() => unanswered(questions));
     const [sent, setSent] = useState(false);
@@ -35,8 +41,14 @@ function useAnswering({ sessionId, requestId, questions }: Props) {
             report(error);
         });
     };
-    const send = (now: Asking) =>
-        settle(api.sessionAnswer(sessionId, requestId, answersOf(questions, now)));
+    const send = (now: Asking) => {
+        const answers = answersOf(questions, now);
+        settle(
+            command === undefined
+                ? api.sessionAnswer(sessionId, requestId, answers)
+                : api.sessionCommandAnswer(sessionId, requestId, answers),
+        );
+    };
     /** Takes a new state, and sends it if that answered all there was to answer. */
     const take = (next: Asking) => {
         setAsking(next);
@@ -44,29 +56,46 @@ function useAnswering({ sessionId, requestId, questions }: Props) {
             send(next);
         }
     };
-    const skip = () => settle(api.sessionDeny(sessionId, requestId, SKIPPED));
+    const skip = () =>
+        settle(
+            command === undefined
+                ? api.sessionDeny(sessionId, requestId, SKIPPED)
+                : api.sessionCommandAnswer(sessionId, requestId, null),
+        );
     return { asking, setAsking, sent, send, take, skip };
 }
 
 type Answering = ReturnType<typeof useAnswering>;
 
 /**
+ * The card, which takes the keyboard as it appears. A question is what the user must act on
+ * next, so the keys go to it: but only while nothing else has them. Taken from the message
+ * box, a digit typed would answer. One the user asked for themselves, by sending a command
+ * (`byCommand`), also takes them from the message box it was sent from, as long as nothing
+ * new is typed there.
+ */
+function useKeysOnArrival(byCommand: boolean) {
+    const card = useRef<HTMLElement>(null);
+    // biome-ignore lint/correctness/useExhaustiveDependencies: only as the question appears
+    useEffect(() => {
+        const free = byCommand ? focusIsIdle : focusIsFree;
+        if (free(document.activeElement, document.body)) {
+            card.current?.focus();
+        }
+    }, []);
+    return card;
+}
+
+/**
  * What the agent asks the user, to be answered where it stands: a number chooses an option,
  * the arrows move, Enter confirms, and so does a click.
  */
 export function QuestionPrompt(props: Props) {
-    const { questions } = props;
+    const { questions, command } = props;
     const answering = useAnswering(props);
     const { asking, sent, send, take } = answering;
     const own = useRef<HTMLInputElement>(null);
-    const card = useRef<HTMLElement>(null);
-    // A question is what the user must act on next, so the keys go to it as it appears: but
-    // only while nothing else has them. Taken from the message box, a digit typed would answer.
-    useEffect(() => {
-        if (focusIsFree(document.activeElement, document.body)) {
-            card.current?.focus();
-        }
-    }, []);
+    const card = useKeysOnArrival(command !== undefined);
     const onKey = (event: KeyboardEvent<HTMLElement>) => {
         // What is typed into the user's own answer is text, not a choice.
         if (sent || event.target === own.current || event.metaKey || event.ctrlKey) {
@@ -93,7 +122,9 @@ export function QuestionPrompt(props: Props) {
         <section
             ref={card}
             className="permission question"
-            aria-label="Question from the agent"
+            aria-label={
+                command === undefined ? "Question from the agent" : `Choices of /${command}`
+            }
             aria-busy={sent}
             // biome-ignore lint/a11y/noNoninteractiveTabindex: the card takes the keys that choose an answer
             tabIndex={0}

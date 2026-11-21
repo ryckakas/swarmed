@@ -1,5 +1,6 @@
-import type { AgentEvent } from "./api/types";
+import type { AgentEvent, ScreenSection } from "./api/types";
 import { shownHtml } from "./htmlview";
+import { QUESTION_TOOL, type Question, questionsOf } from "./questions";
 import { limitNotice, type RateLimit } from "./rateLimit";
 
 // Turns a session's raw events into what the transcript shows. Pure, so it can be tested.
@@ -31,6 +32,27 @@ export type Item =
           title: string;
           detail: string;
           accepted: boolean | null;
+      }
+    /** One of the agent's own screens, such as `/usage`, which the user asked to see. */
+    | {
+          kind: "screen";
+          key: number;
+          command: string;
+          title: string;
+          note: string;
+          sections: ScreenSection[];
+      }
+    /**
+     * What a command such as `/model` asks the user. It stays where it was asked: `said` is
+     * what came of it once it is answered, and `null` while it waits.
+     */
+    | {
+          kind: "asked";
+          key: number;
+          requestId: string;
+          command: string;
+          questions: Question[];
+          said: string | null;
       }
     /** HTML the agent showed the user through Swarmed's tool. */
     | { kind: "view"; key: number; html: string }
@@ -145,6 +167,10 @@ function single(event: AgentEvent, key: number): Item | null {
             return event.html.trim() === "" ? null : { kind: "view", key, html: event.html };
         case "forked":
             return { kind: "forked", key, from: event.from };
+        case "screen": {
+            const { command, title, note, sections } = event;
+            return { kind: "screen", key, command, title, note, sections };
+        }
         case "init":
             return sessionItem(event, key);
         case "turn_done":
@@ -202,6 +228,8 @@ interface Draft {
     settled: Set<Item>;
     /** The proposed changes to the configuration, by request id. */
     proposals: Map<string, Extract<Item, { kind: "proposal" }>>;
+    /** What commands asked the user, by request id. */
+    asked: Map<string, Extract<Item, { kind: "asked" }>>;
     /** Claude Code's last usage report, so that a warning is said once. */
     limit: RateLimit | null;
 }
@@ -214,6 +242,7 @@ export function toItems(events: AgentEvent[]): Item[] {
         open: new Map(),
         settled: new Set(),
         proposals: new Map(),
+        asked: new Map(),
         limit: null,
     };
     events.forEach((event, key) => {
@@ -278,6 +307,10 @@ function add(draft: Draft, event: AgentEvent, key: number) {
             return addProposal(draft, event, key);
         case "config_answered":
             return answerProposal(draft.proposals.get(event.request_id), event.accepted);
+        case "command_asked":
+            return addAsked(draft, event, key);
+        case "command_answered":
+            return answerAsked(draft, event, key);
         case "rate_limit":
             return addLimit(draft, event, key);
         default:
@@ -304,6 +337,41 @@ function answerProposal(
     if (proposal) {
         proposal.accepted = accepted;
     }
+}
+
+function addAsked(
+    draft: Draft,
+    event: Extract<AgentEvent, { type: "command_asked" }>,
+    key: number,
+) {
+    const { request_id: requestId, command } = event;
+    // Questions that cannot be shown leave nothing to choose from, so nothing is drawn.
+    const questions = questionsOf(QUESTION_TOOL, { questions: event.questions });
+    if (questions === null) {
+        return;
+    }
+    const asked: Item = { kind: "asked", key, requestId, command, questions, said: null };
+    draft.asked.set(requestId, asked);
+    draft.items.push(asked);
+}
+
+/**
+ * A question says what came of it where it was asked. An answer to none that was asked is a
+ * setting named with its command, as in `/model opus`: it is a line of its own.
+ */
+function answerAsked(
+    draft: Draft,
+    event: Extract<AgentEvent, { type: "command_answered" }>,
+    key: number,
+) {
+    const asked = draft.asked.get(event.request_id);
+    if (asked) {
+        asked.said = event.said;
+        return;
+    }
+    const command = event.request_id.replace(/-[^-]*$/, "");
+    const { request_id: requestId, said } = event;
+    draft.items.push({ kind: "asked", key, requestId, command, questions: [], said });
 }
 
 function addLimit(draft: Draft, event: RateLimit, key: number) {

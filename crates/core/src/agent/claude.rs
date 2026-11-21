@@ -27,6 +27,8 @@ use crate::agent_setup::{default_tool_dirs, find_program};
 use crate::error::{Error, Result};
 use crate::mcp::{McpServer, McpTransport};
 
+mod screens;
+
 /// How much of the process's stderr is kept for [`AgentEvent::Exited`].
 const STDERR_TAIL_CHARS: usize = 2000;
 
@@ -591,6 +593,7 @@ fn command_line(command: AgentCommand, pending: &Pending, requests: &mut u64) ->
             requests,
             &json!({ "subtype": "stop_task", "task_id": task_id }),
         ),
+        AgentCommand::Show(kind) => screens::request(kind),
     }
 }
 
@@ -650,10 +653,11 @@ fn parse_message(message: &Value, pending: &Pending) -> Vec<AgentEvent> {
             duration_ms: None,
         }],
         "prompt_suggestion" => parse_suggestion(message).into_iter().collect(),
-        // Of the replies to our own control requests, these two are of use.
+        // The replies to our own control requests that are of use.
         "control_response" => parse_context(message)
             .or_else(|| parse_applied(message))
             .or_else(|| parse_extra_usage(message))
+            .or_else(|| screens::parse(message))
             .into_iter()
             .collect(),
         "system" => parse_background(message).into_iter().collect(),
