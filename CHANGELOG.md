@@ -14,6 +14,8 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-21
+
 ### Added
 
 - **A Claude Code command whose screen exists only in its own terminal opens there in one
@@ -179,5 +181,6 @@ through Homebrew or a browser.
 - **Installing:** an install script, a Homebrew cask that also puts `swarmed` on the PATH, and
   `cargo install swarmed` for the command alone.
 
-[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ryckakas/swarmed/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ryckakas/swarmed/releases/tag/v0.1.0
