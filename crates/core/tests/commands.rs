@@ -190,13 +190,14 @@ async fn a_terminal_command_is_refused_before_anything_is_started_or_said() {
         told.starts_with("/login only works in a terminal. "),
         "{told}"
     );
-    let plain = core
-        .session_message(session.id, "/vim", &[], Auth::Subscription)
+    // By another of its names as well: `/new` empties the conversation as `/clear` does.
+    let cleared = core
+        .session_message(session.id, "/new", &[], Auth::Subscription)
         .expect_err("refused")
         .to_string();
     assert!(
-        plain.starts_with("/vim only works in a terminal: open the task in one"),
-        "{plain}"
+        cleared.contains("start a new session in the task"),
+        "{cleared}"
     );
     assert_eq!(core.running_sessions(), [0_i64; 0]);
     assert_eq!(core.session_events(session.id).expect("reads"), []);

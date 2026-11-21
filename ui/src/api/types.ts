@@ -650,6 +650,11 @@ export type AgentEvent =
     /** The user answered such a question or put it aside; `said` is what came of it. */
     | { type: "command_answered"; request_id: string; said: string }
     /**
+     * A command that only opens a screen in the agent's own terminal was sent, and the agent
+     * said it has no screen to open it in. `command` is as it was typed, without its slash.
+     */
+    | { type: "terminal_only"; command: string }
+    /**
      * Something a sub-agent said or did. `parent` is the tool call that started it, which
      * tells one sub-agent from another.
      */

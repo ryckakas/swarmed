@@ -615,6 +615,13 @@ pub enum AgentEvent {
         /// What came of it, in a line: what was set, or that nothing was.
         said: String,
     },
+    /// A command of the agent's that only opens a screen in its own terminal was sent, and the
+    /// agent answered that it has no screen to open it in. Claude Code marks that answer, so
+    /// that it is told apart from a reply without knowing the command.
+    TerminalOnly {
+        /// The command as it was typed, without its slash.
+        command: String,
+    },
     /// Something this version does not understand; kept so nothing is lost silently.
     Other {
         /// The message as received.

@@ -4,8 +4,9 @@
 //! Run as Swarmed runs it, Claude Code has no screen. Each command it has is therefore one of
 //! four kinds here, in one table: sent on as a message, shown as a screen whose contents
 //! Claude Code is asked for, put to the user as a question whose answer Swarmed applies, or
-//! refused because it only means something in a terminal. A command the table does not name is
-//! a skill or a command of the user's own, and is sent on.
+//! refused because Swarmed has its own way to do it. A command the table does not name is
+//! sent on: a skill, a command of the user's own, or one that only opens a screen in the
+//! terminal, which Claude Code answers itself, marked as such.
 
 use std::collections::{BTreeMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -68,14 +69,20 @@ const MODE_MENU: &str = "What an agent may do without asking is chosen in the se
 const FORK: &str = "A session is forked from one of its messages.";
 const SIGN_IN: &str = "Swarmed handles no sign-in: run `claude` in a terminal for it.";
 const CLOSE: &str = "A session is closed with the button in its header.";
+const NEW_SESSION: &str = "For an empty conversation, start a new session in the task.";
 
 /// Claude Code's own commands, each in the one kind it is handled as.
 ///
 /// A command Claude Code gains goes in here on purpose: the test below holds every command a
-/// known version reports, and fails for one this table does not name.
+/// known version reports, and fails for one this table does not name. A command that only
+/// opens a screen in the terminal needs no place here unless Swarmed has its own way to do it:
+/// sent, it is answered by Claude Code itself, marked, and shown as [`AgentEvent::TerminalOnly`].
 const CLAUDE_COMMANDS: &[(&str, Handling)] = &[
     // Screens Claude Code describes to a host on request.
     ("usage", Show(ScreenKind::Usage)),
+    // Buying usage credits and setting their cap is left to the terminal: the figures are shown.
+    ("usage-credits", Show(ScreenKind::Usage)),
+    ("extra-usage", Show(ScreenKind::Usage)),
     ("cost", Show(ScreenKind::Cost)),
     ("status", Show(ScreenKind::Status)),
     ("context", Show(ScreenKind::Context)),
@@ -92,11 +99,9 @@ const CLAUDE_COMMANDS: &[(&str, Handling)] = &[
     ("agents", Send),
     ("auto-mode-setup", Send),
     ("autocompact", Send),
-    ("clear", Send),
     ("compact", Send),
     ("design-consent", Send),
     ("design-revoke", Send),
-    ("extra-usage", Send),
     ("focus", Send),
     ("goal", Send),
     ("heapdump", Send),
@@ -113,17 +118,9 @@ const CLAUDE_COMMANDS: &[(&str, Handling)] = &[
     ("skill-doctor", Send),
     ("team-onboarding", Send),
     ("ultrareview", Send),
-    ("usage-credits", Send),
-    // Screens and switches of the terminal, which mean nothing here.
-    ("add-dir", Terminal("")),
-    (
-        "bashes",
-        Terminal("What an agent left running is listed with its task."),
-    ),
+    // Screens and switches of the terminal that Swarmed has its own way to do.
+    ("clear", Terminal(NEW_SESSION)),
     ("branch", Terminal(FORK)),
-    ("btw", Terminal("")),
-    ("bug", Terminal("")),
-    ("chrome", Terminal("")),
     (
         "color",
         Terminal("Colours are chosen in Swarmed's settings."),
@@ -132,37 +129,25 @@ const CLAUDE_COMMANDS: &[(&str, Handling)] = &[
         "continue",
         Terminal("A closed session is reopened from its task."),
     ),
-    ("desktop", Terminal("")),
     ("diff", Terminal("A task's changes are in its Changes tab.")),
-    ("doctor", Terminal("")),
     ("exit", Terminal(CLOSE)),
-    ("export", Terminal("")),
     (
         "fast",
         Terminal("Fast mode is switched beside the session's model."),
     ),
-    ("feedback", Terminal("")),
     ("fork", Terminal(FORK)),
     (
         "help",
         Terminal("The message box lists the commands as you type `/`."),
     ),
-    ("ide", Terminal("")),
-    ("install-github-app", Terminal("")),
     (
         "keybindings",
         Terminal("Swarmed's shortcuts are listed in its settings."),
     ),
     ("login", Terminal(SIGN_IN)),
     ("logout", Terminal(SIGN_IN)),
-    ("mobile", Terminal("")),
     ("permissions", Terminal(MODE_MENU)),
     ("plan", Terminal(MODE_MENU)),
-    ("plugin", Terminal("")),
-    ("privacy-settings", Terminal("")),
-    ("quit", Terminal(CLOSE)),
-    ("release-notes", Terminal("")),
-    ("remote-control", Terminal("")),
     (
         "rename",
         Terminal("A session is renamed by pressing its title."),
@@ -172,8 +157,6 @@ const CLAUDE_COMMANDS: &[(&str, Handling)] = &[
         Terminal("A closed session is reopened from its task."),
     ),
     ("rewind", Terminal(FORK)),
-    ("sandbox", Terminal("")),
-    ("stats", Terminal("")),
     (
         "statusline",
         Terminal("The status line is set in Swarmed's settings."),
@@ -182,23 +165,37 @@ const CLAUDE_COMMANDS: &[(&str, Handling)] = &[
         "tasks",
         Terminal("What an agent left running is listed with its task."),
     ),
-    ("teleport", Terminal("")),
-    ("terminal-setup", Terminal("")),
     (
         "theme",
         Terminal("Colours are chosen in Swarmed's settings."),
     ),
-    ("todos", Terminal("")),
-    ("tui", Terminal("")),
-    ("upgrade", Terminal("")),
-    ("vim", Terminal("")),
-    ("voice", Terminal("")),
 ];
 
-/// What is done with command `name` of `agent`, if the agent's commands are known here.
+/// The other names Claude Code takes for commands in the table, each with the command it
+/// stands for: `/new` clears a conversation as `/clear` does.
+const CLAUDE_ALIASES: &[(&str, &str)] = &[
+    ("allowed-tools", "permissions"),
+    ("bashes", "tasks"),
+    ("checkpoint", "rewind"),
+    ("name", "rename"),
+    ("new", "clear"),
+    ("quit", "exit"),
+    ("reset", "clear"),
+    ("settings", "config"),
+    ("stats", "usage"),
+    ("undo", "rewind"),
+];
+
+/// What is done with command `name` of `agent`, by its name or another it goes by, if the
+/// agent's commands are known here.
 fn handling(agent: &str, name: &str) -> Option<Handling> {
+    if agent != CLAUDE {
+        return None;
+    }
+    let alias = CLAUDE_ALIASES.iter().find(|(alias, _)| *alias == name);
+    let name = alias.map_or(name, |(_, command)| *command);
     let known = CLAUDE_COMMANDS.iter().find(|(known, _)| *known == name);
-    known.filter(|_| agent == CLAUDE).map(|(_, how)| *how)
+    known.map(|(_, how)| *how)
 }
 
 /// A message taken apart as a command: its name without the slash, and what follows it.
@@ -682,6 +679,43 @@ mod tests {
         ] {
             assert_ne!(handling(CLAUDE, screen), Some(Send), "/{screen}");
         }
+    }
+
+    #[test]
+    fn a_command_called_by_another_name_is_handled_as_itself() {
+        for (alias, command) in CLAUDE_ALIASES {
+            assert!(
+                handling(CLAUDE, command).is_some(),
+                "/{alias} stands for no command"
+            );
+            assert_eq!(
+                handling(CLAUDE, alias),
+                handling(CLAUDE, command),
+                "/{alias}"
+            );
+            assert!(
+                CLAUDE_COMMANDS.iter().all(|(name, _)| name != alias),
+                "/{alias} is in the table as well"
+            );
+        }
+        // Run under Swarmed, Claude Code would empty its conversation while the session went on
+        // showing it: a new session is an empty one.
+        for name in ["clear", "new", "reset"] {
+            assert_eq!(
+                handling(CLAUDE, name),
+                Some(Terminal(NEW_SESSION)),
+                "/{name}"
+            );
+        }
+        // Without its screen, Claude Code only says to run it in a terminal.
+        assert_eq!(
+            handling(CLAUDE, "usage-credits"),
+            Some(Show(ScreenKind::Usage))
+        );
+        // A command that only opens a screen is Claude Code's to say so of, and one that has
+        // come to work without a screen, as `/doctor` has, is not refused by an old guess.
+        assert_eq!(handling(CLAUDE, "privacy-settings"), None);
+        assert_eq!(handling(CLAUDE, "doctor"), None);
     }
 
     #[test]

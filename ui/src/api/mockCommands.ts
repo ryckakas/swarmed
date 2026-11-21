@@ -26,6 +26,15 @@ export const MOCK_COMMANDS: SlashCommand[] = [
     { name: "rename", kind: "terminal", note: "A session is renamed by pressing its title." },
 ];
 
+/** Commands the sample agent only has a screen for in its own terminal, as Claude Code does. */
+const SCREEN_ONLY = ["theme", "vim", "privacy-settings"];
+
+/** The command `text` calls if it is one the sample agent can only show in its terminal. */
+export function mockScreenOnly(text: string): string | null {
+    const name = /^\s*\/(\S+)/.exec(text)?.[1];
+    return name !== undefined && SCREEN_ONLY.includes(name) ? name : null;
+}
+
 const IN_HOURS = (hours: number) => new Date(Date.now() + hours * 3_600_000).toISOString();
 
 const SCREENS: Record<string, () => { title: string; note: string; sections: ScreenSection[] }> = {

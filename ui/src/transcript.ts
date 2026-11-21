@@ -54,6 +54,8 @@ export type Item =
           questions: Question[];
           said: string | null;
       }
+    /** A command the agent could only show on a screen in its own terminal. */
+    | { kind: "terminal-only"; key: number; command: string }
     /** HTML the agent showed the user through Swarmed's tool. */
     | { kind: "view"; key: number; html: string }
     /** What happened in the terminal, as the agent was told with the message before it. */
@@ -162,6 +164,8 @@ function single(event: AgentEvent, key: number): Item | null {
             return { kind: "text", key, text: event.text, streaming: true };
         case "terminal_shared":
             return { kind: "terminal", key, text: event.text };
+        case "terminal_only":
+            return { kind: "terminal-only", key, command: event.command };
         // A view of nothing is not drawn: there is nothing in it to see.
         case "view":
             return event.html.trim() === "" ? null : { kind: "view", key, html: event.html };

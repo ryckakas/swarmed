@@ -170,8 +170,14 @@ fn usage(body: &Value) -> (String, Vec<ScreenSection>) {
         section("This session", session_rows(body.get("session"))),
     ];
     // The plan's name is in the answer too, and left there: a screen is stored.
-    (String::new(), sections.into_iter().flatten().collect())
+    let credits = limits.get("extra_usage").is_some_and(Value::is_object);
+    let note = if credits { CREDITS } else { "" };
+    (note.to_string(), sections.into_iter().flatten().collect())
 }
+
+/// What the terminal's `/usage-credits` does that Swarmed leaves to it: it handles no billing.
+const CREDITS: &str = "To buy usage credits or change their monthly cap, run /usage-credits in Claude Code's own \
+     terminal.";
 
 fn limit_row(limit: &Value) -> Option<ScreenRow> {
     let share = percent(limit.get("percent"))?;
@@ -471,8 +477,8 @@ mod tests {
             },
         });
         let (note, sections) = screen(ScreenKind::Usage, &body);
-        // The plan's name is not kept, and a screen is.
-        assert_eq!(note, "");
+        // The plan's name is not kept, and a screen is. What only the terminal does is named.
+        assert_eq!(note, CREDITS);
         let titles: Vec<&str> = sections.iter().map(|part| part.title.as_str()).collect();
         assert_eq!(titles, ["Plan limits", "Extra usage", "This session"]);
         let limits = &sections[0].rows;

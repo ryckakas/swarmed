@@ -451,4 +451,9 @@ describe("the agent's own commands", () => {
         const empty: AgentEvent = { ...asked, questions: [{ ...question, options: [] }] };
         expect(toItems([empty])).toEqual([]);
     });
+
+    it("says a command only works in the agent's terminal, not as a reply of the agent's", () => {
+        const refused: AgentEvent = { type: "terminal_only", command: "theme" };
+        expect(toItems([refused])).toEqual([{ kind: "terminal-only", key: 0, command: "theme" }]);
+    });
 });
