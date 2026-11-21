@@ -24,8 +24,8 @@ export const DEFAULT_PALETTE: Palette = "swarm";
 
 /** The icons and words on offer, with the names to show. */
 export const STYLES: [Style, string][] = [
-    ["colony", "Swarm, tree renamed too"],
-    ["swarm", "Swarm"],
+    ["colony", "True swarm"],
+    ["swarm", "Weak swarm"],
     ["plain", "Boring"],
 ];
 

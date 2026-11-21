@@ -196,7 +196,7 @@ function Appearance({ settings }: { settings: Settings }) {
             </Row>
             <Row
                 label="Icons and words"
-                hint="Swarm draws sessions as eggs and larvae: dormant, mutating, hatched. Works with any palette."
+                hint="Weak swarm draws sessions as eggs and larvae: dormant, mutating, hatched. True swarm renames the tree too. Works with any palette."
             >
                 <Picker
                     label="Icons and words"
