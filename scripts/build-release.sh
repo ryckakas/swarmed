@@ -43,8 +43,12 @@ pnpm exec tauri build --target universal-apple-darwin \
 bundle=target/universal-apple-darwin/release/bundle
 rm -rf "${out}"
 mkdir -p "${out}"
-# ditto keeps the bundle as macOS expects it, signature included.
-ditto -c -k --keepParent "${bundle}/macos/Swarmed.app" "${out}/${name}.zip"
+# ditto keeps the bundle as macOS expects it, signature included. Without the extended attributes
+# (macOS marks every file it builds with one), resource forks and ACLs: ditto stores those as
+# ._name files, which Homebrew's unzip unpacks into the bundle as files of their own, and a bundle
+# with files its signature does not list is refused as damaged.
+ditto -c -k --norsrc --noextattr --noacl --keepParent "${bundle}/macos/Swarmed.app" \
+    "${out}/${name}.zip"
 cp "${bundle}/dmg/Swarmed_${version}_universal.dmg" "${out}/${name}.dmg"
 (
     cd "${out}"
