@@ -1251,10 +1251,13 @@ code {
     font: inherit;
     font-size: var(--text-md);
     line-height: 1;
-    /* Always there to be found, and out of the way until its row is pointed at. */
-    opacity: 0.4;
+    /* Out of the way until its row is pointed at or reached with the keyboard. */
+    opacity: 0;
 }
 
+.closed-row:hover .row-close,
+.closed-row:focus-within .row-close,
+.row-head:focus-within .row-close,
 .session-line:hover .row-close,
 .session-line:focus-within .row-close,
 .row-head:hover .row-close,

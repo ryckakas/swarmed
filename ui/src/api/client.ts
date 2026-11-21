@@ -308,6 +308,8 @@ export interface Api {
     sessionReopen(id: number): Promise<Session>;
     /** Stops the session's agent and takes the session out of the tree. Its history is kept. */
     sessionClose(id: number): Promise<void>;
+    /** Deletes a session and its conversation for good, open or closed. */
+    sessionDelete(id: number): Promise<void>;
     /** Calls `listener` for every event of every running session, from now on. */
     onSessionEvent(listener: (event: SessionEvent) => void): Promise<Unsubscribe>;
     /** Calls `listener` with the session a notification was about, when the user clicks it. */

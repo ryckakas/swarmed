@@ -45,7 +45,7 @@ export function SessionPane() {
             <header className="session-head">
                 <div className="session-actions">
                     <IconButton
-                        label={`${words.closeSession}: stops the agent and removes it from the sidebar`}
+                        label={`${words.closeSession}: ${words.archiveSession.toLowerCase()} it, or ${words.deleteSession.toLowerCase()} it for good`}
                         danger
                         onClick={() => askToClose(session.id)}
                     >

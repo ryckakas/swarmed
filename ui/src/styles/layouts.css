@@ -94,11 +94,11 @@
 }
 
 /*
- * Starting a session and closing one are always in full, not faint until pointed at. What else
- * a row offers still waits for the pointer: shown all the time, it would leave the names, which
- * matter more, half their room.
+ * Starting a session is always in full, not faint until pointed at. What else a row offers
+ * still waits for the pointer: shown all the time, it would leave the names, which matter more,
+ * half their room.
  */
-:root[data-layout="senior"] :is(.row-add, .row-close) {
+:root[data-layout="senior"] .row-add {
     opacity: 1;
     color: var(--muted);
 }

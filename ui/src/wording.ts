@@ -45,6 +45,9 @@ export interface Words {
     delegate: string;
     /** What ending a session and taking it out of the sidebar is called. */
     closeSession: string;
+    /** Closing a session and keeping its conversation, and deleting it with the conversation. */
+    archiveSession: string;
+    deleteSession: string;
     /** The question asked before a session is closed. */
     closeAsk: string;
     /** One way of setting a task up, and several of them. */
@@ -107,6 +110,8 @@ const PLAIN: Words = {
     reopen: "Reopen",
     delegate: "Delegate to the cloud",
     closeSession: "Close session",
+    archiveSession: "Archive",
+    deleteSession: "Delete",
     closeAsk: "Close this session?",
     environment: "Environment",
     environments: "Environments",
@@ -159,6 +164,8 @@ const SWARM: Words = {
     unread: (count) => `${count} hatched`,
     noTasks: "The nest is empty",
     closeSession: "Terminate spawn",
+    archiveSession: "Burrow",
+    deleteSession: "Cull",
     closeAsk: "Terminate this spawn?",
     environment: "Spawning pool",
     environments: "Spawning pools",

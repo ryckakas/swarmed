@@ -1191,6 +1191,18 @@ class MockAgent {
         }
     }
 
+    /** Gone for good, from the open ones and the closed ones alike. */
+    delete(id: number) {
+        this.interrupt(id);
+        for (const task of this.tasks()) {
+            const others = (sessions: Session[]) =>
+                sessions.filter((candidate) => candidate.id !== id);
+            task.sessions = others(task.sessions);
+            this.closedSessions.set(task.id, others(this.closed(task.id)));
+            task.closed = this.closed(task.id).length;
+        }
+    }
+
     closed(taskId: number): Session[] {
         return this.closedSessions.get(taskId) ?? [];
     }
@@ -1372,11 +1384,12 @@ const SAMPLE_COSTS: Costs = {
 
 function closingApi(
     agent: MockAgent,
-): Pick<Api, "sessionClose" | "sessionsClosed" | "sessionReopen"> {
+): Pick<Api, "sessionClose" | "sessionDelete" | "sessionsClosed" | "sessionReopen"> {
     const taskNamed = (name: string) =>
         agent.projects.flatMap((project) => project.tasks).find((task) => task.name === name);
     return {
         sessionClose: async (id) => agent.close(id),
+        sessionDelete: async (id) => agent.delete(id),
         sessionsClosed: async (_project, name) => agent.closed(taskNamed(name)?.id ?? -1),
         sessionReopen: async (id) => agent.reopen(id),
     };

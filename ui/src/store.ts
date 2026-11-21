@@ -179,6 +179,12 @@ interface State {
     closing: number | null;
     /** Asks before closing: `null` withdraws the question. */
     askToClose(sessionId: number | null): void;
+    /** A closed session the user is asked about deleting for good, if any. */
+    deleting: { id: number; title: string } | null;
+    askToDelete(session: { id: number; title: string } | null): void;
+    /** Deletes a session and its conversation for good, open or closed. */
+    deleteSession(api: Api, sessionId: number): Promise<void>;
+
     /** Stops a session and takes it out of the tree. */
     close(api: Api, sessionId: number): Promise<void>;
     report(problem: unknown): void;
@@ -431,6 +437,8 @@ export const useStore = create<State>((set, get) => ({
     showInbox: (open) => set({ inboxOpen: open }),
     closing: null,
     askToClose: (sessionId) => set({ closing: sessionId }),
+    deleting: null,
+    askToDelete: (session) => set({ deleting: session }),
     refresh: async (api) => {
         try {
             const projects = await api.overview();
@@ -487,6 +495,12 @@ export const useStore = create<State>((set, get) => ({
             // The task now counts one more closed session.
             await get().refresh(api);
         }),
+    deleteSession: (api, sessionId) =>
+        reporting(async () => {
+            await api.sessionDelete(sessionId);
+            set((state) => ({ ...closed(state, sessionId), deleting: null }));
+            await get().refresh(api);
+        }),
     report: (problem) => set({ problem: String(problem) }),
     dismissProblem: () => set({ problem: null }),
 }));
@@ -500,6 +514,30 @@ function readConfiguration(api: Api) {
     void reporting(async () => useStore.setState({ customLayout: await api.customLayout() }));
     void reporting(async () => useStore.setState({ terminalConfig: await api.terminalConfig() }));
     void reporting(async () => useStore.setState({ templates: await api.templates() }));
+}
+
+/**
+ * A session was deleted, from another window or by a session that started it: nothing of it is
+ * left, so it is forgotten here and the tree read again. Whether the event was that.
+ */
+function heardOfDeletion(api: Api, event: SessionEvent): boolean {
+    if (event.event.type !== "deleted") {
+        return false;
+    }
+    useStore.setState((state) => closed(state, event.session_id));
+    void useStore.getState().refresh(api);
+    return true;
+}
+
+/**
+ * Reads the tree again for an event that changes which sessions it holds: one from a session
+ * it does not know, which an agent started, or the closing of one by an agent or another window.
+ */
+function readTreeIfChanged(api: Api, event: SessionEvent) {
+    const unknown = !findSession(useStore.getState().projects, event.session_id);
+    if (unknown || event.event.type === "closed") {
+        void useStore.getState().refresh(api);
+    }
 }
 
 /** An agent changed Swarmed's configuration: what was read of it is out of date. */
@@ -539,13 +577,10 @@ export function connect(api: Api): () => void {
     inView?.addEventListener("focus", readIfSeen);
     const subscriptions = [
         api.onSessionEvent((event) => {
-            // A session the tree does not know was started by an agent, not from here: the
-            // tree is read again so that it appears.
-            const unknown = !findSession(useStore.getState().projects, event.session_id);
-            // Closed by an agent, or from another window: the tree is read again here too.
-            if (unknown || event.event.type === "closed") {
-                void refresh(api);
+            if (heardOfDeletion(api, event)) {
+                return;
             }
+            readTreeIfChanged(api, event);
             apply(event);
             const turnBegan = turnsBegan(useStore.getState().turnBegan, event, Date.now());
             if (turnBegan !== useStore.getState().turnBegan) {

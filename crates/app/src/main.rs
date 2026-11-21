@@ -206,7 +206,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::session_configure, commands::slash_commands, commands::badge_set,
         commands::view_put, commands::view_open, commands::terminal_open,
         commands::terminal_write, commands::terminal_resize, commands::terminal_close,
-        commands::status_line, commands::session_rename, commands::session_close,
+        commands::status_line, commands::session_rename, commands::session_close, commands::session_delete,
         commands::sessions_search, commands::sessions_closed, commands::session_reopen,
         commands::session_fork, commands::session_set_agent,
     ])

@@ -167,6 +167,7 @@ export const tauriApi: Api = {
     sessionRename: (id, title) => invoke<Session>("session_rename", { id, title }),
     sessionMark: (id, colour, label) => invoke<Session>("session_mark", { id, colour, label }),
     sessionClose: (id) => invoke("session_close", { id }),
+    sessionDelete: (id) => invoke("session_delete", { id }),
     sessionsSearch: (query) => invoke<SearchHit[]>("sessions_search", { query }),
     sessionsClosed: (project, task) => invoke<Session[]>("sessions_closed", { project, task }),
     sessionReopen: (id) => invoke<Session>("session_reopen", { id }),

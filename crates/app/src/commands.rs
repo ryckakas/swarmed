@@ -931,3 +931,9 @@ pub(crate) fn session_rename(core: CoreState<'_>, id: i64, title: String) -> Com
 pub(crate) fn session_close(core: CoreState<'_>, id: i64) -> Command<()> {
     Ok(core.session_close(id)?)
 }
+
+/// Deletes a session and its conversation for good.
+#[tauri::command]
+pub(crate) fn session_delete(core: CoreState<'_>, id: i64) -> Command<()> {
+    Ok(core.session_delete(id)?)
+}

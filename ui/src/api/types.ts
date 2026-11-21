@@ -521,6 +521,8 @@ export type AgentEvent =
     | { type: "marked"; colour: MarkColour | null; label: string }
     /** The session was closed, by the user or by the session that started it. */
     | { type: "closed" }
+    /** The session was deleted for good, with everything said in it. */
+    | { type: "deleted" }
     /** What stands before this is a copy of what was said in the session forked from. */
     | { type: "forked"; from: number }
     /** HTML the agent showed through Swarmed's own tool, handed over by the tool itself. */

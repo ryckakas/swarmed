@@ -101,6 +101,7 @@ impl SessionStatus {
             | AgentEvent::Applied { .. }
             | AgentEvent::Suggestion { .. }
             | AgentEvent::Closed
+            | AgentEvent::Deleted
             | AgentEvent::Background { .. }
             | AgentEvent::View { .. }
             | AgentEvent::Queue { .. }
@@ -350,6 +351,23 @@ impl Store {
             "UPDATE sessions SET closed_at = CURRENT_TIMESTAMP, status = 'idle' WHERE id = ?1",
             params![id],
         )?;
+        Ok(())
+    }
+
+    /// Takes a session and everything said in it out of the database. A session it started
+    /// stays, as one nobody started; a cloud task handed off from it stays, without it.
+    fn session_delete(&self, id: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions SET spawned_by = NULL WHERE spawned_by = ?1",
+            params![id],
+        )?;
+        self.conn.execute(
+            "UPDATE cloud_tasks SET session_id = NULL WHERE session_id = ?1",
+            params![id],
+        )?;
+        // The events go with it: they are declared to.
+        self.conn
+            .execute("DELETE FROM sessions WHERE id = ?1", params![id])?;
         Ok(())
     }
 
@@ -1023,6 +1041,24 @@ impl Core {
         self.store().session_close(id)?;
         self.live.note(&self.store, id, AgentEvent::Closed)
     }
+
+    /// Deletes a session for good, open or closed: its agent is stopped, and its conversation
+    /// and what Swarmed kept for it are gone. The task's files and branch are not touched, and
+    /// neither is what the agent keeps of the conversation in its own folders.
+    pub fn session_delete(&self, id: i64) -> Result<()> {
+        self.session(id)?;
+        self.session_stop(id);
+        self.terminal_close(id);
+        self.live.queues.clear(id);
+        // Views the agent showed and nobody has read yet. Gone already is as good as removed.
+        match std::fs::remove_dir_all(self.paths.view_spool(id)) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
+            _ => {}
+        }
+        self.store().session_delete(id)?;
+        // Only told, not recorded: there is no session left to record it in.
+        self.live.note(&self.store, id, AgentEvent::Deleted)
+    }
 }
 
 /// Starts a turn with `text` in a running session: records the message, then hands it to the
@@ -1191,6 +1227,7 @@ impl Live {
             AgentEvent::TextDelta { .. }
                 | AgentEvent::Queue { .. }
                 | AgentEvent::ConfigChanged { .. }
+                | AgentEvent::Deleted
         );
         let stored = if shown_only {
             Ok(())

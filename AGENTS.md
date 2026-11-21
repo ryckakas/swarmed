@@ -139,6 +139,12 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   Drawing on the graphics card (`gpu`) is off by default, because it has not been seen to draw
   right in the app's own window; check there before changing the default. The shell is started
   with `COLORTERM=truecolor` and `CLICOLOR=1`.
+- **Closing a session keeps it; deleting one does not** (`session_close`, `session_delete`).
+  A closed session is put away with its conversation and can be reopened. A deleted one is
+  gone from the database with its events and its spooled views; sessions it started stay, with
+  nobody as their starter. `AgentEvent::Deleted` is published and never stored, since there is
+  nothing left to store it in. Swarmed does not touch what an agent keeps of the conversation
+  in its own folders. The close button always asks, and offers both.
 - **Check UI changes in a browser** with `pnpm dev`. The mock agent answers plain text, asks
   permission for `run: <command>`, and runs until stopped for `slow`; one sample session has
   2,000 messages for checking scroll speed.

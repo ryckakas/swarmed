@@ -260,6 +260,11 @@ fn the_ui_can_deny_interrupt_stop_and_remove() {
         app.ok("overview", json!({}))[0]["tasks"][0]["sessions"],
         json!([])
     );
+    // Closed, it is still kept; deleted, it is gone for good.
+    assert_eq!(app.ok("overview", json!({}))[0]["tasks"][0]["closed"], 1);
+    app.ok("session_delete", json!({ "id": id }));
+    assert_eq!(app.ok("overview", json!({}))[0]["tasks"][0]["closed"], 0);
+    assert!(app.invoke("session_events", json!({ "id": id })).is_err());
 
     let remove = json!({ "project": "demo", "name": "one", "force": false, "deleteBranch": true });
     app.ok("task_remove", remove);
