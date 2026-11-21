@@ -101,6 +101,10 @@ notice adds its line under Unreleased.
 - **The task panel opens a task in your terminal or editor from two icons** beside the one that
   hides the panel. Which terminal and editor they open is chosen in Settings, so the panel no
   longer has a menu of editors of its own.
+- **The swarm's icons and words are called True swarm and Weak swarm** in Settings →
+  Appearance: True swarm, which a new installation starts in, renames the tree too, and Weak
+  swarm keeps the plain names there. Nothing else about them changed, and a setting saved
+  before keeps its choice.
 - **The plain icons and words are called Boring** in Settings → Appearance. Nothing else about
   them changed, and a setting saved before keeps them.
 
