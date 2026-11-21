@@ -10,6 +10,7 @@ OpenCode, Antigravity or any agent that speaks the Agent Client Protocol. Run se
 once: each has its own worktree and ports, so they don't step on each other. A desktop app and a
 `swarmed` command, over one Rust core.
 
+[![Latest release](https://img.shields.io/github/v/release/ryckakas/swarmed)](https://github.com/ryckakas/swarmed/releases/latest)
 ![Rust 1.100+](https://img.shields.io/badge/rust-1.100%2B-CE422B)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 
