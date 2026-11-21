@@ -239,9 +239,10 @@ export interface Api {
     sessionNew(project: string, task: string, setup: SessionSetup): Promise<Session>;
     /**
      * A new session in the same task that starts with what was said in session `id`: all of
-     * it, or only its first `upto` events.
+     * it, or what was said before its message number `before`, counting from 0 every message
+     * sent into it.
      */
-    sessionFork(id: number, upto: number | null): Promise<Session>;
+    sessionFork(id: number, before: number | null): Promise<Session>;
     /** Everything the session has said and been told, oldest first. */
     sessionEvents(id: number): Promise<AgentEvent[]>;
     /** Starts a turn, starting the session's agent first if it is not running. */

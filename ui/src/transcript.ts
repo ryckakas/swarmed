@@ -363,3 +363,13 @@ export function activity(events: AgentEvent[]): string {
     }
     return running.name === PLAN_TOOL ? "Presenting its plan" : `Running ${running.name}`;
 }
+
+/**
+ * Which message of the session the event at `key` is, counting from 0 every message sent into
+ * it: what a fork from that message is asked for by. The place of the event itself would not
+ * do: this list also holds events that are only shown and never stored, such as the queue's,
+ * so the core's list of the same session is shorter.
+ */
+export function messageNumber(events: AgentEvent[], key: number): number {
+    return events.slice(0, key).filter((event) => event.type === "user_message").length;
+}

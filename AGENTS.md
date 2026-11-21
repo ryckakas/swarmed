@@ -160,6 +160,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   folder is listed as a file, since it may lead out. A file is opened in the user's editor
   together with its worktree, so an editor with a window per folder shows it in that window.
   Swarmed shows no file's contents itself: that is the editor's job.
+- **A place in a front end's list of events means nothing to the core.** That list also holds
+  events that are only shown and never stored (`TextDelta`, `Queue`, `ConfigChanged`,
+  `Deleted`), so it is longer than the core's. Anything a front end points at in a
+  conversation is named by something both sides count alike: a fork is asked for "before
+  message number n" (`session_fork`, `messageNumber`), never "up to event n".
 - **Check UI changes in a browser** with `pnpm dev`. The mock agent answers plain text, asks
   permission for `run: <command>`, and runs until stopped for `slow`; one sample session has
   2,000 messages for checking scroll speed.

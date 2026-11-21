@@ -1,5 +1,6 @@
 import { api } from "./api";
 import { useStore } from "./store";
+import { messageNumber } from "./transcript";
 
 // Things the user can ask for from more than one place: a button, and a keyboard shortcut.
 
@@ -18,18 +19,27 @@ export async function addProject() {
 }
 
 /**
- * Starts a new session from what was said in another, up to its event `upto` if given, and
- * opens it.
+ * Starts a new session from what was said in another, before its message number `before` if
+ * given, and opens it.
  */
-export async function forkSession(id: number, upto: number | null) {
+export async function forkSession(id: number, before: number | null) {
     const { refresh, open, report } = useStore.getState();
     try {
-        const fork = await api.sessionFork(id, upto);
+        const fork = await api.sessionFork(id, before);
         await refresh(api);
         await open(api, fork.id);
     } catch (error) {
         report(error);
     }
+}
+
+/**
+ * Forks session `id` from the message shown for its event `key`: the new session holds what was
+ * said before that message.
+ */
+export function forkFromMessage(id: number, key: number) {
+    const events = useStore.getState().events[id] ?? [];
+    return forkSession(id, messageNumber(events, key));
 }
 
 /** Creates a session in a task, with the defaults from the settings, and opens it. */

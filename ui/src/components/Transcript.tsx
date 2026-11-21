@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
-import { forkSession } from "../actions";
+import { forkFromMessage } from "../actions";
 import type { AgentEvent } from "../api/types";
 import { messageParts } from "../pastes";
 import { useStore } from "../store";
@@ -116,7 +116,7 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
                         type="button"
                         className="said-fork"
                         title="Starts a new session with the conversation as it stood before this message"
-                        onClick={() => void forkSession(sessionId, item.key)}
+                        onClick={() => void forkFromMessage(sessionId, item.key)}
                     >
                         Fork from here
                     </button>
