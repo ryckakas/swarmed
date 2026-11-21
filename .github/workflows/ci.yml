@@ -16,13 +16,6 @@ env:
 # set to the label of a self-hosted runner, they run there. That machine keeps its own tools
 # (Rust, Node, pnpm, typos, taplo, shellcheck, actionlint, cargo-deny, cargo-shear, zizmor), so
 # the steps that install them are skipped on it, and so is the cache: its checkout stays.
-#
-# Only code from this repository's own people runs on that machine: a push to main, and a pull
-# request from a branch of this repository that Dependabot did not open. Building runs
-# whatever the dependencies' build scripts and macros say, on a machine that keeps its files
-# between runs, so a pull request from a fork or from Dependabot always runs on GitHub's
-# runners, which are thrown away. Every job's `runs-on` asks the same question: a job of its
-# own to decide once would itself need one of GitHub's runners, which may not be there.
 
 # A new push to a PR makes the previous run's result irrelevant.
 concurrency:
@@ -32,11 +25,7 @@ concurrency:
 jobs:
   lint:
     name: Format and lint
-    runs-on: >-
-      ${{ (vars.CI_RUNNER != '' && (github.event_name == 'push'
-      || (github.event.pull_request.head.repo.full_name == github.repository
-      && github.event.pull_request.user.login != 'dependabot[bot]')))
-      && vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -121,11 +110,7 @@ jobs:
   dependencies:
     # deny.toml holds the policy: advisories, licenses, duplicate crates and allowed sources.
     name: Dependencies
-    runs-on: >-
-      ${{ (vars.CI_RUNNER != '' && (github.event_name == 'push'
-      || (github.event.pull_request.head.repo.full_name == github.repository
-      && github.event.pull_request.user.login != 'dependabot[bot]')))
-      && vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -153,11 +138,7 @@ jobs:
   workflows:
     # Workflows are audited like code: pinned actions, least-privilege tokens, no template injection.
     name: Workflow security
-    runs-on: >-
-      ${{ (vars.CI_RUNNER != '' && (github.event_name == 'push'
-      || (github.event.pull_request.head.repo.full_name == github.repository
-      && github.event.pull_request.user.login != 'dependabot[bot]')))
-      && vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -178,11 +159,7 @@ jobs:
 
   ui:
     name: UI
-    runs-on: >-
-      ${{ (vars.CI_RUNNER != '' && (github.event_name == 'push'
-      || (github.event.pull_request.head.repo.full_name == github.repository
-      && github.event.pull_request.user.login != 'dependabot[bot]')))
-      && vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -226,11 +203,7 @@ jobs:
       fail-fast: false
       matrix:
         # A self-hosted runner is one machine, so the tests run once, there.
-        os: >-
-          ${{ fromJSON((vars.CI_RUNNER != '' && (github.event_name == 'push'
-          || (github.event.pull_request.head.repo.full_name == github.repository
-          && github.event.pull_request.user.login != 'dependabot[bot]')))
-          && format('["{0}"]', vars.CI_RUNNER) || '["macos-latest", "ubuntu-latest"]') }}
+        os: ${{ fromJSON(vars.CI_RUNNER && format('["{0}"]', vars.CI_RUNNER) || '["macos-latest", "ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
