@@ -10,8 +10,12 @@ OpenCode, Antigravity or any agent that speaks the Agent Client Protocol. Run se
 once: each has its own worktree and ports, so they don't step on each other. A desktop app and a
 `swarmed` command, over one Rust core.
 
+[![Latest release](https://img.shields.io/github/v/release/ryckakas/swarmed)](https://github.com/ryckakas/swarmed/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/ryckakas/swarmed/ci.yml?branch=main&label=CI)](https://github.com/ryckakas/swarmed/actions/workflows/ci.yml?query=branch%3Amain)
+[![CodeQL](https://img.shields.io/github/actions/workflow/status/ryckakas/swarmed/codeql.yml?branch=main&label=CodeQL)](https://github.com/ryckakas/swarmed/actions/workflows/codeql.yml?query=branch%3Amain)
+[![crates.io](https://img.shields.io/crates/v/swarmed?label=crates.io)](https://crates.io/crates/swarmed)
 ![Rust 1.100+](https://img.shields.io/badge/rust-1.100%2B-CE422B)
-![License: MIT](https://img.shields.io/badge/license-MIT-blue)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 <img src="docs/images/demo.gif" alt="A new task started in plan mode and its plan approved; the agent answering with a chart shown inline, whose buttons redraw it; a diff in the task's panel; a permission request allowed; and the colour palettes switched in Settings">
 
