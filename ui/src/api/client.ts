@@ -239,11 +239,11 @@ export interface Api {
     sessionNew(project: string, task: string, setup: SessionSetup): Promise<Session>;
     /**
      * A new session in the same task that starts with what was said in session `id`: all of
-     * it, or what was said before its message number `before`, counting from 0 every message
-     * sent into it. With `agent`, the new session runs on that agent: a clone of the
+     * it, or its message number `from` and what was said after it, counting from 0 every
+     * message sent into it. With `agent`, the new session runs on that agent: a clone of the
      * conversation for another agent to carry on.
      */
-    sessionFork(id: number, before: number | null, agent?: string): Promise<Session>;
+    sessionFork(id: number, from: number | null, agent?: string): Promise<Session>;
     /** Everything the session has said and been told, oldest first. */
     sessionEvents(id: number): Promise<AgentEvent[]>;
     /** Starts a turn, starting the session's agent first if it is not running. */

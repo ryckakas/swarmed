@@ -13,24 +13,26 @@ use crate::{Core, Result, lock};
 /// most, so that is what is kept.
 const MAX_CARRIED: usize = 60_000;
 
-/// Where a conversation is cut for a fork that starts before its message number `before`,
-/// counting from 0 every message sent into it: all of it, if there is no such message.
+/// Where a fork that starts from message number `from` begins in a conversation, counting
+/// from 0 every message sent into it: at that message, or at the very start if no message
+/// is named or there is no such message.
 ///
 /// A message is counted, not an event's place: a front end's list of events also holds ones
 /// that are never stored, so a place in it says nothing of a place here.
-fn cut_before(events: &[AgentEvent], before: Option<usize>) -> usize {
+fn start_of(events: &[AgentEvent], from: Option<usize>) -> usize {
     let messages = events
         .iter()
         .enumerate()
         .filter(|(_, event)| matches!(event, AgentEvent::UserMessage { .. }));
-    let at = before.and_then(|before| messages.map(|(at, _)| at).nth(before));
-    at.unwrap_or(events.len())
+    let at = from.and_then(|from| messages.map(|(at, _)| at).nth(from));
+    at.unwrap_or(0)
 }
 
-/// What of a conversation a fork starts with: what was said and shown, not how it came about.
-fn kept(events: &[AgentEvent], before: Option<usize>) -> Vec<AgentEvent> {
-    let end = cut_before(events, before);
-    events[..end]
+/// What of a conversation a fork starts with: what was said and shown from the message it is
+/// forked from to the end, not how it came about, and nothing from before that message.
+fn kept(events: &[AgentEvent], from: Option<usize>) -> Vec<AgentEvent> {
+    let start = start_of(events, from);
+    events[start..]
         .iter()
         .filter(|event| {
             matches!(
@@ -98,9 +100,10 @@ fn supervision_on(agent: &str, supervision: Supervision) -> Supervision {
 
 impl Core {
     /// A new session in the same task and on the same agent, starting with what was said in
-    /// session `id`: all of it, or what was said before its message number `before`, counting
-    /// from 0 every message sent into it. Nothing runs until it is started, and its agent is
-    /// given the conversation with the first message.
+    /// session `id`: all of it, or its message number `from` and everything after it,
+    /// counting from 0 every message sent into it. What came before that message stays
+    /// behind. The first session is not changed. Nothing runs until the new one is started,
+    /// and its agent is given the conversation with the first message.
     ///
     /// With `agent`, the new session runs on that agent instead: a clone of the conversation
     /// for another agent to carry on. It gets what was said, as text, and not what the first
@@ -109,11 +112,11 @@ impl Core {
     pub fn session_fork(
         &self,
         id: i64,
-        before: Option<usize>,
+        from: Option<usize>,
         agent: Option<&str>,
     ) -> Result<Session> {
         let source = self.session(id)?;
-        let earlier = kept(&self.session_events(id)?, before);
+        let earlier = kept(&self.session_events(id)?, from);
         let title = if source.title.is_empty() {
             "Fork".to_string()
         } else {
@@ -183,7 +186,7 @@ mod tests {
     }
 
     #[test]
-    fn a_fork_keeps_what_was_said_up_to_the_point_asked_for() {
+    fn a_fork_keeps_what_was_said_from_the_message_asked_for() {
         let events = [
             user("one"),
             reply("two"),
@@ -195,9 +198,9 @@ mod tests {
             kept(&events, None),
             [user("one"), reply("two"), user("three"), reply("four")]
         );
-        // Before the second message: the first and its answer, and nothing after.
-        assert_eq!(kept(&events, Some(1)), [user("one"), reply("two")]);
-        assert_eq!(kept(&events, Some(0)), []);
+        // From the second message: it and its answer, and nothing from before.
+        assert_eq!(kept(&events, Some(1)), [user("three"), reply("four")]);
+        assert_eq!(kept(&events, Some(0)).len(), 4);
         // No such message: all of it.
         assert_eq!(kept(&events, Some(99)).len(), 4);
     }

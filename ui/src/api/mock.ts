@@ -1354,7 +1354,7 @@ function sampleFork(
     agent: MockAgent,
     tasks: Task[],
     id: number,
-    before: number | null,
+    from: number | null,
     onAgent?: string,
 ): Session {
     const home = tasks.find((task) => task.sessions.some((one) => one.id === id));
@@ -1368,7 +1368,7 @@ function sampleFork(
         agent: onAgent ?? source.agent,
     };
     const history = agent.history(id);
-    const said = history.slice(0, before === null ? undefined : eventOfMessage(history, before));
+    const said = history.slice(from === null ? 0 : eventOfMessage(history, from));
     const kept = said.filter((event) => ["user_message", "text"].includes(event.type));
     agent.events.set(fork.id, [...kept, { type: "forked", from: id }]);
     home.sessions.push(fork);
@@ -1677,7 +1677,7 @@ export function createMockApi(): Api {
             home.sessions.push(created);
             return created;
         },
-        sessionFork: async (id, before, onAgent) => sampleFork(agent, tasks(), id, before, onAgent),
+        sessionFork: async (id, from, onAgent) => sampleFork(agent, tasks(), id, from, onAgent),
         sessionEvents: async (id) => [...agent.history(id)],
         sessionSend: async (id, text, files) => agent.send(id, withFiles(text, files ?? [])),
         sessionQueue: async (id) => agent.queue(id),

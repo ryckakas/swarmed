@@ -1252,7 +1252,7 @@ async fn what_was_said_is_found_again_in_open_and_closed_sessions() {
 }
 
 #[tokio::test]
-async fn a_fork_from_a_message_holds_what_was_said_before_it_and_nothing_after() {
+async fn a_fork_from_a_message_holds_it_and_what_followed_and_nothing_from_before() {
     let fx = fixture();
     let core = core_with_task(&fx).await;
     let mut bus = core.subscribe();
@@ -1269,20 +1269,21 @@ async fn a_fork_from_a_message_holds_what_was_said_before_it_and_nothing_after()
         });
         said.collect()
     };
-    // From the second message: the first and its answer only.
+    // From the second message: it and the third, each with its answer, the last one too.
     let fork = core.session_fork(source.id, Some(1), None).expect("forks");
-    assert_eq!(messages(fork.id), ["first question"]);
+    assert_eq!(messages(fork.id), ["second question", "third question"]);
     let copied = core.session_events(fork.id).expect("reads");
     let answers = copied
         .iter()
         .filter(|event| matches!(event, AgentEvent::Text { .. }));
-    assert_eq!(answers.count(), 1);
-    // From the first: nothing but the mark of where it came from.
-    let empty = core.session_fork(source.id, Some(0), None).expect("forks");
-    assert_eq!(
-        core.session_events(empty.id).expect("reads"),
-        [AgentEvent::Forked { from: source.id }]
-    );
+    assert_eq!(answers.count(), 2);
+    assert_eq!(copied.last(), Some(&AgentEvent::Forked { from: source.id }));
+    // From the last: that message and its answer alone.
+    let last = core.session_fork(source.id, Some(2), None).expect("forks");
+    assert_eq!(messages(last.id), ["third question"]);
+    // From the first: all of it. The first session keeps everything either way.
+    let whole = core.session_fork(source.id, Some(0), None).expect("forks");
+    assert_eq!(messages(whole.id).len(), 3);
     assert_eq!(messages(source.id).len(), 3);
 }
 

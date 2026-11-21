@@ -163,8 +163,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **A place in a front end's list of events means nothing to the core.** That list also holds
   events that are only shown and never stored (`TextDelta`, `Queue`, `ConfigChanged`,
   `Deleted`), so it is longer than the core's. Anything a front end points at in a
-  conversation is named by something both sides count alike: a fork is asked for "before
-  message number n" (`session_fork`, `messageNumber`), never "up to event n".
+  conversation is named by something both sides count alike: a fork is asked for "from
+  message number n" (`session_fork`, `messageNumber`), never "from event n".
 - **A session never changes its agent once it has begun; it is cloned instead**
   (`session_fork` with an agent). The clone is a new session in the same task on the other
   agent, given what was said as text with its first message, like any fork. It starts on that
@@ -303,7 +303,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   first message reaches an agent, which from then on holds the conversation. The model goes
   back to the new agent's default. The UI offers the agent menu for exactly that long.
 - **A fork is a new session that starts with a copy of what was said** (`fork.rs`): the user's
-  messages, the replies and the views, up to a chosen event, then a `Forked` event. No agent can
+  messages, the replies and the views, then a `Forked` event. "Fork from here" on a message
+  takes that message and everything after it, and nothing from before; the first session
+  keeps all of it, since its agent cannot be made to forget. No agent can
   be handed another's memory, so the fork's agent is given that conversation as text with the
   first message sent to it, whatever agent it is. What is recorded is what the user typed.
 - **A closed session is put away, not deleted.** Closing is an event, `Closed`, so every front
