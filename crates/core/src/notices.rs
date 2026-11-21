@@ -137,7 +137,7 @@ mod tests {
             let request = AgentEvent::PermissionRequest {
                 request_id: "r1".to_string(),
                 tool_name: "Bash".to_string(),
-                input: json!({ "command": "curl -H 'Authorization: secret-token'" }),
+                input: json!({ "command": "curl -H 'Authorization: secret-token'" }), // gitleaks:allow
                 description: description.map(str::to_string),
             };
             wording(&event(Some(SessionStatus::Waiting), request), false)

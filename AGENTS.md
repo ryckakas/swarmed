@@ -24,6 +24,7 @@ taplo fmt --check                                   # TOML formatting: .taplo.to
 zizmor .github                                      # workflow security
 actionlint                                          # workflows, shellcheck on run: blocks too
 shellcheck install.sh scripts/*.sh                  # shell scripts
+gitleaks git --redact                               # secrets, in the whole history: .gitleaksignore
 
 pnpm install                                        # once; pnpm comes from Corepack
 pnpm lint                                           # Biome: format and lint (biome.json)
@@ -47,7 +48,12 @@ CI (`.github/workflows/ci.yml`) runs exactly these. Match them locally before pu
 
 Where CI runs is the repository variable `CI_RUNNER`. Unset, the jobs run on GitHub's runners.
 Set to a self-hosted runner's label (`gh variable set CI_RUNNER --body swarmed-mac`), they run on
-that machine with the tools installed there, and the Linux test run is left out.
+that machine with the tools installed there, and the Linux test run is left out. A pull request
+from a fork runs on GitHub's runners whatever the variable says: a self-hosted runner would run a
+stranger's code on that machine.
+
+A made-up secret in a test is marked `gitleaks:allow` on its line; one already in the history is
+listed by its fingerprint in `.gitleaksignore`.
 
 ## Architecture
 

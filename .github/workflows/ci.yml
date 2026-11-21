@@ -14,8 +14,10 @@ env:
 
 # Where the jobs run is a repository variable, CI_RUNNER: unset, they run on GitHub's runners;
 # set to the label of a self-hosted runner, they run there. That machine keeps its own tools
-# (Rust, Node, pnpm, typos, taplo, shellcheck, actionlint, cargo-deny, cargo-shear, zizmor), so
-# the steps that install them are skipped on it, and so is the cache: its checkout stays.
+# (Rust, Node, pnpm, typos, taplo, shellcheck, actionlint, cargo-deny, cargo-shear, zizmor,
+# gitleaks), so the steps that install them are skipped on it, and so is the cache: its checkout
+# stays. A pull request from a fork always runs on GitHub's runners: its code is a stranger's, and
+# a self-hosted runner would run it on that machine.
 
 # A new push to a PR makes the previous run's result irrelevant.
 concurrency:
@@ -25,7 +27,7 @@ concurrency:
 jobs:
   lint:
     name: Format and lint
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ (!github.event.pull_request.head.repo.fork && vars.CI_RUNNER) || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -107,10 +109,44 @@ jobs:
       - name: Workflows
         run: actionlint
 
+  secrets:
+    # A token or key committed by mistake, anywhere in the history: once pushed, it has to be
+    # revoked, so this is the last place to catch one. A test's made-up token is marked
+    # `gitleaks:allow` on its line.
+    name: Secrets
+    runs-on: ${{ (!github.event.pull_request.head.repo.fork && vars.CI_RUNNER) || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # A self-hosted runner keeps its checkout, and with it what was already built.
+          clean: ${{ runner.environment == 'github-hosted' }}
+          # Every commit, not only the last: a secret added and then removed is still in history.
+          fetch-depth: 0
+
+      # install-action has no gitleaks, so the release archive is pinned by its hash, as
+      # actionlint's is.
+      - name: Install gitleaks
+        if: runner.environment == 'github-hosted'
+        working-directory: ${{ runner.temp }}
+        run: |
+          archive=gitleaks_8.30.1_linux_x64.tar.gz
+          curl -fsSLO "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/$archive"
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $archive" \
+            | sha256sum --check
+          mkdir bin
+          tar -xzf "$archive" -C bin gitleaks
+          echo "$PWD/bin" >> "$GITHUB_PATH"
+
+      # Whatever it finds is redacted from the log, which anyone can read once the repository is
+      # public.
+      - name: gitleaks
+        run: gitleaks git --redact --no-banner --verbose .
+
   dependencies:
     # deny.toml holds the policy: advisories, licenses, duplicate crates and allowed sources.
     name: Dependencies
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ (!github.event.pull_request.head.repo.fork && vars.CI_RUNNER) || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -138,7 +174,7 @@ jobs:
   workflows:
     # Workflows are audited like code: pinned actions, least-privilege tokens, no template injection.
     name: Workflow security
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ (!github.event.pull_request.head.repo.fork && vars.CI_RUNNER) || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -159,7 +195,7 @@ jobs:
 
   ui:
     name: UI
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ (!github.event.pull_request.head.repo.fork && vars.CI_RUNNER) || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -203,7 +239,7 @@ jobs:
       fail-fast: false
       matrix:
         # A self-hosted runner is one machine, so the tests run once, there.
-        os: ${{ fromJSON(vars.CI_RUNNER && format('["{0}"]', vars.CI_RUNNER) || '["macos-latest", "ubuntu-latest"]') }}
+        os: ${{ fromJSON((!github.event.pull_request.head.repo.fork && vars.CI_RUNNER) && format('["{0}"]', vars.CI_RUNNER) || '["macos-latest", "ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
