@@ -936,6 +936,24 @@ fn the_ui_can_list_cloud_tasks_and_cannot_delegate_from_a_repository_that_is_not
     );
 }
 
+// Nothing was said in a new session, which the core finds out before anything leaves the machine.
+#[test]
+fn the_ui_cannot_hand_on_a_conversation_in_which_nothing_was_said() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+    let how = json!({ "model": null, "supervision": "ask", "effort": null });
+    let new = json!({ "project": "demo", "task": "one", "agent": null, "how": how });
+    let id = app.ok("session_new", new)["id"].clone();
+    let hand_on = json!({ "id": id, "instruction": "", "provider": "codex" });
+    let refused = app
+        .invoke("cloud_delegate_conversation", hand_on)
+        .expect_err("refused");
+    let said = |m: &str| m.starts_with("nothing was said in this session yet");
+    assert!(refused.as_str().is_some_and(said), "{refused}");
+}
+
 #[test]
 fn the_ui_can_keep_a_prompt_and_drop_it() {
     let app = app();

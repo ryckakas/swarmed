@@ -1,16 +1,26 @@
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { sendOrQueue } from "../actions";
 import { api } from "../api";
-import type { CloudProvider, NoteTarget } from "../api/types";
-import { CLOUD_PROVIDERS, cloudProvider } from "../cloud";
+import type { CloudProvider } from "../api/types";
+import {
+    briefRequest,
+    CLOUD_PROVIDERS,
+    CLOUD_TELLINGS,
+    type CloudTarget,
+    type CloudTelling,
+    cloudProvider,
+    unseenByCloud,
+} from "../cloud";
 import { useStore } from "../store";
 
-/** Hands a piece of work to a cloud agent, from a repository or from one of its tasks. */
+/** Hands a piece of work to a cloud agent: from a repository, a task, or a session of one. */
 export function CloudDialog() {
     const target = useStore((state) => state.delegating);
     if (target === null) {
         return null;
     }
-    return <Delegate key={`${target.project}/${target.task ?? ""}`} target={target} />;
+    const key = `${target.project}/${target.task ?? ""}/${target.session ?? ""}`;
+    return <Delegate key={key} target={target} />;
 }
 
 /** What is particular to each provider, said before anything is sent. */
@@ -19,29 +29,82 @@ const PROVIDER_NOTES: Record<CloudProvider, string> = {
     claude: "Runs in your default Claude Code cloud environment, on the repository as its own folder has it checked out. Claude Code has to trust that folder first. Its progress does not show here, only its link.",
 };
 
-function Delegate({ target }: { target: NoteTarget }) {
+/** What the message box asks for, by what the cloud agent is told. */
+const PLACEHOLDERS: Record<CloudTelling, string> = {
+    written: "Say everything it needs to know: it starts with no knowledge of your sessions here.",
+    brief: "Anything to add for the agent that writes the brief. May be left empty.",
+    conversation:
+        "What it is to do with the conversation. Left empty, it carries on where the conversation ended.",
+};
+
+/** What of the task's work is only on this machine, once git has been asked. */
+function useUnseen(target: CloudTarget): string | null {
+    const [unseen, setUnseen] = useState<string | null>(null);
+    const { project, task } = target;
+    useEffect(() => {
+        if (task === null) {
+            return;
+        }
+        let current = true;
+        api.taskUnpublished(project, task).then(
+            (unpublished) => current && setUnseen(unseenByCloud(unpublished)),
+            // Not knowing is no reason to keep the form from being used.
+            () => undefined,
+        );
+        return () => {
+            current = false;
+        };
+    }, [project, task]);
+    return unseen;
+}
+
+/** Hands the work over the way the form says. Resolves once it is on its way. */
+async function handOver(
+    target: CloudTarget,
+    telling: CloudTelling,
+    provider: CloudProvider,
+    text: string,
+): Promise<void> {
+    const { session } = target;
+    if (session !== undefined && telling === "brief") {
+        // The session's agent does the delegating, in the conversation, where it is seen.
+        await sendOrQueue(session, briefRequest(provider, text));
+        return;
+    }
+    if (session !== undefined && telling === "conversation") {
+        await api.cloudDelegateConversation(session, text, provider);
+    } else {
+        await api.cloudDelegate(target.project, text, target.task, provider);
+    }
+    await useStore.getState().refresh(api);
+}
+
+function Delegate({ target }: { target: CloudTarget }) {
     const close = () => useStore.getState().askToDelegate(null);
     const dialog = useRef<HTMLDialogElement>(null);
+    const fromSession = target.session !== undefined;
     const [prompt, setPrompt] = useState("");
     const [provider, setProvider] = useState<CloudProvider>("codex");
+    const [telling, setTelling] = useState<CloudTelling>(fromSession ? "brief" : "written");
     const { name } = cloudProvider(provider);
     const [sending, setSending] = useState(false);
     // Why it was refused, in the core's own words: they say what to do about it.
     const [problem, setProblem] = useState<string | null>(null);
+    const unseen = useUnseen(target);
+    const ready = !sending && (telling !== "written" || prompt.trim() !== "");
 
     useEffect(() => {
         dialog.current?.showModal();
     }, []);
 
     const send = async () => {
-        if (prompt.trim() === "" || sending) {
+        if (!ready) {
             return;
         }
         setSending(true);
         setProblem(null);
         try {
-            await api.cloudDelegate(target.project, prompt.trim(), target.task, provider);
-            await useStore.getState().refresh(api);
+            await handOver(target, telling, provider, prompt.trim());
             close();
         } catch (error) {
             setProblem(String(error));
@@ -63,6 +126,7 @@ function Delegate({ target }: { target: NoteTarget }) {
                 not see what is only on this Mac, and it carries on when Swarmed is closed. You
                 follow it at {name}.
             </p>
+            {unseen && <p className="note-problem">{unseen}</p>}
             <label className="cloud-providers">
                 Whose cloud
                 <select
@@ -82,11 +146,12 @@ function Delegate({ target }: { target: NoteTarget }) {
                 </select>
             </label>
             <p className="settings-hint">{PROVIDER_NOTES[provider]}</p>
+            {fromSession && <Telling telling={telling} disabled={sending} onChoose={setTelling} />}
             <textarea
                 className="note-text"
                 aria-label="What the cloud agent is to do"
-                rows={8}
-                placeholder="Say everything it needs to know: it starts with no knowledge of your sessions here."
+                rows={telling === "written" ? 8 : 4}
+                placeholder={PLACEHOLDERS[telling]}
                 disabled={sending}
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
@@ -100,13 +165,55 @@ function Delegate({ target }: { target: NoteTarget }) {
                 <button
                     type="button"
                     className="button button-primary"
-                    disabled={prompt.trim() === "" || sending}
+                    disabled={!ready}
                     title="⌘ Enter"
                     onClick={() => void send()}
                 >
-                    {sending ? "Delegating…" : "Delegate"}
+                    {sendLabel(telling, sending)}
                 </button>
             </div>
         </dialog>
+    );
+}
+
+/** What the button that sends says. */
+function sendLabel(telling: CloudTelling, sending: boolean): string {
+    if (telling === "brief") {
+        return sending ? "Asking…" : "Ask the agent";
+    }
+    return sending ? "Delegating…" : "Delegate";
+}
+
+interface TellingProps {
+    telling: CloudTelling;
+    disabled: boolean;
+    onChoose(telling: CloudTelling): void;
+}
+
+/** The choice of what the cloud agent is told, with what the chosen way means under it. */
+function Telling({ telling, disabled, onChoose }: TellingProps) {
+    const note = CLOUD_TELLINGS.find(([id]) => id === telling)?.[2];
+    return (
+        <>
+            <label className="cloud-providers">
+                What it is told
+                <select
+                    className="picker"
+                    value={telling}
+                    disabled={disabled}
+                    onChange={(event) => {
+                        const chosen = CLOUD_TELLINGS.find(([id]) => id === event.target.value);
+                        onChoose(chosen?.[0] ?? telling);
+                    }}
+                >
+                    {CLOUD_TELLINGS.map(([id, label]) => (
+                        <option key={id} value={id}>
+                            {label}
+                        </option>
+                    ))}
+                </select>
+            </label>
+            {note && <p className="settings-hint">{note}</p>}
+        </>
     );
 }

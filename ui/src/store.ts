@@ -14,6 +14,7 @@ import type {
     Template,
     TerminalConfig,
 } from "./api/types";
+import type { CloudTarget } from "./cloud";
 import type { Comparison } from "./components/CompareDialog";
 import { type ReviewComment, withComment } from "./review";
 import { atWork, atWorkIn, type SubAgent } from "./subagents";
@@ -150,10 +151,10 @@ interface State {
     /** Per session, the messages waiting for its agent to finish. */
     queues: Record<number, QueuedMessage[]>;
     setQueue(sessionId: number, messages: QueuedMessage[]): void;
-    /** The repository or task work is being handed to the cloud from. */
-    delegating: NoteTarget | null;
+    /** The repository, task or session work is being handed to the cloud from. */
+    delegating: CloudTarget | null;
     /** Opens the form that delegates to the cloud; `null` puts it away. */
-    askToDelegate(target: NoteTarget | null): void;
+    askToDelegate(target: CloudTarget | null): void;
     /** The repository whose environments are being edited. */
     environmentsOf: string | null;
     /** Opens a repository's environments; `null` puts them away. */

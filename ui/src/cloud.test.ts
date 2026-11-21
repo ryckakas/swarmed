@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { CloudTask } from "./api/types";
-import { cloudProvider, cloudTitle, cloudTone, cloudTooltip, isUnfinished } from "./cloud";
+import {
+    briefRequest,
+    cloudProvider,
+    cloudTitle,
+    cloudTone,
+    cloudTooltip,
+    isUnfinished,
+    unseenByCloud,
+} from "./cloud";
 
 const task = (status: string, prompt = "Tidy the docs\nand the rest"): CloudTask => ({
     id: 1,
@@ -39,6 +47,27 @@ describe("a cloud task in the sidebar", () => {
         );
         expect(cloudTooltip(task("ready"))).toBe(
             "Tidy the docs\nIn Codex's cloud, from main: ready. Opens at Codex.",
+        );
+    });
+});
+
+describe("handing a session's work to the cloud", () => {
+    it("asks the session's agent for a brief, naming the provider and what the user added", () => {
+        const asked = briefRequest("claude", "  only step 2 ");
+        expect(asked).toContain("a Claude Code cloud agent");
+        expect(asked).toContain("`provider` set to `claude`");
+        expect(asked.endsWith("\n\nonly step 2")).toBe(true);
+        expect(briefRequest("codex", " ").endsWith("tell me what is missing.")).toBe(true);
+    });
+
+    it("says what the cloud agent will not see, and nothing when it sees all", () => {
+        const pushed = { changed: 0, unpushed: 0, pushed_before: true };
+        expect(unseenByCloud(pushed)).toBeNull();
+        expect(unseenByCloud({ ...pushed, changed: 1 })).toBe(
+            "Only on this Mac, where the cloud agent does not see it: 1 file is not committed.",
+        );
+        expect(unseenByCloud({ ...pushed, changed: 3, unpushed: 2 })).toBe(
+            "Only on this Mac, where the cloud agent does not see it: 3 files are not committed, 2 commits are not pushed.",
         );
     });
 });

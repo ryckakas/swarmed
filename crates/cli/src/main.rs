@@ -148,6 +148,17 @@ enum CloudCommand {
         #[arg(long, default_value = "codex")]
         provider: String,
     },
+    /// Hand the conversation of session SESSION to a cloud agent: what was said in it and the
+    /// plans its agent proposed, under what the cloud agent is to do with them.
+    HandOn {
+        session: i64,
+        /// What to do with it. Left out, the cloud agent carries on where it ended.
+        #[arg(default_value = "")]
+        instruction: String,
+        /// Whose cloud: `codex` or `claude`.
+        #[arg(long, default_value = "codex")]
+        provider: String,
+    },
     /// List the cloud tasks delegated from a project, with their statuses as of now.
     List { project: String },
     /// Print what a Codex cloud task changed, by its id from `cloud list`.
@@ -550,6 +561,16 @@ async fn cloud(core: &Core, command: CloudCommand) -> Result<()> {
                 provider,
             };
             row(&core.cloud_delegate(&project, &prompt, origin).await?);
+        }
+        CloudCommand::HandOn {
+            session,
+            instruction,
+            provider,
+        } => {
+            let provider = CloudProvider::parse(&provider)
+                .ok_or_else(|| anyhow::anyhow!("there is no cloud provider `{provider}`"))?;
+            let handed = core.cloud_delegate_conversation(session, &instruction, provider);
+            row(&handed.await?);
         }
         CloudCommand::List { project } => {
             core.cloud_tasks(&project, true).await?.iter().for_each(row);

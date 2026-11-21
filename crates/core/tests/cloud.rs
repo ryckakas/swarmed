@@ -5,8 +5,11 @@ mod common;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
-use common::{core_with_project, fixture, git};
-use swarmed_core::{CloudOrigin, CloudProvider, Core, Error, MAX_DELEGATED};
+use common::{core_with_project, fixture, git, turn};
+use swarmed_core::agent::Auth;
+use swarmed_core::{
+    CloudOrigin, CloudProvider, Core, Error, MAX_DELEGATED, NewTaskOptions, SessionOptions, hooks,
+};
 
 /// A `codex` that knows one environment, `acme/tool`, starts tasks in it, and leaves a log
 /// behind the way the real one does.
@@ -239,4 +242,49 @@ printf 'Created cloud session: Tidy up\r\nView: https://claude.ai/code/session_0
     assert_eq!(ran_in, folder);
     let listed = core.cloud_tasks("demo", true).await.expect("lists");
     assert_eq!(listed[0].status, "sent");
+}
+
+#[tokio::test]
+async fn a_session_s_conversation_is_handed_to_a_cloud_agent_by_the_user() {
+    let fx = fixture();
+    let core = core_with_codex(&fx).await;
+    core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    git(
+        &fx.repo,
+        &["remote", "add", "origin", "https://github.com/acme/tool"],
+    );
+    let session = core
+        .session_new("demo", "one", &SessionOptions::default())
+        .expect("test setup");
+    let codex = CloudProvider::Codex;
+
+    // Before anything was said there is nothing to hand on, and nobody is asked.
+    let hand_on = core.cloud_delegate_conversation(session.id, "", codex);
+    let nothing = refusal(hand_on.await);
+    assert!(nothing.starts_with("nothing was said"), "{nothing}");
+
+    core.session_start(session.id, Auth::Subscription)
+        .expect("starts");
+    let mut bus = core.subscribe();
+    core.session_send(session.id, "plan the move")
+        .expect("sends");
+    turn(&mut bus, session.id).await;
+
+    let hand_on = core.cloud_delegate_conversation(session.id, "do the first step", codex);
+    let task = hand_on.await.expect("delegates");
+    // The user's doing, so not on the session's count; from the repository's branch, since
+    // the task's own was never pushed.
+    assert_eq!(task.session_id, None);
+    assert_eq!(task.branch, head_branch(&fx.repo));
+    assert!(task.prompt.starts_with("do the first step\n\n"), "{task:?}");
+    // The cloud agent got what to do, then what was said, as one argument.
+    let asked = asked(&fx);
+    let said = "User:\nplan the move\n\nAssistant:\necho: plan the move\n</earlier-conversation>";
+    assert!(asked.contains("|--|do the first step\n\n"), "{asked}");
+    assert!(asked.ends_with(said), "{asked}");
+
+    let unknown = core.cloud_delegate_conversation(404, "", codex).await;
+    assert!(matches!(unknown, Err(Error::SessionNotFound(404))));
 }

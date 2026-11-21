@@ -267,6 +267,18 @@ pub(crate) async fn cloud_delegate(
     Ok(core.cloud_delegate(&project, &prompt, origin).await?)
 }
 
+/// Hands a session's conversation to a cloud agent, under what it is to do with it.
+#[tauri::command]
+pub(crate) async fn cloud_delegate_conversation(
+    core: CoreState<'_>,
+    id: i64,
+    instruction: String,
+    provider: CloudProvider,
+) -> Command<CloudTask> {
+    let handed = core.cloud_delegate_conversation(id, &instruction, provider);
+    Ok(handed.await?)
+}
+
 /// The cloud tasks delegated from a project, with their statuses asked for again if wanted.
 #[tauri::command]
 pub(crate) async fn cloud_tasks(
