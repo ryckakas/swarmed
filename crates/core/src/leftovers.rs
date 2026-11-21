@@ -129,9 +129,17 @@ fn parse_process(line: &str) -> Option<Process> {
     })
 }
 
-/// Where each process works, as far as this user may see.
+/// Where each process works, as far as this user may see. Read from `/proc`, one link for each
+/// process, on a thread that may wait on files.
 #[cfg(target_os = "linux")]
 async fn working_dirs() -> HashMap<u32, PathBuf> {
+    tokio::task::spawn_blocking(proc_working_dirs)
+        .await
+        .unwrap_or_default()
+}
+
+#[cfg(target_os = "linux")]
+fn proc_working_dirs() -> HashMap<u32, PathBuf> {
     let Ok(entries) = std::fs::read_dir("/proc") else {
         return HashMap::new();
     };
