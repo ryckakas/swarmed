@@ -26,7 +26,7 @@ export const DEFAULT_PALETTE: Palette = "swarm";
 export const STYLES: [Style, string][] = [
     ["colony", "Swarm, tree renamed too"],
     ["swarm", "Swarm"],
-    ["plain", "Plain"],
+    ["plain", "Boring"],
 ];
 
 /** The icons and words the app uses until the user chooses others. */
