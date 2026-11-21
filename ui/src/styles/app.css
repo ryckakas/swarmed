@@ -3448,6 +3448,38 @@ code {
     color: var(--faint);
 }
 
+/* The agent's usage windows and the session's spend, each set off from the context above. */
+.context-section {
+    margin-top: var(--space-3);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--line);
+}
+
+.context-limits {
+    margin-top: var(--space-1);
+}
+
+.context-limit {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    column-gap: var(--space-4);
+    padding: 1px 0;
+}
+
+.context-limit dd {
+    font-family: var(--font-mono);
+}
+
+.context-limit .context-reset {
+    grid-column: 1 / -1;
+    color: var(--muted);
+    font-family: var(--font-ui);
+}
+
+.context-limit[data-near="true"] dd:not(.context-reset) {
+    color: var(--clay);
+}
+
 /* Suggestions for a message that starts with a slash; they open upwards, over the transcript. */
 .slash-menu {
     position: absolute;

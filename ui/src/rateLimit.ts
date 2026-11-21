@@ -14,7 +14,13 @@ const WINDOWS: Record<string, string> = {
     seven_day: "weekly",
     seven_day_opus: "weekly Opus",
     seven_day_sonnet: "weekly Sonnet",
+    seven_day_overage_included: "weekly, extra usage included",
 };
+
+/** What a window is called here, from Claude Code's name for it. */
+function windowName(type: string): string {
+    return WINDOWS[type] ?? type.replaceAll("_", " ");
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null;
@@ -24,7 +30,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function details(event: RateLimit): { window: string | null; used: number | null } {
     const raw = isRecord(event.raw) ? event.raw : {};
     const type = raw.rateLimitType;
-    const window = typeof type === "string" ? (WINDOWS[type] ?? type.replaceAll("_", " ")) : null;
+    const window = typeof type === "string" ? windowName(type) : null;
     const used = typeof raw.utilization === "number" ? raw.utilization : null;
     return { window, used };
 }
@@ -68,4 +74,44 @@ export function limitNotice(
     }
     const share = used === null ? "" : `: ${Math.round(used * 100)}% used`;
     return `Claude Code warns that the ${window ?? "usage"} limit is getting closer${share}. Nothing is limited yet.${resets}`;
+}
+
+/** One of Claude Code's usage windows, as its last report gave it. */
+export interface LimitWindow {
+    /** What the window is called here, such as "5-hour" or "weekly". */
+    name: string;
+    /** How much of it is used, from 0 to 1. */
+    used: number;
+    /** When it resets, in seconds since 1970; `null` if not said. */
+    resetsAt: number | null;
+    /** `allowed`, or what stops the next request. */
+    status: string;
+}
+
+/**
+ * Every usage window of the latest report, in the order Claude Code lists them. Only Claude
+ * Code reports them: the Agent Client Protocol has no message for an account's limits.
+ */
+export function limitWindows(events: AgentEvent[]): LimitWindow[] {
+    const latest = events.findLast((event) => event.type === "rate_limit");
+    if (latest?.type !== "rate_limit" || !isRecord(latest.raw)) {
+        return [];
+    }
+    const windows = latest.raw.unifiedWindows;
+    if (!isRecord(windows)) {
+        return [];
+    }
+    return Object.entries(windows).flatMap(([type, window]): LimitWindow[] => {
+        if (!isRecord(window) || typeof window.utilization !== "number") {
+            return [];
+        }
+        return [
+            {
+                name: windowName(type),
+                used: window.utilization,
+                resetsAt: typeof window.resetsAt === "number" ? window.resetsAt : null,
+                status: typeof window.status === "string" ? window.status : "allowed",
+            },
+        ];
+    });
 }
