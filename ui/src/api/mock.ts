@@ -1917,11 +1917,17 @@ export function createMockApi(): Api {
         effortDefault: sampleEffortDefault,
         ...setupApi(hookListeners),
         agents: async () => [
-            { id: "claude", name: "Claude Code", models: ["opus", "sonnet", "haiku", "fable"] },
+            {
+                id: "claude",
+                name: "Claude Code",
+                models: ["opus", "sonnet", "haiku", "fable"],
+                default_model: null,
+            },
             {
                 id: "opencode",
                 name: "OpenCode",
                 models: ["openrouter/openai/gpt-5.6", "openrouter/google/gemini-3-pro"],
+                default_model: "openrouter/openai/gpt-5.6",
             },
         ],
         // A browser gives no paths, so the sample hands out two that look real.

@@ -729,6 +729,11 @@ export interface AgentInfo {
     name: string;
     /** Model names worth offering for it. */
     models: string[];
+    /**
+     * What a session that leaves the model open runs on, where Swarmed decides that rather than
+     * the agent: the first of `models`, for an agent picked from OpenRouter. `null` otherwise.
+     */
+    default_model: string | null;
 }
 
 /** How a new session should run. */

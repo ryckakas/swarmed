@@ -51,6 +51,15 @@ export function modelLabel(model: string | null): string {
     return MODEL_LABELS[model ?? ""] ?? model ?? "";
 }
 
+/**
+ * The default model as a menu option names: the model itself where Swarmed chooses it, since
+ * a session left on it runs on that one; else whatever the agent runs on by itself.
+ */
+function defaultModelLabel(agent: AgentInfo | undefined): string {
+    const chosen = agent?.default_model;
+    return chosen ? `${modelLabel(null)} (${modelLabel(chosen)})` : modelLabel(null);
+}
+
 /** The agent's default, then the models it offers, as menu options. */
 export function modelChoices(agent: AgentInfo | undefined, current?: string | null) {
     const models = new Set(agent?.models ?? []);
@@ -59,7 +68,7 @@ export function modelChoices(agent: AgentInfo | undefined, current?: string | nu
         models.add(current);
     }
     return [
-        ["", modelLabel(null)],
+        ["", defaultModelLabel(agent)],
         ...[...models].map((model): [string, string] => [model, modelLabel(model)]),
     ] satisfies [string, string][];
 }

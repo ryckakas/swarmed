@@ -10,7 +10,7 @@ use serde_json::json;
 use swarmed_core::agent::{AcpBackend, AgentEvent, Auth, Effort, FakeBackend, Supervision};
 use swarmed_core::{
     AgentInfo, Core, Error, McpServerInput, NewTaskOptions, RemoveOptions, SessionEvent,
-    SessionOptions, SessionStatus, hooks,
+    SessionOptions, SessionSettings, SessionStatus, hooks,
 };
 use tokio::sync::broadcast::Receiver;
 
@@ -25,6 +25,7 @@ fn scripted_agent(env: &[(&str, &str)]) -> AcpBackend {
             .iter()
             .map(|(name, value)| ((*name).to_string(), (*value).to_string()))
             .collect(),
+        default_model: None,
     }
 }
 
@@ -36,6 +37,7 @@ async fn core_with(fx: &common::Fixture, backend: AcpBackend) -> Core {
         id: AGENT.into(),
         name: "Scripted".into(),
         models: vec![],
+        default_model: None,
     };
     core.add_agent(info, Arc::new(backend));
     core.project_add(&fx.repo, None).await.expect("test setup");
@@ -799,6 +801,53 @@ async fn a_session_can_name_its_model_and_only_a_configured_agent() {
     );
 }
 
+/// Has the session's agent say which model it is on.
+async fn model_heard(core: &Core, bus: &mut Receiver<SessionEvent>, id: i64) -> Vec<AgentEvent> {
+    core.session_send(id, "model").expect("sends");
+    turn(bus, id).await
+}
+
+#[tokio::test]
+async fn a_session_that_leaves_the_model_open_runs_on_the_default_swarmed_has_for_the_agent() {
+    const FIRST: &str = "openrouter/first/listed";
+    let fx = fixture();
+    let agent = AcpBackend {
+        default_model: Some(FIRST.into()),
+        ..scripted_agent(&[])
+    };
+    let core = core_with(&fx, agent).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+    let events = model_heard(&core, &mut bus, id).await;
+    // Named where the session starts, as what it runs on, and not the agent's own default.
+    assert!(
+        matches!(events.get(1), Some(AgentEvent::Init { model, .. }) if model == FIRST),
+        "{events:?}"
+    );
+    assert!(
+        events.contains(&text(&format!("model: {FIRST}"))),
+        "{events:?}"
+    );
+
+    // Another model chosen, then the choice left open again: back on Swarmed's default.
+    for (chosen, on) in [
+        (Some("openrouter/other/model"), "openrouter/other/model"),
+        (None, FIRST),
+    ] {
+        let settings = SessionSettings {
+            model: chosen.map(String::from),
+            supervision: Supervision::Ask,
+            ..SessionSettings::default()
+        };
+        core.session_configure(id, &settings).expect("configures");
+        let events = model_heard(&core, &mut bus, id).await;
+        assert!(
+            events.contains(&text(&format!("model: {on}"))),
+            "{events:?}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn an_acp_agent_is_given_swarmeds_guidance_once_with_its_first_message() {
     let fx = fixture();
@@ -828,6 +877,7 @@ async fn an_agent_that_cannot_be_started_is_an_error_not_a_hang() {
         program: "/nonexistent/agent".into(),
         args: vec![],
         env: vec![],
+        default_model: None,
     };
     let core = core_with(&fx, missing).await;
     let options = SessionOptions {
@@ -940,6 +990,7 @@ async fn an_agent_with_servers_of_its_own_is_given_only_the_ones_it_lacks() {
         id: "codex".into(),
         name: "Codex".into(),
         models: vec![],
+        default_model: None,
     };
     core.add_agent(codex, Arc::new(scripted_agent(&[])));
     let mut bus = core.subscribe();

@@ -14,6 +14,17 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Fixed
+
+- **An OpenCode session left on "Default model" runs on the first model listed for OpenCode
+  in Settings,** and the model menu names it. It used to run on OpenCode's own default,
+  whichever model OpenRouter added last, which changes without notice and may be one the
+  account's allowed providers don't serve: a first message could fail with "No allowed
+  providers are available for the selected model". The start of the session also named a
+  model other than the one the message ran on.
+- **`swarmed-core`: `AgentInfo` and `AcpBackend` have `default_model`,** what a session that
+  leaves the model open runs on where Swarmed chooses it; `None` leaves it to the agent.
+
 ## [0.2.1] - 2026-11-21
 
 ### Changed

@@ -7,6 +7,7 @@
 - "guidance": says whether Swarmed's guidance came along with the message;
 - "fail": answers the prompt with an error;
 - "mcp": names the MCP servers it was given;
+- "model": names the model it was put on, or "fake/default" if none;
 - "wake": ends its turn, then carries on by itself, as an agent whose timer went off does;
 - "linger": ends its turn, then starts a tool and never says another word.
 
@@ -67,6 +68,9 @@ def on_prompt(request_id, params):
         finish()
     elif text == "mcp":
         chunk(session, "servers: " + ", ".join(state.get("servers", [])))
+        finish()
+    elif text == "model":
+        chunk(session, "model: " + state.get("model", "fake/default"))
         finish()
     elif text == "key":
         chunk(session, "key: " + os.environ.get("OPENROUTER_API_KEY", "none"))
@@ -165,8 +169,8 @@ for line in sys.stdin:
     elif method in ("session/new", "session/load", "session/resume"):
         open_session(request_id, method, params)
     elif method == "session/set_config_option":
-        if params.get("configId") == "mode":
-            state["mode"] = params.get("value")
+        if params.get("configId") in ("mode", "model"):
+            state[params["configId"]] = params.get("value")
         send({"id": request_id, "result": {}})
     elif method == "session/prompt":
         on_prompt(request_id, params)

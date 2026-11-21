@@ -7,6 +7,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::{AcpBackend, AgentBackend, ClaudeBackend};
+use crate::agent_setup::defaults_to_first_listed;
 use crate::error::{Error, Result};
 
 /// The id of the agent every installation has.
@@ -21,6 +22,9 @@ pub struct AgentInfo {
     pub name: String,
     /// Model names worth offering. A session may also name one that is not listed.
     pub models: Vec<String>,
+    /// What a session that leaves the model open runs on, where Swarmed decides that and not
+    /// the agent: the first of `models`, for an agent whose own default is not one to go by.
+    pub default_model: Option<String>,
 }
 
 /// One entry of `agents.toml`: an ACP agent and how to start it.
@@ -82,6 +86,7 @@ fn claude_info() -> AgentInfo {
         id: CLAUDE.to_string(),
         name: "Claude Code".to_string(),
         models,
+        default_model: None,
     }
 }
 
@@ -134,16 +139,20 @@ impl Agents {
 
     fn add(&mut self, id: String, entry: AgentConfig) {
         let name = entry.name.unwrap_or_else(|| id.clone());
+        let first = entry.models.first();
+        let default_model = first.filter(|_| defaults_to_first_listed(&id)).cloned();
         let info = AgentInfo {
             id: id.clone(),
             name,
-            models: entry.models,
+            models: entry.models.clone(),
+            default_model: default_model.clone(),
         };
         let program = PathBuf::from(&entry.command);
         let backend = AcpBackend {
             program: entry.command.into(),
             args: entry.args,
             env: entry.env.into_iter().collect(),
+            default_model,
         };
         let agent = Agent {
             info,
@@ -244,6 +253,30 @@ OPENCODE_CONFIG = "/tmp/x"
         .expect("loads");
         let info = agents.infos().pop().expect("two agents");
         assert_eq!((info.name.as_str(), info.models.len()), ("OpenCode", 1));
+    }
+
+    #[test]
+    fn only_an_agent_whose_models_come_from_openrouter_defaults_to_the_first_listed() {
+        let agents = load(
+            "[opencode]\ncommand = \"opencode\"\nmodels = [\"openrouter/a/one\", \"openrouter/b/two\"]\n\
+             [codex]\ncommand = \"codex-acp\"\nmodels = [\"gpt-x\", \"gpt-y\"]\n\
+             [bare]\ncommand = \"opencode\"\n",
+        )
+        .expect("loads");
+        let defaults: Vec<(String, Option<String>)> = agents
+            .infos()
+            .into_iter()
+            .map(|info| (info.id, info.default_model))
+            .collect();
+        assert_eq!(
+            defaults,
+            [
+                ("claude".to_string(), None),
+                ("bare".to_string(), None),
+                ("codex".to_string(), None),
+                ("opencode".to_string(), Some("openrouter/a/one".to_string())),
+            ]
+        );
     }
 
     #[test]

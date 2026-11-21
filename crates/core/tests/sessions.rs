@@ -366,6 +366,7 @@ async fn usage_asked_for_comes_from_the_sessions_agent_and_stays_out_of_the_conv
         id: "other".into(),
         name: "Other".into(),
         models: vec![],
+        default_model: None,
     };
     core.add_agent(other, Arc::new(FakeBackend::default()));
     let options = SessionOptions {
