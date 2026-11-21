@@ -775,14 +775,15 @@ pub(crate) fn sessions_closed(
 }
 
 /// A new session that starts with what was said in session `id` before its message number
-/// `before`, or with all of it.
+/// `before`, or with all of it; on `agent`, if that is another than the session's own.
 #[tauri::command]
 pub(crate) fn session_fork(
     core: CoreState<'_>,
     id: i64,
     before: Option<usize>,
+    agent: Option<String>,
 ) -> Command<Session> {
-    Ok(core.session_fork(id, before)?)
+    Ok(core.session_fork(id, before, agent.as_deref())?)
 }
 
 /// Puts a closed session back in the lists.

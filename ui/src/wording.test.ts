@@ -101,6 +101,7 @@ describe("pickWord", () => {
             // Put away with its conversation kept, or gone for good.
             expect(wordsFor(style).archiveSession).toBe("Burrow");
             expect(wordsFor(style).files).toBe("Tunnels");
+            expect(wordsFor(style).forkAll).toBe("Split this spawn");
             expect(wordsFor(style).deleteSession).toBe("Cull");
             expect(wordsFor(style).environment).toBe("Spawning pool");
         }

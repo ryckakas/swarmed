@@ -135,7 +135,8 @@ export const tauriApi: Api = {
     setBadge: (count) => invoke("badge_set", { count }),
     onHookOutput: (listener) =>
         listen<HookOutput>("hook-output", (event) => listener(event.payload)),
-    sessionFork: (id, before) => invoke<Session>("session_fork", { id, before }),
+    sessionFork: (id, before, agent) =>
+        invoke<Session>("session_fork", { id, before, agent: agent ?? null }),
     sessionNew: (project, task, { agent, ...how }) =>
         invoke<Session>("session_new", { project, task, agent, how }),
     sessionEvents: (id) => invoke<AgentEvent[]>("session_events", { id }),

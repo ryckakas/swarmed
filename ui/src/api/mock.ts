@@ -1296,13 +1296,23 @@ function eventOfMessage(events: AgentEvent[], number: number): number {
     return places[number] ?? events.length;
 }
 
-function sampleFork(agent: MockAgent, tasks: Task[], id: number, before: number | null): Session {
+function sampleFork(
+    agent: MockAgent,
+    tasks: Task[],
+    id: number,
+    before: number | null,
+    onAgent?: string,
+): Session {
     const home = tasks.find((task) => task.sessions.some((one) => one.id === id));
     const source = home?.sessions.find((one) => one.id === id);
     if (!(home && source)) {
         throw new Error(`there is no session ${id}`);
     }
-    const fork = { ...agent.newSession(home.id), title: `${source.title} (fork)` };
+    const fork = {
+        ...agent.newSession(home.id),
+        title: `${source.title} (fork)`,
+        agent: onAgent ?? source.agent,
+    };
     const history = agent.history(id);
     const said = history.slice(0, before === null ? undefined : eventOfMessage(history, before));
     const kept = said.filter((event) => ["user_message", "text"].includes(event.type));
@@ -1613,7 +1623,7 @@ export function createMockApi(): Api {
             home.sessions.push(created);
             return created;
         },
-        sessionFork: async (id, before) => sampleFork(agent, tasks(), id, before),
+        sessionFork: async (id, before, onAgent) => sampleFork(agent, tasks(), id, before, onAgent),
         sessionEvents: async (id) => [...agent.history(id)],
         sessionSend: async (id, text, files) => agent.send(id, withFiles(text, files ?? [])),
         sessionQueue: async (id) => agent.queue(id),
