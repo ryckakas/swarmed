@@ -56,7 +56,7 @@ struct Row {
 /// What is remembered of each session while its events go by.
 #[derive(Default)]
 struct Run {
-    /// The agent's running total as last reported in this run of its process.
+    /// The agent's running total as last reported.
     total: f64,
     /// The model it last said it runs on.
     model: Option<String>,
@@ -102,7 +102,8 @@ impl Store {
 }
 
 /// Adds the turns up. What a turn cost is the step from the total its agent reported before
-/// it in the same run of its process, as that total starts again whenever the agent does.
+/// it. Claude Code's total is the conversation's: it says `init` with every turn and keeps the
+/// total when resumed, so neither starts it over (`costs.rs`).
 fn counted(rows: Vec<Row>) -> Vec<TurnStats> {
     let mut runs: HashMap<i64, Run> = HashMap::new();
     let mut stats: Vec<TurnStats> = Vec::new();
@@ -110,7 +111,6 @@ fn counted(rows: Vec<Row>) -> Vec<TurnStats> {
         let run = runs.entry(row.session).or_default();
         let (failed, cost, took) = match row.event {
             AgentEvent::Init { model, .. } => {
-                run.total = 0.0;
                 run.model = named(model).or_else(|| run.model.take());
                 continue;
             }
@@ -150,7 +150,7 @@ fn named(model: String) -> Option<String> {
 /// What a turn cost, given the total its agent reports after it.
 fn step(run: &mut Run, total: f64) -> f64 {
     let last = std::mem::replace(&mut run.total, total);
-    // A total below the last one means a run started unnoticed: it counts whole.
+    // A total below the last one started from nothing, as after `/clear`: it counts whole.
     if total >= last { total - last } else { total }
 }
 
@@ -225,9 +225,10 @@ mod tests {
             row(1, "2026-11-19", init("opus")),
             row(1, "2026-11-19", done(Some(0.5), Some(1000), false)),
             row(1, "2026-11-19", done(Some(0.75), Some(2000), true)),
-            // The agent started again, so its total did too.
+            // Claude Code says `init` with every turn, resumed or not, and goes on from the
+            // conversation's total.
             row(1, "2026-11-20", init("opus")),
-            row(1, "2026-11-20", done(Some(0.25), None, false)),
+            row(1, "2026-11-20", done(Some(1.0), None, false)),
             row(2, "2026-11-19", init("haiku")),
             row(2, "2026-11-19", done(None, Some(500), false)),
         ]);

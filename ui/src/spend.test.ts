@@ -20,13 +20,15 @@ const done = (cost: number | null): AgentEvent => ({
 });
 
 describe("sessionSpend", () => {
-    it("adds up the runs, each a running total from its own start", () => {
-        const events = [init("none"), done(0.5), done(1.2), init("none"), done(0.3), done(0.4)];
-        expect(sessionSpend(events)).toBeCloseTo(1.6);
+    it("follows the conversation's running total, which Claude Code says with every turn", () => {
+        // Claude Code says `init` before every turn, and keeps the total when resumed.
+        const turns = [init("none"), done(0.5), init("none"), done(1.2), init("none"), done(1.2)];
+        expect(sessionSpend(turns)).toBeCloseTo(1.2);
     });
 
-    it("counts a total lower than the last whole, as a run that started unnoticed", () => {
-        expect(sessionSpend([done(1), done(0.25)])).toBeCloseTo(1.25);
+    it("counts a total lower than the last whole, as one that started from nothing", () => {
+        // After `/clear`, Claude Code counts the new conversation from nothing.
+        expect(sessionSpend([done(1), init("none"), done(0), done(0.25)])).toBeCloseTo(1.25);
     });
 
     it("is unknown when no turn said what it cost", () => {
