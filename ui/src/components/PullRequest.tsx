@@ -5,7 +5,6 @@ import type { Check, Pull, Task } from "../api/types";
 import {
     CHECKS_SEARCHED_FROM,
     checkCounts,
-    checksShownByDefault,
     checksSummary,
     failedChecks,
     fixPrompt,
@@ -96,8 +95,8 @@ interface ChecksProps {
  * with dozens of checks does not push the rest of the panel out of sight.
  */
 function Checks({ pull, summary, onOpen }: ChecksProps) {
-    // Until the user says, shown while a check failed or runs and folded once all is well.
-    const [chosen, setChosen] = useState<boolean | null>(null);
+    // Folded until the user says: the line that sums them up already tells what failed or runs.
+    const [shown, setShown] = useState(false);
     const tone = pullTone(pull);
     if (pull.checks.length === 0) {
         return (
@@ -106,7 +105,6 @@ function Checks({ pull, summary, onOpen }: ChecksProps) {
             </p>
         );
     }
-    const shown = chosen ?? checksShownByDefault(pull);
     return (
         <>
             <button
@@ -115,7 +113,7 @@ function Checks({ pull, summary, onOpen }: ChecksProps) {
                 data-tone={tone}
                 aria-expanded={shown}
                 title={shown ? "Folds the checks away" : "Shows each check"}
-                onClick={() => setChosen(!shown)}
+                onClick={() => setShown(!shown)}
             >
                 <svg
                     className="pull-fold-chevron"

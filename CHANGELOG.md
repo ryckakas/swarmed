@@ -46,8 +46,9 @@ through Homebrew or a browser.
   once, and work can be handed to a Codex cloud agent or a Claude Code cloud session.
 - **The task panel.** Changed files with their diffs, comments on lines sent to a session, a Files
   tab, commit with a message the session's agent writes, push, and a pull request whose title and
-  description are written for you, with its checks, failures first. Two tasks' changes can be
-  compared, and a worktree opened in the editor, the browser or the terminal application.
+  description are written for you, with its checks summed up in a line that unfolds into the list,
+  failures first. Two tasks' changes can be compared, and a worktree opened in the editor, the
+  browser or the terminal application.
 - **A terminal in each session**, whose output the agent sees, configured in JSON; processes a
   task's agents left running are listed and can be stopped.
 - **Environments.** Named environments per repository with their ports and variables, a start
