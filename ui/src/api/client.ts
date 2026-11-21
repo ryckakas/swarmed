@@ -57,6 +57,8 @@ export interface Api {
     actions(project: string | null): Promise<Action[]>;
     /** Keeps an action, in `project`'s own or for every repository; returns what is offered. */
     actionSave(project: string | null, action: Action): Promise<Action[]>;
+    /** Moves an action `by` places among those kept with it, earlier if negative; returns what is then offered. */
+    actionMove(project: string | null, name: string, by: number): Promise<Action[]>;
     /** Drops an action; returns what is then offered. */
     actionRemove(project: string | null, name: string): Promise<Action[]>;
     /** The prompts the user keeps to send again, by name. */

@@ -204,7 +204,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   not a usable action is left out instead of failing the lot. The core only keeps them. The UI
   (`ActionBar`) sends the prompt to the session on screen, or types the command into that
   session's terminal: a command is run where the user sees it and can answer it, never out of
-  sight. However many there are, the first six are buttons and the rest a menu. Do not add a
+  sight. However many there are, the first six are buttons and the rest a menu. They are
+  shown in the order their files keep them, general ones first; `action_move` changes it. Do not add a
   built-in button for one person's workflow: that is what an action is for.
 - **Agents change Swarmed's own configuration through one tool, `configure`** (`configure.rs`),
   in three kinds. Done at once: prompts, actions that send a prompt, the status line's pieces,

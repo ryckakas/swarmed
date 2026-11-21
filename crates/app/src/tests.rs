@@ -799,6 +799,17 @@ fn the_ui_can_keep_an_action_as_it_holds_it_and_answer_a_proposal() {
     let kept = app.ok("action_save", json!({ "project": null, "action": action }));
     assert_eq!(kept[0]["name"], "Tests");
     assert_eq!(kept[0]["of_project"], false);
+    let second = json!({ "name": "Lint", "icon": "", "prompt": "", "command": "make lint", "of_project": false });
+    app.ok("action_save", json!({ "project": null, "action": second }));
+    let moved = app.ok(
+        "action_move",
+        json!({ "project": null, "name": "Lint", "by": -1 }),
+    );
+    assert_eq!(
+        (&moved[0]["name"], &moved[1]["name"]),
+        (&json!("Lint"), &json!("Tests"))
+    );
+    app.ok("action_remove", json!({ "project": null, "name": "Lint" }));
     assert_eq!(
         app.ok("action_remove", json!({ "project": null, "name": "Tests" })),
         json!([])

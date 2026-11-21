@@ -185,7 +185,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::branch_choices, commands::task_name_for, commands::task_new,
         commands::environments, commands::templates, commands::template_save,
         commands::template_remove, commands::actions, commands::action_save,
-        commands::action_remove, commands::session_mark, commands::config_answer,
+        commands::action_remove, commands::action_move, commands::session_mark, commands::config_answer,
         commands::skills, commands::skill_body, commands::skill_save, commands::skill_remove,
         commands::skill_share, commands::stack_start, commands::stack_stop, commands::stack_log,
         commands::cloud_delegate, commands::cloud_tasks, commands::cloud_task_forget,

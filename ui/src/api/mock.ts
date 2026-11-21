@@ -1244,8 +1244,20 @@ function sampleFork(agent: MockAgent, tasks: Task[], id: number, upto: number | 
     return fork;
 }
 
+/** `actions` with the one called `name` moved `by` places, no further than either end. */
+function movedAction(actions: Action[], name: string, by: number): Action[] {
+    const from = actions.findIndex((action) => action.name === name);
+    const one = actions[from];
+    if (!one) {
+        return actions;
+    }
+    const rest = actions.filter((action) => action !== one);
+    const to = Math.min(rest.length, Math.max(0, from + by));
+    return [...rest.slice(0, to), one, ...rest.slice(to)];
+}
+
 /** The user's own buttons, held in memory: some for every repository, one for the first. */
-function actionsApi(): Pick<Api, "actions" | "actionSave" | "actionRemove"> {
+function actionsApi(): Pick<Api, "actions" | "actionSave" | "actionMove" | "actionRemove"> {
     const one = (name: string, icon: string, prompt: string, command: string): Action => ({
         name,
         icon,
@@ -1275,6 +1287,14 @@ function actionsApi(): Pick<Api, "actions" | "actionSave" | "actionRemove"> {
                 general = [...without(general, action.name), action];
             } else {
                 own.set(project, [...without(own.get(project) ?? [], action.name), action]);
+            }
+            return offered(project);
+        },
+        actionMove: async (project, name, by) => {
+            if (project === null) {
+                general = movedAction(general, name, by);
+            } else {
+                own.set(project, movedAction(own.get(project) ?? [], name, by));
             }
             return offered(project);
         },

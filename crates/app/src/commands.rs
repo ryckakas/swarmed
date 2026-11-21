@@ -359,6 +359,17 @@ pub(crate) fn action_remove(
     Ok(core.action_remove(project.as_deref(), &name)?)
 }
 
+/// Moves an action `by` places among those kept in the same place.
+#[tauri::command]
+pub(crate) fn action_move(
+    core: CoreState<'_>,
+    project: Option<String>,
+    name: String,
+    by: i32,
+) -> Command<Vec<Action>> {
+    Ok(core.action_move(project.as_deref(), &name, by)?)
+}
+
 /// Puts a mark on a session, or takes it off when `colour` is `none`.
 #[tauri::command]
 pub(crate) fn session_mark(

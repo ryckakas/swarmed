@@ -31,6 +31,16 @@ pub(crate) enum ActionCommand {
         #[arg(long)]
         project: Option<String>,
     },
+    /// Move an action among the others: its button is shown where it is kept.
+    Move {
+        name: String,
+        /// How many places: negative for earlier, as in `--by=-1`.
+        #[arg(long, allow_hyphen_values = true)]
+        by: i32,
+        /// Move it among this project's own; without it, among those for every repository.
+        #[arg(long)]
+        project: Option<String>,
+    },
     /// Drop an action.
     Remove {
         name: String,
@@ -77,6 +87,9 @@ pub(crate) fn run(core: &Core, command: ActionCommand) -> Result<()> {
             core.action_save(project.as_deref(), &action)?
         }
         ActionCommand::Remove { name, project } => core.action_remove(project.as_deref(), &name)?,
+        ActionCommand::Move { name, by, project } => {
+            core.action_move(project.as_deref(), &name, by)?
+        }
     };
     list(&offered);
     Ok(())

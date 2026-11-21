@@ -84,6 +84,14 @@ export function ActionsSettings() {
             report(error);
         }
     };
+    const move = (name: string, by: -1 | 1) =>
+        api
+            .actionMove(project, name, by)
+            .then((offered) => {
+                setActions(offered);
+                noteChanged();
+            })
+            .catch(report);
     const remove = (name: string) => api.actionRemove(project, name).then(took).catch(report);
     // A repository's page lists its own; the general ones are changed on the general page.
     const own = actions.filter((action) => action.of_project === (project !== null));
@@ -92,12 +100,12 @@ export function ActionsSettings() {
         <section className="settings-group" aria-label="Actions">
             <h3>Actions</h3>
             <p className="settings-hint">
-                Buttons of your own, shown on every task. Each sends a prompt to the agent of the
-                session on screen, or runs a command in that session's terminal, in the task's
-                worktree. They are kept as plain text in <code>actions.toml</code> in Swarmed's data
-                folder, and a repository's own in <code>projects/NAME.actions.toml</code>, so you
-                can also write them by hand, or ask an agent in any session to add one: it has a
-                tool for that.
+                Buttons of your own, shown on every task in the order they stand here, those for
+                every repository first. Each sends a prompt to the agent of the session on screen,
+                or runs a command in that session's terminal, in the task's worktree. They are kept
+                as plain text in <code>actions.toml</code> in Swarmed's data folder, and a
+                repository's own in <code>projects/NAME.actions.toml</code>, so you can also write
+                them by hand, or ask an agent in any session to add one: it has a tool for that.
             </p>
             <div className="settings-row">
                 <p className="settings-label">Shown in</p>
@@ -114,7 +122,7 @@ export function ActionsSettings() {
                     ]}
                 />
             </div>
-            {own.map((action) => (
+            {own.map((action, at) => (
                 <div key={action.name} className="settings-row">
                     <div>
                         <p className="settings-label">{actionLabel(action)}</p>
@@ -126,13 +134,37 @@ export function ActionsSettings() {
                             </p>
                         )}
                     </div>
-                    <button
-                        type="button"
-                        className="button"
-                        onClick={() => setDraft(draftOf(action))}
-                    >
-                        Edit
-                    </button>
+                    <span className="action-row-buttons">
+                        <span className="status-piece-moves">
+                            <button
+                                type="button"
+                                className="status-piece-move"
+                                aria-label={`Move ${action.name} earlier`}
+                                title="Earlier"
+                                disabled={at === 0}
+                                onClick={() => void move(action.name, -1)}
+                            >
+                                ↑
+                            </button>
+                            <button
+                                type="button"
+                                className="status-piece-move"
+                                aria-label={`Move ${action.name} later`}
+                                title="Later"
+                                disabled={at === own.length - 1}
+                                onClick={() => void move(action.name, 1)}
+                            >
+                                ↓
+                            </button>
+                        </span>
+                        <button
+                            type="button"
+                            className="button"
+                            onClick={() => setDraft(draftOf(action))}
+                        >
+                            Edit
+                        </button>
+                    </span>
                 </div>
             ))}
             {draft ? (

@@ -43,6 +43,7 @@ export const tauriApi: Api = {
     mcpRemove: (name) => invoke<McpServerView[]>("mcp_remove", { name }),
     actions: (project) => invoke<Action[]>("actions", { project }),
     actionSave: (project, action) => invoke<Action[]>("action_save", { project, action }),
+    actionMove: (project, name, by) => invoke<Action[]>("action_move", { project, name, by }),
     actionRemove: (project, name) => invoke<Action[]>("action_remove", { project, name }),
     templates: () => invoke<Template[]>("templates"),
     templateSave: (name, text) => invoke<Template[]>("template_save", { name, text }),

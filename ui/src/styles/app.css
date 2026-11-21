@@ -1349,6 +1349,13 @@ code {
     gap: var(--space-2);
 }
 
+.action-row-buttons {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
 .action-icon-input {
     max-width: 8ch;
 }
