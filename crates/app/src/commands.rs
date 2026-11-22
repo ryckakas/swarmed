@@ -769,6 +769,12 @@ pub(crate) async fn session_send(
     Ok(core.session_message(id, &text, &files, Auth::default())?)
 }
 
+/// Tells a waiting message to the session's agent in the middle of its turn, without stopping it.
+#[tauri::command]
+pub(crate) fn session_tell_now(core: CoreState<'_>, id: i64, message: u64) -> Command<()> {
+    Ok(core.session_tell_now(id, message)?)
+}
+
 /// Sends the message now, stopping the turn under way first: it goes when that turn has ended,
 /// ahead of anything waiting. Async for the same reason as `session_send`.
 #[tauri::command]

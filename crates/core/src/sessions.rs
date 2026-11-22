@@ -1,6 +1,6 @@
 //! Agent sessions: creating them, running them, and keeping what they said.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -134,6 +134,7 @@ impl SessionStatus {
             | AgentEvent::CommandAnswered { .. }
             | AgentEvent::TerminalOnly { .. }
             | AgentEvent::WorktreeMoved { .. }
+            | AgentEvent::Heard { .. }
             // A sub-agent in the foreground works inside its starter's turn, which is busy
             // already; one in the background works between turns, when the session is not.
             | AgentEvent::Sub { .. }
@@ -1488,6 +1489,9 @@ pub(crate) struct Live {
     branches_known: Mutex<HashMap<i64, Head>>,
     /// The sub-agents each session's agent has at work in the background, by their task ids.
     background_agents: Mutex<HashMap<i64, HashSet<String>>>,
+    /// The messages told to each session's agent in the middle of a turn and not yet heard:
+    /// each is recorded where the agent says it took it in.
+    told: Mutex<HashMap<i64, VecDeque<String>>>,
     runs: AtomicU64,
     bus: broadcast::Sender<SessionEvent>,
 }
@@ -1506,6 +1510,7 @@ impl Default for Live {
             branches_seen: Mutex::default(),
             branches_known: Mutex::default(),
             background_agents: Mutex::default(),
+            told: Mutex::default(),
             runs: AtomicU64::new(0),
             bus: broadcast::Sender::new(EVENT_BUFFER),
         }
@@ -1513,6 +1518,37 @@ impl Default for Live {
 }
 
 impl Live {
+    /// Hands `text` to the session's agent in the middle of its turn, to be recorded once the
+    /// agent says it took it in.
+    pub(crate) fn tell(&self, id: i64, text: &str) -> Result<()> {
+        lock(&self.told)
+            .entry(id)
+            .or_default()
+            .push_back(text.to_string());
+        let told = self.command(id, AgentCommand::UserMessage(text.to_string()));
+        if told.is_err() {
+            lock(&self.told).entry(id).or_default().pop_back();
+        }
+        told
+    }
+
+    /// Whether `text` is the next message told to the session's agent mid-turn, which it has
+    /// now heard. Messages are heard in the order they were told.
+    fn heard(&self, id: i64, text: &str) -> bool {
+        let mut told = lock(&self.told);
+        let next = told
+            .get_mut(&id)
+            .filter(|queue| queue.front().is_some_and(|first| first == text));
+        next.and_then(VecDeque::pop_front).is_some()
+    }
+
+    /// The messages told to the session's agent that it never said it heard: its run is over.
+    fn never_heard(&self, id: i64) -> Vec<String> {
+        lock(&self.told)
+            .remove(&id)
+            .map_or_else(Vec::new, Vec::from)
+    }
+
     /// Notes that `worktree` is at `now`, and says where it was before if that was elsewhere.
     /// Nothing the first time: there is nothing to have moved from.
     pub(crate) fn branch_seen(&self, worktree: &Path, now: &Head) -> Option<Head> {
@@ -1976,8 +2012,32 @@ fn take(shared: &Shared, (id, run): (i64, u64), ending: &Ending, event: AgentEve
     }
 }
 
+/// What an event of the agent's is once messages told to it mid-turn are accounted for: a
+/// message it says it took in is recorded as the user's, there; any other it says back is
+/// dropped, since it was recorded when it was sent; and the agent's end records what it never
+/// heard, so that nothing the user wrote goes missing.
+fn heard_as(shared: &Shared, id: i64, event: AgentEvent) -> Option<AgentEvent> {
+    match event {
+        AgentEvent::Heard { text } => shared
+            .live
+            .heard(id, &text)
+            .then_some(AgentEvent::UserMessage { text }),
+        AgentEvent::Exited { .. } => {
+            for text in shared.live.never_heard(id) {
+                let message = AgentEvent::UserMessage { text };
+                shared.live.note(&shared.store, id, message).ok();
+            }
+            Some(event)
+        }
+        _ => Some(event),
+    }
+}
+
 /// Stores and publishes an event of the session's agent, and does what follows from it.
 fn on_event(shared: &Shared, id: i64, event: AgentEvent) {
+    let Some(event) = heard_as(shared, id, event) else {
+        return;
+    };
     let (store, live) = (&shared.store, &shared.live);
     let turn_over = matches!(event, AgentEvent::TurnDone { .. });
     let gone = matches!(event, AgentEvent::Exited { .. });

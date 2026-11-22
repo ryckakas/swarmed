@@ -16,6 +16,11 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **Tell Claude Code a waiting message without stopping it.** While Claude Code works, a
+  waiting message has **Tell now** beside it: Claude Code takes it in at its next step, after
+  the tool it is running, and goes on with it in the same turn, so a hint no longer costs the
+  turn. The message shows in the conversation where Claude Code heard it. Other agents cannot
+  take a message mid-turn, so they keep sending it now, which stops the turn.
 - **⌘⇧Enter sends what is typed now.** While the agent works, ⌘⇧Enter in the message box stops
   its turn and sends the message, with its files, ahead of anything waiting; while it is idle
   it sends as Enter does. It is listed with the other shortcuts in Settings.

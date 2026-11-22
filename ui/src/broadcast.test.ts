@@ -11,8 +11,20 @@ import {
 } from "./broadcast";
 
 const agents: AgentInfo[] = [
-    { id: "claude", name: "Claude Code", models: ["opus", "sonnet"], default_model: null },
-    { id: "codex", name: "Codex", models: ["gpt-6.2-sol"], default_model: null },
+    {
+        id: "claude",
+        name: "Claude Code",
+        models: ["opus", "sonnet"],
+        default_model: null,
+        hears_mid_turn: true,
+    },
+    {
+        id: "codex",
+        name: "Codex",
+        models: ["gpt-6.2-sol"],
+        default_model: null,
+        hears_mid_turn: false,
+    },
 ];
 const change = (
     path: string,

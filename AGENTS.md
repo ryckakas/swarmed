@@ -554,6 +554,17 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   (`session_message_now`, ⌘⇧Enter, `send-now` in the shortcut table): put first and sent
   now, never queued and then sent, between which a turn could end. The message box acts on
   that shortcut itself, where the text is; the window's listener leaves it alone.
+- **Claude Code can be told a waiting message mid-turn** (`session_tell_now`, **Tell now** on
+  the message), for an agent whose `AgentInfo::hears_mid_turn` says so: only Claude Code. As
+  tried with 2.1.330, a `user` line written while a turn runs is taken into that turn at its
+  next step (after the tool under way), answered in the same turn, and an open `can_use_tool`
+  request stays open. Started with `--replay-user-messages`, Claude Code says each message
+  back (`isReplay`) as it takes it in, which `claude.rs` reads as `AgentEvent::Heard`, never
+  stored or published. A told message is recorded as the user's (`UserMessage`) when it is
+  heard, so it stands where the agent heard it; every other message said back was recorded
+  when it was sent and is dropped (`heard_as`). One told and never heard, because the agent
+  ended, is recorded at its end. ACP agents cannot add to a turn and refuse it
+  (`Error::HearsNoMessageMidTurn`); between turns it is sent as any message.
 - **What is worth interrupting the user for is decided in the core** (`notices.rs`): a session
   that asks for a decision, finishes a turn, fails, or moves its task's worktree to another
   branch. A front end shows it only while the user

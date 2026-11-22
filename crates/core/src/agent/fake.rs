@@ -48,6 +48,7 @@ impl AgentBackend for FakeBackend {
             commands: command_rx,
             requests: 0,
             initialised: false,
+            told: Vec::new(),
         };
         let script = tokio::spawn(script.run());
         Ok(AgentHandle {
@@ -70,6 +71,8 @@ enum Next {
 }
 
 struct Script {
+    /// Messages written while it worked, taken in at its next step as Claude Code does.
+    told: Vec<String>,
     spec: SessionSpec,
     number: u64,
     events: mpsc::UnboundedSender<AgentEvent>,
@@ -220,7 +223,7 @@ impl Script {
         }
         if message == "slow" {
             self.text("working…");
-            let interrupt = wait_for(&mut self.commands, |c| matches!(c, AgentCommand::Interrupt));
+            let interrupt = wait_for(&mut self.commands, &mut self.told, is_interrupt);
             let next = interrupt.await.map_or(Next::Stop, |_| Next::Continue);
             self.emit(done(true, Some("interrupted")));
             return next;
@@ -301,7 +304,7 @@ impl Script {
         });
         let answer =
             |c: &AgentCommand| decides(c, &request_id) || matches!(c, AgentCommand::Interrupt);
-        let decision = wait_for(&mut self.commands, answer)
+        let decision = wait_for(&mut self.commands, &mut self.told, answer)
             .await
             .ok_or(Next::Stop)?;
         if matches!(decision, AgentCommand::Interrupt) {
@@ -320,8 +323,17 @@ impl Script {
             content,
             is_error: !allowed,
         });
+        // What the user wrote meanwhile is taken in now, said back as Claude Code says it.
+        for text in std::mem::take(&mut self.told) {
+            self.emit(AgentEvent::Heard { text: text.clone() });
+            self.text(format!("heard: {text}"));
+        }
         Ok(allowed)
     }
+}
+
+fn is_interrupt(command: &AgentCommand) -> bool {
+    matches!(command, AgentCommand::Interrupt)
 }
 
 /// The end of a turn, as the scripted agent reports it.
@@ -377,12 +389,16 @@ fn decides(command: &AgentCommand, request_id: &str) -> bool {
 /// The next command `wanted` accepts, skipping the others; `None` if the channel closed.
 async fn wait_for(
     commands: &mut mpsc::UnboundedReceiver<AgentCommand>,
+    told: &mut Vec<String>,
     wanted: impl Fn(&AgentCommand) -> bool,
 ) -> Option<AgentCommand> {
     loop {
         let command = commands.recv().await?;
         if wanted(&command) {
             return Some(command);
+        }
+        if let AgentCommand::UserMessage(text) = command {
+            told.push(text);
         }
     }
 }

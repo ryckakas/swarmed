@@ -797,6 +797,11 @@ export interface AgentInfo {
      * the agent: the first of `models`, for an agent picked from OpenRouter. `null` otherwise.
      */
     default_model: string | null;
+    /**
+     * Whether a message written while it works can be taken into the turn under way, at its
+     * next step, without stopping it: Claude Code's way.
+     */
+    hears_mid_turn: boolean;
 }
 
 /** How a new session should run. */

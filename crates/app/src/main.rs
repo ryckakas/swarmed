@@ -212,7 +212,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::session_send, commands::session_mark_read, commands::session_queue,
         commands::session_enqueue, commands::session_queue_edit, commands::session_queue_hold,
         commands::session_queue_let_go, commands::session_send_queued,
-        commands::session_send_now, commands::session_message_now,
+        commands::session_send_now, commands::session_message_now, commands::session_tell_now,
         commands::session_allow, commands::session_answer, commands::session_command_answer, commands::session_deny, commands::session_interrupt,
         commands::session_stop_background, commands::task_background,
         commands::session_background_output,

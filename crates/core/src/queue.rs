@@ -187,6 +187,14 @@ impl Queues {
         lock(&self.owed).remove(&session)
     }
 
+    /// Takes waiting message `id` out of the queue, if it is still there.
+    fn take(&self, session: i64, id: u64) -> Option<QueuedMessage> {
+        let mut waiting = lock(&self.waiting);
+        let queue = waiting.get_mut(&session)?;
+        let at = queue.iter().position(|message| message.id == id)?;
+        Some(queue.remove(at))
+    }
+
     fn take_first(&self, session: i64) -> Option<QueuedMessage> {
         let mut waiting = lock(&self.waiting);
         let queue = waiting.get_mut(&session)?;
@@ -394,6 +402,45 @@ impl Core {
         if running && busy {
             pressing.insert(id);
             return self.live.command(id, AgentCommand::Interrupt);
+        }
+        send_next(&self.outbox(), id)
+    }
+
+    /// Tells a waiting message to the session's agent now, in the middle of its turn, without
+    /// stopping it: for an agent that takes a message into the turn under way, at its next
+    /// step (`AgentInfo::hears_mid_turn`). It is recorded where the agent says it heard it,
+    /// and an open request stays open. An agent between turns gets it as any message. A
+    /// message no longer waiting is left alone.
+    pub fn session_tell_now(&self, id: i64, message: u64) -> Result<()> {
+        let session = self.session(id)?;
+        if !self.agents_now().hears_mid_turn(&session.agent) {
+            return Err(Error::HearsNoMessageMidTurn(session.agent));
+        }
+        // Held throughout: no turn's end sends from the queue meanwhile.
+        let _pressing = self.live.queues.pressing();
+        let busy = self.live.is_running(id)
+            && self
+                .session(id)
+                .is_ok_and(|session| is_busy_status(session.status));
+        if !busy {
+            return self.send_between_turns(id, message);
+        }
+        let Some(taken) = self.live.queues.take(id, message) else {
+            return Ok(());
+        };
+        let told = self.live.tell(id, &taken.text);
+        if told.is_err() {
+            self.live.queues.put_back(id, taken);
+        }
+        publish(&self.store, &self.live, id)?;
+        told
+    }
+
+    /// Sends a waiting message to an agent between turns, as any message is sent: put first,
+    /// then sent. Nothing if it is no longer waiting.
+    fn send_between_turns(&self, id: i64, message: u64) -> Result<()> {
+        if !self.live.queues.to_front(id, message) {
+            return Ok(());
         }
         send_next(&self.outbox(), id)
     }

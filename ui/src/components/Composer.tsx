@@ -23,6 +23,7 @@ import {
     takesFast,
     useAgents,
     useEffortDefault,
+    useHearsMidTurn,
     useSlashCommands,
 } from "./options";
 import { Picker } from "./Picker";
@@ -106,6 +107,7 @@ export function Composer({ session }: { session: Session }) {
     const commands = useSlashCommands(id, status);
     const suggestion = useStore((state) => suggestionOf(state.events[id]));
     const canSend = text.trim() !== "" || files.length > 0;
+    const hearsMidTurn = useHearsMidTurn(session.agent);
 
     // Answering a permission request removes the button that had focus. Bring it back here, so
     // the keyboard is never left pointing at nothing.
@@ -149,7 +151,7 @@ export function Composer({ session }: { session: Session }) {
                 <TerminalPane id={id} busy={busy} />
             ) : (
                 <>
-                    <MessageQueue sessionId={id} busy={busy} />
+                    <MessageQueue sessionId={id} busy={busy} hearsMidTurn={hearsMidTurn} />
                     <ComposerBox
                         value={text}
                         onChange={setText}

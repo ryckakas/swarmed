@@ -212,6 +212,11 @@ pub enum Error {
     /// be: not a file this session's agent named, or not one Claude Code writes such output to.
     #[error("{0}")]
     BackgroundOutput(String),
+    /// A message was to be told to an agent in the middle of its turn, which it cannot take.
+    #[error(
+        "{0} takes no message in the middle of its turn: send it now instead, which stops the turn"
+    )]
+    HearsNoMessageMidTurn(String),
     /// A port's name is not one a hook could use.
     #[error(
         "`{0}` cannot name a port: use lowercase letters, digits and underscores, starting with a letter"

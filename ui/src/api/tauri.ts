@@ -156,6 +156,7 @@ export const tauriApi: Api = {
         invoke<Session>("session_new", { project, task, agent, how }),
     sessionEvents: (id) => invoke<AgentEvent[]>("session_events", { id }),
     sessionSend: (id, text, files) => invoke("session_send", { id, text, files: files ?? [] }),
+    sessionTellNow: (id, message) => invoke<void>("session_tell_now", { id, message }),
     sessionMessageNow: (id, text, files) =>
         invoke("session_message_now", { id, text, files: files ?? [] }),
     sessionQueue: (id) => invoke<QueuedMessage[]>("session_queue", { id }),

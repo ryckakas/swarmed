@@ -3117,6 +3117,23 @@ code {
     padding: 0;
 }
 
+.queue-tell {
+    flex: none;
+    margin-top: 2px;
+    padding: 1px var(--space-1);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: var(--text-xs);
+    cursor: pointer;
+}
+
+.queue-tell:hover {
+    color: var(--text);
+}
+
 .queue-send svg {
     width: 14px;
     height: 14px;

@@ -367,6 +367,7 @@ async fn usage_asked_for_comes_from_the_sessions_agent_and_stays_out_of_the_conv
         name: "Other".into(),
         models: vec![],
         default_model: None,
+        hears_mid_turn: false,
     };
     core.add_agent(other, Arc::new(FakeBackend::default()));
     let options = SessionOptions {
@@ -2243,4 +2244,46 @@ async fn a_message_sent_now_stops_the_turn_and_goes_ahead_of_those_waiting() {
         matches!(login, Err(Error::TerminalOnly { .. })),
         "{login:?}"
     );
+}
+
+#[tokio::test]
+async fn a_waiting_message_told_now_is_taken_into_the_turn_and_recorded_where_it_was_heard() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    // A request stays open while the message is told: nothing takes it away.
+    core.session_send(session.id, "run: ls").expect("sends");
+    let (request_id, _) = permission_request(&mut bus).await;
+    let queue = core.session_enqueue(session.id, "a hint").expect("queues");
+    core.session_tell_now(session.id, queue[0].id)
+        .expect("tells");
+    assert_eq!(core.session_queue(session.id).expect("reads"), vec![]);
+    core.session_allow(session.id, &request_id).expect("sends");
+    let events = turn(&mut bus, session.id).await;
+    let at = |wanted: &AgentEvent| events.iter().position(|event| event == wanted);
+    let message = AgentEvent::UserMessage {
+        text: "a hint".to_string(),
+    };
+    let result = events
+        .iter()
+        .position(|event| matches!(event, AgentEvent::ToolResult { .. }));
+    // Recorded once, after the tool it waited behind, and answered in the same turn.
+    assert!(at(&message) > result, "{events:?}");
+    assert_eq!(events.iter().filter(|event| **event == message).count(), 1);
+    assert!(events.contains(&text("heard: a hint")), "{events:?}");
+    let stored = core.session_events(session.id).expect("reads");
+    assert!(
+        !stored
+            .iter()
+            .any(|event| matches!(event, AgentEvent::Heard { .. }))
+    );
+
+    // Between turns it goes as any message does.
+    let queue = core.session_enqueue(session.id, "next").expect("queues");
+    core.session_tell_now(session.id, queue[0].id)
+        .expect("sends");
+    let next = turn(&mut bus, session.id).await;
+    assert!(next.contains(&text("echo: next")), "{next:?}");
 }

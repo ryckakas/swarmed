@@ -278,6 +278,11 @@ export interface Api {
     sessionEvents(id: number): Promise<AgentEvent[]>;
     /** Starts a turn, starting the session's agent first if it is not running. */
     sessionSend(id: number, text: string, files?: string[]): Promise<void>;
+    /**
+     * Tells a waiting message to the agent now, in the middle of its turn, without stopping
+     * it: only for an agent that `hears_mid_turn`.
+     */
+    sessionTellNow(id: number, message: number): Promise<void>;
     /** Sends a message now: a turn under way is stopped, and it goes ahead of anything waiting. */
     sessionMessageNow(id: number, text: string, files?: string[]): Promise<void>;
     /** The messages waiting for the session's agent to finish, first to be sent first. */

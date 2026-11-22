@@ -1371,6 +1371,24 @@ class MockAgent {
         }
     }
 
+    /**
+     * Takes a waiting message into the turn under way, as Claude Code does at its next step:
+     * the message shows where it was heard, and the turn goes on.
+     */
+    tellNow(id: number, message: number) {
+        const queue = this.queue(id);
+        const told = queue.find((queued) => queued.id === message);
+        if (!told) {
+            return;
+        }
+        this.setQueue(
+            id,
+            queue.filter((queued) => queued !== told),
+        );
+        this.later(id, { type: "user_message", text: told.text }, "working");
+        this.later(id, { type: "text", text: `Taken in: ${told.text}` }, "working");
+    }
+
     /** Sends what was typed ahead of what waits, stopping a `slow` turn first. */
     sendTypedNow(id: number, text: string) {
         const queue = this.enqueue(id, text);
@@ -2160,12 +2178,14 @@ export function createMockApi(): Api {
                 name: "Claude Code",
                 models: ["opus", "sonnet", "haiku", "fable"],
                 default_model: null,
+                hears_mid_turn: true,
             },
             {
                 id: "opencode",
                 name: "OpenCode",
                 models: ["openrouter/openai/gpt-5.6", "openrouter/google/gemini-3-pro"],
                 default_model: "openrouter/openai/gpt-5.6",
+                hears_mid_turn: false,
             },
         ],
         // A browser gives no paths, so the sample hands out two that look real.
@@ -2302,6 +2322,7 @@ export function createMockApi(): Api {
         sessionSend: async (id, text, files) => agent.send(id, withFiles(text, files ?? [])),
         sessionMessageNow: async (id, text, files) =>
             agent.sendTypedNow(id, withFiles(text, files ?? [])),
+        sessionTellNow: async (id, message) => agent.tellNow(id, message),
         sessionQueue: async (id) => agent.queue(id),
         sessionEnqueue: async (id, text, files) => agent.enqueue(id, withFiles(text, files ?? [])),
         sessionQueueEdit: async (id, message, text) => agent.editQueued(id, message, text),

@@ -716,6 +716,21 @@ fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
         json!({ "id": id, "text": "typed", "files": [] }),
     );
     app.wait_for_text(id, "echo: typed");
+
+    // Told now, a waiting message is taken into the turn under way, which goes on.
+    let earlier = request["request_id"].clone();
+    app.ok("session_send", json!({ "id": id, "text": "run: ls" }));
+    let request = wait_for(&app, id, "a second request", |e| {
+        e["type"] == "permission_request" && e["request_id"] != earlier
+    });
+    let queue = app.ok("session_enqueue", json!({ "id": id, "text": "a hint" }));
+    let told = json!({ "id": id, "message": queue[0]["id"] });
+    assert_eq!(app.ok("session_tell_now", told), json!(null));
+    app.ok(
+        "session_allow",
+        json!({ "id": id, "requestId": request["request_id"] }),
+    );
+    app.wait_for_text(id, "heard: a hint");
 }
 
 #[test]

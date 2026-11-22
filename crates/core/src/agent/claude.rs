@@ -159,6 +159,9 @@ fn args(spec: &SessionSpec, mcp_config: Option<&Path>) -> Vec<String> {
         "--include-partial-messages",
         // After a turn, what the user is likely to say next, if Claude Code has a guess.
         "--prompt-suggestions",
+        // Each message of the user's said back as Claude Code takes it in, which for one
+        // written in the middle of a turn is where it was heard.
+        "--replay-user-messages",
         "--permission-prompt-tool",
         "stdio",
         // Always explicit: the user's own default mode must not override the task's setting.
@@ -705,6 +708,9 @@ fn parse_message(message: &Value, pending: &Pending) -> Vec<AgentEvent> {
             },
             |refused| vec![refused],
         ),
+        "user" if message.get("isReplay").and_then(Value::as_bool) == Some(true) => {
+            heard(message).into_iter().collect()
+        }
         "user" => {
             let results = content_blocks(message).filter_map(parse_tool_result);
             let mut events = Vec::new();
@@ -919,6 +925,24 @@ fn parse_rate_limit(message: &Value) -> AgentEvent {
         resets_at: info.get("resetsAt").and_then(Value::as_i64),
         raw: info,
     }
+}
+
+/// A message of the user's that Claude Code repeats as it takes it in: its text as sent, which
+/// is a string or, for a message with more than text, its text blocks.
+fn heard(message: &Value) -> Option<AgentEvent> {
+    let content = message.pointer("/message/content")?;
+    let text = content.as_str().map_or_else(
+        || {
+            let texts =
+                content_blocks(message).filter(|block| kind_of(block, "type") == Some("text"));
+            texts
+                .map(|block| str_of(block, "text"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        },
+        String::from,
+    );
+    (!text.is_empty()).then_some(AgentEvent::Heard { text })
 }
 
 fn content_blocks(message: &Value) -> impl Iterator<Item = &Value> {
@@ -1555,6 +1579,7 @@ mod tests {
         let args = args(&spec, Some(Path::new("/private/servers.json"))).join(" ");
         assert!(args.contains("--permission-mode acceptEdits"), "{args}");
         assert!(args.contains("--prompt-suggestions"), "{args}");
+        assert!(args.contains("--replay-user-messages"), "{args}");
         assert!(
             args.contains("--model haiku --effort high --resume abc"),
             "{args}"
@@ -1745,6 +1770,42 @@ mod tests {
             "message": { "content": [{ "type": "tool_result", "tool_use_id": "t", "content": "Running." }]},
         });
         assert_eq!(parse_message(&other, &pending).len(), 1);
+    }
+
+    #[test]
+    fn a_message_said_back_as_claude_code_takes_it_in_is_heard() {
+        let pending = Pending::default();
+        // As Claude Code 2.1.330 says back a message written in the middle of a turn.
+        let replayed = json!({
+            "type": "user", "isReplay": true,
+            "message": { "role": "user", "content": "Also, at the very end, add the word SECOND." },
+        });
+        assert_eq!(
+            parse_message(&replayed, &pending),
+            [AgentEvent::Heard {
+                text: "Also, at the very end, add the word SECOND.".into()
+            }]
+        );
+        let blocks = json!({
+            "type": "user", "isReplay": true,
+            "message": { "content": [{ "type": "text", "text": "a hint" }] },
+        });
+        let heard = parse_message(&blocks, &pending);
+        assert_eq!(
+            heard,
+            [AgentEvent::Heard {
+                text: "a hint".into()
+            }]
+        );
+        // A tool's result is not the user's: it is read as before.
+        let result = json!({
+            "type": "user",
+            "message": { "content": [{ "type": "tool_result", "tool_use_id": "t1", "content": "ok" }] },
+        });
+        assert!(matches!(
+            parse_message(&result, &pending).as_slice(),
+            [AgentEvent::ToolResult { .. }]
+        ));
     }
 
     /// How Claude Code's report of an end with this status is read.
