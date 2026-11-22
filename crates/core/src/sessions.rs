@@ -348,7 +348,7 @@ impl Store {
 
     pub(crate) fn sessions_all(&self) -> Result<Vec<Session>> {
         let mut stmt = self.conn.prepare(&format!(
-            "{SESSION_SELECT} WHERE closed_at IS NULL ORDER BY position, id"
+            "{SESSION_SELECT} WHERE closed_at IS NULL ORDER BY task_id, position, id"
         ))?;
         let rows = stmt.query_map([], session_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)

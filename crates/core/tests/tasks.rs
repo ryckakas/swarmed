@@ -2126,6 +2126,7 @@ async fn repositories_tasks_and_sessions_keep_the_order_they_are_put_in() {
     // Moved no further than either end.
     core.project_move("demo", 5).expect("moves");
     assert_eq!(listed(&core).0, ["aardvark", "demo"]);
+    assert!(bus.try_recv().is_err(), "nothing moved, so nobody is told");
     core.project_move("aardvark", 1).expect("moves");
 
     core.task_move("demo", "three", -2).expect("moves");
@@ -2161,4 +2162,17 @@ async fn repositories_tasks_and_sessions_keep_the_order_they_are_put_in() {
     // Reopened, it is where it was: after the one it came after.
     core.session_reopen(second).expect("reopens");
     assert_eq!(ids(&core), [third, first, second]);
+
+    // What an agent lists keeps each task's sessions together, in their order.
+    let elsewhere = core
+        .session_new("demo", "two", &SessionOptions::default())
+        .expect("creates")
+        .id;
+    let told = core.peer_sessions(first).expect("lists");
+    let told: Vec<&str> = told.lines().skip(1).collect();
+    let told: Vec<i64> = told
+        .iter()
+        .filter_map(|line| line.split(['\t', ' ']).next()?.parse().ok())
+        .collect();
+    assert_eq!(told, [third, first, second, elsewhere]);
 }

@@ -5,7 +5,7 @@
 
 use std::collections::HashSet;
 
-use rusqlite::{Params, params};
+use rusqlite::{OptionalExtension, Params, params};
 
 use crate::Core;
 use crate::agent::AgentEvent;
@@ -157,7 +157,7 @@ impl Core {
                 params![id],
                 |row| row.get(0),
             )
-            .ok();
+            .optional()?;
         let project = project.ok_or(Error::CloudTaskNotFound(id))?;
         let sql = "SELECT id, 1 FROM cloud_tasks WHERE project_id = ?1 ORDER BY position, id DESC";
         let rows = store.order_rows(sql, params![project])?;
@@ -167,8 +167,14 @@ impl Core {
 
     /// Puts `id` `by` places further among `rows` of `kind`, and tells every front end.
     fn reorder(&self, kind: Kind, rows: &[(i64, bool)], id: i64, by: i32) -> Result<()> {
+        let before: Vec<i64> = rows.iter().map(|row| row.0).collect();
         // Every caller found `id` among `rows` as listed.
-        let order = moved(rows, id, by).unwrap_or_else(|| rows.iter().map(|row| row.0).collect());
+        let order = moved(rows, id, by).unwrap_or_else(|| before.clone());
+        // A move that stops where it is, at either end or by nothing, changes nothing: front
+        // ends are not sent to read everything again for it.
+        if order == before {
+            return Ok(());
+        }
         self.store().order_write(kind, &order)?;
         let kind = kind.name().to_string();
         self.live.publish_apart(AgentEvent::Reordered { kind });

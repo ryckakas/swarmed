@@ -584,9 +584,9 @@ mod tests {
         let mut conn = Connection::open_in_memory().expect("opens");
         conn.pragma_update(None, "foreign_keys", "ON")
             .expect("sets");
-        // Every step but the last, which adds the positions.
-        let before = MIGRATIONS.len() - 1;
-        assert!(MIGRATIONS[before].contains("ADD COLUMN position"));
+        // Every step before the one that adds the positions.
+        let adds = |sql: &&str| sql.contains("ADD COLUMN position");
+        let before = MIGRATIONS.iter().position(adds).expect("there");
         let plain = MIGRATIONS[..before]
             .iter()
             .filter(|sql| **sql != AUTOINCREMENT_IDS);

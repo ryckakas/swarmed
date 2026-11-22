@@ -34,9 +34,9 @@ applies. `SWARMED_FAKE_AGENT=1` swaps in a scripted agent that spends no tokens.
 
 | Command | What it does |
 | --- | --- |
-| `project` | add, list and remove repositories; `project config` prints the path of a project's config file |
-| `task` | create and remove tasks, rerun `setup`, run the `start` command, see changes, commit, push, open a pull request |
-| `session` | run, continue, list, show, fork, rename, mark, close, reopen and delete sessions; change a session's model or supervision |
+| `project` | add, list, remove and move repositories; `project config` prints the path of a project's config file |
+| `task` | create, remove and move tasks, rerun `setup`, run the `start` command, see changes, commit, push, open a pull request |
+| `session` | run, continue, list, show, fork, rename, mark, move, close, reopen and delete sessions; change a session's model or supervision |
 | `environment` | list a project's environments |
 | `snapshot` | keep the files git ignores in a set-up task, for new tasks to start from |
 | `agents`, `agent` | list the agents sessions can run on; install and configure the others |
@@ -45,7 +45,7 @@ applies. `SWARMED_FAKE_AGENT=1` swaps in a scripted agent that spends no tokens.
 | `rules` | print or replace the rules every agent is given |
 | `note` | print or replace the note on a project or a task |
 | `action` | manage the buttons of your own that send a prompt or run a command |
-| `cloud` | hand a prompt to a Codex cloud agent or a Claude Code cloud session and list what was handed over; print or apply a Codex task's changes |
+| `cloud` | hand a prompt to a Codex cloud agent or a Claude Code cloud session and list what was handed over; move one among the others; print or apply a Codex task's changes |
 | `search` | find the sessions where something was said |
 | `costs`, `analytics`, `usage` | what agents report their work cost, turns by day and model, what Swarmed takes up |
 | `editor`, `auto-title`, `layout`, `terminal` | settings: the editor, naming sessions by a model, the custom layout, the terminal |
