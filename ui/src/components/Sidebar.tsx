@@ -104,7 +104,8 @@ export function Sidebar() {
 /** Up and down move between session rows, as in a list, without leaving Tab order behind. */
 function moveFocus(event: KeyboardEvent<HTMLElement>) {
     const step = { ArrowDown: 1, ArrowUp: -1 }[event.key];
-    if (step === undefined) {
+    // With a modifier the arrows are a shortcut's, such as the one that moves a row.
+    if (step === undefined || event.metaKey || event.altKey || event.ctrlKey) {
         return;
     }
     const rows = [...event.currentTarget.querySelectorAll<HTMLButtonElement>(".session-row")];

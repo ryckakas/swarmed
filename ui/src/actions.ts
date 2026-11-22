@@ -48,7 +48,8 @@ function rowOf(target: OrderTarget): Element | undefined {
  * session on screen when no row has it. A row keeps the keyboard as it moves.
  */
 export async function moveFocusedRow(by: number) {
-    const focused = document.activeElement?.closest(".sidebar [data-order]");
+    const had = document.activeElement;
+    const focused = had?.closest(".sidebar [data-order]");
     const { selectedSessionId } = useStore.getState();
     const onScreen: OrderTarget | null =
         selectedSessionId === null ? null : { kind: "session", id: selectedSessionId };
@@ -58,9 +59,11 @@ export async function moveFocusedRow(by: number) {
     }
     await moveRow(target, by);
     if (focused) {
-        // Moving the row's element on the page takes the keyboard from it.
+        // Moving the row's element on the page takes the keyboard from it. It goes back to
+        // what had it, which for a task is a button of its row: its heading cannot take it.
         requestAnimationFrame(() => {
-            rowOf(target)?.querySelector<HTMLElement>("[data-drag-handle]")?.focus();
+            const handle = rowOf(target)?.querySelector<HTMLElement>("[data-drag-handle]");
+            (had instanceof HTMLElement && had.isConnected ? had : handle)?.focus();
         });
     }
 }
