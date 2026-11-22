@@ -14,6 +14,13 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Fixed
+
+- **"This session runs on it now: its turns are billed" goes once the limits say so.** After a
+  usage window reset, refreshing with the coins showed the window back within its limit, but
+  the extra usage section kept saying the turns were billed until the next message. Limits
+  Claude Code is asked for after a turn's report now decide it.
+
 ## [0.2.2] - 2026-11-22
 
 ### Added

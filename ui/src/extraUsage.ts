@@ -3,7 +3,7 @@
 // session starts and whenever a turn runs on it; other agents have nothing like it.
 
 import type { AgentEvent } from "./api/types";
-import { onExtraUsage } from "./rateLimit";
+import { limitLevel, limitWindows, onExtraUsage } from "./rateLimit";
 
 /** What extra usage stood at when Claude Code was last asked. */
 export type ExtraUsage = Extract<AgentEvent, { type: "extra_usage" }>;
@@ -14,10 +14,20 @@ export function latestExtraUsage(events: AgentEvent[]): ExtraUsage | null {
     return latest?.type === "extra_usage" ? latest : null;
 }
 
-/** Whether the session's latest usage report said its turn ran on extra usage, billed. */
+/**
+ * Whether the session's turns run on extra usage, billed: so its latest usage report said, and
+ * no limits Claude Code was asked for since say otherwise. Only a turn sends a report, so after
+ * a window resets the report still says billed; the limits asked for then, from the coins, show
+ * every window back within, and that is what holds until the next turn.
+ */
 export function onExtraUsageNow(events: AgentEvent[]): boolean {
-    const latest = events.findLast((event) => event.type === "rate_limit");
-    return latest?.type === "rate_limit" && onExtraUsage(latest);
+    const at = events.findLastIndex((event) => event.type === "rate_limit");
+    const latest = events[at];
+    if (latest?.type !== "rate_limit" || !onExtraUsage(latest)) {
+        return false;
+    }
+    const since = limitWindows(events.slice(at + 1));
+    return since.length === 0 || since.some((window) => limitLevel(window) === "reached");
 }
 
 /** An amount in minor units, as money in its currency: 3871 cents of euros is €38.71. */
