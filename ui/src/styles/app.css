@@ -275,6 +275,27 @@ code {
     border-top: 1px solid var(--line);
 }
 
+.publish-branches {
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--pollen);
+    border-radius: 6px;
+    font-size: var(--text-sm);
+    overflow-wrap: anywhere;
+}
+
+.publish-branches label {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+}
+
 .publish-summary {
     color: var(--muted);
     font-size: var(--text-sm);
@@ -715,6 +736,45 @@ code {
 }
 
 .background-session:hover {
+    text-decoration: underline;
+}
+
+.background-show {
+    grid-column: 1;
+    justify-self: start;
+    margin-top: var(--space-1);
+}
+
+/* Under the row's facts and its Stop button, as wide as the row. */
+.background-output {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin-top: var(--space-1);
+}
+
+.background-output-terminal {
+    height: 16em;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    padding: var(--space-1);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.background-open {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.background-open:hover {
     text-decoration: underline;
 }
 
@@ -2736,7 +2796,8 @@ code {
     font-size: var(--text-xs);
 }
 
-.terminal-only {
+.terminal-only,
+.worktree-moved {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -2836,6 +2897,17 @@ code {
 .question-step[data-answered="true"]::after {
     content: " ✓";
     color: var(--pollen);
+}
+
+.question-step[data-skipped="true"] {
+    text-decoration: line-through;
+    color: var(--muted);
+}
+
+.question-skipped {
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--text-sm);
 }
 
 .question-options {
@@ -3043,6 +3115,23 @@ code {
     display: grid;
     place-items: center;
     padding: 0;
+}
+
+.queue-tell {
+    flex: none;
+    margin-top: 2px;
+    padding: 1px var(--space-1);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: var(--text-xs);
+    cursor: pointer;
+}
+
+.queue-tell:hover {
+    color: var(--text);
 }
 
 .queue-send svg {

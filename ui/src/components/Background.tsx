@@ -1,8 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import type { BackgroundTask } from "../api/types";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
+
+// Drawn by the terminal's own code, loaded when first wanted, as the session's terminal is.
+const BackgroundOutput = lazy(async () => {
+    const module = await import("./BackgroundOutput");
+    return { default: module.BackgroundOutput };
+});
 
 /** How often the list is read again: something left running can end at any moment. */
 const POLL_MS = 4000;
@@ -68,7 +74,11 @@ function Row({ task, onChanged }: { task: BackgroundTask; onChanged(): void }) {
     const words = useWords();
     const report = useStore((state) => state.report);
     const open = useStore((state) => state.open);
+    const openSub = useStore((state) => state.openSub);
+    // A sub-agent tied to the call that started it can be followed in its own conversation.
+    const call = task.kind === "local_agent" ? task.tool_use_id : null;
     const [stopping, setStopping] = useState(false);
+    const [showing, setShowing] = useState(false);
     const stop = () => {
         setStopping(true);
         api.sessionStopBackground(task.session_id, task.task_id)
@@ -77,7 +87,18 @@ function Row({ task, onChanged }: { task: BackgroundTask; onChanged(): void }) {
     };
     return (
         <li className="background-row" data-state={task.state}>
-            <p className="background-what">{task.description || task.task_id}</p>
+            {call === null ? (
+                <p className="background-what">{task.description || task.task_id}</p>
+            ) : (
+                <button
+                    type="button"
+                    className="background-what background-open"
+                    title={`Show what this ${words.subAgent} says and does`}
+                    onClick={() => void openSub(api, task.session_id, call)}
+                >
+                    {task.description || task.task_id}
+                </button>
+            )}
             <p className="background-facts">
                 <span className="background-state">{words.backgroundState[task.state]}</span>
                 <span>
@@ -96,6 +117,21 @@ function Row({ task, onChanged }: { task: BackgroundTask; onChanged(): void }) {
             </p>
             {task.summary && task.state !== "running" && (
                 <p className="background-summary">{task.summary}</p>
+            )}
+            {task.output && (
+                <button
+                    type="button"
+                    className="button background-show"
+                    aria-expanded={showing}
+                    onClick={() => setShowing((shown) => !shown)}
+                >
+                    {showing ? "Hide what it printed" : "Show what it printed"}
+                </button>
+            )}
+            {showing && (
+                <Suspense fallback={<p className="changes-note">Reading…</p>}>
+                    <BackgroundOutput task={task} />
+                </Suspense>
             )}
             {task.state === "running" && (
                 <button

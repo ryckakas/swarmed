@@ -150,6 +150,29 @@ describe("applySessionEvent", () => {
         const before = sampleProjects();
         expect(applySessionEvent(before, published(null))).toBe(before);
     });
+
+    it("is unread when the core says a turn handed something back, and only then", () => {
+        const done = (unread: boolean | null | undefined): SessionEvent => {
+            const event: SessionEvent = {
+                session_id: 1,
+                status: "idle",
+                event: {
+                    type: "turn_done",
+                    is_error: false,
+                    result: null,
+                    cost_usd: null,
+                    duration_ms: null,
+                },
+            };
+            return unread === undefined ? event : { ...event, unread };
+        };
+        const read = withRead(sampleProjects(), 1);
+        expect(findSession(applySessionEvent(read, done(true)), 1)?.unread).toBe(true);
+        // A turn that ends while sub-agents work on in the background hands nothing back yet.
+        expect(findSession(applySessionEvent(read, done(null)), 1)?.unread).toBe(false);
+        // The sample data's own events say nothing, and any turn's end counts.
+        expect(findSession(applySessionEvent(read, done(undefined)), 1)?.unread).toBe(true);
+    });
 });
 
 describe("titleFrom", () => {

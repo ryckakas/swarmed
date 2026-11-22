@@ -1,16 +1,25 @@
 import { type KeyboardEvent, useEffect, useState } from "react";
 import { api } from "../api";
 import type { QueuedMessage } from "../api/types";
+import { editingAfter, queueHeading } from "../queue";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
 
 /** Stands in for a queue that has not been read, without a new array on every render. */
 const NONE: QueuedMessage[] = [];
 
+/**
+ * How often an open edit box renews its hold on the message: well within the core's ten
+ * seconds, after which a hold nobody renews lapses.
+ */
+const RENEW_MS = 3000;
+
 interface Props {
     sessionId: number;
     /** Whether the agent is busy. While it is not, the queue does not move by itself. */
     busy: boolean;
+    /** Whether the agent takes a message into the turn under way, which offers Tell now. */
+    hearsMidTurn: boolean;
 }
 
 /**
@@ -18,9 +27,11 @@ interface Props {
  * rewritten, taken out, or sent at once for as long as it waits; sent at once while the agent
  * is busy, it stops the turn under way.
  */
-export function MessageQueue({ sessionId, busy }: Props) {
+export function MessageQueue({ sessionId, busy, hearsMidTurn }: Props) {
     const words = useWords();
     const queue = useStore((state) => state.queues[sessionId] ?? NONE);
+    // The message open for editing, which the queue does not send until the edit is over.
+    const [editing, setEditing] = useState<number | null>(null);
     const setQueue = useStore((state) => state.setQueue);
     const report = useStore((state) => state.report);
 
@@ -43,13 +54,15 @@ export function MessageQueue({ sessionId, busy }: Props) {
         api.sessionSendNow(sessionId, message.id).catch(report);
     };
     const sendNowLabel = busy ? `Stop the ${words.terms.agent} and send this now` : "Send this now";
+    const tellNow = (message: QueuedMessage) => {
+        api.sessionTellNow(sessionId, message.id).catch(report);
+    };
+    // Only into a turn under way, and only an agent that takes one there.
+    const tells = busy && hearsMidTurn;
     return (
         <section className="queue" aria-label="Messages waiting to be sent">
             <div className="queue-head">
-                <span>
-                    {queue.length === 1 ? "1 message waiting" : `${queue.length} messages waiting`}
-                    {busy ? `, sent when the ${words.terms.agent} is done` : ""}
-                </span>
+                <span>{queueHeading(queue, busy, editing, words)}</span>
                 {!busy && (
                     <button
                         type="button"
@@ -64,10 +77,15 @@ export function MessageQueue({ sessionId, busy }: Props) {
                 {queue.map((message) => (
                     <li key={message.id}>
                         <QueuedRow
+                            sessionId={sessionId}
                             message={message}
                             sendNowLabel={sendNowLabel}
                             onSave={(text) => save(message, text)}
                             onSendNow={() => sendNow(message)}
+                            onTellNow={tells ? () => tellNow(message) : undefined}
+                            onEditing={(open) =>
+                                setEditing((was) => editingAfter(was, message.id, open))
+                            }
                         />
                     </li>
                 ))}
@@ -77,16 +95,47 @@ export function MessageQueue({ sessionId, busy }: Props) {
 }
 
 interface RowProps {
+    sessionId: number;
     message: QueuedMessage;
     /** What sending the message at once does, which depends on whether the agent is busy. */
     sendNowLabel: string;
     onSave(text: string): void;
     onSendNow(): void;
+    /** Tells the message to the agent without stopping its turn; absent where it cannot. */
+    onTellNow: (() => void) | undefined;
+    /** The row opened or closed its edit box. */
+    onEditing(open: boolean): void;
 }
 
-function QueuedRow({ message, sendNowLabel, onSave, onSendNow }: RowProps) {
+/**
+ * Holds the message in the core for as long as `open`, renewing the hold, so that the queue
+ * does not send it in the middle of an edit. Closing lets go: a send held back for the edit
+ * goes then, with whatever text the edit saved before.
+ */
+function useHold(sessionId: number, message: number, open: boolean) {
+    const report = useStore((state) => state.report);
+    useEffect(() => {
+        if (!open) {
+            return;
+        }
+        const hold = () => {
+            api.sessionQueueHold(sessionId, message).catch(report);
+        };
+        hold();
+        const renewing = setInterval(hold, RENEW_MS);
+        return () => {
+            clearInterval(renewing);
+            api.sessionQueueLetGo(sessionId, message).catch(report);
+        };
+    }, [sessionId, message, open, report]);
+}
+
+function QueuedRow(props: RowProps) {
+    const { sessionId, message, sendNowLabel, onSave, onSendNow, onTellNow, onEditing } = props;
     // `null` while the message is only shown; the text being typed while it is edited.
     const [draft, setDraft] = useState<string | null>(null);
+    const open = draft !== null;
+    useHold(sessionId, message.id, open);
     if (draft === null) {
         return (
             <div className="queue-row">
@@ -94,10 +143,14 @@ function QueuedRow({ message, sendNowLabel, onSave, onSendNow }: RowProps) {
                     type="button"
                     className="queue-text"
                     title="Edit this message"
-                    onClick={() => setDraft(message.text)}
+                    onClick={() => {
+                        setDraft(message.text);
+                        onEditing(true);
+                    }}
                 >
                     {message.text}
                 </button>
+                {onTellNow && <TellNow onClick={onTellNow} />}
                 <button
                     type="button"
                     className="queue-send"
@@ -123,6 +176,7 @@ function QueuedRow({ message, sendNowLabel, onSave, onSendNow }: RowProps) {
     }
     const finish = (text: string | null) => {
         setDraft(null);
+        onEditing(false);
         if (text !== null && text !== message.text) {
             onSave(text);
         }
@@ -149,5 +203,25 @@ function QueuedRow({ message, sendNowLabel, onSave, onSendNow }: RowProps) {
             onKeyDown={onKeyDown}
             onBlur={() => finish(draft)}
         />
+    );
+}
+
+/**
+ * Hands the message to the agent in the middle of its turn, which it takes in at its next
+ * step and goes on: a hint, without throwing away what the turn was doing.
+ */
+function TellNow({ onClick }: { onClick(): void }) {
+    const words = useWords();
+    const label = `Tell the ${words.terms.agent} now, without stopping it: it takes this in at its next step`;
+    return (
+        <button
+            type="button"
+            className="queue-tell"
+            aria-label={label}
+            title={label}
+            onClick={onClick}
+        >
+            Tell now
+        </button>
     );
 }

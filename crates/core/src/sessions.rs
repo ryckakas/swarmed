@@ -1,6 +1,6 @@
 //! Agent sessions: creating them, running them, and keeping what they said.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -13,13 +13,14 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::task::AbortHandle;
 
 use crate::agent::{
-    AgentBackend, AgentCommand, AgentEvent, Auth, Effort, Namer, PLAN_TOOL, SessionSpec,
-    Supervision,
+    AgentBackend, AgentCommand, AgentEvent, Auth, BackgroundState, Effort, Namer, PLAN_TOOL,
+    SessionSpec, Supervision,
 };
 use crate::agents::CLAUDE;
 use crate::commands::SlashCommand;
 use crate::error::{Error, Result};
 use crate::fork;
+use crate::git::Head;
 use crate::marks::{Mark, MarkColour};
 use crate::mcp::{McpServer, McpTransport};
 use crate::paths::Paths;
@@ -32,7 +33,10 @@ use crate::toolserver::{
     SERVER_NAME, SESSION_ENV, SHOW_HTML_FOR_CLAUDE, SOCKET_ENV, TOOL_SERVER_ARG, VIEW_SPOOL_ENV,
     take_views,
 };
-use crate::{Core, lock, peers, views};
+use crate::{Core, git, lock, peers, publish, views};
+
+/// The kinds of things an agent leaves running that are sub-agents, as Claude Code names them.
+const SUB_AGENT_KINDS: [&str; 2] = ["local_agent", "remote_agent"];
 
 /// How long a session title derived from the first message may be.
 /// What stands above the user's rules where an agent reads them.
@@ -97,8 +101,7 @@ impl SessionStatus {
             | AgentEvent::ToolResult { .. }
             | AgentEvent::PermissionRequest { .. }
             | AgentEvent::PermissionAnswered { .. }
-            | AgentEvent::PermissionWithdrawn { .. }
-            | AgentEvent::Sub { .. } => Some(Self::busy(waiting)),
+            | AgentEvent::PermissionWithdrawn { .. } => Some(Self::busy(waiting)),
             AgentEvent::TurnDone { .. }
             | AgentEvent::Exited {
                 code: None | Some(0),
@@ -130,6 +133,11 @@ impl SessionStatus {
             | AgentEvent::CommandAsked { .. }
             | AgentEvent::CommandAnswered { .. }
             | AgentEvent::TerminalOnly { .. }
+            | AgentEvent::WorktreeMoved { .. }
+            | AgentEvent::Heard { .. }
+            // A sub-agent in the foreground works inside its starter's turn, which is busy
+            // already; one in the background works between turns, when the session is not.
+            | AgentEvent::Sub { .. }
             | AgentEvent::Other { .. } => None,
         }
     }
@@ -291,7 +299,7 @@ impl Store {
         })
     }
 
-    fn session_by_id(&self, id: i64) -> Result<Session> {
+    pub(crate) fn session_by_id(&self, id: i64) -> Result<Session> {
         let sql = format!("{SESSION_SELECT} WHERE id = ?1");
         let session = self
             .conn
@@ -383,6 +391,32 @@ impl Store {
             params![],
         )?;
         Ok(settled)
+    }
+
+    /// Records the end of the agent of every session whose history has a report of something
+    /// left in the background and no end after it: nothing outlives the agent, and one that
+    /// went with its Swarmed never said so. Without it, a front end that reads the history
+    /// takes a sub-agent left there to be at work for good.
+    fn background_settle(&self) -> Result<()> {
+        // The event's type is the first thing in its JSON, which keeps these prefix matches.
+        let mut statement = self.conn.prepare(
+            "SELECT DISTINCT e.session_id FROM session_events e
+             WHERE e.event LIKE '{\"type\":\"background\"%'
+               AND NOT EXISTS (
+                   SELECT 1 FROM session_events later
+                   WHERE later.session_id = e.session_id AND later.id > e.id
+                     AND later.event LIKE '{\"type\":\"exited\"%')",
+        )?;
+        let left = statement.query_map(params![], |row| row.get::<_, i64>(0))?;
+        let sessions = left.collect::<rusqlite::Result<Vec<_>>>()?;
+        let ended = AgentEvent::Exited {
+            code: None,
+            stderr: String::new(),
+        };
+        for session in sessions {
+            self.keep(session, &ended)?;
+        }
+        Ok(())
     }
 
     fn session_close(&self, id: i64) -> Result<()> {
@@ -496,6 +530,7 @@ impl Store {
         session_id: i64,
         event: &AgentEvent,
         status: Option<SessionStatus>,
+        unread: Option<bool>,
     ) -> Result<()> {
         self.keep(session_id, event)?;
         if let Some(status) = status {
@@ -519,7 +554,7 @@ impl Store {
                  WHERE id = ?1",
                 params![session_id, title_from(text)],
             )?,
-            _ if leaves_something_to_read(event) => self.conn.execute(
+            _ if unread == Some(true) => self.conn.execute(
                 "UPDATE sessions SET unread = 1 WHERE id = ?1",
                 params![session_id],
             )?,
@@ -542,9 +577,9 @@ impl Store {
             |row| row.get(0),
         )?;
         for event in events {
-            self.record(to, event, None)?;
+            self.record(to, event, None, None)?;
         }
-        self.record(to, &AgentEvent::Forked { from }, None)?;
+        self.record(to, &AgentEvent::Forked { from }, None, None)?;
         self.conn.execute(
             "UPDATE sessions SET unread = 0, title = ?2 WHERE id = ?1",
             params![to, title],
@@ -833,7 +868,7 @@ impl Core {
             mcp_servers,
             skills: self.skills_had(&session.agent, &task.worktree_path),
             env,
-            append_system_prompt: self.guidance(&settings, &session.agent, &task.worktree_path),
+            append_system_prompt: Some(self.guidance(&settings, &session.agent, &task)),
             cwd: task.worktree_path,
             model: session.model,
             supervision: session.supervision,
@@ -855,21 +890,26 @@ impl Core {
     }
 
     /// What every agent is told by Swarmed, on top of what it knows by itself: the user's own
-    /// rules, if they wrote any; about the other sessions, when there is a tool server to reach
-    /// them through; and about showing views, when the user has those switched on. `None` if
-    /// there is nothing to tell.
-    fn guidance(&self, settings: &Settings, agent: &str, worktree: &Path) -> Option<String> {
+    /// rules, if they wrote any; to keep to its task's branch and worktree; about the other sessions, when
+    /// there is a tool server to reach them through; and about showing views, when the user has
+    /// those switched on.
+    fn guidance(&self, settings: &Settings, agent: &str, task: &Task) -> String {
         let rules = settings.rules.trim();
         let rules = (!rules.is_empty()).then(|| format!("{RULES_HEADING}\n{rules}"));
+        let branch = publish::worktree_instructions(&task.branch);
         let sessions = self.tool_server.as_ref().map(|_| peers::INSTRUCTIONS);
         // Handed over through the tool server, so only worth naming when there is one.
-        let skills = sessions.and_then(|_| self.skills_guidance(agent, worktree));
+        let skills = sessions.and_then(|_| self.skills_guidance(agent, &task.worktree_path));
         let views = settings.html_views.then_some(views::INSTRUCTIONS);
-        let parts: Vec<&str> = [rules.as_deref(), sessions, skills.as_deref(), views]
-            .into_iter()
-            .flatten()
-            .collect();
-        (!parts.is_empty()).then(|| parts.join("\n\n"))
+        let parts = [
+            rules.as_deref(),
+            Some(branch.as_str()),
+            sessions,
+            skills.as_deref(),
+            views,
+        ];
+        let parts: Vec<&str> = parts.into_iter().flatten().collect();
+        parts.join("\n\n")
     }
 
     /// Swarmed's own tool server, for every agent, when a front end said where it is. It is
@@ -1094,9 +1134,12 @@ impl Core {
 
     /// Puts the sessions that count as busy back to idle: for a front end that has just
     /// started, when no agent runs yet and whatever says otherwise is left from a Swarmed that
-    /// ended in the middle of a turn. Says how many there were.
+    /// ended in the middle of a turn. Says how many there were. What their agents left in the
+    /// background went with them, which is recorded as the end those agents never reported.
     pub fn sessions_settle(&self) -> Result<usize> {
-        self.store().sessions_settle()
+        let store = self.store();
+        store.background_settle()?;
+        store.sessions_settle()
     }
 
     /// Stops a session's agent. Its history stays, and [`Core::session_start`] continues it.
@@ -1251,6 +1294,7 @@ pub(crate) fn send_text(
     };
     live.note(store, id, event)?;
     let shared = terminals.take_unshared(id);
+    let moved = moved_since(store, live, id);
     let text = called.as_deref().unwrap_or(text);
     let text = &earlier.map_or_else(
         || text.to_string(),
@@ -1271,9 +1315,55 @@ pub(crate) fn send_text(
              turn, with its output:\n{shared}\n</terminal>"
         )
     };
+    let message = match moved {
+        Some((Head(from), Head(to))) => {
+            let note = moved_note(from.as_deref(), to.as_deref());
+            let between_turns = true;
+            live.note(
+                store,
+                id,
+                AgentEvent::WorktreeMoved {
+                    from,
+                    to,
+                    between_turns,
+                },
+            )?;
+            format!("{message}\n\n{note}")
+        }
+        None => message,
+    };
     commands
         .send(AgentCommand::UserMessage(message))
         .map_err(|_| Error::SessionNotRunning(id))
+}
+
+/// The move of the task's worktree to another branch since the agent of session `id` last knew
+/// where it was, if there was one: by the user, from Swarmed or by hand, or by another session.
+/// The agent knows where it is from now on, and so does the watch for moves.
+fn moved_since(store: &Mutex<Store>, live: &Live, id: i64) -> Option<(Head, Head)> {
+    let worktree = {
+        let store = lock(store);
+        let session = store.session_by_id(id).ok()?;
+        store.task_by_id(session.task_id).ok()??.worktree_path
+    };
+    let now = git::head_now(&worktree)?;
+    live.branch_seen(&worktree, &now);
+    let before = live.branch_known(id, &now)?;
+    Some((before, now))
+}
+
+/// What an agent is told along with the user's message when its worktree moved since its last
+/// turn, so that it does not carry on as if it were where it left off.
+fn moved_note(from: Option<&str>, to: Option<&str>) -> String {
+    let on =
+        |branch: Option<&str>| branch.map_or_else(|| "no branch".to_string(), |b| format!("`{b}`"));
+    format!(
+        "<worktree>\nThis task's worktree was moved since your last turn, by the user or by \
+         something other than you: it was on {}, and is on {} now, with that branch's files. \
+         Carry on there unless the user says otherwise.\n</worktree>",
+        on(from),
+        on(to)
+    )
 }
 
 /// What the agent of session `id` is sent in place of `text`, if `text` calls a skill by name.
@@ -1322,6 +1412,10 @@ pub struct SessionEvent {
     pub session_id: i64,
     /// The session's status after this event, if the event changed it.
     pub status: Option<SessionStatus>,
+    /// Whether the session is unread after this event, if the event changed that: an answer
+    /// handed back makes it unread and a message of the user's makes it read. A turn that ends
+    /// while sub-agents work on in the background hands nothing back yet, and changes nothing.
+    pub unread: Option<bool>,
     /// What happened.
     pub event: AgentEvent,
 }
@@ -1398,6 +1492,15 @@ fn shown_only(event: &AgentEvent) -> bool {
     )
 }
 
+/// A message told to an agent in the middle of its turn.
+#[derive(Debug)]
+pub(crate) struct Told {
+    /// What the agent was sent, and says back when it takes the message in.
+    pub(crate) sent: String,
+    /// What the user typed, which is what is recorded.
+    pub(crate) typed: String,
+}
+
 /// The sessions whose agent is running, and the channel their events are published on.
 #[derive(Debug)]
 pub(crate) struct Live {
@@ -1417,6 +1520,19 @@ pub(crate) struct Live {
     pub(crate) stacks: Mutex<HashMap<i64, std::process::Child>>,
     /// When the turn each session is in began: when the message that started it was sent.
     turns: Mutex<HashMap<i64, Instant>>,
+    /// The branch each task's worktree was last seen on (`None`: no branch), by its folder:
+    /// a move is what differs from it.
+    branches_seen: Mutex<HashMap<PathBuf, Head>>,
+    /// The branch each session's agent last knew its worktree to be on.
+    branches_known: Mutex<HashMap<i64, Head>>,
+    /// The sub-agents each session's agent has at work in the background, by their task ids.
+    background_agents: Mutex<HashMap<i64, HashSet<String>>>,
+    /// The sessions in a turn a message of the user's started, each with whether that turn
+    /// has started a sub-agent in the background.
+    answering: Mutex<HashMap<i64, bool>>,
+    /// The messages told to each session's agent in the middle of a turn and not yet heard:
+    /// each is recorded where the agent says it took it in.
+    told: Mutex<HashMap<i64, VecDeque<Told>>>,
     runs: AtomicU64,
     bus: broadcast::Sender<SessionEvent>,
 }
@@ -1432,6 +1548,11 @@ impl Default for Live {
             pids: Mutex::default(),
             stacks: Mutex::default(),
             turns: Mutex::default(),
+            branches_seen: Mutex::default(),
+            branches_known: Mutex::default(),
+            background_agents: Mutex::default(),
+            answering: Mutex::default(),
+            told: Mutex::default(),
             runs: AtomicU64::new(0),
             bus: broadcast::Sender::new(EVENT_BUFFER),
         }
@@ -1439,6 +1560,49 @@ impl Default for Live {
 }
 
 impl Live {
+    /// Hands a message to the session's agent in the middle of its turn, to be recorded as
+    /// the user typed it once the agent says it took it in.
+    pub(crate) fn tell(&self, id: i64, message: Told) -> Result<()> {
+        let sent = message.sent.clone();
+        lock(&self.told).entry(id).or_default().push_back(message);
+        let told = self.command(id, AgentCommand::UserMessage(sent));
+        if told.is_err() {
+            lock(&self.told).entry(id).or_default().pop_back();
+        }
+        told
+    }
+
+    /// What the user typed, if `text` is a message told to the session's agent mid-turn, which
+    /// it has now heard. The earliest such message is taken: one told before it that the agent
+    /// has not said back stays, and must not keep the later ones from being recorded.
+    fn heard(&self, id: i64, text: &str) -> Option<String> {
+        let mut told = lock(&self.told);
+        let waiting = told.get_mut(&id)?;
+        let at = waiting.iter().position(|message| message.sent == text)?;
+        waiting.remove(at).map(|message| message.typed)
+    }
+
+    /// The messages told to the session's agent that it never said it heard, as the user
+    /// typed them: its run is over, or another takes its place.
+    fn never_heard(&self, id: i64) -> Vec<String> {
+        let told = lock(&self.told).remove(&id).unwrap_or_default();
+        told.into_iter().map(|message| message.typed).collect()
+    }
+
+    /// Notes that `worktree` is at `now`, and says where it was before if that was elsewhere.
+    /// Nothing the first time: there is nothing to have moved from.
+    pub(crate) fn branch_seen(&self, worktree: &Path, now: &Head) -> Option<Head> {
+        let before = lock(&self.branches_seen).insert(worktree.to_path_buf(), now.clone())?;
+        (before != *now).then_some(before)
+    }
+
+    /// Notes that the agent of session `id` knows its worktree to be at `now`, and says what it
+    /// knew before if that was elsewhere. Nothing the first time.
+    fn branch_known(&self, id: i64, now: &Head) -> Option<Head> {
+        let before = lock(&self.branches_known).insert(id, now.clone())?;
+        (before != *now).then_some(before)
+    }
+
     fn commands(&self) -> MutexGuard<'_, Commands> {
         self.commands.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -1488,24 +1652,25 @@ impl Live {
     /// Keeps and passes on what a run says after another has taken its place, without
     /// letting it change how the session stands: no status, no open requests, nothing to
     /// read. That its turn or its process ended is dropped altogether, since front ends take
-    /// either for the end of the session's own turn, which is the new agent's to report.
+    /// either for the end of the session's own turn, which is the new agent's to report. So is
+    /// a message it says back: what it was told and never heard waits in the queue again.
     fn note_late(&self, store: &Mutex<Store>, session_id: i64, event: AgentEvent) {
-        let an_end = matches!(
+        let dropped = matches!(
             event,
-            AgentEvent::TurnDone { .. } | AgentEvent::Exited { .. }
+            AgentEvent::TurnDone { .. } | AgentEvent::Exited { .. } | AgentEvent::Heard { .. }
         );
-        if an_end {
+        if dropped {
             return;
         }
         if !shown_only(&event) {
             lock(store).keep(session_id, &event).ok();
         }
-        let status = None;
         // An error only means nobody is subscribed right now.
         self.bus
             .send(SessionEvent {
                 session_id,
-                status,
+                status: None,
+                unread: None,
                 event,
             })
             .ok();
@@ -1544,20 +1709,89 @@ impl Live {
     ) -> Result<()> {
         let event = self.timed(session_id, event);
         let status = self.status_after(session_id, &event);
+        self.follow_background(session_id, &event);
+        let unread = self.unread_after(session_id, &event);
         let stored = if shown_only(&event) {
             Ok(())
         } else {
-            lock(store).record(session_id, &event, status)
+            lock(store).record(session_id, &event, status, unread)
         };
         // An error only means nobody is subscribed right now.
         self.bus
             .send(SessionEvent {
                 session_id,
                 status,
+                unread,
                 event,
             })
             .ok();
         stored
+    }
+
+    /// Keeps which sub-agents each session's agent has at work in the background, from its
+    /// reports of them: started and not yet ended. A command left running does not count, as
+    /// a dev server may never end, and nothing outlives the agent.
+    fn follow_background(&self, session_id: i64, event: &AgentEvent) {
+        match event {
+            AgentEvent::Background {
+                task_id,
+                kind,
+                state,
+                ..
+            } => {
+                // An end is reported without saying again what it was: any end takes it off.
+                let running = *state == BackgroundState::Running;
+                let starts = running && SUB_AGENT_KINDS.contains(&kind.as_str());
+                self.note_background(session_id, task_id, starts);
+            }
+            AgentEvent::UserMessage { .. } => {
+                lock(&self.answering).entry(session_id).or_insert(false);
+            }
+            AgentEvent::Exited { .. } => self.background_gone(session_id),
+            _ => {}
+        }
+    }
+
+    /// Notes that a sub-agent of a session's agent started in the background, or that
+    /// something it left there ended.
+    fn note_background(&self, session_id: i64, task_id: &str, starts: bool) {
+        let mut working = lock(&self.background_agents);
+        let ids = working.entry(session_id).or_default();
+        if !starts {
+            ids.remove(task_id);
+            return;
+        }
+        ids.insert(task_id.to_string());
+        if let Some(started) = lock(&self.answering).get_mut(&session_id) {
+            *started = true;
+        }
+    }
+
+    /// Forgets what a session's agent had at work in the background: a new run of it starts
+    /// with nothing.
+    fn background_gone(&self, session_id: i64) {
+        lock(&self.background_agents).remove(&session_id);
+        lock(&self.answering).remove(&session_id);
+    }
+
+    /// What `event` does to whether the session is unread. An answer handed back makes it
+    /// unread, unless sub-agents the agent left working in the background are still at it: the
+    /// session can take a message then, but its work is not done. That holds for the turn that
+    /// started them and for turns of the agent's own; the answer to a later message of the
+    /// user's is handed back whatever still works. A message of the user's makes it read.
+    fn unread_after(&self, session_id: i64, event: &AgentEvent) -> Option<bool> {
+        match event {
+            AgentEvent::UserMessage { .. } => Some(false),
+            _ if leaves_something_to_read(event) => {
+                let waits = lock(&self.background_agents)
+                    .get(&session_id)
+                    .is_some_and(|ids| !ids.is_empty());
+                // The turn is over: what it was is asked once.
+                let answers = lock(&self.answering).remove(&session_id) == Some(false);
+                (!waits || answers).then_some(true)
+            }
+            _ => None,
+        }
     }
 
     /// Keeps the time of each turn: a message starts the clock, and the end of the turn is
@@ -1625,6 +1859,39 @@ fn show_views(store: &Mutex<Store>, live: &Live, id: i64, spool: &Path) {
     }
 }
 
+/// Records a move of the task's worktree to another branch, seen when a tool answered or the
+/// turn ended: once per move, in the session whose agent was at work, which knows of it from
+/// then on. The branch is remembered for the task even if nobody looks at its panel meanwhile.
+fn notice_moved(shared: &Shared, id: i64) {
+    let worktree = &shared.spec.cwd;
+    let Some(now) = git::head_now(worktree) else {
+        return;
+    };
+    let Some(before) = shared.live.branch_seen(worktree, &now) else {
+        return;
+    };
+    shared.live.branch_known(id, &now);
+    if let Some(branch) = &now.0 {
+        remember_branch(&shared.store, id, branch);
+    }
+    let event = AgentEvent::WorktreeMoved {
+        from: before.0,
+        to: now.0,
+        between_turns: false,
+    };
+    shared.live.note(&shared.store, id, event).ok();
+}
+
+/// Remembers `branch` among the branches of session `id`'s task, unless it is the task's own.
+fn remember_branch(store: &Mutex<Store>, id: i64, branch: &str) {
+    let store = lock(store);
+    let task = store.session_by_id(id).ok().map(|session| session.task_id);
+    let task = task.and_then(|task| store.task_by_id(task).ok().flatten());
+    if let Some(task) = task.filter(|task| task.branch != branch) {
+        store.task_branch_seen(task.id, branch).ok();
+    }
+}
+
 /// What the task following one agent's events needs of the core.
 #[derive(Clone)]
 struct Shared {
@@ -1639,6 +1906,18 @@ struct Shared {
     /// from here, when new settings are due and a message is waiting for them.
     backend: Arc<dyn AgentBackend>,
     spec: SessionSpec,
+}
+
+impl Shared {
+    /// What sending from the session's queue needs.
+    fn outbox(&self) -> queue::Outbox {
+        queue::Outbox {
+            store: Arc::clone(&self.store),
+            live: Arc::clone(&self.live),
+            terminals: Arc::clone(&self.terminals),
+            paths: self.paths.clone(),
+        }
+    }
 }
 
 /// Whether an agent is started only for a session that has none running, or in place of the
@@ -1664,6 +1943,9 @@ fn launch(shared: Shared, id: i64, how: Launch) -> Result<()> {
         std::fs::remove_dir_all(&shared.spool).ok();
     }
     let handle = shared.backend.start(shared.spec.clone())?;
+    live.background_gone(id);
+    // What a run this takes the place of was told and never heard: its own end is dropped.
+    let unheard = live.never_heard(id);
     let number = live.runs.fetch_add(1, Ordering::Relaxed);
     let (stop, stopped) = oneshot::channel();
     let (gone, ended) = watch::channel(());
@@ -1680,6 +1962,7 @@ fn launch(shared: Shared, id: i64, how: Launch) -> Result<()> {
     };
     running.insert(id, run);
     drop(running);
+    queue::wait_again(&shared.store, &live, id, &unheard);
     lock(&live.endings).insert(number, (id, ending.clone()));
     if let Some(pid) = handle.pid {
         lock(&live.pids).insert(id, pid);
@@ -1783,8 +2066,31 @@ fn take(shared: &Shared, (id, run): (i64, u64), ending: &Ending, event: AgentEve
     }
 }
 
+/// What an event of the agent's is once messages told to it mid-turn are accounted for: a
+/// message it says it took in is recorded as the user's, there, as they typed it; any other it
+/// says back is dropped, since it was recorded when it was sent; and at the agent's end what it
+/// never heard waits in the queue again, so that nothing the user wrote goes missing or is
+/// shown as said to an agent that did not get it.
+fn heard_as(shared: &Shared, id: i64, event: AgentEvent) -> Option<AgentEvent> {
+    match event {
+        AgentEvent::Heard { text } => {
+            let typed = shared.live.heard(id, &text)?;
+            Some(AgentEvent::UserMessage { text: typed })
+        }
+        AgentEvent::Exited { .. } => {
+            let unheard = shared.live.never_heard(id);
+            queue::wait_again(&shared.store, &shared.live, id, &unheard);
+            Some(event)
+        }
+        _ => Some(event),
+    }
+}
+
 /// Stores and publishes an event of the session's agent, and does what follows from it.
 fn on_event(shared: &Shared, id: i64, event: AgentEvent) {
+    let Some(event) = heard_as(shared, id, event) else {
+        return;
+    };
     let (store, live) = (&shared.store, &shared.live);
     let turn_over = matches!(event, AgentEvent::TurnDone { .. });
     let gone = matches!(event, AgentEvent::Exited { .. });
@@ -1809,6 +2115,7 @@ fn on_event(shared: &Shared, id: i64, event: AgentEvent) {
     live.note(store, id, event).ok();
     if settled {
         show_views(store, live, id, &shared.spool);
+        notice_moved(shared, id);
     }
     if turn_over {
         end_turn(shared, id, finished);
@@ -1838,7 +2145,7 @@ fn end_turn(shared: &Shared, id: i64, finished: bool) {
         restart(shared, id, sends);
     }
     if sends {
-        queue::send_next(store, live, (&shared.terminals, &shared.paths), id).ok();
+        queue::send_next(&shared.outbox(), id).ok();
     }
 }
 
@@ -1856,6 +2163,36 @@ fn restart(shared: &Shared, id: i64, sends: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_message_heard_is_recorded_as_typed_whatever_was_told_before_it() {
+        let live = Live::default();
+        let (commands, _agent) = mpsc::unbounded_channel();
+        let (stop, _stopped) = oneshot::channel();
+        let run = Run {
+            number: 1,
+            commands,
+            _stop: stop,
+        };
+        live.commands().insert(7, run);
+        let told = |sent: &str, typed: &str| Told {
+            sent: sent.to_string(),
+            typed: typed.to_string(),
+        };
+        live.tell(7, told("never said back", "/lost"))
+            .expect("tells");
+        live.tell(7, told("what the skill says", "/skill"))
+            .expect("tells");
+        // One the agent never says back does not keep the next from being recorded.
+        assert_eq!(live.heard(7, "something else"), None);
+        assert_eq!(
+            live.heard(7, "what the skill says"),
+            Some("/skill".to_string())
+        );
+        assert_eq!(live.heard(7, "what the skill says"), None);
+        assert_eq!(live.never_heard(7), ["/lost"]);
+        assert_eq!(live.never_heard(7), Vec::<String>::new());
+    }
 
     #[test]
     fn a_title_is_taken_from_what_was_typed_and_not_from_what_was_pasted() {
@@ -1892,6 +2229,17 @@ mod tests {
             "Fix the login loop"
         );
         assert_eq!(shortened("   ", 60), "");
+    }
+
+    #[test]
+    fn what_a_sub_agent_does_leaves_the_status_as_it_is() {
+        let said = AgentEvent::Sub {
+            parent: "tool-1".to_string(),
+            event: Box::new(AgentEvent::Text {
+                text: "looking".to_string(),
+            }),
+        };
+        assert_eq!(SessionStatus::after(&said, false), None);
     }
 
     #[test]

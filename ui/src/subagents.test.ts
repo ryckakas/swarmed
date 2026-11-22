@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { AgentEvent } from "./api/types";
-import { answerOfSubAgent, atWorkIn, eventsOfSubAgent, subAgentOf } from "./subagents";
+import {
+    answerOfSubAgent,
+    atWorkIn,
+    eventsOfSubAgent,
+    isAtWork,
+    listedUnder,
+    subAgentOf,
+    subAgentsIn,
+} from "./subagents";
 
 const start = (id: string, description: string, name = "Agent"): AgentEvent => ({
     type: "tool_use",
@@ -82,5 +90,57 @@ describe("one sub-agent", () => {
         ]);
         expect(answerOfSubAgent(events, "a")).toBe("Three routes.");
         expect(answerOfSubAgent(events, "b")).toBeNull();
+    });
+});
+
+describe("a sub-agent in the background", () => {
+    const report = (
+        id: string,
+        state: "running" | "completed" | "stopped",
+        summary: string | null = null,
+    ): AgentEvent => ({
+        type: "background",
+        task_id: `task-${id}`,
+        description: "review",
+        kind: "local_agent",
+        state,
+        summary,
+        tool_use_id: id,
+        output_file: null,
+    });
+    const exited: AgentEvent = { type: "exited", code: 0, stderr: "" };
+    const launched = result("a", "Async agent launched successfully.");
+
+    it("stays at work past its call's result and the turn, whichever report comes first", () => {
+        for (const opening of [
+            [start("a", "review"), report("a", "running"), launched],
+            [start("a", "review"), launched, report("a", "running")],
+        ]) {
+            expect(atWorkIn([...opening, done]).map((one) => one.id)).toEqual(["a"]);
+        }
+    });
+
+    it("leaves on the report of its end, or with the agent", () => {
+        const working = [start("a", "review"), report("a", "running"), launched, done];
+        expect(atWorkIn([...working, said("a", "Still at it.")])).toHaveLength(1);
+        expect(atWorkIn([...working, report("a", "completed", "Found two things.")])).toEqual([]);
+        expect(atWorkIn([...working, exited])).toEqual([]);
+    });
+
+    it("is listed under an idle session, where one in the foreground is not", () => {
+        const events = [start("a", "review"), report("a", "running"), launched, start("b", "find")];
+        const followed = subAgentsIn(events);
+        expect(listedUnder(followed, "working").map((one) => one.id)).toEqual(["a", "b"]);
+        expect(listedUnder(followed, "idle").map((one) => one.id)).toEqual(["a"]);
+        expect(listedUnder(followed, "errored")).toEqual([]);
+        expect(isAtWork(events, "a", "idle")).toBe(true);
+        expect(isAtWork(events, "b", "idle")).toBe(false);
+    });
+
+    it("answers with its end report, not with the result that it started", () => {
+        const events = [start("a", "review"), report("a", "running"), launched];
+        expect(answerOfSubAgent(events, "a")).toBeNull();
+        const ended = [...events, report("a", "completed", "Found two things.")];
+        expect(answerOfSubAgent(ended, "a")).toBe("Found two things.");
     });
 });

@@ -1756,6 +1756,159 @@ async fn a_tasks_work_is_committed_and_pushed_when_asked() {
     assert_eq!((pushed.unpushed, pushed.pushed_before), (0, true));
 }
 
+/// A worktree something switched to a second branch: the task remembers both, what is counted
+/// and pushed is the branch at hand, and the worktree can be put on either.
+#[tokio::test]
+async fn a_worktree_on_another_branch_is_followed_and_can_be_switched() {
+    let fx = fixture();
+    let root = fx.repo.parent().expect("test setup");
+    let remote = root.join("remote.git");
+    git(
+        root,
+        &["init", "--quiet", "--bare", "-b", "main", "remote.git"],
+    );
+    git(
+        &fx.repo,
+        &["remote", "add", "origin", &remote.to_string_lossy()],
+    );
+    git(&fx.repo, &["push", "--quiet", "-u", "origin", "main"]);
+    let core = core_with_project(&fx).await;
+    let task = core
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    let worktree = &task.worktree_path;
+    let own = core.task_unpublished("demo", "one").await.expect("reads");
+    assert_eq!(own.branch.as_deref(), Some(task.branch.as_str()));
+    assert_eq!(own.branches, std::slice::from_ref(&task.branch));
+    // A branch the worktree was never on is not one to switch to.
+    let stranger = core.task_switch("demo", "one", "main").await;
+    assert_eq!(
+        stranger.expect_err("refused").to_string(),
+        "`main` is not a branch this task's worktree has been on"
+    );
+
+    git(worktree, &["switch", "--quiet", "-c", "second"]);
+    std::fs::write(worktree.join("a.txt"), "a").expect("test setup");
+    core.task_commit("demo", "one", "feat: on the second branch")
+        .await
+        .expect("commits");
+    let switched = core.task_unpublished("demo", "one").await.expect("reads");
+    assert_eq!(switched.branch.as_deref(), Some("second"));
+    assert_eq!(switched.unpushed, 1);
+    let both = [task.branch.clone(), "second".to_string()];
+    assert_eq!(switched.branches, both);
+    // The second branch's commit is nowhere else yet, so the task is not removed over it.
+    let options = RemoveOptions::default();
+    let removed = core
+        .task_remove("demo", "one", options, &hooks::discard)
+        .await;
+    assert!(matches!(removed, Err(Error::TaskNotClean { .. })));
+
+    // Pushing sends the branch at hand, and never the task's own in its place.
+    core.task_push("demo", "one").await.expect("pushes");
+    let there = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&remote)
+        .args(["for-each-ref", "--format=%(refname:short)", "refs/heads"])
+        .output()
+        .expect("test setup");
+    assert_eq!(
+        String::from_utf8_lossy(&there.stdout).trim(),
+        "main\nsecond"
+    );
+    let pushed = core.task_unpublished("demo", "one").await.expect("reads");
+    assert_eq!((pushed.unpushed, pushed.pushed_before), (0, true));
+
+    // On no branch at all there is nothing to push, and the branches are still known.
+    git(worktree, &["switch", "--quiet", "--detach"]);
+    let detached = core.task_unpublished("demo", "one").await.expect("reads");
+    assert_eq!((detached.branch, detached.rebasing), (None, false));
+    assert_eq!(detached.branches, both);
+    let refused = core.task_push("demo", "one").await.expect_err("refused");
+    assert_eq!(
+        refused.to_string(),
+        "this worktree is on no branch: switch it to one first"
+    );
+
+    // Back on its own branch, with a change that is not committed carried across.
+    std::fs::write(worktree.join("b.txt"), "b").expect("test setup");
+    core.task_switch("demo", "one", &task.branch)
+        .await
+        .expect("switches");
+    let back = core.task_unpublished("demo", "one").await.expect("reads");
+    assert_eq!(back.branch.as_deref(), Some(task.branch.as_str()));
+    assert_eq!((back.changed, back.unpushed), (1, 0));
+    assert!(!worktree.join("a.txt").exists());
+
+    // A change that would be overwritten stops the switch, with git's reason.
+    core.task_switch("demo", "one", "second")
+        .await
+        .expect("switches");
+    std::fs::write(worktree.join("a.txt"), "changed").expect("test setup");
+    let stuck = core.task_switch("demo", "one", &task.branch).await;
+    let said = stuck.expect_err("refused").to_string();
+    assert!(said.contains("a.txt"), "{said}");
+    let still = core.task_unpublished("demo", "one").await.expect("reads");
+    assert_eq!(still.branch.as_deref(), Some("second"));
+
+    // A branch deleted since is no longer one of the task's.
+    git(worktree, &["checkout", "--quiet", "--", "a.txt"]);
+    git(worktree, &["clean", "--quiet", "-f"]);
+    git(worktree, &["switch", "--quiet", &task.branch]);
+    git(worktree, &["branch", "--quiet", "-D", "second"]);
+    let gone = core.task_unpublished("demo", "one").await.expect("reads");
+    assert_eq!(gone.branches, std::slice::from_ref(&task.branch));
+}
+
+/// Starts rebasing `worktree` with `args`, and expects it to stop on a conflict.
+fn rebase_stops(worktree: &Path, args: &[&str]) {
+    let ran = std::process::Command::new("git")
+        .arg("-C")
+        .arg(worktree)
+        .arg("rebase")
+        .args(args)
+        .output()
+        .expect("test setup");
+    assert!(!ran.status.success(), "the rebase stops on the conflict");
+}
+
+/// A rebase that stopped on a conflict leaves the worktree on no branch: it is said to be a
+/// rebase, under either of git's ways of rebasing, and nothing is pushed or switched until it
+/// is over.
+#[tokio::test]
+async fn a_rebase_under_way_is_named_and_waited_for() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    let task = core
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    let worktree = &task.worktree_path;
+    let before = core.task_unpublished("demo", "one").await.expect("reads");
+    assert!(!before.rebasing);
+    // The task and its base change the same line, so rebasing the task stops there.
+    std::fs::write(worktree.join("README.md"), "the task's\n").expect("test setup");
+    git(worktree, &["commit", "--quiet", "-am", "the task's"]);
+    std::fs::write(fx.repo.join("README.md"), "the base's\n").expect("test setup");
+    git(&fx.repo, &["commit", "--quiet", "-am", "the base's"]);
+
+    let why = "a rebase is under way in this worktree: finish it or abort it first";
+    for way in ["--merge", "--apply"] {
+        rebase_stops(worktree, &["--quiet", way, &task.base_ref]);
+        let rebasing = core.task_unpublished("demo", "one").await.expect("reads");
+        assert_eq!((rebasing.branch, rebasing.rebasing), (None, true), "{way}");
+        let pushed = core.task_push("demo", "one").await;
+        assert_eq!(pushed.expect_err("refused").to_string(), why, "{way}");
+        let back = core.task_switch("demo", "one", &task.branch).await;
+        assert_eq!(back.expect_err("refused").to_string(), why, "{way}");
+        git(worktree, &["rebase", "--abort"]);
+    }
+    let after = core.task_unpublished("demo", "one").await.expect("reads");
+    assert_eq!(after.branch.as_deref(), Some(task.branch.as_str()));
+    assert!(!after.rebasing);
+}
+
 fn action(name: &str, prompt: &str, command: &str) -> Action {
     Action {
         name: name.to_string(),

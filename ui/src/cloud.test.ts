@@ -61,7 +61,14 @@ describe("handing a session's work to the cloud", () => {
     });
 
     it("says what the cloud agent will not see, and nothing when it sees all", () => {
-        const pushed = { changed: 0, unpushed: 0, pushed_before: true };
+        const pushed = {
+            changed: 0,
+            unpushed: 0,
+            pushed_before: true,
+            branch: "you/task",
+            branches: ["you/task"],
+            rebasing: false,
+        };
         expect(unseenByCloud(pushed)).toBeNull();
         expect(unseenByCloud({ ...pushed, changed: 1 })).toBe(
             "Only on this Mac, where the cloud agent does not see it: 1 file is not committed.",

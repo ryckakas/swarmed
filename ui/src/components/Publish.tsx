@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { PullDraft, Task, Unpublished } from "../api/types";
-import { nextStep, unpublishedSummary } from "../publish";
+import {
+    type BranchNotice,
+    branchesSaid,
+    branchNotice,
+    nextStep,
+    unpublishedSummary,
+} from "../publish";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
 import { capitalized, withArticle } from "../wording";
@@ -39,6 +45,7 @@ export function Publish({ project, task }: Props) {
     const hasPull = useStore((state) => Boolean(state.pulls[task.id]));
     const loadPull = useStore((state) => state.loadPull);
     const report = useStore((state) => state.report);
+    const moved = useStore((state) => state.worktreeMoved);
     // The session on screen is one of this task's: its agent is the one to write for it.
     const sessionId = useStore((state) => state.selectedSessionId);
     const [done, setDone] = useState(0);
@@ -47,6 +54,7 @@ export function Publish({ project, task }: Props) {
     if (!state) {
         return null;
     }
+    const notice = branchNotice(state, task.branch);
     const step = nextStep(state, hasPull);
     /** Runs one step, then reads again what is left. */
     const run = (action: Promise<unknown>) => {
@@ -61,6 +69,17 @@ export function Publish({ project, task }: Props) {
     };
     return (
         <section className="publish" aria-label="Publish">
+            {notice && (
+                <Branches
+                    notice={notice}
+                    state={state}
+                    task={task}
+                    busy={busy}
+                    onSwitch={(branch) =>
+                        run(api.taskSwitch(project, task.name, branch).then(() => moved(task.id)))
+                    }
+                />
+            )}
             <p className="publish-summary">{unpublishedSummary(state, words)}</p>
             {step === "commit" && (
                 <CommitForm
@@ -74,7 +93,7 @@ export function Publish({ project, task }: Props) {
                     type="button"
                     className="button"
                     disabled={busy}
-                    title={`Pushes ${task.branch} to origin`}
+                    title={`Pushes ${state.branch ?? task.branch} to origin`}
                     onClick={() => run(api.taskPush(project, task.name))}
                 >
                     {busy ? `${capitalized(words.terms.pushing)}…` : capitalized(words.terms.push)}
@@ -92,6 +111,59 @@ export function Publish({ project, task }: Props) {
                 />
             )}
         </section>
+    );
+}
+
+interface BranchesProps {
+    notice: BranchNotice;
+    state: Unpublished;
+    task: Task;
+    busy: boolean;
+    onSwitch(branch: string): void;
+}
+
+/**
+ * Says which branch the worktree is on when that is not simply the task's own, and offers the
+ * others it has been on. Everything under it, and the changes and the pull request beside it,
+ * are of the branch it is on.
+ */
+function Branches({ notice, state, task, busy, onSwitch }: BranchesProps) {
+    const words = useWords();
+    const { branch, worktree } = words.terms;
+    if (notice === "rebasing") {
+        return (
+            <div className="publish-branches" role="status">
+                <p>
+                    A rebase is under way in this {worktree}. Finish it or abort it, in the terminal
+                    or through the {words.terms.agent}, before anything is {words.terms.pushed} or
+                    the {branch} is changed.
+                </p>
+            </div>
+        );
+    }
+    return (
+        <div className="publish-branches" role="status">
+            <p>{branchesSaid(state, task.branch, words)}</p>
+            <label>
+                {capitalized(branch)}
+                <select
+                    className="picker"
+                    value={state.branch ?? ""}
+                    disabled={busy}
+                    title={`Runs git switch. Changes that are not ${words.terms.committed} come along unless they conflict.`}
+                    onChange={(event) => onSwitch(event.target.value)}
+                >
+                    {state.branch === null && <option value="">none</option>}
+                    {state.branches.map((name) => (
+                        <option key={name} value={name}>
+                            {name === task.branch
+                                ? `${name} (this ${words.terms.task}'s own)`
+                                : name}
+                        </option>
+                    ))}
+                </select>
+            </label>
+        </div>
     );
 }
 

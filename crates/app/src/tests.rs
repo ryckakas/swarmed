@@ -374,8 +374,16 @@ fn the_ui_can_commit_a_tasks_work_and_is_told_what_cannot_be_published() {
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
     let task = json!({ "project": "demo", "name": "one", "branch": null });
     app.ok("task_new", task);
-    let worktree = app.ok("overview", json!({}))[0]["tasks"][0]["worktree_path"].clone();
-    let worktree = Path::new(worktree.as_str().expect("a path"));
+    let made = app.ok("overview", json!({}))[0]["tasks"][0].clone();
+    let branch = made["branch"].clone();
+    // Never pushed, on the task's own branch, the only one its worktree has been on.
+    let unpublished = |changed: u32, unpushed: u32| {
+        json!({
+            "changed": changed, "unpushed": unpushed, "pushed_before": false,
+            "branch": branch, "branches": [branch], "rebasing": false,
+        })
+    };
+    let worktree = Path::new(made["worktree_path"].as_str().expect("a path"));
     std::fs::write(worktree.join("notes.txt"), "one\n").expect("writes");
     let target = json!({ "project": "demo", "name": "one" });
     // A branch that was never pushed has no pull request, and opening it says so.
@@ -388,7 +396,7 @@ fn the_ui_can_commit_a_tasks_work_and_is_told_what_cannot_be_published() {
     // The file written above is not committed yet; committing it leaves one commit to push.
     assert_eq!(
         app.ok("task_unpublished", target.clone()),
-        json!({ "changed": 1, "unpushed": 0, "pushed_before": false })
+        unpublished(1, 0)
     );
     // No session has run, so nothing is known of what an agent's default effort comes to.
     let effort = json!({ "agent": "claude", "model": null });
@@ -412,7 +420,7 @@ fn the_ui_can_commit_a_tasks_work_and_is_told_what_cannot_be_published() {
     assert_eq!(app.ok("task_commit", commit), json!(null));
     assert_eq!(
         app.ok("task_unpublished", target.clone()),
-        json!({ "changed": 0, "unpushed": 1, "pushed_before": false })
+        unpublished(0, 1)
     );
     assert_eq!(
         app.ok("task_pull_draft", target.clone()),
@@ -424,6 +432,9 @@ fn the_ui_can_commit_a_tasks_work_and_is_told_what_cannot_be_published() {
         unwritten.expect_err("no namer"),
         json!("nothing here can write a pull request")
     );
+    // The worktree is on the task's own branch, so putting it there changes nothing.
+    let own = json!({ "project": "demo", "name": "one", "branch": branch });
+    assert_eq!(app.ok("task_switch", own), json!(null));
     // The test repository has no remote: pushing and opening a pull request both say why not.
     app.invoke("task_push", target.clone())
         .expect_err("nowhere to push to");
@@ -538,6 +549,9 @@ fn the_ui_can_list_what_was_left_running_and_cannot_stop_what_no_agent_runs() {
     assert_eq!(app.invoke("task_background", target), Ok(json!([])));
     let stop = json!({ "id": 999, "taskId": "b1" });
     assert!(app.invoke("session_stop_background", stop).is_err());
+    // Output is read only of what a session's own agent named: nothing here did.
+    let output = json!({ "id": 999, "taskId": "b1", "from": null });
+    assert!(app.invoke("session_background_output", output).is_err());
 }
 
 #[test]
@@ -668,6 +682,10 @@ fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
     );
     assert_eq!(edited[0]["text"], "next");
     assert_eq!(app.ok("session_queue", json!({ "id": id })), edited);
+    // Opened for editing and left as it was: nothing was held back, so nothing goes.
+    let held = json!({ "id": id, "message": queue[0]["id"] });
+    assert_eq!(app.ok("session_queue_hold", held.clone()), json!(true));
+    assert_eq!(app.ok("session_queue_let_go", held), json!(null));
 
     app.ok(
         "session_allow",
@@ -690,6 +708,29 @@ fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
     );
     app.wait_for_text(id, "echo: now");
     app.wait_for_text(id, "echo: later");
+
+    // What is typed can be sent now too, without waiting in the queue first.
+    app.ok("session_send", json!({ "id": id, "text": "slow" }));
+    app.ok(
+        "session_message_now",
+        json!({ "id": id, "text": "typed", "files": [] }),
+    );
+    app.wait_for_text(id, "echo: typed");
+
+    // Told now, a waiting message is taken into the turn under way, which goes on.
+    let earlier = request["request_id"].clone();
+    app.ok("session_send", json!({ "id": id, "text": "run: ls" }));
+    let request = wait_for(&app, id, "a second request", |e| {
+        e["type"] == "permission_request" && e["request_id"] != earlier
+    });
+    let queue = app.ok("session_enqueue", json!({ "id": id, "text": "a hint" }));
+    let told = json!({ "id": id, "message": queue[0]["id"] });
+    assert_eq!(app.ok("session_tell_now", told), json!(null));
+    app.ok(
+        "session_allow",
+        json!({ "id": id, "requestId": request["request_id"] }),
+    );
+    app.wait_for_text(id, "heard: a hint");
 }
 
 #[test]

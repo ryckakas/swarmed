@@ -175,16 +175,26 @@ const OVER_A_DIALOG = new Set<HotkeyId>(["settings", "text-larger", "text-smalle
 
 const ANSWERS = new Set<HotkeyId>(["allow", "deny"]);
 
+/** Shortcuts the message box acts on itself, where what is typed is: left to it here. */
+const IN_THE_MESSAGE_BOX = new Set<HotkeyId>(["send-now"]);
+
+/**
+ * Whether a key press is a shortcut for the window to act on: not one something else acted on
+ * already, nor one the message box acts on itself, and over a dialog only those that work there.
+ */
+function forTheWindow(id: HotkeyId | null, event: KeyboardEvent): id is HotkeyId {
+    if (id === null || event.isComposing || event.defaultPrevented || IN_THE_MESSAGE_BOX.has(id)) {
+        return false;
+    }
+    return !document.querySelector("dialog[open]") || OVER_A_DIALOG.has(id);
+}
+
 /** Listens for the keyboard shortcuts for as long as the app is on screen. */
 export function useHotkeys() {
     useEffect(() => {
         const onKeyDown = (event: KeyboardEvent) => {
             const id = matchHotkey(event);
-            // A key something else has already acted on is not a shortcut as well.
-            if (id === null || event.isComposing || event.defaultPrevented) {
-                return;
-            }
-            if (document.querySelector("dialog[open]") && !OVER_A_DIALOG.has(id)) {
+            if (!forTheWindow(id, event)) {
                 return;
             }
             if (ANSWERS.has(id)) {

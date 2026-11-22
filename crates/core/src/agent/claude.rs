@@ -159,6 +159,9 @@ fn args(spec: &SessionSpec, mcp_config: Option<&Path>) -> Vec<String> {
         "--include-partial-messages",
         // After a turn, what the user is likely to say next, if Claude Code has a guess.
         "--prompt-suggestions",
+        // Each message of the user's said back as Claude Code takes it in, which for one
+        // written in the middle of a turn is where it was heard.
+        "--replay-user-messages",
         "--permission-prompt-tool",
         "stdio",
         // Always explicit: the user's own default mode must not override the task's setting.
@@ -705,9 +708,18 @@ fn parse_message(message: &Value, pending: &Pending) -> Vec<AgentEvent> {
             },
             |refused| vec![refused],
         ),
+        "user" if message.get("isReplay").and_then(Value::as_bool) == Some(true) => {
+            heard(message).into_iter().collect()
+        }
         "user" => {
             let results = content_blocks(message).filter_map(parse_tool_result);
-            results.map(|event| of_sub_agent(message, event)).collect()
+            let mut events = Vec::new();
+            for result in results {
+                let output = started_in_background(&result);
+                events.push(of_sub_agent(message, result));
+                events.extend(output);
+            }
+            events
         }
         "control_request" => vec![parse_control_request(message, pending)],
         "control_cancel_request" => withdraw(message, pending),
@@ -778,6 +790,44 @@ fn parse_background(message: &Value) -> Option<AgentEvent> {
         kind: str_of(message, "task_type"),
         state,
         summary: kind_of(message, "summary").map(String::from),
+        tool_use_id: kind_of(message, "tool_use_id").map(String::from),
+        output_file: kind_of(message, "output_file").map(String::from),
+    })
+}
+
+/// Claude Code's word, in a `Bash` call's result, that the command went on in the background
+/// and where what it prints goes: "Command running in background with ID: bzufoxos3. Output
+/// is being written to: /private/tmp/claude-501/.../bzufoxos3.output". Read as a report of it
+/// running, since its own report of the start does not say where its output goes. Other
+/// wording is passed over: such a command shows what it printed only once it has ended. So
+/// is a result that only holds those words further in: a file or a page that quotes them
+/// would otherwise report a command that never ran, writing wherever the quote says.
+fn started_in_background(result: &AgentEvent) -> Option<AgentEvent> {
+    let AgentEvent::ToolResult {
+        tool_use_id,
+        content,
+        ..
+    } = result
+    else {
+        return None;
+    };
+    let rest = content
+        .trim_start()
+        .strip_prefix("Command running in background with ID: ")?;
+    let (task_id, rest) = rest.split_once(". Output is being written to: ")?;
+    let named = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
+    if task_id.is_empty() || !task_id.chars().all(named) {
+        return None;
+    }
+    let file = rest.lines().next()?.trim().trim_end_matches('.');
+    (!file.is_empty()).then(|| AgentEvent::Background {
+        task_id: task_id.to_string(),
+        description: String::new(),
+        kind: "local_bash".to_string(),
+        state: BackgroundState::Running,
+        summary: None,
+        tool_use_id: Some(tool_use_id.clone()),
+        output_file: Some(file.to_string()),
     })
 }
 
@@ -877,6 +927,24 @@ fn parse_rate_limit(message: &Value) -> AgentEvent {
         resets_at: info.get("resetsAt").and_then(Value::as_i64),
         raw: info,
     }
+}
+
+/// A message of the user's that Claude Code repeats as it takes it in: its text as sent, which
+/// is a string or, for a message with more than text, its text blocks.
+fn heard(message: &Value) -> Option<AgentEvent> {
+    let content = message.pointer("/message/content")?;
+    let text = content.as_str().map_or_else(
+        || {
+            let texts =
+                content_blocks(message).filter(|block| kind_of(block, "type") == Some("text"));
+            texts
+                .map(|block| str_of(block, "text"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        },
+        String::from,
+    );
+    (!text.is_empty()).then_some(AgentEvent::Heard { text })
 }
 
 fn content_blocks(message: &Value) -> impl Iterator<Item = &Value> {
@@ -1513,6 +1581,7 @@ mod tests {
         let args = args(&spec, Some(Path::new("/private/servers.json"))).join(" ");
         assert!(args.contains("--permission-mode acceptEdits"), "{args}");
         assert!(args.contains("--prompt-suggestions"), "{args}");
+        assert!(args.contains("--replay-user-messages"), "{args}");
         assert!(
             args.contains("--model haiku --effort high --resume abc"),
             "{args}"
@@ -1636,6 +1705,120 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_sub_agent_in_the_background_is_tied_to_the_call_that_started_it() {
+        let pending = Pending::default();
+        let started = json!({
+            "type": "system", "subtype": "task_started", "task_id": "a1",
+            "description": "Code review of PR 258", "task_type": "local_agent",
+            "tool_use_id": "toolu_agent",
+        });
+        let ended = json!({
+            "type": "system", "subtype": "task_notification", "task_id": "a1",
+            "status": "completed", "summary": "Agent completed", "tool_use_id": "toolu_agent",
+        });
+        for (message, state) in [
+            (started, BackgroundState::Running),
+            (ended, BackgroundState::Completed),
+        ] {
+            let parsed = parse_message(&message, &pending);
+            let tied = matches!(
+                parsed.as_slice(),
+                [AgentEvent::Background { tool_use_id: Some(id), state: read, .. }]
+                    if id == "toolu_agent" && *read == state
+            );
+            assert!(tied, "{parsed:?}");
+        }
+        // One recorded before the field was there still reads, as tied to nothing.
+        let old = r#"{"type":"background","task_id":"b1","description":"d","kind":"local_bash","state":"running","summary":null}"#;
+        let read: AgentEvent = serde_json::from_str(old).expect("reads");
+        assert!(matches!(
+            read,
+            AgentEvent::Background {
+                tool_use_id: None,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn where_a_background_command_writes_is_read_from_its_start_and_its_end() {
+        let pending = Pending::default();
+        let file = "/private/tmp/claude-501/p/s/tasks/bzufoxos3.output";
+        let result = json!({
+            "type": "user",
+            "message": { "content": [{
+                "type": "tool_result", "tool_use_id": "toolu_1",
+                "content": format!("Command running in background with ID: bzufoxos3. Output is being written to: {file}."),
+            }]},
+        });
+        let events = parse_message(&result, &pending);
+        let running = matches!(
+            events.as_slice(),
+            [AgentEvent::ToolResult { .. }, AgentEvent::Background { task_id, state: BackgroundState::Running, output_file: Some(named), tool_use_id: Some(call), .. }]
+                if task_id == "bzufoxos3" && named == file && call == "toolu_1"
+        );
+        assert!(running, "{events:?}");
+        let ended = json!({
+            "type": "system", "subtype": "task_notification", "task_id": "bzufoxos3",
+            "status": "completed", "output_file": file,
+        });
+        let events = parse_message(&ended, &pending);
+        let named = matches!(events.as_slice(), [AgentEvent::Background { output_file: Some(named), .. }] if named == file);
+        assert!(named, "{events:?}");
+        // Other wording says nothing about where output goes.
+        let other = json!({
+            "type": "user",
+            "message": { "content": [{ "type": "tool_result", "tool_use_id": "t", "content": "Running." }]},
+        });
+        assert_eq!(parse_message(&other, &pending).len(), 1);
+        // Nor does a result that quotes the words, as a file read back or a page would.
+        let quoted = json!({
+            "type": "user",
+            "message": { "content": [{
+                "type": "tool_result", "tool_use_id": "t",
+                "content": format!("12\tCommand running in background with ID: made-up. Output is being written to: {file}."),
+            }]},
+        });
+        assert_eq!(parse_message(&quoted, &pending).len(), 1);
+    }
+
+    #[test]
+    fn a_message_said_back_as_claude_code_takes_it_in_is_heard() {
+        let pending = Pending::default();
+        // As Claude Code 2.1.330 says back a message written in the middle of a turn.
+        let replayed = json!({
+            "type": "user", "isReplay": true,
+            "message": { "role": "user", "content": "Also, at the very end, add the word SECOND." },
+        });
+        assert_eq!(
+            parse_message(&replayed, &pending),
+            [AgentEvent::Heard {
+                text: "Also, at the very end, add the word SECOND.".into()
+            }]
+        );
+        let blocks = json!({
+            "type": "user", "isReplay": true,
+            "message": { "content": [{ "type": "text", "text": "a hint" }] },
+        });
+        let heard = parse_message(&blocks, &pending);
+        assert_eq!(
+            heard,
+            [AgentEvent::Heard {
+                text: "a hint".into()
+            }]
+        );
+        // A tool's result is not the user's: it is read as before.
+        let result = json!({
+            "type": "user",
+            "message": { "content": [{ "type": "tool_result", "tool_use_id": "t1", "content": "ok" }] },
+        });
+        assert!(matches!(
+            parse_message(&result, &pending).as_slice(),
+            [AgentEvent::ToolResult { .. }]
+        ));
+    }
+
     /// How Claude Code's report of an end with this status is read.
     fn ended_as(status: &str) -> Option<BackgroundState> {
         let ended = json!({
@@ -1665,6 +1848,8 @@ mod tests {
                 kind: "local_bash".into(),
                 state: BackgroundState::Running,
                 summary: None,
+                tool_use_id: None,
+                output_file: None,
             }]
         );
         assert_eq!(ended_as("completed"), Some(BackgroundState::Completed));

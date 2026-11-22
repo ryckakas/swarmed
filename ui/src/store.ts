@@ -18,7 +18,7 @@ import type {
 import type { CloudTarget } from "./cloud";
 import type { Comparison } from "./components/CompareDialog";
 import { type ReviewComment, withComment } from "./review";
-import { atWork, atWorkIn, type SubAgent } from "./subagents";
+import { atWork, type SubAgent, subAgentsIn } from "./subagents";
 import {
     applySessionEvent,
     findSession,
@@ -67,7 +67,10 @@ interface State {
     events: Record<number, AgentEvent[]>;
     /** Per task id, a count that goes up whenever its agents may have changed files. */
     edits: Record<number, number>;
-    /** The sub-agents each session's agent has at work, as far as this window has heard. */
+    /**
+     * The sub-agents each session's agent has started and not yet seen done, as far as this
+     * window has heard; which are at work is `working` in `subagents.ts`.
+     */
     subAgents: Record<number, SubAgent[]>;
     /** The sub-agent whose own conversation is on screen in place of its session's, if any. */
     subView: { sessionId: number; id: string } | null;
@@ -193,6 +196,8 @@ interface State {
     pulls: Record<number, Pull | null>;
     /** Asks again for a task's pull request. Not hearing back changes nothing. */
     loadPull(api: Api, project: string, task: string, taskId: number): Promise<void>;
+    /** A task's worktree was put on another branch: whatever reads its files reads again. */
+    worktreeMoved(taskId: number): void;
     /** The cloud task whose changes are being looked at, by Swarmed's id for it. */
     cloudDiffOf: number | null;
     showCloudDiff(id: number | null): void;
@@ -604,6 +609,8 @@ export const useStore = create<State>((set, get) => ({
             set((state) => ({ pulls: { ...state.pulls, [taskId]: pull } }));
         }
     },
+    worktreeMoved: (taskId) =>
+        set((state) => ({ edits: { ...state.edits, [taskId]: (state.edits[taskId] ?? 0) + 1 } })),
     cloudDiffOf: null,
     showCloudDiff: (id) => set({ cloudDiffOf: id }),
     comparing: null,
@@ -642,7 +649,7 @@ export const useStore = create<State>((set, get) => ({
             const history = await readHistory(api, sessionId);
             set((state) => ({
                 events: { ...state.events, [sessionId]: history },
-                subAgents: { ...state.subAgents, [sessionId]: atWorkIn(history) },
+                subAgents: { ...state.subAgents, [sessionId]: subAgentsIn(history) },
             }));
         } catch (error) {
             get().report(error);

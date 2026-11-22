@@ -372,8 +372,8 @@ impl Core {
         )))
     }
 
-    /// The branch a cloud agent starts from: the task's own if GitHub has it, else the
-    /// project's base branch.
+    /// The branch a cloud agent starts from: the one the task's worktree is on if GitHub has
+    /// it, else the project's base branch.
     async fn cloud_branch(&self, project: &str, repo: &Path, task: Option<&str>) -> Result<String> {
         if let Some(pushed) = self.pushed_branch(project, repo, task).await? {
             return Ok(pushed);
@@ -387,7 +387,8 @@ impl Core {
         Ok(base.trim_start_matches("origin/").to_string())
     }
 
-    /// The branch of `task`, if there is such a task and GitHub has its branch.
+    /// The branch the worktree of `task` is on, if there is such a task and GitHub has that
+    /// branch: the work at hand is there, whichever branch the task began on.
     async fn pushed_branch(
         &self,
         project: &str,
@@ -398,10 +399,10 @@ impl Core {
             return Ok(None);
         };
         let (_, task) = self.task(project, task)?;
-        let on_github = format!("refs/remotes/origin/{}", task.branch);
-        Ok(git::ref_exists(repo, &on_github)
-            .await
-            .then_some(task.branch))
+        let at_hand = git::current_branch(&task.worktree_path).await;
+        let branch = at_hand.ok().flatten().unwrap_or(task.branch);
+        let on_github = format!("refs/remotes/origin/{branch}");
+        Ok(git::ref_exists(repo, &on_github).await.then_some(branch))
     }
 
     /// Asks Codex for the statuses of the project's cloud tasks and keeps them. Claude Code

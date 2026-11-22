@@ -30,6 +30,10 @@ pub struct AgentInfo {
     /// the agent: the first of `models`, for an agent whose own default is not one to go by
     /// and whose own configuration names none.
     pub default_model: Option<String>,
+    /// Whether a message written while it works is taken into the turn under way, at its next
+    /// step, without stopping it: Claude Code's way. Any other takes a message only between
+    /// turns, so one written meanwhile waits, or stops the turn to be sent.
+    pub hears_mid_turn: bool,
 }
 
 /// One entry of `agents.toml`: an ACP agent and how to start it.
@@ -92,6 +96,7 @@ fn claude_info() -> AgentInfo {
         name: "Claude Code".to_string(),
         models,
         default_model: None,
+        hears_mid_turn: true,
     }
 }
 
@@ -156,6 +161,8 @@ impl Agents {
             name,
             models: entry.models.clone(),
             default_model: default_model.clone(),
+            // The protocol has no way to add to a turn under way.
+            hears_mid_turn: false,
         };
         let program = PathBuf::from(&entry.command);
         let backend = AcpBackend {
@@ -184,6 +191,13 @@ impl Agents {
             program: None,
         };
         self.0.insert(agent.info.id.clone(), agent);
+    }
+
+    /// Whether agent `id` takes a message into the turn under way: see [`AgentInfo`].
+    pub(crate) fn hears_mid_turn(&self, id: &str) -> bool {
+        self.0
+            .get(id)
+            .is_some_and(|agent| agent.info.hears_mid_turn)
     }
 
     pub(crate) fn infos(&self) -> Vec<AgentInfo> {

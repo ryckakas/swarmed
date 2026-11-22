@@ -126,6 +126,11 @@ export function useAgents(): AgentInfo[] {
     return agents;
 }
 
+/** Whether agent `id` takes a message into the turn under way; `false` until the agents are read. */
+export function useHearsMidTurn(id: string): boolean {
+    return useAgents().some((agent) => agent.id === id && agent.hears_mid_turn);
+}
+
 /**
  * What an agent's default effort came to the last time a session left it to the agent, on
  * `model` or, for `null`, on the agent's default model. `null` until that is known.

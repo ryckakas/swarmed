@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type { AgentEvent, Session } from "../api/types";
 import { useStore } from "../store";
-import { answerOfSubAgent, eventsOfSubAgent, subAgentOf } from "../subagents";
+import { answerOfSubAgent, eventsOfSubAgent, isAtWork, subAgentOf } from "../subagents";
 import { useWords } from "../useWords";
 import { Markdown } from "./Markdown";
 import { Transcript } from "./Transcript";
@@ -26,7 +26,10 @@ export function SubAgentPane({ session, crumbs, id, events }: Props) {
     const subAgent = subAgentOf(events, id);
     const own = useMemo(() => eventsOfSubAgent(events, id), [events, id]);
     const answer = answerOfSubAgent(events, id);
-    const working = answer === null && session.status !== "idle" && session.status !== "errored";
+    const working = useMemo(
+        () => isAtWork(events, id, session.status),
+        [events, id, session.status],
+    );
     return (
         <article className="session sub-agent">
             <header className="session-head">

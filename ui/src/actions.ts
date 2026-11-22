@@ -10,16 +10,18 @@ import { findSession } from "./tree";
  * Sends a message to a session, or has it wait in the session's queue while its agent is at
  * work or waiting for an answer: whatever sends a message, a button as much as the message
  * box, must not take an open request away. With `atOnce` it does not wait: for a command
- * Swarmed does itself. Rejects if the message could not be handed over.
+ * Swarmed does itself. With `now` the turn under way is stopped and the message goes ahead of
+ * what waits. Rejects if the message could not be handed over.
  */
 export function sendOrQueue(
     id: number,
     text: string,
     files: string[] = [],
     atOnce = false,
+    now = false,
 ): Promise<void> {
     const status = findSession(useStore.getState().projects, id)?.status;
-    return delivered(api, status, id, text, files, atOnce);
+    return delivered(api, status, id, text, files, atOnce, now);
 }
 
 /** Asks for a folder and registers the repository it is in. */

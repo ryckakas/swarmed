@@ -14,6 +14,7 @@ swarmed session run shop fix-login "Fix the login form's error message"
 swarmed session send 12 "Add a test for it"           # the id `session run` printed
 swarmed task commit shop fix-login -m "Fix the login form's error message"
 swarmed task push shop fix-login
+swarmed task switch shop fix-login                    # back to its own branch, or to one named
 swarmed task pr shop fix-login                        # through your own gh
 swarmed task rm shop fix-login                        # teardown hook, worktree removed
 ```

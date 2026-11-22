@@ -171,6 +171,15 @@ const MIGRATIONS: &[&str] = &[
     // next row, and what is kept by that id, such as a window's copy of a deleted session's
     // conversation, turns up in the new one. A table made from now on is declared with it.
     AUTOINCREMENT_IDS,
+    // The branches a task's worktree has been seen on, besides the task's own.
+    "
+    CREATE TABLE task_branches (
+        id      INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        name    TEXT NOT NULL,
+        UNIQUE (task_id, name)
+    );
+",
 ];
 
 /// Stands in [`MIGRATIONS`] for the one change SQL in a transaction cannot make: every
@@ -288,6 +297,23 @@ impl Store {
             .conn
             .query_row(&sql, params![project_id, name], task_from_row)
             .optional()?)
+    }
+
+    /// Remembers that a task's worktree was seen on `branch`. Once is enough.
+    pub(crate) fn task_branch_seen(&self, task: i64, branch: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO task_branches (task_id, name) VALUES (?1, ?2)",
+            params![task, branch],
+        )?;
+        Ok(())
+    }
+
+    /// The branches a task's worktree was seen on, in the order they were first seen.
+    pub(crate) fn task_branches(&self, task: i64) -> Result<Vec<String>> {
+        let sql = "SELECT name FROM task_branches WHERE task_id = ?1 ORDER BY id";
+        let mut statement = self.conn.prepare(sql)?;
+        let rows = statement.query_map(params![task], |row| row.get(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     pub(crate) fn tasks(&self, project_id: i64, include_archived: bool) -> Result<Vec<Task>> {
@@ -521,7 +547,8 @@ mod tests {
         conn.pragma_update(None, "foreign_keys", "ON")
             .expect("sets");
         // The store as the step before this one left it.
-        let before = MIGRATIONS.len() - 1;
+        let rebuilt = MIGRATIONS.iter().position(|sql| *sql == AUTOINCREMENT_IDS);
+        let before = rebuilt.expect("the step is there");
         for sql in &MIGRATIONS[..before] {
             conn.execute_batch(sql).expect("migrates");
         }

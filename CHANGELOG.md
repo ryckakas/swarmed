@@ -16,19 +16,77 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **Tell Claude Code a waiting message without stopping it.** While Claude Code works, a
+  waiting message has **Tell now** beside it: Claude Code takes it in at its next step, after
+  the tool it is running, and goes on with it in the same turn, so a hint no longer costs the
+  turn. The message shows in the conversation where Claude Code heard it; one it had not
+  taken in when it stopped waits in the queue again. Other agents cannot take a message
+  mid-turn, so they keep sending it now, which stops the turn.
+- **⌘⇧Enter sends what is typed now.** While the agent works, ⌘⇧Enter in the message box stops
+  its turn and sends the message, with its files, ahead of anything waiting; while it is idle
+  it sends as Enter does. It is listed with the other shortcuts in Settings.
+- **See what a background command printed.** A command an agent left running in the
+  background can be opened from the task's Background list, read-only, in the terminal's
+  colours, and followed while it runs. What Claude Code has cleared since it last started is
+  said to be gone.
 - **A waiting message can be sent now.** Each message in the queue has an arrow beside it.
   While the agent works, pressing it stops the turn, as Stop does, and sends that message as
   soon as the turn has ended, ahead of the others. While the agent is not working, it sends
   that message at once. The rest of the queue follows as before, each when a turn ends well.
+- **A task's branches, to choose between.** Once a task's worktree has been on more than one
+  branch, the task panel says which one it is on, that the changes, commits and pull request
+  shown are that branch's, and lets you put the worktree on any of the others; what is not
+  committed comes along unless it conflicts. A rebase under way is named, and nothing is
+  pushed or switched until it is over. `swarmed task switch` does the same from the command
+  line.
+- **Agents know the task they work in.** Every agent is now started with the task's
+  `SWARMED_*` variables, as hooks are: `SWARMED_TASK`, `SWARMED_BRANCH`, `SWARMED_WORKTREE` and
+  the rest. A skill of your own can skip its worktree step when `SWARMED_TASK` is set, and
+  Coding agents in the docs says which skills to leave out and what to do instead.
+- **A task's worktree moving is noticed while the agent works.** When an agent, or something
+  it ran, switches the task's worktree to another branch, the conversation says so right
+  away, with a button to switch back, and you get a notification. A move the agent did not
+  see, such as your own switch from the task panel, is told to it with your next message.
+- **Agents keep to their task's branch and worktree.** Every agent is now told that it
+  already works in a worktree of its own, not to switch it to another branch or make another
+  branch, worktree or clone, even when a skill says to, and to ask you for a new task when
+  something needs a branch of its own. Asked to anyway, it says so first.
+- **`swarmed-core`: `Unpublished` has `branch`, `branches` and `rebasing`** and is no longer
+  `Copy`, and `Core::task_switch` puts a task's worktree on another of its branches.
 
 ### Changed
 
+- **Skip one question, not all of them.** When an agent asks several questions at once, each
+  can be skipped on its own, with its button or the S key, and the rest answered; Skip all is
+  still there. The agent is told plainly that a skipped question was skipped and not to choose
+  for you, and so is it when you skip them all. A skipped setting of a command like `/config`
+  is left as it is.
 - **Stopping a turn sends the next waiting message.** Stop, or Esc, used to leave the queue
   standing until "Send the next one now" was pressed. Stopping again stops that message's
   turn and sends the one after it. A turn that fails still leaves the queue for you to send.
 
 ### Fixed
 
+- **A session waiting on background sub-agents is neither "finished" nor "working".** When an
+  agent ended its turn to wait for sub-agents it left working in the background, the session
+  was marked unread with a "Finished" notice, and then showed as working whenever they wrote,
+  so what you typed waited in the queue. It now goes idle and takes your messages, and is
+  marked unread and notified once the agent hands their results back.
+- **A sub-agent working in the background stays in the sidebar.** Claude Code now starts
+  sub-agents in the background, and they dropped out of the sidebar at once, though they went
+  on working past the turn. They stay listed under their session, even while it is idle,
+  until they report their end, and the Background list opens one to show what it says and
+  does.
+- **A waiting message is no longer sent while you edit it.** If the agent's turn ended while a
+  waiting message was open for editing, its old text was sent and what you were typing was
+  lost. It now waits until you finish: saved, it goes with the new text; given up with
+  Escape, as it was. The queue's heading says so meanwhile, and an edit left open in a window
+  that went away holds nothing up for more than a few seconds.
+- **A check a newer run replaced no longer shows as failed.** When a workflow run was cancelled
+  because a newer run of the same workflow took its place, or a failed job was run again, the
+  task's pull request listed the check twice, the old run as failed. Only each check's latest
+  run is shown now, as on GitHub's own page. Two runs of a job under way at the same time,
+  for a push and for the pull request, are both shown.
 - **"This session runs on it now: its turns are billed" goes once the limits say so.** After a
   usage window reset, refreshing with the coins showed the window back within its limit, but
   the extra usage section kept saying the turns were billed until the next message. Limits
@@ -37,6 +95,11 @@ notice adds its line under Unreleased.
   line shrank alike, so beside a long branch the cost and the time worked were cut to `$…` and
   `1…`. The figures (changes, context, cost, time worked) now keep their width, the branch,
   model, agent and worktree share what is left, and hovering a piece shows all of it.
+- **A task follows its worktree to another branch.** When an agent, or you, switched a
+  task's worktree to another branch, the task panel showed the first branch's pull request
+  beside the other branch's work, and Push pushed the first branch, so the new commits never
+  left the machine. Push, the pull request, its checks and a cloud agent's starting point are
+  now those of the branch the worktree is on.
 
 ## [0.2.2] - 2026-11-22
 
