@@ -5324,6 +5324,11 @@ kbd {
     color: var(--muted);
 }
 
+/* Two lines, whatever it says: a longer line that wraps, such as a failure, moves nothing. */
+.about .about-update .about-update-line {
+    min-height: 2lh;
+}
+
 .about .about-update .about-update-warning {
     color: var(--text);
 }
