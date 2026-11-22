@@ -1,7 +1,15 @@
 import { memo, useState } from "react";
 import { shownHtml } from "../htmlview";
 import { useStore } from "../store";
-import { PLAN_TOOL, planOf, sameToolCall, summarize, type ToolShown } from "../transcript";
+import {
+    PLAN_TOOL,
+    planOf,
+    sameToolCall,
+    summarize,
+    type ToolItem,
+    type ToolShown,
+    toolRunSummary,
+} from "../transcript";
 import { useWords } from "../useWords";
 import { HtmlView } from "./HtmlView";
 import { Markdown } from "./Markdown";
@@ -37,6 +45,56 @@ export const ToolCall = memo(function ToolCall({ name, input, result }: ToolShow
         </details>
     );
 }, sameToolCall);
+
+type Run = [ToolItem, ...ToolItem[]];
+
+/** Whether two runs of folded calls are drawn alike: the same calls, each drawn alike. */
+function sameRun(a: { calls: Run }, b: { calls: Run }): boolean {
+    return (
+        a.calls.length === b.calls.length &&
+        a.calls.every((call, at) => {
+            const other = b.calls[at];
+            return other !== undefined && sameToolCall(call, other);
+        })
+    );
+}
+
+/**
+ * Tool calls that followed each other, folded into one line that counts them and names the
+ * last one used. Opening it lists the calls as they show on their own. While the agent works,
+ * the line counts up as calls join it.
+ */
+export const ToolRun = memo(function ToolRun({ calls }: { calls: Run }) {
+    // The calls are only laid out once somebody opens the run to read them.
+    const [opened, setOpened] = useState(false);
+    const { count, last, failed, running } = toolRunSummary(calls);
+    const state = running ? "running" : failed > 0 ? "failed" : "done";
+    return (
+        <details
+            className={`tool tool-run tool-${state}`}
+            onToggle={(event) => event.currentTarget.open && setOpened(true)}
+        >
+            <summary>
+                <span className="tool-run-count">
+                    {count === 1 ? "1 tool call" : `${count} tool calls`}
+                </span>
+                <span className="tool-name">{last.name}</span>
+                <span className="tool-summary">{summarize(last.input)}</span>
+                {failed > 0 && <span className="tool-state tool-run-failed">{failed} failed</span>}
+                {running && <span className="tool-state">running</span>}
+            </summary>
+            {opened && (
+                <ol className="tool-run-calls">
+                    {calls.map((call) => (
+                        <li key={call.key}>
+                            <ToolCall name={call.name} input={call.input} result={call.result} />
+                        </li>
+                    ))}
+                </ol>
+            )}
+        </details>
+    );
+}, sameRun);
 
 /** A plan the agent presents for approval, read as prose instead of as a tool call's arguments. */
 function Plan({ text }: { text: string }) {

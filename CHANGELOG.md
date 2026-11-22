@@ -16,6 +16,23 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **Put the sidebar in your own order.** Drag a repository, a task, a session or a cloud task
+  by its row to another place among its own kind, or move the focused row, or the open session,
+  with ⌥⌘↑ and ⌥⌘↓. Each stays with what it belongs to: a session in its task, one another
+  session started among those that session started. The order is kept by Swarmed, so every
+  window and `swarmed project move`, `task move`, `session move` and `cloud move` share it.
+  Sub-agents come and go as they work and are not moved. A newly added repository now goes at
+  the end instead of in alphabetical order.
+- **Tool calls can be folded or hidden.** A new setting under Appearance, Tool calls: All, as
+  before; Folded, where calls in a row become one line that counts them and names the last one,
+  and opens to list them all; or Hidden, where they are left out and a larger animation shows
+  while the agent works, so a long run of them does not look like a stuck session. Permission
+  requests, questions, plans and views always show. An agent can change it with the rest of
+  the appearance, except that it can only propose hiding them: that is done when you accept
+  it in the conversation.
+- **`swarmed-core`: `Core::project_move`, `task_move`, `session_move` and `cloud_task_move`**
+  move a row among its siblings; `AgentEvent` has `Reordered`, `Error` has `CloudTaskNotFound`,
+  and `Settings` has `tool_calls`, a `ToolCalls`: `all`, `folded` or `hidden`.
 - **Tell Claude Code a waiting message without stopping it.** While Claude Code works, a
   waiting message has **Tell now** beside it: Claude Code takes it in at its next step, after
   the tool it is running, and goes on with it in the same turn, so a hint no longer costs the
@@ -67,6 +84,14 @@ notice adds its line under Unreleased.
 
 ### Fixed
 
+- **A session started with a skill gets a real title.** A first message such as
+  `/code-review 123` used to title the session `<invoke_skill_or_bash_placeholder>`, and a new
+  task started with it got that as its name, folder and branch. It is now named after what the
+  skill is for, "Review PR 123", and an answer that is no title falls back to the prompt.
+- **Tasks started at the same moment no longer clash by name.** Starting several tasks at once
+  with the same prompt, such as five `/code-review 123`, named them all alike, and all but one
+  failed because git refused the second branch of that name. Each now gets a name of its own:
+  `code-review-pr-123`, `code-review-pr-123-2` and so on.
 - **A session waiting on background sub-agents is neither "finished" nor "working".** When an
   agent ended its turn to wait for sub-agents it left working in the background, the session
   was marked unread with a "Finished" notice, and then showed as working whenever they wrote,

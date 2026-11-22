@@ -1,6 +1,6 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import type { Settings, StatusItem, Style, Supervision, Theme } from "../api/types";
+import type { Settings, StatusItem, Style, Supervision, Theme, ToolCalls } from "../api/types";
 import { LAYOUTS, PALETTES, STYLES } from "../appearance";
 import { movedItem, STATUS_ITEMS, statusItemName, withItem } from "../statusline";
 import { SETTINGS_TABS, type SettingsTab, useStore } from "../store";
@@ -17,6 +17,7 @@ import {
     supervisionChoices,
     TEXT_SCALES,
     THEMES,
+    TOOL_CALLS,
     terminalAppChoices,
 } from "./options";
 import { Picker } from "./Picker";
@@ -264,6 +265,17 @@ function Appearance({ settings }: { settings: Settings }) {
                     value={String(settings.text_scale)}
                     onChange={(scale) => void change(api, { text_scale: Number(scale) })}
                     options={withCurrent(TEXT_SCALES, String(settings.text_scale))}
+                />
+            </Row>
+            <Row
+                label="Tool calls"
+                hint="How what the agent runs shows in a conversation. Permission requests, questions, plans and views always show."
+            >
+                <Picker
+                    label="Tool calls"
+                    value={settings.tool_calls}
+                    onChange={(value) => void change(api, { tool_calls: value as ToolCalls })}
+                    options={TOOL_CALLS}
                 />
             </Row>
         </section>

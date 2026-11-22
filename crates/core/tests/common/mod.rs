@@ -7,7 +7,7 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 
-use swarmed_core::agent::{AgentEvent, FakeBackend};
+use swarmed_core::agent::{AgentEvent, FakeBackend, Namer, Naming};
 use swarmed_core::{Core, Paths, SessionEvent};
 use tempfile::TempDir;
 use tokio::sync::broadcast::Receiver;
@@ -96,5 +96,21 @@ pub async fn turn(bus: &mut Receiver<SessionEvent>, session_id: i64) -> Vec<Agen
         if done {
             return events;
         }
+    }
+}
+
+/// Answers every request to name a conversation with the same words, and keeps what it was
+/// asked to name.
+#[derive(Debug)]
+pub struct AskedNamer {
+    pub answer: &'static str,
+    pub asked: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+impl Namer for AskedNamer {
+    fn name(&self, prompt: String) -> Naming {
+        self.asked.lock().expect("not poisoned").push(prompt);
+        let answer = self.answer.to_string();
+        Box::pin(async move { Some(answer) })
     }
 }

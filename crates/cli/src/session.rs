@@ -106,6 +106,14 @@ pub(crate) enum SessionCommand {
     Status { id: i64 },
     /// Give a session a new title.
     Rename { id: i64, title: String },
+    /// Move a session among the other open sessions of its task, as the app lists them: one
+    /// another session started, among those that one started.
+    Move {
+        id: i64,
+        /// How many places: negative for earlier, as in `--by=-1`.
+        #[arg(long, allow_hyphen_values = true)]
+        by: i32,
+    },
     /// Put a mark on a session: a colour and a few words shown in the sidebar.
     Mark {
         id: i64,
@@ -243,6 +251,11 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             Ok(())
         }
         SessionCommand::Rename { id, title } => renamed(core, id, &title),
+        SessionCommand::Move { id, by } => {
+            core.session_move(id, by)?;
+            say("moved");
+            Ok(())
+        }
         SessionCommand::Mark { id, colour, label } => mark(core, id, &colour, &label),
         SessionCommand::Close { id } => Ok(core.session_close(id)?),
         SessionCommand::Delete { id } => Ok(core.session_delete(id)?),

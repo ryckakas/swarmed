@@ -175,10 +175,12 @@ impl Core {
         self.cloud_tasks_of(Some(project.id))
     }
 
-    /// Every cloud task, or those of one project, newest first.
+    /// Every cloud task, or those of one project, in the order the user keeps them: newest
+    /// first unless moved.
     pub(crate) fn cloud_tasks_of(&self, project: Option<i64>) -> Result<Vec<CloudTask>> {
         let store = self.store();
-        let sql = format!("{SELECT} WHERE ?1 IS NULL OR project_id = ?1 ORDER BY id DESC");
+        let sql =
+            format!("{SELECT} WHERE ?1 IS NULL OR project_id = ?1 ORDER BY position, id DESC");
         let mut statement = store.conn.prepare(&sql)?;
         let rows = statement.query_map(params![project], from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -228,8 +230,10 @@ impl Core {
         };
         let store = self.store();
         store.conn.execute(
+            // At the top of its repository's cloud tasks.
             "INSERT INTO cloud_tasks (project_id, provider, remote_id, url, prompt, branch, \
-             status, session_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+             status, session_id, position) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, \
+             (SELECT COALESCE(MIN(position), 1) - 1 FROM cloud_tasks WHERE project_id = ?1))",
             params![
                 project.id,
                 origin.provider.as_str(),

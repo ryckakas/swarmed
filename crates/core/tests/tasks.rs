@@ -2054,3 +2054,125 @@ async fn prompts_are_kept_by_name_replaced_and_dropped() {
     assert_eq!(core.template_remove("review").expect("drops").len(), 1);
     assert_eq!(core.template_remove("review").expect("no error").len(), 1);
 }
+
+#[tokio::test]
+async fn tasks_named_alike_at_the_same_time_each_get_a_name_of_their_own() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    let free = NewTaskOptions {
+        free_name: true,
+        ..NewTaskOptions::default()
+    };
+    // Five sessions started at once with `/code-review 123` are all named alike.
+    let new = || core.task_new("demo", "code-review-pr-123", free, &hooks::discard);
+    let made = tokio::join!(new(), new(), new(), new(), new());
+    let made = [made.0, made.1, made.2, made.3, made.4];
+    let mut names: Vec<String> = made
+        .into_iter()
+        .map(|task| task.expect("each is created").name)
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        [
+            "code-review-pr-123",
+            "code-review-pr-123-2",
+            "code-review-pr-123-3",
+            "code-review-pr-123-4",
+            "code-review-pr-123-5",
+        ]
+    );
+}
+
+/// The names of the repositories, and of the first one's open tasks, as the sidebar lists them.
+fn listed(core: &Core) -> (Vec<String>, Vec<String>) {
+    let overview = core.overview().expect("reads");
+    let projects = overview.iter().map(|p| p.project.name.clone()).collect();
+    let tasks = overview[0]
+        .tasks
+        .iter()
+        .filter(|t| !t.task.archived)
+        .map(|t| t.task.name.clone())
+        .collect();
+    (projects, tasks)
+}
+
+#[tokio::test]
+async fn repositories_tasks_and_sessions_keep_the_order_they_are_put_in() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    let mut bus = core.subscribe();
+    // A repository added later goes at the end, whatever its name.
+    let other = fx.repo.with_file_name("aardvark");
+    std::fs::create_dir(&other).expect("test setup");
+    git(&other, &["init", "--quiet", "-b", "main"]);
+    std::fs::write(other.join("README.md"), "other\n").expect("test setup");
+    git(&other, &["add", "."]);
+    git(&other, &["commit", "--quiet", "-m", "init"]);
+    core.project_add(&other, None).await.expect("adds");
+    for name in ["one", "two", "three"] {
+        core.task_new("demo", name, NewTaskOptions::default(), &hooks::discard)
+            .await
+            .expect("creates");
+    }
+    assert_eq!(listed(&core).0, ["demo", "aardvark"]);
+    assert_eq!(listed(&core).1, ["one", "two", "three"]);
+
+    core.project_move("aardvark", -1).expect("moves");
+    let heard = bus.try_recv().expect("told");
+    assert_eq!(heard.session_id, 0);
+    assert!(matches!(&heard.event, AgentEvent::Reordered { kind } if kind == "project"));
+    assert_eq!(listed(&core).0, ["aardvark", "demo"]);
+    // Moved no further than either end.
+    core.project_move("demo", 5).expect("moves");
+    assert_eq!(listed(&core).0, ["aardvark", "demo"]);
+    assert!(bus.try_recv().is_err(), "nothing moved, so nobody is told");
+    core.project_move("aardvark", 1).expect("moves");
+
+    core.task_move("demo", "three", -2).expect("moves");
+    assert_eq!(listed(&core).1, ["three", "one", "two"]);
+    // A new task goes at the end.
+    core.task_new("demo", "four", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates");
+    assert_eq!(listed(&core).1, ["three", "one", "two", "four"]);
+    assert!(matches!(
+        core.task_move("demo", "nowhere", 1),
+        Err(Error::TaskNotFound { .. })
+    ));
+
+    // Sessions move among the open ones; a closed one keeps its place and is not moved.
+    let new = || {
+        core.session_new("demo", "one", &SessionOptions::default())
+            .expect("creates")
+            .id
+    };
+    let (first, second, third) = (new(), new(), new());
+    core.session_close(second).expect("closes");
+    let ids = |core: &Core| -> Vec<i64> {
+        let sessions = core.sessions("demo", "one").expect("lists");
+        sessions.iter().map(|session| session.id).collect()
+    };
+    core.session_move(third, -1).expect("moves");
+    assert_eq!(ids(&core), [third, first]);
+    assert!(matches!(
+        core.session_move(second, -1),
+        Err(Error::SessionClosed(id)) if id == second
+    ));
+    // Reopened, it is where it was: after the one it came after.
+    core.session_reopen(second).expect("reopens");
+    assert_eq!(ids(&core), [third, first, second]);
+
+    // What an agent lists keeps each task's sessions together, in their order.
+    let elsewhere = core
+        .session_new("demo", "two", &SessionOptions::default())
+        .expect("creates")
+        .id;
+    let told = core.peer_sessions(first).expect("lists");
+    let told: Vec<&str> = told.lines().skip(1).collect();
+    let told: Vec<i64> = told
+        .iter()
+        .filter_map(|line| line.split(['\t', ' ']).next()?.parse().ok())
+        .collect();
+    assert_eq!(told, [third, first, second, elsewhere]);
+}

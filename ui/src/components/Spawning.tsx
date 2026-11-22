@@ -10,3 +10,20 @@ export function Spawning() {
         </span>
     );
 }
+
+/**
+ * The colony at work: five cells like Spawning's, larger, swelling one after another. Shown
+ * under the last line while an agent works and its tool calls are kept out of the transcript,
+ * so that a long run of them does not look like a session that is stuck.
+ */
+export function Swarming() {
+    return (
+        <span className="swarming" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+        </span>
+    );
+}

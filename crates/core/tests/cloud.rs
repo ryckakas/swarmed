@@ -288,3 +288,37 @@ async fn a_session_s_conversation_is_handed_to_a_cloud_agent_by_the_user() {
     let unknown = core.cloud_delegate_conversation(404, "", codex).await;
     assert!(matches!(unknown, Err(Error::SessionNotFound(404))));
 }
+
+#[tokio::test]
+async fn cloud_tasks_are_newest_first_until_moved() {
+    let fx = fixture();
+    let core = core_with_codex(&fx).await;
+    let url = "https://github.com/acme/tool.git";
+    git(&fx.repo, &["remote", "add", "origin", url]);
+    let user = CloudOrigin::default();
+    let first = core
+        .cloud_delegate("demo", "one", user)
+        .await
+        .expect("delegates");
+    let second = core
+        .cloud_delegate("demo", "two", user)
+        .await
+        .expect("delegates");
+    let ids = || async {
+        let tasks = core.cloud_tasks("demo", false).await.expect("lists");
+        tasks.iter().map(|task| task.id).collect::<Vec<_>>()
+    };
+    assert_eq!(ids().await, [second.id, first.id]);
+    core.cloud_task_move(first.id, -1).expect("moves");
+    assert_eq!(ids().await, [first.id, second.id]);
+    // A new one still goes at the top.
+    let third = core
+        .cloud_delegate("demo", "three", user)
+        .await
+        .expect("delegates");
+    assert_eq!(ids().await, [third.id, first.id, second.id]);
+    assert!(matches!(
+        core.cloud_task_move(999, 1),
+        Err(Error::CloudTaskNotFound(999))
+    ));
+}

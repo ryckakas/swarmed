@@ -4,6 +4,7 @@
 //! renamed once an agent works in them. So the name is asked for before the task exists, from
 //! the same small model that titles sessions, and one answer serves as both.
 
+use std::path::Path;
 use std::time::Duration;
 
 use serde::Serialize;
@@ -17,6 +18,8 @@ const NAMING_TIMEOUT: Duration = Duration::from_secs(8);
 /// How long a task name made from a title may be, and of how many words.
 const NAME_CHARS: usize = 40;
 const NAME_WORDS: usize = 5;
+/// How much of a skill's description the namer is given: enough to say what it is for.
+const DESCRIPTION_CHARS: usize = 300;
 
 /// What a new task and its first session are called.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -48,6 +51,42 @@ fn name_from(title: &str) -> String {
     name.chars().take(NAME_CHARS).collect()
 }
 
+/// The skill or command a message calls, `/name` and whatever follows: the name and the rest.
+/// `None` for any other message, a path such as `/Users/me/notes.txt` among them.
+pub(crate) fn command_called(message: &str) -> Option<(&str, &str)> {
+    let called = message.trim_start().strip_prefix('/')?;
+    let (name, rest) = called
+        .split_once(char::is_whitespace)
+        .unwrap_or((called, ""));
+    let allowed = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':' | '.');
+    let named = !name.is_empty() && name.chars().all(allowed);
+    named.then(|| (name, rest.trim()))
+}
+
+/// What the namer is asked to name for a message that calls `name` with `rest` after it: the
+/// request it stands for, with what the skill says it is for when that is known. The text as
+/// typed would be read as a command, and a bare command's name says little of the request.
+pub(crate) fn naming_request(name: &str, rest: &str, description: Option<&str>) -> String {
+    let called = match description {
+        Some(description) => {
+            let flat = description.split_whitespace().collect::<Vec<_>>().join(" ");
+            let mut said: String = flat.chars().take(DESCRIPTION_CHARS).collect();
+            // A prefix of `flat`, so shorter in bytes exactly when something was cut.
+            if said.len() < flat.len() {
+                said.push('…');
+            }
+            format!("The user calls the skill `{name}`, which is for: {said}")
+        }
+        None => format!("The user calls the command `{name}`."),
+    };
+    let after = if rest.is_empty() {
+        "They give nothing after it.".to_string()
+    } else {
+        format!("What they give after it: {rest}")
+    };
+    format!("{called}\n{after}")
+}
+
 /// `name`, or `name-2`, `name-3` and so on if it is among `taken`.
 fn unique(name: &str, taken: &[String]) -> String {
     let free = |candidate: &String| !taken.contains(candidate);
@@ -59,6 +98,22 @@ fn unique(name: &str, taken: &[String]) -> String {
 }
 
 impl Core {
+    /// What the namer is asked to name for `message`, sent to `agent` working in `worktree`
+    /// where those are known: the message itself, or for a message that calls a skill or
+    /// command, the request that stands for.
+    pub(crate) fn naming_prompt(
+        &self,
+        message: &str,
+        agent: Option<&str>,
+        worktree: Option<&Path>,
+    ) -> String {
+        let Some((name, rest)) = command_called(message) else {
+            return message.to_string();
+        };
+        let description = self.paths.skill_description(agent, worktree, name);
+        naming_request(name, rest, description.as_deref())
+    }
+
     /// A name for a task in `project` that starts with `prompt`, and the title its first
     /// session gets. `None` if the user has naming switched off, nothing here can name, or no
     /// usable answer came in time: the caller then names the task itself.
@@ -73,8 +128,12 @@ impl Core {
         let Some(namer) = self.namer.clone().filter(|_| wanted) else {
             return Ok(None);
         };
-        let answer = tokio::time::timeout(NAMING_TIMEOUT, namer.name(prompt.to_string())).await;
-        let title = answer.ok().flatten().map(|answer| title_of(&answer));
+        // No task yet, so no worktree: the repository's own skills are the same.
+        let repo = self.project(project)?.repo_path;
+        let asked = self.naming_prompt(prompt, None, Some(&repo));
+        let answer = tokio::time::timeout(NAMING_TIMEOUT, namer.name(asked)).await;
+        let title = answer.ok().flatten();
+        let title = title.and_then(|answer| title_of(&answer, prompt));
         let naming = title.and_then(|title| {
             let name = name_from(&title);
             (!name.is_empty()).then(|| TaskNaming {
@@ -106,6 +165,58 @@ mod tests {
         let long = name_from("Internationalisation of the administrative configuration");
         assert_eq!(long, "internationalisation-of-the");
         assert_eq!(name_from(&"x".repeat(90)).len(), NAME_CHARS);
+    }
+
+    #[test]
+    fn a_message_that_calls_a_skill_or_command_is_told_apart_from_a_path() {
+        assert_eq!(
+            command_called("/code-review 123"),
+            Some(("code-review", "123"))
+        );
+        assert_eq!(command_called("  /simplify\n"), Some(("simplify", "")));
+        assert_eq!(
+            command_called("/repolore:search why"),
+            Some(("repolore:search", "why"))
+        );
+        assert_eq!(command_called("/Users/me/notes.txt fix this"), None);
+        assert_eq!(command_called("/ nothing"), None);
+        assert_eq!(command_called("fix /login"), None);
+    }
+
+    #[test]
+    fn the_namer_is_given_what_a_skill_is_for_and_what_follows_it() {
+        assert_eq!(
+            naming_request("code-review", "123", Some("Review code\n  for quality.")),
+            "The user calls the skill `code-review`, which is for: Review code for quality.\n\
+             What they give after it: 123"
+        );
+        assert_eq!(
+            naming_request("init", "", None),
+            "The user calls the command `init`.\nThey give nothing after it."
+        );
+        let long = "word ".repeat(100);
+        let request = naming_request("long", "", Some(&long));
+        let said = request.lines().next().unwrap_or_default();
+        assert!(said.ends_with('…'), "{said}");
+        assert!(said.chars().count() < 360, "{said}");
+    }
+
+    #[test]
+    fn a_tag_a_command_or_nothing_is_no_title() {
+        let skill = "/code-review 123";
+        assert_eq!(
+            title_of("\"Review PR 123\"\nmore", skill).as_deref(),
+            Some("Review PR 123")
+        );
+        assert_eq!(title_of("<invoke_skill_or_bash_placeholder>", skill), None);
+        assert_eq!(title_of("  \n", skill), None);
+        assert_eq!(title_of("/code-review 123", skill), None);
+        assert_eq!(title_of("Code-Review 123", skill), None);
+        // An answer that repeats an ordinary message is a title like any other.
+        assert_eq!(
+            title_of("Fix login", "fix login").as_deref(),
+            Some("Fix login")
+        );
     }
 
     #[test]

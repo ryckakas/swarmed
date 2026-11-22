@@ -169,6 +169,13 @@ enum CloudCommand {
         project: String,
         task: String,
     },
+    /// Move a cloud task among the others of its project, as the app lists them.
+    Move {
+        id: i64,
+        /// How many places: negative for earlier, as in `--by=-1`.
+        #[arg(long, allow_hyphen_values = true)]
+        by: i32,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -212,6 +219,13 @@ enum ProjectCommand {
     },
     /// Print the path of a project's local config file.
     Config { project: String },
+    /// Move a project among the others, as the app lists them.
+    Move {
+        project: String,
+        /// How many places: negative for earlier, as in `--by=-1`.
+        #[arg(long, allow_hyphen_values = true)]
+        by: i32,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -255,6 +269,14 @@ enum TaskCommand {
     },
     /// Show the pull request of the task's branch and how its checks stand.
     Pull { project: String, name: String },
+    /// Move a task among the project's other open tasks, as the app lists them.
+    Move {
+        project: String,
+        name: String,
+        /// How many places: negative for earlier, as in `--by=-1`.
+        #[arg(long, allow_hyphen_values = true)]
+        by: i32,
+    },
     /// List what the task's agents left running in the background, and how it ended.
     Background { project: String, name: String },
     /// Commit everything in the task's worktree.
@@ -585,6 +607,10 @@ async fn cloud(core: &Core, command: CloudCommand) -> Result<()> {
             core.cloud_tasks(&project, true).await?.iter().for_each(row);
         }
         CloudCommand::Diff { id } => say(&core.cloud_task_diff(id).await?),
+        CloudCommand::Move { id, by } => {
+            core.cloud_task_move(id, by)?;
+            say("moved");
+        }
         CloudCommand::Apply { id, project, task } => {
             core.cloud_task_apply(id, &project, &task).await?;
             say(&format!("applied to `{task}`, uncommitted"));
@@ -870,6 +896,12 @@ async fn project(core: &Core, command: ProjectCommand) -> Result<()> {
             }
             say(&format!("removed project `{project}`"));
         }
+        ProjectCommand::Move { project, by } => {
+            core.project_move(&project, by)?;
+            for project in core.projects()? {
+                say(&project.name);
+            }
+        }
         ProjectCommand::Config { project } => {
             let project = core.project(&project)?;
             say(&core
@@ -923,6 +955,12 @@ async fn sent_or_switched(core: &Core, command: TaskCommand) -> Result<Option<Ta
             };
             core.task_switch(&project, &name, &branch).await?;
             say(&format!("on `{branch}`"));
+        }
+        TaskCommand::Move { project, name, by } => {
+            core.task_move(&project, &name, by)?;
+            for task in core.tasks(&project, false)? {
+                say(&task.name);
+            }
         }
         other => return Ok(Some(other)),
     }
@@ -1009,7 +1047,8 @@ async fn task(core: &Core, command: TaskCommand) -> Result<()> {
         TaskCommand::CommitMessage { .. }
         | TaskCommand::PrMessage { .. }
         | TaskCommand::Push { .. }
-        | TaskCommand::Switch { .. } => {}
+        | TaskCommand::Switch { .. }
+        | TaskCommand::Move { .. } => {}
         TaskCommand::Pr {
             project,
             name,

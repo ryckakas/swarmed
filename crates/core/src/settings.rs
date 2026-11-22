@@ -37,6 +37,8 @@ pub struct Settings {
     pub notifications: bool,
     /// Whether agents are told they may answer with small HTML views, and those are shown.
     pub html_views: bool,
+    /// How the agents' tool calls show in a conversation.
+    pub tool_calls: ToolCalls,
     /// The built-in pieces of the status line under the message box, in order.
     pub status_items: Vec<StatusItem>,
     /// A command whose first line of output replaces the built-in pieces. Empty for none.
@@ -114,6 +116,21 @@ pub enum Layout {
     Custom,
 }
 
+/// How the agents' tool calls show in a conversation. Permission requests, questions, plans and
+/// views show whatever this says: they need the user or show them something.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolCalls {
+    /// Each call on a line of its own.
+    #[default]
+    All,
+    /// Calls that follow each other folded into one line, which counts them and names the
+    /// last one used.
+    Folded,
+    /// None, with a larger sign that the agent works for as long as it does.
+    Hidden,
+}
+
 /// How Swarmed gets its new versions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -144,6 +161,7 @@ impl Default for Settings {
             default_supervision: Supervision::Auto,
             notifications: true,
             html_views: true,
+            tool_calls: ToolCalls::All,
             status_items: StatusItem::defaults(),
             status_command: String::new(),
             rules: String::new(),
@@ -213,6 +231,7 @@ mod tests {
             default_supervision: Supervision::Ask,
             notifications: false,
             html_views: false,
+            tool_calls: ToolCalls::Folded,
             status_items: vec![StatusItem::Cost],
             status_command: "~/bin/status".to_string(),
             rules: "Keep answers short.\nNo em dashes.".to_string(),

@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::{core_with_project, fixture, git, next, turn};
+use common::{AskedNamer, core_with_project, fixture, git, next, turn};
 use std::sync::Arc;
 
 use swarmed_core::agent::{
@@ -1584,6 +1584,64 @@ async fn a_new_task_is_named_by_the_namer_and_its_session_keeps_that_title() {
         core.task_name_for("nowhere", "x").await,
         Err(Error::ProjectNotFound(_))
     ));
+}
+
+#[tokio::test]
+async fn a_message_that_calls_a_skill_is_named_after_what_the_skill_is_for() {
+    let fx = fixture();
+    let mut core = core_with_task(&fx).await;
+    core.skill_save(
+        "triage",
+        "Sort a bug report by how urgent it is",
+        "Read it.",
+    )
+    .expect("saves");
+    let asked = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let last_asked = || asked.lock().expect("not poisoned").pop().expect("asked");
+    // Given a skill call as typed, a model without tools answers with a stand-in for one.
+    core.set_namer(Arc::new(AskedNamer {
+        answer: "<invoke_skill_or_bash_placeholder>",
+        asked: Arc::clone(&asked),
+    }));
+    let naming = core
+        .task_name_for("demo", "/triage 123")
+        .await
+        .expect("asks");
+    assert_eq!(naming, None, "the caller names the task after the prompt");
+    assert_eq!(
+        last_asked(),
+        "The user calls the skill `triage`, which is for: Sort a bug report by how urgent it \
+         is\nWhat they give after it: 123"
+    );
+
+    // Nor does it rename a session.
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+    core.session_send(session.id, "/triage 456").expect("sends");
+    turn(&mut bus, session.id).await;
+    // Renamed by hand once the namer's answer could have arrived: had it been taken, its
+    // title would have come first, and after this one the namer leaves the title alone.
+    core.session_rename(session.id, "Mine").expect("renames");
+    assert_eq!(renamed(&mut bus).await, "Mine");
+    assert!(last_asked().contains("skill `triage`"));
+
+    // A command Swarmed knows nothing of is named by its name and what follows.
+    core.set_namer(Arc::new(AskedNamer {
+        answer: "Triage Bug 789",
+        asked: Arc::clone(&asked),
+    }));
+    let other = core
+        .session_new("demo", "one", &SessionOptions::default())
+        .expect("creates");
+    core.session_start(other.id, Auth::Subscription)
+        .expect("starts");
+    core.session_send(other.id, "/unheard-of 789")
+        .expect("sends");
+    assert_eq!(renamed(&mut bus).await, "Triage Bug 789");
+    assert_eq!(
+        last_asked(),
+        "The user calls the command `unheard-of`.\nWhat they give after it: 789"
+    );
 }
 
 #[tokio::test]

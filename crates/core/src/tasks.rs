@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
@@ -14,7 +15,7 @@ use crate::paths::Paths;
 use crate::stacks::HOOK_LIMIT;
 use crate::store::{NewTask, Project, SetupStatus, Task};
 use crate::vars::{Vars, env_name};
-use crate::{Core, git, hooks, leftovers, paths};
+use crate::{Core, git, hooks, leftovers, lock, paths};
 use crate::{Settings, open};
 
 /// Options for [`Core::task_new`].
@@ -105,9 +106,11 @@ impl Core {
         git::ensure_first_commit(repo).await?;
         let base = base_of(repo, &config).await?;
         // After the fetch, so that a branch just pushed from elsewhere counts too.
-        let name = &self
+        // Claimed until the task is written down, which then takes the name.
+        let claim = self
             .name_for_task(&project, name, &config.branch_pattern, options)
             .await?;
+        let name = &claim.name;
         let worktree = self.paths.worktree(&project.name, name);
         if let Some(parent) = worktree.parent() {
             tokio::fs::create_dir_all(parent).await?;
@@ -142,6 +145,7 @@ impl Core {
                 return Err(e);
             }
         };
+        drop(claim);
         // What an earlier task's setup produced, so that this one's has less to do. Not
         // having it is no reason to fail: setup then does all the work, as it always could.
         let seeded = self
@@ -248,32 +252,48 @@ impl Core {
 
     /// The name a new task gets: `name` itself, or with `free_name` the first of `name`,
     /// `name-2`, `name-3` and so on that is free. Refused if `name` is taken and may not be
-    /// changed, or if no name up to `name-99` is free.
+    /// changed, or if no name up to `name-99` is free. A name another task is being created
+    /// under counts as taken, and the one returned is claimed until the claim is dropped.
     async fn name_for_task(
         &self,
         project: &Project,
         name: &str,
         pattern: &str,
         options: NewTaskOptions<'_>,
-    ) -> Result<String> {
+    ) -> Result<NameClaim<'_>> {
         let tasks = self.store().tasks(project.id, options.free_name)?;
+        let branches = git::branch_names(&project.repo_path).await?;
+        // From here to the claim under one lock, with nothing awaited: tasks created at once
+        // each see the names the others chose.
+        let mut claimed = lock(&self.names_claimed);
+        let creating = claimed.iter().filter(|(id, _)| *id == project.id);
         let taken = TakenNames {
             project,
-            tasks: tasks.into_iter().map(|task| task.name).collect(),
-            branches: git::branch_names(&project.repo_path).await?,
+            tasks: tasks
+                .into_iter()
+                .map(|task| task.name)
+                .chain(creating.map(|(_, name)| name.clone()))
+                .collect(),
+            branches,
             pattern,
             existing_branch: options.existing_branch.is_some(),
             paths: &self.paths,
         };
-        if !options.free_name {
-            return match taken.reason(name)? {
-                Some(reason) => Err(reason),
-                None => Ok(name.to_string()),
-            };
-        }
-        first_free(name, &taken)?.ok_or_else(|| Error::NoFreeTaskName {
-            project: project.name.clone(),
-            task: name.to_string(),
+        let chosen = if options.free_name {
+            first_free(name, &taken)?.ok_or_else(|| Error::NoFreeTaskName {
+                project: project.name.clone(),
+                task: name.to_string(),
+            })?
+        } else if let Some(reason) = taken.reason(name)? {
+            return Err(reason);
+        } else {
+            name.to_string()
+        };
+        claimed.insert((project.id, chosen.clone()));
+        Ok(NameClaim {
+            claimed: &self.names_claimed,
+            project: project.id,
+            name: chosen,
         })
     }
 
@@ -569,6 +589,20 @@ fn branch_vars(project: &Project, task: &str) -> Vars {
     vars.set("task", task);
     vars.set("project", project.name.as_str());
     vars
+}
+
+/// A new task's name, kept from other tasks being created until this is dropped.
+struct NameClaim<'a> {
+    claimed: &'a Mutex<HashSet<(i64, String)>>,
+    project: i64,
+    name: String,
+}
+
+impl Drop for NameClaim<'_> {
+    fn drop(&mut self) {
+        let key = (self.project, std::mem::take(&mut self.name));
+        lock(self.claimed).remove(&key);
+    }
 }
 
 /// What a new task's name must not be: a task's, the name of a folder that is there, or

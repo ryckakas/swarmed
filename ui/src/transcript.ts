@@ -1,4 +1,4 @@
-import type { AgentEvent, ScreenSection } from "./api/types";
+import type { AgentEvent, ScreenSection, ToolCalls } from "./api/types";
 import { shownHtml } from "./htmlview";
 import { QUESTION_TOOL, type Question, questionsOf } from "./questions";
 import { limitNotice, type RateLimit } from "./rateLimit";
@@ -13,7 +13,9 @@ export type Item =
     | { kind: "peer"; key: number; from: number; title: string; text: string }
     /** Something the agent said. `streaming` while its end has not arrived yet. */
     | { kind: "text"; key: number; text: string; streaming: boolean }
-    | { kind: "tool"; key: number; name: string; input: unknown; result: ToolResult | null }
+    | ToolItem
+    /** Tool calls that followed each other, folded into one line (`shownTools`). */
+    | { kind: "tools"; key: number; calls: [ToolItem, ...ToolItem[]] }
     /** A request nobody has decided yet. It leaves the transcript once it is. */
     | {
           kind: "permission";
@@ -80,6 +82,15 @@ export interface ToolResult {
     content: string;
     isError: boolean;
 }
+
+/** One tool call, as the transcript holds it. */
+export type ToolItem = {
+    kind: "tool";
+    key: number;
+    name: string;
+    input: unknown;
+    result: ToolResult | null;
+};
 
 /** The line that opens the list of attached files in a message, as the core writes it. */
 const ATTACHED_FILES = "Attached files:";
@@ -236,7 +247,7 @@ type Permission = Extract<Item, { kind: "permission" }>;
 /** What is being built up while walking through a session's events. */
 interface Draft {
     items: Item[];
-    tools: Map<string, Extract<Item, { kind: "tool" }>>;
+    tools: Map<string, ToolItem>;
     /** The permission requests still waiting for a decision, by request id. */
     open: Map<string, Permission>;
     /** Requests that were decided or abandoned; they are left out of the result. */
@@ -277,9 +288,68 @@ export function toItems(events: AgentEvent[], words: Words = wordsFor("plain")):
  * Whether a tool call showed HTML that a view stands for. A call that shows no HTML is never
  * one: every ordinary tool shows the empty string, which an empty view must not stand for.
  */
-function handedOver(handed: Set<string>, tool: Extract<Item, { kind: "tool" }>): boolean {
+function handedOver(handed: Set<string>, tool: ToolItem): boolean {
     const html = shownHtml(tool.name, tool.input);
     return html !== "" && handed.has(html);
+}
+
+/**
+ * Whether a tool call shows whatever the setting says: one that put questions to the user,
+ * presented a plan, or showed a view. The rest is the agent at work.
+ */
+function talksToUser(tool: ToolItem): boolean {
+    const { name, input } = tool;
+    return name === PLAN_TOOL || name === QUESTION_TOOL || shownHtml(name, input) !== "";
+}
+
+/**
+ * The items with the agent's tool calls shown as the setting says: each on its own (`all`),
+ * the ones that follow each other folded into one item (`folded`), or none (`hidden`). Calls
+ * that talk to the user stay as they are, and so does everything else.
+ */
+export function shownTools(items: Item[], mode: ToolCalls): Item[] {
+    if (mode === "all") {
+        return items;
+    }
+    const atWork = (item: Item): item is ToolItem => item.kind === "tool" && !talksToUser(item);
+    if (mode === "hidden") {
+        return items.filter((item) => !atWork(item));
+    }
+    const shown: Item[] = [];
+    for (const item of items) {
+        const last = shown.at(-1);
+        if (!atWork(item)) {
+            shown.push(item);
+        } else if (last?.kind === "tools") {
+            // Made in this loop, so it is this function's own to add to.
+            last.calls.push(item);
+        } else {
+            // Keyed by its first call, so it keeps its place in the list as calls join it.
+            shown.push({ kind: "tools", key: item.key, calls: [item] });
+        }
+    }
+    return shown;
+}
+
+/** What the line of folded tool calls says. */
+export interface ToolRunSummary {
+    count: number;
+    /** The call made last, which the line names. */
+    last: ToolItem;
+    failed: number;
+    /** Whether the last call has not ended yet. */
+    running: boolean;
+}
+
+/** How a run of folded tool calls is summed up: how many, the last, how many failed. */
+export function toolRunSummary(calls: [ToolItem, ...ToolItem[]]): ToolRunSummary {
+    const last = calls.at(-1) ?? calls[0];
+    return {
+        count: calls.length,
+        last,
+        failed: calls.filter((call) => call.result?.isError === true).length,
+        running: last.result === null,
+    };
 }
 
 /** What of a tool call is drawn: its name, its arguments and how it ended. */
@@ -414,7 +484,7 @@ function addTool(draft: Draft, event: Extract<AgentEvent, { type: "tool_use" }>,
 }
 
 function attachResult(
-    tool: Extract<Item, { kind: "tool" }> | undefined,
+    tool: ToolItem | undefined,
     event: Extract<AgentEvent, { type: "tool_result" }>,
 ) {
     if (tool) {

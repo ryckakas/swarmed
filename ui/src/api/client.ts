@@ -113,6 +113,14 @@ export interface Api {
      * holds unsaved work. Resolves to what its tasks' removals passed over, as `taskRemove`.
      */
     projectRemove(name: string, force: boolean): Promise<string[]>;
+    /** Moves a project `by` places among the others in the sidebar, earlier for a negative number. */
+    projectMove(project: string, by: number): Promise<void>;
+    /** Moves a task `by` places among its project's other open tasks. */
+    taskMove(project: string, task: string, by: number): Promise<void>;
+    /** Moves a session `by` places among its task's others, or among those its starter started. */
+    sessionMove(id: number, by: number): Promise<void>;
+    /** Moves a cloud task `by` places among the others of its project. */
+    cloudTaskMove(id: number, by: number): Promise<void>;
     /**
      * Removes a task's worktree and takes the task out of the tree. Its branch is kept. Without
      * `force` it refuses if the worktree holds unsaved work; nothing else stops it. Resolves to

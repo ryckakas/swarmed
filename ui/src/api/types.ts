@@ -329,6 +329,12 @@ export type StatusItem =
     | "worktree"
     | "duration";
 
+/**
+ * How the agents' tool calls show in a conversation: each on its own line, the ones that follow
+ * each other folded into one, or none. Requests, questions, plans and views always show.
+ */
+export type ToolCalls = "all" | "folded" | "hidden";
+
 /** The user's own preferences. */
 export interface Settings {
     /** The command that opens a folder in the user's code editor. */
@@ -350,6 +356,8 @@ export interface Settings {
     default_supervision: Supervision;
     /** Whether agents may answer with small HTML views, and those are shown. */
     html_views: boolean;
+    /** How the agents' tool calls show in a conversation. */
+    tool_calls: ToolCalls;
     /** Whether the system notifies when a session needs you, finishes or fails out of sight. */
     notifications: boolean;
     /** The built-in pieces of the status line under the message box, in order. */
@@ -627,6 +635,11 @@ export type AgentEvent =
     | { type: "closed" }
     /** The session was deleted for good, with everything said in it. */
     | { type: "deleted" }
+    /**
+     * Repositories, tasks, sessions or cloud tasks were put in another order. It belongs to no
+     * session: it comes with session id 0, and the tree is read again.
+     */
+    | { type: "reordered"; kind: string }
     /** What stands before this is a copy of what was said in the session forked from. */
     | { type: "forked"; from: number }
     /** HTML the agent showed through Swarmed's own tool, handed over by the tool itself. */

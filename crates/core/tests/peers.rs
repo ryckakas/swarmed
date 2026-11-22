@@ -8,7 +8,7 @@ use common::{core_with_project, fixture, next, turn};
 use swarmed_core::agent::{AgentEvent, Auth};
 use swarmed_core::{
     Core, Delivery, Environment, Error, Layout, MAX_SPAWNED, NewTaskOptions, Palette, Session,
-    SessionEvent, SessionOptions, hooks, serve_session_tools,
+    SessionEvent, SessionOptions, ToolCalls, hooks, serve_session_tools,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
@@ -389,14 +389,20 @@ async fn an_agent_changes_what_is_harmless_at_once() {
     let (ok, said) = configure(
         &socket,
         session.id,
-        json(serde_json::json!({ "kind": "appearance", "op": "save", "palette": "Forest", "layout": "senior", "text_size": 110 })),
+        json(serde_json::json!({ "kind": "appearance", "op": "save", "palette": "Forest", "layout": "senior", "text_size": 110, "tool_calls": "Folded" })),
     )
     .await;
     assert!(ok, "{said}");
+    assert!(said.contains("tool_calls folded"), "{said}");
     let settings = core.settings().expect("reads");
     assert_eq!(
-        (settings.palette, settings.layout, settings.text_scale),
-        (Palette::Forest, Layout::Senior, 110)
+        (
+            settings.palette,
+            settings.layout,
+            settings.text_scale,
+            settings.tool_calls
+        ),
+        (Palette::Forest, Layout::Senior, 110, ToolCalls::Folded)
     );
     let layout = serde_json::json!({ "kind": "layout", "op": "save", "json": { "base": "senior", "icons": 140 } });
     let (ok, said) = configure(&socket, session.id, json(layout)).await;
@@ -488,6 +494,27 @@ async fn what_outlives_the_session_is_only_proposed_until_the_user_accepts_it() 
     assert_eq!(core.settings().expect("reads").status_command, "");
     core.config_answer(&script, true).expect("accepts");
     assert_eq!(core.settings().expect("reads").status_command, "echo hi");
+
+    // Hiding tool calls would hide what every agent does: the rest of the looks is changed
+    // at once, and that part waits.
+    let hidden = serde_json::json!({
+        "kind": "appearance", "op": "save", "palette": "plum", "tool_calls": "hidden"
+    });
+    let (ok, said) = configure(&socket, session.id, hidden).await;
+    assert!(ok, "{said}");
+    assert!(said.contains("NOT in effect"), "{said}");
+    let (hides, title, _) = proposed(&mut bus).await;
+    assert_eq!(title, "Hide tool calls in every conversation?");
+    let settings = core.settings().expect("reads");
+    assert_eq!(
+        (settings.palette, settings.tool_calls),
+        (Palette::Plum, ToolCalls::All)
+    );
+    core.config_answer(&hides, true).expect("accepts");
+    assert_eq!(
+        core.settings().expect("reads").tool_calls,
+        ToolCalls::Hidden
+    );
 
     let gone = serde_json::json!({ "kind": "rule", "op": "remove", "text": "no such rule" });
     assert!(!configure(&socket, session.id, gone).await.0);

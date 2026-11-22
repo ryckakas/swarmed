@@ -40,6 +40,7 @@ mod naming;
 mod notes;
 mod notices;
 mod open;
+mod order;
 mod overview;
 mod paths;
 mod peers;
@@ -109,7 +110,7 @@ use sessions::Live;
 pub use sessions::{
     EVENT_BUFFER, Session, SessionEvent, SessionOptions, SessionSettings, SessionStatus,
 };
-pub use settings::{Layout, Palette, Settings, Style, Theme, UpdateMode};
+pub use settings::{Layout, Palette, Settings, Style, Theme, ToolCalls, UpdateMode};
 pub use skills::Skill;
 pub use snapshots::Snapshot;
 pub use stacks::StackState;
@@ -153,6 +154,9 @@ pub struct Core {
     tool_server: Option<PathBuf>,
     /// The lock that says this was the first Swarmed to arrive on its data, once it has it.
     house: Mutex<Option<std::fs::File>>,
+    /// The names of tasks being created, by project id, from when each name is chosen until
+    /// its task is written down, so that tasks created at once never pick the same name.
+    names_claimed: Mutex<std::collections::HashSet<(i64, String)>>,
 }
 
 /// The store is only ever locked for one short query, never across an `.await`. A panic while
@@ -194,6 +198,7 @@ impl Core {
             views: ViewStore::default(),
             tool_server: None,
             house: Mutex::new(None),
+            names_claimed: Mutex::default(),
         })
     }
 

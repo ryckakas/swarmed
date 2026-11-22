@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::Core;
 use crate::agents::CLAUDE;
+use crate::commands;
 use crate::error::{Error, Result};
 use crate::paths::{self, Paths};
 
@@ -263,6 +264,58 @@ impl Paths {
         let all = own.chain(offered);
         all.filter(|skill| taken.insert(skill.name.clone()))
             .collect()
+    }
+
+    /// What the skill `/name` calls says it is for, only when that is certain: one skill can
+    /// answer to the name, or all that can say the same. A name that is also one of Claude
+    /// Code's own commands is never certain, nor one no skill has. Names are matched whole, so
+    /// a plugin's `plugin:name` is never taken for another skill called `name`.
+    pub(crate) fn skill_description(
+        &self,
+        agent: Option<&str>,
+        worktree: Option<&Path>,
+        name: &str,
+    ) -> Option<String> {
+        let claude_may_answer = agent.is_none_or(|agent| agent == CLAUDE);
+        if claude_may_answer && commands::is_claude_command(name) {
+            return None;
+        }
+        let answering = self.answering(agent, worktree, name);
+        let said: Vec<&str> = answering
+            .iter()
+            .map(|skill| skill.description.trim())
+            .collect();
+        let first = *said.first()?;
+        let certain = !first.is_empty() && said.iter().all(|other| *other == first);
+        certain.then(|| first.to_string())
+    }
+
+    /// The skills that may answer to `/name` on `agent` in `worktree`, or on any agent when
+    /// which is not known yet.
+    fn answering(&self, agent: Option<&str>, worktree: Option<&Path>, name: &str) -> Vec<Skill> {
+        let named = || {
+            let all = self.skills_with(worktree);
+            all.into_iter().filter(|skill| skill.name == name)
+        };
+        // The one Swarmed hands over in place of the message (`skill_called`): the first.
+        let handed = |agent: &str| {
+            let callable = self.skills_by_name(agent, worktree);
+            let found = callable.into_iter().find(|skill| skill.name == name);
+            found.into_iter().collect::<Vec<_>>()
+        };
+        // Claude Code picks among its own by itself, and is handed the others.
+        let own = |agent: &str| -> Vec<Skill> {
+            named()
+                .filter(|skill| reads_itself(agent, &skill.origin))
+                .collect()
+        };
+        match agent {
+            None => named().collect(),
+            Some(CLAUDE) => Some(own(CLAUDE))
+                .filter(|own| !own.is_empty())
+                .unwrap_or_else(|| handed(CLAUDE)),
+            Some(agent) => handed(agent),
+        }
     }
 
     /// What the agent is sent in place of a message that calls a skill by name, `/name` and

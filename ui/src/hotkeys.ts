@@ -10,6 +10,8 @@ export type HotkeyId =
     | "previous-session"
     | "next-session"
     | "next-waiting"
+    | "move-up"
+    | "move-down"
     | "session-1"
     | "session-2"
     | "session-3"
@@ -66,6 +68,19 @@ export const HOTKEYS: Hotkey[] = [
     { id: "add-repository", keys: "cmd+o", label: "Add a repository", group: "Sessions" },
     { id: "previous-session", keys: "cmd+[", label: "Previous session", group: "Sessions" },
     { id: "next-session", keys: "cmd+]", label: "Next session", group: "Sessions" },
+    {
+        id: "move-up",
+        // Key combinations, which gitleaks' rule for keys takes for secrets.
+        keys: "cmd+alt+arrowup", // gitleaks:allow
+        label: "Move up in the sidebar: the focused row, or the open session",
+        group: "Sessions",
+    },
+    {
+        id: "move-down",
+        keys: "cmd+alt+arrowdown", // gitleaks:allow
+        label: "Move down in the sidebar: the focused row, or the open session",
+        group: "Sessions",
+    },
     {
         id: "next-waiting",
         keys: "cmd+shift+a",

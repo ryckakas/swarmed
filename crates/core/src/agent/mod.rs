@@ -467,6 +467,13 @@ pub enum AgentEvent {
     /// The session was deleted for good. Told to front ends so that they forget it, and never
     /// recorded: nothing of the session is left to record it in.
     Deleted,
+    /// The user put repositories, tasks, sessions or cloud tasks in another order, so front
+    /// ends read the tree again. It belongs to no session: published with session id 0, which
+    /// no session has, and never recorded.
+    Reordered {
+        /// What was moved: `project`, `task`, `session` or `cloud_task`.
+        kind: String,
+    },
     /// HTML the agent showed the user through Swarmed's own tool. Recorded by the core, which
     /// gets it from the tool and not from the shape of the agent's call.
     View {

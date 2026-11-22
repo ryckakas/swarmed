@@ -5,7 +5,7 @@ mod common;
 use std::path::Path;
 use std::sync::Arc;
 
-use common::{core_with_project, fixture, turn};
+use common::{AskedNamer, core_with_project, fixture, turn};
 use swarmed_core::agent::{AgentEvent, Auth};
 use swarmed_core::{
     CommandKind, Core, Error, NewTaskOptions, SessionOptions, SlashCommand, hooks,
@@ -299,4 +299,59 @@ async fn a_skill_called_by_name_is_listed_and_sent_with_what_it_says() {
             "{plain}"
         );
     }
+}
+
+#[tokio::test]
+async fn a_skill_call_is_named_with_its_description_only_when_one_skill_answers_to_it() {
+    let fx = fixture();
+    let mut core = core_with_skills(&fx).await;
+    let asked = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let last_asked = || asked.lock().expect("not poisoned").pop().expect("asked");
+    core.set_namer(Arc::new(AskedNamer {
+        answer: "A title",
+        asked: Arc::clone(&asked),
+    }));
+    let task_named = |prompt: &'static str| core.task_name_for("demo", prompt);
+
+    // A new task's agent is not known yet: Claude Code's and Codex's `both-have` say
+    // different things, so neither is taken for what the user meant.
+    task_named("/both-have 1").await.expect("asks");
+    assert_eq!(
+        last_asked(),
+        "The user calls the command `both-have`.\nWhat they give after it: 1"
+    );
+    // One skill of that name anywhere: it is the one.
+    task_named("/triage 2").await.expect("asks");
+    assert!(last_asked().contains("skill `triage`, which is for: Sort incoming bugs."));
+    // A name Claude Code has a command of its own by may run that instead.
+    task_named("/review 3").await.expect("asks");
+    assert!(last_asked().starts_with("The user calls the command `review`."));
+
+    // A session's agent is known: Claude Code takes its own `both-have`.
+    core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates");
+    let mut bus = core.subscribe();
+    let session = core
+        .session_new("demo", "one", &SessionOptions::default())
+        .expect("creates");
+    core.session_start(session.id, Auth::Subscription)
+        .expect("starts");
+    core.session_send(session.id, "/both-have 4")
+        .expect("sends");
+    turn(&mut bus, session.id).await;
+    let named = |asked: &std::sync::Mutex<Vec<String>>| {
+        asked
+            .lock()
+            .expect("not poisoned")
+            .iter()
+            .any(|request| request.contains("skill `both-have`, which is for: Claude's copy."))
+    };
+    // Named off the turn, so asked by now or very soon after.
+    let mut waited = 0;
+    while !named(&asked) && waited < 100 {
+        waited += 1;
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert!(named(&asked), "{:?}", asked.lock().expect("not poisoned"));
 }

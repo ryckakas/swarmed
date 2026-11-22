@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import type { AgentInfo, Effort, SlashCommand, Supervision, Theme } from "../api/types";
+import type { AgentInfo, Effort, SlashCommand, Supervision, Theme, ToolCalls } from "../api/types";
 import { useStore } from "../store";
 import { type Words, wordsFor } from "../wording";
 
@@ -190,6 +190,13 @@ export const THEMES: [Theme, string][] = [
     ["system", "Same as the system"],
     ["dark", "Dark"],
     ["light", "Light"],
+];
+
+/** How the agents' tool calls can show in a conversation. */
+export const TOOL_CALLS: [ToolCalls, string][] = [
+    ["all", "All, each on its own line"],
+    ["folded", "Folded, one line for the calls in a row"],
+    ["hidden", "Hidden, with a larger animation while it works"],
 ];
 
 /** Text sizes offered, in percent of the normal size. */

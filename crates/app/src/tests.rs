@@ -7,7 +7,7 @@ use std::net::TcpListener;
 use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use swarmed_core::agent::FakeBackend;
@@ -171,8 +171,13 @@ impl App {
     }
 }
 
+/// How long [`wait_for`] waits. Generous, since the whole suite runs at once: stopping a turn
+/// and sending the next message took longer than two seconds under that load.
+const WAIT_LIMIT: Duration = Duration::from_secs(10);
+
 fn wait_for(app: &App, id: &Value, what: &str, wanted: impl Fn(&Value) -> bool) -> Value {
-    for _ in 0..200 {
+    let deadline = Instant::now() + WAIT_LIMIT;
+    while Instant::now() < deadline {
         let events = app.ok("session_events", json!({ "id": id }));
         let found = events
             .as_array()
@@ -283,6 +288,41 @@ fn claude_code_in_a_terminal(app: &App, id: &Value, size: &Value) {
             "/cd is not opened in Claude Code's own terminal from Swarmed"
         ))
     );
+}
+
+#[test]
+fn the_ui_can_put_projects_tasks_and_sessions_in_order() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    for name in ["one", "two"] {
+        let task = json!({ "project": "demo", "name": name, "branch": null });
+        app.ok("task_new", task);
+    }
+    let tasks = |app: &App| -> Vec<Value> {
+        let overview = app.ok("overview", json!({}));
+        let tasks = overview[0]["tasks"].as_array().cloned().unwrap_or_default();
+        tasks.iter().map(|task| task["name"].clone()).collect()
+    };
+    app.ok(
+        "task_move",
+        json!({ "project": "demo", "task": "two", "by": -1 }),
+    );
+    assert_eq!(tasks(&app), [json!("two"), json!("one")]);
+    // One repository has nowhere to go, which is no error.
+    app.ok("project_move", json!({ "project": "demo", "by": 1 }));
+
+    let how = json!({ "model": null, "supervision": "auto", "effort": null });
+    let new = |app: &App| {
+        let options = json!({ "project": "demo", "task": "one", "agent": null, "how": how });
+        app.ok("session_new", options)["id"].clone()
+    };
+    let (first, second) = (new(&app), new(&app));
+    app.ok("session_move", json!({ "id": second, "by": -1 }));
+    let overview = app.ok("overview", json!({}));
+    let one = &overview[0]["tasks"][1]["sessions"];
+    assert_eq!((&one[0]["id"], &one[1]["id"]), (&second, &first));
+    app.invoke("cloud_task_move", json!({ "id": 999, "by": 1 }))
+        .expect_err("no such cloud task");
 }
 
 #[test]
@@ -476,7 +516,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
             "editor": "code", "terminal_app": "Terminal", "auto_title": true, "theme": "system", "palette": "swarm",
             "style": "colony", "layout": "classic",
             "text_scale": 100,
-            "html_views": true, "notifications": true, "default_supervision": "auto",
+            "html_views": true, "tool_calls": "all", "notifications": true, "default_supervision": "auto",
             "status_items": ["branch", "changes", "model", "context", "cost"],
             "status_command": "", "rules": "", "updates": "automatic",
         })

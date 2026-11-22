@@ -119,6 +119,7 @@ impl SessionStatus {
             | AgentEvent::Suggestion { .. }
             | AgentEvent::Closed
             | AgentEvent::Deleted
+            | AgentEvent::Reordered { .. }
             | AgentEvent::Background { .. }
             | AgentEvent::View { .. }
             | AgentEvent::Queue { .. }
@@ -270,8 +271,10 @@ impl Store {
         let title = options.title.clone().unwrap_or_default();
         let agent = options.agent.clone().unwrap_or_else(|| CLAUDE.to_string());
         self.conn.execute(
-            "INSERT INTO sessions (task_id, title, model, supervision, agent, effort, fast) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            // At the end of its task's sessions.
+            "INSERT INTO sessions (task_id, title, model, supervision, agent, effort, fast, \
+             position) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, \
+             (SELECT COALESCE(MAX(position), 0) + 1 FROM sessions WHERE task_id = ?1))",
             params![
                 task_id,
                 title,
@@ -329,7 +332,7 @@ impl Store {
 
     pub(crate) fn sessions(&self, task_id: i64) -> Result<Vec<Session>> {
         let mut stmt = self.conn.prepare(&format!(
-            "{SESSION_SELECT} WHERE task_id = ?1 AND closed_at IS NULL ORDER BY id"
+            "{SESSION_SELECT} WHERE task_id = ?1 AND closed_at IS NULL ORDER BY position, id"
         ))?;
         let rows = stmt.query_map(params![task_id], session_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -345,7 +348,7 @@ impl Store {
 
     pub(crate) fn sessions_all(&self) -> Result<Vec<Session>> {
         let mut stmt = self.conn.prepare(&format!(
-            "{SESSION_SELECT} WHERE closed_at IS NULL ORDER BY id"
+            "{SESSION_SELECT} WHERE closed_at IS NULL ORDER BY task_id, position, id"
         ))?;
         let rows = stmt.query_map([], session_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -679,9 +682,16 @@ pub(crate) fn is_busy_status(status: SessionStatus) -> bool {
     matches!(status, SessionStatus::Working | SessionStatus::Waiting)
 }
 
-/// A namer's answer as a session title.
-pub(crate) fn title_of(answer: &str) -> String {
-    shortened(answer, TITLE_CHARS)
+/// A namer's answer to naming `message` as a title, or `None` if it is none: empty, markup
+/// such as the `<invoke_skill_or_bash_placeholder>` a model without tools answers in place of
+/// a tool call, a command, or a command's message repeated.
+pub(crate) fn title_of(answer: &str, message: &str) -> Option<String> {
+    let title = shortened(answer, TITLE_CHARS);
+    let command = message.trim_start().strip_prefix('/');
+    let repeated =
+        command.is_some_and(|command| title.eq_ignore_ascii_case(&shortened(command, TITLE_CHARS)));
+    let refused = title.is_empty() || title.starts_with(['<', '/']) || repeated;
+    (!refused).then_some(title)
 }
 
 /// The first line of `text`, without surrounding space or quotes, at most `limit` characters.
@@ -702,17 +712,17 @@ fn rename(store: &Mutex<Store>, live: &Live, id: i64, title: String) -> Result<(
     live.note(store, id, AgentEvent::Renamed { title })
 }
 
-/// Asks `namer` for a title and uses it, unless the session was renamed in the meantime.
+/// Asks `namer` to name `asked`, what stands for the session's first message, and uses the
+/// answer, unless it is no title or the session was renamed in the meantime.
 async fn name_session(
     namer: Arc<dyn Namer>,
     store: Arc<Mutex<Store>>,
     live: Arc<Live>,
-    (id, prompt): (i64, String),
+    (id, prompt, asked): (i64, String, String),
 ) {
     let from_prompt = title_from(&prompt);
-    let suggested = namer.name(prompt).await;
-    let title = suggested.map(|title| shortened(&title, TITLE_CHARS));
-    let Some(title) = title.filter(|title| !title.is_empty()) else {
+    let suggested = namer.name(asked).await;
+    let Some(title) = suggested.and_then(|answer| title_of(&answer, &prompt)) else {
         return;
     };
     let current = lock(&store).session_by_id(id).map(|session| session.title);
@@ -968,9 +978,22 @@ impl Core {
         let Some(namer) = self.namer.clone().filter(|_| wanted) else {
             return;
         };
+        let asked = self.naming_prompt_for(id, prompt);
         let (store, live) = (Arc::clone(&self.store), Arc::clone(&self.live));
-        let naming = name_session(namer, store, live, (id, prompt.to_string()));
+        let naming = name_session(namer, store, live, (id, prompt.to_string(), asked));
         drop(tokio::spawn(naming));
+    }
+
+    /// What the namer is asked to name for `prompt`, the first message of session `id`, with
+    /// the session's agent and worktree to find a skill it calls by.
+    fn naming_prompt_for(&self, id: i64, prompt: &str) -> String {
+        let session = self.store().session_by_id(id).ok();
+        let task = session
+            .as_ref()
+            .and_then(|session| self.store().task_by_id(session.task_id).ok().flatten());
+        let agent = session.as_ref().map(|session| session.agent.as_str());
+        let worktree = task.as_ref().map(|task| task.worktree_path.as_path());
+        self.naming_prompt(prompt, agent, worktree)
     }
 
     /// Starts a turn with `text` in a running session. A message that is one of the agent's
@@ -1489,6 +1512,7 @@ fn shown_only(event: &AgentEvent) -> bool {
             | AgentEvent::Queue { .. }
             | AgentEvent::ConfigChanged { .. }
             | AgentEvent::Deleted
+            | AgentEvent::Reordered { .. }
     )
 }
 
@@ -1698,6 +1722,18 @@ impl Live {
         }
         open.remove(&id);
         SessionStatus::after(event, false)
+    }
+
+    /// Tells every front end of something that belongs to no session, under session id 0.
+    pub(crate) fn publish_apart(&self, event: AgentEvent) {
+        let apart = SessionEvent {
+            session_id: 0,
+            status: None,
+            unread: None,
+            event,
+        };
+        // An error only means nobody is subscribed right now.
+        self.bus.send(apart).ok();
     }
 
     /// Stores an event, unless it is one that is only ever shown, then publishes it.
