@@ -162,6 +162,7 @@ function ContextCard({
     events: AgentEvent[];
     at: number;
 }) {
+    const words = useWords();
     const percent = contextPercent(usage);
     const parts = contextBreakdown(usage);
     // The stylesheet keeps it inside the line when the badge is near the right edge.
@@ -177,7 +178,9 @@ function ContextCard({
             <div className="context-bar">
                 <div style={{ width: `${Math.min(percent, 100)}%` }} />
             </div>
-            {parts.length === 0 && <p className="context-none">The agent gave no breakdown.</p>}
+            {parts.length === 0 && (
+                <p className="context-none">The {words.terms.agent} gave no breakdown.</p>
+            )}
             <dl className="context-parts">
                 {parts.map((part) => (
                     <div key={part.name} className={`context-part context-${part.kind}`}>

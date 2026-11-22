@@ -11,6 +11,7 @@ const LISTED = 8;
 
 /** What Swarmed takes up on disk, and what it and its agents are using right now. */
 export function UsageSettings() {
+    const words = useWords();
     const report = useStore((state) => state.report);
     const [usage, setUsage] = useState<Usage | null>(null);
     const [measuring, setMeasuring] = useState(false);
@@ -34,7 +35,7 @@ export function UsageSettings() {
                     <p className="settings-hint">
                         {usage
                             ? `${formatBytes(totalBytes(usage))} on disk in all. Worktrees are your tasks' checkouts, with whatever was built in them.`
-                            : "Measuring the worktrees…"}
+                            : `Measuring the ${words.terms.worktrees}…`}
                     </p>
                     <button type="button" className="button" disabled={measuring} onClick={measure}>
                         {measuring ? "Measuring…" : "Measure again"}
@@ -48,6 +49,7 @@ export function UsageSettings() {
 
 /** What the agents say their work has cost: today, this week, in all, and by task. */
 function CostFigures() {
+    const words = useWords();
     const [costs, setCosts] = useState<Costs | null>(null);
     useEffect(() => {
         // Not being able to read them is no reason to interrupt the settings.
@@ -71,7 +73,7 @@ function CostFigures() {
                     <Figure
                         key={`${task.project}/${task.task}`}
                         name={`${task.project} / ${task.task}`}
-                        detail="task"
+                        detail={words.terms.task}
                     >
                         {formatUsd(task.usd)}
                     </Figure>
@@ -96,18 +98,20 @@ function Figures({ usage }: { usage: Usage }) {
                 <Figure
                     key={worktree.path}
                     name={`${worktree.project} / ${worktree.task}`}
-                    detail="worktree"
+                    detail={words.terms.worktree}
                 >
                     {worktree.bytes === null ? "not measured" : formatBytes(worktree.bytes)}
                 </Figure>
             ))}
             {rest.length > 0 && (
-                <Figure name={`${rest.length} more worktrees`}>{formatBytes(restBytes)}</Figure>
+                <Figure name={`${rest.length} more ${words.terms.worktrees}`}>
+                    {formatBytes(restBytes)}
+                </Figure>
             )}
             {usage.removed_bytes > 0 && (
                 <Figure
-                    name="Removed tasks"
-                    detail="worktrees not deleted yet, or that could not be"
+                    name={`Removed ${words.terms.tasks}`}
+                    detail={`${words.terms.worktrees} not deleted yet, or that could not be`}
                 >
                     {formatBytes(usage.removed_bytes)}
                 </Figure>
@@ -123,7 +127,7 @@ function Figures({ usage }: { usage: Usage }) {
                 <Figure
                     key={session.session_id}
                     name={session.title || words.untitled}
-                    detail="agent"
+                    detail={words.terms.agent}
                 >
                     {formatBytes(session.memory_bytes)}, {formatCpu(session.cpu_percent)}
                 </Figure>

@@ -23,7 +23,7 @@ import { useStore } from "../store";
 import { taskNameForPrompt, taskNameFrom, uniqueTaskName } from "../tree";
 import { useWords } from "../useWords";
 import type { Words } from "../wording";
-import { wordsFor } from "../wording";
+import { capitalized, wordsFor } from "../wording";
 import { AgentNotice } from "./AgentNotice";
 import { ComposerBox } from "./ComposerBox";
 import { EffortPicker } from "./EffortPicker";
@@ -144,11 +144,14 @@ export function NewTask({ projects }: { projects: Project[] }) {
                     options={projects.map((candidate) => [candidate.name, candidate.name])}
                 />
                 <Picker
-                    label="Branch"
+                    label={capitalized(words.terms.branch)}
                     value={branch}
                     onChange={setBranch}
                     options={[
-                        [NEW_BRANCH, `New branch from ${choices?.base ?? "the default branch"}`],
+                        [
+                            NEW_BRANCH,
+                            `New ${words.terms.branch} from ${choices?.base ?? `the default ${words.terms.branch}`}`,
+                        ],
                         ...(choices?.existing ?? []).map((existing): [string, string] => [
                             existing,
                             existing,
@@ -291,7 +294,7 @@ function Variants({ offered, agents, first, variants, onChange }: VariantsProps)
         <>
             {choices.length > 0 && (
                 <Picker
-                    label="Also run on another agent or model"
+                    label={`Also run on another ${words.terms.agent} or ${words.terms.model}`}
                     value=""
                     onChange={(key) => key && onChange([...variants, variantFrom(key)])}
                     options={[
@@ -354,6 +357,7 @@ function setupFor(
 
 /** The agent menu, shown only when there is a choice, and the models of the chosen agent. */
 function AgentPickers(props: AgentPickersProps) {
+    const words = useWords();
     const { agents, agentId, model, onAgent, onModel, effort, onEffort } = props;
     const agent = agents.find((candidate) => candidate.id === agentId);
     const usual = useEffortDefault(agentId, model || null);
@@ -361,13 +365,18 @@ function AgentPickers(props: AgentPickersProps) {
         <>
             {agents.length > 1 && (
                 <Picker
-                    label="Agent"
+                    label={capitalized(words.terms.agent)}
                     value={agentId}
                     onChange={onAgent}
                     options={agents.map((candidate) => [candidate.id, candidate.name])}
                 />
             )}
-            <Picker label="Model" value={model} onChange={onModel} options={modelChoices(agent)} />
+            <Picker
+                label={capitalized(words.terms.model)}
+                value={model}
+                onChange={onModel}
+                options={modelChoices(agent, null, words)}
+            />
             {takesEffort(agentId) && (
                 <EffortPicker value={effort} applied={usual} onChange={onEffort} />
             )}

@@ -211,6 +211,41 @@ export interface Words {
     turns: string;
     /** A stack's button while it starts. */
     stackStarting: string;
+    /**
+     * What things are called, in lower case as they stand in a sentence; `capitalized` makes a
+     * label of one. Only the colony style names these its own way: git's and the agents' words
+     * included, which the swarm dictionary explains.
+     */
+    terms: {
+        repository: string;
+        repositories: string;
+        task: string;
+        tasks: string;
+        worktree: string;
+        worktrees: string;
+        branch: string;
+        baseBranch: string;
+        /** A commit, and to commit; several, while it is done, and done. */
+        commit: string;
+        commits: string;
+        committing: string;
+        committed: string;
+        /** To push a branch; while it is done, and done. */
+        push: string;
+        pushing: string;
+        pushed: string;
+        pullRequest: string;
+        agent: string;
+        agents: string;
+        model: string;
+        models: string;
+        mcpServers: string;
+        skill: string;
+        skills: string;
+        prompt: string;
+        prompts: string;
+        rules: string;
+    };
 }
 
 const PLAIN: Words = {
@@ -342,6 +377,34 @@ const PLAIN: Words = {
     searchPlaceholder: "Search what was said, in any session",
     turns: "Turns",
     stackStarting: "Starting…",
+    terms: {
+        repository: "repository",
+        repositories: "repositories",
+        task: "task",
+        tasks: "tasks",
+        worktree: "worktree",
+        worktrees: "worktrees",
+        branch: "branch",
+        baseBranch: "base branch",
+        commit: "commit",
+        commits: "commits",
+        committing: "committing",
+        committed: "committed",
+        push: "push",
+        pushing: "pushing",
+        pushed: "pushed",
+        pullRequest: "pull request",
+        agent: "agent",
+        agents: "agents",
+        model: "model",
+        models: "models",
+        mcpServers: "MCP servers",
+        skill: "skill",
+        skills: "skills",
+        prompt: "prompt",
+        prompts: "prompts",
+        rules: "rules",
+    },
 };
 
 const SWARM: Words = {
@@ -487,6 +550,34 @@ const COLONY: Words = {
     hideTasks: "Hide its broods",
     delegateButton: "Send spores",
     delegating: "Sending spores…",
+    terms: {
+        repository: "colony",
+        repositories: "colonies",
+        task: "brood",
+        tasks: "broods",
+        worktree: "cell",
+        worktrees: "cells",
+        branch: "strain",
+        baseBranch: "mother strain",
+        commit: "seal",
+        commits: "seals",
+        committing: "sealing",
+        committed: "sealed",
+        push: "release",
+        pushing: "releasing",
+        pushed: "released",
+        pullRequest: "offering",
+        agent: "species",
+        agents: "species",
+        model: "mind",
+        models: "minds",
+        mcpServers: "symbionts",
+        skill: "gene",
+        skills: "genes",
+        prompt: "pheromone",
+        prompts: "pheromones",
+        rules: "hive law",
+    },
 };
 
 const WORDS: Record<Style, Words> = { plain: PLAIN, swarm: SWARM, colony: COLONY };
@@ -494,6 +585,78 @@ const WORDS: Record<Style, Words> = { plain: PLAIN, swarm: SWARM, colony: COLONY
 /** The words that go with a style. */
 export function wordsFor(style: Style | undefined): Words {
     return WORDS[style ?? DEFAULT_STYLE];
+}
+
+/** A word as a label starts: "worktree" as "Worktree". Names such as "MCP servers" stay as they are. */
+export function capitalized(word: string): string {
+    return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
+/** One of the swarm's words, the plain word it stands for, and what that is, in plain words. */
+export interface Term {
+    swarm: string;
+    plain: string;
+    meaning: string;
+}
+
+/**
+ * Every word the swarm's styles may call something otherwise, by where it is found in `Words`,
+ * with what it is. The dictionary is made from these and the words themselves, so a word
+ * renamed here is renamed there too.
+ */
+const ENTRIES: [pick: (words: Words) => string, meaning: string][] = [
+    [(w) => w.overview || "Overview", "Everything Swarmed works on, in the sidebar."],
+    [(w) => w.terms.repository, "A git repository you added to Swarmed."],
+    [(w) => w.terms.task, "A piece of work, on a branch and in a worktree of its own."],
+    [(w) => w.session, "A conversation with an agent, in a task."],
+    [(w) => w.subAgent, "An agent that a session's agent started for part of its work."],
+    [(w) => w.background, "Commands and agents a session left running."],
+    [(w) => w.terms.worktree, "The folder a task works in: a git worktree of the repository."],
+    [(w) => w.terms.branch, "A task's git branch."],
+    [(w) => w.terms.baseBranch, "The branch a task starts from, and is compared with."],
+    [(w) => w.terms.commit, "A git commit, and committing."],
+    [(w) => w.terms.push, "Pushing a branch to the remote, such as GitHub."],
+    [(w) => w.terms.pullRequest, "A pull request on GitHub."],
+    [(w) => w.terms.agent, "A coding agent: Claude Code, Codex, OpenCode and the like."],
+    [(w) => w.terms.model, "The model an agent runs on."],
+    [(w) => w.terms.mcpServers, "Tools from outside that agents can use."],
+    [(w) => w.terms.skills, "Instructions an agent takes up when they fit the work."],
+    [(w) => w.terms.prompts, "Prompts you saved, to start work from."],
+    [(w) => w.terms.rules, "Your own rules, given to every agent."],
+    [(w) => w.changes, "What a task changed."],
+    [(w) => w.files, "A task's files."],
+    [(w) => w.environment, "How a new task is set up."],
+    [(w) => w.snapshot, "What a task's setup made, kept for new tasks to start from."],
+    [(w) => w.actions, "Buttons of your own, on every task."],
+    [(w) => w.settings, "Swarmed's settings."],
+    [(w) => w.shortcuts, "The keyboard shortcuts."],
+    [(w) => w.turns, "An agent's work on one message."],
+    [(w) => w.archiveSession, "Closing a session, keeping its conversation."],
+    [(w) => w.deleteSession, "Deleting a session and its conversation for good."],
+    [(w) => w.fast, "An agent's fast mode."],
+    [(w) => w.versionName("").trim(), "The installed version of Swarmed."],
+    [(w) => w.status.idle.join(", "), "A session waiting for your next message."],
+    [(w) => w.status.working.join(", "), "A session whose agent is at work."],
+    [(w) => w.status.unread.join(", "), "A session with a reply you have not read."],
+];
+
+/** What the swarm's words in a style mean, those that differ from the plain ones, A to Z. */
+export function dictionary(style: Style | undefined): Term[] {
+    const words = wordsFor(style);
+    return ENTRIES.map(([pick, meaning]) => ({
+        swarm: capitalized(pick(words)),
+        plain: capitalized(pick(PLAIN)),
+        meaning,
+    }))
+        .filter((term) => term.swarm !== term.plain)
+        .sort((a, b) => a.swarm.localeCompare(b.swarm));
+}
+
+/** The terms with what was typed in either word or in what they mean, ignoring case. */
+export function searchTerms(terms: Term[], query: string): Term[] {
+    const wanted = query.trim().toLowerCase();
+    const has = (text: string) => text.toLowerCase().includes(wanted);
+    return terms.filter((term) => has(term.swarm) || has(term.plain) || has(term.meaning));
 }
 
 /** A name as it stands in the middle of a sentence: "an environment", "a spawning pool". */

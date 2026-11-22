@@ -30,7 +30,8 @@ interface Props {
 }
 
 export function Transcript({ sessionId, events, working }: Props) {
-    const items = useMemo(() => toItems(events), [events]);
+    const words = useWords();
+    const items = useMemo(() => toItems(events, words), [events, words]);
     const scroller = useRef<HTMLDivElement>(null);
     // Each session gets its own Transcript (keyed by the caller), so this starts out true.
     const following = useRef(true);
@@ -200,14 +201,16 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
         case "terminal":
             return (
                 <details className="shared-terminal">
-                    <summary>Terminal output sent to the agent with this message</summary>
+                    <summary>
+                        Terminal output sent to the {words.terms.agent} with this message
+                    </summary>
                     <pre className="tool-body">{item.text}</pre>
                 </details>
             );
         case "session":
             return (
                 <p className="aside">
-                    {item.model}, {item.login} login, {item.mcp}, {item.skills} skills
+                    {item.model}, {item.login} login, {item.mcp}, {item.skills} {words.terms.skills}
                 </p>
             );
         case "turn":

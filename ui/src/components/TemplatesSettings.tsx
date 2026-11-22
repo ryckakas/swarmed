@@ -1,6 +1,8 @@
 import { type FormEvent, useState } from "react";
 import { api } from "../api";
 import { useStore } from "../store";
+import { useWords } from "../useWords";
+import { capitalized, withArticle } from "../wording";
 
 /** A prompt as the form holds it while it is being written. */
 interface Draft {
@@ -14,6 +16,7 @@ const NEW: Draft = { editing: null, name: "", text: "" };
 
 /** Prompts kept to be sent again: typed `/name` in a message box puts one in. */
 export function TemplatesSettings() {
+    const words = useWords();
     const templates = useStore((state) => state.templates);
     const setTemplates = useStore((state) => state.setTemplates);
     const report = useStore((state) => state.report);
@@ -40,8 +43,8 @@ export function TemplatesSettings() {
             .catch(report);
 
     return (
-        <section className="settings-group" aria-label="Prompts">
-            <h3>Prompts</h3>
+        <section className="settings-group" aria-label={capitalized(words.terms.prompts)}>
+            <h3>{capitalized(words.terms.prompts)}</h3>
             <p className="settings-hint">
                 Prompts you send often, kept under a name. Type / and the name in any message box to
                 put one in, whatever the agent. Write {"{{something}}"} where a prompt has a place
@@ -74,7 +77,7 @@ export function TemplatesSettings() {
                 />
             ) : (
                 <button type="button" className="button" onClick={() => setDraft(NEW)}>
-                    Add a prompt
+                    Add {withArticle(words.terms.prompt)}
                 </button>
             )}
         </section>
@@ -91,6 +94,7 @@ interface FormProps {
 }
 
 function TemplateForm({ draft, onChange, onSave, onRemove, onCancel }: FormProps) {
+    const words = useWords();
     const submit = (event: FormEvent) => {
         event.preventDefault();
         onSave();
@@ -102,7 +106,7 @@ function TemplateForm({ draft, onChange, onSave, onRemove, onCancel }: FormProps
                 <span className="settings-hint">Lower-case letters, digits and dashes.</span>
                 <input
                     className="key-input mono"
-                    aria-label="Name of the prompt"
+                    aria-label={`Name of the ${words.terms.prompt}`}
                     placeholder="review"
                     spellCheck={false}
                     required
@@ -111,10 +115,10 @@ function TemplateForm({ draft, onChange, onSave, onRemove, onCancel }: FormProps
                 />
             </label>
             <label>
-                <span className="settings-label">Prompt</span>
+                <span className="settings-label">{capitalized(words.terms.prompt)}</span>
                 <textarea
                     className="key-input"
-                    aria-label="The prompt"
+                    aria-label={`The ${words.terms.prompt}`}
                     placeholder="Review {{what}} for bugs and say what you would change."
                     rows={8}
                     required
@@ -132,7 +136,7 @@ function TemplateForm({ draft, onChange, onSave, onRemove, onCancel }: FormProps
                     Cancel
                 </button>
                 <button type="submit" className="button button-primary">
-                    Save prompt
+                    Save {words.terms.prompt}
                 </button>
             </div>
         </form>

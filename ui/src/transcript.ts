@@ -2,6 +2,7 @@ import type { AgentEvent, ScreenSection } from "./api/types";
 import { shownHtml } from "./htmlview";
 import { QUESTION_TOOL, type Question, questionsOf } from "./questions";
 import { limitNotice, type RateLimit } from "./rateLimit";
+import { type Words, wordsFor } from "./wording";
 
 // Turns a session's raw events into what the transcript shows. Pure, so it can be tested.
 
@@ -153,7 +154,7 @@ export function summarize(input: unknown): string {
  */
 const CLOSES_REQUESTS = new Set<AgentEvent["type"]>(["user_message", "turn_done", "exited"]);
 
-function single(event: AgentEvent, key: number): Item | null {
+function single(event: AgentEvent, key: number, words: Words): Item | null {
     switch (event.type) {
         case "user_message":
             return messageItem(event.text, key);
@@ -176,7 +177,7 @@ function single(event: AgentEvent, key: number): Item | null {
             return { kind: "screen", key, command, title, note, sections };
         }
         case "init":
-            return sessionItem(event, key);
+            return sessionItem(event, key, words);
         case "turn_done":
             return {
                 kind: "turn",
@@ -192,15 +193,19 @@ function single(event: AgentEvent, key: number): Item | null {
     }
 }
 
-function sessionItem(event: Extract<AgentEvent, { type: "init" }>, key: number): Item {
+function sessionItem(
+    event: Extract<AgentEvent, { type: "init" }>,
+    key: number,
+    words: Words,
+): Item {
     const count = (status: string) =>
         event.mcp_servers.filter((server) => server.status === status).length;
     // Claude Code says which servers connected. Other agents are only known to have been given them.
     const passed = count("passed");
     const mcp =
         passed > 0
-            ? `${passed} MCP servers passed to the agent`
-            : `${count("connected")} of ${event.mcp_servers.length} MCP servers connected`;
+            ? `${passed} ${words.terms.mcpServers} passed to the ${words.terms.agent}`
+            : `${count("connected")} of ${event.mcp_servers.length} ${words.terms.mcpServers} connected`;
     return {
         kind: "session",
         key,
@@ -236,10 +241,12 @@ interface Draft {
     asked: Map<string, Extract<Item, { kind: "asked" }>>;
     /** Claude Code's last usage report, so that a warning is said once. */
     limit: RateLimit | null;
+    /** The style's words, for what the items say of their own. */
+    words: Words;
 }
 
 /** The transcript items for a session's events, in order. Tool results join their calls. */
-export function toItems(events: AgentEvent[]): Item[] {
+export function toItems(events: AgentEvent[], words: Words = wordsFor("plain")): Item[] {
     const draft: Draft = {
         items: [],
         tools: new Map(),
@@ -248,6 +255,7 @@ export function toItems(events: AgentEvent[]): Item[] {
         proposals: new Map(),
         asked: new Map(),
         limit: null,
+        words,
     };
     events.forEach((event, key) => {
         add(draft, event, key);
@@ -387,7 +395,7 @@ function addLimit(draft: Draft, event: RateLimit, key: number) {
 }
 
 function addSingle(draft: Draft, event: AgentEvent, key: number) {
-    const item = single(event, key);
+    const item = single(event, key, draft.words);
     if (item) {
         draft.items.push(item);
     }

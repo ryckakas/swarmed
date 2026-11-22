@@ -46,6 +46,8 @@ export const SETTINGS_TABS = [
     ["keys", "API keys"],
     ["usage", "Storage and activity"],
     ["shortcuts", "Keyboard shortcuts"],
+    // Only in the swarm's styles: the plain words need no dictionary.
+    ["dictionary", "Swarm dictionary"],
     ["about", "About"],
 ] as const;
 

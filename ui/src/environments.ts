@@ -1,6 +1,7 @@
 // A project's environments as the form shows and takes them. Pure, so it can be tested.
 
 import type { Environment } from "./api/types";
+import { capitalized, type Words, wordsFor } from "./wording";
 
 /** An environment with nothing set: all as the project has it. */
 export const EMPTY_ENVIRONMENT: Environment = {
@@ -67,8 +68,11 @@ function unquoted(value: string): string {
     return quoted ? value.slice(1, -1) : value;
 }
 
-/** What a task's worktree tooltip says of where and how it was set up. */
-export function taskTooltip(task: { name: string; branch: string; environment: string | null }) {
+/** What a task's worktree tooltip says of where and how it was set up, in the style's words. */
+export function taskTooltip(
+    task: { name: string; branch: string; environment: string | null },
+    words: Words = wordsFor("plain"),
+) {
     const environment = task.environment ? `, set up in ${task.environment}` : "";
-    return `Worktree ${task.name}, on ${task.branch}${environment}`;
+    return `${capitalized(words.terms.worktree)} ${task.name}, on ${task.branch}${environment}`;
 }

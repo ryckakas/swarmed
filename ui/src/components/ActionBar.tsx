@@ -51,7 +51,7 @@ export function ActionBar({ project }: { project: string }) {
                     key={`${action.of_project}-${action.name}`}
                     type="button"
                     className="button action-button"
-                    title={actionTooltip(action)}
+                    title={actionTooltip(action, words)}
                     disabled={sessionId === null}
                     onClick={() => run(action)}
                 >

@@ -1,6 +1,7 @@
 // Tasks handed to cloud agents, as the sidebar shows them. Pure, so it can be tested.
 
 import type { CloudProvider, CloudTask, NoteTarget, Unpublished } from "./api/types";
+import type { Words } from "./wording";
 
 /** The statuses a provider gives a task that is not finished yet. */
 const UNFINISHED = new Set(["pending", "in_progress", "running", "queued"]);
@@ -65,18 +66,22 @@ export interface CloudTarget extends NoteTarget {
 export type CloudTelling = "written" | "brief" | "conversation";
 
 /** The ways of telling it, as the form offers them. The last two need a session. */
-export const CLOUD_TELLINGS: [telling: CloudTelling, label: string, note: string][] = [
+export const CLOUD_TELLINGS: [
+    telling: CloudTelling,
+    label: (words: Words) => string,
+    note: string,
+][] = [
     [
         "brief",
-        "A brief this session's agent writes",
+        (words) => `A brief this session's ${words.terms.agent} writes`,
         "The agent here is asked to write up what the cloud agent needs and to hand it over with its own tool. It knows everything it read and did, not only what was said. It asks you first unless the session lets it act unasked.",
     ],
     [
         "conversation",
-        "The whole conversation",
+        () => "The whole conversation",
         "What you and the agent said, and the plans it proposed, go along as text: the latest 60,000 characters of it. Not what the agent read or ran, and no files.",
     ],
-    ["written", "Only what I write here", ""],
+    ["written", () => "Only what I write here", ""],
 ];
 
 /**

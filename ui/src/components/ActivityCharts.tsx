@@ -17,6 +17,7 @@ import type { TurnStats } from "../api/types";
 import { formatDuration } from "../turns";
 import { formatUsd } from "../usage";
 import { useWords } from "../useWords";
+import { capitalized } from "../wording";
 import { Picker } from "./Picker";
 
 /** How far back the chart can look, in days. */
@@ -105,6 +106,7 @@ interface BarsProps {
 
 /** One stacked column a day. The column under the pointer says what it holds. */
 function Bars({ columns, series, metric }: BarsProps) {
+    const words = useWords();
     const [hovered, setHovered] = useState<number | null>(null);
     const top = axisTop(Math.max(...columns.map((column) => column.total)));
     const plot = {
@@ -120,7 +122,7 @@ function Bars({ columns, series, metric }: BarsProps) {
             <svg
                 viewBox={`0 0 ${VIEW.width} ${VIEW.height}`}
                 role="img"
-                aria-label="Each day's total by model. The table below holds the same figures."
+                aria-label={`Each day's total by ${words.terms.model}. The table below holds the same figures.`}
             >
                 {[0, 0.5, 1].map((share) => {
                     const y = VIEW.top + plot.height * (1 - share);
@@ -292,8 +294,8 @@ function ModelTable({ rows }: { rows: ModelRow[] }) {
         <table className="activity-table">
             <thead>
                 <tr>
-                    <th scope="col">Model</th>
-                    <th scope="col">Agent</th>
+                    <th scope="col">{capitalized(words.terms.model)}</th>
+                    <th scope="col">{capitalized(words.terms.agent)}</th>
                     <th scope="col">{words.turns}</th>
                     <th scope="col">Failed</th>
                     <th scope="col">Time</th>

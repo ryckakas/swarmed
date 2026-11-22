@@ -3,6 +3,8 @@ import { api } from "../api";
 import type { AgentSetup } from "../api/types";
 import { iconForAgent } from "../providerIcons";
 import { useStore } from "../store";
+import { useWords } from "../useWords";
+import { capitalized, withArticle } from "../wording";
 import { ProviderMark } from "./ProviderMark";
 
 /**
@@ -11,6 +13,7 @@ import { ProviderMark } from "./ProviderMark";
  * edited by hand.
  */
 export function AgentsSettings() {
+    const words = useWords();
     const report = useStore((state) => state.report);
     const [setups, setSetups] = useState<AgentSetup[]>([]);
     // biome-ignore lint/correctness/useExhaustiveDependencies: read once, when the settings open
@@ -24,8 +27,8 @@ export function AgentsSettings() {
     };
 
     return (
-        <section className="settings-group" aria-label="Agents">
-            <h3>Agents</h3>
+        <section className="settings-group" aria-label={capitalized(words.terms.agents)}>
+            <h3>{capitalized(words.terms.agents)}</h3>
             <p className="settings-hint">
                 Sessions run on Claude Code unless you choose another agent. Swarmed installs an
                 agent when you ask it to; signing in stays between you and the agent.
@@ -137,6 +140,7 @@ function AgentRow({ setup, onChange }: { setup: AgentSetup; onChange(setup: Agen
  * for by itself the first time, and again whenever the user wants the list brought up to date.
  */
 function OwnModels({ setup, onChange }: { setup: AgentSetup; onChange(setup: AgentSetup): void }) {
+    const words = useWords();
     const report = useStore((state) => state.report);
     const [asking, setAsking] = useState(false);
     const ask = () => {
@@ -164,7 +168,7 @@ function OwnModels({ setup, onChange }: { setup: AgentSetup; onChange(setup: Age
                 ))}
             </ul>
             <button type="button" className="button" disabled={asking} onClick={ask}>
-                {asking ? "Asking…" : "Read the models again"}
+                {asking ? "Asking…" : `Read the ${words.terms.models} again`}
             </button>
         </div>
     );
@@ -182,6 +186,7 @@ export function ownModelsLine(setup: AgentSetup, asking: boolean): string {
 
 /** The models an agent's menu offers: taken out one by one, added from OpenRouter's own list. */
 function Models({ models, onChange }: { models: string[]; onChange(models: string[]): void }) {
+    const words = useWords();
     const [typed, setTyped] = useState("");
     // Every model OpenRouter has, fetched when the box is first used; typing narrows them down.
     const [known, setKnown] = useState<string[] | null>(null);
@@ -212,7 +217,7 @@ function Models({ models, onChange }: { models: string[]; onChange(models: strin
                         <button
                             type="button"
                             aria-label={`Stop offering ${model}`}
-                            title="Stop offering this model"
+                            title={`Stop offering this ${words.terms.model}`}
                             onClick={() => onChange(models.filter((other) => other !== model))}
                         >
                             ×
@@ -223,8 +228,8 @@ function Models({ models, onChange }: { models: string[]; onChange(models: strin
             <form className="key-row" onSubmit={add}>
                 <input
                     className="key-input"
-                    aria-label="A model to offer"
-                    placeholder="Add a model, such as openrouter/openai/…"
+                    aria-label={`${capitalized(withArticle(words.terms.model))} to offer`}
+                    placeholder={`Add ${withArticle(words.terms.model)}, such as openrouter/openai/…`}
                     list="openrouter-models"
                     spellCheck={false}
                     value={typed}

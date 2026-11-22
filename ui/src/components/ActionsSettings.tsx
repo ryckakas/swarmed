@@ -4,6 +4,7 @@ import { api } from "../api";
 import type { Action } from "../api/types";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
+import { capitalized, withArticle } from "../wording";
 import { Picker } from "./Picker";
 
 /** What an action does when its button is pressed. */
@@ -119,7 +120,7 @@ export function ActionsSettings() {
                         setDraft(null);
                     }}
                     options={[
-                        [EVERYWHERE, "Every repository"],
+                        [EVERYWHERE, `Every ${words.terms.repository}`],
                         ...projects.map((one): [string, string] => [one.name, one.name]),
                     ]}
                 />
@@ -198,6 +199,7 @@ interface FormProps {
 }
 
 function ActionForm({ draft, onChange, onSave, onRemove, onCancel }: FormProps) {
+    const words = useWords();
     const submit = (event: FormEvent) => {
         event.preventDefault();
         onSave();
@@ -256,16 +258,21 @@ function ActionForm({ draft, onChange, onSave, onRemove, onCancel }: FormProps) 
                     value={draft.kind}
                     onChange={(kind) => onChange({ ...draft, kind: kind as Kind })}
                     options={[
-                        ["prompt", "Send a prompt to the agent"],
+                        [
+                            "prompt",
+                            `Send ${withArticle(words.terms.prompt)} to the ${words.terms.agent}`,
+                        ],
                         ["command", "Run a command in the terminal"],
                     ]}
                 />
             </div>
             <label>
-                <span className="settings-label">{isPrompt ? "Prompt" : "Command"}</span>
+                <span className="settings-label">
+                    {isPrompt ? capitalized(words.terms.prompt) : "Command"}
+                </span>
                 <textarea
                     className={isPrompt ? "key-input" : "key-input mono"}
-                    aria-label={isPrompt ? "The prompt" : "The command"}
+                    aria-label={isPrompt ? `The ${words.terms.prompt}` : "The command"}
                     placeholder={
                         isPrompt
                             ? "Run the end-to-end tests and mark this session green if they pass."

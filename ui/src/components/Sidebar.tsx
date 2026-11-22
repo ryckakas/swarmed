@@ -10,7 +10,7 @@ import type { SubAgent } from "../subagents";
 import { countUnread, countWaiting, nestedSessions, projectStatus, projectUnread } from "../tree";
 import { newVersion, updateLine } from "../updates";
 import { useWords } from "../useWords";
-import { wordsFor } from "../wording";
+import { withArticle, wordsFor } from "../wording";
 import { ForgetCloudDialog } from "./ForgetCloudDialog";
 import { ProviderMark } from "./ProviderMark";
 import { PullBadge } from "./PullRequest";
@@ -32,7 +32,11 @@ export function Sidebar() {
     const words = useStore((state) => wordsFor(state.settings?.style));
 
     return (
-        <nav className="sidebar" aria-label="Projects, tasks and sessions" onKeyDown={moveFocus}>
+        <nav
+            className="sidebar"
+            aria-label={`Projects, ${words.terms.tasks} and sessions`}
+            onKeyDown={moveFocus}
+        >
             <div className="sidebar-top" data-tauri-drag-region>
                 {version && (
                     <button
@@ -112,7 +116,10 @@ function NoProjects() {
     return (
         <div className="sidebar-empty">
             <p>{words.noRepositories}</p>
-            <p>Add one to start a task in it. Swarmed never writes into the repository itself.</p>
+            <p>
+                Add one to start {withArticle(words.terms.task)} in it. Swarmed never writes into
+                the {words.terms.repository} itself.
+            </p>
             <button
                 type="button"
                 className="button button-primary"
@@ -179,7 +186,7 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
     return (
         <div className="task">
             <div className="row-head">
-                <h3 className="task-name" title={taskTooltip(task)}>
+                <h3 className="task-name" title={taskTooltip(task, words)}>
                     <WorktreeIcon />
                     <span className="task-title">{task.name}</span>
                     {task.setup === "failed" && <span className="task-flag">setup failed</span>}
@@ -313,7 +320,7 @@ function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] })
                                 type="button"
                                 className="row-add"
                                 aria-label={`Show what ${cloudTitle(task)} changed`}
-                                title="Show what it changed, and apply that to a local task"
+                                title={`Show what it changed, and apply that to a local ${words.terms.task}`}
                                 onClick={() => showCloudDiff(task.id)}
                             >
                                 ±
@@ -479,8 +486,10 @@ function ClosedSessions({ project, task, count }: ClosedProps) {
 
 /** Asks to remove a repository or a task. Nothing goes before the question is answered. */
 function RemoveButton({ project, task }: { project: string; task: string | null }) {
+    const words = useWords();
     const askToRemove = useStore((state) => state.askToRemove);
-    const label = task === null ? `Remove ${project} from Swarmed` : `Remove the task ${task}`;
+    const label =
+        task === null ? `Remove ${project} from Swarmed` : `Remove the ${words.terms.task} ${task}`;
     return (
         <button
             type="button"

@@ -75,12 +75,12 @@ function Row({ row, busy, onTake, onForget }: RowProps) {
                 <p className="settings-hint">
                     {snapshot
                         ? `From ${snapshot.task}, ${takenAt(snapshot)}`
-                        : `No ${words.snapshot.toLowerCase()}: tasks are set up from nothing.`}
+                        : `No ${words.snapshot.toLowerCase()}: ${words.terms.tasks} are set up from nothing.`}
                 </p>
             </div>
             {sources.length > 0 && (
                 <Picker
-                    label={`Take ${withArticle(words.snapshot)} from a task`}
+                    label={`Take ${withArticle(words.snapshot)} from ${withArticle(words.terms.task)}`}
                     value=""
                     onChange={(task) => {
                         if (task && !busy) {

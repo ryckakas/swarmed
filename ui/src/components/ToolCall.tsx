@@ -2,6 +2,7 @@ import { memo, useState } from "react";
 import { shownHtml } from "../htmlview";
 import { useStore } from "../store";
 import { PLAN_TOOL, planOf, sameToolCall, summarize, type ToolShown } from "../transcript";
+import { useWords } from "../useWords";
 import { HtmlView } from "./HtmlView";
 import { Markdown } from "./Markdown";
 
@@ -39,10 +40,11 @@ export const ToolCall = memo(function ToolCall({ name, input, result }: ToolShow
 
 /** A plan the agent presents for approval, read as prose instead of as a tool call's arguments. */
 function Plan({ text }: { text: string }) {
+    const words = useWords();
     return (
         <section className="plan" aria-label="Plan">
             <p className="plan-title">Plan</p>
-            <Markdown text={text || "The agent gave no plan."} />
+            <Markdown text={text || `The ${words.terms.agent} gave no plan.`} />
         </section>
     );
 }

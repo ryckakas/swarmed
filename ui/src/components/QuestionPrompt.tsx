@@ -17,6 +17,7 @@ import {
     unanswered,
 } from "../questions";
 import { useStore } from "../store";
+import { useWords } from "../useWords";
 
 interface Props {
     sessionId: number;
@@ -92,6 +93,7 @@ function useKeysOnArrival(byCommand: boolean) {
  * the arrows move, Enter confirms, and so does a click.
  */
 export function QuestionPrompt(props: Props) {
+    const words = useWords();
     const { questions, command, sessionId } = props;
     const answering = useAnswering(props);
     const { asking, sent, send, take } = answering;
@@ -124,7 +126,9 @@ export function QuestionPrompt(props: Props) {
             ref={card}
             className="permission question"
             aria-label={
-                command === undefined ? "Question from the agent" : `Choices of /${command}`
+                command === undefined
+                    ? `Question from the ${words.terms.agent}`
+                    : `Choices of /${command}`
             }
             aria-busy={sent}
             // biome-ignore lint/a11y/noNoninteractiveTabindex: the card takes the keys that choose an answer

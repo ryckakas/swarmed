@@ -5,6 +5,7 @@ import { agentName, iconForAgent } from "../providerIcons";
 import { useStore } from "../store";
 import { findSession, findSessionHome } from "../tree";
 import { useWords } from "../useWords";
+import { capitalized } from "../wording";
 import { Composer } from "./Composer";
 import { CloudIcon, EndIcon, ForkIcon, IconButton, PanelIcon } from "./IconButton";
 import { NewTask } from "./NewTask";
@@ -70,7 +71,7 @@ export function SessionPane() {
                         />
                     )}
                     <IconButton
-                        label={`${words.forkAll}: a new ${words.session} that starts from all of it, on the same agent`}
+                        label={`${words.forkAll}: a new ${words.session} that starts from all of it, on the same ${words.terms.agent}`}
                         onClick={() => void forkSession(session.id, null)}
                     >
                         <ForkIcon />
@@ -88,7 +89,10 @@ export function SessionPane() {
                         <CloudIcon />
                     </IconButton>
                     {!panelOpen && (
-                        <IconButton label="Show the task panel" onClick={togglePanel}>
+                        <IconButton
+                            label={`Show the ${words.terms.task} panel`}
+                            onClick={togglePanel}
+                        >
                             <PanelIcon />
                         </IconButton>
                     )}
@@ -147,7 +151,7 @@ function CloneTo({ session }: { session: Session }) {
     }
     return (
         <Picker
-            label={`${words.cloneTo} another agent: a new ${words.session} there that starts from this conversation`}
+            label={`${words.cloneTo} another ${words.terms.agent}: a new ${words.session} there that starts from this conversation`}
             value=""
             onChange={(agent) => agent && void forkSession(session.id, null, agent)}
             options={[
@@ -171,13 +175,13 @@ function Facts({ session, task }: { session: Session; task: Task }) {
             )}
             <p>{words.emptySession}</p>
             <dl className="facts">
-                <dt>Worktree</dt>
+                <dt>{capitalized(words.terms.worktree)}</dt>
                 <dd className="mono">{task.worktree_path}</dd>
-                <dt>Branch</dt>
+                <dt>{capitalized(words.terms.branch)}</dt>
                 <dd className="mono">{task.branch}</dd>
                 <dt>Supervision</dt>
                 <dd>{SUPERVISION[session.supervision]}</dd>
-                <dt>Model</dt>
+                <dt>{capitalized(words.terms.model)}</dt>
                 <dd>{session.model ?? "Claude Code's default"}</dd>
             </dl>
         </div>

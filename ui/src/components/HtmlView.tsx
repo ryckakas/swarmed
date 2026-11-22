@@ -12,6 +12,7 @@ import {
     viewDocument,
 } from "../htmlview";
 import { useStore } from "../store";
+import { useWords } from "../useWords";
 import { Spawning } from "./Spawning";
 
 /**
@@ -78,6 +79,7 @@ function useViewMessages(frame: RefObject<HTMLIFrameElement | null>): Heard {
  * open windows, submit forms or use the network.
  */
 export function HtmlView({ html, label }: { html: string; label?: string }) {
+    const words = useWords();
     const holder = useRef<HTMLDivElement>(null);
     const frame = useRef<HTMLIFrameElement>(null);
     const settings = useStore((state) => state.settings);
@@ -130,7 +132,7 @@ export function HtmlView({ html, label }: { html: string; label?: string }) {
                     <svg className="fold-chevron" viewBox="0 0 10 10" aria-hidden="true">
                         <path d="M3.5 1.5 7 5 3.5 8.5" />
                     </svg>
-                    {label ?? "View from the agent, sandboxed"}
+                    {label ?? `View from the ${words.terms.agent}, sandboxed`}
                 </button>
                 <button type="button" className="changes-refresh" onClick={openInBrowser}>
                     Open in browser
@@ -176,7 +178,7 @@ export function HtmlView({ html, label }: { html: string; label?: string }) {
                 <iframe
                     ref={frame}
                     className="html-view-frame"
-                    title="View from the agent"
+                    title={`View from the ${words.terms.agent}`}
                     sandbox="allow-scripts"
                     referrerPolicy="no-referrer"
                     src={shown.address}
@@ -190,10 +192,11 @@ export function HtmlView({ html, label }: { html: string; label?: string }) {
 
 /** Stands in for a view the agent is still writing, in the place the view will take. */
 export function ViewPending() {
+    const words = useWords();
     return (
         <div className="html-view html-view-pending" role="status">
             <div className="html-view-head">
-                <span>View from the agent</span>
+                <span>View from the {words.terms.agent}</span>
             </div>
             <p className="html-view-wait">
                 <Spawning />

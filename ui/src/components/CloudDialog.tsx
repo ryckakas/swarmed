@@ -154,7 +154,7 @@ function Delegate({ target }: { target: CloudTarget }) {
             {fromSession && <Telling telling={telling} disabled={sending} onChoose={setTelling} />}
             <textarea
                 className="note-text"
-                aria-label="What the cloud agent is to do"
+                aria-label={`What the cloud ${words.terms.agent} is to do`}
                 rows={telling === "written" ? 8 : 4}
                 placeholder={PLACEHOLDERS[telling]}
                 disabled={sending}
@@ -184,7 +184,7 @@ function Delegate({ target }: { target: CloudTarget }) {
 /** What the button that sends says. */
 function sendLabel(telling: CloudTelling, sending: boolean, words: Words): string {
     if (telling === "brief") {
-        return sending ? "Asking…" : "Ask the agent";
+        return sending ? "Asking…" : `Ask the ${words.terms.agent}`;
     }
     return sending ? words.delegating : words.delegateButton;
 }
@@ -197,6 +197,7 @@ interface TellingProps {
 
 /** The choice of what the cloud agent is told, with what the chosen way means under it. */
 function Telling({ telling, disabled, onChoose }: TellingProps) {
+    const words = useWords();
     const note = CLOUD_TELLINGS.find(([id]) => id === telling)?.[2];
     return (
         <>
@@ -213,7 +214,7 @@ function Telling({ telling, disabled, onChoose }: TellingProps) {
                 >
                     {CLOUD_TELLINGS.map(([id, label]) => (
                         <option key={id} value={id}>
-                            {label}
+                            {label(words)}
                         </option>
                     ))}
                 </select>

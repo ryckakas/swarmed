@@ -16,6 +16,7 @@ import {
 } from "../rateLimit";
 import { type SpendBasis, sessionSpend, spendBasis } from "../spend";
 import { useWords } from "../useWords";
+import type { Words } from "../wording";
 
 /**
  * How usage is drawn: in the context card, the figures with a thin bar under each; in the
@@ -197,10 +198,10 @@ function extraNote(
 }
 
 /** What each kind of spend is, said after the figure. */
-const SPEND_BASIS: Record<SpendBasis, string> = {
-    subscription: ", at API prices: your subscription covers it",
-    api: ", billed to the API key it runs on",
-    agent: ", as the agent reports it",
+const SPEND_BASIS: Record<SpendBasis, (words: Words) => string> = {
+    subscription: () => ", at API prices: your subscription covers it",
+    api: () => ", billed to the API key it runs on",
+    agent: (words) => `, as the ${words.terms.agent} reports it`,
 };
 
 /** What the session has spent in all, across every run of its agent. */
@@ -215,7 +216,7 @@ function Spend({ spent, basis }: { spent: number | null; basis: SpendBasis | nul
                 {words.spentHere}
                 <span>
                     ${spent.toFixed(2)}
-                    {basis && SPEND_BASIS[basis]}
+                    {basis && SPEND_BASIS[basis](words)}
                 </span>
             </p>
         </section>

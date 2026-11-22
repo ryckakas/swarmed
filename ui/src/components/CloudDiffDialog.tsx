@@ -11,6 +11,7 @@ import { Picker } from "./Picker";
  * into one of the repository's local tasks: applied to its worktree, not committed.
  */
 export function CloudDiffDialog() {
+    const words = useWords();
     const cloudId = useStore((state) => state.cloudDiffOf);
     const showCloudDiff = useStore((state) => state.showCloudDiff);
     const projects = useStore((state) => state.projects);
@@ -54,16 +55,19 @@ export function CloudDiffDialog() {
             <h2 id="cloud-diff-title">{cloudTitle(cloud)}</h2>
             <Changes diff={diff} />
             {applied && (
-                <p>Applied to {applied}, uncommitted. Its changes are in that task's panel.</p>
+                <p>
+                    Applied to {applied}, uncommitted. Its changes are in that {words.terms.task}'s
+                    panel.
+                </p>
             )}
             <div className="confirm-actions">
                 {typeof diff === "string" && tasks.length > 0 && (
                     <Picker
-                        label="Apply these changes to a local task"
+                        label={`Apply these changes to a local ${words.terms.task}`}
                         value=""
                         onChange={(task) => task && void apply(task)}
                         options={[
-                            ["", "Apply to a local task…"],
+                            ["", `Apply to a local ${words.terms.task}…`],
                             ...tasks.map((task): [string, string] => [task.name, task.name]),
                         ]}
                     />
