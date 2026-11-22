@@ -495,6 +495,27 @@ async fn what_outlives_the_session_is_only_proposed_until_the_user_accepts_it() 
     core.config_answer(&script, true).expect("accepts");
     assert_eq!(core.settings().expect("reads").status_command, "echo hi");
 
+    // Hiding tool calls would hide what every agent does: the rest of the looks is changed
+    // at once, and that part waits.
+    let hidden = serde_json::json!({
+        "kind": "appearance", "op": "save", "palette": "plum", "tool_calls": "hidden"
+    });
+    let (ok, said) = configure(&socket, session.id, hidden).await;
+    assert!(ok, "{said}");
+    assert!(said.contains("NOT in effect"), "{said}");
+    let (hides, title, _) = proposed(&mut bus).await;
+    assert_eq!(title, "Hide tool calls in every conversation?");
+    let settings = core.settings().expect("reads");
+    assert_eq!(
+        (settings.palette, settings.tool_calls),
+        (Palette::Plum, ToolCalls::All)
+    );
+    core.config_answer(&hides, true).expect("accepts");
+    assert_eq!(
+        core.settings().expect("reads").tool_calls,
+        ToolCalls::Hidden
+    );
+
     let gone = serde_json::json!({ "kind": "rule", "op": "remove", "text": "no such rule" });
     assert!(!configure(&socket, session.id, gone).await.0);
 }

@@ -40,7 +40,8 @@ advisory is published with credit to you, unless you'd rather not be named.
   press Open.
 - **What an agent may change in Swarmed is limited.** Its `configure` tool cannot reach API keys,
   MCP servers, sign-ins, supervision or notes. A rule, an environment, an action that runs a
-  command and a status line script are added only when you accept its proposal.
+  command and a status line script are added, and tool calls are hidden, only when you accept
+  its proposal.
 - **A value in a hook is one word.** A branch or task name cannot run as a command.
 - **A notification never carries the input of a Claude Code tool.** It names the tool with the
   agent's own summary, or gives the first line of a finished answer. Other agents name their tool

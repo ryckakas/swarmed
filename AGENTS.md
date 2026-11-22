@@ -458,7 +458,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **Agents change Swarmed's own configuration through one tool, `configure`** (`configure.rs`),
   in three kinds. Done at once: prompts, actions that send a prompt, the status line's pieces,
   appearance. Only proposed: rules, environments, an action's command, the status line's
-  script. These outlive the session, so an agent that read something hostile could plant one;
+  script, hiding tool calls (`tool_calls` to `hidden`; all and folded are appearance like the
+  rest). These outlive the session, so an agent that read something hostile could plant one;
   the change is shown in the conversation (`ConfigProposed`) and made when the user accepts it
   there (`Core::config_answer`), whatever the agent's own permission mode. Not reachable at
   all: API keys, MCP servers, sign-ins, supervision, notes. Keep it one tool: every tool's

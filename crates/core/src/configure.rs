@@ -5,10 +5,11 @@
 //!
 //! - **Done at once**: prompts, actions that send a prompt, what the status line shows, and
 //!   the app's appearance. The worst a mistake does there is undone in a moment.
-//! - **Proposed to the user**: rules, environments, actions that run a command, and the status
-//!   line's script. These outlive the session: a rule is given to every agent from then on,
-//!   and a command runs later. An agent that read something hostile on a page or in a
-//!   repository could plant either. So the change is only shown in the conversation, exactly
+//! - **Proposed to the user**: rules, environments, actions that run a command, the status
+//!   line's script, and hiding tool calls. These outlive the session: a rule is given to every
+//!   agent from then on, a command runs later, and with tool calls hidden no conversation
+//!   shows what its agent does. An agent that read something hostile on a page or in a
+//!   repository could plant any of them. So the change is only shown in the conversation, exactly
 //!   as it would be made, and made when the user accepts it there, whatever the agent's own
 //!   permissions are.
 //! - **Not reachable at all**: API keys, MCP servers and their secrets, signing in, how much
@@ -29,7 +30,7 @@ use crate::agent::AgentEvent;
 use crate::environments::Environment;
 use crate::error::Error;
 use crate::layouts::layout_schema;
-use crate::settings::{Layout, MAX_RULES_BYTES, Settings};
+use crate::settings::{Layout, MAX_RULES_BYTES, Settings, ToolCalls};
 use crate::store::Project;
 use crate::termconfig::terminal_schema;
 use crate::{Core, Result, lock};
@@ -60,6 +61,8 @@ enum Change {
     },
     /// An environment taken away.
     EnvironmentRemove { project: String, name: String },
+    /// Tool calls left out of every conversation.
+    ToolCallsHidden,
 }
 
 /// One line of a proposal's detail, left out when there is nothing to say.
@@ -75,6 +78,7 @@ impl Change {
             Self::ActionSave { .. } => "action",
             Self::StatusCommand(_) => "status_line",
             Self::EnvironmentSave { .. } | Self::EnvironmentRemove { .. } => "environment",
+            Self::ToolCallsHidden => "appearance",
         }
     }
 
@@ -99,6 +103,7 @@ impl Change {
             Self::EnvironmentRemove { project, name } => {
                 format!("Remove the environment `{name}` of {project}?")
             }
+            Self::ToolCallsHidden => "Hide tool calls in every conversation?".to_string(),
         }
     }
 
@@ -125,6 +130,7 @@ impl Change {
                 lines.into_iter().flatten().collect::<Vec<_>>().join("\n")
             }
             Self::EnvironmentRemove { .. } => String::new(),
+            Self::ToolCallsHidden => HIDDEN_CALLS.to_string(),
         }
     }
 }
@@ -140,6 +146,11 @@ pub(crate) struct Proposals {
 fn refused(why: impl Into<String>) -> Error {
     Error::Configure(why.into())
 }
+
+/// What the user is told that hiding tool calls does.
+const HIDDEN_CALLS: &str = "What agents run, read and change is left out of every conversation, \
+    this one included. Permission requests, questions, plans and views still show. Settings, \
+    Appearance, Tool calls puts them back.";
 
 /// What the agent is told once a change is waiting for the user.
 const PROPOSED: &str = "Proposed to the user. It is NOT in effect: Swarmed shows it in this \
@@ -286,6 +297,11 @@ impl Core {
                 ..
             } => self.environment_save(project, name, environment),
             Change::EnvironmentRemove { project, name } => self.environment_remove(project, name),
+            Change::ToolCallsHidden => {
+                let mut settings = self.settings()?;
+                settings.tool_calls = ToolCalls::Hidden;
+                self.set_settings(&settings)
+            }
         }
     }
 
@@ -430,7 +446,7 @@ impl Core {
         Ok("The status line is changed.".to_string())
     }
 
-    fn configure_appearance(&self, op: &str, asked: &Asked<'_>) -> Result<String> {
+    fn configure_appearance(&self, from: i64, op: &str, asked: &Asked<'_>) -> Result<String> {
         let mut settings = self.settings()?;
         if op == "list" {
             return Ok(appearance_of(&settings));
@@ -453,10 +469,20 @@ impl Core {
         if let Some(scale) = asked.choice("text_size")? {
             settings.text_scale = scale;
         }
-        if let Some(tool_calls) = asked.choice("tool_calls")? {
+        let tool_calls: Option<ToolCalls> = asked.choice("tool_calls")?;
+        // Hiding what agents do is the one part of the looks the user has to agree to: an
+        // agent could hide its own calls with it, in every session from then on.
+        let hides =
+            tool_calls == Some(ToolCalls::Hidden) && settings.tool_calls != ToolCalls::Hidden;
+        if let Some(tool_calls) = tool_calls.filter(|_| !hides) {
             settings.tool_calls = tool_calls;
         }
         self.set_settings(&settings)?;
+        if hides {
+            // The rest of what was asked is made, which the proposal's answer does not say.
+            self.config_changed(from, "appearance")?;
+            return self.propose(from, Change::ToolCallsHidden);
+        }
         Ok(format!("Changed. {}", appearance_of(&settings)))
     }
 
@@ -570,7 +596,7 @@ impl Core {
             "action" => self.configure_action(from, op, &asked),
             "rule" => self.configure_rule(from, op, &asked),
             "status_line" => self.configure_status_line(from, op, &asked),
-            "appearance" => self.configure_appearance(op, &asked),
+            "appearance" => self.configure_appearance(from, op, &asked),
             "layout" => self.configure_layout(op, &asked),
             "terminal" => self.configure_terminal(op, &asked),
             "environment" => self.configure_environment(from, op, &asked),
