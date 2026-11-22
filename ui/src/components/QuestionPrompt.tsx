@@ -5,14 +5,19 @@ import { focusIsFree, focusIsIdle } from "../focus";
 import {
     type Asking,
     allAnswered,
+    allSkipped,
     answersOf,
     choose,
+    commandAnswersOf,
     goTo,
     isAnswered,
+    isSkipped,
     keyed,
     type Question,
+    SKIP_KEY,
     SKIPPED,
     sendsAtOnce,
+    skip as skipOne,
     typeOwn,
     unanswered,
 } from "../questions";
@@ -43,13 +48,22 @@ function useAnswering({ sessionId, requestId, questions, command }: Props) {
             report(error);
         });
     };
-    const send = (now: Asking) => {
-        const answers = answersOf(questions, now);
+    const skip = () =>
         settle(
             command === undefined
-                ? api.sessionAnswer(sessionId, requestId, answers)
-                : api.sessionCommandAnswer(sessionId, requestId, answers),
+                ? api.sessionDeny(sessionId, requestId, SKIPPED)
+                : api.sessionCommandAnswer(sessionId, requestId, null),
         );
+    const send = (now: Asking) => {
+        // Every question skipped one by one is the same as skipping them all.
+        if (allSkipped(now)) {
+            skip();
+        } else if (command === undefined) {
+            settle(api.sessionAnswer(sessionId, requestId, answersOf(questions, now)));
+        } else {
+            const answers = commandAnswersOf(questions, now);
+            settle(api.sessionCommandAnswer(sessionId, requestId, answers));
+        }
     };
     /** Takes a new state, and sends it if that answered all there was to answer. */
     const take = (next: Asking) => {
@@ -58,12 +72,6 @@ function useAnswering({ sessionId, requestId, questions, command }: Props) {
             send(next);
         }
     };
-    const skip = () =>
-        settle(
-            command === undefined
-                ? api.sessionDeny(sessionId, requestId, SKIPPED)
-                : api.sessionCommandAnswer(sessionId, requestId, null),
-        );
     return { asking, setAsking, sent, send, take, skip };
 }
 
@@ -160,6 +168,7 @@ function Steps({ questions, answering }: Part) {
                     className="question-step"
                     aria-current={at === asking.at}
                     data-answered={isAnswered(questions, asking, at)}
+                    data-skipped={isSkipped(asking, at)}
                     onClick={() => setAsking(goTo(questions, asking, at))}
                     disabled={sent}
                 >
@@ -193,6 +202,11 @@ function Options({ questions, answering, own, card }: OptionsProps) {
     };
     return (
         <div className="question-options">
+            {picked.skipped && (
+                <p className="question-skipped">
+                    Skipped. Choosing an answer takes the place of the skip.
+                </p>
+            )}
             {question.options.map((option, place) => (
                 <button
                     key={option.label}
@@ -230,11 +244,12 @@ function Options({ questions, answering, own, card }: OptionsProps) {
 
 /** Sending, skipping, and which keys do what. */
 function Foot({ questions, answering }: Part) {
-    const { asking, sent, send, skip } = answering;
+    const { asking, sent, send, skip, take } = answering;
     const several = questions.length > 1;
     const keys = questions[asking.at]?.multi
         ? "Space chooses, Enter is done"
         : "A number or Enter chooses";
+    const skipKey = SKIP_KEY.toUpperCase();
     return (
         <div className="permission-actions">
             <button
@@ -245,11 +260,21 @@ function Foot({ questions, answering }: Part) {
             >
                 {sent ? "Sending…" : several ? "Send answers" : "Send answer"}
             </button>
+            {several && (
+                <button
+                    type="button"
+                    className="button"
+                    onClick={() => take(skipOne(questions, asking))}
+                    disabled={sent || isSkipped(asking, asking.at)}
+                >
+                    Skip this question
+                </button>
+            )}
             <button type="button" className="button" onClick={skip} disabled={sent}>
-                Skip
+                {several ? "Skip all" : "Skip"}
             </button>
             <span className="question-keys">
-                {keys}
+                {keys}, {skipKey} skips{several ? " this one" : ""}
                 {several && ", ← → change question"}
             </span>
         </div>

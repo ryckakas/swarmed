@@ -410,3 +410,46 @@ async fn the_menu_marks_what_swarmed_does_with_each_command() {
     assert_eq!(kind("config"), Some(CommandKind::Setting));
     assert_eq!(kind("login"), None);
 }
+
+#[tokio::test]
+async fn a_skipped_setting_is_left_as_it_is() {
+    let fx = fixture();
+    let (core, session) = core_with_session(&fx).await;
+    let mut bus = core.subscribe();
+    core.session_message(session.id, "/effort High", &[], Auth::Subscription)
+        .expect("is set");
+    answered(&mut bus).await;
+
+    // Asked again, its one question skipped: the answers leave it out.
+    core.session_message(session.id, "/effort", &[], Auth::Subscription)
+        .expect("asks");
+    let (request_id, _) = asked(&mut bus).await;
+    core.session_command_answer(
+        session.id,
+        &request_id,
+        Some(answers(&[])),
+        Auth::Subscription,
+    )
+    .expect("changes nothing");
+    let (_, what) = answered(&mut bus).await;
+    assert_eq!(what, "Nothing was changed.");
+    assert_eq!(
+        core.session(session.id).expect("exists").effort,
+        Some(Effort::High)
+    );
+
+    // Of Claude Code's settings, one skipped is not told, and the one answered is.
+    core.session_message(session.id, "/config", &[], Auth::Subscription)
+        .expect("asks");
+    let (request_id, questions) = asked(&mut bus).await;
+    let chosen = [(questions[0].question.as_str(), first_off(0))];
+    core.session_command_answer(
+        session.id,
+        &request_id,
+        Some(answers(&chosen)),
+        Auth::Subscription,
+    )
+    .expect("tells");
+    let (_, what) = answered(&mut bus).await;
+    assert_eq!(what, "Claude Code was told: /config autoCompact=false");
+}

@@ -2899,6 +2899,17 @@ code {
     color: var(--pollen);
 }
 
+.question-step[data-skipped="true"] {
+    text-decoration: line-through;
+    color: var(--muted);
+}
+
+.question-skipped {
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--text-sm);
+}
+
 .question-options {
     display: grid;
     gap: var(--space-1);

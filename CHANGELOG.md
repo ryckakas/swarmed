@@ -47,6 +47,11 @@ notice adds its line under Unreleased.
 
 ### Changed
 
+- **Skip one question, not all of them.** When an agent asks several questions at once, each
+  can be skipped on its own, with its button or the S key, and the rest answered; Skip all is
+  still there. The agent is told plainly that a skipped question was skipped and not to choose
+  for you, and so is it when you skip them all. A skipped setting of a command like `/config`
+  is left as it is.
 - **Stopping a turn sends the next waiting message.** Stop, or Esc, used to leave the queue
   standing until "Send the next one now" was pressed. A turn that fails still leaves it for
   you to send.

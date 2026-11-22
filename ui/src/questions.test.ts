@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
     allAnswered,
+    allSkipped,
     answersOf,
     choose,
+    commandAnswersOf,
+    isSkipped,
     keyed,
     QUESTION_TOOL,
     questionsOf,
+    SKIP_KEY,
+    SKIPPED_ONE,
     sendsAtOnce,
+    skip,
     typeOwn,
     unanswered,
 } from "./questions";
@@ -120,5 +126,64 @@ describe("sendsAtOnce", () => {
         expect(sendsAtOnce(single, choose(single, unanswered(single), 0))).toBe(true);
         const both = asked();
         expect(sendsAtOnce(both, choose(both, unanswered(both), 0))).toBe(false);
+    });
+});
+
+describe("skipping one question", () => {
+    it("settles it, and choosing or typing an answer un-skips it", () => {
+        const questions = asked();
+        const skipped = skip(questions, unanswered(questions));
+        expect(isSkipped(skipped, 0)).toBe(true);
+        // The next open question comes up, as after an answer.
+        expect(skipped.at).toBe(1);
+        const back = { ...skipped, at: 0 };
+        expect(isSkipped(choose(questions, back, 1), 0)).toBe(false);
+        expect(isSkipped(typeOwn(questions, back, "Medium"), 0)).toBe(false);
+        expect(isSkipped(typeOwn(questions, back, ""), 0)).toBe(true);
+    });
+
+    it("counts as settled when the answers can be sent", () => {
+        const questions = asked();
+        const first = skip(questions, unanswered(questions));
+        expect(allAnswered(questions, first)).toBe(false);
+        const both = choose(questions, first, 0);
+        expect(allAnswered(questions, both)).toBe(true);
+    });
+
+    it("is sent to an agent in words it cannot take for a choice, and left out for a command", () => {
+        const questions = asked();
+        const answered = choose(questions, skip(questions, unanswered(questions)), 1);
+        expect(answersOf(questions, answered)).toEqual({
+            "Which format?": SKIPPED_ONE,
+            "Which parts?": "Body",
+        });
+        expect(commandAnswersOf(questions, answered)).toEqual({ "Which parts?": "Body" });
+    });
+
+    it("is the same as skipping them all once every question is skipped", () => {
+        const questions = asked();
+        const once = skip(questions, unanswered(questions));
+        expect(allSkipped(once)).toBe(false);
+        expect(allSkipped(skip(questions, once))).toBe(true);
+    });
+
+    it("has a key that skips the question on screen only", () => {
+        const questions = asked();
+        const second = { ...unanswered(questions), at: 1 };
+        const keyedOnce = keyed(questions, second, SKIP_KEY);
+        if (keyedOnce.kind !== "state") {
+            throw new Error("the key skips");
+        }
+        expect([isSkipped(keyedOnce.asking, 0), isSkipped(keyedOnce.asking, 1)]).toEqual([
+            false,
+            true,
+        ]);
+    });
+
+    it("of the only question, sends at once, as skipping it all", () => {
+        const one = questionsOf(QUESTION_TOOL, { questions: [input.questions[0]] }) ?? [];
+        const skipped = skip(one, unanswered(one));
+        expect(sendsAtOnce(one, skipped)).toBe(true);
+        expect(allSkipped(skipped)).toBe(true);
     });
 });

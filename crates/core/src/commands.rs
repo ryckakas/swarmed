@@ -625,8 +625,12 @@ impl Core {
         let first = questions
             .first()
             .and_then(|asked| answers.get(&asked.question));
-        let said =
-            self.set_as_chosen(&session, setting, command, first.map_or("", String::as_str))?;
+        // A question the user skipped is left out of the answers: its setting stays as it is.
+        let Some(first) = first else {
+            let aside = answered(NOTHING_CHANGED.to_string());
+            return self.live.note(&self.store, id, aside);
+        };
+        let said = self.set_as_chosen(&session, setting, command, first)?;
         self.live.note(&self.store, id, answered(said))
     }
 }

@@ -294,6 +294,12 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   answers tells the agent nothing, so the UI never offers that. A number, the arrows, the
   space bar, Enter and a click all choose; one question with one answer is sent as it is
   chosen. Input the UI cannot show whole falls back to the plain allow-or-deny prompt.
+  A question can be skipped on its own (`skip`, the S key): it counts as settled, choosing
+  or typing an answer un-skips it, and it reaches the agent under its text as `SKIPPED_ONE`,
+  never left out, which could read as no answer. Every question skipped is Skip all, which
+  denies the call with `SKIPPED`. Both say not to choose for the user: an agent that hears
+  no answer otherwise picks one. A command's questions (`/config`) leave a skipped one out
+  of the answers (`commandAnswersOf`), and the core leaves that setting as it is.
 - **A sub-agent is read from its session's events, never a session of its own**
   (`AgentEvent::Sub`, `subagents.ts`, `SubAgentPane.tsx`). Claude Code names, on each message
   of an agent it started, the tool call that started it; `claude.rs` wraps what such a message
