@@ -122,10 +122,10 @@ pub enum Layout {
 #[serde(rename_all = "snake_case")]
 pub enum ToolCalls {
     /// Each call on a line of its own.
-    #[default]
     All,
     /// Calls that follow each other folded into one line, which counts them and names the
     /// last one used.
+    #[default]
     Folded,
     /// None, with a larger sign that the agent works for as long as it does.
     Hidden,
@@ -161,7 +161,7 @@ impl Default for Settings {
             default_supervision: Supervision::Auto,
             notifications: true,
             html_views: true,
-            tool_calls: ToolCalls::All,
+            tool_calls: ToolCalls::Folded,
             status_items: StatusItem::defaults(),
             status_command: String::new(),
             rules: String::new(),
@@ -231,7 +231,7 @@ mod tests {
             default_supervision: Supervision::Ask,
             notifications: false,
             html_views: false,
-            tool_calls: ToolCalls::Folded,
+            tool_calls: ToolCalls::Hidden,
             status_items: vec![StatusItem::Cost],
             status_command: "~/bin/status".to_string(),
             rules: "Keep answers short.\nNo em dashes.".to_string(),
@@ -255,6 +255,27 @@ mod tests {
         std::fs::write(&path, "text_scale = 900\ntheme = \"dark\"").expect("writes");
         let loaded = Settings::load(&path).expect("loads");
         assert_eq!((loaded.text_scale, loaded.theme), (150, Theme::Dark));
+    }
+
+    #[test]
+    fn tool_calls_are_folded_unless_chosen_otherwise() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.toml");
+        assert_eq!(
+            Settings::load(&path).expect("defaults").tool_calls,
+            ToolCalls::Folded
+        );
+        // A file written before the setting existed, or by someone who never chose.
+        std::fs::write(&path, "theme = \"dark\"").expect("writes");
+        assert_eq!(
+            Settings::load(&path).expect("loads").tool_calls,
+            ToolCalls::Folded
+        );
+        std::fs::write(&path, "tool_calls = \"all\"").expect("writes");
+        assert_eq!(
+            Settings::load(&path).expect("loads").tool_calls,
+            ToolCalls::All
+        );
     }
 
     #[test]

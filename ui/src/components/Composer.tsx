@@ -1,10 +1,11 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import { sendOrQueue } from "../actions";
 import { api } from "../api";
 import type { AgentEvent, Session } from "../api/types";
 import { noteCommandSent } from "../commandSent";
 import { expandPastes, forgetPastes } from "../pastes";
-import { type Draft, putBack, waitsItsTurn } from "../sending";
+import { browse, type Direction, sentMessages } from "../recall";
+import { type Draft, NO_DRAFT, waitsItsTurn } from "../sending";
 import { takenBySwarmed } from "../slash";
 import { appliedEffort } from "../statusline";
 import { useStore } from "../store";
@@ -90,20 +91,22 @@ function TerminalPane({ id, busy }: { id: number; busy: boolean }) {
     );
 }
 
-/** The message box of an existing session. */
+/**
+ * The message box of an existing session. What it holds is the session's draft in the store,
+ * so it is still there after another session was opened, and no other session sees it.
+ */
 export function Composer({ session }: { session: Session }) {
     const words = useWords();
-    const [text, setText] = useState("");
-    const [files, setFiles] = useState<string[]>([]);
+    const { id, status } = session;
+    const { text, files } = useStore((state) => state.drafts[id] ?? NO_DRAFT);
+    const editDraft = useStore((state) => state.editDraft);
+    const putDraftBack = useStore((state) => state.putDraftBack);
     const terminal = useStore((state) => state.terminalOpen);
     const toggleTerminal = useStore((state) => state.toggleTerminal);
     const report = useStore((state) => state.report);
     const input = useRef<HTMLTextAreaElement>(null);
-    const { id, status } = session;
+    const recalling = useRecall(id, session.spawned_by !== null, { text, files });
     const busy = waitsItsTurn(status);
-    // What the box holds right now, for when a send fails after it was emptied.
-    const draft = useRef<Draft>({ text, files });
-    draft.current = { text, files };
     const commands = useSlashCommands(id, status);
     const suggestion = useStore((state) => suggestionOf(state.events[id]));
     const canSend = text.trim() !== "" || files.length > 0;
@@ -123,8 +126,8 @@ export function Composer({ session }: { session: Session }) {
             return;
         }
         const unsent: Draft = { text, files };
-        setText("");
-        setFiles([]);
+        editDraft(id, NO_DRAFT);
+        recalling.forget();
         // What was pasted large goes out in full, in place of the token that stood for it.
         // A busy agent is not interrupted: the message waits its turn, and can still be changed.
         const message = expandPastes(text.trim());
@@ -138,9 +141,8 @@ export function Composer({ session }: { session: Session }) {
             .then(() => forgetPastes(unsent.text))
             .catch((error: unknown) => {
                 report(error);
-                const back = putBack(draft.current, unsent);
-                setText(back.text);
-                setFiles(back.files);
+                // Into this session's box, even if another session is on screen by now.
+                putDraftBack(id, unsent);
             });
     };
     const stop = () => void api.sessionInterrupt(id).catch(report);
@@ -154,9 +156,9 @@ export function Composer({ session }: { session: Session }) {
                     <MessageQueue sessionId={id} busy={busy} hearsMidTurn={hearsMidTurn} />
                     <ComposerBox
                         value={text}
-                        onChange={setText}
+                        onChange={(value) => editDraft(id, { text: value })}
                         files={files}
-                        onFiles={setFiles}
+                        onFiles={(value) => editDraft(id, { files: value })}
                         onSend={() => send()}
                         onSendNow={() => send(true)}
                         onStop={status === "working" ? stop : undefined}
@@ -165,6 +167,7 @@ export function Composer({ session }: { session: Session }) {
                         suggestion={busy ? null : suggestion}
                         inputRef={input}
                         commands={commands}
+                        onRecall={recalling.recall}
                     >
                         <SessionPickers session={session} />
                         <button
@@ -181,6 +184,33 @@ export function Composer({ session }: { session: Session }) {
             )}
         </div>
     );
+}
+
+/**
+ * What ↑ and ↓ do in session `id`'s message box, which holds `now`: go back through what was
+ * sent to the session, and forward again to what was typed. Where that stands is kept in the
+ * store beside the draft, so what was typed before ↑ is still there to come back to after
+ * another session was opened. `spawned` says another session started this one.
+ */
+function useRecall(id: number, spawned: boolean, now: Draft) {
+    const editDraft = useStore((state) => state.editDraft);
+    const noteRecall = useStore((state) => state.noteRecall);
+    return {
+        recall: (direction: Direction): Draft | null => {
+            const { events, recalls } = useStore.getState();
+            // The events are read already, for the transcript; the list is made from them only
+            // when ↑ starts going back.
+            const sent = () => sentMessages(events[id] ?? [], spawned);
+            const next = browse(recalls[id] ?? null, direction, now, sent);
+            if (next !== null) {
+                noteRecall(id, next);
+                editDraft(id, next.shown);
+            }
+            return next?.shown ?? null;
+        },
+        /** A message was sent: ↑ starts again from the newest. */
+        forget: () => noteRecall(id, null),
+    };
 }
 
 /**

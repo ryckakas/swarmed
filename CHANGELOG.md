@@ -16,6 +16,12 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **↑ in the message box brings back what you sent.** As in a terminal, ↑ goes back through
+  the messages sent to the session, newest first, and ↓ comes forward again to what you had
+  typed. They do so only with the caret at the very start or the very end of the box, so a
+  message of several lines, or one long enough to wrap, stays editable: one more press gets
+  there from the first or the last row. A message comes back as you typed it, `/code-review 123` rather than
+  what the skill expanded to, with its attached files. Editing it makes a new message to send.
 - **Put the sidebar in your own order.** Drag a repository, a task, a session or a cloud task
   by its row to another place among its own kind, or move the focused row, or the open session,
   with ⌥⌘↑ and ⌥⌘↓. Each stays with what it belongs to: a session in its task, one another
@@ -23,10 +29,12 @@ notice adds its line under Unreleased.
   window and `swarmed project move`, `task move`, `session move` and `cloud move` share it.
   Sub-agents come and go as they work and are not moved. A newly added repository now goes at
   the end instead of in alphabetical order.
-- **Tool calls can be folded or hidden.** A new setting under Appearance, Tool calls: All, as
-  before; Folded, where calls in a row become one line that counts them and names the last one,
-  and opens to list them all; or Hidden, where they are left out and a larger animation shows
-  while the agent works, so a long run of them does not look like a stuck session. Permission
+- **Tool calls are folded, and can be shown or hidden.** A new setting under Sessions, right
+  after "New sessions start in", Tool calls: Folded, now the default, where calls in a row
+  become one line that counts them and names the last one, and opens to list them all; All,
+  each on a line of its own as before; or Hidden, where they are left out and a larger
+  animation shows while the agent works, so a long run of them does not look like a stuck
+  session. Permission
   requests, questions, plans and views always show. An agent can change it with the rest of
   the appearance, except that it can only propose hiding them: that is done when you accept
   it in the conversation.
@@ -73,6 +81,7 @@ notice adds its line under Unreleased.
 
 ### Changed
 
+- **Text size is right under Icons and words** in Appearance, before the layouts.
 - **Skip one question, not all of them.** When an agent asks several questions at once, each
   can be skipped on its own, with its button or the S key, and the rest answered; Skip all is
   still there. The agent is told plainly that a skipped question was skipped and not to choose
@@ -84,6 +93,17 @@ notice adds its line under Unreleased.
 
 ### Fixed
 
+- **An unsent message is no longer lost when another session is opened.** Each session keeps
+  what was typed in its message box, attached files included, until it is sent. So does the
+  new-task box, for each repository. Drafts are kept only while the window is open, and nothing
+  unsent is written to disk. Closing or deleting a session, removing its task or removing a
+  repository drops its draft.
+- **Closing, deleting or removing the session on screen opens a new task in its repository.**
+  Removing its task left it showing "Waking the spawn…" and an error in the task panel while
+  the worktree went, and closing or deleting it could open the new-task view on another
+  repository. The new-task view of the session's own repository now opens at once, as soon as
+  a removal starts. For a removed repository, the next repository's opens instead. The same
+  happens when another window or an agent closes or deletes it.
 - **A session started with a skill gets a real title.** A first message such as
   `/code-review 123` used to title the session `<invoke_skill_or_bash_placeholder>`, and a new
   task started with it got that as its name, folder and branch. It is now named after what the

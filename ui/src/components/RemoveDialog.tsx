@@ -48,6 +48,7 @@ function Question({ target, project }: { target: RemoveTarget; project: Project 
     const report = useStore((state) => state.report);
     const removalBegun = useStore((state) => state.removalBegun);
     const removalEnded = useStore((state) => state.removalEnded);
+    const leaveForRemoval = useStore((state) => state.leaveForRemoval);
     const dialog = useRef<HTMLDialogElement>(null);
     // Kept in the store: a dialog closed and asked for again must not start a second removal.
     const key = removalKey(target);
@@ -69,6 +70,8 @@ function Question({ target, project }: { target: RemoveTarget; project: Project 
     };
     const remove = async () => {
         removalBegun(key);
+        // Off its sessions before its agents stop and its worktree goes, not once it is gone.
+        leaveForRemoval(target);
         try {
             const passedOver = await removeTarget(target, problem !== null);
             if (askedAgain()) {

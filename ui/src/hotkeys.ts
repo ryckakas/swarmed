@@ -171,6 +171,14 @@ export const LOCAL_HOTKEYS: { keys: string; label: string }[] = [
     { keys: "end", label: "End of the line in the message" },
     { keys: "cmd+backspace", label: "Empty the message, with the caret at its start" },
     { keys: "/", label: "Suggest commands and skills, at the start of a message" },
+    {
+        keys: "arrowup",
+        label: "Bring back an earlier message to the session, with the caret at the very start",
+    },
+    {
+        keys: "arrowdown",
+        label: "Go on to a later message, or back to what was typed, with the caret at the very end",
+    },
     { keys: "arrowup", label: "Previous session, with a sidebar row focused" },
     { keys: "arrowdown", label: "Next session, with a sidebar row focused" },
 ];

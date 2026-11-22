@@ -17,11 +17,14 @@ import type {
 } from "./api/types";
 import type { CloudTarget } from "./cloud";
 import type { Comparison } from "./components/CompareDialog";
+import type { Browsing } from "./recall";
 import { type ReviewComment, withComment } from "./review";
+import { type Draft, NO_DRAFT, putBack, withDraft } from "./sending";
 import { atWork, type SubAgent, subAgentsIn } from "./subagents";
 import {
     applySessionEvent,
     findSession,
+    findSessionHome,
     mayHaveEdited,
     taskIdOf,
     toggledId,
@@ -63,6 +66,30 @@ interface State {
     selectedSessionId: number | null;
     /** The repository preselected on the new-task screen, shown when no session is selected. */
     draftProject: string | null;
+    /**
+     * What each session's message box holds and has not sent, by the session's id. Only in
+     * memory: it lasts as long as the window, and nothing typed and unsent is written anywhere.
+     */
+    drafts: Record<number, Draft>;
+    /** Changes what the message box of session `sessionId` holds. */
+    editDraft(sessionId: number, change: Partial<Draft>): void;
+    /**
+     * Puts a message that could not be sent back in its session's box, wherever the user is by
+     * then, unless something else was written there meanwhile, which is theirs to keep.
+     */
+    putDraftBack(sessionId: number, unsent: Draft): void;
+    /**
+     * Where going through the messages sent with ↑ and ↓ stands in each session's message box.
+     * It holds what was typed before the first ↑, which is not in `drafts` while a sent message
+     * is in the box, so it is kept here, where opening another session does not lose it.
+     */
+    recalls: Record<number, Browsing>;
+    /** Notes where going through the messages sent stands in session `sessionId`, or that it ended. */
+    noteRecall(sessionId: number, browsing: Browsing | null): void;
+    /** What the new-task box holds and has not sent, per repository by its name; in memory too. */
+    newTaskDrafts: Record<string, Draft>;
+    /** Changes what the new-task box holds for repository `project`. */
+    editNewTaskDraft(project: string, change: Partial<Draft>): void;
     /** The events of every session whose transcript has been opened. */
     events: Record<number, AgentEvent[]>;
     /** Per task id, a count that goes up whenever its agents may have changed files. */
@@ -166,6 +193,13 @@ interface State {
     removals: string[];
     removalBegun(key: string): void;
     removalEnded(key: string): void;
+    /**
+     * Leaves the session on screen if it belongs to what is about to be removed, before the
+     * removal stops its agents and takes its worktree away: nothing shown may read that worktree
+     * meanwhile. The centre goes to the new-task view of the task's repository, or of another
+     * repository when the repository itself is going.
+     */
+    leaveForRemoval(target: RemoveTarget): void;
     /** Notes that the user has looked at a session, here and in the core. */
     markRead(api: Api, sessionId: number): void;
     /** Goes up whenever the agents or their models change, so menus read them again. */
@@ -438,11 +472,15 @@ function forgotten(state: State, sessionIds: number[], taskIds: number[]): Parti
     const of = <T extends { sessionId: number }>(held: T | null): T | null =>
         held !== null && sessionIds.includes(held.sessionId) ? null : held;
     return {
+        // Left on screen with its conversation forgotten, it would show as loading for good.
+        ...leaving(state, sessionIds),
         events: without(state.events, sessionIds),
         subAgents: without(state.subAgents, sessionIds),
         turnBegan: without(state.turnBegan, sessionIds),
         claudeTerminals: without(state.claudeTerminals, sessionIds),
         queues: without(state.queues, sessionIds),
+        drafts: without(state.drafts, sessionIds),
+        recalls: without(state.recalls, sessionIds),
         subView: of(state.subView),
         terminalCommand: of(state.terminalCommand),
         edits: without(state.edits, taskIds),
@@ -451,14 +489,87 @@ function forgotten(state: State, sessionIds: number[], taskIds: number[]): Parti
     };
 }
 
+/**
+ * What changes when sessions `sessionIds` go, if the one on screen is among them: the centre
+ * moves to the new-task view of `project`, by default the repository the session was in. Every
+ * way a session goes comes through here, before anything of it is forgotten, so the centre
+ * never holds on to a session that is not there.
+ */
+function leaving(state: State, sessionIds: number[], project?: string | null): Partial<State> {
+    const selected = state.selectedSessionId;
+    if (selected === null || !sessionIds.includes(selected)) {
+        return {};
+    }
+    const session = findSession(state.projects, selected);
+    const home = session && findSessionHome(state.projects, session);
+    return {
+        selectedSessionId: null,
+        subView: null,
+        // A repository that is gone by then is passed over for the first one left.
+        draftProject: project === undefined ? (home?.project.name ?? null) : project,
+    };
+}
+
 /** What changes when a session is closed: it leaves the tree, and the centre if it was there. */
 function closed(state: State, sessionId: number): Partial<State> {
-    const selected = state.selectedSessionId;
     return {
-        closing: null,
+        ...leaving(state, [sessionId]),
+        // Asked about it, the question goes with it; asked about another, that stays.
+        closing: state.closing === sessionId ? null : state.closing,
         projects: withoutSession(state.projects, sessionId),
-        selectedSessionId: selected === sessionId ? null : selected,
+        // Put away, it cannot be written to; and its task can go while it is put away.
+        drafts: without(state.drafts, [sessionId]),
+        recalls: without(state.recalls, [sessionId]),
     };
+}
+
+/** What changes when the tree is read again: a session on screen that is not in it has gone. */
+function readAgain(state: State, projects: Project[]): Partial<State> {
+    const selected = state.selectedSessionId;
+    const gone = selected !== null && !findSession(projects, selected);
+    return {
+        projects,
+        load: "ready",
+        newTaskDrafts: listedOnly(state.newTaskDrafts, projects),
+        ...(gone ? leaving(state, [selected]) : {}),
+    };
+}
+
+/** `recalls` with session `sessionId`'s set to `browsing`, or dropped when that is `null`. */
+function withRecall(
+    recalls: Record<number, Browsing>,
+    sessionId: number,
+    browsing: Browsing | null,
+): Record<number, Browsing> {
+    return browsing === null
+        ? without(recalls, [sessionId])
+        : { ...recalls, [sessionId]: browsing };
+}
+
+/** The new-task drafts of the repositories still listed: a removed one's goes with it. */
+function listedOnly(drafts: Record<string, Draft>, projects: Project[]): Record<string, Draft> {
+    const listed = new Set(projects.map((project) => project.name));
+    const names = Object.keys(drafts);
+    if (names.every((name) => listed.has(name))) {
+        return drafts;
+    }
+    return Object.fromEntries(Object.entries(drafts).filter(([name]) => listed.has(name)));
+}
+
+/** What to show when `target` is about to be removed, if the session on screen goes with it. */
+function leftForRemoval(state: State, target: RemoveTarget): Partial<State> {
+    const project = state.projects.find((candidate) => candidate.name === target.project);
+    const tasks = (project?.tasks ?? []).filter(
+        (task) => target.task === null || task.name === target.task,
+    );
+    const sessionIds = tasks.flatMap((task) => task.sessions.map((session) => session.id));
+    // A repository on its way out is no place for a new task: the first other one is.
+    const other = state.projects.find((candidate) => candidate.name !== target.project);
+    return leaving(
+        state,
+        sessionIds,
+        target.task === null ? (other?.name ?? null) : target.project,
+    );
 }
 
 /** Has the core keep something it checks first; what is wrong with it, or nothing once `taken`. */
@@ -485,6 +596,20 @@ export const useStore = create<State>((set, get) => ({
     load: "loading",
     selectedSessionId: null,
     draftProject: null,
+    drafts: {},
+    editDraft: (sessionId, change) =>
+        set((state) => ({ drafts: withDraft(state.drafts, sessionId, change) })),
+    putDraftBack: (sessionId, unsent) =>
+        set((state) => {
+            const now = state.drafts[sessionId] ?? NO_DRAFT;
+            return { drafts: withDraft(state.drafts, sessionId, putBack(now, unsent)) };
+        }),
+    recalls: {},
+    noteRecall: (sessionId, browsing) =>
+        set((state) => ({ recalls: withRecall(state.recalls, sessionId, browsing) })),
+    newTaskDrafts: {},
+    editNewTaskDraft: (project, change) =>
+        set((state) => ({ newTaskDrafts: withDraft(state.newTaskDrafts, project, change) })),
     events: {},
     subAgents: {},
     subView: null,
@@ -575,6 +700,7 @@ export const useStore = create<State>((set, get) => ({
     removalBegun: (key) => set((state) => ({ removals: [...state.removals, key] })),
     removalEnded: (key) =>
         set((state) => ({ removals: state.removals.filter((removal) => removal !== key) })),
+    leaveForRemoval: (target) => set((state) => leftForRemoval(state, target)),
     markRead: (api, sessionId) => {
         if (!findSession(get().projects, sessionId)?.unread) {
             return;
@@ -633,8 +759,7 @@ export const useStore = create<State>((set, get) => ({
         try {
             const projects = await api.overview();
             // A session that is gone, with its task or repository, cannot stay in the centre.
-            const selected = findSession(projects, get().selectedSessionId)?.id ?? null;
-            set({ projects, load: "ready", selectedSessionId: selected });
+            set((state) => readAgain(state, projects));
         } catch (error) {
             set({ load: { error: String(error) } });
         }
@@ -738,6 +863,17 @@ function heardOfDeletion(api: Api, event: SessionEvent): boolean {
 }
 
 /**
+ * A session was closed, from another window or by the session that started it: it leaves the
+ * tree at once, and the centre if it was there, without waiting for the tree to be read again.
+ * The event is still applied, and the tree read again for the task's count of closed sessions.
+ */
+function heardOfClosing(event: SessionEvent) {
+    if (event.event.type === "closed") {
+        useStore.setState((state) => closed(state, event.session_id));
+    }
+}
+
+/**
  * Repositories, tasks, sessions or cloud tasks were put in another order, here or in another
  * window: the tree is read again. The event belongs to no session, so nothing else is done with
  * it. Whether the event was that.
@@ -816,6 +952,7 @@ export function connect(api: Api): () => void {
                 return;
             }
             readTreeIfChanged(api, event);
+            heardOfClosing(event);
             apply(event);
             const turnBegan = turnsBegan(useStore.getState().turnBegan, event, Date.now());
             if (turnBegan !== useStore.getState().turnBegan) {

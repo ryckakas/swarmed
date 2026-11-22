@@ -18,6 +18,7 @@ import {
     variantNames,
 } from "../broadcast";
 import { expandPastes, forgetPastes } from "../pastes";
+import { NO_DRAFT } from "../sending";
 import { sentOn } from "../slash";
 import { useStore } from "../store";
 import { taskNameForPrompt, taskNameFrom, uniqueTaskName } from "../tree";
@@ -64,13 +65,16 @@ export function NewTask({ projects }: { projects: Project[] }) {
     const agents = useAgents();
     // A task starts with a message to its agent: a screen or a setting has no session yet.
     const commands = sentOn(useSlashCommands(null));
-    const [prompt, setPrompt] = useState("");
-    const [files, setFiles] = useState<string[]>([]);
     const [creating, setCreating] = useState<string | null>(null);
 
     // The sidebar's plus on a project preselects it; otherwise the last choice, or the first.
     const project =
         projects.find((candidate) => candidate.name === (chosen ?? draftProject)) ?? projects[0];
+    // What was typed for this repository and not sent, apart from every other repository's.
+    const { text: prompt, files } = useStore(
+        (state) => state.newTaskDrafts[project?.name ?? ""] ?? NO_DRAFT,
+    );
+    const editNewTaskDraft = useStore((state) => state.editNewTaskDraft);
     const choices = useBranchChoices(project?.name);
     const environments = useEnvironments(project?.name);
     const [environment, setEnvironment] = useState("");
@@ -108,6 +112,8 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 files,
             };
             await startTask(start, true);
+            // It is a task now; a creation that failed would have left it to try again.
+            editNewTaskDraft(start.project, NO_DRAFT);
             await startVariants(start, variants, taken, { supervision, effort });
             forgetPastes(prompt);
         } catch (error) {
@@ -124,9 +130,9 @@ export function NewTask({ projects }: { projects: Project[] }) {
             <h1>{words.newTask}</h1>
             <ComposerBox
                 value={prompt}
-                onChange={setPrompt}
+                onChange={(text) => editNewTaskDraft(project.name, { text })}
                 files={files}
-                onFiles={setFiles}
+                onFiles={(added) => editNewTaskDraft(project.name, { files: added })}
                 onSend={() => void send()}
                 canSend={canSend}
                 placeholder={words.describeTask}

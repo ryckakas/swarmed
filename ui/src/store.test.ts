@@ -12,6 +12,7 @@ import {
     withEvent,
     withStreamed,
 } from "./store";
+import { findSession, findSessionHome } from "./tree";
 
 const text = (value: string): AgentEvent => ({ type: "text", text: value });
 const published = (sessionId: number, event: AgentEvent): SessionEvent => ({
@@ -258,6 +259,194 @@ describe("removing", () => {
         expect(task).toBeDefined();
         useStore.getState().forgetTasks([task?.id ?? -1]);
         expect(useStore.getState().events[4]).toBeUndefined();
+    });
+});
+
+describe("the session on screen going", () => {
+    const homeOf = (id: number) => {
+        const { projects } = useStore.getState();
+        const session = findSession(projects, id);
+        return session && findSessionHome(projects, session);
+    };
+    const centre = () => {
+        const { selectedSessionId, draftProject } = useStore.getState();
+        return { selectedSessionId, draftProject };
+    };
+    /** Session 4 on screen, after another repository was last chosen for a new task. */
+    const onScreen = async (api: Api) => {
+        await useStore.getState().refresh(api);
+        useStore.setState({ draftProject: "fsum", subView: null });
+        await useStore.getState().open(api, 4);
+        const home = homeOf(4);
+        expect(home?.project.name).not.toBe("fsum");
+        return { project: home?.project.name ?? "", task: home?.task.name ?? "" };
+    };
+
+    it("opens the new task of its repository when it is closed", async () => {
+        const api = createMockApi();
+        const { project } = await onScreen(api);
+        await useStore.getState().close(api, 4);
+        expect(centre()).toEqual({ selectedSessionId: null, draftProject: project });
+    });
+
+    it("does the same when it is deleted", async () => {
+        const api = createMockApi();
+        const { project } = await onScreen(api);
+        await useStore.getState().deleteSession(api, 4);
+        expect(centre()).toEqual({ selectedSessionId: null, draftProject: project });
+    });
+
+    it("is left as soon as its task's removal starts, with its conversation still there", async () => {
+        const api = createMockApi();
+        const { project, task } = await onScreen(api);
+        useStore.getState().leaveForRemoval({ project: "fsum", task: "anything" });
+        expect(centre().selectedSessionId).toBe(4);
+
+        useStore.getState().leaveForRemoval({ project, task });
+        expect(centre()).toEqual({ selectedSessionId: null, draftProject: project });
+        expect(useStore.getState().events[4]?.length).toBeGreaterThan(0);
+    });
+
+    it("goes to another repository when its own is being removed", async () => {
+        const api = createMockApi();
+        const { project } = await onScreen(api);
+        useStore.getState().leaveForRemoval({ project, task: null });
+        const { selectedSessionId, draftProject } = centre();
+        expect(selectedSessionId).toBeNull();
+        expect(draftProject).not.toBe(project);
+        expect(useStore.getState().projects.map((each) => each.name)).toContain(draftProject);
+    });
+
+    it("never stays on screen with its conversation forgotten", async () => {
+        const api = createMockApi();
+        const { project } = await onScreen(api);
+        const taskId = homeOf(4)?.task.id ?? -1;
+        useStore.getState().forgetTasks([taskId]);
+        expect(centre()).toEqual({ selectedSessionId: null, draftProject: project });
+    });
+
+    it("is left when the tree is read again without it", async () => {
+        const api = createMockApi();
+        const { project, task } = await onScreen(api);
+        await api.taskRemove(project, task, true);
+        await useStore.getState().refresh(api);
+        expect(centre()).toEqual({ selectedSessionId: null, draftProject: project });
+    });
+
+    it("is left when another window or an agent closes or deletes it", async () => {
+        const base = createMockApi();
+        let heard: (event: SessionEvent) => void = () => {};
+        const api: Api = {
+            ...base,
+            onSessionEvent: async (listener) => {
+                heard = listener;
+                return () => {};
+            },
+        };
+        const disconnect = connect(api);
+        const { project } = await onScreen(api);
+        await base.sessionClose(4);
+        heard(published(4, { type: "closed" }));
+        expect(centre()).toEqual({ selectedSessionId: null, draftProject: project });
+
+        useStore.setState({ draftProject: "fsum" });
+        await useStore.getState().open(api, 3);
+        const other = homeOf(3)?.project.name;
+        await base.sessionDelete(3);
+        heard(published(3, { type: "deleted" }));
+        expect(centre()).toEqual({ selectedSessionId: null, draftProject: other });
+        disconnect();
+    });
+});
+
+describe("unsent messages", () => {
+    const drafts = () => useStore.getState().drafts;
+    beforeEach(() => useStore.setState({ drafts: {}, newTaskDrafts: {}, recalls: {} }));
+
+    it("are kept per session, and opening another session changes none", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        await useStore.getState().open(api, 4);
+        useStore.getState().editDraft(4, { text: "half a thought" });
+        useStore.getState().editDraft(4, { files: ["/tmp/shot.png"] });
+        await useStore.getState().open(api, 3);
+        useStore.getState().editDraft(3, { text: "another" });
+        useStore.getState().startNew();
+        await useStore.getState().open(api, 4);
+        expect(drafts()).toEqual({
+            4: { text: "half a thought", files: ["/tmp/shot.png"] },
+            3: { text: "another", files: [] },
+        });
+    });
+
+    it("go back into their own session when a send fails, unless it was written to since", () => {
+        useStore.getState().editDraft(4, { text: "send me", files: ["/a"] });
+        const unsent = drafts()[4] ?? { text: "", files: [] };
+        // Sending empties the box; the user moves on to session 3 while it fails.
+        useStore.getState().editDraft(4, { text: "", files: [] });
+        useStore.setState({ selectedSessionId: 3 });
+        useStore.getState().putDraftBack(4, unsent);
+        expect(drafts()).toEqual({ 4: { text: "send me", files: ["/a"] } });
+
+        useStore.getState().editDraft(4, { text: "something new", files: [] });
+        useStore.getState().putDraftBack(4, unsent);
+        expect(drafts()[4]).toEqual({ text: "something new", files: [] });
+    });
+
+    it("go with a session that is deleted or closed, and with a removed task's sessions", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        for (const id of [3, 4, 5]) {
+            useStore.getState().editDraft(id, { text: `draft ${id}` });
+        }
+        await useStore.getState().deleteSession(api, 4);
+        expect(Object.keys(drafts())).toEqual(["3", "5"]);
+        await useStore.getState().close(api, 5);
+        expect(Object.keys(drafts())).toEqual(["3"]);
+        const { projects } = useStore.getState();
+        const session = findSession(projects, 3);
+        const taskId = (session && findSessionHome(projects, session)?.task.id) ?? -1;
+        useStore.getState().forgetTasks([taskId]);
+        expect(drafts()).toEqual({});
+    });
+
+    it("keep what was typed before ↑ while another session is open, and go with the session", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        const typed = { text: "half a thought", files: [] };
+        const sent = { text: "sent before", files: [] };
+        const browsing = { sent: [sent], at: 0, draft: typed, shown: sent };
+        useStore.getState().noteRecall(4, browsing);
+        useStore.getState().editDraft(4, sent);
+        await useStore.getState().open(api, 3);
+        await useStore.getState().open(api, 4);
+        expect(useStore.getState().recalls).toEqual({ 4: browsing });
+
+        useStore.getState().noteRecall(5, browsing);
+        useStore.getState().noteRecall(5, null);
+        expect(Object.keys(useStore.getState().recalls)).toEqual(["4"]);
+        await useStore.getState().deleteSession(api, 4);
+        expect(useStore.getState().recalls).toEqual({});
+        useStore.getState().noteRecall(5, browsing);
+        await useStore.getState().close(api, 5);
+        expect(useStore.getState().recalls).toEqual({});
+    });
+
+    it("are kept per repository in the new-task box, and go with a removed repository", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        const { editNewTaskDraft } = useStore.getState();
+        editNewTaskDraft("storefront", { text: "add a search box" });
+        editNewTaskDraft("bonsai-lint", { text: "support Go", files: ["/spec.md"] });
+        expect(useStore.getState().newTaskDrafts).toEqual({
+            storefront: { text: "add a search box", files: [] },
+            "bonsai-lint": { text: "support Go", files: ["/spec.md"] },
+        });
+        await api.projectRemove("bonsai-lint", false);
+        await useStore.getState().refresh(api);
+        expect(Object.keys(useStore.getState().newTaskDrafts)).toEqual(["storefront"]);
+        editNewTaskDraft("storefront", { text: "" });
+        expect(useStore.getState().newTaskDrafts).toEqual({});
     });
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionStatus } from "./api/types";
-import { delivered, putBack, waitsItsTurn } from "./sending";
+import { type Draft, delivered, NO_DRAFT, putBack, waitsItsTurn, withDraft } from "./sending";
 
 /** An `Api` that only notes how each message was handed over. */
 function noting() {
@@ -83,5 +83,26 @@ describe("putBack", () => {
         expect(putBack(typed, unsent)).toBe(typed);
         const attached = { text: "", files: ["/b.txt"] };
         expect(putBack(attached, unsent)).toBe(attached);
+    });
+});
+
+describe("withDraft", () => {
+    it("changes one draft and leaves the others alone", () => {
+        const drafts: Record<number, Draft> = {
+            1: { text: "one", files: [] },
+            2: { text: "two", files: ["/a"] },
+        };
+        expect(withDraft(drafts, 1, { files: ["/b"] })).toEqual({
+            1: { text: "one", files: ["/b"] },
+            2: { text: "two", files: ["/a"] },
+        });
+        expect(withDraft(drafts, 3, { text: "three" })[3]).toEqual({ text: "three", files: [] });
+        expect(drafts[1]).toEqual({ text: "one", files: [] });
+    });
+
+    it("drops a draft that is emptied", () => {
+        const drafts = { storefront: { text: "fix it", files: [] } };
+        expect(withDraft(drafts, "storefront", { text: "" })).toEqual({});
+        expect(withDraft(drafts, "storefront", NO_DRAFT)).toEqual({});
     });
 });
