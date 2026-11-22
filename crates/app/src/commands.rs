@@ -1,4 +1,5 @@
-//! The commands the UI can call. Each one forwards to `swarmed-core` and adds nothing.
+//! The commands the UI can call. Each one forwards to `swarmed-core` and adds nothing, apart
+//! from the three that update the app itself, which forward to `update.rs`.
 #![allow(
     clippy::needless_pass_by_value,
     reason = "Tauri hands commands their arguments, `State` included, by value"

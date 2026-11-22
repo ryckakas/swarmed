@@ -36,7 +36,7 @@ export function About() {
 }
 
 /** Looks for a new version, as the About view asks when it is shown. */
-function lookForUpdate() {
+export function lookForUpdate() {
     api.updateCheck().then(
         (update) => useStore.setState({ update }),
         (error: unknown) =>
@@ -65,9 +65,11 @@ function UpdateRow() {
         api.updateRestart().catch(report);
     };
     const installs = update.state === "available" || update.state === "ready";
-    const looks = ["unknown", "up_to_date", "failed"].includes(update.state);
+    const looks = update.state === "up_to_date" || update.state === "failed";
+    // Each step of a download would be read out: only where updating stands is.
+    const announced = update.state === "downloading" ? "off" : "polite";
     return (
-        <div className="about-update" aria-live="polite">
+        <div className="about-update" aria-live={announced}>
             <p>{updateLine(update, words)}</p>
             {asking && <p className="about-update-warning">{busyWarning(busy)}</p>}
             {installs && (
@@ -84,7 +86,7 @@ function UpdateRow() {
                     Not now
                 </button>
             )}
-            {looks && update.state !== "unknown" && (
+            {looks && (
                 <button type="button" className="button" onClick={lookForUpdate}>
                     {words.update.check}
                 </button>

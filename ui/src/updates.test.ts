@@ -16,6 +16,14 @@ describe("updateLine", () => {
         );
     });
 
+    it("says why a version did not go in, plainly, and still offers it", () => {
+        const refused = { state: "available", version: "0.3.0", failed: "read-only disk" } as const;
+        expect(updateLine(refused, wordsFor("colony"))).toBe(
+            "Swarmed 0.3.0 could not be installed: read-only disk",
+        );
+        expect(newVersion(refused)).toBe("0.3.0");
+    });
+
     it("keeps a failure plain in every style", () => {
         const failed = { state: "failed", reason: "offline" } as const;
         expect(updateLine(failed, wordsFor("colony"))).toBe("Updating failed: offline");

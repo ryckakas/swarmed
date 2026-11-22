@@ -142,6 +142,7 @@ Set in the app's Settings, kept in `settings.toml`.
 | `default_supervision` | `auto` | how new sessions are supervised: `ask`, `auto` or `plan`; `bypass`, which allows everything, is not offered in Settings |
 | `auto_title` | `true` | a model names each new session after its first message |
 | `notifications` | `true` | notify when a session needs you, finishes or fails |
+| `updates` | `automatic` | how Swarmed updates itself: `automatic` looks at launch and every few hours, downloads a new version and installs it when you quit; `when_asked` fetches nothing until About opens and installs only when you ask |
 | `html_views` | `true` | agents may answer with HTML views |
 | `rules` | none | rules every agent is given, in every session |
 | `status_items`, `status_command` | branch, changes, model, context, cost | the status line: built-in pieces, or a script whose first line is shown |

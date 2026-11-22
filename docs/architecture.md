@@ -14,7 +14,8 @@ ui/         the app's front end: React and TypeScript, built by Vite
 
 Everything Swarmed does is in `swarmed-core`. The command and the app only drive it: the app's
 commands forward to the core and add nothing (`crates/app/src/commands.rs`), apart from what only
-the window has, such as the count on its Dock icon.
+the window has, such as the count on its Dock icon and updating the app itself
+(`crates/app/src/update.rs`).
 
 The UI reaches the app through one interface, `Api` (`ui/src/api/client.ts`). `tauri.ts` calls
 the app; `mock.ts` serves sample data, so `pnpm dev` runs the whole UI in a browser with a

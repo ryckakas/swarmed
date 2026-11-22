@@ -20,8 +20,9 @@ notice adds its line under Unreleased.
   restart** installs it. With **Update automatically** on, as it is unless turned off under
   Settings → About, Swarmed looks at launch and every few hours, downloads a new version, and
   installs it when you quit; a dot on the version in the corner says one is ready. Off, nothing
-  is fetched until About opens. An update is installed only if it is signed with the release
-  key, for the version it claims to be. This version still has to be installed by hand: the
+  is fetched until About opens, and nothing is installed unless you ask. An update is installed
+  only if it is signed with the release key, for the version it claims to be; one that could not
+  be put in says why at the next launch. An app built from the sources is never updated. This version still has to be installed by hand: the
   ones after it update from here.
 - **`swarmed-core`: `Settings` has `updates`,** an `UpdateMode`: `automatic` or `when_asked`.
 

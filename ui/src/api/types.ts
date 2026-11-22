@@ -361,8 +361,8 @@ export type UpdateState =
     | { state: "unknown" }
     | { state: "checking" }
     | { state: "up_to_date" }
-    /** Out, and not downloaded. */
-    | { state: "available"; version: string }
+    /** Out, and not downloaded. `failed` is why it did not go in when Swarmed last quit. */
+    | { state: "available"; version: string; failed?: string }
     /** Coming in: `received` bytes so far, of `total` if the server said. */
     | { state: "downloading"; version: string; received: number; total: number | null }
     /** Downloaded and its signature checked: it goes in when Swarmed quits. */

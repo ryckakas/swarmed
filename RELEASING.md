@@ -58,7 +58,7 @@ the ad hoc signing below.
 1. Make it once, with a password: `pnpm tauri signer generate -w ~/.tauri/swarmed.key`.
 2. Put the public key, the content of `~/.tauri/swarmed.key.pub`, in
    `plugins.updater.pubkey` in `crates/app/tauri.conf.json`. `scripts/build-release.sh` refuses
-   to build without it.
+   to build without it, and fails if the archive it built is signed with any other key.
 3. Store the private key and its password as secrets:
    `gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/swarmed.key`, then
    `gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.

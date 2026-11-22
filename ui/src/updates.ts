@@ -13,7 +13,9 @@ export function updateLine(update: UpdateState, words: Words): string {
         case "up_to_date":
             return words.update.upToDate;
         case "available":
-            return words.update.available(update.version);
+            return update.failed === undefined
+                ? words.update.available(update.version)
+                : `Swarmed ${update.version} could not be installed: ${update.failed}`;
         case "downloading":
             return words.update.downloading(
                 update.version,
@@ -46,7 +48,10 @@ export function newVersion(update: UpdateState): string | null {
     }
 }
 
-/** What is said before restarting while `busy` sessions are in a turn. */
+/**
+ * What is said before restarting while `busy` sessions are in a turn. It asks something of the
+ * user, so it and its two answers stay plain in every style, like a failure.
+ */
 export function busyWarning(busy: number): string {
     return busy === 1
         ? "1 session is in the middle of a turn: restarting stops it."

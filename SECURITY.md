@@ -50,12 +50,15 @@ advisory is published with credit to you, unless you'd rather not be named.
   whether a stack answers on this machine, and looking for a new version of itself. That last
   one fetches `latest.json` from this repository's latest GitHub release, at launch and every
   few hours while updating automatically is on, and otherwise only when About opens; the
-  request names the updater, not you or your version. There is no telemetry. The programs it
+  request names the updater, not you or your version. When a newer version is out, the archive
+  that file names is downloaded too: by itself while updating automatically is on, and otherwise
+  when you ask for the update. There is no telemetry. The programs it
   runs for you, such as the agents, `git` and `gh`, make their own.
 - **An update is installed only if it is signed with the release key,** whose public half is
   built into the app, and only for the version it was signed as: neither a changed archive nor
   an older release presented as newer goes in. It is installed as Swarmed quits, never while it
-  runs.
+  runs. Only a release updates itself: an app you built from the sources is left as you built
+  it.
 
 Swarmed does not sandbox the agents. An agent runs as you, in its task's worktree, and what it may
 do is decided by the session's supervision and the agent itself.

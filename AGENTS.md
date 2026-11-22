@@ -511,6 +511,27 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   looks elsewhere; the app does so as a macOS notification (`crates/app/src/notify.rs`) and
   counts what waits on its icon. A notice names the tool and the agent's own summary, never the
   tool's arguments, which may hold anything.
+- **The app updates itself, and that is the one thing the app crate decides**
+  (`crates/app/src/update.rs`, `tauri-plugin-updater`): the updater is the window's, and the
+  core links no HTTP client. The setting is the core's (`Settings::updates`, `UpdateMode`).
+  What it decides is in pure functions tested there (`step`, `progress_step`); add to those
+  rather than to the code around them.
+  - **Nothing is installed while Swarmed runs.** The checked archive waits in memory and goes
+    in on `RunEvent::Exit` (`install_ready`): agents start Swarmed's own executable to reach
+    its tools, and must not get a newer one than the app they talk to.
+  - **Only a release updates itself** (`from_sources`): `scripts/build-release.sh` sets
+    `SWARMED_RELEASE` for the build, and anything built without it, `pnpm app:build` and
+    `pnpm app:install` included, looks only when About opens and installs nothing.
+  - **Each look asks again**, and a newer release takes the place of the archive held. With
+    `when_asked`, nothing is downloaded or installed unasked: an archive downloaded while
+    updating was automatic is put away by the next look and passed over at quit.
+  - **A version that could not be put in is remembered** with the reason in
+    `run/update-refused`, shown with the version at the next launch and not downloaded again
+    unasked. Asking for it tries again.
+  - **Only an archive signed with the key built in is installed**, for the version it was
+    signed as (`requireSignedVersion`). `build-release.sh` fails if the archive it built is
+    signed with another key. The plugin's own commands are in no capability: the window
+    reaches updating through `update_state`, `update_check` and `update_restart` alone.
 - **Banners need the built app.** The system's notification centre only knows a bundle with an
   identity, which `pnpm app:build` makes (signed ad hoc, which is enough) and `pnpm app` does
   not. The bundle asks once for permission, shows banners as Swarmed, and a click opens the

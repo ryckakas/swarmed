@@ -293,7 +293,8 @@ fn main() {
         .run(move |app, event| match event {
             // What the tasks' `start` commands left running goes with Swarmed: nothing it
             // started is to carry on unseen.
-            // A new version that is ready goes in now, with nothing of the old one running.
+            // A new version that is ready goes in now, as Swarmed goes. Agents it started may
+            // still be on their way out: they run on from the files they were started from.
             tauri::RunEvent::Exit => {
                 tauri::async_runtime::block_on(leaving.leave());
                 update::install_ready(app);
