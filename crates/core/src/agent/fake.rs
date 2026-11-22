@@ -15,9 +15,11 @@ use crate::error::Result;
 /// A stand-in agent whose replies depend only on the user's message.
 ///
 /// - plain text: replies `echo: <text>` and ends the turn;
-/// - `run: <command>`: asks permission for a `Bash` tool call, then reports the outcome;
+/// - `run: <command>`: asks permission for a `Bash` tool call, then reports the outcome; a stop
+///   meanwhile takes the request back and ends the turn;
 /// - `env: <NAME>`: replies with the value of that variable as given for the session, or `unset`;
 /// - `slow`: starts a turn that only ends when interrupted;
+/// - `fail`: ends the turn with an error;
 /// - `suggest: <text>`: replies as to plain text, then offers `<text>` as the next message;
 /// - in plan mode, anything: presents a plan and waits for it to be approved.
 #[derive(Debug, Default)]
@@ -57,6 +59,8 @@ impl AgentBackend for FakeBackend {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Next {
     Continue,
+    /// The turn was stopped and has said so. The session goes on.
+    Interrupted,
     /// The command channel closed: the front end is gone.
     Stop,
 }
@@ -80,7 +84,7 @@ impl Script {
     }
 
     async fn run(mut self) {
-        while self.step().await == Next::Continue {}
+        while self.step().await != Next::Stop {}
     }
 
     /// Handles one command; anything but a user message is ignored between turns.
@@ -133,12 +137,6 @@ impl Script {
     }
 
     async fn turn(&mut self, message: &str) -> Next {
-        let done = |is_error, result: Option<&str>| AgentEvent::TurnDone {
-            is_error,
-            result: result.map(String::from),
-            cost_usd: Some(0.0),
-            duration_ms: None,
-        };
         if let Some(name) = message.strip_prefix("env:") {
             let found = self
                 .spec
@@ -152,6 +150,11 @@ impl Script {
                     .to_string(),
             );
             self.emit(done(false, None));
+            return Next::Continue;
+        }
+        if message == "fail" {
+            self.text("trying…");
+            self.emit(done(true, Some("it went wrong")));
             return Next::Continue;
         }
         if message == "instructions" {
@@ -196,8 +199,9 @@ impl Script {
     /// Asks permission for a `Bash` call and reports what the decision led to.
     async fn run_tool(&mut self, shell: &str) -> Next {
         let input = json!({ "command": shell });
-        let Some(allowed) = self.ask("Bash", input).await else {
-            return Next::Stop;
+        let allowed = match self.ask("Bash", input).await {
+            Ok(allowed) => allowed,
+            Err(next) => return next,
         };
         self.text(if allowed { "ran it" } else { "not allowed" });
         Next::Continue
@@ -206,8 +210,9 @@ impl Script {
     /// Presents a plan for what was asked and reports whether it was approved.
     async fn plan(&mut self, message: &str) -> Next {
         let plan = format!("1. Look into: {message}\n2. Do it.");
-        let Some(approved) = self.ask(PLAN_TOOL, json!({ "plan": plan })).await else {
-            return Next::Stop;
+        let approved = match self.ask(PLAN_TOOL, json!({ "plan": plan })).await {
+            Ok(approved) => approved,
+            Err(next) => return next,
         };
         self.text(if approved {
             "carrying out the plan"
@@ -217,8 +222,14 @@ impl Script {
         Next::Continue
     }
 
-    /// Calls a tool after asking for permission. `None` if the front end went away meanwhile.
-    async fn ask(&mut self, tool: &str, input: serde_json::Value) -> Option<bool> {
+    /// Calls a tool after asking for permission, and says whether it was allowed. If it never
+    /// was, what follows instead: the turn was stopped, which takes the request back as Claude
+    /// Code does, or the front end went away.
+    async fn ask(
+        &mut self,
+        tool: &str,
+        input: serde_json::Value,
+    ) -> std::result::Result<bool, Next> {
         self.requests += 1;
         let request_id = format!("req-{}", self.requests);
         let tool_use_id = format!("tool-{}", self.requests);
@@ -233,7 +244,16 @@ impl Script {
             input,
             description: None,
         });
-        let decision = wait_for(&mut self.commands, |c| decides(c, &request_id)).await?;
+        let answer =
+            |c: &AgentCommand| decides(c, &request_id) || matches!(c, AgentCommand::Interrupt);
+        let decision = wait_for(&mut self.commands, answer)
+            .await
+            .ok_or(Next::Stop)?;
+        if matches!(decision, AgentCommand::Interrupt) {
+            self.emit(AgentEvent::PermissionWithdrawn { request_id });
+            self.emit(done(true, Some("interrupted")));
+            return Err(Next::Interrupted);
+        }
         let allowed = !matches!(decision, AgentCommand::Deny { .. });
         let content = match decision {
             AgentCommand::Answer { answers, .. } => format!("answered: {answers:?}"),
@@ -245,7 +265,17 @@ impl Script {
             content,
             is_error: !allowed,
         });
-        Some(allowed)
+        Ok(allowed)
+    }
+}
+
+/// The end of a turn, as the scripted agent reports it.
+fn done(is_error: bool, result: Option<&str>) -> AgentEvent {
+    AgentEvent::TurnDone {
+        is_error,
+        result: result.map(String::from),
+        cost_usd: Some(0.0),
+        duration_ms: None,
     }
 }
 

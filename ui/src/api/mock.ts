@@ -1283,6 +1283,28 @@ class MockAgent {
         }
     }
 
+    /**
+     * Sends a waiting message ahead of the others, stopping a `slow` turn first. Any other turn
+     * under way cannot be stopped here, so the message goes first when it ends: like the core,
+     * the mock never sends into a busy agent.
+     */
+    sendNow(id: number, message: number) {
+        const queue = this.queue(id);
+        const chosen = queue.find((queued) => queued.id === message);
+        if (chosen) {
+            this.setQueue(id, [chosen, ...queue.filter((queued) => queued !== chosen)]);
+            if (!(this.interrupt(id) || this.isBusy(id))) {
+                this.sendQueued(id);
+            }
+        }
+    }
+
+    private isBusy(id: number): boolean {
+        const sessions = this.tasks().flatMap((task) => task.sessions);
+        const status = sessions.find((candidate) => candidate.id === id)?.status;
+        return status === "working" || status === "waiting";
+    }
+
     /** Publishes a piece of a reply without keeping it, as the core does. */
     stream(sessionId: number, event: AgentEvent, steps: number) {
         setTimeout(() => {
@@ -1639,7 +1661,7 @@ class MockAgent {
     private readonly closedSessions = new Map<number, Session[]>();
 
     close(id: number) {
-        this.interrupt(id);
+        this.stopSlow(id);
         for (const task of this.tasks()) {
             const closing = task.sessions.filter((candidate) => candidate.id === id);
             task.sessions = task.sessions.filter((candidate) => candidate.id !== id);
@@ -1650,7 +1672,7 @@ class MockAgent {
 
     /** Gone for good, from the open ones and the closed ones alike. */
     delete(id: number) {
-        this.interrupt(id);
+        this.stopSlow(id);
         for (const task of this.tasks()) {
             const others = (sessions: Session[]) =>
                 sessions.filter((candidate) => candidate.id !== id);
@@ -1680,9 +1702,21 @@ class MockAgent {
         throw new Error(`session ${id} not found`);
     }
 
-    interrupt(id: number) {
-        this.interrupts.get(id)?.();
+    /** Stops a `slow` turn, as the user does: the next waiting message then goes, as in the core. */
+    interrupt(id: number): boolean {
+        const stopped = this.stopSlow(id);
+        if (stopped) {
+            this.sendQueued(id);
+        }
+        return stopped;
+    }
+
+    /** Ends a `slow` turn and nothing else; whether there was one. */
+    private stopSlow(id: number): boolean {
+        const stop = this.interrupts.get(id);
         this.interrupts.delete(id);
+        stop?.();
+        return stop !== undefined;
     }
 }
 
@@ -2085,6 +2119,7 @@ export function createMockApi(): Api {
         sessionEnqueue: async (id, text, files) => agent.enqueue(id, withFiles(text, files ?? [])),
         sessionQueueEdit: async (id, message, text) => agent.editQueued(id, message, text),
         sessionSendQueued: async (id) => agent.sendQueued(id),
+        sessionSendNow: async (id, message) => agent.sendNow(id, message),
         sessionMarkRead: async (id) => {
             agent.configure(id, { unread: false });
         },
@@ -2092,7 +2127,9 @@ export function createMockApi(): Api {
         sessionAnswer: async (id, requestId, answers) => agent.decide(id, requestId, true, answers),
         configAnswer: async (requestId, accepted) => agent.answerProposal(requestId, accepted),
         sessionDeny: async (id, requestId) => agent.decide(id, requestId, false),
-        sessionInterrupt: async (id) => agent.interrupt(id),
+        sessionInterrupt: async (id) => {
+            agent.interrupt(id);
+        },
         ...backgroundApi(),
         slashCommands: async () => MOCK_COMMANDS,
         sessionCommandAnswer: async (id, requestId, answers) =>

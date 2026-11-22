@@ -3024,6 +3024,7 @@ code {
     background: var(--raised);
 }
 
+.queue-send,
 .queue-remove {
     flex: none;
     width: 22px;
@@ -3038,6 +3039,24 @@ code {
     line-height: 1;
 }
 
+.queue-send {
+    display: grid;
+    place-items: center;
+    padding: 0;
+}
+
+.queue-send svg {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentcolor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.queue-send:hover,
+.queue-send:focus-visible,
 .queue-remove:hover,
 .queue-remove:focus-visible {
     background: var(--line);
