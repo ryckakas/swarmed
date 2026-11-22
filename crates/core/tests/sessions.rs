@@ -2206,3 +2206,41 @@ async fn what_a_background_command_printed_is_read_only_by_its_own_session() {
         "{nobody:?}"
     );
 }
+
+#[tokio::test]
+async fn a_message_sent_now_stops_the_turn_and_goes_ahead_of_those_waiting() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    core.session_send(session.id, "slow").expect("sends");
+    core.session_enqueue(session.id, "later").expect("queues");
+    core.session_message_now(session.id, "now", &[], Auth::default())
+        .expect("sends now");
+    let stopped = turn(&mut bus, session.id).await;
+    assert!(
+        stopped
+            .iter()
+            .any(|event| matches!(event, AgentEvent::TurnDone { is_error: true, .. })),
+        "{stopped:?}"
+    );
+    let now = turn(&mut bus, session.id).await;
+    assert!(now.contains(&text("echo: now")), "{now:?}");
+    let later = turn(&mut bus, session.id).await;
+    assert!(later.contains(&text("echo: later")), "{later:?}");
+
+    // With nothing under way it goes at once.
+    core.session_message_now(session.id, "at once", &[], Auth::default())
+        .expect("sends");
+    let at_once = turn(&mut bus, session.id).await;
+    assert!(at_once.contains(&text("echo: at once")), "{at_once:?}");
+    // Nothing, and a command Swarmed does not send on, are refused.
+    let empty = core.session_message_now(session.id, " ", &[], Auth::default());
+    assert!(matches!(empty, Err(Error::EmptyMessage)), "{empty:?}");
+    let login = core.session_message_now(session.id, "/login", &[], Auth::default());
+    assert!(
+        matches!(login, Err(Error::TerminalOnly { .. })),
+        "{login:?}"
+    );
+}

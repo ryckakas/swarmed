@@ -769,6 +769,19 @@ pub(crate) async fn session_send(
     Ok(core.session_message(id, &text, &files, Auth::default())?)
 }
 
+/// Sends the message now, stopping the turn under way first: it goes when that turn has ended,
+/// ahead of anything waiting. Async for the same reason as `session_send`.
+#[tauri::command]
+pub(crate) async fn session_message_now(
+    core: CoreState<'_>,
+    id: i64,
+    text: String,
+    files: Option<Vec<PathBuf>>,
+) -> Command<()> {
+    let files = files.unwrap_or_default();
+    Ok(core.session_message_now(id, &text, &files, Auth::default())?)
+}
+
 #[tauri::command(async)]
 pub(crate) fn session_queue(core: CoreState<'_>, id: i64) -> Command<Vec<QueuedMessage>> {
     Ok(core.session_queue(id)?)

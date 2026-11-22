@@ -69,6 +69,19 @@ impl Core {
         self.session_send_as_typed(id, &message)
     }
 
+    /// Sends `text`, with `files` listed under it, now: a turn under way is stopped and it goes
+    /// when that turn has ended, ahead of anything waiting. Must be called from within a tokio
+    /// runtime.
+    pub fn session_message_now(
+        &self,
+        id: i64,
+        text: &str,
+        files: &[PathBuf],
+        auth: Auth,
+    ) -> Result<()> {
+        self.session_send_text_now(id, &with_files(text, files)?, auth)
+    }
+
     /// Adds `text`, with `files` listed under it, to the end of the session's queue and
     /// returns the queue.
     pub fn session_enqueue_message(

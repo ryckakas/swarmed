@@ -1371,6 +1371,15 @@ class MockAgent {
         }
     }
 
+    /** Sends what was typed ahead of what waits, stopping a `slow` turn first. */
+    sendTypedNow(id: number, text: string) {
+        const queue = this.enqueue(id, text);
+        const typed = queue[queue.length - 1];
+        if (typed) {
+            this.sendNow(id, typed.id);
+        }
+    }
+
     /** Sends a waiting message ahead of the others, stopping a `slow` turn first. */
     sendNow(id: number, message: number) {
         const queue = this.queue(id);
@@ -2291,6 +2300,8 @@ export function createMockApi(): Api {
         sessionFork: async (id, from, onAgent) => sampleFork(agent, tasks(), id, from, onAgent),
         sessionEvents: async (id) => [...agent.history(id)],
         sessionSend: async (id, text, files) => agent.send(id, withFiles(text, files ?? [])),
+        sessionMessageNow: async (id, text, files) =>
+            agent.sendTypedNow(id, withFiles(text, files ?? [])),
         sessionQueue: async (id) => agent.queue(id),
         sessionEnqueue: async (id, text, files) => agent.enqueue(id, withFiles(text, files ?? [])),
         sessionQueueEdit: async (id, message, text) => agent.editQueued(id, message, text),

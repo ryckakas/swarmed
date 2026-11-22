@@ -16,6 +16,9 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **⌘⇧Enter sends what is typed now.** While the agent works, ⌘⇧Enter in the message box stops
+  its turn and sends the message, with its files, ahead of anything waiting; while it is idle
+  it sends as Enter does. It is listed with the other shortcuts in Settings.
 - **See what a background command printed.** A command an agent left running in the
   background can be opened from the task's Background list, read-only, in the terminal's
   colours, and followed while it runs. What Claude Code has cleared since it last started is

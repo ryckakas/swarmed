@@ -87,12 +87,28 @@ impl Queues {
     }
 
     fn push(&self, session: i64, text: &str) {
-        let id = self.ids.fetch_add(1, Ordering::Relaxed) + 1;
-        let text = text.to_string();
+        let message = self.message(text);
         lock(&self.waiting)
             .entry(session)
             .or_default()
-            .push(QueuedMessage { id, text });
+            .push(message);
+    }
+
+    /// Puts a message first in the queue, ahead of those waiting.
+    fn push_front(&self, session: i64, text: &str) {
+        let message = self.message(text);
+        lock(&self.waiting)
+            .entry(session)
+            .or_default()
+            .insert(0, message);
+    }
+
+    fn message(&self, text: &str) -> QueuedMessage {
+        let id = self.ids.fetch_add(1, Ordering::Relaxed) + 1;
+        QueuedMessage {
+            id,
+            text: text.to_string(),
+        }
     }
 
     /// Gives a waiting message new text; text with nothing in it takes the message out.
@@ -330,15 +346,48 @@ impl Core {
     /// running is started. A message that has been sent meanwhile is left alone. Must be
     /// called from within a tokio runtime.
     pub fn session_send_now(&self, id: i64, message: u64, auth: Auth) -> Result<()> {
-        if !self.live.queues.to_front(id, message) {
+        let waits = |queue: Vec<QueuedMessage>| queue.iter().any(|queued| queued.id == message);
+        if !waits(self.live.queues.list(id)) {
             return Ok(());
         }
-        publish(&self.store, &self.live, id)?;
         // A session can count as busy with no agent running, left so by a Swarmed that ended
         // in the middle of a turn: there is no turn to stop then.
         let running = self.live.is_running(id);
         self.session_start(id, auth)?;
-        let mut pressing = self.live.queues.pressing();
+        // Held from putting it first to sending it: a turn that ends meanwhile sends it then.
+        let pressing = self.live.queues.pressing();
+        if !self.live.queues.to_front(id, message) {
+            return Ok(());
+        }
+        self.send_first_now(id, running, pressing)
+    }
+
+    /// Sends `text` now, ahead of the messages waiting, as [`Core::session_send_now`] does for
+    /// one of them: in one step, so that no turn can end between its being put first and its
+    /// being sent. A command Swarmed does not send on is refused, as when it is queued. Must be
+    /// called from within a tokio runtime.
+    pub fn session_send_text_now(&self, id: i64, text: &str, auth: Auth) -> Result<()> {
+        self.may_wait(id, text)?;
+        if text.trim().is_empty() {
+            return Err(Error::EmptyMessage);
+        }
+        let running = self.live.is_running(id);
+        self.session_start(id, auth)?;
+        let pressing = self.live.queues.pressing();
+        self.live.queues.push_front(id, text);
+        self.send_first_now(id, running, pressing)
+    }
+
+    /// Sends the session's first waiting message now: if a turn is under way, it is stopped and
+    /// the message goes when it has ended (marked in `pressing`, held from before the message
+    /// was put first); else at once. `running` is whether the agent ran before this.
+    fn send_first_now(
+        &self,
+        id: i64,
+        running: bool,
+        mut pressing: MutexGuard<'_, HashSet<i64>>,
+    ) -> Result<()> {
+        publish(&self.store, &self.live, id)?;
         let busy = self
             .session(id)
             .is_ok_and(|session| is_busy_status(session.status));

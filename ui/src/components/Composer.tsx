@@ -36,7 +36,8 @@ const TerminalBox = lazy(async () => {
 const PLACEHOLDER: Record<Session["status"], string> = {
     // The style's own words, in place of this.
     idle: "Reply to the agent",
-    working: "Write the next message: it waits until the agent is done. Esc stops the agent.",
+    working:
+        "Write the next message: it waits until the agent is done. Esc stops the agent, ⌘⇧Enter stops it and sends this now.",
     waiting: "Answer the request above. A message written here waits until the agent is done.",
     errored: "Send a message to start the agent again",
 };
@@ -115,7 +116,7 @@ export function Composer({ session }: { session: Session }) {
         }
     }, [status]);
 
-    const send = () => {
+    const send = (now = false) => {
         if (!canSend) {
             return;
         }
@@ -129,7 +130,7 @@ export function Composer({ session }: { session: Session }) {
         if (atOnce) {
             noteCommandSent(id);
         }
-        sendOrQueue(id, message, files, atOnce)
+        sendOrQueue(id, message, files, atOnce, now)
             // The pastes are only forgotten once they are sent: a message that comes back
             // still has their tokens in it.
             .then(() => forgetPastes(unsent.text))
@@ -154,7 +155,8 @@ export function Composer({ session }: { session: Session }) {
                         onChange={setText}
                         files={files}
                         onFiles={setFiles}
-                        onSend={send}
+                        onSend={() => send()}
+                        onSendNow={() => send(true)}
                         onStop={status === "working" ? stop : undefined}
                         canSend={canSend}
                         placeholder={status === "idle" ? words.reply : PLACEHOLDER[status]}

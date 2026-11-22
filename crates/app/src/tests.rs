@@ -708,6 +708,14 @@ fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
     );
     app.wait_for_text(id, "echo: now");
     app.wait_for_text(id, "echo: later");
+
+    // What is typed can be sent now too, without waiting in the queue first.
+    app.ok("session_send", json!({ "id": id, "text": "slow" }));
+    app.ok(
+        "session_message_now",
+        json!({ "id": id, "text": "typed", "files": [] }),
+    );
+    app.wait_for_text(id, "echo: typed");
 }
 
 #[test]
