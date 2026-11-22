@@ -543,13 +543,15 @@ fn nothing_is_known_of_updates_until_asked_and_a_build_from_the_sources_is_not_u
 
 /// A configuration the updater refused would stop the app as it starts, in a release only.
 #[test]
-fn the_updater_accepts_its_configuration_and_requires_the_signed_version() {
+fn the_updater_accepts_its_configuration_with_its_key_and_the_signed_version() {
     let file: Value =
         serde_json::from_str(include_str!("../tauri.conf.json")).expect("tauri.conf.json is JSON");
     let section = file.pointer("/plugins/updater").cloned();
     let config: tauri_plugin_updater::Config =
         serde_json::from_value(section.expect("configured")).expect("accepted");
     assert!(config.require_signed_version);
+    // Without it no update could be checked, and the release would only find out when built.
+    assert!(!config.pubkey.is_empty(), "plugins.updater.pubkey is empty");
     let endpoints: Vec<&str> = config.endpoints.iter().map(Url::as_str).collect();
     assert_eq!(
         endpoints,
