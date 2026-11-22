@@ -46,6 +46,10 @@ notice adds its line under Unreleased.
 
 ### Fixed
 
+- **`url` 2.5.9, for RUSTSEC-2026-0592:** in 2.5.8, `Url::origin()` on a URL nested in many
+  `blob:` prefixes overflowed the stack and ended the process. Swarmed calls it itself only in
+  a build run from the sources, but Tauri and its web view's crates use `url` as well.
+
 - **An OpenCode session left on "Default model" runs on the first model listed for OpenCode
   in Settings,** and the model menu names it. It used to run on OpenCode's own default,
   whichever model OpenRouter added last, which changes without notice and may be one the
