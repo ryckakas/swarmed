@@ -3326,6 +3326,17 @@ code {
     text-overflow: ellipsis;
 }
 
+/*
+ * A figure is short and says nothing once cut, so it keeps its width. The names, a branch or a
+ * path above all, can run long: they share what room is left, and show all of it on hover.
+ */
+.status-changes,
+.status-context,
+.status-cost,
+.status-duration {
+    flex-shrink: 0;
+}
+
 /* Each value is a badge in its own colour, so the eye finds it without reading the line. */
 .status-branch,
 .status-nth-0 {

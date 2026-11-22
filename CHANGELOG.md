@@ -20,6 +20,10 @@ notice adds its line under Unreleased.
   usage window reset, refreshing with the coins showed the window back within its limit, but
   the extra usage section kept saying the turns were billed until the next message. Limits
   Claude Code is asked for after a turn's report now decide it.
+- **A long branch name no longer squeezes the cost off the status line.** Every piece of the
+  line shrank alike, so beside a long branch the cost and the time worked were cut to `$…` and
+  `1…`. The figures (changes, context, cost, time worked) now keep their width, the branch,
+  model, agent and worktree share what is left, and hovering a piece shows all of it.
 
 ## [0.2.2] - 2026-11-22
 
