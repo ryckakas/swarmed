@@ -291,6 +291,41 @@ fn claude_code_in_a_terminal(app: &App, id: &Value, size: &Value) {
 }
 
 #[test]
+fn the_ui_can_put_projects_tasks_and_sessions_in_order() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    for name in ["one", "two"] {
+        let task = json!({ "project": "demo", "name": name, "branch": null });
+        app.ok("task_new", task);
+    }
+    let tasks = |app: &App| -> Vec<Value> {
+        let overview = app.ok("overview", json!({}));
+        let tasks = overview[0]["tasks"].as_array().cloned().unwrap_or_default();
+        tasks.iter().map(|task| task["name"].clone()).collect()
+    };
+    app.ok(
+        "task_move",
+        json!({ "project": "demo", "task": "two", "by": -1 }),
+    );
+    assert_eq!(tasks(&app), [json!("two"), json!("one")]);
+    // One repository has nowhere to go, which is no error.
+    app.ok("project_move", json!({ "project": "demo", "by": 1 }));
+
+    let how = json!({ "model": null, "supervision": "auto", "effort": null });
+    let new = |app: &App| {
+        let options = json!({ "project": "demo", "task": "one", "agent": null, "how": how });
+        app.ok("session_new", options)["id"].clone()
+    };
+    let (first, second) = (new(&app), new(&app));
+    app.ok("session_move", json!({ "id": second, "by": -1 }));
+    let overview = app.ok("overview", json!({}));
+    let one = &overview[0]["tasks"][1]["sessions"];
+    assert_eq!((&one[0]["id"], &one[1]["id"]), (&second, &first));
+    app.invoke("cloud_task_move", json!({ "id": 999, "by": 1 }))
+        .expect_err("no such cloud task");
+}
+
+#[test]
 fn the_ui_can_deny_interrupt_and_remove() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));

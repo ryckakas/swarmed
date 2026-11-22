@@ -296,6 +296,37 @@ pub(crate) async fn cloud_tasks(
     Ok(core.cloud_tasks(&project, refresh).await?)
 }
 
+/// Moves a project `by` places among the others in the sidebar, earlier for a negative number.
+/// In order with the window's other commands, as each move is from the list the last one left.
+#[tauri::command]
+pub(crate) fn project_move(core: CoreState<'_>, project: String, by: i32) -> Command<()> {
+    Ok(core.project_move(&project, by)?)
+}
+
+/// Moves a task `by` places among its project's other open tasks.
+#[tauri::command]
+pub(crate) fn task_move(
+    core: CoreState<'_>,
+    project: String,
+    task: String,
+    by: i32,
+) -> Command<()> {
+    Ok(core.task_move(&project, &task, by)?)
+}
+
+/// Moves a session `by` places among its task's other open sessions, or among those its
+/// starter started.
+#[tauri::command]
+pub(crate) fn session_move(core: CoreState<'_>, id: i64, by: i32) -> Command<()> {
+    Ok(core.session_move(id, by)?)
+}
+
+/// Moves a cloud task `by` places among the others of its project.
+#[tauri::command]
+pub(crate) fn cloud_task_move(core: CoreState<'_>, id: i64, by: i32) -> Command<()> {
+    Ok(core.cloud_task_move(id, by)?)
+}
+
 /// Takes a cloud task off Swarmed's list, without stopping it.
 #[tauri::command]
 pub(crate) fn cloud_task_forget(core: CoreState<'_>, id: i64) -> Command<()> {

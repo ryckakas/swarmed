@@ -191,6 +191,8 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::mcp_remove, commands::agent_setups, commands::agent_install,
         commands::agent_configure, commands::agent_models_refresh, commands::openrouter_models,
         commands::overview, commands::project_add, commands::project_remove,
+        commands::project_move, commands::task_move, commands::session_move,
+        commands::cloud_task_move,
         commands::branch_choices, commands::task_name_for, commands::task_new,
         commands::environments, commands::templates, commands::template_save,
         commands::template_remove, commands::actions, commands::action_save,
