@@ -26,6 +26,7 @@ export type HotkeyId =
     | "toggle-plan"
     | "allow"
     | "deny"
+    | "send-now"
     | "toggle-panel"
     | "open-editor"
     | "open-browser"
@@ -94,6 +95,13 @@ export const HOTKEYS: Hotkey[] = [
     },
     { id: "allow", keys: "cmd+enter", label: "Allow the pending request", group: "In a session" },
     { id: "deny", keys: "cmd+backspace", label: "Deny the pending request", group: "In a session" },
+    {
+        id: "send-now",
+        // A key combination, which gitleaks' rule for keys takes for a secret.
+        keys: "cmd+shift+enter", // gitleaks:allow
+        label: "Stop the agent and send what is typed now",
+        group: "In a session",
+    },
     {
         id: "rename-session",
         keys: "cmd+shift+r",

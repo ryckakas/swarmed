@@ -7,6 +7,7 @@ import { taskTooltip } from "../environments";
 import { agentName, iconForAgent } from "../providerIcons";
 import { useStore } from "../store";
 import type { SubAgent } from "../subagents";
+import { listedUnder } from "../subagents";
 import { countUnread, countWaiting, nestedSessions, projectStatus, projectUnread } from "../tree";
 import { newVersion, updateLine } from "../updates";
 import { useWords } from "../useWords";
@@ -563,13 +564,14 @@ const NO_SUB_AGENTS: SubAgent[] = [];
  */
 function SubAgentRows({ session }: { session: Session }) {
     const words = useWords();
-    const atWork = useStore((state) => state.subAgents[session.id] ?? NO_SUB_AGENTS);
+    const followed = useStore((state) => state.subAgents[session.id] ?? NO_SUB_AGENTS);
     const viewed = useStore((state) =>
         state.subView?.sessionId === session.id ? state.subView.id : null,
     );
     const openSub = useStore((state) => state.openSub);
-    // An agent that is not at work has none, whatever was last heard of them.
-    if (atWork.length === 0 || session.status === "idle" || session.status === "errored") {
+    // While the session is idle, only those in the background are still at work.
+    const atWork = listedUnder(followed, session.status);
+    if (atWork.length === 0) {
         return null;
     }
     return (
@@ -579,7 +581,7 @@ function SubAgentRows({ session }: { session: Session }) {
                     <button
                         type="button"
                         className="sub-agent-row"
-                        title={`${words.subAgent}: ${one.name || words.subAgent}`}
+                        title={`${words.subAgent}: ${one.name || words.subAgent}${one.background ? ", in the background" : ""}`}
                         aria-current={viewed === one.id ? "true" : undefined}
                         onClick={() => void openSub(api, session.id, one.id)}
                     >

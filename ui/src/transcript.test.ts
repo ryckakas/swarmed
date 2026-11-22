@@ -3,7 +3,9 @@ import type { AgentEvent } from "./api/types";
 import {
     activity,
     fileName,
+    latestMove,
     messageNumber,
+    movedSaid,
     planOf,
     sameToolCall,
     splitFiles,
@@ -11,6 +13,7 @@ import {
     toItems,
     withFiles,
 } from "./transcript";
+import { wordsFor } from "./wording";
 
 const toolUse = (id: string, command: string): AgentEvent => ({
     type: "tool_use",
@@ -455,5 +458,43 @@ describe("the agent's own commands", () => {
     it("says a command only works in the agent's terminal, not as a reply of the agent's", () => {
         const refused: AgentEvent = { type: "terminal_only", command: "theme" };
         expect(toItems([refused])).toEqual([{ kind: "terminal-only", key: 0, command: "theme" }]);
+    });
+});
+
+describe("a worktree that moved to another branch", () => {
+    const words = wordsFor("plain");
+    const moved = (from: string | null, to: string | null, betweenTurns: boolean): AgentEvent => ({
+        type: "worktree_moved",
+        from,
+        to,
+        between_turns: betweenTurns,
+    });
+
+    it("is an item of its own, in the conversation where it was seen", () => {
+        expect(toItems([moved("you/one", "second", false)], words)).toEqual([
+            { kind: "moved", key: 0, from: "you/one", to: "second", betweenTurns: false },
+        ]);
+    });
+
+    it("says what follows when the agent moved it", () => {
+        expect(movedSaid("you/one", "second", false, words)).toBe(
+            "The worktree moved from you/one to second during this turn: the task's changes and pull request are second's now, and commit and push go to it.",
+        );
+        expect(movedSaid("you/one", null, false, words)).toBe(
+            "The worktree moved from you/one to no branch during this turn, so there is nothing to push until it is on a branch again.",
+        );
+    });
+
+    it("has one latest move, which is the one that can offer the way back", () => {
+        const said: AgentEvent = { type: "text", text: "done" };
+        const events = [moved("you/one", "second", false), said, moved("second", "third", false)];
+        expect(latestMove(toItems(events, words))).toBe(2);
+        expect(latestMove(toItems([said], words))).toBeNull();
+    });
+
+    it("says the agent was told when it moved between turns", () => {
+        expect(movedSaid("second", "you/one", true, words)).toBe(
+            "The worktree was moved from second to you/one since the last turn, and the agent was told with this message.",
+        );
     });
 });

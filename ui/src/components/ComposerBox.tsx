@@ -11,6 +11,7 @@ import {
 import { api } from "../api";
 import type { SlashCommand, Template } from "../api/types";
 import { type Edit, editFor } from "../editing";
+import { matchHotkey } from "../hotkeys";
 import { isLargePaste, tokenFor, withToken } from "../pastes";
 import {
     firstPlaceholder,
@@ -29,6 +30,8 @@ interface Props {
     value: string;
     onChange(value: string): void;
     onSend(): void;
+    /** What the shortcut that sends now does: stops the agent and sends; Enter's send if absent. */
+    onSendNow?: () => void;
     /** Shown instead of Send while the agent works; also what Esc does. */
     onStop?: (() => void) | undefined;
     canSend: boolean;
@@ -78,7 +81,14 @@ export function ComposerBox(props: Props) {
 
     const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
         if (!menu.onKeyDown(event)) {
-            typed(event, { value, offered, onChange, onSend, onStop });
+            typed(event, {
+                value,
+                offered,
+                onChange,
+                onSend,
+                onSendNow: props.onSendNow ?? onSend,
+                onStop,
+            });
         }
     };
 
@@ -159,6 +169,7 @@ interface Typing {
     offered: string | null | undefined;
     onChange(value: string): void;
     onSend(): void;
+    onSendNow(): void;
     onStop: (() => void) | undefined;
 }
 
@@ -173,6 +184,11 @@ function typed(event: KeyboardEvent<HTMLTextAreaElement>, typing: Typing) {
     if (edit) {
         event.preventDefault();
         return applyEdit(edit, box, onChange);
+    }
+    // The shortcut that sends now is in the table with the rest; it acts here, where the text is.
+    if (matchHotkey(event) === "send-now" && !event.nativeEvent.isComposing) {
+        event.preventDefault();
+        return typing.onSendNow();
     }
     // Enter sends; Shift+Enter is a new line. Enter that confirms an IME candidate is neither.
     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {

@@ -13,6 +13,9 @@ function noting() {
             calls.push(`queue ${id} ${text} ${files?.join(",")}`);
             return [];
         },
+        sessionMessageNow: async (id: number, text: string, files?: string[]) => {
+            calls.push(`now ${id} ${text} ${files?.join(",")}`);
+        },
     };
     return { api, calls };
 }
@@ -41,6 +44,7 @@ describe("delivered", () => {
                 throw new Error("the agent is gone");
             },
             sessionEnqueue: async () => [],
+            sessionMessageNow: async () => undefined,
         };
         await expect(delivered(api, "idle", 1, "hello")).rejects.toThrow("the agent is gone");
     });
@@ -53,6 +57,17 @@ describe("delivered at once", () => {
         await delivered(api, "waiting", 1, "/model", [], true);
         await delivered(api, "idle", 1, "/status", [], true);
         expect(calls).toEqual(["send 1 /usage ", "send 1 /model ", "send 1 /status "]);
+    });
+});
+
+describe("delivered now", () => {
+    it("stops a busy agent's turn and sends ahead of what waits, and sends as Enter does to an idle one", async () => {
+        const { api, calls } = noting();
+        await delivered(api, "working", 1, "this instead", ["/a.txt"], false, true);
+        await delivered(api, "idle", 1, "hello", [], false, true);
+        // A command Swarmed does itself goes at once in any case.
+        await delivered(api, "working", 1, "/usage", [], true, true);
+        expect(calls).toEqual(["now 1 this instead /a.txt", "send 1 hello ", "send 1 /usage "]);
     });
 });
 

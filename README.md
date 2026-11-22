@@ -23,7 +23,9 @@ once: each has its own worktree and ports, so they don't step on each other. A d
 
 - **A task is a branch, a worktree and a stack.** Your setup hook runs in each new worktree,
   your dev server keeps running beside it, and every task gets ports of its own, so two of them
-  can run the same app at once.
+  can run the same app at once. Agents keep to their task's worktree, so skills that make a
+  worktree or branch of their own are best left out:
+  [see why](docs/coding-agents.md#skills-that-make-their-own-worktree-or-branch).
 - **Any agent, on its own login.** Claude Code runs as you set it up, with your login,
   settings and plugins. Others are installed and set up from Settings → Agents. Swarmed never
   signs you in to anything and keeps no GitHub token: it uses each agent's own login and your

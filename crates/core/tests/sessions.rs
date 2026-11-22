@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::{core_with_project, fixture, next, turn};
+use common::{core_with_project, fixture, git, next, turn};
 use std::sync::Arc;
 
 use swarmed_core::agent::{
@@ -367,6 +367,7 @@ async fn usage_asked_for_comes_from_the_sessions_agent_and_stays_out_of_the_conv
         name: "Other".into(),
         models: vec![],
         default_model: None,
+        hears_mid_turn: false,
     };
     core.add_agent(other, Arc::new(FakeBackend::default()));
     let options = SessionOptions {
@@ -1866,4 +1867,506 @@ async fn a_session_started_from_two_places_at_once_gets_one_agent() {
         )),
         "{events:?}"
     );
+}
+
+/// A tool that moves the task's worktree to another branch is noticed when it answers: once,
+/// in the session at work, worth a notice, and the branch is remembered for the task. A move
+/// the agent did not see, made between its turns, is told to it with the next message.
+#[tokio::test]
+async fn a_worktree_moved_by_a_tool_is_noticed_and_one_moved_between_turns_is_told() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let (_, task) = core.task("demo", "one").expect("test setup");
+    let own = task.branch.clone();
+    let session = started_session(&core);
+    core.session_send(session.id, "hello").expect("sends");
+    turn(&mut bus, session.id).await;
+
+    // The tool runs while its permission is asked: the worktree moves meanwhile.
+    core.session_send(session.id, "run: git switch -c second")
+        .expect("sends");
+    let (request_id, _) = permission_request(&mut bus).await;
+    git(&task.worktree_path, &["switch", "--quiet", "-c", "second"]);
+    core.session_allow(session.id, &request_id).expect("sends");
+    let events = turn(&mut bus, session.id).await;
+    let moved = AgentEvent::WorktreeMoved {
+        from: Some(own.clone()),
+        to: Some("second".to_string()),
+        between_turns: false,
+    };
+    assert_eq!(
+        events.iter().filter(|event| **event == moved).count(),
+        1,
+        "{events:?}"
+    );
+    let event = SessionEvent {
+        session_id: session.id,
+        status: None,
+        unread: None,
+        event: moved,
+    };
+    let notice = core.notice_for(&event).expect("reads").expect("a notice");
+    assert!(notice.title.starts_with("Moved its worktree"), "{notice:?}");
+    assert!(notice.body.contains("Now on second"), "{notice:?}");
+    let unpublished = core.task_unpublished("demo", "one").await.expect("reads");
+    assert_eq!(unpublished.branches, [own.clone(), "second".to_string()]);
+
+    // Put back from Swarmed between turns: nothing is reported for that, and the agent is
+    // told with the next message, once.
+    core.task_switch("demo", "one", &own)
+        .await
+        .expect("switches");
+    core.session_send(session.id, "next").expect("sends");
+    let events = turn(&mut bus, session.id).await;
+    let told = AgentEvent::WorktreeMoved {
+        from: Some("second".to_string()),
+        to: Some(own.clone()),
+        between_turns: true,
+    };
+    assert_eq!(
+        events.iter().filter(|event| **event == told).count(),
+        1,
+        "{events:?}"
+    );
+    let heard = format!("it was on `second`, and is on `{own}` now");
+    let echoed = |event: &AgentEvent| matches!(event, AgentEvent::Text { text } if text.starts_with("echo: next") && text.contains(&heard));
+    assert!(events.iter().any(echoed), "{events:?}");
+    core.session_send(session.id, "again").expect("sends");
+    let events = turn(&mut bus, session.id).await;
+    let quiet = !events
+        .iter()
+        .any(|event| matches!(event, AgentEvent::WorktreeMoved { .. }));
+    assert!(quiet, "{events:?}");
+}
+
+/// An agent is started with the task's variables, as hooks have them: a skill can tell from
+/// them that it already runs in a task's own worktree, and on which branch.
+#[tokio::test]
+async fn an_agent_knows_the_task_it_works_in() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let (_, task) = core.task("demo", "one").expect("test setup");
+    let worktree = task.worktree_path.to_string_lossy().into_owned();
+    let session = started_session(&core);
+    let expected = [
+        ("SWARMED_PROJECT", "demo"),
+        ("SWARMED_TASK", "one"),
+        ("SWARMED_BRANCH", task.branch.as_str()),
+        ("SWARMED_WORKTREE", worktree.as_str()),
+    ];
+    for (name, value) in expected {
+        core.session_send(session.id, &format!("env: {name}"))
+            .expect("sends");
+        let said = turn(&mut bus, session.id).await;
+        assert!(said.contains(&text(value)), "{name}: {said:?}");
+    }
+}
+
+/// Whether nothing is sent to the session's agent for a moment: no message of the user's
+/// arrives on the bus.
+async fn nothing_sent(bus: &mut Receiver<SessionEvent>, session: i64) -> bool {
+    let sent_here = |event: &SessionEvent| {
+        event.session_id == session && matches!(event.event, AgentEvent::UserMessage { .. })
+    };
+    let sent = async {
+        // A stream that lagged or closed counts as sent: the test then fails rather than pass.
+        while bus
+            .recv()
+            .await
+            .as_ref()
+            .is_ok_and(|event| !sent_here(event))
+        {}
+    };
+    let moment = std::time::Duration::from_millis(300);
+    tokio::time::timeout(moment, sent).await.is_err()
+}
+
+#[tokio::test]
+async fn a_waiting_message_open_for_editing_is_sent_once_the_edit_is_over() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    // The turn ends well while the first message is open: it is not sent.
+    core.session_send(session.id, "run: ls").expect("sends");
+    let (request_id, _) = permission_request(&mut bus).await;
+    let queue = core.session_enqueue(session.id, "first").expect("queues");
+    assert!(
+        core.session_queue_hold(session.id, queue[0].id)
+            .expect("holds")
+    );
+    core.session_allow(session.id, &request_id).expect("sends");
+    turn(&mut bus, session.id).await;
+    assert!(nothing_sent(&mut bus, session.id).await);
+    assert_eq!(core.session_queue(session.id).expect("reads"), queue);
+
+    // Saved, it goes at once, with its new text.
+    core.session_queue_edit(session.id, queue[0].id, "edited")
+        .expect("edits");
+    let sent = turn(&mut bus, session.id).await;
+    assert!(sent.contains(&text("echo: edited")), "{sent:?}");
+    assert_eq!(core.session_queue(session.id).expect("reads"), vec![]);
+
+    // Given up, it goes as it was. A message no longer waiting cannot be held.
+    core.session_send(session.id, "run: ls").expect("sends");
+    let (request_id, _) = permission_request(&mut bus).await;
+    let queue = core
+        .session_enqueue(session.id, "as it was")
+        .expect("queues");
+    assert!(
+        core.session_queue_hold(session.id, queue[0].id)
+            .expect("holds")
+    );
+    core.session_allow(session.id, &request_id).expect("sends");
+    turn(&mut bus, session.id).await;
+    assert!(nothing_sent(&mut bus, session.id).await);
+    core.session_queue_let_go(session.id, queue[0].id)
+        .expect("lets go");
+    let sent = turn(&mut bus, session.id).await;
+    assert!(sent.contains(&text("echo: as it was")), "{sent:?}");
+    assert!(
+        !core
+            .session_queue_hold(session.id, queue[0].id)
+            .expect("asks")
+    );
+}
+
+#[tokio::test]
+async fn a_held_message_further_back_does_not_stop_those_ahead_of_it() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    core.session_send(session.id, "run: ls").expect("sends");
+    let (request_id, _) = permission_request(&mut bus).await;
+    core.session_enqueue(session.id, "first").expect("queues");
+    let queue = core.session_enqueue(session.id, "second").expect("queues");
+    core.session_queue_hold(session.id, queue[1].id)
+        .expect("holds");
+    core.session_allow(session.id, &request_id).expect("sends");
+    turn(&mut bus, session.id).await;
+    let first = turn(&mut bus, session.id).await;
+    assert!(first.contains(&text("echo: first")), "{first:?}");
+    // Now first, and still open: it waits for the edit.
+    assert!(nothing_sent(&mut bus, session.id).await);
+    core.session_queue_edit(session.id, queue[1].id, "second, edited")
+        .expect("edits");
+    let second = turn(&mut bus, session.id).await;
+    assert!(second.contains(&text("echo: second, edited")), "{second:?}");
+}
+
+#[tokio::test]
+async fn a_stopped_turn_and_a_message_sent_now_wait_for_an_edit_too() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    // Stopping the turn would send the first message: it is open, so it waits.
+    core.session_send(session.id, "slow").expect("sends");
+    let queue = core.session_enqueue(session.id, "after").expect("queues");
+    core.session_queue_hold(session.id, queue[0].id)
+        .expect("holds");
+    core.session_interrupt(session.id).expect("interrupts");
+    turn(&mut bus, session.id).await;
+    assert!(nothing_sent(&mut bus, session.id).await);
+    core.session_queue_let_go(session.id, queue[0].id)
+        .expect("lets go");
+    let after = turn(&mut bus, session.id).await;
+    assert!(after.contains(&text("echo: after")), "{after:?}");
+
+    // Sent now while open, the turn is stopped and the message goes once the edit is over.
+    core.session_send(session.id, "slow").expect("sends");
+    let queue = core.session_enqueue(session.id, "now").expect("queues");
+    core.session_queue_hold(session.id, queue[0].id)
+        .expect("holds");
+    core.session_send_now(session.id, queue[0].id, Auth::default())
+        .expect("sends now");
+    turn(&mut bus, session.id).await;
+    assert!(nothing_sent(&mut bus, session.id).await);
+    core.session_queue_edit(session.id, queue[0].id, "now, edited")
+        .expect("edits");
+    let now = turn(&mut bus, session.id).await;
+    assert!(now.contains(&text("echo: now, edited")), "{now:?}");
+}
+
+/// What the session published up to and with its `turns`th turn end from now.
+async fn until_turns(
+    bus: &mut Receiver<SessionEvent>,
+    session: i64,
+    turns: usize,
+) -> Vec<SessionEvent> {
+    let mut heard = vec![];
+    let mut ended = 0;
+    while ended < turns {
+        let event = next(bus).await;
+        if event.session_id != session {
+            continue;
+        }
+        ended += usize::from(matches!(event.event, AgentEvent::TurnDone { .. }));
+        heard.push(event);
+    }
+    heard
+}
+
+fn turn_ends(events: &[SessionEvent]) -> Vec<&SessionEvent> {
+    let ends = |event: &&SessionEvent| matches!(event.event, AgentEvent::TurnDone { .. });
+    events.iter().filter(ends).collect()
+}
+
+#[tokio::test]
+async fn a_session_waiting_on_background_sub_agents_is_neither_done_nor_busy() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    core.session_send(session.id, "background agent")
+        .expect("sends");
+    let events = until_turns(&mut bus, session.id, 2).await;
+    let ends = turn_ends(&events);
+    // The turn ends to wait: the session can take a message, but nothing is handed back yet.
+    let waiting = ends[0];
+    assert_eq!(waiting.status, Some(SessionStatus::Idle));
+    assert_eq!(waiting.unread, None);
+    assert_eq!(core.notice_for(waiting).expect("reads"), None);
+    // What the sub-agent says meanwhile leaves the session idle.
+    let sub = events
+        .iter()
+        .find(|event| matches!(event.event, AgentEvent::Sub { .. }));
+    assert_eq!(sub.expect("the sub-agent wrote").status, None);
+    // Its report, read in a turn of the agent's own, is what hands something back.
+    let back = ends[1];
+    assert_eq!(back.unread, Some(true));
+    let notice = core.notice_for(back).expect("reads").expect("a notice");
+    assert!(notice.title.starts_with("Finished"), "{notice:?}");
+    assert!(core.session(session.id).expect("reads").unread);
+
+    // A command left running in the background holds nothing up.
+    core.session_send(session.id, "background bash")
+        .expect("sends");
+    let events = until_turns(&mut bus, session.id, 1).await;
+    assert_eq!(turn_ends(&events)[0].unread, Some(true));
+}
+
+#[tokio::test]
+async fn the_agent_ending_ends_a_wait_on_background_sub_agents() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    core.session_send(session.id, "background agent left")
+        .expect("sends");
+    let events = until_turns(&mut bus, session.id, 1).await;
+    assert_eq!(turn_ends(&events)[0].unread, None);
+    assert!(!core.session(session.id).expect("reads").unread);
+
+    // The answer to a later message is handed back, though the sub-agent works on.
+    core.session_send(session.id, "hello").expect("sends");
+    let events = until_turns(&mut bus, session.id, 1).await;
+    assert_eq!(turn_ends(&events)[0].unread, Some(true));
+    // And the agent starting another leaves nothing to read again.
+    core.session_send(session.id, "background agent left")
+        .expect("sends");
+    let events = until_turns(&mut bus, session.id, 1).await;
+    assert_eq!(turn_ends(&events)[0].unread, None);
+
+    // Its agent stopped, what it left working went with it: the next answer counts again.
+    core.session_stop(session.id);
+    core.session_start(session.id, Auth::Subscription)
+        .expect("starts");
+    core.session_send(session.id, "hello").expect("sends");
+    let events = until_turns(&mut bus, session.id, 1).await;
+    assert_eq!(turn_ends(&events)[0].unread, Some(true));
+}
+
+#[tokio::test]
+async fn a_swarmed_that_starts_records_the_end_of_what_was_left_in_the_background() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+    core.session_send(session.id, "background agent left")
+        .expect("sends");
+    until_turns(&mut bus, session.id, 1).await;
+    // Swarmed ends with the sub-agent at work: nothing says that it, or its agent, ended.
+    drop(core);
+
+    let later =
+        Core::with_backend(fx.paths.clone(), Arc::new(FakeBackend::default())).expect("opens");
+    let ends = |core: &Core| {
+        let events = core.session_events(session.id).expect("reads");
+        let ended = |event: &&AgentEvent| matches!(event, AgentEvent::Exited { .. });
+        events.iter().filter(ended).count()
+    };
+    // The first core's hold on being first is let go a moment after it is dropped.
+    let mut tries = 0;
+    while ends(&later) == 0 && tries < 200 {
+        later.arrive().expect("arrives");
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        tries += 1;
+    }
+    let events = later.session_events(session.id).expect("reads");
+    let last = events.last().expect("recorded");
+    assert!(
+        matches!(last, AgentEvent::Exited { code: None, .. }),
+        "{last:?}"
+    );
+    // Once: the end is there now.
+    later.arrive().expect("arrives");
+    assert_eq!(ends(&later), 1);
+}
+
+#[tokio::test]
+async fn what_a_background_command_printed_is_read_only_by_its_own_session() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+    let other = started_session(&core);
+
+    core.session_send(session.id, "background bash")
+        .expect("sends");
+    until_turns(&mut bus, session.id, 1).await;
+    let listed = core.task_background("demo", "one").expect("lists");
+    assert!(
+        listed
+            .iter()
+            .any(|task| task.task_id == "bg-bash" && task.output)
+    );
+    // Its own session finds the file gone, which is no error: Claude Code clears its folder.
+    let own = core.session_background_output(session.id, "bg-bash", None);
+    assert!(matches!(own, Ok(None)), "{own:?}");
+    // Another session cannot reach it, nor a task nobody named.
+    let theirs = core.session_background_output(other.id, "bg-bash", None);
+    assert!(
+        matches!(theirs, Err(Error::BackgroundOutput(_))),
+        "{theirs:?}"
+    );
+    let nobody = core.session_background_output(session.id, "nothing", None);
+    assert!(
+        matches!(nobody, Err(Error::BackgroundOutput(_))),
+        "{nobody:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_message_sent_now_stops_the_turn_and_goes_ahead_of_those_waiting() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    core.session_send(session.id, "slow").expect("sends");
+    core.session_enqueue(session.id, "later").expect("queues");
+    core.session_message_now(session.id, "now", &[], Auth::default())
+        .expect("sends now");
+    let stopped = turn(&mut bus, session.id).await;
+    assert!(
+        stopped
+            .iter()
+            .any(|event| matches!(event, AgentEvent::TurnDone { is_error: true, .. })),
+        "{stopped:?}"
+    );
+    let now = turn(&mut bus, session.id).await;
+    assert!(now.contains(&text("echo: now")), "{now:?}");
+    let later = turn(&mut bus, session.id).await;
+    assert!(later.contains(&text("echo: later")), "{later:?}");
+
+    // With nothing under way it goes at once.
+    core.session_message_now(session.id, "at once", &[], Auth::default())
+        .expect("sends");
+    let at_once = turn(&mut bus, session.id).await;
+    assert!(at_once.contains(&text("echo: at once")), "{at_once:?}");
+    // Nothing, and a command Swarmed does not send on, are refused.
+    let empty = core.session_message_now(session.id, " ", &[], Auth::default());
+    assert!(matches!(empty, Err(Error::EmptyMessage)), "{empty:?}");
+    let login = core.session_message_now(session.id, "/login", &[], Auth::default());
+    assert!(
+        matches!(login, Err(Error::TerminalOnly { .. })),
+        "{login:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_waiting_message_told_now_is_taken_into_the_turn_and_recorded_where_it_was_heard() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    // A request stays open while the message is told: nothing takes it away.
+    core.session_send(session.id, "run: ls").expect("sends");
+    let (request_id, _) = permission_request(&mut bus).await;
+    let queue = core.session_enqueue(session.id, "a hint").expect("queues");
+    core.session_tell_now(session.id, queue[0].id)
+        .expect("tells");
+    assert_eq!(core.session_queue(session.id).expect("reads"), vec![]);
+    core.session_allow(session.id, &request_id).expect("sends");
+    let events = turn(&mut bus, session.id).await;
+    let at = |wanted: &AgentEvent| events.iter().position(|event| event == wanted);
+    let message = AgentEvent::UserMessage {
+        text: "a hint".to_string(),
+    };
+    let result = events
+        .iter()
+        .position(|event| matches!(event, AgentEvent::ToolResult { .. }));
+    // Recorded once, after the tool it waited behind, and answered in the same turn.
+    assert!(at(&message) > result, "{events:?}");
+    assert_eq!(events.iter().filter(|event| **event == message).count(), 1);
+    assert!(events.contains(&text("heard: a hint")), "{events:?}");
+    let stored = core.session_events(session.id).expect("reads");
+    assert!(
+        !stored
+            .iter()
+            .any(|event| matches!(event, AgentEvent::Heard { .. }))
+    );
+
+    // Between turns it goes as any message does.
+    let queue = core.session_enqueue(session.id, "next").expect("queues");
+    core.session_tell_now(session.id, queue[0].id)
+        .expect("sends");
+    let next = turn(&mut bus, session.id).await;
+    assert!(next.contains(&text("echo: next")), "{next:?}");
+}
+
+#[tokio::test]
+async fn a_message_told_to_an_agent_that_ended_before_hearing_it_waits_again() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    // The agent waits on a request, so it has not taken the message in when it is stopped.
+    core.session_send(session.id, "run: ls").expect("sends");
+    permission_request(&mut bus).await;
+    core.session_enqueue(session.id, "first hint")
+        .expect("queues");
+    let queue = core
+        .session_enqueue(session.id, "second hint")
+        .expect("queues");
+    for message in &queue {
+        core.session_tell_now(session.id, message.id)
+            .expect("tells");
+    }
+    assert_eq!(core.session_queue(session.id).expect("reads"), vec![]);
+    core.session_stop(session.id);
+    while !matches!(next(&mut bus).await.event, AgentEvent::Exited { .. }) {}
+
+    // Not shown as said: the agent never got them. They wait, in the order they were told.
+    let waiting: Vec<String> = core
+        .session_queue(session.id)
+        .expect("reads")
+        .into_iter()
+        .map(|message| message.text)
+        .collect();
+    assert_eq!(waiting, ["first hint", "second hint"]);
+    let stored = core.session_events(session.id).expect("reads");
+    let said = |event: &AgentEvent| matches!(event, AgentEvent::UserMessage { text } if text.ends_with("hint"));
+    assert!(!stored.iter().any(said), "{stored:?}");
 }

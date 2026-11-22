@@ -569,6 +569,14 @@ pub enum AgentEvent {
         state: BackgroundState,
         /// The agent's own line about how it ended.
         summary: Option<String>,
+        /// The tool call that started it, for a sub-agent: what its events are filed under.
+        /// Absent from what was recorded before this.
+        #[serde(default)]
+        tool_use_id: Option<String>,
+        /// Where what it prints is written, for a command, if the agent said. Absent from
+        /// what was recorded before this.
+        #[serde(default)]
+        output_file: Option<String>,
     },
     /// The session was forked from another: what stands before this is a copy of what was
     /// said there. Recorded by the core, not produced by a backend.
@@ -621,6 +629,27 @@ pub enum AgentEvent {
     TerminalOnly {
         /// The command as it was typed, without its slash.
         command: String,
+    },
+    /// A message of the user's as the agent took it in, repeated by Claude Code when it starts
+    /// on it: at the start of a turn, or in the middle of one for a message written while it
+    /// worked. Never stored or published: for a message told mid-turn the core records
+    /// [`AgentEvent::UserMessage`] here, where it was heard, and it drops the rest.
+    Heard {
+        /// The message as it was sent.
+        text: String,
+    },
+    /// The task's worktree was found on another branch than before. Recorded by the core:
+    /// when a tool answered or the turn ended, in the session whose agent was at work; or when
+    /// the user's next message went to an agent that had not seen the move, which it was then
+    /// told along with the message.
+    WorktreeMoved {
+        /// The branch it was on, or `None` for no branch.
+        from: Option<String>,
+        /// The branch it is on now, or `None` for no branch.
+        to: Option<String>,
+        /// Whether it moved between the agent's turns and was told with the next message,
+        /// rather than seen in the middle of a turn.
+        between_turns: bool,
     },
     /// Something this version does not understand; kept so nothing is lost silently.
     Other {

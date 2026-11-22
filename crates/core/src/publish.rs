@@ -311,6 +311,10 @@ impl Core {
             )));
         }
         git::git(worktree, &["switch", "--quiet", branch]).await?;
+        // The user moved it: nothing for the watch for moves to report, and each agent of the
+        // task is told with its next message.
+        self.live
+            .branch_seen(worktree, &git::Head(Some(branch.to_string())));
         Ok(())
     }
 

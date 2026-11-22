@@ -16,20 +16,25 @@ export function waitsItsTurn(status: SessionStatus | undefined): boolean {
 /**
  * Sends a message to a session, or puts it in the session's queue while its agent is busy.
  * With `atOnce` it is handed over whatever the agent is doing: one of the agent's own
- * commands that Swarmed does itself, which starts no turn and so interrupts none.
+ * commands that Swarmed does itself, which starts no turn and so interrupts none. With `now`
+ * a busy agent's turn is stopped and the message goes ahead of what waits.
  */
 export async function delivered(
-    api: Pick<Api, "sessionSend" | "sessionEnqueue">,
+    api: Pick<Api, "sessionSend" | "sessionEnqueue" | "sessionMessageNow">,
     status: SessionStatus | undefined,
     id: number,
     text: string,
     files: string[] = [],
     atOnce = false,
+    now = false,
 ): Promise<void> {
-    if (waitsItsTurn(status) && !atOnce) {
-        await api.sessionEnqueue(id, text, files);
-    } else {
+    if (!waitsItsTurn(status) || atOnce) {
         await api.sessionSend(id, text, files);
+    } else if (now) {
+        // Asked for now: the turn under way is stopped, and it goes ahead of what waits.
+        await api.sessionMessageNow(id, text, files);
+    } else {
+        await api.sessionEnqueue(id, text, files);
     }
 }
 

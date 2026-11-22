@@ -100,8 +100,9 @@ and a branch's name is never read as a command. The same values are exported to 
 `SWARMED_PROJECT`, `SWARMED_TASK`, `SWARMED_USER`, `SWARMED_BRANCH`, `SWARMED_SLOT`,
 `SWARMED_WORKTREE`, `SWARMED_REPO` and `SWARMED_PORT_<NAME>`.
 
-The task's agents get `env` too, but not the `SWARMED_*` variables, and Claude Code gets no
-variable whose name starts with `ANTHROPIC_` or `CLAUDE`.
+The task's agents get `env` and the same `SWARMED_*` variables, so a skill can tell that it runs
+in a task's own worktree. Claude Code gets no variable whose name starts with `ANTHROPIC_` or
+`CLAUDE`.
 
 ## Ports
 
@@ -141,7 +142,7 @@ Set in the app's Settings, kept in `settings.toml`.
 | `terminal_app` | `Terminal` | the application "Open in Terminal" uses |
 | `default_supervision` | `auto` | how new sessions are supervised: `ask`, `auto` or `plan`; `bypass`, which allows everything, is not offered in Settings |
 | `auto_title` | `true` | a model names each new session after its first message |
-| `notifications` | `true` | notify when a session needs you, finishes or fails |
+| `notifications` | `true` | notify when a session needs you, finishes, fails or moves its worktree to another branch |
 | `updates` | `automatic` | how Swarmed updates itself: `automatic` looks at launch and every few hours, downloads a new version and installs it when you quit; `when_asked` fetches nothing until About opens and installs only when you ask |
 | `html_views` | `true` | agents may answer with HTML views |
 | `rules` | none | rules every agent is given, in every session |

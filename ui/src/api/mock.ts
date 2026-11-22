@@ -9,6 +9,7 @@ import type {
     AgentEvent,
     AgentSetup,
     ApiKeyInfo,
+    BackgroundState,
     BackgroundTask,
     Check,
     CloudProvider,
@@ -554,7 +555,37 @@ function sampleAnalytics(today: Date): TurnStats[] {
 }
 
 /** Things the sample agents left running: one still going, two that ended. */
-function backgroundApi(): Pick<Api, "taskBackground" | "sessionStopBackground"> {
+/** When the sample dev server started printing, so that it goes on printing while shown. */
+const DEV_SERVER_STARTED = Date.now();
+
+/**
+ * What a sample command printed, with colours as a real one has them: the dev server prints
+ * a request every two seconds, the test suite printed what it found and ended.
+ */
+function sampleOutput(taskId: string): string | null {
+    if (taskId === "b2") {
+        return "\u001b[1mRunning 214 tests\u001b[0m\n\u001b[32m✓\u001b[0m redirect keeps the session\n\u001b[32m✓\u001b[0m login sets the cookie\n\u001b[32m214 passed\u001b[0m in 41s\n";
+    }
+    if (taskId !== "b1") {
+        return null;
+    }
+    const requests = Math.floor((Date.now() - DEV_SERVER_STARTED) / 2000);
+    const lines = [
+        "\u001b[36m  VITE\u001b[0m ready in 412 ms",
+        "  ➜  Local: http://localhost:3100/",
+    ];
+    for (let at = 0; at < requests; at++) {
+        lines.push(
+            `\u001b[2m${new Date(DEV_SERVER_STARTED + at * 2000).toLocaleTimeString()}\u001b[0m GET /login \u001b[32m200\u001b[0m`,
+        );
+    }
+    return `${lines.join("\n")}\n`;
+}
+
+function backgroundApi(): Pick<
+    Api,
+    "taskBackground" | "sessionStopBackground" | "sessionBackgroundOutput"
+> {
     const tasks: BackgroundTask[] = [
         {
             session_id: 1,
@@ -564,6 +595,8 @@ function backgroundApi(): Pick<Api, "taskBackground" | "sessionStopBackground"> 
             kind: "local_bash",
             state: "running",
             summary: null,
+            tool_use_id: null,
+            output: true,
         },
         {
             session_id: 1,
@@ -573,6 +606,8 @@ function backgroundApi(): Pick<Api, "taskBackground" | "sessionStopBackground"> 
             kind: "local_bash",
             state: "completed",
             summary: 'Background command "Run the whole test suite" completed (exit code 0)',
+            tool_use_id: null,
+            output: true,
         },
         {
             session_id: 2,
@@ -582,11 +617,22 @@ function backgroundApi(): Pick<Api, "taskBackground" | "sessionStopBackground"> 
             kind: "local_agent",
             state: "failed",
             summary: "The agent stopped with an error",
+            tool_use_id: null,
+            output: false,
         },
     ];
     return {
         taskBackground: async (_project, name) =>
             name === "fix-login-redirect" ? tasks.map((task) => ({ ...task })) : [],
+        sessionBackgroundOutput: async (_id, taskId, from) => {
+            const text = sampleOutput(taskId);
+            if (text === null) {
+                return null;
+            }
+            // The samples are plain ASCII but for a few marks: characters stand in for bytes.
+            const start = from !== null && from <= text.length ? from : 0;
+            return { text: text.slice(start), start, end: text.length };
+        },
         sessionStopBackground: async (id, taskId) => {
             const task = tasks.find((one) => one.session_id === id && one.task_id === taskId);
             if (task) {
@@ -1202,6 +1248,10 @@ class MockAgent {
         (allowed: boolean, answers?: Record<string, string>) => void
     >();
     private readonly interrupts = new Map<number, () => void>();
+    /** The waiting message each session has open for editing. */
+    private readonly holds = new Map<number, number>();
+    /** Sessions whose first message would have gone but was open for editing. */
+    private readonly owed = new Set<number>();
     private nextId = 100;
 
     history(id: number): AgentEvent[] {
@@ -1282,17 +1332,69 @@ class MockAgent {
         const edited = this.queue(id).map((queued) =>
             queued.id === message ? { ...queued, text } : queued,
         );
-        return this.setQueue(
+        this.setQueue(
             id,
             edited.filter((queued) => queued.text.trim() !== ""),
         );
+        this.letGoQueued(id, message);
+        return this.queue(id);
+    }
+
+    /** Holds a waiting message while it is edited, as the core does; `false` once it has gone. */
+    holdQueued(id: number, message: number): boolean {
+        if (!this.queue(id).some((queued) => queued.id === message)) {
+            return false;
+        }
+        this.holds.set(id, message);
+        return true;
+    }
+
+    /** Lets go of a held message, and sends what was held back for it. */
+    letGoQueued(id: number, message: number) {
+        if (this.holds.get(id) === message) {
+            this.holds.delete(id);
+        }
+        if (this.owed.delete(id)) {
+            this.sendQueued(id);
+        }
     }
 
     sendQueued(id: number) {
         const [first, ...rest] = this.queue(id);
+        if (first && this.holds.get(id) === first.id) {
+            this.owed.add(id);
+            return;
+        }
         if (first) {
             this.setQueue(id, rest);
             this.send(id, first.text);
+        }
+    }
+
+    /**
+     * Takes a waiting message into the turn under way, as Claude Code does at its next step:
+     * the message shows where it was heard, and the turn goes on.
+     */
+    tellNow(id: number, message: number) {
+        const queue = this.queue(id);
+        const told = queue.find((queued) => queued.id === message);
+        if (!told) {
+            return;
+        }
+        this.setQueue(
+            id,
+            queue.filter((queued) => queued !== told),
+        );
+        this.later(id, { type: "user_message", text: told.text }, "working");
+        this.later(id, { type: "text", text: `Taken in: ${told.text}` }, "working");
+    }
+
+    /** Sends what was typed ahead of what waits, stopping a `slow` turn first. */
+    sendTypedNow(id: number, text: string) {
+        const queue = this.enqueue(id, text);
+        const typed = queue[queue.length - 1];
+        if (typed) {
+            this.sendNow(id, typed.id);
         }
     }
 
@@ -1391,6 +1493,15 @@ class MockAgent {
             );
         } else if (this.configure(id, {}).supervision === "plan") {
             this.presentPlan(id, text, done);
+        } else if (!this.scripted(id, text, done)) {
+            this.reply(id, text, done, first);
+        }
+    }
+
+    /** Does what a scripted message asks for; `false` if `text` is not one of them. */
+    private scripted(id: number, text: string, done: AgentEvent): boolean {
+        if (text === "delegate background") {
+            this.delegateInBackground(id, done);
         } else if (text === "delegate") {
             this.delegate(id, done);
         } else if (text.startsWith("ask")) {
@@ -1399,29 +1510,37 @@ class MockAgent {
             this.askPermission(id, text.slice(4).trim(), done);
         } else if (text.startsWith("show")) {
             this.showView(id, done);
+        } else if (text.startsWith("switch ")) {
+            this.switchWorktree(id, text.slice(7).trim(), done);
         } else {
-            // Written word by word, the way a real reply arrives.
-            const reply = `You said: ${text}`;
-            const words = reply.split(/(?<= )/);
-            words.forEach((word, index) => {
-                this.stream(id, { type: "text_delta", text: word }, (index + 1) / words.length);
-            });
-            // A better title arrives while the first reply is still being written, as the
-            // core's does: the reply so far must stay on screen through it.
-            if (first) {
-                this.later(id, { type: "renamed", title: suggestedTitle(text) }, null, 0.5);
-            }
-            this.later(id, { type: "text", text: reply }, "working");
-            this.later(id, done, "idle", 2);
-            this.later(id, SAMPLE_CONTEXT, null, 3);
-            this.later(id, sampleLimits(), null, 3);
-            this.later(id, SAMPLE_EXTRA_USAGE, null, 3);
-            const { model, effort } = this.configure(id, {});
-            const applied = { model: model ?? "claude-opus-5-5", effort: effort ?? "xhigh" };
-            this.later(id, { type: "applied", ...applied }, null, 3);
-            if (text.startsWith("suggest:")) {
-                this.later(id, { type: "suggestion", text: text.slice(8).trim() }, null, 4);
-            }
+            return false;
+        }
+        return true;
+    }
+
+    /** Answers in plain words, as an agent's ordinary reply. */
+    private reply(id: number, text: string, done: AgentEvent, first: boolean) {
+        // Written word by word, the way a real reply arrives.
+        const reply = `You said: ${text}`;
+        const words = reply.split(/(?<= )/);
+        words.forEach((word, index) => {
+            this.stream(id, { type: "text_delta", text: word }, (index + 1) / words.length);
+        });
+        // A better title arrives while the first reply is still being written, as the
+        // core's does: the reply so far must stay on screen through it.
+        if (first) {
+            this.later(id, { type: "renamed", title: suggestedTitle(text) }, null, 0.5);
+        }
+        this.later(id, { type: "text", text: reply }, "working");
+        this.later(id, done, "idle", 2);
+        this.later(id, SAMPLE_CONTEXT, null, 3);
+        this.later(id, sampleLimits(), null, 3);
+        this.later(id, SAMPLE_EXTRA_USAGE, null, 3);
+        const { model, effort } = this.configure(id, {});
+        const applied = { model: model ?? "claude-opus-5-5", effort: effort ?? "xhigh" };
+        this.later(id, { type: "applied", ...applied }, null, 3);
+        if (text.startsWith("suggest:")) {
+            this.later(id, { type: "suggestion", text: text.slice(8).trim() }, null, 4);
         }
     }
 
@@ -1475,6 +1594,47 @@ class MockAgent {
     }
 
     /** Starts two sub-agents, which report for a while and hand their answers back in turn. */
+    /**
+     * Starts a sub-agent in the background, as Claude Code now does by default: its call comes
+     * back at once, the turn ends, and the sub-agent works on and reports its own end.
+     */
+    private delegateInBackground(id: number, done: AgentEvent) {
+        const call = `sub-${this.nextId++}`;
+        const task = `task-${call}`;
+        const description = "Review the change";
+        const input = { description, subagent_type: "general-purpose", prompt: "Review it." };
+        this.later(id, { type: "tool_use", id: call, name: "Agent", input }, "working");
+        const report = (state: BackgroundState, summary: string | null): AgentEvent => ({
+            type: "background",
+            task_id: task,
+            description,
+            kind: "local_agent",
+            state,
+            summary,
+            tool_use_id: call,
+            output_file: null,
+        });
+        this.later(id, report("running", null), "working");
+        const launched = "Async agent launched successfully.";
+        const result: AgentEvent = {
+            type: "tool_result",
+            tool_use_id: call,
+            content: launched,
+            is_error: false,
+        };
+        this.later(id, result, "working");
+        this.later(id, { type: "text", text: "It is working in the background." }, "working");
+        this.later(id, done, "idle", 2);
+        const said = (text: string): AgentEvent => ({
+            type: "sub",
+            parent: call,
+            event: { type: "text", text },
+        });
+        this.later(id, said("Reading the diff."), null, 6);
+        this.later(id, said("Two things to fix."), null, 20);
+        this.later(id, report("completed", "Found two things to fix."), null, 40);
+    }
+
     private delegate(id: number, done: AgentEvent) {
         const start = (toolId: string, description: string): AgentEvent => ({
             type: "tool_use",
@@ -1552,6 +1712,40 @@ class MockAgent {
             this.later(id, { type: "text", text: reply }, "working", 2);
             this.later(id, done, "idle", 3);
         });
+    }
+
+    /** Moves the session's worktree to a new branch with a tool, as an agent may. */
+    private switchWorktree(id: number, branch: string, done: AgentEvent) {
+        const task = this.projects
+            .flatMap((project) => project.tasks)
+            .find((candidate) => candidate.sessions.some((session) => session.id === id));
+        if (task === undefined || branch === "") {
+            this.later(id, done, "idle");
+            return;
+        }
+        const from = switchedTo.get(task.name) ?? task.branch;
+        const toolId = `switch-${this.nextId++}`;
+        const input = { command: `git switch -c ${branch}` };
+        this.later(id, { type: "tool_use", id: toolId, name: "Bash", input }, "working");
+        const said = `Switched to a new branch '${branch}'`;
+        const result: AgentEvent = {
+            type: "tool_result",
+            tool_use_id: toolId,
+            content: said,
+            is_error: false,
+        };
+        this.later(id, result, "working");
+        switchedTo.set(task.name, branch);
+        alsoOn.set(task.name, [...new Set([...(alsoOn.get(task.name) ?? []), branch])]);
+        const moved: AgentEvent = {
+            type: "worktree_moved",
+            from,
+            to: branch,
+            between_turns: false,
+        };
+        this.later(id, moved, "working");
+        this.later(id, { type: "text", text: `On ${branch} now.` }, "working");
+        this.later(id, done, "idle", 2);
     }
 
     private askPermission(id: number, command: string, done: AgentEvent) {
@@ -1984,12 +2178,14 @@ export function createMockApi(): Api {
                 name: "Claude Code",
                 models: ["opus", "sonnet", "haiku", "fable"],
                 default_model: null,
+                hears_mid_turn: true,
             },
             {
                 id: "opencode",
                 name: "OpenCode",
                 models: ["openrouter/openai/gpt-5.6", "openrouter/google/gemini-3-pro"],
                 default_model: "openrouter/openai/gpt-5.6",
+                hears_mid_turn: false,
             },
         ],
         // A browser gives no paths, so the sample hands out two that look real.
@@ -2124,9 +2320,14 @@ export function createMockApi(): Api {
         sessionFork: async (id, from, onAgent) => sampleFork(agent, tasks(), id, from, onAgent),
         sessionEvents: async (id) => [...agent.history(id)],
         sessionSend: async (id, text, files) => agent.send(id, withFiles(text, files ?? [])),
+        sessionMessageNow: async (id, text, files) =>
+            agent.sendTypedNow(id, withFiles(text, files ?? [])),
+        sessionTellNow: async (id, message) => agent.tellNow(id, message),
         sessionQueue: async (id) => agent.queue(id),
         sessionEnqueue: async (id, text, files) => agent.enqueue(id, withFiles(text, files ?? [])),
         sessionQueueEdit: async (id, message, text) => agent.editQueued(id, message, text),
+        sessionQueueHold: async (id, message) => agent.holdQueued(id, message),
+        sessionQueueLetGo: async (id, message) => agent.letGoQueued(id, message),
         sessionSendQueued: async (id) => agent.sendQueued(id),
         sessionSendNow: async (id, message) => agent.sendNow(id, message),
         sessionMarkRead: async (id) => {

@@ -12,12 +12,12 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
-    Action, AgentInfo, AgentSetup, ApiKeyInfo, BackgroundTask, BranchChoices, CloudOrigin,
-    CloudProvider, CloudTask, Core, Costs, CustomLayout, Environment, FileChange, FileDiff,
-    FileListing, McpServerInput, McpServerView, NewTaskOptions, Project, ProjectOverview, Pull,
-    PullDraft, QueuedMessage, RemoveOptions, SearchHit, Session, SessionOptions, SessionSettings,
-    Settings, Skill, SlashCommand, Snapshot, Task, TaskNaming, Template, TerminalConfig,
-    TerminalOpened, TurnStats, Unpublished, Usage,
+    Action, AgentInfo, AgentSetup, ApiKeyInfo, BackgroundOutput, BackgroundTask, BranchChoices,
+    CloudOrigin, CloudProvider, CloudTask, Core, Costs, CustomLayout, Environment, FileChange,
+    FileDiff, FileListing, McpServerInput, McpServerView, NewTaskOptions, Project, ProjectOverview,
+    Pull, PullDraft, QueuedMessage, RemoveOptions, SearchHit, Session, SessionOptions,
+    SessionSettings, Settings, Skill, SlashCommand, Snapshot, Task, TaskNaming, Template,
+    TerminalConfig, TerminalOpened, TurnStats, Unpublished, Usage,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -769,6 +769,25 @@ pub(crate) async fn session_send(
     Ok(core.session_message(id, &text, &files, Auth::default())?)
 }
 
+/// Tells a waiting message to the session's agent in the middle of its turn, without stopping it.
+#[tauri::command]
+pub(crate) fn session_tell_now(core: CoreState<'_>, id: i64, message: u64) -> Command<()> {
+    Ok(core.session_tell_now(id, message)?)
+}
+
+/// Sends the message now, stopping the turn under way first: it goes when that turn has ended,
+/// ahead of anything waiting. Async for the same reason as `session_send`.
+#[tauri::command]
+pub(crate) async fn session_message_now(
+    core: CoreState<'_>,
+    id: i64,
+    text: String,
+    files: Option<Vec<PathBuf>>,
+) -> Command<()> {
+    let files = files.unwrap_or_default();
+    Ok(core.session_message_now(id, &text, &files, Auth::default())?)
+}
+
 #[tauri::command(async)]
 pub(crate) fn session_queue(core: CoreState<'_>, id: i64) -> Command<Vec<QueuedMessage>> {
     Ok(core.session_queue(id)?)
@@ -793,6 +812,18 @@ pub(crate) fn session_queue_edit(
     text: String,
 ) -> Command<Vec<QueuedMessage>> {
     Ok(core.session_queue_edit(id, message, &text)?)
+}
+
+/// Holds a waiting message while the user edits it, or renews the hold.
+#[tauri::command]
+pub(crate) fn session_queue_hold(core: CoreState<'_>, id: i64, message: u64) -> Command<bool> {
+    Ok(core.session_queue_hold(id, message)?)
+}
+
+/// Lets go of a waiting message the user left as it was.
+#[tauri::command]
+pub(crate) fn session_queue_let_go(core: CoreState<'_>, id: i64, message: u64) -> Command<()> {
+    Ok(core.session_queue_let_go(id, message)?)
 }
 
 /// Async for the same reason as `session_send`, which it is a form of.
@@ -938,6 +969,17 @@ pub(crate) fn task_background(
     name: String,
 ) -> Command<Vec<BackgroundTask>> {
     Ok(core.task_background(&project, &name)?)
+}
+
+/// What a command a session's agent left running printed, from `from` on or its latest part.
+#[tauri::command(async)]
+pub(crate) fn session_background_output(
+    core: CoreState<'_>,
+    id: i64,
+    task_id: String,
+    from: Option<u64>,
+) -> Command<Option<BackgroundOutput>> {
+    Ok(core.session_background_output(id, &task_id, from)?)
 }
 
 /// Asks a session's agent to stop something it left running.

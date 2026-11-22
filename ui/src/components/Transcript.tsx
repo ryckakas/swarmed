@@ -1,10 +1,20 @@
-import { memo, useLayoutEffect, useMemo, useRef } from "react";
+import { memo, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { forkFromMessage } from "../actions";
+import { api } from "../api";
 import type { AgentEvent } from "../api/types";
 import { messageParts } from "../pastes";
 import { screenHtml } from "../screens";
 import { useStore } from "../store";
-import { activity, type Item, PLAN_TOOL, summarize, toItems } from "../transcript";
+import {
+    activity,
+    type Item,
+    latestMove,
+    movedSaid,
+    PLAN_TOOL,
+    summarize,
+    toItems,
+} from "../transcript";
+import { findSession, findSessionHome } from "../tree";
 import { formatDuration } from "../turns";
 import { useRoll } from "../useRoll";
 import { useWords } from "../useWords";
@@ -32,6 +42,7 @@ interface Props {
 export function Transcript({ sessionId, events, working }: Props) {
     const words = useWords();
     const items = useMemo(() => toItems(events, words), [events, words]);
+    const lastMove = useMemo(() => latestMove(items), [items]);
     const scroller = useRef<HTMLDivElement>(null);
     // Each session gets its own Transcript (keyed by the caller), so this starts out true.
     const following = useRef(true);
@@ -73,7 +84,11 @@ export function Transcript({ sessionId, events, working }: Props) {
             <ol className="items">
                 {items.map((item) => (
                     <li key={item.key} className={`item item-${item.kind}`}>
-                        <ItemView item={item} sessionId={sessionId} />
+                        <ItemView
+                            item={item}
+                            sessionId={sessionId}
+                            latest={item.key === lastMove}
+                        />
                     </li>
                 ))}
                 {working && (
@@ -108,7 +123,14 @@ function Said({ text }: { text: string }) {
     );
 }
 
-function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
+interface ItemProps {
+    item: Item;
+    sessionId: number;
+    /** Whether this is the conversation's latest move of the worktree. */
+    latest: boolean;
+}
+
+function ItemView({ item, sessionId, latest }: ItemProps) {
     const words = useWords();
     switch (item.kind) {
         case "user":
@@ -198,6 +220,8 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
             );
         case "terminal-only":
             return <TerminalOnly sessionId={sessionId} command={item.command} />;
+        case "moved":
+            return <Moved sessionId={sessionId} item={item} latest={latest} />;
         case "terminal":
             return (
                 <details className="shared-terminal">
@@ -251,6 +275,60 @@ function TerminalOnly({ sessionId, command }: { sessionId: number; command: stri
             >
                 {words.openInClaude}
             </button>
+        </div>
+    );
+}
+
+/**
+ * Says that the task's worktree moved to another branch. When the agent moved it, the way back
+ * is offered: the same switch as the Publish panel's Branch menu. Only by the latest move: an
+ * earlier one's way back would switch away from wherever the worktree has been put since.
+ */
+function Moved(props: {
+    sessionId: number;
+    item: Extract<Item, { kind: "moved" }>;
+    latest: boolean;
+}) {
+    const { sessionId, item, latest } = props;
+    const words = useWords();
+    const projects = useStore((state) => state.projects);
+    const report = useStore((state) => state.report);
+    const worktreeMoved = useStore((state) => state.worktreeMoved);
+    const [state, setState] = useState<"ready" | "switching" | "done">("ready");
+    const session = findSession(projects, sessionId);
+    const home = session && findSessionHome(projects, session);
+    const back = item.from;
+    const offered = latest && !item.betweenTurns && back !== null && home !== undefined;
+    const switchBack = () => {
+        if (back === null || home === undefined) {
+            return;
+        }
+        setState("switching");
+        api.taskSwitch(home.project.name, home.task.name, back)
+            .then(() => {
+                worktreeMoved(home.task.id);
+                setState("done");
+            })
+            .catch((error: unknown) => {
+                report(error);
+                setState("ready");
+            });
+    };
+    return (
+        <div className="worktree-moved">
+            <p className="asked">{movedSaid(item.from, item.to, item.betweenTurns, words)}</p>
+            {offered && state !== "done" && (
+                <button
+                    type="button"
+                    className="button"
+                    disabled={state === "switching"}
+                    title={`Runs git switch ${back}. Changes that are not ${words.terms.committed} come along unless they conflict.`}
+                    onClick={switchBack}
+                >
+                    Switch back to {back}
+                </button>
+            )}
+            {state === "done" && <p className="asked">Back on {back}.</p>}
         </div>
     );
 }

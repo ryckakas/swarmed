@@ -7,8 +7,8 @@ use serde_json::json;
 use tokio::sync::mpsc;
 
 use super::{
-    AgentBackend, AgentCommand, AgentEvent, AgentHandle, PLAN_TOOL, ScreenKind, ScreenRow,
-    ScreenSection, SessionSpec, Supervision, UsageLimit,
+    AgentBackend, AgentCommand, AgentEvent, AgentHandle, BackgroundState, PLAN_TOOL, ScreenKind,
+    ScreenRow, ScreenSection, SessionSpec, Supervision, UsageLimit,
 };
 use crate::error::Result;
 
@@ -21,6 +21,10 @@ use crate::error::Result;
 /// - `slow`: starts a turn that only ends when interrupted;
 /// - `fail`: ends the turn with an error;
 /// - `suggest: <text>`: replies as to plain text, then offers `<text>` as the next message;
+/// - `background agent`: starts a sub-agent in the background and ends the turn; the sub-agent
+///   then writes, reports its end, and the agent takes a turn of its own to read its report;
+///   `background agent left` leaves it at work, with no end;
+/// - `background bash`: leaves a command running in the background and ends the turn;
 /// - in plan mode, anything: presents a plan and waits for it to be approved.
 #[derive(Debug, Default)]
 pub struct FakeBackend {
@@ -44,6 +48,7 @@ impl AgentBackend for FakeBackend {
             commands: command_rx,
             requests: 0,
             initialised: false,
+            told: Vec::new(),
         };
         let script = tokio::spawn(script.run());
         Ok(AgentHandle {
@@ -66,6 +71,8 @@ enum Next {
 }
 
 struct Script {
+    /// Messages written while it worked, taken in at its next step as Claude Code does.
+    told: Vec<String>,
     spec: SessionSpec,
     number: u64,
     events: mpsc::UnboundedSender<AgentEvent>,
@@ -81,6 +88,53 @@ impl Script {
 
     fn text(&self, text: impl Into<String>) {
         self.emit(AgentEvent::Text { text: text.into() });
+    }
+
+    /// Leaves something running behind the turn, as Claude Code reports it: a sub-agent
+    /// (`agent`), which works on after the turn and is read in a turn of the agent's own, or a
+    /// command (`bash`), which runs on.
+    fn background(&self, what: &str) {
+        let report = |state, kind: &str, summary: Option<&str>| AgentEvent::Background {
+            task_id: format!("bg-{what}"),
+            description: format!("background {what}"),
+            kind: kind.to_string(),
+            state,
+            summary: summary.map(str::to_string),
+            tool_use_id: what.starts_with("agent").then(|| "tool-bg".to_string()),
+            // Named as Claude Code names it, and never there: the fake writes nothing.
+            output_file: (!what.starts_with("agent"))
+                .then(|| format!("/tmp/swarmed-fake-agent/bg-{what}.output")),
+        };
+        if !what.starts_with("agent") {
+            self.emit(report(BackgroundState::Running, "local_bash", None));
+            self.emit(done(false, None));
+            return;
+        }
+        self.emit(AgentEvent::ToolUse {
+            id: "tool-bg".to_string(),
+            name: "Agent".to_string(),
+            input: json!({ "description": "look around", "run_in_background": true }),
+        });
+        self.emit(report(BackgroundState::Running, "local_agent", None));
+        self.emit(AgentEvent::ToolResult {
+            tool_use_id: "tool-bg".to_string(),
+            content: "Async agent launched successfully.".to_string(),
+            is_error: false,
+        });
+        self.emit(done(false, Some("It works in the background.")));
+        if what != "agent" {
+            return;
+        }
+        let said = AgentEvent::Text {
+            text: "still at it".to_string(),
+        };
+        self.emit(AgentEvent::Sub {
+            parent: "tool-bg".to_string(),
+            event: Box::new(said),
+        });
+        self.emit(report(BackgroundState::Completed, "", Some("found it")));
+        self.text("It is back: found it.");
+        self.emit(done(false, Some("It is back.")));
     }
 
     async fn run(mut self) {
@@ -157,6 +211,10 @@ impl Script {
             self.emit(done(true, Some("it went wrong")));
             return Next::Continue;
         }
+        if let Some(what) = message.strip_prefix("background ") {
+            self.background(what);
+            return Next::Continue;
+        }
         if message == "instructions" {
             let told = self.spec.append_system_prompt.clone();
             self.text(told.unwrap_or_else(|| "none".to_string()));
@@ -165,7 +223,7 @@ impl Script {
         }
         if message == "slow" {
             self.text("working…");
-            let interrupt = wait_for(&mut self.commands, |c| matches!(c, AgentCommand::Interrupt));
+            let interrupt = wait_for(&mut self.commands, &mut self.told, is_interrupt);
             let next = interrupt.await.map_or(Next::Stop, |_| Next::Continue);
             self.emit(done(true, Some("interrupted")));
             return next;
@@ -246,7 +304,7 @@ impl Script {
         });
         let answer =
             |c: &AgentCommand| decides(c, &request_id) || matches!(c, AgentCommand::Interrupt);
-        let decision = wait_for(&mut self.commands, answer)
+        let decision = wait_for(&mut self.commands, &mut self.told, answer)
             .await
             .ok_or(Next::Stop)?;
         if matches!(decision, AgentCommand::Interrupt) {
@@ -265,8 +323,17 @@ impl Script {
             content,
             is_error: !allowed,
         });
+        // What the user wrote meanwhile is taken in now, said back as Claude Code says it.
+        for text in std::mem::take(&mut self.told) {
+            self.emit(AgentEvent::Heard { text: text.clone() });
+            self.text(format!("heard: {text}"));
+        }
         Ok(allowed)
     }
+}
+
+fn is_interrupt(command: &AgentCommand) -> bool {
+    matches!(command, AgentCommand::Interrupt)
 }
 
 /// The end of a turn, as the scripted agent reports it.
@@ -322,12 +389,16 @@ fn decides(command: &AgentCommand, request_id: &str) -> bool {
 /// The next command `wanted` accepts, skipping the others; `None` if the channel closed.
 async fn wait_for(
     commands: &mut mpsc::UnboundedReceiver<AgentCommand>,
+    told: &mut Vec<String>,
     wanted: impl Fn(&AgentCommand) -> bool,
 ) -> Option<AgentCommand> {
     loop {
         let command = commands.recv().await?;
         if wanted(&command) {
             return Some(command);
+        }
+        if let AgentCommand::UserMessage(text) = command {
+            told.push(text);
         }
     }
 }

@@ -43,7 +43,7 @@ function openLink(uri: string) {
 }
 
 /** Whether the system is dark right now, kept up to date. */
-function useSystemDark(): boolean {
+export function useSystemDark(): boolean {
     const [dark, setDark] = useState(() => matchMedia("(prefers-color-scheme: dark)").matches);
     useEffect(() => {
         const query = matchMedia("(prefers-color-scheme: dark)");
@@ -54,8 +54,17 @@ function useSystemDark(): boolean {
     return dark;
 }
 
-/** A terminal drawn as the configuration and the app's colours say, not yet tied to a shell. */
-function built(element: HTMLElement, config: TerminalConfig | null, scheme: "dark" | "light") {
+/**
+ * A terminal drawn as the configuration and the app's colours say, not yet tied to a shell.
+ * One that only `shows` what was printed elsewhere lets nothing in it write the clipboard:
+ * that is for programs the user runs, not for whatever an agent's command printed.
+ */
+export function built(
+    element: HTMLElement,
+    config: TerminalConfig | null,
+    scheme: "dark" | "light",
+    shows = false,
+) {
     const style = getComputedStyle(element);
     const colours = colourReader(element);
     const terminal = new Terminal({
@@ -79,16 +88,16 @@ function built(element: HTMLElement, config: TerminalConfig | null, scheme: "dar
     terminal.loadAddon(new Unicode11Addon());
     terminal.unicode.activeVersion = "11";
     terminal.open(element);
-    extras(terminal, config);
+    extras(terminal, config, !shows);
     fit.fit();
     return { terminal, fit, search };
 }
 
 /** What a configuration can switch off: the clipboard, drawing on the graphics card, copying. */
-function extras(terminal: Terminal, config: TerminalConfig | null) {
+function extras(terminal: Terminal, config: TerminalConfig | null, writes: boolean) {
     const { clipboard, gpu, copyOnSelect } = terminalExtras(config);
     const copy = (text: string) => void navigator.clipboard.writeText(text).catch(() => undefined);
-    if (clipboard) {
+    if (clipboard && writes) {
         // Programs may put text on the clipboard (OSC 52). What is on it is never told to them.
         const writeOnly = {
             readText: () => "",

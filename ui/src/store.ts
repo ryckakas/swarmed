@@ -18,7 +18,7 @@ import type {
 import type { CloudTarget } from "./cloud";
 import type { Comparison } from "./components/CompareDialog";
 import { type ReviewComment, withComment } from "./review";
-import { atWork, atWorkIn, type SubAgent } from "./subagents";
+import { atWork, type SubAgent, subAgentsIn } from "./subagents";
 import {
     applySessionEvent,
     findSession,
@@ -67,7 +67,10 @@ interface State {
     events: Record<number, AgentEvent[]>;
     /** Per task id, a count that goes up whenever its agents may have changed files. */
     edits: Record<number, number>;
-    /** The sub-agents each session's agent has at work, as far as this window has heard. */
+    /**
+     * The sub-agents each session's agent has started and not yet seen done, as far as this
+     * window has heard; which are at work is `working` in `subagents.ts`.
+     */
     subAgents: Record<number, SubAgent[]>;
     /** The sub-agent whose own conversation is on screen in place of its session's, if any. */
     subView: { sessionId: number; id: string } | null;
@@ -646,7 +649,7 @@ export const useStore = create<State>((set, get) => ({
             const history = await readHistory(api, sessionId);
             set((state) => ({
                 events: { ...state.events, [sessionId]: history },
-                subAgents: { ...state.subAgents, [sessionId]: atWorkIn(history) },
+                subAgents: { ...state.subAgents, [sessionId]: subAgentsIn(history) },
             }));
         } catch (error) {
             get().report(error);

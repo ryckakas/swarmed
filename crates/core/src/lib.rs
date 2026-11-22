@@ -77,7 +77,7 @@ use agents::Agents;
 pub use agents::{AgentInfo, CLAUDE};
 pub use analytics::TurnStats;
 pub use attach::{ATTACHED_FILES, with_files};
-pub use background::BackgroundTask;
+pub use background::{BackgroundOutput, BackgroundTask};
 pub use shellenv::learn_shell_path;
 
 pub use changes::{ChangeKind, FileChange, FileDiff};

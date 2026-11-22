@@ -108,6 +108,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   which is all the command line ever does.
 - **A session left busy by a Swarmed that ended mid-turn** is put right: the app settles all
   of them when it starts (`Core::arrive`), and Stop on one records its turn as stopped.
+  An agent that went with its Swarmed never reported its end, so `arrive` also records one
+  (`background_settle`) for each session whose history has something left in the background
+  and no end after it: a front end reading that history would take a sub-agent left there to
+  be at work for good.
 - **A stopped agent is given `GRACE` to go, then killed** (`sessions.rs`): closing its input
   ends most, and the rest must not write on into a worktree being removed. A backend returns
   the tasks that hold its process (`AgentHandle::tasks`); aborting them kills it. Removing a
@@ -294,15 +298,26 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   answers tells the agent nothing, so the UI never offers that. A number, the arrows, the
   space bar, Enter and a click all choose; one question with one answer is sent as it is
   chosen. Input the UI cannot show whole falls back to the plain allow-or-deny prompt.
+  A question can be skipped on its own (`skip`, the S key): it counts as settled, choosing
+  or typing an answer un-skips it, and it reaches the agent under its text as `SKIPPED_ONE`,
+  never left out, which could read as no answer. Every question skipped is Skip all, which
+  denies the call with `SKIPPED`. Both say not to choose for the user: an agent that hears
+  no answer otherwise picks one. A command's questions (`/config`) leave a skipped one out
+  of the answers (`commandAnswersOf`), and the core leaves that setting as it is.
 - **A sub-agent is read from its session's events, never a session of its own**
   (`AgentEvent::Sub`, `subagents.ts`, `SubAgentPane.tsx`). Claude Code names, on each message
   of an agent it started, the tool call that started it; `claude.rs` wraps what such a message
   holds in `Sub` under that call, so it is stored with the session and stays out of the
   conversation, which is between the user and the session's agent. A sub-agent is at work
   from its `Agent` (earlier `Task`) call to that call's result, and the UI works that out
-  from the events it hears: the sidebar lists the ones at work under their session and drops
-  them when they are done, and pressing one shows its own conversation, read-only, in place
-  of the session's. Nothing in the store or the database knows of sub-agents. Conversations
+  from the events it hears (`atWork`, `working`): the sidebar lists the ones at work under
+  their session and drops them when they are done, and pressing one shows its own
+  conversation, read-only, in place of the session's. One in the background (Claude Code's
+  default now) gets its call's result at once and works on past the turn: its
+  `AgentEvent::Background` report names the call (`tool_use_id`), which keeps it at work,
+  listed under the session even while it is idle, until the report of its end or the
+  agent's exit, in whichever order the result and the report came. Its answer is that end
+  report's summary, and its row in the Background list opens it. Nothing in the store or the database knows of sub-agents. Conversations
   recorded before this have a sub-agent's words among the agent's own.
 - **A session's title** starts as the first line of its first message. A `Namer` (`ClaudeNamer`:
   one call to Claude Code's smallest model, with none of the user's settings, tools or MCP
@@ -326,7 +341,16 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   error, until a front end calls `session_mark_read` or the user writes to it. It is a flag
   beside the status, not a status: the UI shows it for idle sessions only, since busy, waiting
   and failed already say more. The UI marks the session on screen as read when its answer
-  arrives, if the window has focus, and otherwise when the window gets it.
+  arrives, if the window has focus, and otherwise when the window gets it. The core decides,
+  and says so with every event (`SessionEvent::unread`, like `status`), which the UI
+  follows. A turn that ends while the agent has sub-agents at work in the background
+  (`local_agent`, `remote_agent`, followed in `Live` from the `Background` reports and
+  forgotten when the agent exits or starts again) hands nothing back yet: the session goes
+  idle, since it can take a message, but is not unread and gets no "Finished" notice. The
+  turn the agent starts to read their reports does, and so does the answer to a later
+  message of the user's (`Live::answering`): only the turn that started them and turns of
+  the agent's own are held back. A command left running holds nothing up, and what a
+  sub-agent says never makes its session busy.
 - **MCP servers can be set up in Swarmed** (`mcp_own.rs`), in `mcp.toml` in the data
   directory, and are given to every agent it runs, Claude Code included, beside Claude Code's
   own. A server's secrets are named in the file and kept in the keychain under
@@ -338,6 +362,18 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   request. What ran under an agent that is no longer running is listed as stopped. A stack's
   `start` command is spawned with `std::process`, never Tokio's: window commands that are not
   `async` run on a thread without a runtime, where a Tokio spawn aborts the app.
+- **What a background command printed can be read** (`session_background_output`), from the
+  file Claude Code writes it to: named by `output_file` in its end report, and for one still
+  running by the `Bash` call's result ("Output is being written to: …", read in `claude.rs`
+  as one more running report; other wording only means no output until it ends). Only a file
+  the session's own agent named is read, and only once it is, links followed, a regular
+  `.output` file under `/tmp/claude-<uid>` (the owner of the data directory). At most the last
+  256 KB, or what came since an offset, so a view that follows it adds and never redraws. It
+  can hold anything, like terminal output: shown to the user, never logged, stored or handed
+  to another session, a fork, the cloud or search. The UI draws it in a read-only xterm built
+  as the session's terminal is, and reads on only while it is open and the command runs,
+  one read at a time. Nothing in it writes the clipboard (`built`'s `shows`): OSC 52 is for
+  programs the user runs, not for what an agent's command printed.
 - **A snapshot is the files git ignores in one well set up task** (`snapshots.rs`), one per
   environment, copied with `cp -c` so that APFS clones them. A new task gets them put into its
   worktree before `setup` runs, never over a file that is already there. They may include the
@@ -507,14 +543,42 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   just been typed; a turn that failed, or an agent that was stopped, leaves the queue standing.
   The queue lives in memory, and its changes are published as `Queue` events that are never
   stored, like the pieces of a reply.
+- **A waiting message open for editing is held** (`session_queue_hold`), and the edit box
+  renews the hold every few seconds. While the first message is held, nothing sends from the
+  queue by itself, whatever the path (a turn's end, Stop, Send now, Send the next one): the
+  send is owed (`Queues::owe`) and goes when the hold is let go, by saving
+  (`session_queue_edit`, with the new text) or giving the edit up (`session_queue_let_go`,
+  as it was). A hold nobody renews lapses after `HOLD_FOR`, and a task started when the send
+  was put off (`wait_for_edit`) sends it then, so a window that went away mid-edit cannot
+  leave the queue stuck. A held message further back holds nothing up.
 - **A waiting message can be sent at once** (`session_send_now`): it is put first and the turn
   under way is stopped as Stop stops it, so it goes when that turn has ended. Never straight
   into a busy agent, which would take an open request away and is not something every agent
   can take. A stopped turn is marked in `Queues::pressing` before the interrupt goes out, and
   that lock is held while a turn's end is dealt with (`end_turn`) and while a message is sent
-  at once, so a stop that crosses the turn's own end sends one message, not two.
+  at once, so a stop that crosses the turn's own end sends one message, not two. It is taken
+  before the message is put first, so a turn that ends meanwhile sends that message instead
+  of having the next turn stopped. What is typed can go the same way in one step
+  (`session_message_now`, ⌘⇧Enter, `send-now` in the shortcut table): put first and sent
+  now, never queued and then sent, between which a turn could end. The message box acts on
+  that shortcut itself, where the text is; the window's listener leaves it alone.
+- **Claude Code can be told a waiting message mid-turn** (`session_tell_now`, **Tell now** on
+  the message), for an agent whose `AgentInfo::hears_mid_turn` says so: only Claude Code. As
+  tried with 2.1.330, a `user` line written while a turn runs is taken into that turn at its
+  next step (after the tool under way), answered in the same turn, and an open `can_use_tool`
+  request stays open. Started with `--replay-user-messages`, Claude Code says each message
+  back (`isReplay`) as it takes it in, which `claude.rs` reads as `AgentEvent::Heard`, never
+  stored or published. A told message is recorded as the user's (`UserMessage`) when it is
+  heard, so it stands where the agent heard it; every other message said back was recorded
+  when it was sent and is dropped (`heard_as`). A skill Claude Code would not know by name
+  is told as what it says, like any message that calls one (`Told`: what was sent is what is
+  said back, what was typed is what is recorded). One told and never heard, because the agent
+  ended or another run took its place, waits in the queue again (`wait_again`): recording it
+  would show as said what the agent never got. ACP agents cannot add to a turn and refuse it
+  (`Error::HearsNoMessageMidTurn`); between turns it is sent as any message.
 - **What is worth interrupting the user for is decided in the core** (`notices.rs`): a session
-  that asks for a decision, finishes a turn, or fails. A front end shows it only while the user
+  that asks for a decision, finishes a turn, fails, or moves its task's worktree to another
+  branch. A front end shows it only while the user
   looks elsewhere; the app does so as a macOS notification (`crates/app/src/notify.rs`) and
   counts what waits on its icon. A notice names the tool and the agent's own summary, never the
   tool's arguments, which may hold anything.
@@ -561,6 +625,12 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **A task's pull request and checks are asked of the user's own `gh`** (`pulls.rs`), in the
   task's worktree, on demand. Swarmed holds no GitHub token. No `gh`, no pull request, or a
   repository that is not on GitHub all mean the same: the task has none, which is not an error.
+  `gh pr view` reports every check run on the head commit, runs a newer one replaced included,
+  so only each check's latest run is kept (`latest`, by workflow and job name), as GitHub's own
+  page and `gh pr checks` show them. A run is replaced only by one that started after it
+  finished, or when it was cancelled. What `gh pr view` prints has no event, so a job run for
+  both `push` and `pull_request` on one commit, under way at the same time, shows twice:
+  folded into one, a run that passed would hide one that failed.
 - **A task's work leaves its worktree only when asked** (`publish.rs`): commit everything, push
   the branch, open a pull request, each a step of its own behind a button. Commits are made by
   the user's git as them, the pull request by their `gh`; nothing is added to either.
@@ -582,7 +652,22 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   clone even when a skill says to (skills written without Swarmed often do), how to read
   another branch without checking it out, and to ask the user for a new task for work that
   needs another branch. An agent has no tool to start a task; asking is the way. For parts
-  that can run beside it, it is pointed at `spawn_session`, which shares the worktree.
+  that can run beside it, it is pointed at `spawn_session`, which shares the worktree. Agents
+  are started with the task's `SWARMED_*` variables, as hooks are (`Core::task_env`), so a
+  skill can tell it runs in a task and skip its own worktree step; `docs/coding-agents.md`
+  tells users which skills to leave out, and has to agree with what agents are told.
+- **A move of a task's worktree is watched for** (`notice_moved`, `moved_since` in
+  `sessions.rs`). After every tool result and turn end the core asks git which branch the
+  worktree is on (`git::head_now`, without waiting on a runtime: it is a few milliseconds and
+  must come before the next event) and compares it with where that worktree was last seen.
+  A move is recorded once, as `AgentEvent::WorktreeMoved`, in the session whose agent was at
+  work; it is worth a notice, and the transcript offers to switch back. Its branch is
+  remembered for the task there and then, not only when the panel reads. A move the agent did
+  not see (the user's switch from Swarmed or by hand, another session's) is told to it with
+  the user's next message and recorded with `between_turns`; `task_switch` notes its own
+  switch so that it is not reported as a move. Both maps live in memory (`Live`): after a
+  restart the first look sets where things stand, and only the task's own worktree is read,
+  so a checkout in another folder is never a move.
 - **A pull request's title and description can be written for the user too**
   (`task_pull_message`), by the same writer as a commit message and under the same rules:
   shown the branch's commits and its diff against the base (three dots, so only what the

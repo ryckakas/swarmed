@@ -4,6 +4,7 @@ import type {
     AgentInfo,
     AgentSetup,
     ApiKeyInfo,
+    BackgroundOutput,
     BackgroundTask,
     BranchChoices,
     CloudProvider,
@@ -277,12 +278,26 @@ export interface Api {
     sessionEvents(id: number): Promise<AgentEvent[]>;
     /** Starts a turn, starting the session's agent first if it is not running. */
     sessionSend(id: number, text: string, files?: string[]): Promise<void>;
+    /**
+     * Tells a waiting message to the agent now, in the middle of its turn, without stopping
+     * it: only for an agent that `hears_mid_turn`.
+     */
+    sessionTellNow(id: number, message: number): Promise<void>;
+    /** Sends a message now: a turn under way is stopped, and it goes ahead of anything waiting. */
+    sessionMessageNow(id: number, text: string, files?: string[]): Promise<void>;
     /** The messages waiting for the session's agent to finish, first to be sent first. */
     sessionQueue(id: number): Promise<QueuedMessage[]>;
     /** Adds a message to the queue: it is sent by itself when the agent's turn ends well. */
     sessionEnqueue(id: number, text: string, files?: string[]): Promise<QueuedMessage[]>;
     /** Rewrites a waiting message; empty text takes it out of the queue. */
     sessionQueueEdit(id: number, message: number, text: string): Promise<QueuedMessage[]>;
+    /**
+     * Holds a waiting message while it is edited, or renews the hold: while the first one is
+     * held the queue sends nothing by itself. `false` once the message no longer waits.
+     */
+    sessionQueueHold(id: number, message: number): Promise<boolean>;
+    /** Lets go of a waiting message left as it was; a send held back for it goes now. */
+    sessionQueueLetGo(id: number, message: number): Promise<void>;
     /** Sends the first waiting message now, for a queue a stopped turn left standing. */
     sessionSendQueued(id: number): Promise<void>;
     /**
@@ -304,6 +319,15 @@ export interface Api {
     taskBackground(project: string, name: string): Promise<BackgroundTask[]>;
     /** Asks a session's agent to stop something it left running. */
     sessionStopBackground(id: number, taskId: string): Promise<void>;
+    /**
+     * What a command a session's agent left running printed: from `from` on, or its latest
+     * part; `null` once the file is gone.
+     */
+    sessionBackgroundOutput(
+        id: number,
+        taskId: string,
+        from: number | null,
+    ): Promise<BackgroundOutput | null>;
     /**
      * The commands and skills a message can call by starting with `/`, as last reported by the
      * session's agent; for `null` or a session that has not run, by the newest session.

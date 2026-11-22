@@ -467,8 +467,10 @@ impl Core {
         Ok(vars)
     }
 
-    /// The variables the task's environment sets, with their values worked out: the project's
-    /// own and, on top, those of the environment the task was created in.
+    /// The variables a task's agents are started with: what the task's environment sets, the
+    /// project's own and, on top, those of the environment the task was created in, with their
+    /// values worked out; then every task variable as `SWARMED_<NAME>`, as hooks have them. A
+    /// skill can tell from `SWARMED_TASK` that it already runs in a task's own worktree.
     pub(crate) fn task_env(&self, task: &Task) -> Result<Vec<(String, String)>> {
         let Some(project) = self.store().project_by_id(task.project_id)? else {
             return Ok(vec![]);
@@ -476,7 +478,10 @@ impl Core {
         let config = self.config_in(&project.name, task.environment.as_deref())?;
         let vars = self.task_vars(&project, &config, task)?;
         let rendered = |(name, value): (&String, &String)| Ok((name.clone(), vars.render(value)?));
-        config.env.iter().map(rendered).collect()
+        let mut env: Vec<(String, String)> =
+            config.env.iter().map(rendered).collect::<Result<_>>()?;
+        env.extend(exported(&vars));
+        Ok(env)
     }
 
     /// Renders and runs one hook in the task's worktree. Every variable is also exported as
@@ -537,13 +542,16 @@ impl Core {
         for (key, value) in &config.env {
             env.push((key.clone(), vars.render(value)?));
         }
-        // Last, so that they are what the command refers to whatever the config sets.
-        env.extend(
-            vars.iter()
-                .map(|(name, value)| (env_name(name), value.to_string())),
-        );
+        env.extend(exported(&vars));
         Ok((command, env))
     }
+}
+
+/// Every task variable as an environment variable, `SWARMED_<NAME>`. Put last, so that they are
+/// what a hook or an agent finds whatever the configuration sets.
+fn exported(vars: &Vars) -> impl Iterator<Item = (String, String)> + '_ {
+    vars.iter()
+        .map(|(name, value)| (env_name(name), value.to_string()))
 }
 
 /// Removes a file of Swarmed's own. One that is not there is as good as removed.

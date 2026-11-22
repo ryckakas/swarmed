@@ -1,5 +1,5 @@
 //! What is worth telling the user about while they look elsewhere: a session that needs a
-//! decision, has finished, or has failed.
+//! decision, has finished, has failed, or moved its task's worktree to another branch.
 
 use serde::Serialize;
 
@@ -37,14 +37,28 @@ fn wording(event: &SessionEvent, spawned: bool) -> Option<(&'static str, String)
                 .unwrap_or_else(|| format!("Wants to use {tool_name}"));
             Some(("Needs you", detail))
         }
-        // A session another session started reports to that one, not to the user.
+        // A session another session started reports to that one, not to the user. A turn that
+        // ends while sub-agents work on in the background hands nothing back yet: the core
+        // marks it unread only once it does.
         AgentEvent::TurnDone {
             is_error: false,
             result,
             ..
-        } if !spawned => Some(("Finished", result.clone().unwrap_or_default())),
+        } if !spawned && event.unread == Some(true) => {
+            Some(("Finished", result.clone().unwrap_or_default()))
+        }
         AgentEvent::Exited { .. } if event.status == Some(SessionStatus::Errored) => {
             Some(("Stopped with an error", String::new()))
+        }
+        // Seen in the middle of a turn: the agent, or something it ran, moved the worktree,
+        // and what the task shows and publishes follows it.
+        AgentEvent::WorktreeMoved {
+            to,
+            between_turns: false,
+            ..
+        } => {
+            let on = to.as_deref().unwrap_or("no branch");
+            Some(("Moved its worktree", format!("Now on {on}")))
         }
         _ => None,
     }
@@ -71,6 +85,7 @@ impl Core {
             AgentEvent::PermissionRequest { .. }
                 | AgentEvent::TurnDone { .. }
                 | AgentEvent::Exited { .. }
+                | AgentEvent::WorktreeMoved { .. }
         );
         if !candidate || !self.settings()?.notifications {
             return Ok(None);
@@ -114,9 +129,12 @@ mod tests {
     use super::*;
 
     fn event(status: Option<SessionStatus>, event: AgentEvent) -> SessionEvent {
+        // An answer handed back makes the session unread, as the core decides.
+        let unread = matches!(event, AgentEvent::TurnDone { .. }).then_some(true);
         SessionEvent {
             session_id: 1,
             status,
+            unread,
             event,
         }
     }

@@ -549,6 +549,9 @@ fn the_ui_can_list_what_was_left_running_and_cannot_stop_what_no_agent_runs() {
     assert_eq!(app.invoke("task_background", target), Ok(json!([])));
     let stop = json!({ "id": 999, "taskId": "b1" });
     assert!(app.invoke("session_stop_background", stop).is_err());
+    // Output is read only of what a session's own agent named: nothing here did.
+    let output = json!({ "id": 999, "taskId": "b1", "from": null });
+    assert!(app.invoke("session_background_output", output).is_err());
 }
 
 #[test]
@@ -679,6 +682,10 @@ fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
     );
     assert_eq!(edited[0]["text"], "next");
     assert_eq!(app.ok("session_queue", json!({ "id": id })), edited);
+    // Opened for editing and left as it was: nothing was held back, so nothing goes.
+    let held = json!({ "id": id, "message": queue[0]["id"] });
+    assert_eq!(app.ok("session_queue_hold", held.clone()), json!(true));
+    assert_eq!(app.ok("session_queue_let_go", held), json!(null));
 
     app.ok(
         "session_allow",
@@ -701,6 +708,29 @@ fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
     );
     app.wait_for_text(id, "echo: now");
     app.wait_for_text(id, "echo: later");
+
+    // What is typed can be sent now too, without waiting in the queue first.
+    app.ok("session_send", json!({ "id": id, "text": "slow" }));
+    app.ok(
+        "session_message_now",
+        json!({ "id": id, "text": "typed", "files": [] }),
+    );
+    app.wait_for_text(id, "echo: typed");
+
+    // Told now, a waiting message is taken into the turn under way, which goes on.
+    let earlier = request["request_id"].clone();
+    app.ok("session_send", json!({ "id": id, "text": "run: ls" }));
+    let request = wait_for(&app, id, "a second request", |e| {
+        e["type"] == "permission_request" && e["request_id"] != earlier
+    });
+    let queue = app.ok("session_enqueue", json!({ "id": id, "text": "a hint" }));
+    let told = json!({ "id": id, "message": queue[0]["id"] });
+    assert_eq!(app.ok("session_tell_now", told), json!(null));
+    app.ok(
+        "session_allow",
+        json!({ "id": id, "requestId": request["request_id"] }),
+    );
+    app.wait_for_text(id, "heard: a hint");
 }
 
 #[test]

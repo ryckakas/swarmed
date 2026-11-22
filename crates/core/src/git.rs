@@ -26,6 +26,27 @@ pub(crate) async fn git(dir: &Path, args: &[&str]) -> Result<String> {
     }
 }
 
+/// Where a worktree's `HEAD` is: on a branch, or on none (`None`, a detached `HEAD`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Head(pub(crate) Option<String>);
+
+/// Where a worktree's `HEAD` is, asked of git without waiting on a runtime: for code that runs
+/// after every tool call, where the answer is needed before anything else is done. `None`
+/// when git cannot tell.
+pub(crate) fn head_now(worktree: &Path) -> Option<Head> {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(worktree)
+        .args(["branch", "--show-current"])
+        .output()
+        .ok()?;
+    let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    output
+        .status
+        .success()
+        .then(|| Head((!branch.is_empty()).then_some(branch)))
+}
+
 /// The branch a worktree is on, or none when it is on no branch (a detached `HEAD`).
 pub(crate) async fn current_branch(worktree: &Path) -> Result<Option<String>> {
     let branch = git(worktree, &["branch", "--show-current"]).await?;

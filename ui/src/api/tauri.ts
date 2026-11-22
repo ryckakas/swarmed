@@ -10,6 +10,7 @@ import type {
     AgentInfo,
     AgentSetup,
     ApiKeyInfo,
+    BackgroundOutput,
     BranchChoices,
     CloudTask,
     Costs,
@@ -155,11 +156,16 @@ export const tauriApi: Api = {
         invoke<Session>("session_new", { project, task, agent, how }),
     sessionEvents: (id) => invoke<AgentEvent[]>("session_events", { id }),
     sessionSend: (id, text, files) => invoke("session_send", { id, text, files: files ?? [] }),
+    sessionTellNow: (id, message) => invoke<void>("session_tell_now", { id, message }),
+    sessionMessageNow: (id, text, files) =>
+        invoke("session_message_now", { id, text, files: files ?? [] }),
     sessionQueue: (id) => invoke<QueuedMessage[]>("session_queue", { id }),
     sessionEnqueue: (id, text, files) =>
         invoke<QueuedMessage[]>("session_enqueue", { id, text, files: files ?? [] }),
     sessionQueueEdit: (id, message, text) =>
         invoke<QueuedMessage[]>("session_queue_edit", { id, message, text }),
+    sessionQueueHold: (id, message) => invoke<boolean>("session_queue_hold", { id, message }),
+    sessionQueueLetGo: (id, message) => invoke<void>("session_queue_let_go", { id, message }),
     sessionSendQueued: (id) => invoke("session_send_queued", { id }),
     sessionSendNow: (id, message) => invoke("session_send_now", { id, message }),
     sessionMarkRead: (id) => invoke("session_mark_read", { id }),
@@ -170,6 +176,8 @@ export const tauriApi: Api = {
     sessionInterrupt: (id) => invoke("session_interrupt", { id }),
     taskBackground: (project, name) => invoke("task_background", { project, name }),
     sessionStopBackground: (id, taskId) => invoke("session_stop_background", { id, taskId }),
+    sessionBackgroundOutput: (id, taskId, from) =>
+        invoke<BackgroundOutput | null>("session_background_output", { id, taskId, from }),
     slashCommands: (id) => invoke<SlashCommand[]>("slash_commands", { id }),
     sessionCommandAnswer: (id, requestId, answers) =>
         invoke("session_command_answer", { id, requestId, answers }),

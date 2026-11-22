@@ -3,3 +3,6 @@
 
 # A notification test's made-up token, from before the line was marked.
 6963c13bb45cdf3bd934813a19193b93911cb76b:crates/core/src/notices.rs:curl-auth-header:139
+
+# The shortcut ⌘⇧Enter, written as "cmd+shift+enter" under `keys`, from before the line was marked.
+4b5e5665c8e189b650ab1c90690f28a043928e40:ui/src/hotkeys.ts:generic-api-key:100

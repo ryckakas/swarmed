@@ -57,6 +57,8 @@ export type Item =
       }
     /** A command the agent could only show on a screen in its own terminal. */
     | { kind: "terminal-only"; key: number; command: string }
+    /** The task's worktree moved to another branch: during the turn, or since the last one. */
+    | { kind: "moved"; key: number; from: string | null; to: string | null; betweenTurns: boolean }
     /** HTML the agent showed the user through Swarmed's tool. */
     | { kind: "view"; key: number; html: string }
     /** What happened in the terminal, as the agent was told with the message before it. */
@@ -167,6 +169,10 @@ function single(event: AgentEvent, key: number, words: Words): Item | null {
             return { kind: "terminal", key, text: event.text };
         case "terminal_only":
             return { kind: "terminal-only", key, command: event.command };
+        case "worktree_moved": {
+            const { from, to, between_turns } = event;
+            return { kind: "moved", key, from, to, betweenTurns: between_turns };
+        }
         // A view of nothing is not drawn: there is nothing in it to see.
         case "view":
             return event.html.trim() === "" ? null : { kind: "view", key, html: event.html };
@@ -482,4 +488,35 @@ export function activity(events: AgentEvent[]): string {
  */
 export function messageNumber(events: AgentEvent[], key: number): number {
     return events.slice(0, key).filter((event) => event.type === "user_message").length;
+}
+
+/**
+ * The latest move of the task's worktree in the conversation, by its key, or `null`. Only that
+ * one can offer the way back: an earlier one's would switch away from wherever a later move,
+ * or the user, has since put the worktree.
+ */
+export function latestMove(items: Item[]): number | null {
+    return items.findLast((item) => item.kind === "moved")?.key ?? null;
+}
+
+/**
+ * What the transcript says of a move of the task's worktree to another branch: what follows
+ * from it when the agent moved it, and that the agent was told when it moved between turns.
+ */
+export function movedSaid(
+    from: string | null,
+    to: string | null,
+    betweenTurns: boolean,
+    words: Words,
+): string {
+    const { agent, branch, commit, pullRequest, push, task, worktree } = words.terms;
+    const on = (name: string | null) => name ?? `no ${branch}`;
+    if (betweenTurns) {
+        return `The ${worktree} was moved from ${on(from)} to ${on(to)} since the last turn, and the ${agent} was told with this message.`;
+    }
+    const moved = `The ${worktree} moved from ${on(from)} to ${on(to)} during this turn`;
+    if (to === null) {
+        return `${moved}, so there is nothing to ${push} until it is on a ${branch} again.`;
+    }
+    return `${moved}: the ${task}'s changes and ${pullRequest} are ${to}'s now, and ${commit} and ${push} go to it.`;
 }
