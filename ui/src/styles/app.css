@@ -739,6 +739,31 @@ code {
     text-decoration: underline;
 }
 
+.background-show {
+    grid-column: 1;
+    justify-self: start;
+    margin-top: var(--space-1);
+}
+
+/* Under the row's facts and its Stop button, as wide as the row. */
+.background-output {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin-top: var(--space-1);
+}
+
+.background-output-terminal {
+    height: 16em;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    padding: var(--space-1);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
 .background-open {
     padding: 0;
     border: 0;

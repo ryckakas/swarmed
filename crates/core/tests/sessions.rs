@@ -2173,3 +2173,36 @@ async fn the_agent_ending_ends_a_wait_on_background_sub_agents() {
     let events = until_turns(&mut bus, session.id, 1).await;
     assert_eq!(turn_ends(&events)[0].unread, Some(true));
 }
+
+#[tokio::test]
+async fn what_a_background_command_printed_is_read_only_by_its_own_session() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+    let other = started_session(&core);
+
+    core.session_send(session.id, "background bash")
+        .expect("sends");
+    until_turns(&mut bus, session.id, 1).await;
+    let listed = core.task_background("demo", "one").expect("lists");
+    assert!(
+        listed
+            .iter()
+            .any(|task| task.task_id == "bg-bash" && task.output)
+    );
+    // Its own session finds the file gone, which is no error: Claude Code clears its folder.
+    let own = core.session_background_output(session.id, "bg-bash", None);
+    assert!(matches!(own, Ok(None)), "{own:?}");
+    // Another session cannot reach it, nor a task nobody named.
+    let theirs = core.session_background_output(other.id, "bg-bash", None);
+    assert!(
+        matches!(theirs, Err(Error::BackgroundOutput(_))),
+        "{theirs:?}"
+    );
+    let nobody = core.session_background_output(session.id, "nothing", None);
+    assert!(
+        matches!(nobody, Err(Error::BackgroundOutput(_))),
+        "{nobody:?}"
+    );
+}

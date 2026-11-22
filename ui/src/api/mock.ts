@@ -555,7 +555,37 @@ function sampleAnalytics(today: Date): TurnStats[] {
 }
 
 /** Things the sample agents left running: one still going, two that ended. */
-function backgroundApi(): Pick<Api, "taskBackground" | "sessionStopBackground"> {
+/** When the sample dev server started printing, so that it goes on printing while shown. */
+const DEV_SERVER_STARTED = Date.now();
+
+/**
+ * What a sample command printed, with colours as a real one has them: the dev server prints
+ * a request every two seconds, the test suite printed what it found and ended.
+ */
+function sampleOutput(taskId: string): string | null {
+    if (taskId === "b2") {
+        return "\u001b[1mRunning 214 tests\u001b[0m\n\u001b[32m✓\u001b[0m redirect keeps the session\n\u001b[32m✓\u001b[0m login sets the cookie\n\u001b[32m214 passed\u001b[0m in 41s\n";
+    }
+    if (taskId !== "b1") {
+        return null;
+    }
+    const requests = Math.floor((Date.now() - DEV_SERVER_STARTED) / 2000);
+    const lines = [
+        "\u001b[36m  VITE\u001b[0m ready in 412 ms",
+        "  ➜  Local: http://localhost:3100/",
+    ];
+    for (let at = 0; at < requests; at++) {
+        lines.push(
+            `\u001b[2m${new Date(DEV_SERVER_STARTED + at * 2000).toLocaleTimeString()}\u001b[0m GET /login \u001b[32m200\u001b[0m`,
+        );
+    }
+    return `${lines.join("\n")}\n`;
+}
+
+function backgroundApi(): Pick<
+    Api,
+    "taskBackground" | "sessionStopBackground" | "sessionBackgroundOutput"
+> {
     const tasks: BackgroundTask[] = [
         {
             session_id: 1,
@@ -566,6 +596,7 @@ function backgroundApi(): Pick<Api, "taskBackground" | "sessionStopBackground"> 
             state: "running",
             summary: null,
             tool_use_id: null,
+            output: true,
         },
         {
             session_id: 1,
@@ -576,6 +607,7 @@ function backgroundApi(): Pick<Api, "taskBackground" | "sessionStopBackground"> 
             state: "completed",
             summary: 'Background command "Run the whole test suite" completed (exit code 0)',
             tool_use_id: null,
+            output: true,
         },
         {
             session_id: 2,
@@ -586,11 +618,21 @@ function backgroundApi(): Pick<Api, "taskBackground" | "sessionStopBackground"> 
             state: "failed",
             summary: "The agent stopped with an error",
             tool_use_id: null,
+            output: false,
         },
     ];
     return {
         taskBackground: async (_project, name) =>
             name === "fix-login-redirect" ? tasks.map((task) => ({ ...task })) : [],
+        sessionBackgroundOutput: async (_id, taskId, from) => {
+            const text = sampleOutput(taskId);
+            if (text === null) {
+                return null;
+            }
+            // The samples are plain ASCII but for a few marks: characters stand in for bytes.
+            const start = from !== null && from <= text.length ? from : 0;
+            return { text: text.slice(start), start, end: text.length };
+        },
         sessionStopBackground: async (id, taskId) => {
             const task = tasks.find((one) => one.session_id === id && one.task_id === taskId);
             if (task) {
@@ -1543,6 +1585,7 @@ class MockAgent {
             state,
             summary,
             tool_use_id: call,
+            output_file: null,
         });
         this.later(id, report("running", null), "working");
         const launched = "Async agent launched successfully.";

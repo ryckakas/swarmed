@@ -208,6 +208,10 @@ pub enum Error {
     /// A change to Swarmed's configuration that an agent asked for was not made. Says why.
     #[error("{0}")]
     Configure(String),
+    /// What a command an agent left running printed cannot be read from where it is said to
+    /// be: not a file this session's agent named, or not one Claude Code writes such output to.
+    #[error("{0}")]
+    BackgroundOutput(String),
     /// A port's name is not one a hook could use.
     #[error(
         "`{0}` cannot name a port: use lowercase letters, digits and underscores, starting with a letter"

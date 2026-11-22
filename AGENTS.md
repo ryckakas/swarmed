@@ -350,6 +350,16 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   request. What ran under an agent that is no longer running is listed as stopped. A stack's
   `start` command is spawned with `std::process`, never Tokio's: window commands that are not
   `async` run on a thread without a runtime, where a Tokio spawn aborts the app.
+- **What a background command printed can be read** (`session_background_output`), from the
+  file Claude Code writes it to: named by `output_file` in its end report, and for one still
+  running by the `Bash` call's result ("Output is being written to: …", read in `claude.rs`
+  as one more running report; other wording only means no output until it ends). Only a file
+  the session's own agent named is read, and only once it is, links followed, a regular
+  `.output` file under `/tmp/claude-<uid>` (the owner of the data directory). At most the last
+  256 KB, or what came since an offset, so a view that follows it adds and never redraws. It
+  can hold anything, like terminal output: shown to the user, never logged, stored or handed
+  to another session, a fork, the cloud or search. The UI draws it in a read-only xterm built
+  as the session's terminal is, and reads on only while it is open and the command runs.
 - **A snapshot is the files git ignores in one well set up task** (`snapshots.rs`), one per
   environment, copied with `cp -c` so that APFS clones them. A new task gets them put into its
   worktree before `setup` runs, never over a file that is already there. They may include the

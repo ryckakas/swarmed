@@ -573,6 +573,10 @@ pub enum AgentEvent {
         /// Absent from what was recorded before this.
         #[serde(default)]
         tool_use_id: Option<String>,
+        /// Where what it prints is written, for a command, if the agent said. Absent from
+        /// what was recorded before this.
+        #[serde(default)]
+        output_file: Option<String>,
     },
     /// The session was forked from another: what stands before this is a copy of what was
     /// said there. Recorded by the core, not produced by a backend.

@@ -43,7 +43,7 @@ function openLink(uri: string) {
 }
 
 /** Whether the system is dark right now, kept up to date. */
-function useSystemDark(): boolean {
+export function useSystemDark(): boolean {
     const [dark, setDark] = useState(() => matchMedia("(prefers-color-scheme: dark)").matches);
     useEffect(() => {
         const query = matchMedia("(prefers-color-scheme: dark)");
@@ -55,7 +55,11 @@ function useSystemDark(): boolean {
 }
 
 /** A terminal drawn as the configuration and the app's colours say, not yet tied to a shell. */
-function built(element: HTMLElement, config: TerminalConfig | null, scheme: "dark" | "light") {
+export function built(
+    element: HTMLElement,
+    config: TerminalConfig | null,
+    scheme: "dark" | "light",
+) {
     const style = getComputedStyle(element);
     const colours = colourReader(element);
     const terminal = new Terminal({

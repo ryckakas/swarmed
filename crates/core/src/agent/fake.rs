@@ -98,6 +98,9 @@ impl Script {
             state,
             summary: summary.map(str::to_string),
             tool_use_id: what.starts_with("agent").then(|| "tool-bg".to_string()),
+            // Named as Claude Code names it, and never there: the fake writes nothing.
+            output_file: (!what.starts_with("agent"))
+                .then(|| format!("/tmp/swarmed-fake-agent/bg-{what}.output")),
         };
         if !what.starts_with("agent") {
             self.emit(report(BackgroundState::Running, "local_bash", None));

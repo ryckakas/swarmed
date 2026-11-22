@@ -106,6 +106,7 @@ describe("a sub-agent in the background", () => {
         state,
         summary,
         tool_use_id: id,
+        output_file: null,
     });
     const exited: AgentEvent = { type: "exited", code: 0, stderr: "" };
     const launched = result("a", "Async agent launched successfully.");

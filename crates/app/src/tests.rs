@@ -549,6 +549,9 @@ fn the_ui_can_list_what_was_left_running_and_cannot_stop_what_no_agent_runs() {
     assert_eq!(app.invoke("task_background", target), Ok(json!([])));
     let stop = json!({ "id": 999, "taskId": "b1" });
     assert!(app.invoke("session_stop_background", stop).is_err());
+    // Output is read only of what a session's own agent named: nothing here did.
+    let output = json!({ "id": 999, "taskId": "b1", "from": null });
+    assert!(app.invoke("session_background_output", output).is_err());
 }
 
 #[test]

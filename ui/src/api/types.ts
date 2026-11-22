@@ -677,6 +677,8 @@ export type AgentEvent =
           summary: string | null;
           /** The tool call that started it, for a sub-agent; `null` in older conversations. */
           tool_use_id: string | null;
+          /** Where a command's output is written, if the agent said. */
+          output_file: string | null;
       }
     /** One of the agent's own screens, such as `/usage`, with the contents the agent gave. */
     | { type: "screen"; command: string; title: string; note: string; sections: ScreenSection[] }
@@ -719,6 +721,18 @@ export interface BackgroundTask {
     summary: string | null;
     /** The tool call that started it, for a sub-agent: what opens its conversation. */
     tool_use_id: string | null;
+    /** Whether what it printed can be read, with `sessionBackgroundOutput`. */
+    output: boolean;
+}
+
+/** What a command an agent left running printed, or the part of it read this time. */
+export interface BackgroundOutput {
+    /** What it printed, from `start` on. */
+    text: string;
+    /** Where `text` starts in what it printed, in bytes: past the beginning for its latest part. */
+    start: number;
+    /** Where `text` ends: where to read on from. */
+    end: number;
 }
 
 export interface SessionEvent {

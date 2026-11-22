@@ -707,7 +707,13 @@ fn parse_message(message: &Value, pending: &Pending) -> Vec<AgentEvent> {
         ),
         "user" => {
             let results = content_blocks(message).filter_map(parse_tool_result);
-            results.map(|event| of_sub_agent(message, event)).collect()
+            let mut events = Vec::new();
+            for result in results {
+                let output = started_in_background(&result);
+                events.push(of_sub_agent(message, result));
+                events.extend(output);
+            }
+            events
         }
         "control_request" => vec![parse_control_request(message, pending)],
         "control_cancel_request" => withdraw(message, pending),
@@ -779,6 +785,41 @@ fn parse_background(message: &Value) -> Option<AgentEvent> {
         state,
         summary: kind_of(message, "summary").map(String::from),
         tool_use_id: kind_of(message, "tool_use_id").map(String::from),
+        output_file: kind_of(message, "output_file").map(String::from),
+    })
+}
+
+/// Claude Code's word, in a `Bash` call's result, that the command went on in the background
+/// and where what it prints goes: "Command running in background with ID: bzufoxos3. Output
+/// is being written to: /private/tmp/claude-501/.../bzufoxos3.output". Read as a report of it
+/// running, since its own report of the start does not say where its output goes. Other
+/// wording is passed over: such a command shows what it printed only once it has ended.
+fn started_in_background(result: &AgentEvent) -> Option<AgentEvent> {
+    let AgentEvent::ToolResult {
+        tool_use_id,
+        content,
+        ..
+    } = result
+    else {
+        return None;
+    };
+    let rest = content
+        .split("Command running in background with ID: ")
+        .nth(1)?;
+    let (task_id, rest) = rest.split_once(". Output is being written to: ")?;
+    let named = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
+    if task_id.is_empty() || !task_id.chars().all(named) {
+        return None;
+    }
+    let file = rest.lines().next()?.trim().trim_end_matches('.');
+    (!file.is_empty()).then(|| AgentEvent::Background {
+        task_id: task_id.to_string(),
+        description: String::new(),
+        kind: "local_bash".to_string(),
+        state: BackgroundState::Running,
+        summary: None,
+        tool_use_id: Some(tool_use_id.clone()),
+        output_file: Some(file.to_string()),
     })
 }
 
@@ -1673,6 +1714,39 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn where_a_background_command_writes_is_read_from_its_start_and_its_end() {
+        let pending = Pending::default();
+        let file = "/private/tmp/claude-501/p/s/tasks/bzufoxos3.output";
+        let result = json!({
+            "type": "user",
+            "message": { "content": [{
+                "type": "tool_result", "tool_use_id": "toolu_1",
+                "content": format!("Command running in background with ID: bzufoxos3. Output is being written to: {file}."),
+            }]},
+        });
+        let events = parse_message(&result, &pending);
+        let running = matches!(
+            events.as_slice(),
+            [AgentEvent::ToolResult { .. }, AgentEvent::Background { task_id, state: BackgroundState::Running, output_file: Some(named), tool_use_id: Some(call), .. }]
+                if task_id == "bzufoxos3" && named == file && call == "toolu_1"
+        );
+        assert!(running, "{events:?}");
+        let ended = json!({
+            "type": "system", "subtype": "task_notification", "task_id": "bzufoxos3",
+            "status": "completed", "output_file": file,
+        });
+        let events = parse_message(&ended, &pending);
+        let named = matches!(events.as_slice(), [AgentEvent::Background { output_file: Some(named), .. }] if named == file);
+        assert!(named, "{events:?}");
+        // Other wording says nothing about where output goes.
+        let other = json!({
+            "type": "user",
+            "message": { "content": [{ "type": "tool_result", "tool_use_id": "t", "content": "Running." }]},
+        });
+        assert_eq!(parse_message(&other, &pending).len(), 1);
+    }
+
     /// How Claude Code's report of an end with this status is read.
     fn ended_as(status: &str) -> Option<BackgroundState> {
         let ended = json!({
@@ -1703,6 +1777,7 @@ mod tests {
                 state: BackgroundState::Running,
                 summary: None,
                 tool_use_id: None,
+                output_file: None,
             }]
         );
         assert_eq!(ended_as("completed"), Some(BackgroundState::Completed));

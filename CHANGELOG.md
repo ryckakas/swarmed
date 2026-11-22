@@ -16,6 +16,10 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **See what a background command printed.** A command an agent left running in the
+  background can be opened from the task's Background list, read-only, in the terminal's
+  colours, and followed while it runs. What Claude Code has cleared since it last started is
+  said to be gone.
 - **A waiting message can be sent now.** Each message in the queue has an arrow beside it.
   While the agent works, pressing it stops the turn, as Stop does, and sends that message as
   soon as the turn has ended, ahead of the others. While the agent is not working, it sends

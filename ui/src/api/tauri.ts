@@ -10,6 +10,7 @@ import type {
     AgentInfo,
     AgentSetup,
     ApiKeyInfo,
+    BackgroundOutput,
     BranchChoices,
     CloudTask,
     Costs,
@@ -172,6 +173,8 @@ export const tauriApi: Api = {
     sessionInterrupt: (id) => invoke("session_interrupt", { id }),
     taskBackground: (project, name) => invoke("task_background", { project, name }),
     sessionStopBackground: (id, taskId) => invoke("session_stop_background", { id, taskId }),
+    sessionBackgroundOutput: (id, taskId, from) =>
+        invoke<BackgroundOutput | null>("session_background_output", { id, taskId, from }),
     slashCommands: (id) => invoke<SlashCommand[]>("slash_commands", { id }),
     sessionCommandAnswer: (id, requestId, answers) =>
         invoke("session_command_answer", { id, requestId, answers }),

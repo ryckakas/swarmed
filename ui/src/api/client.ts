@@ -4,6 +4,7 @@ import type {
     AgentInfo,
     AgentSetup,
     ApiKeyInfo,
+    BackgroundOutput,
     BackgroundTask,
     BranchChoices,
     CloudProvider,
@@ -311,6 +312,15 @@ export interface Api {
     taskBackground(project: string, name: string): Promise<BackgroundTask[]>;
     /** Asks a session's agent to stop something it left running. */
     sessionStopBackground(id: number, taskId: string): Promise<void>;
+    /**
+     * What a command a session's agent left running printed: from `from` on, or its latest
+     * part; `null` once the file is gone.
+     */
+    sessionBackgroundOutput(
+        id: number,
+        taskId: string,
+        from: number | null,
+    ): Promise<BackgroundOutput | null>;
     /**
      * The commands and skills a message can call by starting with `/`, as last reported by the
      * session's agent; for `null` or a session that has not run, by the newest session.

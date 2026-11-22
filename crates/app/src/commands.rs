@@ -12,12 +12,12 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
-    Action, AgentInfo, AgentSetup, ApiKeyInfo, BackgroundTask, BranchChoices, CloudOrigin,
-    CloudProvider, CloudTask, Core, Costs, CustomLayout, Environment, FileChange, FileDiff,
-    FileListing, McpServerInput, McpServerView, NewTaskOptions, Project, ProjectOverview, Pull,
-    PullDraft, QueuedMessage, RemoveOptions, SearchHit, Session, SessionOptions, SessionSettings,
-    Settings, Skill, SlashCommand, Snapshot, Task, TaskNaming, Template, TerminalConfig,
-    TerminalOpened, TurnStats, Unpublished, Usage,
+    Action, AgentInfo, AgentSetup, ApiKeyInfo, BackgroundOutput, BackgroundTask, BranchChoices,
+    CloudOrigin, CloudProvider, CloudTask, Core, Costs, CustomLayout, Environment, FileChange,
+    FileDiff, FileListing, McpServerInput, McpServerView, NewTaskOptions, Project, ProjectOverview,
+    Pull, PullDraft, QueuedMessage, RemoveOptions, SearchHit, Session, SessionOptions,
+    SessionSettings, Settings, Skill, SlashCommand, Snapshot, Task, TaskNaming, Template,
+    TerminalConfig, TerminalOpened, TurnStats, Unpublished, Usage,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -950,6 +950,17 @@ pub(crate) fn task_background(
     name: String,
 ) -> Command<Vec<BackgroundTask>> {
     Ok(core.task_background(&project, &name)?)
+}
+
+/// What a command a session's agent left running printed, from `from` on or its latest part.
+#[tauri::command(async)]
+pub(crate) fn session_background_output(
+    core: CoreState<'_>,
+    id: i64,
+    task_id: String,
+    from: Option<u64>,
+) -> Command<Option<BackgroundOutput>> {
+    Ok(core.session_background_output(id, &task_id, from)?)
 }
 
 /// Asks a session's agent to stop something it left running.
