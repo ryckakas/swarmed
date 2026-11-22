@@ -41,6 +41,7 @@ import type {
     TerminalOutput,
     TurnStats,
     Unpublished,
+    UpdateState,
     Usage,
 } from "./types";
 
@@ -1869,6 +1870,29 @@ function closingApi(
 }
 
 /** An in-memory stand-in for the app. */
+
+/** Updating, as the sample has it: a newer version is out, found after a moment's look. */
+function updateApi(): Pick<Api, "updateState" | "updateCheck" | "updateRestart" | "onUpdateState"> {
+    const listeners = new Set<(state: UpdateState) => void>();
+    return {
+        updateState: async () => ({ state: "unknown" }),
+        // It looks for a moment first, as the app does.
+        updateCheck: async () => {
+            for (const listener of listeners) {
+                listener({ state: "checking" });
+            }
+            await new Promise((resolve) => setTimeout(resolve, 600));
+            return { state: "available", version: "0.2.0" };
+        },
+        updateRestart: async () => {
+            throw new Error("A browser has no Swarmed to restart.");
+        },
+        onUpdateState: async (listener) => {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+        },
+    };
+}
 /** What the sample agents' default efforts come to; the small model says nothing of effort. */
 async function sampleEffortDefault(agent: string, model: string | null): Promise<string | null> {
     const known: Record<string, string> = { claude: "xhigh", codex: "medium" };
@@ -2021,12 +2045,7 @@ export function createMockApi(): Api {
         // The sample's own: a browser has no app to ask.
         version: async () => "0.1.0",
         // A newer version is out in the sample, so the About view has something to show.
-        updateState: async () => ({ state: "unknown" }),
-        updateCheck: async () => ({ state: "available", version: "0.2.0" }),
-        updateRestart: async () => {
-            throw new Error("A browser has no Swarmed to restart.");
-        },
-        onUpdateState: async () => () => undefined,
+        ...updateApi(),
         setBadge: async () => {},
         setSettings: async (changed) => {
             settings = changed;

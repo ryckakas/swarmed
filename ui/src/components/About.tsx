@@ -65,14 +65,16 @@ function UpdateRow() {
         api.updateRestart().catch(report);
     };
     const installs = update.state === "available" || update.state === "ready";
-    const looks = update.state === "up_to_date" || update.state === "failed";
+    // While it looks or downloads there is nothing to press, but the button stays, greyed out:
+    // the row keeps its height, and nothing under it moves.
+    const settled = update.state === "up_to_date" || update.state === "failed";
     // Each step of a download would be read out: only where updating stands is.
     const announced = update.state === "downloading" ? "off" : "polite";
     return (
         <div className="about-update" aria-live={announced}>
-            <p>{updateLine(update, words)}</p>
+            <p className="about-update-line">{updateLine(update, words)}</p>
             {asking && <p className="about-update-warning">{busyWarning(busy)}</p>}
-            {installs && (
+            {installs ? (
                 <button type="button" className="button button-primary" onClick={restart}>
                     {asking
                         ? "Restart anyway"
@@ -80,15 +82,19 @@ function UpdateRow() {
                           ? words.update.restart
                           : words.update.install}
                 </button>
+            ) : (
+                <button
+                    type="button"
+                    className="button"
+                    disabled={!settled}
+                    onClick={lookForUpdate}
+                >
+                    {words.update.check}
+                </button>
             )}
             {asking && (
                 <button type="button" className="button" onClick={() => setAsking(false)}>
                     Not now
-                </button>
-            )}
-            {looks && (
-                <button type="button" className="button" onClick={lookForUpdate}>
-                    {words.update.check}
                 </button>
             )}
         </div>
