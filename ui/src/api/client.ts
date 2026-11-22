@@ -277,11 +277,14 @@ export interface Api {
     sessionSend(id: number, text: string, files?: string[]): Promise<void>;
     /** The messages waiting for the session's agent to finish, first to be sent first. */
     sessionQueue(id: number): Promise<QueuedMessage[]>;
-    /** Adds a message to the queue: it is sent by itself when the agent's turn ends well. */
+    /**
+     * Adds a message to the queue: it is sent by itself when the agent's turn ends well or is
+     * stopped.
+     */
     sessionEnqueue(id: number, text: string, files?: string[]): Promise<QueuedMessage[]>;
     /** Rewrites a waiting message; empty text takes it out of the queue. */
     sessionQueueEdit(id: number, message: number, text: string): Promise<QueuedMessage[]>;
-    /** Sends the first waiting message now, for a queue a stopped turn left standing. */
+    /** Sends the first waiting message now, for a queue a failed turn or a stopped agent left. */
     sessionSendQueued(id: number): Promise<void>;
     /**
      * Sends a waiting message now, ahead of the others. A turn under way is stopped first and

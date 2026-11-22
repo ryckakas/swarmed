@@ -89,8 +89,16 @@ impl Queues {
         true
     }
 
-    /// The sessions whose first waiting message goes as soon as their turn ends. Nothing else
-    /// sends from a queue while this is held.
+    /// Whether `id` is the session's first waiting message.
+    fn is_first(&self, session: i64, id: u64) -> bool {
+        lock(&self.waiting)
+            .get(&session)
+            .and_then(|queue| queue.first())
+            .is_some_and(|first| first.id == id)
+    }
+
+    /// The sessions whose first waiting message goes as soon as their turn ends. Neither a
+    /// turn's end nor a message sent at once sends from a queue while this is held.
     pub(crate) fn pressing(&self) -> MutexGuard<'_, HashSet<i64>> {
         lock(&self.pressing)
     }
@@ -190,12 +198,18 @@ impl Core {
         let running = self.live.is_running(id);
         self.session_start(id, auth)?;
         let mut pressing = self.live.queues.pressing();
+        // The turn may have ended since the message was put first, and the end sent it: the
+        // turn it started is then the one the user asked for, and is not to be stopped.
+        if !self.live.queues.is_first(id, message) {
+            return Ok(());
+        }
         let busy = self
             .session(id)
             .is_ok_and(|session| is_busy_status(session.status));
         if running && busy {
+            self.live.command(id, AgentCommand::Interrupt)?;
             pressing.insert(id);
-            return self.live.command(id, AgentCommand::Interrupt);
+            return Ok(());
         }
         send_next(&self.store, &self.live, (&*self.terminals, &self.paths), id)
     }

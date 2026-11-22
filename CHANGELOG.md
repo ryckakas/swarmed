@@ -24,8 +24,8 @@ notice adds its line under Unreleased.
 ### Changed
 
 - **Stopping a turn sends the next waiting message.** Stop, or Esc, used to leave the queue
-  standing until "Send the next one now" was pressed. A turn that fails still leaves it for
-  you to send.
+  standing until "Send the next one now" was pressed. Stopping again stops that message's
+  turn and sends the one after it. A turn that fails still leaves the queue for you to send.
 
 ### Fixed
 
