@@ -12,6 +12,7 @@ import {
     withEvent,
     withStreamed,
 } from "./store";
+import { findSession, findSessionHome } from "./tree";
 
 const text = (value: string): AgentEvent => ({ type: "text", text: value });
 const published = (sessionId: number, event: AgentEvent): SessionEvent => ({
@@ -258,6 +259,103 @@ describe("removing", () => {
         expect(task).toBeDefined();
         useStore.getState().forgetTasks([task?.id ?? -1]);
         expect(useStore.getState().events[4]).toBeUndefined();
+    });
+});
+
+describe("the session on screen going", () => {
+    const homeOf = (id: number) => {
+        const { projects } = useStore.getState();
+        const session = findSession(projects, id);
+        return session && findSessionHome(projects, session);
+    };
+    const centre = () => {
+        const { selectedSessionId, draftProject } = useStore.getState();
+        return { selectedSessionId, draftProject };
+    };
+    /** Session 4 on screen, after another repository was last chosen for a new task. */
+    const onScreen = async (api: Api) => {
+        await useStore.getState().refresh(api);
+        useStore.setState({ draftProject: "fsum", subView: null });
+        await useStore.getState().open(api, 4);
+        const home = homeOf(4);
+        expect(home?.project.name).not.toBe("fsum");
+        return { project: home?.project.name ?? "", task: home?.task.name ?? "" };
+    };
+
+    it("opens the new task of its repository when it is closed", async () => {
+        const api = createMockApi();
+        const { project } = await onScreen(api);
+        await useStore.getState().close(api, 4);
+        expect(centre()).toEqual({ selectedSessionId: null, draftProject: project });
+    });
+
+    it("does the same when it is deleted", async () => {
+        const api = createMockApi();
+        const { project } = await onScreen(api);
+        await useStore.getState().deleteSession(api, 4);
+        expect(centre()).toEqual({ selectedSessionId: null, draftProject: project });
+    });
+
+    it("is left as soon as its task's removal starts, with its conversation still there", async () => {
+        const api = createMockApi();
+        const { project, task } = await onScreen(api);
+        useStore.getState().leaveForRemoval({ project: "fsum", task: "anything" });
+        expect(centre().selectedSessionId).toBe(4);
+
+        useStore.getState().leaveForRemoval({ project, task });
+        expect(centre()).toEqual({ selectedSessionId: null, draftProject: project });
+        expect(useStore.getState().events[4]?.length).toBeGreaterThan(0);
+    });
+
+    it("goes to another repository when its own is being removed", async () => {
+        const api = createMockApi();
+        const { project } = await onScreen(api);
+        useStore.getState().leaveForRemoval({ project, task: null });
+        const { selectedSessionId, draftProject } = centre();
+        expect(selectedSessionId).toBeNull();
+        expect(draftProject).not.toBe(project);
+        expect(useStore.getState().projects.map((each) => each.name)).toContain(draftProject);
+    });
+
+    it("never stays on screen with its conversation forgotten", async () => {
+        const api = createMockApi();
+        const { project } = await onScreen(api);
+        const taskId = homeOf(4)?.task.id ?? -1;
+        useStore.getState().forgetTasks([taskId]);
+        expect(centre()).toEqual({ selectedSessionId: null, draftProject: project });
+    });
+
+    it("is left when the tree is read again without it", async () => {
+        const api = createMockApi();
+        const { project, task } = await onScreen(api);
+        await api.taskRemove(project, task, true);
+        await useStore.getState().refresh(api);
+        expect(centre()).toEqual({ selectedSessionId: null, draftProject: project });
+    });
+
+    it("is left when another window or an agent closes or deletes it", async () => {
+        const base = createMockApi();
+        let heard: (event: SessionEvent) => void = () => {};
+        const api: Api = {
+            ...base,
+            onSessionEvent: async (listener) => {
+                heard = listener;
+                return () => {};
+            },
+        };
+        const disconnect = connect(api);
+        const { project } = await onScreen(api);
+        await base.sessionClose(4);
+        heard(published(4, { type: "closed" }));
+        expect(centre()).toEqual({ selectedSessionId: null, draftProject: project });
+
+        useStore.setState({ draftProject: "fsum" });
+        await useStore.getState().open(api, 3);
+        const other = homeOf(3)?.project.name;
+        await base.sessionDelete(3);
+        heard(published(3, { type: "deleted" }));
+        expect(centre()).toEqual({ selectedSessionId: null, draftProject: other });
+        disconnect();
     });
 });
 

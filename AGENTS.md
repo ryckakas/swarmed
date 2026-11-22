@@ -744,6 +744,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   only takes the keyword when a table is created, and remaking one needs foreign keys off,
   which a transaction cannot switch. A culled session, or a removed task's sessions, are also
   forgotten by the UI (`forgotten` in `store.ts`).
+- **The centre never holds on to a session that is gone.** Every way the session on screen goes
+  (closed, deleted, its task or repository removed, here, in another window or by an agent)
+  passes through `leaving` in `store.ts`, before anything of it is forgotten: the new-task view
+  of its repository opens. A removal leaves it when it starts (`leaveForRemoval`), since the
+  task panel would otherwise read a worktree that is being taken away.
 
 ## Lint policy
 

@@ -84,6 +84,12 @@ notice adds its line under Unreleased.
 
 ### Fixed
 
+- **Closing, deleting or removing the session on screen opens a new task in its repository.**
+  Removing its task left it showing "Waking the spawn…" and an error in the task panel while
+  the worktree went, and closing or deleting it could open the new-task view on another
+  repository. The new-task view of the session's own repository now opens at once, as soon as
+  a removal starts. For a removed repository, the next repository's opens instead. The same
+  happens when another window or an agent closes or deletes it.
 - **A session started with a skill gets a real title.** A first message such as
   `/code-review 123` used to title the session `<invoke_skill_or_bash_placeholder>`, and a new
   task started with it got that as its name, folder and branch. It is now named after what the
