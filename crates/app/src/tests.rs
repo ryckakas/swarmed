@@ -7,7 +7,7 @@ use std::net::TcpListener;
 use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use swarmed_core::agent::FakeBackend;
@@ -171,8 +171,13 @@ impl App {
     }
 }
 
+/// How long [`wait_for`] waits. Generous, since the whole suite runs at once: stopping a turn
+/// and sending the next message took longer than two seconds under that load.
+const WAIT_LIMIT: Duration = Duration::from_secs(10);
+
 fn wait_for(app: &App, id: &Value, what: &str, wanted: impl Fn(&Value) -> bool) -> Value {
-    for _ in 0..200 {
+    let deadline = Instant::now() + WAIT_LIMIT;
+    while Instant::now() < deadline {
         let events = app.ok("session_events", json!({ "id": id }));
         let found = events
             .as_array()
