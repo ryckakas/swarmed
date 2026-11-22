@@ -16,6 +16,11 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **↑ in the message box brings back what you sent.** As in a terminal, ↑ goes back through
+  the messages sent to the session, newest first, and ↓ comes forward again to what you had
+  typed. They do so only with the caret on the first or the last line, so a message of several
+  lines stays editable. A message comes back as you typed it, `/code-review 123` rather than
+  what the skill expanded to, with its attached files. Editing it makes a new message to send.
 - **Put the sidebar in your own order.** Drag a repository, a task, a session or a cloud task
   by its row to another place among its own kind, or move the focused row, or the open session,
   with ⌥⌘↑ and ⌥⌘↓. Each stays with what it belongs to: a session in its task, one another

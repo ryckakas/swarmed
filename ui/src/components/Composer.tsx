@@ -4,6 +4,7 @@ import { api } from "../api";
 import type { AgentEvent, Session } from "../api/types";
 import { noteCommandSent } from "../commandSent";
 import { expandPastes, forgetPastes } from "../pastes";
+import { type Browsing, browse, type Direction, sentMessages } from "../recall";
 import { type Draft, NO_DRAFT, waitsItsTurn } from "../sending";
 import { takenBySwarmed } from "../slash";
 import { appliedEffort } from "../statusline";
@@ -104,6 +105,7 @@ export function Composer({ session }: { session: Session }) {
     const toggleTerminal = useStore((state) => state.toggleTerminal);
     const report = useStore((state) => state.report);
     const input = useRef<HTMLTextAreaElement>(null);
+    const recalling = useRecall(id, { text, files });
     const busy = waitsItsTurn(status);
     const commands = useSlashCommands(id, status);
     const suggestion = useStore((state) => suggestionOf(state.events[id]));
@@ -125,6 +127,7 @@ export function Composer({ session }: { session: Session }) {
         }
         const unsent: Draft = { text, files };
         editDraft(id, NO_DRAFT);
+        recalling.forget();
         // What was pasted large goes out in full, in place of the token that stood for it.
         // A busy agent is not interrupted: the message waits its turn, and can still be changed.
         const message = expandPastes(text.trim());
@@ -164,6 +167,7 @@ export function Composer({ session }: { session: Session }) {
                         suggestion={busy ? null : suggestion}
                         inputRef={input}
                         commands={commands}
+                        onRecall={recalling.recall}
                     >
                         <SessionPickers session={session} />
                         <button
@@ -180,6 +184,33 @@ export function Composer({ session }: { session: Session }) {
             )}
         </div>
     );
+}
+
+/**
+ * What ↑ and ↓ do in session `id`'s message box, which holds `now`: go back through what was
+ * sent to the session, and forward again to what was typed. Where that stands is kept with the
+ * box, so it goes when another session is opened.
+ */
+function useRecall(id: number, now: Draft) {
+    const editDraft = useStore((state) => state.editDraft);
+    const browsing = useRef<Browsing | null>(null);
+    return {
+        recall: (direction: Direction): Draft | null => {
+            // The events are read already, for the transcript; the list is made from them only
+            // when ↑ starts going back.
+            const sent = () => sentMessages(useStore.getState().events[id] ?? []);
+            const next = browse(browsing.current, direction, now, sent);
+            if (next !== null) {
+                browsing.current = next;
+                editDraft(id, next.shown);
+            }
+            return next?.shown ?? null;
+        },
+        /** A message was sent: ↑ starts again from the newest. */
+        forget: () => {
+            browsing.current = null;
+        },
+    };
 }
 
 /**

@@ -29,7 +29,8 @@ function ShortcutList({ title, shortcuts }: ShortcutListProps) {
             <p className="shortcut-group">{title}</p>
             <dl className="shortcuts">
                 {shortcuts.map((shortcut) => (
-                    <div key={shortcut.keys} className="shortcut">
+                    // ↑ and ↓ do one thing in the message box and another in the sidebar.
+                    <div key={`${shortcut.keys} ${shortcut.label}`} className="shortcut">
                         <dt>{shortcut.label}</dt>
                         <dd>
                             {keyCaps(shortcut.keys).map((cap) => (

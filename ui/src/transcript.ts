@@ -128,6 +128,11 @@ const FROM_SESSION =
     /^Message from session (\d+) \("([^"]*)"\), another agent session of the same user:\n\n([\s\S]*)$/;
 
 /** A message as the transcript shows it: the user's own, or one another session left. */
+/** Whether a message was left by another session, rather than typed by the user. */
+export function isFromSession(text: string): boolean {
+    return FROM_SESSION.test(text);
+}
+
 function messageItem(text: string, key: number): Item {
     const left = FROM_SESSION.exec(text);
     if (!left) {

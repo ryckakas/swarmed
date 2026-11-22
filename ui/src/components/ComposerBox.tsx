@@ -3,6 +3,7 @@ import {
     type KeyboardEvent,
     type ReactNode,
     type Ref,
+    type RefObject,
     useEffect,
     useLayoutEffect,
     useRef,
@@ -13,6 +14,8 @@ import type { SlashCommand, Template } from "../api/types";
 import { type Edit, editFor } from "../editing";
 import { matchHotkey } from "../hotkeys";
 import { isLargePaste, tokenFor, withToken } from "../pastes";
+import { caretAfter, type Direction, recallDirection } from "../recall";
+import type { Draft } from "../sending";
 import {
     firstPlaceholder,
     kindLabel,
@@ -48,6 +51,11 @@ interface Props {
     suggestion?: string | null;
     /** What sits under the text, left of the button: pickers or labels. */
     children?: ReactNode;
+    /**
+     * Brings back a message sent earlier, or goes on to a newer one, for ↑ on the first line or
+     * ↓ on the last: what the box holds then, or `null` to leave the key to move the caret.
+     */
+    onRecall?: (direction: Direction) => Draft | null;
 }
 
 /** The message box: text that grows with what is typed, options below it, and one round button. */
@@ -80,7 +88,9 @@ export function ComposerBox(props: Props) {
     }, [value]);
 
     const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-        if (!menu.onKeyDown(event)) {
+        // The command list goes first: while it is open, ↑ and ↓ move in it.
+        const recalling = { value, onRecall: props.onRecall, dismiss: menu.dismiss, toSelect };
+        if (!(menu.onKeyDown(event) || recalled(event, recalling))) {
             typed(event, {
                 value,
                 offered,
@@ -161,6 +171,37 @@ export function ComposerBox(props: Props) {
             </div>
         </form>
     );
+}
+
+/** What the box knows that bringing back a sent message needs. */
+interface Recalling {
+    value: string;
+    onRecall: ((direction: Direction) => Draft | null) | undefined;
+    /** Keeps the command list away from a text until it changes. */
+    dismiss(text: string): void;
+    /** Where to put the caret once the box shows the text it is given. */
+    toSelect: RefObject<[number, number] | null>;
+}
+
+/** Takes ↑ or ↓ if it brings a sent message back; says whether it did. */
+function recalled(event: KeyboardEvent<HTMLTextAreaElement>, recalling: Recalling): boolean {
+    const { value, onRecall } = recalling;
+    const box = event.currentTarget;
+    const direction = recallDirection(event, value, box.selectionStart, box.selectionEnd);
+    const shown = direction && onRecall && !event.nativeEvent.isComposing && onRecall(direction);
+    if (!(direction && shown)) {
+        return false;
+    }
+    event.preventDefault();
+    // A message that starts with a command is not the start of a new one to complete.
+    recalling.dismiss(shown.text);
+    const caret = caretAfter(direction, shown.text);
+    if (shown.text === value) {
+        box.setSelectionRange(caret, caret);
+    } else {
+        recalling.toSelect.current = [caret, caret];
+    }
+    return true;
 }
 
 /** What the box and its owner make of a key the command list did not take. */
@@ -363,6 +404,8 @@ function useSlashMenu(
         active: current,
         choose,
         onKeyDown,
+        /** Keeps the list away from `text` until the text changes, as Esc does. */
+        dismiss: setDismissed,
         /** What the list says beside a name: that it is the user's own, or what Swarmed does. */
         kind: (name: string) =>
             kept.has(name)
