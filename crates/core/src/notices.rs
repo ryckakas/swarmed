@@ -37,12 +37,16 @@ fn wording(event: &SessionEvent, spawned: bool) -> Option<(&'static str, String)
                 .unwrap_or_else(|| format!("Wants to use {tool_name}"));
             Some(("Needs you", detail))
         }
-        // A session another session started reports to that one, not to the user.
+        // A session another session started reports to that one, not to the user. A turn that
+        // ends while sub-agents work on in the background hands nothing back yet: the core
+        // marks it unread only once it does.
         AgentEvent::TurnDone {
             is_error: false,
             result,
             ..
-        } if !spawned => Some(("Finished", result.clone().unwrap_or_default())),
+        } if !spawned && event.unread == Some(true) => {
+            Some(("Finished", result.clone().unwrap_or_default()))
+        }
         AgentEvent::Exited { .. } if event.status == Some(SessionStatus::Errored) => {
             Some(("Stopped with an error", String::new()))
         }
@@ -125,9 +129,12 @@ mod tests {
     use super::*;
 
     fn event(status: Option<SessionStatus>, event: AgentEvent) -> SessionEvent {
+        // An answer handed back makes the session unread, as the core decides.
+        let unread = matches!(event, AgentEvent::TurnDone { .. }).then_some(true);
         SessionEvent {
             session_id: 1,
             status,
+            unread,
             event,
         }
     }

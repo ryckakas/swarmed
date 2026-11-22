@@ -13,8 +13,8 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::task::AbortHandle;
 
 use crate::agent::{
-    AgentBackend, AgentCommand, AgentEvent, Auth, Effort, Namer, PLAN_TOOL, SessionSpec,
-    Supervision,
+    AgentBackend, AgentCommand, AgentEvent, Auth, BackgroundState, Effort, Namer, PLAN_TOOL,
+    SessionSpec, Supervision,
 };
 use crate::agents::CLAUDE;
 use crate::commands::SlashCommand;
@@ -34,6 +34,9 @@ use crate::toolserver::{
     take_views,
 };
 use crate::{Core, git, lock, peers, publish, views};
+
+/// The kinds of things an agent leaves running that are sub-agents, as Claude Code names them.
+const SUB_AGENT_KINDS: [&str; 2] = ["local_agent", "remote_agent"];
 
 /// How long a session title derived from the first message may be.
 /// What stands above the user's rules where an agent reads them.
@@ -98,8 +101,7 @@ impl SessionStatus {
             | AgentEvent::ToolResult { .. }
             | AgentEvent::PermissionRequest { .. }
             | AgentEvent::PermissionAnswered { .. }
-            | AgentEvent::PermissionWithdrawn { .. }
-            | AgentEvent::Sub { .. } => Some(Self::busy(waiting)),
+            | AgentEvent::PermissionWithdrawn { .. } => Some(Self::busy(waiting)),
             AgentEvent::TurnDone { .. }
             | AgentEvent::Exited {
                 code: None | Some(0),
@@ -132,6 +134,9 @@ impl SessionStatus {
             | AgentEvent::CommandAnswered { .. }
             | AgentEvent::TerminalOnly { .. }
             | AgentEvent::WorktreeMoved { .. }
+            // A sub-agent in the foreground works inside its starter's turn, which is busy
+            // already; one in the background works between turns, when the session is not.
+            | AgentEvent::Sub { .. }
             | AgentEvent::Other { .. } => None,
         }
     }
@@ -498,6 +503,7 @@ impl Store {
         session_id: i64,
         event: &AgentEvent,
         status: Option<SessionStatus>,
+        unread: Option<bool>,
     ) -> Result<()> {
         self.keep(session_id, event)?;
         if let Some(status) = status {
@@ -521,7 +527,7 @@ impl Store {
                  WHERE id = ?1",
                 params![session_id, title_from(text)],
             )?,
-            _ if leaves_something_to_read(event) => self.conn.execute(
+            _ if unread == Some(true) => self.conn.execute(
                 "UPDATE sessions SET unread = 1 WHERE id = ?1",
                 params![session_id],
             )?,
@@ -544,9 +550,9 @@ impl Store {
             |row| row.get(0),
         )?;
         for event in events {
-            self.record(to, event, None)?;
+            self.record(to, event, None, None)?;
         }
-        self.record(to, &AgentEvent::Forked { from }, None)?;
+        self.record(to, &AgentEvent::Forked { from }, None, None)?;
         self.conn.execute(
             "UPDATE sessions SET unread = 0, title = ?2 WHERE id = ?1",
             params![to, title],
@@ -1376,6 +1382,10 @@ pub struct SessionEvent {
     pub session_id: i64,
     /// The session's status after this event, if the event changed it.
     pub status: Option<SessionStatus>,
+    /// Whether the session is unread after this event, if the event changed that: an answer
+    /// handed back makes it unread and a message of the user's makes it read. A turn that ends
+    /// while sub-agents work on in the background hands nothing back yet, and changes nothing.
+    pub unread: Option<bool>,
     /// What happened.
     pub event: AgentEvent,
 }
@@ -1476,6 +1486,8 @@ pub(crate) struct Live {
     branches_seen: Mutex<HashMap<PathBuf, Head>>,
     /// The branch each session's agent last knew its worktree to be on.
     branches_known: Mutex<HashMap<i64, Head>>,
+    /// The sub-agents each session's agent has at work in the background, by their task ids.
+    background_agents: Mutex<HashMap<i64, HashSet<String>>>,
     runs: AtomicU64,
     bus: broadcast::Sender<SessionEvent>,
 }
@@ -1493,6 +1505,7 @@ impl Default for Live {
             turns: Mutex::default(),
             branches_seen: Mutex::default(),
             branches_known: Mutex::default(),
+            background_agents: Mutex::default(),
             runs: AtomicU64::new(0),
             bus: broadcast::Sender::new(EVENT_BUFFER),
         }
@@ -1575,12 +1588,12 @@ impl Live {
         if !shown_only(&event) {
             lock(store).keep(session_id, &event).ok();
         }
-        let status = None;
         // An error only means nobody is subscribed right now.
         self.bus
             .send(SessionEvent {
                 session_id,
-                status,
+                status: None,
+                unread: None,
                 event,
             })
             .ok();
@@ -1619,20 +1632,79 @@ impl Live {
     ) -> Result<()> {
         let event = self.timed(session_id, event);
         let status = self.status_after(session_id, &event);
+        self.follow_background(session_id, &event);
+        let unread = self.unread_after(session_id, &event);
         let stored = if shown_only(&event) {
             Ok(())
         } else {
-            lock(store).record(session_id, &event, status)
+            lock(store).record(session_id, &event, status, unread)
         };
         // An error only means nobody is subscribed right now.
         self.bus
             .send(SessionEvent {
                 session_id,
                 status,
+                unread,
                 event,
             })
             .ok();
         stored
+    }
+
+    /// Keeps which sub-agents each session's agent has at work in the background, from its
+    /// reports of them: started and not yet ended. A command left running does not count, as
+    /// a dev server may never end, and nothing outlives the agent.
+    fn follow_background(&self, session_id: i64, event: &AgentEvent) {
+        match event {
+            AgentEvent::Background {
+                task_id,
+                kind,
+                state,
+                ..
+            } => {
+                // An end is reported without saying again what it was: any end takes it off.
+                let running = *state == BackgroundState::Running;
+                let starts = running && SUB_AGENT_KINDS.contains(&kind.as_str());
+                self.note_background(session_id, task_id, starts);
+            }
+            AgentEvent::Exited { .. } => self.background_gone(session_id),
+            _ => {}
+        }
+    }
+
+    /// Notes that a sub-agent of a session's agent started in the background, or that
+    /// something it left there ended.
+    fn note_background(&self, session_id: i64, task_id: &str, starts: bool) {
+        let mut working = lock(&self.background_agents);
+        let ids = working.entry(session_id).or_default();
+        if starts {
+            ids.insert(task_id.to_string());
+        } else {
+            ids.remove(task_id);
+        }
+    }
+
+    /// Forgets what a session's agent had at work in the background: a new run of it starts
+    /// with nothing.
+    fn background_gone(&self, session_id: i64) {
+        lock(&self.background_agents).remove(&session_id);
+    }
+
+    /// What `event` does to whether the session is unread. An answer handed back makes it
+    /// unread, unless sub-agents the agent left working in the background are still at it: the
+    /// session can take a message then, but its work is not done. A message of the user's
+    /// makes it read.
+    fn unread_after(&self, session_id: i64, event: &AgentEvent) -> Option<bool> {
+        match event {
+            AgentEvent::UserMessage { .. } => Some(false),
+            _ if leaves_something_to_read(event) => {
+                let waits = lock(&self.background_agents)
+                    .get(&session_id)
+                    .is_some_and(|ids| !ids.is_empty());
+                (!waits).then_some(true)
+            }
+            _ => None,
+        }
     }
 
     /// Keeps the time of each turn: a message starts the clock, and the end of the turn is
@@ -1784,6 +1856,7 @@ fn launch(shared: Shared, id: i64, how: Launch) -> Result<()> {
         std::fs::remove_dir_all(&shared.spool).ok();
     }
     let handle = shared.backend.start(shared.spec.clone())?;
+    live.background_gone(id);
     let number = live.runs.fetch_add(1, Ordering::Relaxed);
     let (stop, stopped) = oneshot::channel();
     let (gone, ended) = watch::channel(());
@@ -2012,6 +2085,17 @@ mod tests {
             "Fix the login loop"
         );
         assert_eq!(shortened("   ", 60), "");
+    }
+
+    #[test]
+    fn what_a_sub_agent_does_leaves_the_status_as_it_is() {
+        let said = AgentEvent::Sub {
+            parent: "tool-1".to_string(),
+            event: Box::new(AgentEvent::Text {
+                text: "looking".to_string(),
+            }),
+        };
+        assert_eq!(SessionStatus::after(&said, false), None);
     }
 
     #[test]

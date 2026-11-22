@@ -49,6 +49,11 @@ notice adds its line under Unreleased.
 
 ### Fixed
 
+- **A session waiting on background sub-agents is neither "finished" nor "working".** When an
+  agent ended its turn to wait for sub-agents it left working in the background, the session
+  was marked unread with a "Finished" notice, and then showed as working whenever they wrote,
+  so what you typed waited in the queue. It now goes idle and takes your messages, and is
+  marked unread and notified once the agent hands their results back.
 - **A sub-agent working in the background stays in the sidebar.** Claude Code now starts
   sub-agents in the background, and they dropped out of the sidebar at once, though they went
   on working past the turn. They stay listed under their session, even while it is idle,

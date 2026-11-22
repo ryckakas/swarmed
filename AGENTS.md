@@ -331,7 +331,14 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   error, until a front end calls `session_mark_read` or the user writes to it. It is a flag
   beside the status, not a status: the UI shows it for idle sessions only, since busy, waiting
   and failed already say more. The UI marks the session on screen as read when its answer
-  arrives, if the window has focus, and otherwise when the window gets it.
+  arrives, if the window has focus, and otherwise when the window gets it. The core decides,
+  and says so with every event (`SessionEvent::unread`, like `status`), which the UI
+  follows. A turn that ends while the agent has sub-agents at work in the background
+  (`local_agent`, `remote_agent`, followed in `Live` from the `Background` reports and
+  forgotten when the agent exits or starts again) hands nothing back yet: the session goes
+  idle, since it can take a message, but is not unread and gets no "Finished" notice. The
+  turn the agent starts to read their reports does. A command left running holds nothing
+  up, and what a sub-agent says never makes its session busy.
 - **MCP servers can be set up in Swarmed** (`mcp_own.rs`), in `mcp.toml` in the data
   directory, and are given to every agent it runs, Claude Code included, beside Claude Code's
   own. A server's secrets are named in the file and kept in the keychain under

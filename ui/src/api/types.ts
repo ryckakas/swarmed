@@ -725,6 +725,12 @@ export interface SessionEvent {
     session_id: number;
     /** The session's status after this event, if the event changed it. */
     status: SessionStatus | null;
+    /**
+     * Whether the session is unread after this event, if the event changed that; `null` if it
+     * did not, as for a turn that ends while sub-agents work on in the background. The core
+     * always says; events the window makes up itself (the sample data) leave it out.
+     */
+    unread?: boolean | null;
     event: AgentEvent;
 }
 

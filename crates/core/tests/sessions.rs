@@ -1902,6 +1902,7 @@ async fn a_worktree_moved_by_a_tool_is_noticed_and_one_moved_between_turns_is_to
     let event = SessionEvent {
         session_id: session.id,
         status: None,
+        unread: None,
         event: moved,
     };
     let notice = core.notice_for(&event).expect("reads").expect("a notice");
@@ -2090,4 +2091,85 @@ async fn a_stopped_turn_and_a_message_sent_now_wait_for_an_edit_too() {
         .expect("edits");
     let now = turn(&mut bus, session.id).await;
     assert!(now.contains(&text("echo: now, edited")), "{now:?}");
+}
+
+/// What the session published up to and with its `turns`th turn end from now.
+async fn until_turns(
+    bus: &mut Receiver<SessionEvent>,
+    session: i64,
+    turns: usize,
+) -> Vec<SessionEvent> {
+    let mut heard = vec![];
+    let mut ended = 0;
+    while ended < turns {
+        let event = next(bus).await;
+        if event.session_id != session {
+            continue;
+        }
+        ended += usize::from(matches!(event.event, AgentEvent::TurnDone { .. }));
+        heard.push(event);
+    }
+    heard
+}
+
+fn turn_ends(events: &[SessionEvent]) -> Vec<&SessionEvent> {
+    let ends = |event: &&SessionEvent| matches!(event.event, AgentEvent::TurnDone { .. });
+    events.iter().filter(ends).collect()
+}
+
+#[tokio::test]
+async fn a_session_waiting_on_background_sub_agents_is_neither_done_nor_busy() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    core.session_send(session.id, "background agent")
+        .expect("sends");
+    let events = until_turns(&mut bus, session.id, 2).await;
+    let ends = turn_ends(&events);
+    // The turn ends to wait: the session can take a message, but nothing is handed back yet.
+    let waiting = ends[0];
+    assert_eq!(waiting.status, Some(SessionStatus::Idle));
+    assert_eq!(waiting.unread, None);
+    assert_eq!(core.notice_for(waiting).expect("reads"), None);
+    // What the sub-agent says meanwhile leaves the session idle.
+    let sub = events
+        .iter()
+        .find(|event| matches!(event.event, AgentEvent::Sub { .. }));
+    assert_eq!(sub.expect("the sub-agent wrote").status, None);
+    // Its report, read in a turn of the agent's own, is what hands something back.
+    let back = ends[1];
+    assert_eq!(back.unread, Some(true));
+    let notice = core.notice_for(back).expect("reads").expect("a notice");
+    assert!(notice.title.starts_with("Finished"), "{notice:?}");
+    assert!(core.session(session.id).expect("reads").unread);
+
+    // A command left running in the background holds nothing up.
+    core.session_send(session.id, "background bash")
+        .expect("sends");
+    let events = until_turns(&mut bus, session.id, 1).await;
+    assert_eq!(turn_ends(&events)[0].unread, Some(true));
+}
+
+#[tokio::test]
+async fn the_agent_ending_ends_a_wait_on_background_sub_agents() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    core.session_send(session.id, "background agent left")
+        .expect("sends");
+    let events = until_turns(&mut bus, session.id, 1).await;
+    assert_eq!(turn_ends(&events)[0].unread, None);
+    assert!(!core.session(session.id).expect("reads").unread);
+
+    // Its agent stopped, what it left working went with it: the next answer counts again.
+    core.session_stop(session.id);
+    core.session_start(session.id, Auth::Subscription)
+        .expect("starts");
+    core.session_send(session.id, "hello").expect("sends");
+    let events = until_turns(&mut bus, session.id, 1).await;
+    assert_eq!(turn_ends(&events)[0].unread, Some(true));
 }

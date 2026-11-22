@@ -108,6 +108,10 @@ export function endsTurn({ event, status }: SessionEvent): boolean {
 
 /** Whether a session is unread after an event: once its agent is done, until the user writes. */
 function unreadAfter(unread: boolean, published: SessionEvent): boolean {
+    // The core decides, and says so with every event: `null` changes nothing.
+    if (published.unread !== undefined) {
+        return published.unread ?? unread;
+    }
     if (published.event.type === "user_message") {
         return false;
     }

@@ -7,8 +7,8 @@ use serde_json::json;
 use tokio::sync::mpsc;
 
 use super::{
-    AgentBackend, AgentCommand, AgentEvent, AgentHandle, PLAN_TOOL, ScreenKind, ScreenRow,
-    ScreenSection, SessionSpec, Supervision, UsageLimit,
+    AgentBackend, AgentCommand, AgentEvent, AgentHandle, BackgroundState, PLAN_TOOL, ScreenKind,
+    ScreenRow, ScreenSection, SessionSpec, Supervision, UsageLimit,
 };
 use crate::error::Result;
 
@@ -21,6 +21,10 @@ use crate::error::Result;
 /// - `slow`: starts a turn that only ends when interrupted;
 /// - `fail`: ends the turn with an error;
 /// - `suggest: <text>`: replies as to plain text, then offers `<text>` as the next message;
+/// - `background agent`: starts a sub-agent in the background and ends the turn; the sub-agent
+///   then writes, reports its end, and the agent takes a turn of its own to read its report;
+///   `background agent left` leaves it at work, with no end;
+/// - `background bash`: leaves a command running in the background and ends the turn;
 /// - in plan mode, anything: presents a plan and waits for it to be approved.
 #[derive(Debug, Default)]
 pub struct FakeBackend {
@@ -81,6 +85,50 @@ impl Script {
 
     fn text(&self, text: impl Into<String>) {
         self.emit(AgentEvent::Text { text: text.into() });
+    }
+
+    /// Leaves something running behind the turn, as Claude Code reports it: a sub-agent
+    /// (`agent`), which works on after the turn and is read in a turn of the agent's own, or a
+    /// command (`bash`), which runs on.
+    fn background(&self, what: &str) {
+        let report = |state, kind: &str, summary: Option<&str>| AgentEvent::Background {
+            task_id: format!("bg-{what}"),
+            description: format!("background {what}"),
+            kind: kind.to_string(),
+            state,
+            summary: summary.map(str::to_string),
+            tool_use_id: what.starts_with("agent").then(|| "tool-bg".to_string()),
+        };
+        if !what.starts_with("agent") {
+            self.emit(report(BackgroundState::Running, "local_bash", None));
+            self.emit(done(false, None));
+            return;
+        }
+        self.emit(AgentEvent::ToolUse {
+            id: "tool-bg".to_string(),
+            name: "Agent".to_string(),
+            input: json!({ "description": "look around", "run_in_background": true }),
+        });
+        self.emit(report(BackgroundState::Running, "local_agent", None));
+        self.emit(AgentEvent::ToolResult {
+            tool_use_id: "tool-bg".to_string(),
+            content: "Async agent launched successfully.".to_string(),
+            is_error: false,
+        });
+        self.emit(done(false, Some("It works in the background.")));
+        if what != "agent" {
+            return;
+        }
+        let said = AgentEvent::Text {
+            text: "still at it".to_string(),
+        };
+        self.emit(AgentEvent::Sub {
+            parent: "tool-bg".to_string(),
+            event: Box::new(said),
+        });
+        self.emit(report(BackgroundState::Completed, "", Some("found it")));
+        self.text("It is back: found it.");
+        self.emit(done(false, Some("It is back.")));
     }
 
     async fn run(mut self) {
@@ -155,6 +203,10 @@ impl Script {
         if message == "fail" {
             self.text("trying…");
             self.emit(done(true, Some("it went wrong")));
+            return Next::Continue;
+        }
+        if let Some(what) = message.strip_prefix("background ") {
+            self.background(what);
             return Next::Continue;
         }
         if message == "instructions" {
