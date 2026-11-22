@@ -40,6 +40,31 @@ describe("extra usage", () => {
         expect(onExtraUsageNow([])).toBe(false);
     });
 
+    it("goes by the limits asked for after the report, until the next turn reports again", () => {
+        const limits = (percent: number): AgentEvent => ({
+            type: "usage_limits",
+            limits: [
+                { kind: "session", model: null, percent, resets_at: null, severity: "normal" },
+                {
+                    kind: "weekly_all",
+                    model: null,
+                    percent: 40,
+                    resets_at: null,
+                    severity: "normal",
+                },
+            ],
+        });
+        const billed = report({ isUsingOverage: true });
+        // The window has reset since: the coins asked, and nothing is used up any more.
+        expect(onExtraUsageNow([billed, limits(3)])).toBe(false);
+        // Still used up when asked: the turns are still billed.
+        expect(onExtraUsageNow([billed, limits(100)])).toBe(true);
+        // Limits asked for before the report say nothing about it.
+        expect(onExtraUsageNow([limits(3), billed])).toBe(true);
+        // A turn that reports billed again, after the asking, is billed.
+        expect(onExtraUsageNow([billed, limits(3), billed])).toBe(true);
+    });
+
     it("writes minor units as money, with the cap's share", () => {
         expect(money(3871, "EUR", 2)).toMatch(/38[.,]71/);
         expect(money(3871, "EUR", 2)).toMatch(/€|EUR/);
