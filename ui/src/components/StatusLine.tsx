@@ -110,7 +110,8 @@ function BuiltIn({ project, task, session, events }: Props) {
                         <span
                             key={part.item}
                             className={`status-part status-${part.item}`}
-                            title={statusItemName(part.item, words)}
+                            // All of it, for a name the line had to cut short.
+                            title={`${statusItemName(part.item, words)}: ${part.text}`}
                         >
                             <Runs part={part} />
                         </span>
