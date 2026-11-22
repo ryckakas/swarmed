@@ -146,6 +146,32 @@ calls one on any agent. Settings → Skills can keep a skill from agents that do
 themselves.
 `swarmed skills --agent <id>` lists what an agent would be offered.
 
+### Skills that make their own worktree or branch
+
+Every session already works in its task's own worktree, on the task's own branch. Many skills
+written for working without Swarmed start by isolating themselves: "create a feature branch
+first", "claim a review worktree", `git worktree add`, a clone in a temporary folder, or Claude
+Code's `EnterWorktree` and worktree isolation for sub-agents. In a session that works against
+Swarmed in most cases. Work in another worktree or clone never shows in the task's changes,
+commits, pull request and checks, and removing the task does not clean it up. A branch switched
+in the task's worktree puts two pieces of work in one task. Leave such skills out, or change
+them for Swarmed.
+
+Agents are told this, and that it holds even when a skill says otherwise, but a skill that treats
+its own worktree as a must can still stop the agent or make it argue. What to do instead:
+
+| The skill wants to | In Swarmed |
+| --- | --- |
+| work on a new branch, or in a fresh worktree or clone | start a new task: it gets its own branch, worktree, stack and sessions |
+| run agents side by side, each in a worktree of its own | `spawn_session`, which works in the same worktree, or separate tasks for parts that must not share files |
+| check out another branch or a pull request to read it | read it where it is: `git fetch`, then `git show <ref>:<path>`, `git diff`, `git log` or `gh pr diff` |
+| put the worktree back after it was moved | the Branch menu in the task's Publish panel, or `swarmed task switch` |
+
+A skill can tell that it runs in a Swarmed task. Every agent is started with the task's
+variables, as hooks are, among them `SWARMED_TASK`, `SWARMED_BRANCH` and `SWARMED_WORKTREE` (see
+[Variables](configuration.md#variables)), so a skill of your own can skip its worktree step when
+`SWARMED_TASK` is set.
+
 ## What Swarmed gives every agent
 
 Every session gets an MCP server named `swarmed`, with these tools:
@@ -170,3 +196,9 @@ line's script. Adding a rule, saving an environment, an action that runs a comma
 line script it can only propose: the change is shown in the conversation and made when you
 accept it. API keys, MCP servers, sign-ins, supervision and notes are out of its reach, and it
 tells an agent the names of an environment's variables, never their values.
+
+Every agent is also told that it works in its task's own worktree and is to keep the work on the
+task's branch: to make no other branch, worktree or clone, and to ask you for a new task when
+something needs a branch of its own. When the worktree moves to another branch all the same, the
+conversation says so with a button to switch back, you are notified, and the task's panel
+follows the branch it is on.

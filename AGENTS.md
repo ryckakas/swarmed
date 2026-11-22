@@ -583,7 +583,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   clone even when a skill says to (skills written without Swarmed often do), how to read
   another branch without checking it out, and to ask the user for a new task for work that
   needs another branch. An agent has no tool to start a task; asking is the way. For parts
-  that can run beside it, it is pointed at `spawn_session`, which shares the worktree.
+  that can run beside it, it is pointed at `spawn_session`, which shares the worktree. Agents
+  are started with the task's `SWARMED_*` variables, as hooks are (`Core::task_env`), so a
+  skill can tell it runs in a task and skip its own worktree step; `docs/coding-agents.md`
+  tells users which skills to leave out, and has to agree with what agents are told.
 - **A move of a task's worktree is watched for** (`notice_moved`, `moved_since` in
   `sessions.rs`). After every tool result and turn end the core asks git which branch the
   worktree is on (`git::head_now`, without waiting on a runtime: it is a few milliseconds and

@@ -1937,3 +1937,27 @@ async fn a_worktree_moved_by_a_tool_is_noticed_and_one_moved_between_turns_is_to
         .any(|event| matches!(event, AgentEvent::WorktreeMoved { .. }));
     assert!(quiet, "{events:?}");
 }
+
+/// An agent is started with the task's variables, as hooks have them: a skill can tell from
+/// them that it already runs in a task's own worktree, and on which branch.
+#[tokio::test]
+async fn an_agent_knows_the_task_it_works_in() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let (_, task) = core.task("demo", "one").expect("test setup");
+    let worktree = task.worktree_path.to_string_lossy().into_owned();
+    let session = started_session(&core);
+    let expected = [
+        ("SWARMED_PROJECT", "demo"),
+        ("SWARMED_TASK", "one"),
+        ("SWARMED_BRANCH", task.branch.as_str()),
+        ("SWARMED_WORKTREE", worktree.as_str()),
+    ];
+    for (name, value) in expected {
+        core.session_send(session.id, &format!("env: {name}"))
+            .expect("sends");
+        let said = turn(&mut bus, session.id).await;
+        assert!(said.contains(&text(value)), "{name}: {said:?}");
+    }
+}

@@ -100,8 +100,9 @@ and a branch's name is never read as a command. The same values are exported to 
 `SWARMED_PROJECT`, `SWARMED_TASK`, `SWARMED_USER`, `SWARMED_BRANCH`, `SWARMED_SLOT`,
 `SWARMED_WORKTREE`, `SWARMED_REPO` and `SWARMED_PORT_<NAME>`.
 
-The task's agents get `env` too, but not the `SWARMED_*` variables, and Claude Code gets no
-variable whose name starts with `ANTHROPIC_` or `CLAUDE`.
+The task's agents get `env` and the same `SWARMED_*` variables, so a skill can tell that it runs
+in a task's own worktree. Claude Code gets no variable whose name starts with `ANTHROPIC_` or
+`CLAUDE`.
 
 ## Ports
 
