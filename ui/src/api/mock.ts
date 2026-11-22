@@ -1398,16 +1398,26 @@ class MockAgent {
         }
     }
 
-    /** Sends a waiting message ahead of the others, stopping a `slow` turn first. */
+    /**
+     * Sends a waiting message ahead of the others, stopping a `slow` turn first. Any other turn
+     * under way cannot be stopped here, so the message goes first when it ends: like the core,
+     * the mock never sends into a busy agent.
+     */
     sendNow(id: number, message: number) {
         const queue = this.queue(id);
         const chosen = queue.find((queued) => queued.id === message);
         if (chosen) {
             this.setQueue(id, [chosen, ...queue.filter((queued) => queued !== chosen)]);
-            if (!this.interrupt(id)) {
+            if (!(this.interrupt(id) || this.isBusy(id))) {
                 this.sendQueued(id);
             }
         }
+    }
+
+    private isBusy(id: number): boolean {
+        const sessions = this.tasks().flatMap((task) => task.sessions);
+        const status = sessions.find((candidate) => candidate.id === id)?.status;
+        return status === "working" || status === "waiting";
     }
 
     /** Publishes a piece of a reply without keeping it, as the core does. */

@@ -72,6 +72,18 @@ describe("the mock's queue of waiting messages", () => {
         const said = await api.sessionEvents(3);
         expect(said.at(-1)).toEqual({ type: "user_message", text: "second" });
     });
+
+    it("puts one first, never sending it into a turn it cannot stop", async () => {
+        const api = createMockApi();
+        await api.sessionSend(3, "hello");
+        await api.sessionEnqueue(3, "first");
+        const queue = await api.sessionEnqueue(3, "second");
+        await api.sessionSendNow(3, queue[1]?.id ?? 0);
+        const left = await api.sessionQueue(3);
+        expect(left.map((message) => message.text)).toEqual(["second", "first"]);
+        const said = await api.sessionEvents(3);
+        expect(said.at(-1)).toEqual({ type: "user_message", text: "hello" });
+    });
 });
 
 describe("the mock's agent setup", () => {

@@ -136,8 +136,8 @@ impl Queues {
         true
     }
 
-    /// The sessions whose first waiting message goes as soon as their turn ends. Nothing else
-    /// sends from a queue while this is held.
+    /// The sessions whose first waiting message goes as soon as their turn ends. Neither a
+    /// turn's end nor a message sent at once sends from a queue while this is held.
     pub(crate) fn pressing(&self) -> MutexGuard<'_, HashSet<i64>> {
         lock(&self.pressing)
     }
@@ -414,8 +414,9 @@ impl Core {
             .session(id)
             .is_ok_and(|session| is_busy_status(session.status));
         if running && busy {
+            self.live.command(id, AgentCommand::Interrupt)?;
             pressing.insert(id);
-            return self.live.command(id, AgentCommand::Interrupt);
+            return Ok(());
         }
         send_next(&self.outbox(), id)
     }

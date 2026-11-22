@@ -2129,7 +2129,7 @@ fn on_event(shared: &Shared, id: i64, event: AgentEvent) {
 /// What follows the end of a turn. The first waiting message goes if the turn ended well or
 /// the user stopped it ([`Core::session_interrupt`], [`Core::session_send_now`]), unless a
 /// message went to the agent since; an agent whose settings changed during the turn is
-/// started again first.
+/// started again first, or once the turn of a message that went since has ended.
 fn end_turn(shared: &Shared, id: i64, finished: bool) {
     let (store, live) = (&shared.store, &shared.live);
     // Held until the message has gone: one sent from the queue at once right as the turn
@@ -2140,7 +2140,8 @@ fn end_turn(shared: &Shared, id: i64, finished: bool) {
         .session_by_id(id)
         .is_ok_and(|session| is_busy_status(session.status));
     let sends = (finished || pressed) && !busy;
-    if lock(&live.restarts).remove(&id) {
+    // Restarting now would end the turn of a message that went since.
+    if !busy && lock(&live.restarts).remove(&id) {
         restart(shared, id, sends);
     }
     if sends {

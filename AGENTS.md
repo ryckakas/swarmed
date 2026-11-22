@@ -554,11 +554,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **A waiting message can be sent at once** (`session_send_now`): it is put first and the turn
   under way is stopped as Stop stops it, so it goes when that turn has ended. Never straight
   into a busy agent, which would take an open request away and is not something every agent
-  can take. A stopped turn is marked in `Queues::pressing` before the interrupt goes out, and
-  that lock is held while a turn's end is dealt with (`end_turn`) and while a message is sent
-  at once, so a stop that crosses the turn's own end sends one message, not two. It is taken
-  before the message is put first, so a turn that ends meanwhile sends that message instead
-  of having the next turn stopped. What is typed can go the same way in one step
+  can take. A stopped turn is marked in `Queues::pressing`, under the same hold of that lock
+  as the interrupt goes out with, and the lock is held while a turn's end is dealt with
+  (`end_turn`) and while a message is sent at once, so a stop that crosses the turn's own end
+  sends one message, not two. It is taken before the message is put first, so a message that
+  such an end has already sent is left alone, and so is its turn. What is typed can go the same way in one step
   (`session_message_now`, ⌘⇧Enter, `send-now` in the shortcut table): put first and sent
   now, never queued and then sent, between which a turn could end. The message box acts on
   that shortcut itself, where the text is; the window's listener leaves it alone.

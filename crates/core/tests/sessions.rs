@@ -1278,6 +1278,27 @@ async fn a_failed_turn_or_a_stopped_agent_leaves_the_queue_for_the_user_to_send(
 }
 
 #[tokio::test]
+async fn a_stop_cut_short_by_stopping_the_agent_does_not_send_the_queue_later() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    core.session_send(session.id, "slow").expect("sends");
+    core.session_enqueue(session.id, "after").expect("queues");
+    core.session_interrupt(session.id).expect("interrupts");
+    // Stopped and started again before the stopped turn ends: that end is the old run's, and
+    // is dropped, so nothing but the stop of the agent clears what the interrupt marked.
+    core.session_stop(session.id);
+    core.session_start(session.id, Auth::default())
+        .expect("starts");
+    core.session_send(session.id, "fail").expect("sends");
+    let failed = turn(&mut bus, session.id).await;
+    assert!(failed.contains(&text("trying…")), "{failed:?}");
+    assert_eq!(core.session_queue(session.id).expect("reads").len(), 1);
+}
+
+#[tokio::test]
 async fn a_waiting_message_sent_now_stops_the_turn_and_goes_ahead_of_the_others() {
     let fx = fixture();
     let core = core_with_task(&fx).await;
