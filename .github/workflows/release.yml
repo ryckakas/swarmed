@@ -78,10 +78,12 @@ jobs:
           persist-credentials: false
 
       # No caches anywhere in this workflow: a release must not restore what another run wrote.
+      # The version rust-toolchain.toml pins, then both Apple targets for it. Without a toolchain
+      # named, `rustup toolchain install` installs what the file lists and ignores `--target`.
       - name: Install Rust for Apple silicon and Intel
         run: |
-          rustup toolchain install --no-self-update \
-            --target aarch64-apple-darwin,x86_64-apple-darwin
+          rustup toolchain install --no-self-update
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:

@@ -27,7 +27,10 @@ A release ships Swarmed.app, with the `swarmed` command inside it, from one tag:
    fix and a new release PR.
 
 If a job of `release.yml` fails, rerun it from the run's page: what is published already is
-skipped. Without the release workflows, `scripts/release-prep.sh 0.2.0` runs the same locally, and
+skipped. A rerun uses the workflow as it stands at the tag, so a failure in the workflow itself
+needs a fix on `main` first. Then, if nothing was published yet, move the tag to the fix's merge
+commit once CI has passed on it:
+`git push --delete origin vX.Y.Z && git tag vX.Y.Z <commit> && git push origin vX.Y.Z`. Without the release workflows, `scripts/release-prep.sh 0.2.0` runs the same locally, and
 pushing the tag by hand starts `release.yml`.
 
 To try a build before releasing it: `scripts/build-release.sh` writes `target/release-assets`,
