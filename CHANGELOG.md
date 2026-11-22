@@ -14,6 +14,8 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-22
+
 ### Added
 
 - **↑ in the message box brings back what you sent.** As in a terminal, ↑ goes back through
@@ -371,7 +373,8 @@ through Homebrew or a browser.
 - **Installing:** an install script, a Homebrew cask that also puts `swarmed` on the PATH, and
   `cargo install swarmed` for the command alone.
 
-[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ryckakas/swarmed/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/ryckakas/swarmed/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/ryckakas/swarmed/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/ryckakas/swarmed/compare/v0.1.0...v0.2.0

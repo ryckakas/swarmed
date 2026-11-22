@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/app", "crates/cli", "crates/core"]
 
 [workspace.package]
-version = "0.2.2"
+version = "0.3.0"
 edition = "2024"
 # An application, not a library others build on, so it tracks current stable.
 rust-version = "1.100"
@@ -14,7 +14,7 @@ keywords = ["agents", "claude", "git-worktree", "orchestrator"]
 categories = ["development-tools"]
 
 [workspace.dependencies]
-swarmed-core = { path = "crates/core", version = "0.2.2" }
+swarmed-core = { path = "crates/core", version = "0.3.0" }
 anyhow = "1.0.104"
 mac-notification-sys = "0.6.15"
 mac-usernotifications = "0.3.1"
