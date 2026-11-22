@@ -150,6 +150,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **UI logic lives in pure functions** with tests: `tree.ts` for the sidebar, `transcript.ts`
   for turning a session's events into what the transcript shows. Components and the store stay
   thin.
+- **How tool calls show is the user's setting** (`Settings::tool_calls`): all, folded or
+  hidden, applied after `toItems` by one pure function (`shownTools`). A call that talks to the
+  user (a plan, questions, a view) shows whatever it says, and so does everything that is not a
+  tool call, such as a permission request. Hidden puts a larger animation (`Swarming`) under
+  the activity line while the agent works, so that a quiet transcript does not look stuck.
 - **The menu bar is the app's own** (`crates/app/src/menu.rs`): the system's items, and
   Swarmed's (About, Settings, Keyboard Shortcuts), whose ids the window hears as a `menu` event
   and acts on (`menuChosen` in `ui/src/store.ts`). A new item of Swarmed's gets its id in both.

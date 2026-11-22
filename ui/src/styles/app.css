@@ -2334,6 +2334,36 @@ code {
     border-bottom-left-radius: 0;
 }
 
+/* Calls in a row folded into one line: how many, then the last one as its own line names it. */
+.item-tools {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+}
+
+.tool-run-count {
+    flex: none;
+    color: var(--text);
+    font-family: var(--font-ui);
+}
+
+.tool-run-failed {
+    color: var(--clay);
+}
+
+.tool-run-calls {
+    margin: 0 var(--space-2) var(--space-2);
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--dusk);
+    list-style: none;
+}
+
+.tool-run-calls > li + li {
+    border-top: 1px solid var(--line);
+}
+
 /* The last line while the agent is busy: proof that the message was taken and work goes on. */
 .activity {
     display: flex;
@@ -2341,6 +2371,91 @@ code {
     gap: var(--space-2);
     color: var(--busy);
     font-size: var(--text-sm);
+}
+
+/*
+ * The colony at work, for when tool calls are hidden and the transcript would otherwise sit
+ * still: five cells, each the waiting cell grown larger, swelling one after another in a wave.
+ */
+.activity-large {
+    display: flex;
+    justify-content: center;
+    padding: var(--space-3) 0 var(--space-4);
+    color: var(--busy);
+}
+
+.swarming {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
+    height: 36px;
+}
+
+.swarming i {
+    position: relative;
+    width: 22px;
+    height: 22px;
+    border: 1.5px solid currentcolor;
+    border-radius: 58% 42% 47% 53% / 46% 55% 45% 54%;
+    background: color-mix(in srgb, currentcolor 30%, transparent);
+    animation:
+        cell-shape 5.3s ease-in-out infinite,
+        colony-wave 1.6s ease-in-out infinite,
+        cell-turn 13s linear infinite;
+}
+
+.swarming i::after {
+    position: absolute;
+    top: 30%;
+    left: 34%;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentcolor;
+    content: "";
+    animation: cell-nucleus 3.7s ease-in-out infinite;
+}
+
+/* Each a fifth of a wave behind the one before it, already moving when it appears. */
+.swarming i:nth-child(1) {
+    animation-delay: -0.7s, -1.6s, -2s;
+}
+
+.swarming i:nth-child(2) {
+    animation-delay: -2.3s, -1.28s, -5s;
+}
+
+.swarming i:nth-child(3) {
+    animation-delay: -4.1s, -0.96s, -8s;
+}
+
+.swarming i:nth-child(4) {
+    animation-delay: -1.5s, -0.64s, -11s;
+}
+
+.swarming i:nth-child(5) {
+    animation-delay: -3.3s, -0.32s, -3s;
+}
+
+@keyframes colony-wave {
+    0%,
+    100% {
+        opacity: 0.35;
+        scale: 0.72;
+    }
+
+    40% {
+        opacity: 1;
+        scale: 1.12 1.06;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .swarming i,
+    .swarming i::after {
+        animation: none;
+        opacity: 0.6;
+    }
 }
 
 /* Waiting for an agent: one living cell. Its outline never settles, it breathes, and its nucleus

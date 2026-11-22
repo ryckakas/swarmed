@@ -453,6 +453,9 @@ impl Core {
         if let Some(scale) = asked.choice("text_size")? {
             settings.text_scale = scale;
         }
+        if let Some(tool_calls) = asked.choice("tool_calls")? {
+            settings.tool_calls = tool_calls;
+        }
         self.set_settings(&settings)?;
         Ok(format!("Changed. {}", appearance_of(&settings)))
     }
@@ -698,11 +701,12 @@ fn appearance_of(settings: &Settings) -> String {
     let palette = word(serde_json::to_value(settings.palette).unwrap_or_default());
     let style = word(serde_json::to_value(settings.style).unwrap_or_default());
     let layout = word(serde_json::to_value(settings.layout).unwrap_or_default());
+    let tool_calls = word(serde_json::to_value(settings.tool_calls).unwrap_or_default());
     format!(
         "theme {theme} (system, dark, light); palette {palette} (dusk, graphite, forest, plum, \
          ember, swarm); style {style} (plain, swarm, colony); layout {layout} (classic, senior, custom: \
          see kind layout); \
-         text_size {} (80 to 150)",
+         text_size {} (80 to 150); tool_calls {tool_calls} (all, folded, hidden)",
         settings.text_scale
     )
 }

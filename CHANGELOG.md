@@ -16,6 +16,12 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **Tool calls can be folded or hidden.** A new setting under Appearance, Tool calls: All, as
+  before; Folded, where calls in a row become one line that counts them and names the last one,
+  and opens to list them all; or Hidden, where they are left out and a larger animation shows
+  while the agent works, so a long run of them does not look like a stuck session. Permission
+  requests, questions, plans and views always show. An agent can change it with the rest of
+  the appearance.
 - **Tell Claude Code a waiting message without stopping it.** While Claude Code works, a
   waiting message has **Tell now** beside it: Claude Code takes it in at its next step, after
   the tool it is running, and goes on with it in the same turn, so a hint no longer costs the

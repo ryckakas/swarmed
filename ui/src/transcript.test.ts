@@ -8,9 +8,11 @@ import {
     movedSaid,
     planOf,
     sameToolCall,
+    shownTools,
     splitFiles,
     summarize,
     toItems,
+    toolRunSummary,
     withFiles,
 } from "./transcript";
 import { wordsFor } from "./wording";
@@ -496,5 +498,61 @@ describe("a worktree that moved to another branch", () => {
         expect(movedSaid("second", "you/one", true, words)).toBe(
             "The worktree was moved from second to you/one since the last turn, and the agent was told with this message.",
         );
+    });
+});
+
+describe("shownTools", () => {
+    const plan: AgentEvent = {
+        type: "tool_use",
+        id: "p",
+        name: "ExitPlanMode",
+        input: { plan: "1. Fix it" },
+    };
+    const turn = [
+        { type: "user_message", text: "fix the build" },
+        toolUse("a", "ls"),
+        toolResult("a", "src"),
+        toolUse("b", "cargo build"),
+        toolResult("b", "error", true),
+        { type: "text", text: "It fails; looking closer." },
+        toolUse("c", "cat src/main.rs"),
+        plan,
+        toolUse("d", "cargo test"),
+    ] satisfies AgentEvent[];
+    const items = toItems(turn);
+    const kinds = (shown: ReturnType<typeof toItems>) => shown.map((item) => item.kind);
+
+    it("leaves every call on its own line when all are shown", () => {
+        expect(shownTools(items, "all")).toBe(items);
+    });
+
+    it("folds the calls that follow each other into one line, keyed by the first", () => {
+        const folded = shownTools(items, "folded");
+        expect(kinds(folded)).toEqual(["user", "tools", "text", "tools", "tool", "tools"]);
+        const first = folded[1];
+        expect(first?.kind === "tools" && first.calls.map((call) => call.key)).toEqual([1, 3]);
+        expect(first?.key).toBe(1);
+    });
+
+    it("keeps calls that talk to the user, and leaves out the rest when hidden", () => {
+        const hidden = shownTools(items, "hidden");
+        expect(kinds(hidden)).toEqual(["user", "text", "tool"]);
+        expect(hidden[2]).toMatchObject({ name: "ExitPlanMode" });
+    });
+
+    it("sums a run up by how many, the last, how many failed, and whether it still runs", () => {
+        const folded = shownTools(items, "folded");
+        const first = folded[1];
+        const last = folded[5];
+        if (first?.kind !== "tools" || last?.kind !== "tools") {
+            throw new Error("expected folded runs");
+        }
+        expect(toolRunSummary(first.calls)).toMatchObject({
+            count: 2,
+            last: { name: "Bash", input: { command: "cargo build" } },
+            failed: 1,
+            running: false,
+        });
+        expect(toolRunSummary(last.calls)).toMatchObject({ count: 1, running: true });
     });
 });

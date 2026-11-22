@@ -11,6 +11,7 @@ import {
     latestMove,
     movedSaid,
     PLAN_TOOL,
+    shownTools,
     summarize,
     toItems,
 } from "../transcript";
@@ -26,8 +27,8 @@ import { HtmlView } from "./HtmlView";
 import { Markdown } from "./Markdown";
 import { PermissionPrompt } from "./PermissionPrompt";
 import { QuestionPrompt } from "./QuestionPrompt";
-import { Spawning } from "./Spawning";
-import { ToolCall } from "./ToolCall";
+import { Spawning, Swarming } from "./Spawning";
+import { ToolCall, ToolRun } from "./ToolCall";
 
 /** How close to the bottom, in pixels, still counts as "following the conversation". */
 const FOLLOW_DISTANCE = 80;
@@ -41,7 +42,11 @@ interface Props {
 
 export function Transcript({ sessionId, events, working }: Props) {
     const words = useWords();
-    const items = useMemo(() => toItems(events, words), [events, words]);
+    const toolCalls = useStore((state) => state.settings?.tool_calls ?? "all");
+    const items = useMemo(
+        () => shownTools(toItems(events, words), toolCalls),
+        [events, words, toolCalls],
+    );
     const lastMove = useMemo(() => latestMove(items), [items]);
     const scroller = useRef<HTMLDivElement>(null);
     // Each session gets its own Transcript (keyed by the caller), so this starts out true.
@@ -95,6 +100,11 @@ export function Transcript({ sessionId, events, working }: Props) {
                     <li className="activity" aria-live="polite">
                         <Spawning />
                         <Activity events={events} />
+                    </li>
+                )}
+                {working && toolCalls === "hidden" && (
+                    <li className="activity-large">
+                        <Swarming />
                     </li>
                 )}
             </ol>
@@ -152,6 +162,8 @@ function ItemView({ item, sessionId, latest }: ItemProps) {
             return <Markdown text={item.text} streaming={item.streaming} />;
         case "tool":
             return <ToolCall name={item.name} input={item.input} result={item.result} />;
+        case "tools":
+            return <ToolRun calls={item.calls} />;
         case "permission":
             return (
                 <PermissionPrompt

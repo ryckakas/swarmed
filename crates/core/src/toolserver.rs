@@ -183,7 +183,7 @@ fn configure_tool() -> Value {
             rule: one line every agent is told to keep to; give `text`. \
             status_line: the pieces under the message box, as `items` in order (branch, \
             changes, model, context, cost, agent, worktree, duration), or a script as `command`. \
-            appearance: `theme`, `palette`, `style`, `layout`, `text_size`. \
+            appearance: `theme`, `palette`, `style`, `layout`, `text_size`, `tool_calls`. \
             layout: the user's custom layout, one JSON object of sizes, spacing, fonts and \
             colours; list it to get its schema, save the whole of it as `json`. Saving \
             switches the app to it; what cannot be read, such as text too close to its \
