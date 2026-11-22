@@ -2166,6 +2166,16 @@ async fn the_agent_ending_ends_a_wait_on_background_sub_agents() {
     assert_eq!(turn_ends(&events)[0].unread, None);
     assert!(!core.session(session.id).expect("reads").unread);
 
+    // The answer to a later message is handed back, though the sub-agent works on.
+    core.session_send(session.id, "hello").expect("sends");
+    let events = until_turns(&mut bus, session.id, 1).await;
+    assert_eq!(turn_ends(&events)[0].unread, Some(true));
+    // And the agent starting another leaves nothing to read again.
+    core.session_send(session.id, "background agent left")
+        .expect("sends");
+    let events = until_turns(&mut bus, session.id, 1).await;
+    assert_eq!(turn_ends(&events)[0].unread, None);
+
     // Its agent stopped, what it left working went with it: the next answer counts again.
     core.session_stop(session.id);
     core.session_start(session.id, Auth::Subscription)
@@ -2173,6 +2183,43 @@ async fn the_agent_ending_ends_a_wait_on_background_sub_agents() {
     core.session_send(session.id, "hello").expect("sends");
     let events = until_turns(&mut bus, session.id, 1).await;
     assert_eq!(turn_ends(&events)[0].unread, Some(true));
+}
+
+#[tokio::test]
+async fn a_swarmed_that_starts_records_the_end_of_what_was_left_in_the_background() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+    core.session_send(session.id, "background agent left")
+        .expect("sends");
+    until_turns(&mut bus, session.id, 1).await;
+    // Swarmed ends with the sub-agent at work: nothing says that it, or its agent, ended.
+    drop(core);
+
+    let later =
+        Core::with_backend(fx.paths.clone(), Arc::new(FakeBackend::default())).expect("opens");
+    let ends = |core: &Core| {
+        let events = core.session_events(session.id).expect("reads");
+        let ended = |event: &&AgentEvent| matches!(event, AgentEvent::Exited { .. });
+        events.iter().filter(ended).count()
+    };
+    // The first core's hold on being first is let go a moment after it is dropped.
+    let mut tries = 0;
+    while ends(&later) == 0 && tries < 200 {
+        later.arrive().expect("arrives");
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        tries += 1;
+    }
+    let events = later.session_events(session.id).expect("reads");
+    let last = events.last().expect("recorded");
+    assert!(
+        matches!(last, AgentEvent::Exited { code: None, .. }),
+        "{last:?}"
+    );
+    // Once: the end is there now.
+    later.arrive().expect("arrives");
+    assert_eq!(ends(&later), 1);
 }
 
 #[tokio::test]
@@ -2286,4 +2333,40 @@ async fn a_waiting_message_told_now_is_taken_into_the_turn_and_recorded_where_it
         .expect("sends");
     let next = turn(&mut bus, session.id).await;
     assert!(next.contains(&text("echo: next")), "{next:?}");
+}
+
+#[tokio::test]
+async fn a_message_told_to_an_agent_that_ended_before_hearing_it_waits_again() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    // The agent waits on a request, so it has not taken the message in when it is stopped.
+    core.session_send(session.id, "run: ls").expect("sends");
+    permission_request(&mut bus).await;
+    core.session_enqueue(session.id, "first hint")
+        .expect("queues");
+    let queue = core
+        .session_enqueue(session.id, "second hint")
+        .expect("queues");
+    for message in &queue {
+        core.session_tell_now(session.id, message.id)
+            .expect("tells");
+    }
+    assert_eq!(core.session_queue(session.id).expect("reads"), vec![]);
+    core.session_stop(session.id);
+    while !matches!(next(&mut bus).await.event, AgentEvent::Exited { .. }) {}
+
+    // Not shown as said: the agent never got them. They wait, in the order they were told.
+    let waiting: Vec<String> = core
+        .session_queue(session.id)
+        .expect("reads")
+        .into_iter()
+        .map(|message| message.text)
+        .collect();
+    assert_eq!(waiting, ["first hint", "second hint"]);
+    let stored = core.session_events(session.id).expect("reads");
+    let said = |event: &AgentEvent| matches!(event, AgentEvent::UserMessage { text } if text.ends_with("hint"));
+    assert!(!stored.iter().any(said), "{stored:?}");
 }

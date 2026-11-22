@@ -268,7 +268,8 @@ export function keyed(questions: Question[], asking: Asking, key: string): Keyed
     if (/^[1-9]$/.test(key)) {
         return { kind: "state", asking: choose(questions, asking, Number(key) - 1) };
     }
-    if (key === SKIP_KEY) {
+    // In either case: the hint shows a capital, and Caps Lock sends one.
+    if (key.toLowerCase() === SKIP_KEY) {
         return { kind: "state", asking: skip(questions, asking) };
     }
     if (key === " ") {

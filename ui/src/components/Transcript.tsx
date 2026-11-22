@@ -5,7 +5,15 @@ import type { AgentEvent } from "../api/types";
 import { messageParts } from "../pastes";
 import { screenHtml } from "../screens";
 import { useStore } from "../store";
-import { activity, type Item, movedSaid, PLAN_TOOL, summarize, toItems } from "../transcript";
+import {
+    activity,
+    type Item,
+    latestMove,
+    movedSaid,
+    PLAN_TOOL,
+    summarize,
+    toItems,
+} from "../transcript";
 import { findSession, findSessionHome } from "../tree";
 import { formatDuration } from "../turns";
 import { useRoll } from "../useRoll";
@@ -34,6 +42,7 @@ interface Props {
 export function Transcript({ sessionId, events, working }: Props) {
     const words = useWords();
     const items = useMemo(() => toItems(events, words), [events, words]);
+    const lastMove = useMemo(() => latestMove(items), [items]);
     const scroller = useRef<HTMLDivElement>(null);
     // Each session gets its own Transcript (keyed by the caller), so this starts out true.
     const following = useRef(true);
@@ -75,7 +84,11 @@ export function Transcript({ sessionId, events, working }: Props) {
             <ol className="items">
                 {items.map((item) => (
                     <li key={item.key} className={`item item-${item.kind}`}>
-                        <ItemView item={item} sessionId={sessionId} />
+                        <ItemView
+                            item={item}
+                            sessionId={sessionId}
+                            latest={item.key === lastMove}
+                        />
                     </li>
                 ))}
                 {working && (
@@ -110,7 +123,14 @@ function Said({ text }: { text: string }) {
     );
 }
 
-function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
+interface ItemProps {
+    item: Item;
+    sessionId: number;
+    /** Whether this is the conversation's latest move of the worktree. */
+    latest: boolean;
+}
+
+function ItemView({ item, sessionId, latest }: ItemProps) {
     const words = useWords();
     switch (item.kind) {
         case "user":
@@ -201,7 +221,7 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
         case "terminal-only":
             return <TerminalOnly sessionId={sessionId} command={item.command} />;
         case "moved":
-            return <Moved sessionId={sessionId} item={item} />;
+            return <Moved sessionId={sessionId} item={item} latest={latest} />;
         case "terminal":
             return (
                 <details className="shared-terminal">
@@ -261,9 +281,15 @@ function TerminalOnly({ sessionId, command }: { sessionId: number; command: stri
 
 /**
  * Says that the task's worktree moved to another branch. When the agent moved it, the way back
- * is offered: the same switch as the Publish panel's Branch menu.
+ * is offered: the same switch as the Publish panel's Branch menu. Only by the latest move: an
+ * earlier one's way back would switch away from wherever the worktree has been put since.
  */
-function Moved({ sessionId, item }: { sessionId: number; item: Extract<Item, { kind: "moved" }> }) {
+function Moved(props: {
+    sessionId: number;
+    item: Extract<Item, { kind: "moved" }>;
+    latest: boolean;
+}) {
+    const { sessionId, item, latest } = props;
     const words = useWords();
     const projects = useStore((state) => state.projects);
     const report = useStore((state) => state.report);
@@ -272,7 +298,7 @@ function Moved({ sessionId, item }: { sessionId: number; item: Extract<Item, { k
     const session = findSession(projects, sessionId);
     const home = session && findSessionHome(projects, session);
     const back = item.from;
-    const offered = !item.betweenTurns && back !== null && home !== undefined;
+    const offered = latest && !item.betweenTurns && back !== null && home !== undefined;
     const switchBack = () => {
         if (back === null || home === undefined) {
             return;

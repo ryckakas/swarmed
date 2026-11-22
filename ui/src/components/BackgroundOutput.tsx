@@ -11,7 +11,7 @@ const FOLLOW_MS = 2000;
 
 /** A terminal that only shows: nothing typed into it goes anywhere. */
 function readOnly(element: HTMLElement, config: TerminalConfig | null, scheme: "dark" | "light") {
-    const shown = built(element, config, scheme);
+    const shown = built(element, config, scheme, true);
     shown.terminal.options.disableStdin = true;
     shown.terminal.options.cursorBlink = false;
     shown.terminal.options.convertEol = true;
@@ -45,13 +45,25 @@ function follow(
             onNote(step.note);
         }
     };
-    const read = () =>
-        api.sessionBackgroundOutput(task.session_id, task.task_id, end).then(shown, (error) => {
-            if (open) {
-                onNote(String(error));
-            }
-        });
-    void read();
+    // One read at a time: two that left from the same place would each bring the same piece,
+    // and the second would count as not going on from the first and clear what is shown.
+    let reading = false;
+    const read = () => {
+        if (reading) {
+            return;
+        }
+        reading = true;
+        api.sessionBackgroundOutput(task.session_id, task.task_id, end)
+            .then(shown, (error) => {
+                if (open) {
+                    onNote(String(error));
+                }
+            })
+            .finally(() => {
+                reading = false;
+            });
+    };
+    read();
     const following = task.state === "running" ? setInterval(read, FOLLOW_MS) : undefined;
     const resized = new ResizeObserver(() => fit.fit());
     resized.observe(element);

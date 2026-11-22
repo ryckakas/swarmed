@@ -174,16 +174,27 @@ fn when(check: &RawCheck) -> (&str, &str) {
 }
 
 /// Whether a later run of the same check (the same job name in the same workflow) replaced the
-/// check run at `at`: a workflow run that a newer one cancelled, or an attempt run again. Of two
-/// that started at the same moment, the one listed later counts as the later. A commit status,
-/// which has a context and no name, comes once per context already.
+/// check run at `at`: a workflow run that a newer one cancelled, or an attempt run again, which
+/// starts once the one before it has finished. Two runs under way at the same time are two
+/// runs of one job, for `push` and for `pull_request`, say, which `gh pr view` does not tell
+/// apart: each counts, or one that passed would hide one that failed. Of two that started at
+/// the same moment, the one listed later counts as the later. A commit status, which has a
+/// context and no name, comes once per context already.
 fn replaced(checks: &[RawCheck], at: usize) -> bool {
     let check = &checks[at];
     let same =
         |other: &RawCheck| other.name == check.name && other.workflow_name == check.workflow_name;
+    let finished = !check.completed_at.is_empty() && !check.completed_at.starts_with("0001-");
+    let made_way = |other: &RawCheck| {
+        check.conclusion == "CANCELLED"
+            || (finished && when(other).0 >= check.completed_at.as_str())
+    };
     !check.name.is_empty()
         && checks.iter().enumerate().any(|(later, other)| {
-            later != at && same(other) && (when(other), later) > (when(check), at)
+            later != at
+                && same(other)
+                && (when(other), later) > (when(check), at)
+                && made_way(other)
         })
 }
 
@@ -394,6 +405,32 @@ mod tests {
             ),
         ]);
         assert_eq!(checks, [("e2e / e2e".to_string(), CheckOutcome::Skipped)]);
+    }
+
+    #[test]
+    fn two_runs_of_a_job_under_way_at_once_both_count() {
+        // One workflow run for `push` and one for `pull_request`, on the same commit.
+        let checks = checks_of(&[
+            run(
+                "CI",
+                "Test",
+                "FAILURE",
+                "2026-11-22T15:01:00Z",
+                "2026-11-22T15:04:00Z",
+            ),
+            run(
+                "CI",
+                "Test",
+                "SUCCESS",
+                "2026-11-22T15:01:02Z",
+                "2026-11-22T15:05:00Z",
+            ),
+        ]);
+        let expected = [CheckOutcome::Failed, CheckOutcome::Passed];
+        assert_eq!(
+            checks,
+            expected.map(|outcome| ("CI / Test".to_string(), outcome))
+        );
     }
 
     #[test]

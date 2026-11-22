@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use crate::agent::{AgentCommand, AgentEvent, Auth};
 use crate::error::{Error, Result};
 use crate::paths::Paths;
-use crate::sessions::{Live, is_busy_status, send_text};
+use crate::sessions::{Live, Told, is_busy_status, send_text, skill_called};
 use crate::store::Store;
 use crate::terminal::Terminals;
 use crate::{Core, lock};
@@ -230,6 +230,19 @@ fn publish(store: &Mutex<Store>, live: &Live, session: i64) -> Result<()> {
     live.note(store, session, AgentEvent::Queue { messages })
 }
 
+/// Puts messages told to the session's agent mid-turn, which it never took in, back at the
+/// front of the session's queue in the order they were told. They wait there as any message.
+pub(crate) fn wait_again(store: &Mutex<Store>, live: &Live, session: i64, texts: &[String]) {
+    if texts.is_empty() {
+        return;
+    }
+    for text in texts.iter().rev() {
+        live.queues.push_front(session, text);
+    }
+    // An error only means the session is gone, and its queue with it.
+    publish(store, live, session).ok();
+}
+
 /// Sends the session's first waiting message, if it has one. A message that cannot be sent,
 /// because the agent is not running, goes back to the front of the queue. One the user has
 /// open for editing is not sent: it is owed, and goes once the edit is over.
@@ -309,7 +322,8 @@ impl Core {
     /// Gives a waiting message new text and returns the queue. Text with nothing in it takes
     /// the message out; a message that has been sent meanwhile is left alone. A command
     /// Swarmed does not send on is refused, and the message stays as it was. Either way the
-    /// edit is over: a hold on the message is let go, and a send owed meanwhile goes now.
+    /// edit is over: a hold on the message is let go, and a send owed meanwhile goes now. That
+    /// send failing does not undo the edit: the message is back in the queue then.
     pub fn session_queue_edit(
         &self,
         id: i64,
@@ -321,7 +335,7 @@ impl Core {
             self.live.queues.edit(id, message, text);
         }
         self.live.queues.let_go(id, message);
-        send_owed(&self.outbox(), id)?;
+        send_owed(&self.outbox(), id).ok();
         edited?;
         self.queue_changed(id)
     }
@@ -428,7 +442,14 @@ impl Core {
         let Some(taken) = self.live.queues.take(id, message) else {
             return Ok(());
         };
-        let told = self.live.tell(id, &taken.text);
+        // A skill the agent would not know by name is told as what it says, like any message
+        // that calls one; what is recorded is what was typed.
+        let called = skill_called(&self.store, &self.paths, id, &taken.text);
+        let message = Told {
+            sent: called.unwrap_or_else(|| taken.text.clone()),
+            typed: taken.text.clone(),
+        };
+        let told = self.live.tell(id, message);
         if told.is_err() {
             self.live.queues.put_back(id, taken);
         }

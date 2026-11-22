@@ -799,7 +799,9 @@ fn parse_background(message: &Value) -> Option<AgentEvent> {
 /// and where what it prints goes: "Command running in background with ID: bzufoxos3. Output
 /// is being written to: /private/tmp/claude-501/.../bzufoxos3.output". Read as a report of it
 /// running, since its own report of the start does not say where its output goes. Other
-/// wording is passed over: such a command shows what it printed only once it has ended.
+/// wording is passed over: such a command shows what it printed only once it has ended. So
+/// is a result that only holds those words further in: a file or a page that quotes them
+/// would otherwise report a command that never ran, writing wherever the quote says.
 fn started_in_background(result: &AgentEvent) -> Option<AgentEvent> {
     let AgentEvent::ToolResult {
         tool_use_id,
@@ -810,8 +812,8 @@ fn started_in_background(result: &AgentEvent) -> Option<AgentEvent> {
         return None;
     };
     let rest = content
-        .split("Command running in background with ID: ")
-        .nth(1)?;
+        .trim_start()
+        .strip_prefix("Command running in background with ID: ")?;
     let (task_id, rest) = rest.split_once(". Output is being written to: ")?;
     let named = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
     if task_id.is_empty() || !task_id.chars().all(named) {
@@ -1770,6 +1772,15 @@ mod tests {
             "message": { "content": [{ "type": "tool_result", "tool_use_id": "t", "content": "Running." }]},
         });
         assert_eq!(parse_message(&other, &pending).len(), 1);
+        // Nor does a result that quotes the words, as a file read back or a page would.
+        let quoted = json!({
+            "type": "user",
+            "message": { "content": [{
+                "type": "tool_result", "tool_use_id": "t",
+                "content": format!("12\tCommand running in background with ID: made-up. Output is being written to: {file}."),
+            }]},
+        });
+        assert_eq!(parse_message(&quoted, &pending).len(), 1);
     }
 
     #[test]

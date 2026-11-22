@@ -19,8 +19,9 @@ notice adds its line under Unreleased.
 - **Tell Claude Code a waiting message without stopping it.** While Claude Code works, a
   waiting message has **Tell now** beside it: Claude Code takes it in at its next step, after
   the tool it is running, and goes on with it in the same turn, so a hint no longer costs the
-  turn. The message shows in the conversation where Claude Code heard it. Other agents cannot
-  take a message mid-turn, so they keep sending it now, which stops the turn.
+  turn. The message shows in the conversation where Claude Code heard it; one it had not
+  taken in when it stopped waits in the queue again. Other agents cannot take a message
+  mid-turn, so they keep sending it now, which stops the turn.
 - **⌘⇧Enter sends what is typed now.** While the agent works, ⌘⇧Enter in the message box stops
   its turn and sends the message, with its files, ahead of anything waiting; while it is idle
   it sends as Enter does. It is listed with the other shortcuts in Settings.
@@ -84,7 +85,8 @@ notice adds its line under Unreleased.
 - **A check a newer run replaced no longer shows as failed.** When a workflow run was cancelled
   because a newer run of the same workflow took its place, or a failed job was run again, the
   task's pull request listed the check twice, the old run as failed. Only each check's latest
-  run is shown now, as on GitHub's own page.
+  run is shown now, as on GitHub's own page. Two runs of a job under way at the same time,
+  for a push and for the pull request, are both shown.
 - **"This session runs on it now: its turns are billed" goes once the limits say so.** After a
   usage window reset, refreshing with the coins showed the window back within its limit, but
   the extra usage section kept saying the turns were billed until the next message. Limits

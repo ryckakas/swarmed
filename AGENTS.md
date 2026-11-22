@@ -108,6 +108,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   which is all the command line ever does.
 - **A session left busy by a Swarmed that ended mid-turn** is put right: the app settles all
   of them when it starts (`Core::arrive`), and Stop on one records its turn as stopped.
+  An agent that went with its Swarmed never reported its end, so `arrive` also records one
+  (`background_settle`) for each session whose history has something left in the background
+  and no end after it: a front end reading that history would take a sub-agent left there to
+  be at work for good.
 - **A stopped agent is given `GRACE` to go, then killed** (`sessions.rs`): closing its input
   ends most, and the rest must not write on into a worktree being removed. A backend returns
   the tasks that hold its process (`AgentHandle::tasks`); aborting them kills it. Removing a
@@ -343,8 +347,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   (`local_agent`, `remote_agent`, followed in `Live` from the `Background` reports and
   forgotten when the agent exits or starts again) hands nothing back yet: the session goes
   idle, since it can take a message, but is not unread and gets no "Finished" notice. The
-  turn the agent starts to read their reports does. A command left running holds nothing
-  up, and what a sub-agent says never makes its session busy.
+  turn the agent starts to read their reports does, and so does the answer to a later
+  message of the user's (`Live::answering`): only the turn that started them and turns of
+  the agent's own are held back. A command left running holds nothing up, and what a
+  sub-agent says never makes its session busy.
 - **MCP servers can be set up in Swarmed** (`mcp_own.rs`), in `mcp.toml` in the data
   directory, and are given to every agent it runs, Claude Code included, beside Claude Code's
   own. A server's secrets are named in the file and kept in the keychain under
@@ -365,7 +371,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   256 KB, or what came since an offset, so a view that follows it adds and never redraws. It
   can hold anything, like terminal output: shown to the user, never logged, stored or handed
   to another session, a fork, the cloud or search. The UI draws it in a read-only xterm built
-  as the session's terminal is, and reads on only while it is open and the command runs.
+  as the session's terminal is, and reads on only while it is open and the command runs,
+  one read at a time. Nothing in it writes the clipboard (`built`'s `shows`): OSC 52 is for
+  programs the user runs, not for what an agent's command printed.
 - **A snapshot is the files git ignores in one well set up task** (`snapshots.rs`), one per
   environment, copied with `cp -c` so that APFS clones them. A new task gets them put into its
   worktree before `setup` runs, never over a file that is already there. They may include the
@@ -562,8 +570,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   back (`isReplay`) as it takes it in, which `claude.rs` reads as `AgentEvent::Heard`, never
   stored or published. A told message is recorded as the user's (`UserMessage`) when it is
   heard, so it stands where the agent heard it; every other message said back was recorded
-  when it was sent and is dropped (`heard_as`). One told and never heard, because the agent
-  ended, is recorded at its end. ACP agents cannot add to a turn and refuse it
+  when it was sent and is dropped (`heard_as`). A skill Claude Code would not know by name
+  is told as what it says, like any message that calls one (`Told`: what was sent is what is
+  said back, what was typed is what is recorded). One told and never heard, because the agent
+  ended or another run took its place, waits in the queue again (`wait_again`): recording it
+  would show as said what the agent never got. ACP agents cannot add to a turn and refuse it
   (`Error::HearsNoMessageMidTurn`); between turns it is sent as any message.
 - **What is worth interrupting the user for is decided in the core** (`notices.rs`): a session
   that asks for a decision, finishes a turn, fails, or moves its task's worktree to another
@@ -616,8 +627,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   repository that is not on GitHub all mean the same: the task has none, which is not an error.
   `gh pr view` reports every check run on the head commit, runs a newer one replaced included,
   so only each check's latest run is kept (`latest`, by workflow and job name), as GitHub's own
-  page and `gh pr checks` show them. What `gh pr view` prints has no event, so a job run for
-  both `push` and `pull_request` on one commit shows once.
+  page and `gh pr checks` show them. A run is replaced only by one that started after it
+  finished, or when it was cancelled. What `gh pr view` prints has no event, so a job run for
+  both `push` and `pull_request` on one commit, under way at the same time, shows twice:
+  folded into one, a run that passed would hide one that failed.
 - **A task's work leaves its worktree only when asked** (`publish.rs`): commit everything, push
   the branch, open a pull request, each a step of its own behind a button. Commits are made by
   the user's git as them, the pull request by their `gh`; nothing is added to either.

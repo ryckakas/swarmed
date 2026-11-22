@@ -393,6 +393,32 @@ impl Store {
         Ok(settled)
     }
 
+    /// Records the end of the agent of every session whose history has a report of something
+    /// left in the background and no end after it: nothing outlives the agent, and one that
+    /// went with its Swarmed never said so. Without it, a front end that reads the history
+    /// takes a sub-agent left there to be at work for good.
+    fn background_settle(&self) -> Result<()> {
+        // The event's type is the first thing in its JSON, which keeps these prefix matches.
+        let mut statement = self.conn.prepare(
+            "SELECT DISTINCT e.session_id FROM session_events e
+             WHERE e.event LIKE '{\"type\":\"background\"%'
+               AND NOT EXISTS (
+                   SELECT 1 FROM session_events later
+                   WHERE later.session_id = e.session_id AND later.id > e.id
+                     AND later.event LIKE '{\"type\":\"exited\"%')",
+        )?;
+        let left = statement.query_map(params![], |row| row.get::<_, i64>(0))?;
+        let sessions = left.collect::<rusqlite::Result<Vec<_>>>()?;
+        let ended = AgentEvent::Exited {
+            code: None,
+            stderr: String::new(),
+        };
+        for session in sessions {
+            self.keep(session, &ended)?;
+        }
+        Ok(())
+    }
+
     fn session_close(&self, id: i64) -> Result<()> {
         self.conn.execute(
             "UPDATE sessions SET closed_at = CURRENT_TIMESTAMP, status = 'idle' WHERE id = ?1",
@@ -1108,9 +1134,12 @@ impl Core {
 
     /// Puts the sessions that count as busy back to idle: for a front end that has just
     /// started, when no agent runs yet and whatever says otherwise is left from a Swarmed that
-    /// ended in the middle of a turn. Says how many there were.
+    /// ended in the middle of a turn. Says how many there were. What their agents left in the
+    /// background went with them, which is recorded as the end those agents never reported.
     pub fn sessions_settle(&self) -> Result<usize> {
-        self.store().sessions_settle()
+        let store = self.store();
+        store.background_settle()?;
+        store.sessions_settle()
     }
 
     /// Stops a session's agent. Its history stays, and [`Core::session_start`] continues it.
@@ -1463,6 +1492,15 @@ fn shown_only(event: &AgentEvent) -> bool {
     )
 }
 
+/// A message told to an agent in the middle of its turn.
+#[derive(Debug)]
+pub(crate) struct Told {
+    /// What the agent was sent, and says back when it takes the message in.
+    pub(crate) sent: String,
+    /// What the user typed, which is what is recorded.
+    pub(crate) typed: String,
+}
+
 /// The sessions whose agent is running, and the channel their events are published on.
 #[derive(Debug)]
 pub(crate) struct Live {
@@ -1489,9 +1527,12 @@ pub(crate) struct Live {
     branches_known: Mutex<HashMap<i64, Head>>,
     /// The sub-agents each session's agent has at work in the background, by their task ids.
     background_agents: Mutex<HashMap<i64, HashSet<String>>>,
+    /// The sessions in a turn a message of the user's started, each with whether that turn
+    /// has started a sub-agent in the background.
+    answering: Mutex<HashMap<i64, bool>>,
     /// The messages told to each session's agent in the middle of a turn and not yet heard:
     /// each is recorded where the agent says it took it in.
-    told: Mutex<HashMap<i64, VecDeque<String>>>,
+    told: Mutex<HashMap<i64, VecDeque<Told>>>,
     runs: AtomicU64,
     bus: broadcast::Sender<SessionEvent>,
 }
@@ -1510,6 +1551,7 @@ impl Default for Live {
             branches_seen: Mutex::default(),
             branches_known: Mutex::default(),
             background_agents: Mutex::default(),
+            answering: Mutex::default(),
             told: Mutex::default(),
             runs: AtomicU64::new(0),
             bus: broadcast::Sender::new(EVENT_BUFFER),
@@ -1518,35 +1560,33 @@ impl Default for Live {
 }
 
 impl Live {
-    /// Hands `text` to the session's agent in the middle of its turn, to be recorded once the
-    /// agent says it took it in.
-    pub(crate) fn tell(&self, id: i64, text: &str) -> Result<()> {
-        lock(&self.told)
-            .entry(id)
-            .or_default()
-            .push_back(text.to_string());
-        let told = self.command(id, AgentCommand::UserMessage(text.to_string()));
+    /// Hands a message to the session's agent in the middle of its turn, to be recorded as
+    /// the user typed it once the agent says it took it in.
+    pub(crate) fn tell(&self, id: i64, message: Told) -> Result<()> {
+        let sent = message.sent.clone();
+        lock(&self.told).entry(id).or_default().push_back(message);
+        let told = self.command(id, AgentCommand::UserMessage(sent));
         if told.is_err() {
             lock(&self.told).entry(id).or_default().pop_back();
         }
         told
     }
 
-    /// Whether `text` is the next message told to the session's agent mid-turn, which it has
-    /// now heard. Messages are heard in the order they were told.
-    fn heard(&self, id: i64, text: &str) -> bool {
+    /// What the user typed, if `text` is a message told to the session's agent mid-turn, which
+    /// it has now heard. The earliest such message is taken: one told before it that the agent
+    /// has not said back stays, and must not keep the later ones from being recorded.
+    fn heard(&self, id: i64, text: &str) -> Option<String> {
         let mut told = lock(&self.told);
-        let next = told
-            .get_mut(&id)
-            .filter(|queue| queue.front().is_some_and(|first| first == text));
-        next.and_then(VecDeque::pop_front).is_some()
+        let waiting = told.get_mut(&id)?;
+        let at = waiting.iter().position(|message| message.sent == text)?;
+        waiting.remove(at).map(|message| message.typed)
     }
 
-    /// The messages told to the session's agent that it never said it heard: its run is over.
+    /// The messages told to the session's agent that it never said it heard, as the user
+    /// typed them: its run is over, or another takes its place.
     fn never_heard(&self, id: i64) -> Vec<String> {
-        lock(&self.told)
-            .remove(&id)
-            .map_or_else(Vec::new, Vec::from)
+        let told = lock(&self.told).remove(&id).unwrap_or_default();
+        told.into_iter().map(|message| message.typed).collect()
     }
 
     /// Notes that `worktree` is at `now`, and says where it was before if that was elsewhere.
@@ -1612,13 +1652,14 @@ impl Live {
     /// Keeps and passes on what a run says after another has taken its place, without
     /// letting it change how the session stands: no status, no open requests, nothing to
     /// read. That its turn or its process ended is dropped altogether, since front ends take
-    /// either for the end of the session's own turn, which is the new agent's to report.
+    /// either for the end of the session's own turn, which is the new agent's to report. So is
+    /// a message it says back: what it was told and never heard waits in the queue again.
     fn note_late(&self, store: &Mutex<Store>, session_id: i64, event: AgentEvent) {
-        let an_end = matches!(
+        let dropped = matches!(
             event,
-            AgentEvent::TurnDone { .. } | AgentEvent::Exited { .. }
+            AgentEvent::TurnDone { .. } | AgentEvent::Exited { .. } | AgentEvent::Heard { .. }
         );
-        if an_end {
+        if dropped {
             return;
         }
         if !shown_only(&event) {
@@ -1703,6 +1744,9 @@ impl Live {
                 let starts = running && SUB_AGENT_KINDS.contains(&kind.as_str());
                 self.note_background(session_id, task_id, starts);
             }
+            AgentEvent::UserMessage { .. } => {
+                lock(&self.answering).entry(session_id).or_insert(false);
+            }
             AgentEvent::Exited { .. } => self.background_gone(session_id),
             _ => {}
         }
@@ -1713,10 +1757,13 @@ impl Live {
     fn note_background(&self, session_id: i64, task_id: &str, starts: bool) {
         let mut working = lock(&self.background_agents);
         let ids = working.entry(session_id).or_default();
-        if starts {
-            ids.insert(task_id.to_string());
-        } else {
+        if !starts {
             ids.remove(task_id);
+            return;
+        }
+        ids.insert(task_id.to_string());
+        if let Some(started) = lock(&self.answering).get_mut(&session_id) {
+            *started = true;
         }
     }
 
@@ -1724,12 +1771,14 @@ impl Live {
     /// with nothing.
     fn background_gone(&self, session_id: i64) {
         lock(&self.background_agents).remove(&session_id);
+        lock(&self.answering).remove(&session_id);
     }
 
     /// What `event` does to whether the session is unread. An answer handed back makes it
     /// unread, unless sub-agents the agent left working in the background are still at it: the
-    /// session can take a message then, but its work is not done. A message of the user's
-    /// makes it read.
+    /// session can take a message then, but its work is not done. That holds for the turn that
+    /// started them and for turns of the agent's own; the answer to a later message of the
+    /// user's is handed back whatever still works. A message of the user's makes it read.
     fn unread_after(&self, session_id: i64, event: &AgentEvent) -> Option<bool> {
         match event {
             AgentEvent::UserMessage { .. } => Some(false),
@@ -1737,7 +1786,9 @@ impl Live {
                 let waits = lock(&self.background_agents)
                     .get(&session_id)
                     .is_some_and(|ids| !ids.is_empty());
-                (!waits).then_some(true)
+                // The turn is over: what it was is asked once.
+                let answers = lock(&self.answering).remove(&session_id) == Some(false);
+                (!waits || answers).then_some(true)
             }
             _ => None,
         }
@@ -1893,6 +1944,8 @@ fn launch(shared: Shared, id: i64, how: Launch) -> Result<()> {
     }
     let handle = shared.backend.start(shared.spec.clone())?;
     live.background_gone(id);
+    // What a run this takes the place of was told and never heard: its own end is dropped.
+    let unheard = live.never_heard(id);
     let number = live.runs.fetch_add(1, Ordering::Relaxed);
     let (stop, stopped) = oneshot::channel();
     let (gone, ended) = watch::channel(());
@@ -1909,6 +1962,7 @@ fn launch(shared: Shared, id: i64, how: Launch) -> Result<()> {
     };
     running.insert(id, run);
     drop(running);
+    queue::wait_again(&shared.store, &live, id, &unheard);
     lock(&live.endings).insert(number, (id, ending.clone()));
     if let Some(pid) = handle.pid {
         lock(&live.pids).insert(id, pid);
@@ -2013,20 +2067,19 @@ fn take(shared: &Shared, (id, run): (i64, u64), ending: &Ending, event: AgentEve
 }
 
 /// What an event of the agent's is once messages told to it mid-turn are accounted for: a
-/// message it says it took in is recorded as the user's, there; any other it says back is
-/// dropped, since it was recorded when it was sent; and the agent's end records what it never
-/// heard, so that nothing the user wrote goes missing.
+/// message it says it took in is recorded as the user's, there, as they typed it; any other it
+/// says back is dropped, since it was recorded when it was sent; and at the agent's end what it
+/// never heard waits in the queue again, so that nothing the user wrote goes missing or is
+/// shown as said to an agent that did not get it.
 fn heard_as(shared: &Shared, id: i64, event: AgentEvent) -> Option<AgentEvent> {
     match event {
-        AgentEvent::Heard { text } => shared
-            .live
-            .heard(id, &text)
-            .then_some(AgentEvent::UserMessage { text }),
+        AgentEvent::Heard { text } => {
+            let typed = shared.live.heard(id, &text)?;
+            Some(AgentEvent::UserMessage { text: typed })
+        }
         AgentEvent::Exited { .. } => {
-            for text in shared.live.never_heard(id) {
-                let message = AgentEvent::UserMessage { text };
-                shared.live.note(&shared.store, id, message).ok();
-            }
+            let unheard = shared.live.never_heard(id);
+            queue::wait_again(&shared.store, &shared.live, id, &unheard);
             Some(event)
         }
         _ => Some(event),
@@ -2109,6 +2162,36 @@ fn restart(shared: &Shared, id: i64, sends: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_message_heard_is_recorded_as_typed_whatever_was_told_before_it() {
+        let live = Live::default();
+        let (commands, _agent) = mpsc::unbounded_channel();
+        let (stop, _stopped) = oneshot::channel();
+        let run = Run {
+            number: 1,
+            commands,
+            _stop: stop,
+        };
+        live.commands().insert(7, run);
+        let told = |sent: &str, typed: &str| Told {
+            sent: sent.to_string(),
+            typed: typed.to_string(),
+        };
+        live.tell(7, told("never said back", "/lost"))
+            .expect("tells");
+        live.tell(7, told("what the skill says", "/skill"))
+            .expect("tells");
+        // One the agent never says back does not keep the next from being recorded.
+        assert_eq!(live.heard(7, "something else"), None);
+        assert_eq!(
+            live.heard(7, "what the skill says"),
+            Some("/skill".to_string())
+        );
+        assert_eq!(live.heard(7, "what the skill says"), None);
+        assert_eq!(live.never_heard(7), ["/lost"]);
+        assert_eq!(live.never_heard(7), Vec::<String>::new());
+    }
 
     #[test]
     fn a_title_is_taken_from_what_was_typed_and_not_from_what_was_pasted() {

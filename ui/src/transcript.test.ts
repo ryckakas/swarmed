@@ -3,6 +3,7 @@ import type { AgentEvent } from "./api/types";
 import {
     activity,
     fileName,
+    latestMove,
     messageNumber,
     movedSaid,
     planOf,
@@ -482,6 +483,13 @@ describe("a worktree that moved to another branch", () => {
         expect(movedSaid("you/one", null, false, words)).toBe(
             "The worktree moved from you/one to no branch during this turn, so there is nothing to push until it is on a branch again.",
         );
+    });
+
+    it("has one latest move, which is the one that can offer the way back", () => {
+        const said: AgentEvent = { type: "text", text: "done" };
+        const events = [moved("you/one", "second", false), said, moved("second", "third", false)];
+        expect(latestMove(toItems(events, words))).toBe(2);
+        expect(latestMove(toItems([said], words))).toBeNull();
     });
 
     it("says the agent was told when it moved between turns", () => {

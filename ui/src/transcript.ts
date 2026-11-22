@@ -491,6 +491,15 @@ export function messageNumber(events: AgentEvent[], key: number): number {
 }
 
 /**
+ * The latest move of the task's worktree in the conversation, by its key, or `null`. Only that
+ * one can offer the way back: an earlier one's would switch away from wherever a later move,
+ * or the user, has since put the worktree.
+ */
+export function latestMove(items: Item[]): number | null {
+    return items.findLast((item) => item.kind === "moved")?.key ?? null;
+}
+
+/**
  * What the transcript says of a move of the task's worktree to another branch: what follows
  * from it when the agent moved it, and that the agent was told when it moved between turns.
  */

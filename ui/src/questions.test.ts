@@ -178,6 +178,8 @@ describe("skipping one question", () => {
             false,
             true,
         ]);
+        // As the hint writes it, and as Caps Lock sends it.
+        expect(keyed(questions, second, SKIP_KEY.toUpperCase())).toEqual(keyedOnce);
     });
 
     it("of the only question, sends at once, as skipping it all", () => {
