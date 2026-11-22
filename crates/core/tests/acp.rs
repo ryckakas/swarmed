@@ -846,6 +846,58 @@ async fn a_session_that_leaves_the_model_open_runs_on_the_default_swarmed_has_fo
             "{events:?}"
         );
     }
+
+    // Started again, the agent has forgotten what it was put on and is put back on it.
+    core.session_stop(id);
+    while !matches!(next(&mut bus).await.event, AgentEvent::Exited { .. }) {}
+    core.session_start(id, Auth::Subscription)
+        .expect("restarts");
+    let events = model_heard(&core, &mut bus, id).await;
+    assert!(
+        events.contains(&text(&format!("model: {FIRST}"))),
+        "{events:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_running_session_goes_back_to_the_default_as_it_stands_now() {
+    const NOW: &str = "openrouter/now/first";
+    let fx = fixture();
+    let agent = AcpBackend {
+        default_model: Some("openrouter/removed/since".into()),
+        ..scripted_agent(&[])
+    };
+    let mut core = core_with(&fx, agent).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+    model_heard(&core, &mut bus, id).await;
+
+    // The list changes while the agent runs: another model is first in it now.
+    let info = AgentInfo {
+        id: AGENT.into(),
+        name: "Scripted".into(),
+        models: vec![NOW.into()],
+        default_model: Some(NOW.into()),
+    };
+    let agent = AcpBackend {
+        default_model: Some(NOW.into()),
+        ..scripted_agent(&[])
+    };
+    core.add_agent(info, Arc::new(agent));
+
+    for chosen in [Some("openrouter/other/model"), None] {
+        let settings = SessionSettings {
+            model: chosen.map(String::from),
+            supervision: Supervision::Ask,
+            ..SessionSettings::default()
+        };
+        core.session_configure(id, &settings).expect("configures");
+    }
+    let events = model_heard(&core, &mut bus, id).await;
+    assert!(
+        events.contains(&text(&format!("model: {NOW}"))),
+        "{events:?}"
+    );
 }
 
 #[tokio::test]

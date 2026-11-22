@@ -17,7 +17,8 @@ pub struct Paths {
     pub claude_config: PathBuf,
     /// Codex's own config file, which is only ever read, to show the MCP servers it lists.
     pub codex_config: PathBuf,
-    /// OpenCode's own configuration directory, which is only ever read, for the same reason.
+    /// OpenCode's own configuration directory, which is only ever read, for the same reason
+    /// and for the model it names as OpenCode's default, if any.
     pub opencode_config_dir: PathBuf,
 }
 

@@ -21,7 +21,8 @@ notice adds its line under Unreleased.
   whichever model OpenRouter added last, which changes without notice and may be one the
   account's allowed providers don't serve: a first message could fail with "No allowed
   providers are available for the selected model". The start of the session also named a
-  model other than the one the message ran on.
+  model other than the one the message ran on. A `model` set in your own `opencode.json`
+  stays OpenCode's default.
 - **`swarmed-core`: `AgentInfo` and `AcpBackend` have `default_model`,** what a session that
   leaves the model open runs on where Swarmed chooses it; `None` leaves it to the agent.
 

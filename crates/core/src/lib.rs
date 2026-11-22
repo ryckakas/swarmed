@@ -165,7 +165,7 @@ impl Core {
     /// Opens the data directory, creating the database on first use. Sessions run on the
     /// installed Claude Code CLI, or on an ACP agent listed in `agents.toml`.
     pub fn open(paths: Paths) -> Result<Self> {
-        let agents = Agents::load(&paths.agents_config())?;
+        let agents = Agents::load(&paths.agents_config(), &paths.opencode_config_dir)?;
         let mut core = Self::with_agents(paths, agents)?;
         core.set_namer(Arc::new(ClaudeNamer::default()));
         core.secrets = secrets::platform_store();

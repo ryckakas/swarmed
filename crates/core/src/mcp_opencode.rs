@@ -6,6 +6,9 @@
 //! shown, where what a server is given in secret (environment values, headers) is named and
 //! never read out; and to be handed to the other agents, where the values go with the server
 //! and nowhere else.
+//!
+//! The same file says which model OpenCode runs on when it is given none (`model`), which
+//! decides whether Swarmed picks one for it.
 
 use std::path::Path;
 
@@ -45,12 +48,24 @@ pub(crate) fn opencode_servers(dir: &Path) -> Vec<McpServer> {
     servers
 }
 
-/// What the configuration in `dir` holds for each server, by name.
-fn entries(dir: &Path) -> Map<String, Value> {
+/// The model the configuration in `dir` has OpenCode run on when it is given none, if it
+/// names one. Without one OpenCode runs on the newest model it knows of.
+pub(crate) fn opencode_model(dir: &Path) -> Option<String> {
+    let config = config(dir);
+    let model = config.get("model").and_then(Value::as_str)?.trim();
+    (!model.is_empty()).then(|| model.to_string())
+}
+
+/// The configuration in `dir`, or nothing if there is none or it cannot be read.
+fn config(dir: &Path) -> Value {
     let read = |name: &str| std::fs::read_to_string(dir.join(name)).ok();
     let text = read("opencode.json").or_else(|| read("opencode.jsonc"));
-    let config: Value =
-        serde_json::from_str(&plain_json(&text.unwrap_or_default())).unwrap_or_default();
+    serde_json::from_str(&plain_json(&text.unwrap_or_default())).unwrap_or_default()
+}
+
+/// What the configuration in `dir` holds for each server, by name.
+fn entries(dir: &Path) -> Map<String, Value> {
+    let config = config(dir);
     let Some(mcp) = config.get("mcp").and_then(Value::as_object) else {
         return Map::new();
     };

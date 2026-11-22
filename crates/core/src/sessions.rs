@@ -1144,7 +1144,10 @@ impl Core {
         self.store().session_configure(id, settings)?;
         // Not running is fine: the session starts with the new settings.
         if let Ok(commands) = self.live.sender(id) {
-            tell_agent(&commands, &before, settings);
+            // A running agent knows the default it was started with, and the list it comes
+            // from may have changed since.
+            let default_model = self.agents_now().default_model(&before.agent);
+            tell_agent(&commands, &before, settings, default_model);
         }
         // Like its effort, an agent takes its fast mode when it starts.
         if before.effort != settings.effort || before.fast != settings.fast {
@@ -1279,16 +1282,17 @@ pub(crate) fn skill_called(
     paths.skill_called(&session.agent, &task.worktree_path, text)
 }
 
-/// Passes on the settings that differ from what the session had.
+/// Passes on the settings that differ from what the session had. A model left open is passed
+/// on as `default_model`, where Swarmed has one for the agent.
 fn tell_agent(
     commands: &mpsc::UnboundedSender<AgentCommand>,
     before: &Session,
     settings: &SessionSettings,
+    default_model: Option<String>,
 ) {
     if before.model != settings.model {
-        commands
-            .send(AgentCommand::SetModel(settings.model.clone()))
-            .ok();
+        let model = settings.model.clone().or(default_model);
+        commands.send(AgentCommand::SetModel(model)).ok();
     }
     if before.supervision != settings.supervision {
         commands
