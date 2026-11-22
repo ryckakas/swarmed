@@ -5620,3 +5620,23 @@ kbd {
 .dictionary .dictionary-plain::after {
     content: ":";
 }
+
+/* Rows dragged among their siblings in the sidebar (`useRowDrag`): the one being dragged is
+   faded, and a line shows where it would land, before a sibling or after the last. */
+:root[data-reordering],
+:root[data-reordering] * {
+    cursor: grabbing;
+    user-select: none;
+}
+
+[data-order][data-dragging] {
+    opacity: 0.45;
+}
+
+[data-order][data-drop="before"] {
+    box-shadow: inset 0 2px 0 var(--focus);
+}
+
+[data-order][data-drop="after"] {
+    box-shadow: inset 0 -2px 0 var(--focus);
+}

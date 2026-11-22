@@ -635,6 +635,11 @@ export type AgentEvent =
     | { type: "closed" }
     /** The session was deleted for good, with everything said in it. */
     | { type: "deleted" }
+    /**
+     * Repositories, tasks, sessions or cloud tasks were put in another order. It belongs to no
+     * session: it comes with session id 0, and the tree is read again.
+     */
+    | { type: "reordered"; kind: string }
     /** What stands before this is a copy of what was said in the session forked from. */
     | { type: "forked"; from: number }
     /** HTML the agent showed through Swarmed's own tool, handed over by the tool itself. */

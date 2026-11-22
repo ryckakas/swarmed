@@ -1,4 +1,5 @@
 import { api } from "./api";
+import { moveTarget, type OrderTarget, targetOf } from "./ordering";
 import { delivered } from "./sending";
 import { useStore } from "./store";
 import { messageNumber } from "./transcript";
@@ -22,6 +23,46 @@ export function sendOrQueue(
 ): Promise<void> {
     const status = findSession(useStore.getState().projects, id)?.status;
     return delivered(api, status, id, text, files, atOnce, now);
+}
+
+/** Moves a row of the sidebar `by` places among its siblings, then reads the tree again. */
+export async function moveRow(target: OrderTarget, by: number) {
+    const { refresh, report } = useStore.getState();
+    try {
+        await moveTarget(api, target, by);
+        await refresh(api);
+    } catch (error) {
+        report(error);
+    }
+}
+
+/** The row of the sidebar written as `target`, if it is on screen. */
+function rowOf(target: OrderTarget): Element | undefined {
+    const written = JSON.stringify(target);
+    const rows = document.querySelectorAll(".sidebar [data-order]");
+    return [...rows].find((row) => row.getAttribute("data-order") === written);
+}
+
+/**
+ * Moves the row of the sidebar that has the keyboard `by` places among its siblings, or the
+ * session on screen when no row has it. A row keeps the keyboard as it moves.
+ */
+export async function moveFocusedRow(by: number) {
+    const focused = document.activeElement?.closest(".sidebar [data-order]");
+    const { selectedSessionId } = useStore.getState();
+    const onScreen: OrderTarget | null =
+        selectedSessionId === null ? null : { kind: "session", id: selectedSessionId };
+    const target = focused ? targetOf(focused) : onScreen;
+    if (!target) {
+        return;
+    }
+    await moveRow(target, by);
+    if (focused) {
+        // Moving the row's element on the page takes the keyboard from it.
+        requestAnimationFrame(() => {
+            rowOf(target)?.querySelector<HTMLElement>("[data-drag-handle]")?.focus();
+        });
+    }
 }
 
 /** Asks for a folder and registers the repository it is in. */

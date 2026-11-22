@@ -738,6 +738,19 @@ function heardOfDeletion(api: Api, event: SessionEvent): boolean {
 }
 
 /**
+ * Repositories, tasks, sessions or cloud tasks were put in another order, here or in another
+ * window: the tree is read again. The event belongs to no session, so nothing else is done with
+ * it. Whether the event was that.
+ */
+function heardOfReordering(api: Api, event: SessionEvent): boolean {
+    if (event.event.type !== "reordered") {
+        return false;
+    }
+    void useStore.getState().refresh(api);
+    return true;
+}
+
+/**
  * Reads the tree again for an event that changes what it holds: one from a session it does
  * not know, which an agent started, the closing of one by an agent or another window, or a
  * command such as `/model` having set something of a session's.
@@ -799,7 +812,7 @@ export function connect(api: Api): () => void {
     inView?.addEventListener("focus", readIfSeen);
     const subscriptions = [
         api.onSessionEvent((event) => {
-            if (heardOfDeletion(api, event)) {
+            if (heardOfReordering(api, event) || heardOfDeletion(api, event)) {
                 return;
             }
             readTreeIfChanged(api, event);

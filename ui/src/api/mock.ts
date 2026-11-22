@@ -1,4 +1,5 @@
 import { lastDays } from "../analytics";
+import { movedAmong, starterHere } from "../ordering";
 import { calledCommand } from "../slash";
 import { PLAN_TOOL, withFiles } from "../transcript";
 import { titleFrom } from "../tree";
@@ -494,6 +495,69 @@ function cloudApi(
         cloudTaskOpen: async () => undefined,
         cloudTaskDiff: async () => SAMPLE_CLOUD_DIFF,
         cloudTaskApply: async () => undefined,
+    };
+}
+
+/** Putting the sample's repositories, tasks, sessions and cloud tasks in another order. */
+function orderApi(
+    projects: () => Project[],
+): Pick<Api, "projectMove" | "taskMove" | "sessionMove" | "cloudTaskMove"> {
+    const project = (name: string) => {
+        const found = projects().find((candidate) => candidate.name === name);
+        if (!found) {
+            throw new Error(`project \`${name}\` not found`);
+        }
+        return found;
+    };
+    const everyTask = () => projects().flatMap((one) => one.tasks);
+    const replace = <T>(list: T[], moved: T[]) => list.splice(0, list.length, ...moved);
+    return {
+        projectMove: async (name, by) => {
+            const all = projects();
+            replace(
+                all,
+                movedAmong(
+                    all,
+                    () => true,
+                    (one) => one.name === name,
+                    by,
+                ),
+            );
+        },
+        taskMove: async (name, task, by) => {
+            const { tasks } = project(name);
+            const open = (one: Task) => !one.archived;
+            replace(
+                tasks,
+                movedAmong(tasks, open, (one) => one.name === task, by),
+            );
+        },
+        sessionMove: async (id, by) => {
+            const task = everyTask().find((one) => one.sessions.some((s) => s.id === id));
+            const session = task?.sessions.find((s) => s.id === id);
+            if (!(task && session)) {
+                throw new Error(`session ${id} not found`);
+            }
+            const starter = starterHere(task.sessions, session);
+            const siblings = (one: Session) => starterHere(task.sessions, one) === starter;
+            const moved = movedAmong(task.sessions, siblings, (one) => one.id === id, by);
+            replace(task.sessions, moved);
+        },
+        cloudTaskMove: async (id, by) => {
+            const owner = projects().find((one) => one.cloud.some((task) => task.id === id));
+            if (!owner) {
+                throw new Error(`cloud task ${id} not found`);
+            }
+            replace(
+                owner.cloud,
+                movedAmong(
+                    owner.cloud,
+                    () => true,
+                    (task) => task.id === id,
+                    by,
+                ),
+            );
+        },
     };
 }
 
@@ -2180,6 +2244,7 @@ export function createMockApi(): Api {
         usage: async () => SAMPLE_USAGE,
         costs: async () => SAMPLE_COSTS,
         ...snapshotApi(() => agent.projects),
+        ...orderApi(() => agent.projects),
         analytics: async () => sampleAnalytics(new Date()),
         effortDefault: sampleEffortDefault,
         ...setupApi(hookListeners),

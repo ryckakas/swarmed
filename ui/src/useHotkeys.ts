@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { addProject, newSession } from "./actions";
+import { addProject, moveFocusedRow, newSession } from "./actions";
 import { api } from "./api";
 import type { Project } from "./api/types";
 import { afterPlan, CLAUDE } from "./components/options";
@@ -137,6 +137,8 @@ const ACTIONS: Partial<Record<HotkeyId, () => void>> = {
     "previous-session": () => step(-1),
     "next-session": () => step(1),
     "next-waiting": nextWaiting,
+    "move-up": () => void moveFocusedRow(-1),
+    "move-down": () => void moveFocusedRow(1),
     search: () => useStore.getState().showSearch(!useStore.getState().searchOpen),
     inbox: () => useStore.getState().showInbox(!useStore.getState().inboxOpen),
     "focus-message": focusMessage,

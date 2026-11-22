@@ -1,9 +1,10 @@
 import { type KeyboardEvent, useEffect, useState } from "react";
-import { addProject, newSession } from "../actions";
+import { addProject, moveRow, newSession } from "../actions";
 import { api } from "../api";
 import type { CloudTask, Mark, Project, Session, Task } from "../api/types";
 import { cloudProvider, cloudTitle, cloudTone, cloudTooltip, isUnfinished } from "../cloud";
 import { taskTooltip } from "../environments";
+import { orderAttributes, orderGroup, starterHere } from "../ordering";
 import { agentName, iconForAgent } from "../providerIcons";
 import { useStore } from "../store";
 import type { SubAgent } from "../subagents";
@@ -16,6 +17,7 @@ import { ForgetCloudDialog } from "./ForgetCloudDialog";
 import { ProviderMark } from "./ProviderMark";
 import { PullBadge } from "./PullRequest";
 import { StatusMark } from "./StatusMark";
+import { useRowDrag } from "./useRowDrag";
 
 export function Sidebar() {
     const projects = useStore((state) => state.projects);
@@ -31,12 +33,14 @@ export function Sidebar() {
     const waiting = countWaiting(projects);
     const unread = countUnread(projects);
     const words = useStore((state) => wordsFor(state.settings?.style));
+    const startDrag = useRowDrag(moveRow);
 
     return (
         <nav
             className="sidebar"
             aria-label={`Projects, ${words.terms.tasks} and sessions`}
             onKeyDown={moveFocus}
+            onPointerDown={startDrag}
         >
             <div className="sidebar-top" data-tauri-drag-region>
                 {version && (
@@ -140,13 +144,18 @@ function ProjectGroup({ project }: { project: Project }) {
     const tasks = project.tasks.filter((task) => !task.archived);
     // A folded repository still shows whether one of its sessions needs something.
     const status = folded ? projectStatus(project) : null;
+    const order = orderAttributes(
+        { kind: "project", project: project.name },
+        orderGroup.projects(),
+    );
     return (
-        <section className="project">
+        <section className="project" {...order}>
             <div className="row-head">
                 <h2 className="project-name">
                     <button
                         type="button"
                         className="project-toggle"
+                        data-drag-handle
                         aria-expanded={!folded}
                         title={folded ? words.showTasks : words.hideTasks}
                         onClick={() => toggleFolded(project.id)}
@@ -184,10 +193,20 @@ function ProjectGroup({ project }: { project: Project }) {
 
 function TaskGroup({ project, task }: { project: string; task: Task }) {
     const words = useStore((state) => wordsFor(state.settings?.style));
+    const order = orderAttributes(
+        { kind: "task", project, task: task.name },
+        orderGroup.tasks(project),
+    );
+    // A session is moved among those its starter started, or among the task's others.
+    const sessionOrder = (session: Session) =>
+        orderAttributes(
+            { kind: "session", id: session.id },
+            orderGroup.sessions(task.id, starterHere(task.sessions, session)),
+        );
     return (
-        <div className="task">
+        <div className="task" {...order}>
             <div className="row-head">
-                <h3 className="task-name" title={taskTooltip(task, words)}>
+                <h3 className="task-name" title={taskTooltip(task, words)} data-drag-handle>
                     <WorktreeIcon />
                     <span className="task-title">{task.name}</span>
                     {task.setup === "failed" && <span className="task-flag">setup failed</span>}
@@ -211,6 +230,7 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
                 {nestedSessions(task.sessions).map(({ session, nested }) => (
                     <li
                         key={session.id}
+                        {...sessionOrder(session)}
                         data-nested={nested}
                         // One that started others is drawn larger, as the head of its brood.
                         data-brood={task.sessions.some((other) => other.spawned_by === session.id)}
@@ -301,10 +321,19 @@ function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] })
             )}
             <ul className="cloud-tasks">
                 {tasks.map((task) => (
-                    <li key={task.id} className="cloud-line" data-tone={cloudTone(task)}>
+                    <li
+                        key={task.id}
+                        className="cloud-line"
+                        data-tone={cloudTone(task)}
+                        {...orderAttributes(
+                            { kind: "cloud", id: task.id },
+                            orderGroup.cloud(project),
+                        )}
+                    >
                         <button
                             type="button"
                             className="cloud-row"
+                            data-drag-handle
                             title={cloudTooltip(task)}
                             onClick={() => void api.cloudTaskOpen(task.id).catch(report)}
                         >
@@ -519,6 +548,7 @@ function SessionRow({ session }: { session: Session }) {
             <button
                 type="button"
                 className="session-row"
+                data-drag-handle
                 // The row cuts a long title short; this shows all of it.
                 title={title}
                 aria-current={selected ? "true" : undefined}

@@ -78,6 +78,10 @@ export const tauriApi: Api = {
     pickFolder: () => open({ directory: true, multiple: false, title: "Add a repository" }),
     projectAdd: (path) => invoke<Project>("project_add", { path, name: null }),
     projectRemove: (name, force) => invoke("project_remove", { name, force }),
+    projectMove: (project, by) => invoke<void>("project_move", { project, by }),
+    taskMove: (project, task, by) => invoke<void>("task_move", { project, task, by }),
+    sessionMove: (id, by) => invoke<void>("session_move", { id, by }),
+    cloudTaskMove: (id, by) => invoke<void>("cloud_task_move", { id, by }),
     taskRemove: (project, name, force) =>
         // Its branch goes too, unless commits on it exist nowhere else: the core keeps it then.
         invoke("task_remove", { project, name, force, deleteBranch: true }),

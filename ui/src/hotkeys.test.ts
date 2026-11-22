@@ -16,6 +16,10 @@ describe("matchHotkey", () => {
         expect(matchHotkey(press("`", ["ctrl"]))).toBe("toggle-terminal");
         expect(matchHotkey(press("Enter", ["cmd"]))).toBe("allow");
         expect(matchHotkey(press("3", ["cmd"]))).toBe("session-3");
+        expect(matchHotkey(press("ArrowUp", ["cmd", "alt"]))).toBe("move-up");
+        expect(matchHotkey(press("ArrowDown", ["cmd", "alt"]))).toBe("move-down");
+        // Plain arrows stay with the sidebar, which moves the focus between its rows.
+        expect(matchHotkey(press("ArrowUp"))).toBeNull();
     });
 
     it("is nothing for plain typing, and leaves the system's own shortcuts alone", () => {

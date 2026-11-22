@@ -16,6 +16,13 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **Put the sidebar in your own order.** Drag a repository, a task, a session or a cloud task
+  by its row to another place among its own kind, or move the focused row, or the open session,
+  with ⌥⌘↑ and ⌥⌘↓. Each stays with what it belongs to: a session in its task, one another
+  session started among those that session started. The order is kept by Swarmed, so every
+  window and `swarmed project move`, `task move`, `session move` and `cloud move` share it.
+  Sub-agents come and go as they work and are not moved. A newly added repository now goes at
+  the end instead of in alphabetical order.
 - **Tool calls can be folded or hidden.** A new setting under Appearance, Tool calls: All, as
   before; Folded, where calls in a row become one line that counts them and names the last one,
   and opens to list them all; or Hidden, where they are left out and a larger animation shows

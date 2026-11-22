@@ -185,6 +185,17 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   Drawing on the graphics card (`gpu`) is off by default, because it has not been seen to draw
   right in the app's own window; check there before changing the default. The shell is started
   with `COLORTERM=truecolor` and `CLICOLOR=1`.
+- **The sidebar's order is the user's, kept in the core** (`order.rs`): a `position` on
+  projects, tasks, sessions and cloud tasks, which their lists follow. New rows go at the end,
+  a cloud task at the top. A row moves `by` places among its siblings only, never to another
+  parent: a session within its task, and one another session started among those its starter
+  started while that one is open (`session_siblings`, as `nestedSessions` lists them). Rows
+  not listed, a closed session or an archived task, keep their places among the others, so
+  one put back comes back where it was. Sub-agents have no order: nothing stores them. A move
+  is published as `AgentEvent::Reordered` with session id 0, which no session has, and never
+  stored; front ends read the tree again on it. The UI drags rows with pointer events, not
+  HTML drag and drop, which would fight the window's dropping of files to attach
+  (`useRowDrag`, `ordering.ts`), and ⌥⌘↑/↓ move the focused row or the open session.
 - **Closing a session keeps it; deleting one does not** (`session_close`, `session_delete`).
   A closed session is put away with its conversation and can be reopened; until it is, its
   agent cannot be started and nothing can be sent to it (`Error::SessionClosed`). A deleted one is
