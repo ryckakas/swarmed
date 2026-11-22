@@ -2054,3 +2054,32 @@ async fn prompts_are_kept_by_name_replaced_and_dropped() {
     assert_eq!(core.template_remove("review").expect("drops").len(), 1);
     assert_eq!(core.template_remove("review").expect("no error").len(), 1);
 }
+
+#[tokio::test]
+async fn tasks_named_alike_at_the_same_time_each_get_a_name_of_their_own() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    let free = NewTaskOptions {
+        free_name: true,
+        ..NewTaskOptions::default()
+    };
+    // Five sessions started at once with `/code-review 123` are all named alike.
+    let new = || core.task_new("demo", "code-review-pr-123", free, &hooks::discard);
+    let made = tokio::join!(new(), new(), new(), new(), new());
+    let made = [made.0, made.1, made.2, made.3, made.4];
+    let mut names: Vec<String> = made
+        .into_iter()
+        .map(|task| task.expect("each is created").name)
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        [
+            "code-review-pr-123",
+            "code-review-pr-123-2",
+            "code-review-pr-123-3",
+            "code-review-pr-123-4",
+            "code-review-pr-123-5",
+        ]
+    );
+}

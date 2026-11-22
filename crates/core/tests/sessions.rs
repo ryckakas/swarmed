@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::{core_with_project, fixture, git, next, turn};
+use common::{AskedNamer, core_with_project, fixture, git, next, turn};
 use std::sync::Arc;
 
 use swarmed_core::agent::{
@@ -1584,21 +1584,6 @@ async fn a_new_task_is_named_by_the_namer_and_its_session_keeps_that_title() {
         core.task_name_for("nowhere", "x").await,
         Err(Error::ProjectNotFound(_))
     ));
-}
-
-/// Answers every request with the same words, and keeps what it was asked to name.
-#[derive(Debug)]
-struct AskedNamer {
-    answer: &'static str,
-    asked: Arc<std::sync::Mutex<Vec<String>>>,
-}
-
-impl Namer for AskedNamer {
-    fn name(&self, prompt: String) -> Naming {
-        self.asked.lock().expect("not poisoned").push(prompt);
-        let answer = self.answer.to_string();
-        Box::pin(async move { Some(answer) })
-    }
 }
 
 #[tokio::test]

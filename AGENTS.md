@@ -330,7 +330,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   user renamed the session first. Every change of title is an event, `Renamed`, so all front
   ends follow. A message that calls a skill, `/name …`, is named as the request it stands
   for: the namer is given the skill's description and what follows it, never the text as
-  typed, which Claude Code would run (`naming_prompt`). An answer that is no title, such as
+  typed, which Claude Code would run (`naming_prompt`). The description is given only when
+  one skill answers to the name, as the agent would pick it (`skill_description`): several
+  skills of a name that say different things, or a name Claude Code has a command by, are
+  given by name and arguments alone. An answer that is no title, such as
   the `<invoke_…>` tag a model without tools gives, is dropped (`title_of`).
 - **A new task is named before it exists** (`naming.rs`): the same `Namer` is asked, with a
   short timeout, and its answer is both the first session's title and, as lower-case words
@@ -338,8 +341,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   prompt. A task is never renamed later: its folder and branch are where the agent works.
   The core has the last word on a name it makes up (`NewTaskOptions::free_name`, which the app
   sets): it steps on to `name-2` and so on past any name a task of the project ever had, a
-  folder in the way, and a branch here or on a remote (one `for-each-ref` after the fetch), and
-  the task it returns has the name taken. A name the user chose, as the command line takes it,
+  folder in the way, a branch here or on a remote (one `for-each-ref` after the fetch), and a
+  name another task is being created under, and the task it returns has the name taken. A name
+  is claimed (`names_claimed`) from when it is chosen until its task is written down, so tasks
+  started at once with the same prompt, each named alike, get `name`, `name-2` and so on
+  instead of all but one failing in git. A name the user chose, as the command line takes it,
   is refused instead (`BranchExists`, `TaskFolderExists`, `TaskExists`). Removing a task
   deletes its local branch (`delete_branch`, which the app sets) unless the task started from
   it or commits on it are on neither the base nor a remote; a branch git will not check or

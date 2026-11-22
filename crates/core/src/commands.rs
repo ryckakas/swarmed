@@ -210,6 +210,11 @@ fn handling(agent: &str, name: &str) -> Option<Handling> {
     known.map(|(_, how)| *how)
 }
 
+/// Whether `name` is one of Claude Code's own commands, by any name it goes by.
+pub(crate) fn is_claude_command(name: &str) -> bool {
+    handling(CLAUDE, name).is_some()
+}
+
 /// Commands Swarmed shows a part of, whose screen in Claude Code's terminal does the rest:
 /// `/usage-credits` buys credits and sets their cap, which Swarmed leaves to Claude Code.
 const SHOWN_IN_PART: &[&str] = &["usage-credits"];

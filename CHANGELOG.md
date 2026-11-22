@@ -77,6 +77,10 @@ notice adds its line under Unreleased.
   `/code-review 123` used to title the session `<invoke_skill_or_bash_placeholder>`, and a new
   task started with it got that as its name, folder and branch. It is now named after what the
   skill is for, "Review PR 123", and an answer that is no title falls back to the prompt.
+- **Tasks started at the same moment no longer clash by name.** Starting several tasks at once
+  with the same prompt, such as five `/code-review 123`, named them all alike, and all but one
+  failed because git refused the second branch of that name. Each now gets a name of its own:
+  `code-review-pr-123`, `code-review-pr-123-2` and so on.
 
 - **A session waiting on background sub-agents is neither "finished" nor "working".** When an
   agent ended its turn to wait for sub-agents it left working in the background, the session
