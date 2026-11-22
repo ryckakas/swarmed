@@ -26,6 +26,11 @@ notice adds its line under Unreleased.
   ones after it update from here.
 - **`swarmed-core`: `Settings` has `updates`,** an `UpdateMode`: `automatic` or `when_asked`.
 
+### Changed
+
+- **In the swarm's styles the version is an evolution:** `e0.2.1` in the corner, "Evolution
+  0.2.1" in About.
+
 ### Fixed
 
 - **An OpenCode session left on "Default model" runs on the first model listed for OpenCode

@@ -40,10 +40,10 @@ export function Sidebar() {
                         className="sidebar-version"
                         data-new={fresh === null ? undefined : ""}
                         title={fresh === null ? words.about : updateLine(update, words)}
-                        aria-label={`${words.about}, version ${version}${fresh === null ? "" : `, ${updateLine(update, words)}`}`}
+                        aria-label={`${words.about}, ${words.versionName(version)}${fresh === null ? "" : `, ${updateLine(update, words)}`}`}
                         onClick={() => showBanner("about")}
                     >
-                        v{version}
+                        {words.versionTag(version)}
                     </button>
                 )}
                 {words.overview && <span className="sidebar-name">{words.overview}</span>}

@@ -112,6 +112,9 @@ export interface Words {
     moreActions: string;
     /** What the version in the corner opens, and what the About view is called. */
     about: string;
+    /** The installed version: short, as the corner shows it, and as the About view names it. */
+    versionTag: (version: string) => string;
+    versionName: (version: string) => string;
     /** What Swarmed is, in a sentence, in the About view. */
     aboutLine: string;
     /** Updating Swarmed, in the About view and its settings. */
@@ -202,6 +205,8 @@ const PLAIN: Words = {
     actions: "Actions",
     moreActions: "More actions…",
     about: "About Swarmed",
+    versionTag: (version) => `v${version}`,
+    versionName: (version) => `Version ${version}`,
     aboutLine: "Coding agents side by side, each on a branch and in a worktree of its own.",
     update: {
         checking: "Checking for updates…",
@@ -277,6 +282,8 @@ const SWARM: Words = {
     actions: "Instincts",
     moreActions: "More instincts…",
     about: "About the hive",
+    versionTag: (version) => `e${version}`,
+    versionName: (version) => `Evolution ${version}`,
     aboutLine:
         "A swarm of coding agents at work side by side, each on a branch and in a worktree of its own.",
     update: {

@@ -26,6 +26,13 @@ describe("wordsFor", () => {
         expect(words.status.working).toEqual(["Mutating", "Incubating"]);
     });
 
+    it("names the installed version as an evolution in the swarm's styles", () => {
+        expect(wordsFor("plain").versionTag("0.2.1")).toBe("v0.2.1");
+        expect(wordsFor("plain").versionName("0.2.1")).toBe("Version 0.2.1");
+        expect(wordsFor("swarm").versionTag("0.2.1")).toBe("e0.2.1");
+        expect(wordsFor("colony").versionName("0.2.1")).toBe("Evolution 0.2.1");
+    });
+
     it("counts in the swarm's terms", () => {
         expect(wordsFor("plain").needYou(1)).toBe("1 session needs you");
         expect(wordsFor("plain").needYou(3)).toBe("3 sessions need you");
