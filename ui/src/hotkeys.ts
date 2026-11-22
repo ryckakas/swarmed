@@ -97,7 +97,8 @@ export const HOTKEYS: Hotkey[] = [
     { id: "deny", keys: "cmd+backspace", label: "Deny the pending request", group: "In a session" },
     {
         id: "send-now",
-        keys: "cmd+shift+enter",
+        // A key combination, which gitleaks' rule for keys takes for a secret.
+        keys: "cmd+shift+enter", // gitleaks:allow
         label: "Stop the agent and send what is typed now",
         group: "In a session",
     },
