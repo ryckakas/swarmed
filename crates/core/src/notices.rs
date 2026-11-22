@@ -1,5 +1,5 @@
 //! What is worth telling the user about while they look elsewhere: a session that needs a
-//! decision, has finished, or has failed.
+//! decision, has finished, has failed, or moved its task's worktree to another branch.
 
 use serde::Serialize;
 
@@ -46,6 +46,16 @@ fn wording(event: &SessionEvent, spawned: bool) -> Option<(&'static str, String)
         AgentEvent::Exited { .. } if event.status == Some(SessionStatus::Errored) => {
             Some(("Stopped with an error", String::new()))
         }
+        // Seen in the middle of a turn: the agent, or something it ran, moved the worktree,
+        // and what the task shows and publishes follows it.
+        AgentEvent::WorktreeMoved {
+            to,
+            between_turns: false,
+            ..
+        } => {
+            let on = to.as_deref().unwrap_or("no branch");
+            Some(("Moved its worktree", format!("Now on {on}")))
+        }
         _ => None,
     }
 }
@@ -71,6 +81,7 @@ impl Core {
             AgentEvent::PermissionRequest { .. }
                 | AgentEvent::TurnDone { .. }
                 | AgentEvent::Exited { .. }
+                | AgentEvent::WorktreeMoved { .. }
         );
         if !candidate || !self.settings()?.notifications {
             return Ok(None);

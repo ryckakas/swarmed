@@ -2757,7 +2757,8 @@ code {
     font-size: var(--text-xs);
 }
 
-.terminal-only {
+.terminal-only,
+.worktree-moved {
     display: flex;
     flex-wrap: wrap;
     align-items: center;

@@ -622,6 +622,19 @@ pub enum AgentEvent {
         /// The command as it was typed, without its slash.
         command: String,
     },
+    /// The task's worktree was found on another branch than before. Recorded by the core:
+    /// when a tool answered or the turn ended, in the session whose agent was at work; or when
+    /// the user's next message went to an agent that had not seen the move, which it was then
+    /// told along with the message.
+    WorktreeMoved {
+        /// The branch it was on, or `None` for no branch.
+        from: Option<String>,
+        /// The branch it is on now, or `None` for no branch.
+        to: Option<String>,
+        /// Whether it moved between the agent's turns and was told with the next message,
+        /// rather than seen in the middle of a turn.
+        between_turns: bool,
+    },
     /// Something this version does not understand; kept so nothing is lost silently.
     Other {
         /// The message as received.

@@ -20,6 +20,7 @@ use crate::agents::CLAUDE;
 use crate::commands::SlashCommand;
 use crate::error::{Error, Result};
 use crate::fork;
+use crate::git::Head;
 use crate::marks::{Mark, MarkColour};
 use crate::mcp::{McpServer, McpTransport};
 use crate::paths::Paths;
@@ -32,7 +33,7 @@ use crate::toolserver::{
     SERVER_NAME, SESSION_ENV, SHOW_HTML_FOR_CLAUDE, SOCKET_ENV, TOOL_SERVER_ARG, VIEW_SPOOL_ENV,
     take_views,
 };
-use crate::{Core, lock, peers, publish, views};
+use crate::{Core, git, lock, peers, publish, views};
 
 /// How long a session title derived from the first message may be.
 /// What stands above the user's rules where an agent reads them.
@@ -130,6 +131,7 @@ impl SessionStatus {
             | AgentEvent::CommandAsked { .. }
             | AgentEvent::CommandAnswered { .. }
             | AgentEvent::TerminalOnly { .. }
+            | AgentEvent::WorktreeMoved { .. }
             | AgentEvent::Other { .. } => None,
         }
     }
@@ -1256,6 +1258,7 @@ pub(crate) fn send_text(
     };
     live.note(store, id, event)?;
     let shared = terminals.take_unshared(id);
+    let moved = moved_since(store, live, id);
     let text = called.as_deref().unwrap_or(text);
     let text = &earlier.map_or_else(
         || text.to_string(),
@@ -1276,9 +1279,55 @@ pub(crate) fn send_text(
              turn, with its output:\n{shared}\n</terminal>"
         )
     };
+    let message = match moved {
+        Some((Head(from), Head(to))) => {
+            let note = moved_note(from.as_deref(), to.as_deref());
+            let between_turns = true;
+            live.note(
+                store,
+                id,
+                AgentEvent::WorktreeMoved {
+                    from,
+                    to,
+                    between_turns,
+                },
+            )?;
+            format!("{message}\n\n{note}")
+        }
+        None => message,
+    };
     commands
         .send(AgentCommand::UserMessage(message))
         .map_err(|_| Error::SessionNotRunning(id))
+}
+
+/// The move of the task's worktree to another branch since the agent of session `id` last knew
+/// where it was, if there was one: by the user, from Swarmed or by hand, or by another session.
+/// The agent knows where it is from now on, and so does the watch for moves.
+fn moved_since(store: &Mutex<Store>, live: &Live, id: i64) -> Option<(Head, Head)> {
+    let worktree = {
+        let store = lock(store);
+        let session = store.session_by_id(id).ok()?;
+        store.task_by_id(session.task_id).ok()??.worktree_path
+    };
+    let now = git::head_now(&worktree)?;
+    live.branch_seen(&worktree, &now);
+    let before = live.branch_known(id, &now)?;
+    Some((before, now))
+}
+
+/// What an agent is told along with the user's message when its worktree moved since its last
+/// turn, so that it does not carry on as if it were where it left off.
+fn moved_note(from: Option<&str>, to: Option<&str>) -> String {
+    let on =
+        |branch: Option<&str>| branch.map_or_else(|| "no branch".to_string(), |b| format!("`{b}`"));
+    format!(
+        "<worktree>\nThis task's worktree was moved since your last turn, by the user or by \
+         something other than you: it was on {}, and is on {} now, with that branch's files. \
+         Carry on there unless the user says otherwise.\n</worktree>",
+        on(from),
+        on(to)
+    )
 }
 
 /// What the agent of session `id` is sent in place of `text`, if `text` calls a skill by name.
@@ -1422,6 +1471,11 @@ pub(crate) struct Live {
     pub(crate) stacks: Mutex<HashMap<i64, std::process::Child>>,
     /// When the turn each session is in began: when the message that started it was sent.
     turns: Mutex<HashMap<i64, Instant>>,
+    /// The branch each task's worktree was last seen on (`None`: no branch), by its folder:
+    /// a move is what differs from it.
+    branches_seen: Mutex<HashMap<PathBuf, Head>>,
+    /// The branch each session's agent last knew its worktree to be on.
+    branches_known: Mutex<HashMap<i64, Head>>,
     runs: AtomicU64,
     bus: broadcast::Sender<SessionEvent>,
 }
@@ -1437,6 +1491,8 @@ impl Default for Live {
             pids: Mutex::default(),
             stacks: Mutex::default(),
             turns: Mutex::default(),
+            branches_seen: Mutex::default(),
+            branches_known: Mutex::default(),
             runs: AtomicU64::new(0),
             bus: broadcast::Sender::new(EVENT_BUFFER),
         }
@@ -1444,6 +1500,20 @@ impl Default for Live {
 }
 
 impl Live {
+    /// Notes that `worktree` is at `now`, and says where it was before if that was elsewhere.
+    /// Nothing the first time: there is nothing to have moved from.
+    pub(crate) fn branch_seen(&self, worktree: &Path, now: &Head) -> Option<Head> {
+        let before = lock(&self.branches_seen).insert(worktree.to_path_buf(), now.clone())?;
+        (before != *now).then_some(before)
+    }
+
+    /// Notes that the agent of session `id` knows its worktree to be at `now`, and says what it
+    /// knew before if that was elsewhere. Nothing the first time.
+    fn branch_known(&self, id: i64, now: &Head) -> Option<Head> {
+        let before = lock(&self.branches_known).insert(id, now.clone())?;
+        (before != *now).then_some(before)
+    }
+
     fn commands(&self) -> MutexGuard<'_, Commands> {
         self.commands.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -1627,6 +1697,39 @@ impl Live {
 fn show_views(store: &Mutex<Store>, live: &Live, id: i64, spool: &Path) {
     for html in take_views(spool) {
         live.note(store, id, AgentEvent::View { html }).ok();
+    }
+}
+
+/// Records a move of the task's worktree to another branch, seen when a tool answered or the
+/// turn ended: once per move, in the session whose agent was at work, which knows of it from
+/// then on. The branch is remembered for the task even if nobody looks at its panel meanwhile.
+fn notice_moved(shared: &Shared, id: i64) {
+    let worktree = &shared.spec.cwd;
+    let Some(now) = git::head_now(worktree) else {
+        return;
+    };
+    let Some(before) = shared.live.branch_seen(worktree, &now) else {
+        return;
+    };
+    shared.live.branch_known(id, &now);
+    if let Some(branch) = &now.0 {
+        remember_branch(&shared.store, id, branch);
+    }
+    let event = AgentEvent::WorktreeMoved {
+        from: before.0,
+        to: now.0,
+        between_turns: false,
+    };
+    shared.live.note(&shared.store, id, event).ok();
+}
+
+/// Remembers `branch` among the branches of session `id`'s task, unless it is the task's own.
+fn remember_branch(store: &Mutex<Store>, id: i64, branch: &str) {
+    let store = lock(store);
+    let task = store.session_by_id(id).ok().map(|session| session.task_id);
+    let task = task.and_then(|task| store.task_by_id(task).ok().flatten());
+    if let Some(task) = task.filter(|task| task.branch != branch) {
+        store.task_branch_seen(task.id, branch).ok();
     }
 }
 
@@ -1814,6 +1917,7 @@ fn on_event(shared: &Shared, id: i64, event: AgentEvent) {
     live.note(store, id, event).ok();
     if settled {
         show_views(store, live, id, &shared.spool);
+        notice_moved(shared, id);
     }
     if turn_over {
         end_turn(shared, id, finished);

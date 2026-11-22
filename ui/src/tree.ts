@@ -150,7 +150,9 @@ export function taskIdOf(projects: Project[], sessionId: number): number | undef
 /** Events after which a task's files may differ: a tool finished, or the turn did. */
 export function mayHaveEdited(event: SessionEvent["event"]): boolean {
     const done = event.type === "sub" ? event.event : event;
-    return done.type === "tool_result" || done.type === "turn_done";
+    return (
+        done.type === "tool_result" || done.type === "turn_done" || done.type === "worktree_moved"
+    );
 }
 
 /** The task a session belongs to, with its project. */

@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::{core_with_project, fixture, next, turn};
+use common::{core_with_project, fixture, git, next, turn};
 use std::sync::Arc;
 
 use swarmed_core::agent::{
@@ -1866,4 +1866,74 @@ async fn a_session_started_from_two_places_at_once_gets_one_agent() {
         )),
         "{events:?}"
     );
+}
+
+/// A tool that moves the task's worktree to another branch is noticed when it answers: once,
+/// in the session at work, worth a notice, and the branch is remembered for the task. A move
+/// the agent did not see, made between its turns, is told to it with the next message.
+#[tokio::test]
+async fn a_worktree_moved_by_a_tool_is_noticed_and_one_moved_between_turns_is_told() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let (_, task) = core.task("demo", "one").expect("test setup");
+    let own = task.branch.clone();
+    let session = started_session(&core);
+    core.session_send(session.id, "hello").expect("sends");
+    turn(&mut bus, session.id).await;
+
+    // The tool runs while its permission is asked: the worktree moves meanwhile.
+    core.session_send(session.id, "run: git switch -c second")
+        .expect("sends");
+    let (request_id, _) = permission_request(&mut bus).await;
+    git(&task.worktree_path, &["switch", "--quiet", "-c", "second"]);
+    core.session_allow(session.id, &request_id).expect("sends");
+    let events = turn(&mut bus, session.id).await;
+    let moved = AgentEvent::WorktreeMoved {
+        from: Some(own.clone()),
+        to: Some("second".to_string()),
+        between_turns: false,
+    };
+    assert_eq!(
+        events.iter().filter(|event| **event == moved).count(),
+        1,
+        "{events:?}"
+    );
+    let event = SessionEvent {
+        session_id: session.id,
+        status: None,
+        event: moved,
+    };
+    let notice = core.notice_for(&event).expect("reads").expect("a notice");
+    assert!(notice.title.starts_with("Moved its worktree"), "{notice:?}");
+    assert!(notice.body.contains("Now on second"), "{notice:?}");
+    let unpublished = core.task_unpublished("demo", "one").await.expect("reads");
+    assert_eq!(unpublished.branches, [own.clone(), "second".to_string()]);
+
+    // Put back from Swarmed between turns: nothing is reported for that, and the agent is
+    // told with the next message, once.
+    core.task_switch("demo", "one", &own)
+        .await
+        .expect("switches");
+    core.session_send(session.id, "next").expect("sends");
+    let events = turn(&mut bus, session.id).await;
+    let told = AgentEvent::WorktreeMoved {
+        from: Some("second".to_string()),
+        to: Some(own.clone()),
+        between_turns: true,
+    };
+    assert_eq!(
+        events.iter().filter(|event| **event == told).count(),
+        1,
+        "{events:?}"
+    );
+    let heard = format!("it was on `second`, and is on `{own}` now");
+    let echoed = |event: &AgentEvent| matches!(event, AgentEvent::Text { text } if text.starts_with("echo: next") && text.contains(&heard));
+    assert!(events.iter().any(echoed), "{events:?}");
+    core.session_send(session.id, "again").expect("sends");
+    let events = turn(&mut bus, session.id).await;
+    let quiet = !events
+        .iter()
+        .any(|event| matches!(event, AgentEvent::WorktreeMoved { .. }));
+    assert!(quiet, "{events:?}");
 }

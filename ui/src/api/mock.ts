@@ -1391,7 +1391,14 @@ class MockAgent {
             );
         } else if (this.configure(id, {}).supervision === "plan") {
             this.presentPlan(id, text, done);
-        } else if (text === "delegate") {
+        } else if (!this.scripted(id, text, done)) {
+            this.reply(id, text, done, first);
+        }
+    }
+
+    /** Does what a scripted message asks for; `false` if `text` is not one of them. */
+    private scripted(id: number, text: string, done: AgentEvent): boolean {
+        if (text === "delegate") {
             this.delegate(id, done);
         } else if (text.startsWith("ask")) {
             this.askQuestions(id, text === "ask one", done);
@@ -1399,29 +1406,37 @@ class MockAgent {
             this.askPermission(id, text.slice(4).trim(), done);
         } else if (text.startsWith("show")) {
             this.showView(id, done);
+        } else if (text.startsWith("switch ")) {
+            this.switchWorktree(id, text.slice(7).trim(), done);
         } else {
-            // Written word by word, the way a real reply arrives.
-            const reply = `You said: ${text}`;
-            const words = reply.split(/(?<= )/);
-            words.forEach((word, index) => {
-                this.stream(id, { type: "text_delta", text: word }, (index + 1) / words.length);
-            });
-            // A better title arrives while the first reply is still being written, as the
-            // core's does: the reply so far must stay on screen through it.
-            if (first) {
-                this.later(id, { type: "renamed", title: suggestedTitle(text) }, null, 0.5);
-            }
-            this.later(id, { type: "text", text: reply }, "working");
-            this.later(id, done, "idle", 2);
-            this.later(id, SAMPLE_CONTEXT, null, 3);
-            this.later(id, sampleLimits(), null, 3);
-            this.later(id, SAMPLE_EXTRA_USAGE, null, 3);
-            const { model, effort } = this.configure(id, {});
-            const applied = { model: model ?? "claude-opus-5-5", effort: effort ?? "xhigh" };
-            this.later(id, { type: "applied", ...applied }, null, 3);
-            if (text.startsWith("suggest:")) {
-                this.later(id, { type: "suggestion", text: text.slice(8).trim() }, null, 4);
-            }
+            return false;
+        }
+        return true;
+    }
+
+    /** Answers in plain words, as an agent's ordinary reply. */
+    private reply(id: number, text: string, done: AgentEvent, first: boolean) {
+        // Written word by word, the way a real reply arrives.
+        const reply = `You said: ${text}`;
+        const words = reply.split(/(?<= )/);
+        words.forEach((word, index) => {
+            this.stream(id, { type: "text_delta", text: word }, (index + 1) / words.length);
+        });
+        // A better title arrives while the first reply is still being written, as the
+        // core's does: the reply so far must stay on screen through it.
+        if (first) {
+            this.later(id, { type: "renamed", title: suggestedTitle(text) }, null, 0.5);
+        }
+        this.later(id, { type: "text", text: reply }, "working");
+        this.later(id, done, "idle", 2);
+        this.later(id, SAMPLE_CONTEXT, null, 3);
+        this.later(id, sampleLimits(), null, 3);
+        this.later(id, SAMPLE_EXTRA_USAGE, null, 3);
+        const { model, effort } = this.configure(id, {});
+        const applied = { model: model ?? "claude-opus-5-5", effort: effort ?? "xhigh" };
+        this.later(id, { type: "applied", ...applied }, null, 3);
+        if (text.startsWith("suggest:")) {
+            this.later(id, { type: "suggestion", text: text.slice(8).trim() }, null, 4);
         }
     }
 
@@ -1552,6 +1567,40 @@ class MockAgent {
             this.later(id, { type: "text", text: reply }, "working", 2);
             this.later(id, done, "idle", 3);
         });
+    }
+
+    /** Moves the session's worktree to a new branch with a tool, as an agent may. */
+    private switchWorktree(id: number, branch: string, done: AgentEvent) {
+        const task = this.projects
+            .flatMap((project) => project.tasks)
+            .find((candidate) => candidate.sessions.some((session) => session.id === id));
+        if (task === undefined || branch === "") {
+            this.later(id, done, "idle");
+            return;
+        }
+        const from = switchedTo.get(task.name) ?? task.branch;
+        const toolId = `switch-${this.nextId++}`;
+        const input = { command: `git switch -c ${branch}` };
+        this.later(id, { type: "tool_use", id: toolId, name: "Bash", input }, "working");
+        const said = `Switched to a new branch '${branch}'`;
+        const result: AgentEvent = {
+            type: "tool_result",
+            tool_use_id: toolId,
+            content: said,
+            is_error: false,
+        };
+        this.later(id, result, "working");
+        switchedTo.set(task.name, branch);
+        alsoOn.set(task.name, [...new Set([...(alsoOn.get(task.name) ?? []), branch])]);
+        const moved: AgentEvent = {
+            type: "worktree_moved",
+            from,
+            to: branch,
+            between_turns: false,
+        };
+        this.later(id, moved, "working");
+        this.later(id, { type: "text", text: `On ${branch} now.` }, "working");
+        this.later(id, done, "idle", 2);
     }
 
     private askPermission(id: number, command: string, done: AgentEvent) {

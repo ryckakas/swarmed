@@ -26,6 +26,10 @@ notice adds its line under Unreleased.
   committed comes along unless it conflicts. A rebase under way is named, and nothing is
   pushed or switched until it is over. `swarmed task switch` does the same from the command
   line.
+- **A task's worktree moving is noticed while the agent works.** When an agent, or something
+  it ran, switches the task's worktree to another branch, the conversation says so right
+  away, with a button to switch back, and you get a notification. A move the agent did not
+  see, such as your own switch from the task panel, is told to it with your next message.
 - **Agents keep to their task's branch and worktree.** Every agent is now told that it
   already works in a worktree of its own, not to switch it to another branch or make another
   branch, worktree or clone, even when a skill says to, and to ask you for a new task when

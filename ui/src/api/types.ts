@@ -688,6 +688,12 @@ export type AgentEvent =
      */
     | { type: "terminal_only"; command: string }
     /**
+     * The task's worktree was found on another branch than before (`null`: no branch): seen in
+     * the middle of a turn, or, when it moved between turns, told to the agent with the user's
+     * message.
+     */
+    | { type: "worktree_moved"; from: string | null; to: string | null; between_turns: boolean }
+    /**
      * Something a sub-agent said or did. `parent` is the tool call that started it, which
      * tells one sub-agent from another.
      */

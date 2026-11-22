@@ -514,7 +514,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   that lock is held while a turn's end is dealt with (`end_turn`) and while a message is sent
   at once, so a stop that crosses the turn's own end sends one message, not two.
 - **What is worth interrupting the user for is decided in the core** (`notices.rs`): a session
-  that asks for a decision, finishes a turn, or fails. A front end shows it only while the user
+  that asks for a decision, finishes a turn, fails, or moves its task's worktree to another
+  branch. A front end shows it only while the user
   looks elsewhere; the app does so as a macOS notification (`crates/app/src/notify.rs`) and
   counts what waits on its icon. A notice names the tool and the agent's own summary, never the
   tool's arguments, which may hold anything.
@@ -583,6 +584,18 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   another branch without checking it out, and to ask the user for a new task for work that
   needs another branch. An agent has no tool to start a task; asking is the way. For parts
   that can run beside it, it is pointed at `spawn_session`, which shares the worktree.
+- **A move of a task's worktree is watched for** (`notice_moved`, `moved_since` in
+  `sessions.rs`). After every tool result and turn end the core asks git which branch the
+  worktree is on (`git::head_now`, without waiting on a runtime: it is a few milliseconds and
+  must come before the next event) and compares it with where that worktree was last seen.
+  A move is recorded once, as `AgentEvent::WorktreeMoved`, in the session whose agent was at
+  work; it is worth a notice, and the transcript offers to switch back. Its branch is
+  remembered for the task there and then, not only when the panel reads. A move the agent did
+  not see (the user's switch from Swarmed or by hand, another session's) is told to it with
+  the user's next message and recorded with `between_turns`; `task_switch` notes its own
+  switch so that it is not reported as a move. Both maps live in memory (`Live`): after a
+  restart the first look sets where things stand, and only the task's own worktree is read,
+  so a checkout in another folder is never a move.
 - **A pull request's title and description can be written for the user too**
   (`task_pull_message`), by the same writer as a commit message and under the same rules:
   shown the branch's commits and its diff against the base (three dots, so only what the
