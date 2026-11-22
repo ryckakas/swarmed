@@ -49,6 +49,11 @@ notice adds its line under Unreleased.
 
 ### Fixed
 
+- **A waiting message is no longer sent while you edit it.** If the agent's turn ended while a
+  waiting message was open for editing, its old text was sent and what you were typing was
+  lost. It now waits until you finish: saved, it goes with the new text; given up with
+  Escape, as it was. The queue's heading says so meanwhile, and an edit left open in a window
+  that went away holds nothing up for more than a few seconds.
 - **A check a newer run replaced no longer shows as failed.** When a workflow run was cancelled
   because a newer run of the same workflow took its place, or a failed job was run again, the
   task's pull request listed the check twice, the old run as failed. Only each check's latest

@@ -795,6 +795,18 @@ pub(crate) fn session_queue_edit(
     Ok(core.session_queue_edit(id, message, &text)?)
 }
 
+/// Holds a waiting message while the user edits it, or renews the hold.
+#[tauri::command]
+pub(crate) fn session_queue_hold(core: CoreState<'_>, id: i64, message: u64) -> Command<bool> {
+    Ok(core.session_queue_hold(id, message)?)
+}
+
+/// Lets go of a waiting message the user left as it was.
+#[tauri::command]
+pub(crate) fn session_queue_let_go(core: CoreState<'_>, id: i64, message: u64) -> Command<()> {
+    Ok(core.session_queue_let_go(id, message)?)
+}
+
 /// Async for the same reason as `session_send`, which it is a form of.
 #[tauri::command]
 pub(crate) async fn session_send_queued(core: CoreState<'_>, id: i64) -> Command<()> {

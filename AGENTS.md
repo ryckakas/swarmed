@@ -507,6 +507,14 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   just been typed; a turn that failed, or an agent that was stopped, leaves the queue standing.
   The queue lives in memory, and its changes are published as `Queue` events that are never
   stored, like the pieces of a reply.
+- **A waiting message open for editing is held** (`session_queue_hold`), and the edit box
+  renews the hold every few seconds. While the first message is held, nothing sends from the
+  queue by itself, whatever the path (a turn's end, Stop, Send now, Send the next one): the
+  send is owed (`Queues::owe`) and goes when the hold is let go, by saving
+  (`session_queue_edit`, with the new text) or giving the edit up (`session_queue_let_go`,
+  as it was). A hold nobody renews lapses after `HOLD_FOR`, and a task started when the send
+  was put off (`wait_for_edit`) sends it then, so a window that went away mid-edit cannot
+  leave the queue stuck. A held message further back holds nothing up.
 - **A waiting message can be sent at once** (`session_send_now`): it is put first and the turn
   under way is stopped as Stop stops it, so it goes when that turn has ended. Never straight
   into a busy agent, which would take an open request away and is not something every agent

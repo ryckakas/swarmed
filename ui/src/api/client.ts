@@ -283,6 +283,13 @@ export interface Api {
     sessionEnqueue(id: number, text: string, files?: string[]): Promise<QueuedMessage[]>;
     /** Rewrites a waiting message; empty text takes it out of the queue. */
     sessionQueueEdit(id: number, message: number, text: string): Promise<QueuedMessage[]>;
+    /**
+     * Holds a waiting message while it is edited, or renews the hold: while the first one is
+     * held the queue sends nothing by itself. `false` once the message no longer waits.
+     */
+    sessionQueueHold(id: number, message: number): Promise<boolean>;
+    /** Lets go of a waiting message left as it was; a send held back for it goes now. */
+    sessionQueueLetGo(id: number, message: number): Promise<void>;
     /** Sends the first waiting message now, for a queue a stopped turn left standing. */
     sessionSendQueued(id: number): Promise<void>;
     /**

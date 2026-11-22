@@ -679,6 +679,10 @@ fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
     );
     assert_eq!(edited[0]["text"], "next");
     assert_eq!(app.ok("session_queue", json!({ "id": id })), edited);
+    // Opened for editing and left as it was: nothing was held back, so nothing goes.
+    let held = json!({ "id": id, "message": queue[0]["id"] });
+    assert_eq!(app.ok("session_queue_hold", held.clone()), json!(true));
+    assert_eq!(app.ok("session_queue_let_go", held), json!(null));
 
     app.ok(
         "session_allow",

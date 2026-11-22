@@ -1961,3 +1961,133 @@ async fn an_agent_knows_the_task_it_works_in() {
         assert!(said.contains(&text(value)), "{name}: {said:?}");
     }
 }
+
+/// Whether nothing is sent to the session's agent for a moment: no message of the user's
+/// arrives on the bus.
+async fn nothing_sent(bus: &mut Receiver<SessionEvent>, session: i64) -> bool {
+    let sent_here = |event: &SessionEvent| {
+        event.session_id == session && matches!(event.event, AgentEvent::UserMessage { .. })
+    };
+    let sent = async {
+        // A stream that lagged or closed counts as sent: the test then fails rather than pass.
+        while bus
+            .recv()
+            .await
+            .as_ref()
+            .is_ok_and(|event| !sent_here(event))
+        {}
+    };
+    let moment = std::time::Duration::from_millis(300);
+    tokio::time::timeout(moment, sent).await.is_err()
+}
+
+#[tokio::test]
+async fn a_waiting_message_open_for_editing_is_sent_once_the_edit_is_over() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    // The turn ends well while the first message is open: it is not sent.
+    core.session_send(session.id, "run: ls").expect("sends");
+    let (request_id, _) = permission_request(&mut bus).await;
+    let queue = core.session_enqueue(session.id, "first").expect("queues");
+    assert!(
+        core.session_queue_hold(session.id, queue[0].id)
+            .expect("holds")
+    );
+    core.session_allow(session.id, &request_id).expect("sends");
+    turn(&mut bus, session.id).await;
+    assert!(nothing_sent(&mut bus, session.id).await);
+    assert_eq!(core.session_queue(session.id).expect("reads"), queue);
+
+    // Saved, it goes at once, with its new text.
+    core.session_queue_edit(session.id, queue[0].id, "edited")
+        .expect("edits");
+    let sent = turn(&mut bus, session.id).await;
+    assert!(sent.contains(&text("echo: edited")), "{sent:?}");
+    assert_eq!(core.session_queue(session.id).expect("reads"), vec![]);
+
+    // Given up, it goes as it was. A message no longer waiting cannot be held.
+    core.session_send(session.id, "run: ls").expect("sends");
+    let (request_id, _) = permission_request(&mut bus).await;
+    let queue = core
+        .session_enqueue(session.id, "as it was")
+        .expect("queues");
+    assert!(
+        core.session_queue_hold(session.id, queue[0].id)
+            .expect("holds")
+    );
+    core.session_allow(session.id, &request_id).expect("sends");
+    turn(&mut bus, session.id).await;
+    assert!(nothing_sent(&mut bus, session.id).await);
+    core.session_queue_let_go(session.id, queue[0].id)
+        .expect("lets go");
+    let sent = turn(&mut bus, session.id).await;
+    assert!(sent.contains(&text("echo: as it was")), "{sent:?}");
+    assert!(
+        !core
+            .session_queue_hold(session.id, queue[0].id)
+            .expect("asks")
+    );
+}
+
+#[tokio::test]
+async fn a_held_message_further_back_does_not_stop_those_ahead_of_it() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    core.session_send(session.id, "run: ls").expect("sends");
+    let (request_id, _) = permission_request(&mut bus).await;
+    core.session_enqueue(session.id, "first").expect("queues");
+    let queue = core.session_enqueue(session.id, "second").expect("queues");
+    core.session_queue_hold(session.id, queue[1].id)
+        .expect("holds");
+    core.session_allow(session.id, &request_id).expect("sends");
+    turn(&mut bus, session.id).await;
+    let first = turn(&mut bus, session.id).await;
+    assert!(first.contains(&text("echo: first")), "{first:?}");
+    // Now first, and still open: it waits for the edit.
+    assert!(nothing_sent(&mut bus, session.id).await);
+    core.session_queue_edit(session.id, queue[1].id, "second, edited")
+        .expect("edits");
+    let second = turn(&mut bus, session.id).await;
+    assert!(second.contains(&text("echo: second, edited")), "{second:?}");
+}
+
+#[tokio::test]
+async fn a_stopped_turn_and_a_message_sent_now_wait_for_an_edit_too() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    // Stopping the turn would send the first message: it is open, so it waits.
+    core.session_send(session.id, "slow").expect("sends");
+    let queue = core.session_enqueue(session.id, "after").expect("queues");
+    core.session_queue_hold(session.id, queue[0].id)
+        .expect("holds");
+    core.session_interrupt(session.id).expect("interrupts");
+    turn(&mut bus, session.id).await;
+    assert!(nothing_sent(&mut bus, session.id).await);
+    core.session_queue_let_go(session.id, queue[0].id)
+        .expect("lets go");
+    let after = turn(&mut bus, session.id).await;
+    assert!(after.contains(&text("echo: after")), "{after:?}");
+
+    // Sent now while open, the turn is stopped and the message goes once the edit is over.
+    core.session_send(session.id, "slow").expect("sends");
+    let queue = core.session_enqueue(session.id, "now").expect("queues");
+    core.session_queue_hold(session.id, queue[0].id)
+        .expect("holds");
+    core.session_send_now(session.id, queue[0].id, Auth::default())
+        .expect("sends now");
+    turn(&mut bus, session.id).await;
+    assert!(nothing_sent(&mut bus, session.id).await);
+    core.session_queue_edit(session.id, queue[0].id, "now, edited")
+        .expect("edits");
+    let now = turn(&mut bus, session.id).await;
+    assert!(now.contains(&text("echo: now, edited")), "{now:?}");
+}

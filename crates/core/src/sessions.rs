@@ -293,7 +293,7 @@ impl Store {
         })
     }
 
-    fn session_by_id(&self, id: i64) -> Result<Session> {
+    pub(crate) fn session_by_id(&self, id: i64) -> Result<Session> {
         let sql = format!("{SESSION_SELECT} WHERE id = ?1");
         let session = self
             .conn
@@ -1749,6 +1749,18 @@ struct Shared {
     spec: SessionSpec,
 }
 
+impl Shared {
+    /// What sending from the session's queue needs.
+    fn outbox(&self) -> queue::Outbox {
+        queue::Outbox {
+            store: Arc::clone(&self.store),
+            live: Arc::clone(&self.live),
+            terminals: Arc::clone(&self.terminals),
+            paths: self.paths.clone(),
+        }
+    }
+}
+
 /// Whether an agent is started only for a session that has none running, or in place of the
 /// one it has.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1946,7 +1958,7 @@ fn end_turn(shared: &Shared, id: i64, finished: bool) {
         restart(shared, id, sends);
     }
     if sends {
-        queue::send_next(store, live, (&shared.terminals, &shared.paths), id).ok();
+        queue::send_next(&shared.outbox(), id).ok();
     }
 }
 

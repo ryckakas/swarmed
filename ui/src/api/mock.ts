@@ -1202,6 +1202,10 @@ class MockAgent {
         (allowed: boolean, answers?: Record<string, string>) => void
     >();
     private readonly interrupts = new Map<number, () => void>();
+    /** The waiting message each session has open for editing. */
+    private readonly holds = new Map<number, number>();
+    /** Sessions whose first message would have gone but was open for editing. */
+    private readonly owed = new Set<number>();
     private nextId = 100;
 
     history(id: number): AgentEvent[] {
@@ -1282,14 +1286,39 @@ class MockAgent {
         const edited = this.queue(id).map((queued) =>
             queued.id === message ? { ...queued, text } : queued,
         );
-        return this.setQueue(
+        this.setQueue(
             id,
             edited.filter((queued) => queued.text.trim() !== ""),
         );
+        this.letGoQueued(id, message);
+        return this.queue(id);
+    }
+
+    /** Holds a waiting message while it is edited, as the core does; `false` once it has gone. */
+    holdQueued(id: number, message: number): boolean {
+        if (!this.queue(id).some((queued) => queued.id === message)) {
+            return false;
+        }
+        this.holds.set(id, message);
+        return true;
+    }
+
+    /** Lets go of a held message, and sends what was held back for it. */
+    letGoQueued(id: number, message: number) {
+        if (this.holds.get(id) === message) {
+            this.holds.delete(id);
+        }
+        if (this.owed.delete(id)) {
+            this.sendQueued(id);
+        }
     }
 
     sendQueued(id: number) {
         const [first, ...rest] = this.queue(id);
+        if (first && this.holds.get(id) === first.id) {
+            this.owed.add(id);
+            return;
+        }
         if (first) {
             this.setQueue(id, rest);
             this.send(id, first.text);
@@ -2176,6 +2205,8 @@ export function createMockApi(): Api {
         sessionQueue: async (id) => agent.queue(id),
         sessionEnqueue: async (id, text, files) => agent.enqueue(id, withFiles(text, files ?? [])),
         sessionQueueEdit: async (id, message, text) => agent.editQueued(id, message, text),
+        sessionQueueHold: async (id, message) => agent.holdQueued(id, message),
+        sessionQueueLetGo: async (id, message) => agent.letGoQueued(id, message),
         sessionSendQueued: async (id) => agent.sendQueued(id),
         sessionSendNow: async (id, message) => agent.sendNow(id, message),
         sessionMarkRead: async (id) => {
