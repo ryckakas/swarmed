@@ -284,11 +284,16 @@ enum TaskCommand {
         #[arg(long)]
         session: Option<i64>,
     },
-    /// Push the task's branch to its remote.
+    /// Push the branch the task's worktree is on to its remote.
     Push { project: String, name: String },
-    /// Put the task's worktree back on the task's own branch, after something switched it to
-    /// another. Changes that are not committed come along unless they conflict.
-    SwitchBack { project: String, name: String },
+    /// Put the task's worktree on another of the branches it has been on: the task's own,
+    /// unless one is named. Changes that are not committed come along unless they conflict.
+    Switch {
+        project: String,
+        name: String,
+        /// One of the branches `swarmed task commit` or the app has seen the worktree on.
+        branch: Option<String>,
+    },
     /// Open a pull request for the task's branch. Without a title, the task's commits give
     /// the title and the description.
     Pr {
@@ -592,7 +597,11 @@ async fn cloud(core: &Core, command: CloudCommand) -> Result<()> {
 async fn commit(core: &Core, project: &str, name: &str, message: &str) -> Result<()> {
     core.task_commit(project, name, message).await?;
     let left = core.task_unpublished(project, name).await?;
-    say(&format!("committed; {} commit(s) to push", left.unpushed));
+    let on = left.branch.as_deref().unwrap_or("no branch");
+    say(&format!(
+        "committed on {on}; {} commit(s) to push",
+        left.unpushed
+    ));
     Ok(())
 }
 
@@ -890,30 +899,46 @@ async fn written(core: &Core, command: TaskCommand) -> Result<Option<TaskCommand
             let draft = core.task_pull_message(&project, &name, session).await?;
             say(&format!("{}\n\n{}", draft.title, draft.body));
         }
-        other => return sent_or_switched(core, other).await,
+        other => return Ok(Some(other)),
     }
     Ok(None)
 }
 
-/// Does what a command asks of the task's branch, pushing it or putting the worktree back on
-/// it, and hands any other command back.
+/// Does what a command asks of the branch a task's worktree is on, pushing it or putting the
+/// worktree on another, and hands any other command back.
 async fn sent_or_switched(core: &Core, command: TaskCommand) -> Result<Option<TaskCommand>> {
     match command {
         TaskCommand::Push { project, name } => {
             core.task_push(&project, &name).await?;
             say("pushed");
         }
-        TaskCommand::SwitchBack { project, name } => {
-            core.task_switch_back(&project, &name).await?;
-            say("back on the task's branch");
+        TaskCommand::Switch {
+            project,
+            name,
+            branch,
+        } => {
+            let branch = match branch {
+                Some(branch) => branch,
+                None => core.task(&project, &name)?.1.branch,
+            };
+            core.task_switch(&project, &name, &branch).await?;
+            say(&format!("on `{branch}`"));
         }
         other => return Ok(Some(other)),
     }
     Ok(None)
 }
 
+/// Does a command that `written` or `sent_or_switched` knows, and hands any other back.
+async fn done_first(core: &Core, command: TaskCommand) -> Result<Option<TaskCommand>> {
+    match written(core, command).await? {
+        Some(command) => sent_or_switched(core, command).await,
+        None => Ok(None),
+    }
+}
+
 async fn task(core: &Core, command: TaskCommand) -> Result<()> {
-    let Some(command) = written(core, command).await? else {
+    let Some(command) = done_first(core, command).await? else {
         return Ok(());
     };
     match command {
@@ -980,11 +1005,11 @@ async fn task(core: &Core, command: TaskCommand) -> Result<()> {
             name,
             message,
         } => commit(core, &project, &name, &message).await?,
-        // Done by `written` and `sent_or_switched`, before this.
+        // Done by `done_first`, before this.
         TaskCommand::CommitMessage { .. }
         | TaskCommand::PrMessage { .. }
         | TaskCommand::Push { .. }
-        | TaskCommand::SwitchBack { .. } => {}
+        | TaskCommand::Switch { .. } => {}
         TaskCommand::Pr {
             project,
             name,

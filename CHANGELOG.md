@@ -20,6 +20,18 @@ notice adds its line under Unreleased.
   While the agent works, pressing it stops the turn, as Stop does, and sends that message as
   soon as the turn has ended, ahead of the others. While the agent is not working, it sends
   that message at once. The rest of the queue follows as before, each when a turn ends well.
+- **A task's branches, to choose between.** Once a task's worktree has been on more than one
+  branch, the task panel says which one it is on, that the changes, commits and pull request
+  shown are that branch's, and lets you put the worktree on any of the others; what is not
+  committed comes along unless it conflicts. A rebase under way is named, and nothing is
+  pushed or switched until it is over. `swarmed task switch` does the same from the command
+  line.
+- **Agents keep to their task's branch and worktree.** Every agent is now told that it
+  already works in a worktree of its own, not to switch it to another branch or make another
+  branch, worktree or clone, even when a skill says to, and to ask you for a new task when
+  something needs a branch of its own. Asked to anyway, it says so first.
+- **`swarmed-core`: `Unpublished` has `branch`, `branches` and `rebasing`** and is no longer
+  `Copy`, and `Core::task_switch` puts a task's worktree on another of its branches.
 
 ### Changed
 
@@ -37,12 +49,11 @@ notice adds its line under Unreleased.
   line shrank alike, so beside a long branch the cost and the time worked were cut to `$…` and
   `1…`. The figures (changes, context, cost, time worked) now keep their width, the branch,
   model, agent and worktree share what is left, and hovering a piece shows all of it.
-- **Push no longer pushes the wrong branch after a task's worktree was switched.** When an
-  agent, or you, switched a task's worktree to another branch, the task panel showed the
-  task's pull request beside the other branch's work, and Push pushed the task's branch, so
-  the new commits never left the machine. The panel now says which branch the worktree is on,
-  pushes and opens nothing under the task's name while it is elsewhere, and offers to switch
-  back. `swarmed task switch-back` does the same from the command line.
+- **A task follows its worktree to another branch.** When an agent, or you, switched a
+  task's worktree to another branch, the task panel showed the first branch's pull request
+  beside the other branch's work, and Push pushed the first branch, so the new commits never
+  left the machine. Push, the pull request, its checks and a cloud agent's starting point are
+  now those of the branch the worktree is on.
 
 ## [0.2.2] - 2026-11-22
 

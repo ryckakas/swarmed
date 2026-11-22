@@ -193,6 +193,8 @@ interface State {
     pulls: Record<number, Pull | null>;
     /** Asks again for a task's pull request. Not hearing back changes nothing. */
     loadPull(api: Api, project: string, task: string, taskId: number): Promise<void>;
+    /** A task's worktree was put on another branch: whatever reads its files reads again. */
+    worktreeMoved(taskId: number): void;
     /** The cloud task whose changes are being looked at, by Swarmed's id for it. */
     cloudDiffOf: number | null;
     showCloudDiff(id: number | null): void;
@@ -604,6 +606,8 @@ export const useStore = create<State>((set, get) => ({
             set((state) => ({ pulls: { ...state.pulls, [taskId]: pull } }));
         }
     },
+    worktreeMoved: (taskId) =>
+        set((state) => ({ edits: { ...state.edits, [taskId]: (state.edits[taskId] ?? 0) + 1 } })),
     cloudDiffOf: null,
     showCloudDiff: (id) => set({ cloudDiffOf: id }),
     comparing: null,

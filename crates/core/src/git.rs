@@ -26,6 +26,12 @@ pub(crate) async fn git(dir: &Path, args: &[&str]) -> Result<String> {
     }
 }
 
+/// The branch a worktree is on, or none when it is on no branch (a detached `HEAD`).
+pub(crate) async fn current_branch(worktree: &Path) -> Result<Option<String>> {
+    let branch = git(worktree, &["branch", "--show-current"]).await?;
+    Ok((!branch.is_empty()).then_some(branch))
+}
+
 /// The top-level directory of the repository containing `path`.
 pub(crate) async fn repo_root(path: &Path) -> Result<PathBuf> {
     match git(path, &["rev-parse", "--show-toplevel"]).await {

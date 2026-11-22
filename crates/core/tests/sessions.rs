@@ -689,6 +689,43 @@ async fn claude_code_opened_on_a_screen_runs_apart_from_the_shell_and_is_not_sha
     }
 }
 
+/// What the fake agent says it was told when it started: Swarmed's guidance, whole.
+async fn guidance_of(core: &Core, bus: &mut Receiver<SessionEvent>, session: i64) -> String {
+    core.session_send(session, "instructions").expect("sends");
+    let events = turn(bus, session).await;
+    let said = events.iter().rev().find_map(|event| match event {
+        AgentEvent::Text { text } => Some(text.clone()),
+        _ => None,
+    });
+    said.expect("the agent says what it was told")
+}
+
+#[tokio::test]
+async fn every_agent_is_told_to_keep_to_its_tasks_branch_and_worktree() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let branch = core.task("demo", "one").expect("test setup").1.branch;
+    // With nothing else to tell, views and rules off, this is still told.
+    let quiet = Settings {
+        html_views: false,
+        ..Settings::default()
+    };
+    core.set_settings(&quiet).expect("saves");
+    let session = started_session(&core);
+    let guidance = guidance_of(&core, &mut bus, session.id).await;
+    assert!(
+        guidance.starts_with("# Your task's branch and worktree"),
+        "{guidance}"
+    );
+    assert!(guidance.contains(&format!("the task's own branch, `{branch}`")));
+    assert!(guidance.contains("a new task in Swarmed gets its own branch"));
+    // A skill that says to branch out or make a worktree first is answered in advance.
+    assert!(guidance.contains("even when a skill"), "{guidance}");
+    assert!(guidance.contains("`git worktree add`"), "{guidance}");
+    assert!(guidance.contains("`spawn_session`"), "{guidance}");
+}
+
 #[tokio::test]
 async fn agents_are_told_about_html_views_unless_the_user_turned_them_off() {
     let fx = fixture();
@@ -710,8 +747,11 @@ async fn agents_are_told_about_html_views_unless_the_user_turned_them_off() {
     };
     core.set_settings(&off).expect("saves");
     let quiet = started_session(&core);
-    core.session_send(quiet.id, "instructions").expect("sends");
-    assert!(turn(&mut bus, quiet.id).await.contains(&text("none")));
+    assert!(
+        !guidance_of(&core, &mut bus, quiet.id)
+            .await
+            .contains("`html-view`")
+    );
 
     // The user's own rules are told to every agent, and come first.
     let ruled = Settings {
@@ -721,11 +761,20 @@ async fn agents_are_told_about_html_views_unless_the_user_turned_them_off() {
     };
     core.set_settings(&ruled).expect("saves");
     let obedient = started_session(&core);
-    core.session_send(obedient.id, "instructions")
-        .expect("sends");
-    let told = turn(&mut bus, obedient.id).await;
-    let obeyed = |e: &AgentEvent| matches!(e, AgentEvent::Text { text } if text.starts_with("The user has set these rules.") && text.ends_with(":\nKeep answers short.\nNo em dashes."));
-    assert!(told.iter().any(obeyed), "{told:?}");
+    let guidance = guidance_of(&core, &mut bus, obedient.id).await;
+    let (first, rest) = guidance.split_once("\n\n").expect("more than the rules");
+    assert!(
+        first.starts_with("The user has set these rules."),
+        "{guidance}"
+    );
+    assert!(
+        first.ends_with(":\nKeep answers short.\nNo em dashes."),
+        "{guidance}"
+    );
+    assert!(
+        rest.starts_with("# Your task's branch and worktree"),
+        "{guidance}"
+    );
 
     let id = core.view_put("<p>hi</p>".to_string());
     assert_eq!(core.view(&id).as_deref(), Some("<p>hi</p>"));

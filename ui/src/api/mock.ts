@@ -895,20 +895,25 @@ index 1a2b3c4..5d6e7f8 100644
 +}
 `;
 
-/** The sample tasks whose worktree something switched to another branch. */
-const switchedAway = new Set(["shop-142"]);
+/** The branch each sample task's worktree was switched to, if something switched it. */
+const switchedTo = new Map([["shop-142", "you/shop-150"]]);
+
+/** The other branches a sample task's worktree has been on. */
+const alsoOn = new Map([["shop-142", ["you/shop-150"]]]);
 
 /**
  * One sample task has work to commit, another a branch waiting for a pull request, and a
  * third has its worktree on a branch that is not its own.
  */
-async function sampleUnpublished(_project: string, name: string): Promise<Unpublished> {
-    const away = switchedAway.has(name);
+async function sampleUnpublished(name: string, own: string): Promise<Unpublished> {
+    const branch = switchedTo.get(name) ?? own;
     return {
         changed: name === "fix-login-redirect" ? 4 : 0,
-        unpushed: away ? 2 : 0,
+        unpushed: branch === own ? 0 : 2,
         pushed_before: name === "invoice-export",
-        branch: away ? "you/shop-150" : `you/${name}`,
+        branch,
+        branches: [own, ...(alsoOn.get(name) ?? [])],
+        rebasing: false,
     };
 }
 
@@ -2041,7 +2046,10 @@ export function createMockApi(): Api {
             project.tasks.push(created);
             return created;
         },
-        taskUnpublished: sampleUnpublished,
+        taskUnpublished: (_project, name) => {
+            const own = tasks().find((task) => task.name === name)?.branch;
+            return sampleUnpublished(name, own ?? `you/${name}`);
+        },
         taskCommitMessage: async () => {
             await new Promise((done) => setTimeout(done, 900));
             return "feat: show how long each turn took\n\nThe transcript only said that a turn had ended.";
@@ -2055,8 +2063,8 @@ export function createMockApi(): Api {
         },
         taskCommit: async () => undefined,
         taskPush: async () => undefined,
-        taskSwitchBack: async (_project, name) => {
-            switchedAway.delete(name);
+        taskSwitch: async (_project, name, branch) => {
+            switchedTo.set(name, branch);
         },
         taskPullDraft: async () => SAMPLE_DRAFT,
         taskPullCreate: sampleOpenedPull,

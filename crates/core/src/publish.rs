@@ -32,6 +32,12 @@ pub struct Unpublished {
     /// The branch the worktree is on, which is the task's own unless something switched it;
     /// none when it is on no branch at all. The figures above are that branch's.
     pub branch: Option<String>,
+    /// Every branch the worktree has been seen on that is still there, the task's own first.
+    /// More than one means something switched it, and each has its own work and pull request.
+    pub branches: Vec<String>,
+    /// Whether a rebase is under way, which leaves the worktree on no branch until it is
+    /// finished or aborted.
+    pub rebasing: bool,
 }
 
 /// A title and a description to start a pull request from, made of the task's commits.
@@ -175,30 +181,74 @@ fn draft_of(answer: &str) -> Option<PullDraft> {
     })
 }
 
-/// The branch a worktree is on, or none when it is on no branch (a detached `HEAD`).
-async fn branch_of(worktree: &Path) -> Result<Option<String>> {
-    let branch = git::git(worktree, &["branch", "--show-current"]).await?;
-    Ok((!branch.is_empty()).then_some(branch))
+/// What every agent is told about the task's branch and worktree, as part of Swarmed's
+/// guidance. Swarmed follows a worktree switched to another branch, but the task's sessions,
+/// its name and its pull request are about one piece of work: another belongs in a task of
+/// its own, which the user starts. Skills written for working without Swarmed often say to
+/// branch out or make a worktree first, so this says plainly that it holds against them, and
+/// how to read another branch without leaving this one.
+pub(crate) fn worktree_instructions(branch: &str) -> String {
+    format!(
+        "\
+# Your task's branch and worktree
+
+You are already in an isolated git worktree that Swarmed made for this task, on the task's own \
+branch, `{branch}`. Swarmed shows the user the task's changes, commits, pull request and checks \
+from this worktree, so keep all of the work in it, on that branch. Committing and rebasing on \
+this branch are fine.
+
+Do not switch this worktree to another branch, do not create a branch to work on, and do not \
+make another worktree or clone of the repository: no `git switch`, `git checkout <branch>`, \
+`git switch -c`, `git checkout -b`, `git worktree add` or `git clone`, and no tool or option of \
+your own that moves work into a worktree of its own (in Claude Code: `EnterWorktree`, or \
+`isolation: \"worktree\"` for an agent). This holds even when a skill, a command or other \
+instructions tell you to branch out or to work in a separate worktree or checkout: this \
+worktree is that separate place already, so skip that step and follow the rest from here. \
+For a part of the work that can go on beside you, start a session with Swarmed's \
+`spawn_session` tool, if you have it, instead of a worktree: it works in this same worktree.
+
+To look at another branch or a pull request, read it where it is: `git fetch` it, then \
+`git show <ref>:<path>`, `git diff`, `git log` or `gh pr diff`.
+
+When something needs a branch of its own (a separate change, a fix to another pull request, a \
+fresh start from the base), stop and tell the user: a new task in Swarmed gets its own branch, \
+worktree and sessions. If the user asks you to switch or create a branch or a worktree here all \
+the same, tell them that first, and do it if they still want it."
+    )
 }
 
-/// Why nothing is done for a task whose worktree is on `found` and not on its own branch.
-fn elsewhere(found: Option<&str>, task: &Task) -> Error {
-    let found = found.map_or_else(|| "no branch".to_string(), |branch| format!("`{branch}`"));
-    refused(format!(
-        "this worktree is on {found}, not on the task's branch `{}`: switch back first",
-        task.branch
-    ))
-}
-
-/// Refuses unless the task's worktree is on the task's own branch. Pushing and opening a pull
-/// request name that branch, so on any other they would publish something else than the work
-/// in the worktree and look as if they had published it.
-async fn on_its_branch(task: &Task) -> Result<()> {
-    let found = branch_of(&task.worktree_path).await?;
-    if found.as_deref() == Some(task.branch.as_str()) {
-        return Ok(());
+/// Whether a rebase is under way in a worktree. `git am` keeps its own state in `rebase-apply`
+/// too, but marks it `applying`, where a rebase marks it `rebasing`.
+async fn rebase_under_way(worktree: &Path) -> Result<bool> {
+    for state in ["rebase-merge", "rebase-apply/rebasing"] {
+        // Relative to the worktree in a repository's own folder, whole in a linked worktree.
+        let path = git::git(worktree, &["rev-parse", "--git-path", state]).await?;
+        if worktree.join(path).exists() {
+            return Ok(true);
+        }
     }
-    Err(elsewhere(found.as_deref(), task))
+    Ok(false)
+}
+
+/// Why nothing is done while a rebase is under way. Git switches no branch in the middle of
+/// one, and the way out it suggests, `git rebase --quit`, leaves what was rebased on no branch.
+fn mid_rebase() -> Error {
+    refused("a rebase is under way in this worktree: finish it or abort it first")
+}
+
+/// The branch a task's worktree is on, which is the one a push or a pull request is of: the
+/// work at hand is there, whichever branch the task began on. Refuses on no branch at all,
+/// where there is nothing to name.
+async fn branch_at_hand(task: &Task) -> Result<String> {
+    if let Some(branch) = git::current_branch(&task.worktree_path).await? {
+        return Ok(branch);
+    }
+    if rebase_under_way(&task.worktree_path).await? {
+        return Err(mid_rebase());
+    }
+    Err(refused(
+        "this worktree is on no branch: switch it to one first",
+    ))
 }
 
 /// The branch a pull request goes into: the task's base without its remote's name.
@@ -207,27 +257,60 @@ fn base_branch(base_ref: &str) -> &str {
 }
 
 impl Core {
-    /// What of a task's work is not committed, and what is not pushed.
+    /// What of a task's work is not committed, and what is not pushed, on the branch its
+    /// worktree is on. A branch seen here for the first time is remembered for the task.
     pub async fn task_unpublished(&self, project: &str, name: &str) -> Result<Unpublished> {
         let (_, task) = self.task(project, name)?;
         let worktree = &task.worktree_path;
         let status = git::git(worktree, &["status", "--porcelain"]).await?;
         let changed = status.lines().filter(|line| !line.is_empty()).count();
         let upstream = ["rev-parse", "--abbrev-ref", "@{upstream}"];
+        let branch = git::current_branch(worktree).await?;
+        // A rebase always leaves the worktree on no branch, so only then is it looked for.
+        let rebasing = branch.is_none() && rebase_under_way(worktree).await?;
         Ok(Unpublished {
             changed: u32::try_from(changed).unwrap_or(u32::MAX),
             unpushed: git::unpushed_commits(worktree, &task.base_ref).await?,
             pushed_before: git::git(worktree, &upstream).await.is_ok(),
-            branch: branch_of(worktree).await?,
+            branches: self.branches_of(&task, branch.as_deref()).await?,
+            branch,
+            rebasing,
         })
     }
 
-    /// Puts a task's worktree back on the task's own branch, after something switched it to
-    /// another. Git takes changes that are not committed along when they do not conflict, and
-    /// refuses with its reason when they do; the other branch keeps its commits.
-    pub async fn task_switch_back(&self, project: &str, name: &str) -> Result<()> {
+    /// The branches of a task: its own, then the others its worktree was seen on, `current`
+    /// among them from now on. One that has been deleted since is left out.
+    async fn branches_of(&self, task: &Task, current: Option<&str>) -> Result<Vec<String>> {
+        if let Some(current) = current.filter(|current| *current != task.branch) {
+            self.store().task_branch_seen(task.id, current)?;
+        }
+        let seen = self.store().task_branches(task.id)?;
+        let mut branches = vec![task.branch.clone()];
+        for branch in seen {
+            let there = git::local_branch_exists(&task.worktree_path, &branch).await;
+            branches.extend((there && !branches.contains(&branch)).then_some(branch));
+        }
+        Ok(branches)
+    }
+
+    /// Puts a task's worktree on `branch`, one of those it has been on: the task's own or one
+    /// something switched it to. Git takes changes that are not committed along when they do
+    /// not conflict, and refuses with its reason when they do; every branch keeps its commits.
+    /// Refused while a rebase is under way.
+    pub async fn task_switch(&self, project: &str, name: &str, branch: &str) -> Result<()> {
         let (_, task) = self.task(project, name)?;
-        git::git(&task.worktree_path, &["switch", "--quiet", &task.branch]).await?;
+        let worktree = &task.worktree_path;
+        if rebase_under_way(worktree).await? {
+            return Err(mid_rebase());
+        }
+        let current = git::current_branch(worktree).await?;
+        let known = self.branches_of(&task, current.as_deref()).await?;
+        if !known.iter().any(|known| known == branch) {
+            return Err(refused(format!(
+                "`{branch}` is not a branch this task's worktree has been on"
+            )));
+        }
+        git::git(worktree, &["switch", "--quiet", branch]).await?;
         Ok(())
     }
 
@@ -310,12 +393,12 @@ impl Core {
         Ok(asking::ask(backend, spec, question, ASKING_TIMEOUT).await)
     }
 
-    /// Pushes a task's branch to `origin`, and makes that its upstream. Refused while the
-    /// worktree is on another branch.
+    /// Pushes the branch a task's worktree is on to `origin`, and makes that its upstream:
+    /// the task's own, unless something switched the worktree to another.
     pub async fn task_push(&self, project: &str, name: &str) -> Result<()> {
         let (_, task) = self.task(project, name)?;
-        on_its_branch(&task).await?;
-        let push = ["push", "--quiet", "--set-upstream", "origin", &task.branch];
+        let branch = branch_at_hand(&task).await?;
+        let push = ["push", "--quiet", "--set-upstream", "origin", &branch];
         git::git(&task.worktree_path, &push).await?;
         Ok(())
     }
@@ -323,7 +406,6 @@ impl Core {
     /// A title and description to start the task's pull request from: its commits.
     pub async fn task_pull_draft(&self, project: &str, name: &str) -> Result<PullDraft> {
         let (_, task) = self.task(project, name)?;
-        on_its_branch(&task).await?;
         let range = format!("{}..HEAD", task.base_ref);
         let log = ["log", "--reverse", "--format=%s%x1f%b%x1e", &range];
         let log = git::git(&task.worktree_path, &log).await?;
@@ -342,7 +424,6 @@ impl Core {
         session: Option<i64>,
     ) -> Result<PullDraft> {
         let (_, task) = self.task(project, name)?;
-        on_its_branch(&task).await?;
         let worktree = &task.worktree_path;
         let range = format!("{}..HEAD", task.base_ref);
         let log = ["log", "--reverse", "--format=%s%n%b", &range];
@@ -373,8 +454,8 @@ impl Core {
             .ok_or_else(|| refused("no pull request text came back: is the agent signed in?"))
     }
 
-    /// Opens a pull request for a task's branch into its base, with the user's own `gh`. The
-    /// branch has to be pushed first.
+    /// Opens a pull request for the branch a task's worktree is on into the task's base, with
+    /// the user's own `gh`. The branch has to be pushed first.
     pub async fn task_pull_create(
         &self,
         project: &str,
@@ -386,14 +467,14 @@ impl Core {
         if draft.title.trim().is_empty() {
             return Err(refused("a pull request needs a title"));
         }
-        on_its_branch(&task).await?;
+        let branch = branch_at_hand(&task).await?;
         let gh = find_program("gh", &self.tool_dirs).ok_or_else(|| {
             refused("the GitHub CLI `gh` is not installed: https://cli.github.com")
         })?;
         let base = base_branch(&task.base_ref);
         let mut command = Command::new(gh);
         command
-            .args(["pr", "create", "--head", &task.branch, "--base", base])
+            .args(["pr", "create", "--head", &branch, "--base", base])
             .args(["--title", draft.title.trim(), "--body", &draft.body])
             .args(as_draft.then_some("--draft"))
             .current_dir(&task.worktree_path)

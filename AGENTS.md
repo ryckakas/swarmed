@@ -564,12 +564,25 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **A task's work leaves its worktree only when asked** (`publish.rs`): commit everything, push
   the branch, open a pull request, each a step of its own behind a button. Commits are made by
   the user's git as them, the pull request by their `gh`; nothing is added to either.
-- **A task's branch is recorded once, and its worktree can still be switched to another**, by
-  an agent or by hand. `Unpublished::branch` says where the worktree is, and what it counts is
-  that branch's. Whatever names `task.branch` (push, the pull request and its writers) refuses
-  while the worktree is elsewhere (`on_its_branch`) instead of publishing a branch that is not
-  the work at hand; committing does not, since a commit goes where the worktree is. The task
-  never takes on the other branch: `task_switch_back` is the way back.
+- **A task begins on one branch, and what Swarmed shows and publishes follows the branch its
+  worktree is on** (`git::current_branch`), since an agent or the user can switch it. Push, the
+  pull request and its checks, what is not published, the changes and the branch a cloud agent
+  starts from are all that branch's, never `task.branch` in its place: publishing the recorded
+  branch beside another's work looked as if it had worked. Each other branch the worktree is
+  seen on is remembered (`task_branches`, written when `task_unpublished` reads), and
+  `Unpublished::branches` lists those still there, the task's own first. With more than one,
+  the Publish panel says which it is on and offers the others (`task_switch`, which takes only
+  a branch of that list and lets git carry or refuse what is not committed). On no branch
+  only committing is left, and a rebase under way (`Unpublished::rebasing`) is named and
+  waited for: git switches nothing in the middle of one. `task.branch` itself never changes;
+  the task panel's heading, the status line and removal's branch deletion still mean it.
+  Following the worktree is the fallback, not the way: every agent is told, in Swarmed's
+  guidance whatever the settings (`publish::worktree_instructions`), that it already works in
+  an isolated worktree, to keep to the task's branch, to make no other branch, worktree or
+  clone even when a skill says to (skills written without Swarmed often do), how to read
+  another branch without checking it out, and to ask the user for a new task for work that
+  needs another branch. An agent has no tool to start a task; asking is the way. For parts
+  that can run beside it, it is pointed at `spawn_session`, which shares the worktree.
 - **A pull request's title and description can be written for the user too**
   (`task_pull_message`), by the same writer as a commit message and under the same rules:
   shown the branch's commits and its diff against the base (three dots, so only what the

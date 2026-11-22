@@ -199,10 +199,10 @@ export interface Api {
     taskPullMessage(project: string, name: string, session: number | null): Promise<PullDraft>;
     /** Commits everything in a task's worktree under `message`. */
     taskCommit(project: string, name: string, message: string): Promise<void>;
-    /** Pushes a task's branch to its remote. */
+    /** Pushes the branch a task's worktree is on to its remote. */
     taskPush(project: string, name: string): Promise<void>;
-    /** Puts a task's worktree back on the task's own branch, after something switched it. */
-    taskSwitchBack(project: string, name: string): Promise<void>;
+    /** Puts a task's worktree on another of the branches it has been on. */
+    taskSwitch(project: string, name: string, branch: string): Promise<void>;
     /** A title and description to start a task's pull request from: its commits. */
     taskPullDraft(project: string, name: string): Promise<PullDraft>;
     /** Opens a pull request for a task's branch, as a draft if asked. */

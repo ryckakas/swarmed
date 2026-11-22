@@ -161,6 +161,13 @@ export interface Unpublished {
      * when it is on no branch at all. The figures above are that branch's.
      */
     branch: string | null;
+    /**
+     * Every branch the worktree has been seen on that is still there, the task's own first.
+     * More than one means something switched it.
+     */
+    branches: string[];
+    /** Whether a rebase is under way, which leaves the worktree on no branch until it is over. */
+    rebasing: boolean;
 }
 
 /** A title and a description to start a pull request from. */

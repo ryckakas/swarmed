@@ -32,7 +32,7 @@ use crate::toolserver::{
     SERVER_NAME, SESSION_ENV, SHOW_HTML_FOR_CLAUDE, SOCKET_ENV, TOOL_SERVER_ARG, VIEW_SPOOL_ENV,
     take_views,
 };
-use crate::{Core, lock, peers, views};
+use crate::{Core, lock, peers, publish, views};
 
 /// How long a session title derived from the first message may be.
 /// What stands above the user's rules where an agent reads them.
@@ -833,7 +833,7 @@ impl Core {
             mcp_servers,
             skills: self.skills_had(&session.agent, &task.worktree_path),
             env,
-            append_system_prompt: self.guidance(&settings, &session.agent, &task.worktree_path),
+            append_system_prompt: Some(self.guidance(&settings, &session.agent, &task)),
             cwd: task.worktree_path,
             model: session.model,
             supervision: session.supervision,
@@ -855,21 +855,26 @@ impl Core {
     }
 
     /// What every agent is told by Swarmed, on top of what it knows by itself: the user's own
-    /// rules, if they wrote any; about the other sessions, when there is a tool server to reach
-    /// them through; and about showing views, when the user has those switched on. `None` if
-    /// there is nothing to tell.
-    fn guidance(&self, settings: &Settings, agent: &str, worktree: &Path) -> Option<String> {
+    /// rules, if they wrote any; to keep to its task's branch and worktree; about the other sessions, when
+    /// there is a tool server to reach them through; and about showing views, when the user has
+    /// those switched on.
+    fn guidance(&self, settings: &Settings, agent: &str, task: &Task) -> String {
         let rules = settings.rules.trim();
         let rules = (!rules.is_empty()).then(|| format!("{RULES_HEADING}\n{rules}"));
+        let branch = publish::worktree_instructions(&task.branch);
         let sessions = self.tool_server.as_ref().map(|_| peers::INSTRUCTIONS);
         // Handed over through the tool server, so only worth naming when there is one.
-        let skills = sessions.and_then(|_| self.skills_guidance(agent, worktree));
+        let skills = sessions.and_then(|_| self.skills_guidance(agent, &task.worktree_path));
         let views = settings.html_views.then_some(views::INSTRUCTIONS);
-        let parts: Vec<&str> = [rules.as_deref(), sessions, skills.as_deref(), views]
-            .into_iter()
-            .flatten()
-            .collect();
-        (!parts.is_empty()).then(|| parts.join("\n\n"))
+        let parts = [
+            rules.as_deref(),
+            Some(branch.as_str()),
+            sessions,
+            skills.as_deref(),
+            views,
+        ];
+        let parts: Vec<&str> = parts.into_iter().flatten().collect();
+        parts.join("\n\n")
     }
 
     /// Swarmed's own tool server, for every agent, when a front end said where it is. It is

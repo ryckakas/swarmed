@@ -11,7 +11,7 @@ use tokio::process::Command;
 
 use crate::agent_setup::find_program;
 use crate::error::Error;
-use crate::{Core, Result, open};
+use crate::{Core, Result, git, open};
 
 /// How long `gh` gets to answer. It asks the network, and nothing waits on it.
 const GH_TIMEOUT: Duration = Duration::from_secs(20);
@@ -177,7 +177,8 @@ fn parse(json: &str) -> Result<Pull> {
 }
 
 impl Core {
-    /// The pull request of a task's branch with its checks, if it has one that `gh` can see.
+    /// The pull request of the branch a task's worktree is on, with its checks, if it has one
+    /// that `gh` can see: the task's own branch, unless something switched the worktree.
     ///
     /// Nothing, not an error, when `gh` is not installed, is not signed in, takes too long, or
     /// finds no pull request: a task without one is the ordinary case.
@@ -186,9 +187,13 @@ impl Core {
         let Some(gh) = find_program("gh", &self.tool_dirs) else {
             return Ok(None);
         };
+        // On no branch there is none to have a pull request.
+        let Ok(Some(branch)) = git::current_branch(&task.worktree_path).await else {
+            return Ok(None);
+        };
         let mut command = Command::new(gh);
         command
-            .args(["pr", "view", &task.branch, "--json", FIELDS])
+            .args(["pr", "view", &branch, "--json", FIELDS])
             .current_dir(&task.worktree_path)
             .stdin(std::process::Stdio::null())
             .kill_on_drop(true);

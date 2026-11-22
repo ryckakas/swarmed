@@ -27,7 +27,7 @@ export function CloudDialog() {
 
 /** What is particular to each provider, said before anything is sent. */
 const PROVIDER_NOTES: Record<CloudProvider, string> = {
-    codex: "Runs in the Codex cloud environment set up for this repository, and is refused if there is none. From a task, it starts from the task's branch if that has been pushed, else from the base branch. Its status shows here.",
+    codex: "Runs in the Codex cloud environment set up for this repository, and is refused if there is none. From a task, it starts from the branch the task's worktree is on if that has been pushed, else from the base branch. Its status shows here.",
     claude: "Runs in your default Claude Code cloud environment, on the repository as its own folder has it checked out. Claude Code has to trust that folder first. Its progress does not show here, only its link.",
 };
 

@@ -204,7 +204,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::snapshot_save, commands::snapshot_remove, commands::task_remove,
         commands::task_open_editor, commands::task_open_terminal, commands::task_files, commands::task_open_file, commands::task_open_url, commands::open_link,
         commands::task_unpublished, commands::task_commit, commands::task_commit_message, commands::task_pull_message,
-        commands::task_push, commands::task_switch_back, commands::task_pull_draft, commands::task_pull_create,
+        commands::task_push, commands::task_switch, commands::task_pull_draft, commands::task_pull_create,
         commands::task_pull, commands::task_pull_open, commands::task_changes,
         commands::task_diff, commands::note, commands::set_note, commands::api_keys,
         commands::set_api_key, commands::delete_api_key, commands::settings,
