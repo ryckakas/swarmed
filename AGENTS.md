@@ -562,6 +562,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **A task's pull request and checks are asked of the user's own `gh`** (`pulls.rs`), in the
   task's worktree, on demand. Swarmed holds no GitHub token. No `gh`, no pull request, or a
   repository that is not on GitHub all mean the same: the task has none, which is not an error.
+  `gh pr view` reports every check run on the head commit, runs a newer one replaced included,
+  so only each check's latest run is kept (`latest`, by workflow and job name), as GitHub's own
+  page and `gh pr checks` show them. What `gh pr view` prints has no event, so a job run for
+  both `push` and `pull_request` on one commit shows once.
 - **A task's work leaves its worktree only when asked** (`publish.rs`): commit everything, push
   the branch, open a pull request, each a step of its own behind a button. Commits are made by
   the user's git as them, the pull request by their `gh`; nothing is added to either.

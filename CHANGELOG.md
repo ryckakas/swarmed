@@ -49,6 +49,10 @@ notice adds its line under Unreleased.
 
 ### Fixed
 
+- **A check a newer run replaced no longer shows as failed.** When a workflow run was cancelled
+  because a newer run of the same workflow took its place, or a failed job was run again, the
+  task's pull request listed the check twice, the old run as failed. Only each check's latest
+  run is shown now, as on GitHub's own page.
 - **"This session runs on it now: its turns are billed" goes once the limits say so.** After a
   usage window reset, refreshing with the coins showed the window back within its limit, but
   the extra usage section kept saying the turns were billed until the next message. Limits

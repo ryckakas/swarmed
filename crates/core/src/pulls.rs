@@ -74,7 +74,7 @@ pub struct Pull {
     /// What its reviewers decided: `approved`, `changes_requested`, `review_required`, or
     /// nothing if no review is asked for.
     pub review: Option<String>,
-    /// Its checks, in the order GitHub lists them.
+    /// Its checks, in the order GitHub lists them, each check run only as its latest run.
     pub checks: Vec<Check>,
 }
 
@@ -99,6 +99,10 @@ struct RawCheck {
     details_url: String,
     #[serde(default)]
     target_url: String,
+    #[serde(default)]
+    started_at: String,
+    #[serde(default)]
+    completed_at: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -156,6 +160,44 @@ fn check(raw: RawCheck) -> Check {
     }
 }
 
+/// When a check run started, and then when it finished, to tell a later run of the same check
+/// from one it replaced. One that has not started yet, which `gh` gives the year 1 or no time
+/// at all, is the latest: it is a run queued after the others.
+fn when(check: &RawCheck) -> (&str, &str) {
+    let queued = check.started_at.is_empty() || check.started_at.starts_with("0001-");
+    let started = if queued {
+        "~"
+    } else {
+        check.started_at.as_str()
+    };
+    (started, check.completed_at.as_str())
+}
+
+/// Whether a later run of the same check (the same job name in the same workflow) replaced the
+/// check run at `at`: a workflow run that a newer one cancelled, or an attempt run again. Of two
+/// that started at the same moment, the one listed later counts as the later. A commit status,
+/// which has a context and no name, comes once per context already.
+fn replaced(checks: &[RawCheck], at: usize) -> bool {
+    let check = &checks[at];
+    let same =
+        |other: &RawCheck| other.name == check.name && other.workflow_name == check.workflow_name;
+    !check.name.is_empty()
+        && checks.iter().enumerate().any(|(later, other)| {
+            later != at && same(other) && (when(other), later) > (when(check), at)
+        })
+}
+
+/// The checks as GitHub's own page and `gh pr checks` list them: `gh pr view` also reports
+/// every run a later one replaced, and a cancelled one would show as failed beside it.
+fn latest(checks: Vec<RawCheck>) -> Vec<RawCheck> {
+    let kept: Vec<bool> = (0..checks.len()).map(|at| !replaced(&checks, at)).collect();
+    checks
+        .into_iter()
+        .zip(kept)
+        .filter_map(|(check, kept)| kept.then_some(check))
+        .collect()
+}
+
 /// Reads what `gh pr view --json` printed.
 fn parse(json: &str) -> Result<Pull> {
     let raw: RawPull = serde_json::from_str(json)?;
@@ -172,7 +214,10 @@ fn parse(json: &str) -> Result<Pull> {
         state,
         draft: raw.is_draft,
         review,
-        checks: raw.status_check_rollup.into_iter().map(check).collect(),
+        checks: latest(raw.status_check_rollup)
+            .into_iter()
+            .map(check)
+            .collect(),
     })
 }
 
@@ -299,5 +344,85 @@ mod tests {
         let pull = parse(printed).expect("parses");
         assert_eq!(pull.state, PullState::Closed);
         assert_eq!(pull.checks[0].outcome, CheckOutcome::Failed);
+    }
+
+    /// A check run as `gh` prints it, with when it started and finished.
+    fn run(workflow: &str, name: &str, conclusion: &str, started: &str, completed: &str) -> String {
+        format!(
+            r#"{{"__typename": "CheckRun", "workflowName": "{workflow}", "name": "{name}",
+               "status": "{}", "conclusion": "{conclusion}",
+               "startedAt": "{started}", "completedAt": "{completed}"}}"#,
+            if conclusion.is_empty() {
+                "QUEUED"
+            } else {
+                "COMPLETED"
+            }
+        )
+    }
+
+    fn checks_of(runs: &[String]) -> Vec<(String, CheckOutcome)> {
+        let printed = format!(
+            r#"{{"number": 1, "title": "t", "url": "u", "state": "OPEN", "statusCheckRollup": [{}]}}"#,
+            runs.join(",")
+        );
+        let pull = parse(&printed).expect("parses");
+        // Named with the workflow, which tells two jobs of the same name apart.
+        let named = |check: Check| {
+            let workflow = check.workflow.unwrap_or_default();
+            (format!("{workflow} / {}", check.name), check.outcome)
+        };
+        pull.checks.into_iter().map(named).collect()
+    }
+
+    #[test]
+    fn a_run_that_a_newer_run_cancelled_is_left_out() {
+        // The e2e workflow's run for `opened`, cancelled by its run for `labeled`, which skipped.
+        let checks = checks_of(&[
+            run(
+                "e2e",
+                "e2e",
+                "CANCELLED",
+                "2026-11-22T15:01:50Z",
+                "2026-11-22T15:01:56Z",
+            ),
+            run(
+                "e2e",
+                "e2e",
+                "SKIPPED",
+                "2026-11-22T15:01:55Z",
+                "2026-11-22T15:01:57Z",
+            ),
+        ]);
+        assert_eq!(checks, [("e2e / e2e".to_string(), CheckOutcome::Skipped)]);
+    }
+
+    #[test]
+    fn the_latest_attempt_of_a_check_counts_and_the_rest_keep_their_place() {
+        let at = |minute: u8| format!("2026-11-22T15:{minute:02}:00Z");
+        let checks = checks_of(&[
+            run("CI", "Test", "FAILURE", &at(1), &at(4)),
+            run("CI", "Lint", "SUCCESS", &at(1), &at(2)),
+            // Another workflow's job of the same name is a check of its own.
+            run("Nightly", "Test", "FAILURE", &at(1), &at(3)),
+            run("CI", "Test", "SUCCESS", &at(5), &at(8)),
+            // Run again and not started yet: queued after the others, so it is the latest.
+            run(
+                "CI",
+                "Lint",
+                "",
+                "0001-01-01T00:00:00Z",
+                "0001-01-01T00:00:00Z",
+            ),
+        ]);
+        let expected = [
+            ("Nightly / Test", CheckOutcome::Failed),
+            ("CI / Test", CheckOutcome::Passed),
+            ("CI / Lint", CheckOutcome::Running),
+        ];
+        let expected: Vec<_> = expected
+            .into_iter()
+            .map(|(name, outcome)| (name.to_string(), outcome))
+            .collect();
+        assert_eq!(checks, expected);
     }
 }
