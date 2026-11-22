@@ -84,6 +84,11 @@ notice adds its line under Unreleased.
 
 ### Fixed
 
+- **An unsent message is no longer lost when another session is opened.** Each session keeps
+  what was typed in its message box, attached files included, until it is sent. So does the
+  new-task box, for each repository. Drafts are kept only while the window is open, and nothing
+  unsent is written to disk. Closing or deleting a session, removing its task or removing a
+  repository drops its draft.
 - **Closing, deleting or removing the session on screen opens a new task in its repository.**
   Removing its task left it showing "Waking the spawn…" and an error in the task panel while
   the worktree went, and closing or deleting it could open the new-task view on another

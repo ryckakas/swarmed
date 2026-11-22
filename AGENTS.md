@@ -515,6 +515,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   second block after the user's words: the protocol has no place for a client's instructions.
 - A view still being written is held back and stood in for (`splitPendingView`), so it appears
   whole instead of as streaming source.
+- **What is typed and not sent is a draft in the UI's store** (`drafts` per session,
+  `newTaskDrafts` per repository, `Draft` in `sending.ts`), never in the component, which
+  goes when another session is opened, and never on disk. A failed send puts it back into its
+  own session's draft, wherever the user is by then. A draft goes with its session when that is
+  closed or forgotten, and with its repository.
 - **The message box handles a few keys itself** (`ui/src/editing.ts`): Home and End move within
   the line, and ⌘⌫ at the very start empties the box.
 - **The status line** under the message box is drawn by the UI from built-in pieces

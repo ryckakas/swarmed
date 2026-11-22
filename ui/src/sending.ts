@@ -44,6 +44,25 @@ export interface Draft {
     files: string[];
 }
 
+/** An empty message box; one object, so that reading it twice gives the same thing. */
+export const NO_DRAFT: Draft = { text: "", files: [] };
+
+/** `drafts` with the one under `key` changed by `change`; one emptied is dropped. */
+export function withDraft<K extends string | number>(
+    drafts: Record<K, Draft>,
+    key: K,
+    change: Partial<Draft>,
+): Record<K, Draft> {
+    const draft: Draft = { ...(drafts[key] ?? NO_DRAFT), ...change };
+    const kept = { ...drafts };
+    if (draft.text === "" && draft.files.length === 0) {
+        delete kept[key];
+    } else {
+        kept[key] = draft;
+    }
+    return kept;
+}
+
 /**
  * What the message box holds after a message could not be sent: the message again, unless the
  * user has written something else in the meantime, which is theirs to keep.

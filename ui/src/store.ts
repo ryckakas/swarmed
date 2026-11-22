@@ -18,6 +18,7 @@ import type {
 import type { CloudTarget } from "./cloud";
 import type { Comparison } from "./components/CompareDialog";
 import { type ReviewComment, withComment } from "./review";
+import { type Draft, NO_DRAFT, putBack, withDraft } from "./sending";
 import { atWork, type SubAgent, subAgentsIn } from "./subagents";
 import {
     applySessionEvent,
@@ -64,6 +65,22 @@ interface State {
     selectedSessionId: number | null;
     /** The repository preselected on the new-task screen, shown when no session is selected. */
     draftProject: string | null;
+    /**
+     * What each session's message box holds and has not sent, by the session's id. Only in
+     * memory: it lasts as long as the window, and nothing typed and unsent is written anywhere.
+     */
+    drafts: Record<number, Draft>;
+    /** Changes what the message box of session `sessionId` holds. */
+    editDraft(sessionId: number, change: Partial<Draft>): void;
+    /**
+     * Puts a message that could not be sent back in its session's box, wherever the user is by
+     * then, unless something else was written there meanwhile, which is theirs to keep.
+     */
+    putDraftBack(sessionId: number, unsent: Draft): void;
+    /** What the new-task box holds and has not sent, per repository by its name; in memory too. */
+    newTaskDrafts: Record<string, Draft>;
+    /** Changes what the new-task box holds for repository `project`. */
+    editNewTaskDraft(project: string, change: Partial<Draft>): void;
     /** The events of every session whose transcript has been opened. */
     events: Record<number, AgentEvent[]>;
     /** Per task id, a count that goes up whenever its agents may have changed files. */
@@ -453,6 +470,7 @@ function forgotten(state: State, sessionIds: number[], taskIds: number[]): Parti
         turnBegan: without(state.turnBegan, sessionIds),
         claudeTerminals: without(state.claudeTerminals, sessionIds),
         queues: without(state.queues, sessionIds),
+        drafts: without(state.drafts, sessionIds),
         subView: of(state.subView),
         terminalCommand: of(state.terminalCommand),
         edits: without(state.edits, taskIds),
@@ -489,6 +507,8 @@ function closed(state: State, sessionId: number): Partial<State> {
         // Asked about it, the question goes with it; asked about another, that stays.
         closing: state.closing === sessionId ? null : state.closing,
         projects: withoutSession(state.projects, sessionId),
+        // Put away, it cannot be written to; and its task can go while it is put away.
+        drafts: without(state.drafts, [sessionId]),
     };
 }
 
@@ -496,7 +516,22 @@ function closed(state: State, sessionId: number): Partial<State> {
 function readAgain(state: State, projects: Project[]): Partial<State> {
     const selected = state.selectedSessionId;
     const gone = selected !== null && !findSession(projects, selected);
-    return { projects, load: "ready", ...(gone ? leaving(state, [selected]) : {}) };
+    return {
+        projects,
+        load: "ready",
+        newTaskDrafts: listedOnly(state.newTaskDrafts, projects),
+        ...(gone ? leaving(state, [selected]) : {}),
+    };
+}
+
+/** The new-task drafts of the repositories still listed: a removed one's goes with it. */
+function listedOnly(drafts: Record<string, Draft>, projects: Project[]): Record<string, Draft> {
+    const listed = new Set(projects.map((project) => project.name));
+    const names = Object.keys(drafts);
+    if (names.every((name) => listed.has(name))) {
+        return drafts;
+    }
+    return Object.fromEntries(Object.entries(drafts).filter(([name]) => listed.has(name)));
 }
 
 /** What to show when `target` is about to be removed, if the session on screen goes with it. */
@@ -539,6 +574,17 @@ export const useStore = create<State>((set, get) => ({
     load: "loading",
     selectedSessionId: null,
     draftProject: null,
+    drafts: {},
+    editDraft: (sessionId, change) =>
+        set((state) => ({ drafts: withDraft(state.drafts, sessionId, change) })),
+    putDraftBack: (sessionId, unsent) =>
+        set((state) => {
+            const now = state.drafts[sessionId] ?? NO_DRAFT;
+            return { drafts: withDraft(state.drafts, sessionId, putBack(now, unsent)) };
+        }),
+    newTaskDrafts: {},
+    editNewTaskDraft: (project, change) =>
+        set((state) => ({ newTaskDrafts: withDraft(state.newTaskDrafts, project, change) })),
     events: {},
     subAgents: {},
     subView: null,

@@ -359,6 +359,75 @@ describe("the session on screen going", () => {
     });
 });
 
+describe("unsent messages", () => {
+    const drafts = () => useStore.getState().drafts;
+    beforeEach(() => useStore.setState({ drafts: {}, newTaskDrafts: {} }));
+
+    it("are kept per session, and opening another session changes none", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        await useStore.getState().open(api, 4);
+        useStore.getState().editDraft(4, { text: "half a thought" });
+        useStore.getState().editDraft(4, { files: ["/tmp/shot.png"] });
+        await useStore.getState().open(api, 3);
+        useStore.getState().editDraft(3, { text: "another" });
+        useStore.getState().startNew();
+        await useStore.getState().open(api, 4);
+        expect(drafts()).toEqual({
+            4: { text: "half a thought", files: ["/tmp/shot.png"] },
+            3: { text: "another", files: [] },
+        });
+    });
+
+    it("go back into their own session when a send fails, unless it was written to since", () => {
+        useStore.getState().editDraft(4, { text: "send me", files: ["/a"] });
+        const unsent = drafts()[4] ?? { text: "", files: [] };
+        // Sending empties the box; the user moves on to session 3 while it fails.
+        useStore.getState().editDraft(4, { text: "", files: [] });
+        useStore.setState({ selectedSessionId: 3 });
+        useStore.getState().putDraftBack(4, unsent);
+        expect(drafts()).toEqual({ 4: { text: "send me", files: ["/a"] } });
+
+        useStore.getState().editDraft(4, { text: "something new", files: [] });
+        useStore.getState().putDraftBack(4, unsent);
+        expect(drafts()[4]).toEqual({ text: "something new", files: [] });
+    });
+
+    it("go with a session that is deleted or closed, and with a removed task's sessions", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        for (const id of [3, 4, 5]) {
+            useStore.getState().editDraft(id, { text: `draft ${id}` });
+        }
+        await useStore.getState().deleteSession(api, 4);
+        expect(Object.keys(drafts())).toEqual(["3", "5"]);
+        await useStore.getState().close(api, 5);
+        expect(Object.keys(drafts())).toEqual(["3"]);
+        const { projects } = useStore.getState();
+        const session = findSession(projects, 3);
+        const taskId = (session && findSessionHome(projects, session)?.task.id) ?? -1;
+        useStore.getState().forgetTasks([taskId]);
+        expect(drafts()).toEqual({});
+    });
+
+    it("are kept per repository in the new-task box, and go with a removed repository", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        const { editNewTaskDraft } = useStore.getState();
+        editNewTaskDraft("storefront", { text: "add a search box" });
+        editNewTaskDraft("bonsai-lint", { text: "support Go", files: ["/spec.md"] });
+        expect(useStore.getState().newTaskDrafts).toEqual({
+            storefront: { text: "add a search box", files: [] },
+            "bonsai-lint": { text: "support Go", files: ["/spec.md"] },
+        });
+        await api.projectRemove("bonsai-lint", false);
+        await useStore.getState().refresh(api);
+        expect(Object.keys(useStore.getState().newTaskDrafts)).toEqual(["storefront"]);
+        editNewTaskDraft("storefront", { text: "" });
+        expect(useStore.getState().newTaskDrafts).toEqual({});
+    });
+});
+
 describe("the queue of waiting messages", () => {
     it("is kept beside the transcript and follows the core's events", () => {
         useStore.setState({ events: { 1: [text("a")] }, queues: {} });
