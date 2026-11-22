@@ -70,13 +70,13 @@ export function SessionPane() {
                         />
                     )}
                     <IconButton
-                        label={`${words.forkAll}: a new session that starts from all of it, on the same agent`}
+                        label={`${words.forkAll}: a new ${words.session} that starts from all of it, on the same agent`}
                         onClick={() => void forkSession(session.id, null)}
                     >
                         <ForkIcon />
                     </IconButton>
                     <IconButton
-                        label={`${words.delegate}: what this session arrived at, as a brief or as the whole conversation`}
+                        label={`${words.delegate}: what this ${words.session} arrived at, as a brief or as the whole conversation`}
                         onClick={() =>
                             askToDelegate({
                                 project: home.project.name,
@@ -114,7 +114,7 @@ export function SessionPane() {
                     <CloneTo session={session} />
                 </div>
             </header>
-            {events === undefined && <p className="aside loading">Loading the conversation…</p>}
+            {events === undefined && <p className="aside loading">{words.loadingConversation}</p>}
             {events?.length === 0 && <Facts session={session} task={home.task} />}
             {events !== undefined && events.length > 0 && (
                 <Transcript
@@ -147,7 +147,7 @@ function CloneTo({ session }: { session: Session }) {
     }
     return (
         <Picker
-            label={`${words.cloneTo} another agent: a new session there that starts from this conversation`}
+            label={`${words.cloneTo} another agent: a new ${words.session} there that starts from this conversation`}
             value=""
             onChange={(agent) => agent && void forkSession(session.id, null, agent)}
             options={[
@@ -160,15 +160,16 @@ function CloneTo({ session }: { session: Session }) {
 
 /** What a session that has not said anything yet will work with. */
 function Facts({ session, task }: { session: Session; task: Task }) {
+    const words = useWords();
     const swarm = useStore((state) => isSwarm(state.settings?.style));
     return (
         <div className="facts-wrap">
             {swarm && (
                 <p className="facts-egg">
-                    <Egg label="Dormant" />
+                    <Egg label={words.status.idle[0] ?? ""} />
                 </p>
             )}
-            <p>Nothing has been said yet. The agent starts with your first message.</p>
+            <p>{words.emptySession}</p>
             <dl className="facts">
                 <dt>Worktree</dt>
                 <dd className="mono">{task.worktree_path}</dd>

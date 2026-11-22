@@ -84,7 +84,7 @@ export function Sidebar() {
                         className="quiet-button quiet-button-centred"
                         onClick={() => showSettings(true)}
                     >
-                        Settings
+                        {words.settings}
                     </button>
                 </div>
             )}
@@ -108,16 +108,17 @@ function moveFocus(event: KeyboardEvent<HTMLElement>) {
 }
 
 function NoProjects() {
+    const words = useWords();
     return (
         <div className="sidebar-empty">
-            <p>No repositories yet.</p>
+            <p>{words.noRepositories}</p>
             <p>Add one to start a task in it. Swarmed never writes into the repository itself.</p>
             <button
                 type="button"
                 className="button button-primary"
                 onClick={() => void addProject()}
             >
-                Add repository
+                {words.addRepository}
             </button>
         </div>
     );
@@ -139,7 +140,7 @@ function ProjectGroup({ project }: { project: Project }) {
                         type="button"
                         className="project-toggle"
                         aria-expanded={!folded}
-                        title={folded ? "Show this repository's tasks" : "Hide its tasks"}
+                        title={folded ? words.showTasks : words.hideTasks}
                         onClick={() => toggleFolded(project.id)}
                     >
                         <svg className="fold-chevron" viewBox="0 0 10 10" aria-hidden="true">
@@ -157,8 +158,8 @@ function ProjectGroup({ project }: { project: Project }) {
                 <button
                     type="button"
                     className="row-add"
-                    aria-label={`New task in ${project.name}`}
-                    title="New task"
+                    aria-label={`${words.startTask} in ${project.name}`}
+                    title={words.startTask}
                     onClick={() => startNew(project.name)}
                 >
                     +
@@ -254,6 +255,7 @@ const CLOUD_POLL_MS = 45_000;
  * unfinished, their statuses are asked for again from time to time.
  */
 function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] }) {
+    const words = useWords();
     const showCloudDiff = useStore((state) => state.showCloudDiff);
     const refresh = useStore((state) => state.refresh);
     const report = useStore((state) => state.report);
@@ -320,8 +322,8 @@ function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] })
                         <button
                             type="button"
                             className="row-close"
-                            aria-label={`Take ${cloudTitle(task)} off the list`}
-                            title="Take off the list. The task itself is not stopped."
+                            aria-label={`${words.forgetCloud}: ${cloudTitle(task)}`}
+                            title={`${words.forgetCloud}. The task itself is not stopped.`}
                             onClick={() => setForgetting(task)}
                         >
                             ×
@@ -451,7 +453,7 @@ function ClosedSessions({ project, task, count }: ClosedProps) {
             {sessions?.map((session) => (
                 <div key={session.id} className="closed-row">
                     <span className="session-title" title={session.title}>
-                        {session.title || "New session"}
+                        {session.title || words.untitled}
                     </span>
                     <button
                         type="button"
@@ -463,7 +465,7 @@ function ClosedSessions({ project, task, count }: ClosedProps) {
                     <button
                         type="button"
                         className="row-close"
-                        aria-label={`${words.deleteSession} ${session.title || "New session"} for good`}
+                        aria-label={`${words.deleteSession} ${session.title || words.untitled} for good`}
                         title={`${words.deleteSession} for good`}
                         onClick={() => askToDelete({ id: session.id, title: session.title })}
                     >
@@ -497,7 +499,7 @@ function SessionRow({ session }: { session: Session }) {
     const selected = useStore((state) => state.selectedSessionId === session.id);
     const open = useStore((state) => state.open);
     const askToClose = useStore((state) => state.askToClose);
-    const title = session.title || "New session";
+    const title = session.title || words.untitled;
     return (
         <div
             className={`session-line status-${session.status}`}
@@ -516,8 +518,8 @@ function SessionRow({ session }: { session: Session }) {
                 {session.spawned_by !== null && (
                     <span
                         className="session-spawned"
-                        title={`Started by session ${session.spawned_by}`}
-                        aria-label={`Started by session ${session.spawned_by}`}
+                        title={words.startedBy(session.spawned_by)}
+                        aria-label={words.startedBy(session.spawned_by)}
                         role="img"
                     >
                         <svg viewBox="0 0 12 12" aria-hidden="true">
@@ -568,12 +570,12 @@ function SubAgentRows({ session }: { session: Session }) {
                     <button
                         type="button"
                         className="sub-agent-row"
-                        title={`${words.subAgent}: ${one.name}`}
+                        title={`${words.subAgent}: ${one.name || words.subAgent}`}
                         aria-current={viewed === one.id ? "true" : undefined}
                         onClick={() => void openSub(api, session.id, one.id)}
                     >
                         <span className="sub-agent-pulse" aria-hidden="true" />
-                        <span className="session-title">{one.name}</span>
+                        <span className="session-title">{one.name || words.subAgent}</span>
                         {one.kind && <span className="sub-agent-kind">{one.kind}</span>}
                     </button>
                 </li>

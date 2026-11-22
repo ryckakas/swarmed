@@ -31,9 +31,9 @@ export function SubAgentPane({ session, crumbs, id, events }: Props) {
         <article className="session sub-agent">
             <header className="session-head">
                 <p className="crumbs">
-                    {crumbs} / {session.title || "New session"}
+                    {crumbs} / {session.title || words.untitled}
                 </p>
-                <h2 className="sub-agent-name">{subAgent?.name ?? words.subAgent}</h2>
+                <h2 className="sub-agent-name">{subAgent?.name || words.subAgent}</h2>
                 <div className="session-meta">
                     <p className="sub-agent-state" data-working={working}>
                         {words.subAgent}
@@ -52,7 +52,7 @@ export function SubAgentPane({ session, crumbs, id, events }: Props) {
                 </details>
             )}
             {own.length === 0 && answer === null && (
-                <p className="aside loading">Nothing heard from it yet.</p>
+                <p className="aside loading">{words.subAgentSilent}</p>
             )}
             {own.length > 0 && (
                 <Transcript
@@ -63,8 +63,8 @@ export function SubAgentPane({ session, crumbs, id, events }: Props) {
                 />
             )}
             {answer !== null && (
-                <section className="sub-agent-answer" aria-label="What it handed back">
-                    <p className="sub-agent-answer-head">What it handed back</p>
+                <section className="sub-agent-answer" aria-label={words.subAgentAnswer}>
+                    <p className="sub-agent-answer-head">{words.subAgentAnswer}</p>
                     <Markdown text={answer} streaming={false} />
                 </section>
             )}

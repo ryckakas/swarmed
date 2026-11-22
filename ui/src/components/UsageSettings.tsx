@@ -3,6 +3,7 @@ import { api } from "../api";
 import type { Costs, Usage } from "../api/types";
 import { useStore } from "../store";
 import { formatBytes, formatCpu, formatUsd, totalBytes } from "../usage";
+import { useWords } from "../useWords";
 import { ActivityCharts } from "./ActivityCharts";
 
 /** How many worktrees are listed before the rest are summed up in one line. */
@@ -81,6 +82,7 @@ function CostFigures() {
 }
 
 function Figures({ usage }: { usage: Usage }) {
+    const words = useWords();
     const listed = usage.worktrees.slice(0, LISTED);
     const rest = usage.worktrees.slice(LISTED);
     const restBytes = rest.reduce((sum, worktree) => sum + (worktree.bytes ?? 0), 0);
@@ -120,7 +122,7 @@ function Figures({ usage }: { usage: Usage }) {
             {usage.sessions.map((session) => (
                 <Figure
                     key={session.session_id}
-                    name={session.title || "New session"}
+                    name={session.title || words.untitled}
                     detail="agent"
                 >
                     {formatBytes(session.memory_bytes)}, {formatCpu(session.cpu_percent)}

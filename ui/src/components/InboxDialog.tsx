@@ -2,6 +2,7 @@ import { type KeyboardEvent, useEffect, useRef } from "react";
 import { api } from "../api";
 import { INBOX_KINDS, type InboxItem, type InboxKind, inbox } from "../inbox";
 import { useStore } from "../store";
+import { useWords } from "../useWords";
 import { wordsFor } from "../wording";
 import { StatusMark } from "./StatusMark";
 
@@ -24,6 +25,7 @@ function moveFocus(event: KeyboardEvent<HTMLElement>) {
  * failed, or that hold an answer nobody has looked at. Choosing one opens it.
  */
 export function InboxDialog() {
+    const words = useWords();
     const open = useStore((state) => state.inboxOpen);
     const showInbox = useStore((state) => state.showInbox);
     const projects = useStore((state) => state.projects);
@@ -50,8 +52,8 @@ export function InboxDialog() {
             // A click on the backdrop, outside the list, puts it away.
             onClick={(event) => event.target === dialog.current && showInbox(false)}
         >
-            <h2 id="inbox-title">Waiting for you</h2>
-            {items.length === 0 && <p>Nothing waits for you.</p>}
+            <h2 id="inbox-title">{words.waitingForYou}</h2>
+            {items.length === 0 && <p>{words.nothingWaits}</p>}
             {INBOX_KINDS.map((kind) => (
                 <InboxGroup
                     key={kind}
@@ -64,6 +66,7 @@ export function InboxDialog() {
 }
 
 function InboxGroup({ kind, items }: { kind: InboxKind; items: InboxItem[] }) {
+    const words = useWords();
     const heading = useStore((state) => wordsFor(state.settings?.style).status[kind][0]);
     const openSession = useStore((state) => state.open);
     const showInbox = useStore((state) => state.showInbox);
@@ -85,7 +88,7 @@ function InboxGroup({ kind, items }: { kind: InboxKind; items: InboxItem[] }) {
                     onClick={() => go(session.id)}
                 >
                     <StatusMark status={session.status} unread={session.unread} />
-                    <span className="inbox-title">{session.title || "New session"}</span>
+                    <span className="inbox-title">{session.title || words.untitled}</span>
                     <span className="inbox-place">
                         {project} / {task}
                     </span>

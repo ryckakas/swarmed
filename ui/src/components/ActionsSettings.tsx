@@ -3,6 +3,7 @@ import { ACTION_ICONS, actionLabel, pickedIcon } from "../actionbar";
 import { api } from "../api";
 import type { Action } from "../api/types";
 import { useStore } from "../store";
+import { useWords } from "../useWords";
 import { Picker } from "./Picker";
 
 /** What an action does when its button is pressed. */
@@ -49,6 +50,7 @@ const EVERYWHERE = "";
  * in the session's terminal. Kept for every repository or for one.
  */
 export function ActionsSettings() {
+    const words = useWords();
     const projects = useStore((state) => state.projects);
     const report = useStore((state) => state.report);
     const noteChanged = useStore((state) => state.noteActionsChanged);
@@ -97,8 +99,8 @@ export function ActionsSettings() {
     const own = actions.filter((action) => action.of_project === (project !== null));
 
     return (
-        <section className="settings-group" aria-label="Actions">
-            <h3>Actions</h3>
+        <section className="settings-group" aria-label={words.actions}>
+            <h3>{words.actions}</h3>
             <p className="settings-hint">
                 Buttons of your own, shown on every task in the order they stand here, those for
                 every repository first. Each sends a prompt to the agent of the session on screen,
@@ -179,7 +181,7 @@ export function ActionsSettings() {
                 />
             ) : (
                 <button type="button" className="button" onClick={() => setDraft(NEW)}>
-                    Add an action
+                    {words.addAction}
                 </button>
             )}
         </section>

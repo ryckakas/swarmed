@@ -12,6 +12,8 @@ import {
     unseenByCloud,
 } from "../cloud";
 import { useStore } from "../store";
+import { useWords } from "../useWords";
+import type { Words } from "../wording";
 
 /** Hands a piece of work to a cloud agent: from a repository, a task, or a session of one. */
 export function CloudDialog() {
@@ -80,6 +82,7 @@ async function handOver(
 }
 
 function Delegate({ target }: { target: CloudTarget }) {
+    const words = useWords();
     const close = () => useStore.getState().askToDelegate(null);
     const dialog = useRef<HTMLDialogElement>(null);
     const fromSession = target.session !== undefined;
@@ -120,7 +123,9 @@ function Delegate({ target }: { target: CloudTarget }) {
 
     return (
         <dialog ref={dialog} className="confirm note" aria-labelledby="cloud-title" onClose={close}>
-            <h2 id="cloud-title">Delegate to the cloud from {target.task ?? target.project}</h2>
+            <h2 id="cloud-title">
+                {words.delegate} from {target.task ?? target.project}
+            </h2>
             <p>
                 An agent starts on this in the cloud at once, on the repository as it is on GitHub.
                 It does not see what is only on this Mac. It needs neither Swarmed nor this Mac to
@@ -169,7 +174,7 @@ function Delegate({ target }: { target: CloudTarget }) {
                     title="⌘ Enter"
                     onClick={() => void send()}
                 >
-                    {sendLabel(telling, sending)}
+                    {sendLabel(telling, sending, words)}
                 </button>
             </div>
         </dialog>
@@ -177,11 +182,11 @@ function Delegate({ target }: { target: CloudTarget }) {
 }
 
 /** What the button that sends says. */
-function sendLabel(telling: CloudTelling, sending: boolean): string {
+function sendLabel(telling: CloudTelling, sending: boolean, words: Words): string {
     if (telling === "brief") {
         return sending ? "Asking…" : "Ask the agent";
     }
-    return sending ? "Delegating…" : "Delegate";
+    return sending ? words.delegating : words.delegateButton;
 }
 
 interface TellingProps {

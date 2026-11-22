@@ -60,7 +60,7 @@ export function Files({ project, task }: { project: Project; task: Task }) {
                     />
                 ))}
                 {listings[""] && rows.length === 0 && (
-                    <p className="changes-note">Nothing here yet.</p>
+                    <p className="changes-note">{words.noFiles}</p>
                 )}
                 {leftOut(listings[""]) && <p className="changes-note">{leftOut(listings[""])}</p>}
             </div>

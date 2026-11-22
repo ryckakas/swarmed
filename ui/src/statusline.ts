@@ -1,5 +1,6 @@
 import type { AgentEvent, FileChange, Session, StatusItem, Task } from "./api/types";
 import { formatDuration, timeWorked } from "./turns";
+import type { Words } from "./wording";
 
 // The built-in pieces of the status line under the message box. Pure, so it can be tested.
 
@@ -13,6 +14,14 @@ export const STATUS_ITEM_LABELS: Record<StatusItem, string> = {
     worktree: "Worktree",
     duration: "Time worked",
 };
+
+/** What a piece is called in the style's words, where the style has its own. */
+export function statusItemName(item: StatusItem, words: Words): string {
+    if (item === "duration") {
+        return words.timeWorked;
+    }
+    return item === "changes" ? words.changes : STATUS_ITEM_LABELS[item];
+}
 
 /** Every built-in piece, in the order they are offered. */
 export const STATUS_ITEMS = Object.keys(STATUS_ITEM_LABELS) as StatusItem[];

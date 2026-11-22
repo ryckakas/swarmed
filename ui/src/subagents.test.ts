@@ -52,7 +52,7 @@ describe("sub-agents at work", () => {
             input: { subagent_type: "Explore" },
         };
         expect(atWorkIn([bare])[0]?.name).toBe("Explore");
-        expect(atWorkIn([{ ...bare, input: null }])[0]?.name).toBe("Sub-agent");
+        expect(atWorkIn([{ ...bare, input: null }])[0]?.name).toBe("");
     });
 });
 

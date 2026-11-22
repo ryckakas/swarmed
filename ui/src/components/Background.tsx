@@ -10,7 +10,6 @@ const POLL_MS = 4000;
 /** What kind of thing was left running, by the name the agent gives its kind. */
 const KINDS: Record<string, string> = {
     local_bash: "Command",
-    local_agent: "Agent",
 };
 
 /**
@@ -81,14 +80,18 @@ function Row({ task, onChanged }: { task: BackgroundTask; onChanged(): void }) {
             <p className="background-what">{task.description || task.task_id}</p>
             <p className="background-facts">
                 <span className="background-state">{words.backgroundState[task.state]}</span>
-                <span>{KINDS[task.kind] ?? task.kind}</span>
+                <span>
+                    {task.kind === "local_agent"
+                        ? words.backgroundAgent
+                        : (KINDS[task.kind] ?? task.kind)}
+                </span>
                 <button
                     type="button"
                     className="background-session"
-                    title="Show the session that started it"
+                    title={words.backgroundOwner}
                     onClick={() => void open(api, task.session_id)}
                 >
-                    {task.session_title || `Session ${task.session_id}`}
+                    {task.session_title || words.sessionNumbered(task.session_id)}
                 </button>
             </p>
             {task.summary && task.state !== "running" && (

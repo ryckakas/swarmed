@@ -135,7 +135,7 @@ function CommitForm({ busy, write, onCommit }: CommitFormProps) {
                 <textarea
                     className="publish-input publish-message-input"
                     aria-label="Commit message"
-                    placeholder={writing ? "Reading the changes…" : "Commit message"}
+                    placeholder={writing ? words.readingChanges : "Commit message"}
                     rows={messageRows(message)}
                     disabled={writing}
                     value={message}

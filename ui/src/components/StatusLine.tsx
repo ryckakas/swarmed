@@ -7,8 +7,8 @@ import {
     contextPercent,
     contextUsage,
     formatTokens,
-    STATUS_ITEM_LABELS,
     type StatusPart,
+    statusItemName,
     statusParts,
 } from "../statusline";
 import { useStore } from "../store";
@@ -110,11 +110,7 @@ function BuiltIn({ project, task, session, events }: Props) {
                         <span
                             key={part.item}
                             className={`status-part status-${part.item}`}
-                            title={
-                                part.item === "duration"
-                                    ? words.timeWorked
-                                    : STATUS_ITEM_LABELS[part.item]
-                            }
+                            title={statusItemName(part.item, words)}
                         >
                             <Runs part={part} />
                         </span>

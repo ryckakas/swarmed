@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useStore } from "../store";
+import { useWords } from "../useWords";
 
 /**
  * Said on the new-task screen when the agent about to be used is not on this Mac: what is
  * missing, and the way to where it can be installed. Nothing is shown while that is unknown.
  */
 export function AgentNotice({ agentId }: { agentId: string }) {
+    const words = useWords();
     const version = useStore((state) => state.agentsVersion);
     const showSettings = useStore((state) => state.showSettings);
     const [missing, setMissing] = useState<string | null>(null);
@@ -33,7 +35,7 @@ export function AgentNotice({ agentId }: { agentId: string }) {
         <p className="agent-notice" role="status">
             {missing} is not installed on this Mac.
             <button type="button" className="button" onClick={() => showSettings(true, "agents")}>
-                Install it in Settings
+                {words.installInSettings}
             </button>
         </p>
     );

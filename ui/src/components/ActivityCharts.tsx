@@ -54,7 +54,10 @@ export function ActivityCharts() {
                     label="What the chart measures"
                     value={metric}
                     onChange={(chosen) => setMetric(chosen as Metric)}
-                    options={METRICS}
+                    options={METRICS.map(([id, label]): [Metric, string] => [
+                        id,
+                        id === "turns" ? words.turns : label,
+                    ])}
                 />
                 <Picker
                     label="How far back"
@@ -281,6 +284,7 @@ function Legend({ series }: { series: string[] }) {
 
 /** The same days as figures, model by model. */
 function ModelTable({ rows }: { rows: ModelRow[] }) {
+    const words = useWords();
     if (rows.length === 0) {
         return <p className="settings-hint">Nothing was done in these days.</p>;
     }
@@ -290,7 +294,7 @@ function ModelTable({ rows }: { rows: ModelRow[] }) {
                 <tr>
                     <th scope="col">Model</th>
                     <th scope="col">Agent</th>
-                    <th scope="col">Turns</th>
+                    <th scope="col">{words.turns}</th>
                     <th scope="col">Failed</th>
                     <th scope="col">Time</th>
                     <th scope="col">Cost</th>

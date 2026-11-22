@@ -33,6 +33,7 @@ const TerminalBox = lazy(async () => {
 });
 
 const PLACEHOLDER: Record<Session["status"], string> = {
+    // The style's own words, in place of this.
     idle: "Reply to the agent",
     working: "Write the next message: it waits until the agent is done. Esc stops the agent.",
     waiting: "Answer the request above. A message written here waits until the agent is done.",
@@ -88,6 +89,7 @@ function TerminalPane({ id, busy }: { id: number; busy: boolean }) {
 
 /** The message box of an existing session. */
 export function Composer({ session }: { session: Session }) {
+    const words = useWords();
     const [text, setText] = useState("");
     const [files, setFiles] = useState<string[]>([]);
     const terminal = useStore((state) => state.terminalOpen);
@@ -154,7 +156,7 @@ export function Composer({ session }: { session: Session }) {
                         onSend={send}
                         onStop={status === "working" ? stop : undefined}
                         canSend={canSend}
-                        placeholder={PLACEHOLDER[status]}
+                        placeholder={status === "idle" ? words.reply : PLACEHOLDER[status]}
                         suggestion={busy ? null : suggestion}
                         inputRef={input}
                         commands={commands}

@@ -71,7 +71,7 @@ function Row({ row, busy, onTake, onForget }: RowProps) {
     return (
         <li className="snapshot-row">
             <div>
-                <p className="settings-label">{row.environment ?? "Default setup"}</p>
+                <p className="settings-label">{row.environment ?? words.defaultSetup}</p>
                 <p className="settings-hint">
                     {snapshot
                         ? `From ${snapshot.task}, ${takenAt(snapshot)}`

@@ -108,6 +108,7 @@ function Said({ text }: { text: string }) {
 }
 
 function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
+    const words = useWords();
     switch (item.kind) {
         case "user":
             return (
@@ -117,10 +118,10 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
                     <button
                         type="button"
                         className="said-fork"
-                        title="Starts a new session with this message and everything said after it, and nothing from before"
+                        title={words.forkHereHint}
                         onClick={() => void forkFromMessage(sessionId, item.key)}
                     >
-                        Fork from here
+                        {words.forkHere}
                     </button>
                 </div>
             );
@@ -161,7 +162,7 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
             return (
                 <div className="said said-peer">
                     <p className="said-from">
-                        From session {item.from}
+                        {words.fromSession(item.from)}
                         {item.title && `, ${item.title}`}
                     </p>
                     <Markdown text={item.text} />
@@ -217,12 +218,7 @@ function ItemView({ item, sessionId }: { item: Item; sessionId: number }) {
                 </p>
             );
         case "forked":
-            return (
-                <p className="forked-line">
-                    Forked from session {item.from}. What stands above was said there; this
-                    session's agent is given it with your first message.
-                </p>
-            );
+            return <p className="forked-line">{words.forkedFrom(item.from)}</p>;
         case "notice":
             return (
                 <p className={`notice-line notice-${item.tone}`} role="alert">

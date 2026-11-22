@@ -3,6 +3,7 @@ import { api } from "../api";
 import { cloudTitle } from "../cloud";
 import { parseDiff } from "../diff";
 import { useStore } from "../store";
+import { useWords } from "../useWords";
 import { Picker } from "./Picker";
 
 /**
@@ -98,8 +99,9 @@ function useCloudDiff(cloudId: number | null): CloudDiff {
 }
 
 function Changes({ diff }: { diff: CloudDiff }) {
+    const words = useWords();
     if (diff === null) {
-        return <p>Asking for the changes…</p>;
+        return <p>{words.askingChanges}</p>;
     }
     return typeof diff === "string" ? <DiffText text={diff} /> : <p>{diff.error}</p>;
 }

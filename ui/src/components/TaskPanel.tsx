@@ -160,6 +160,7 @@ export function browserLabel(url: string, of: number): string {
 
 /** Sets this task beside another of the same repository. Nothing without another task. */
 function CompareWith({ project, task }: { project: Project; task: Task }) {
+    const words = useWords();
     const compare = useStore((state) => state.compare);
     const others = project.tasks.filter((other) => !other.archived && other.id !== task.id);
     if (others.length === 0) {
@@ -168,7 +169,7 @@ function CompareWith({ project, task }: { project: Project; task: Task }) {
     return (
         <div className="panel-actions">
             <Picker
-                label="Compare with another task"
+                label={words.compareTask}
                 value=""
                 onChange={(other) =>
                     other && compare({ project: project.name, left: task.name, right: other })

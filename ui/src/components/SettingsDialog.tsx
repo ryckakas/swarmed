@@ -2,9 +2,10 @@ import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 
 import { api } from "../api";
 import type { Settings, StatusItem, Style, Supervision, Theme } from "../api/types";
 import { LAYOUTS, PALETTES, STYLES } from "../appearance";
-import { movedItem, STATUS_ITEM_LABELS, STATUS_ITEMS, withItem } from "../statusline";
+import { movedItem, STATUS_ITEMS, statusItemName, withItem } from "../statusline";
 import { SETTINGS_TABS, type SettingsTab, useStore } from "../store";
 import { useWords } from "../useWords";
+import type { Words } from "../wording";
 import { About, lookForUpdate } from "./About";
 import { ActionsSettings } from "./ActionsSettings";
 import { AgentsSettings } from "./AgentsSettings";
@@ -26,6 +27,7 @@ import { UsageSettings } from "./UsageSettings";
 
 /** The user's preferences. Every change takes effect, and is saved, at once. */
 export function SettingsDialog() {
+    const words = useWords();
     const open = useStore((state) => state.settingsOpen);
     const settings = useStore((state) => state.settings);
     const showSettings = useStore((state) => state.showSettings);
@@ -50,8 +52,8 @@ export function SettingsDialog() {
             onClose={() => showSettings(false)}
         >
             <header className="settings-head">
-                <h2 id="settings-title">Settings</h2>
-                <IconButton label="Close settings" onClick={() => showSettings(false)}>
+                <h2 id="settings-title">{words.settings}</h2>
+                <IconButton label={words.closeSettings} onClick={() => showSettings(false)}>
                     <CloseIcon />
                 </IconButton>
             </header>
@@ -82,6 +84,7 @@ export function SettingsDialog() {
 
 /** The tabs down the left side. Up and down move between them, as in any list of tabs. */
 function Tabs({ tab }: { tab: SettingsTab }) {
+    const words = useWords();
     const showSettings = useStore((state) => state.showSettings);
     const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
         const step = { ArrowDown: 1, ArrowUp: -1 }[event.key];
@@ -100,7 +103,7 @@ function Tabs({ tab }: { tab: SettingsTab }) {
         <div
             className="settings-tabs"
             role="tablist"
-            aria-label="Settings"
+            aria-label={words.settings}
             aria-orientation="vertical"
             onKeyDown={onKeyDown}
         >
@@ -117,11 +120,19 @@ function Tabs({ tab }: { tab: SettingsTab }) {
                     tabIndex={id === tab ? 0 : -1}
                     onClick={() => showSettings(true, id)}
                 >
-                    {label}
+                    {tabLabel(id, label, words)}
                 </button>
             ))}
         </div>
     );
+}
+
+/** A tab's name: the style's own where it has one. */
+function tabLabel(id: SettingsTab, label: string, words: Words): string {
+    if (id === "actions") {
+        return words.actions;
+    }
+    return id === "shortcuts" ? words.shortcuts : label;
 }
 
 /** The part of the settings a tab stands for. Only the one on screen is built. */
@@ -506,7 +517,7 @@ function StatusPieces({ settings, disabled }: { settings: Settings; disabled: bo
         <ul className="status-pieces" aria-disabled={disabled}>
             {[...chosen, ...rest].map((item) => {
                 const at = chosen.indexOf(item);
-                const name = item === "duration" ? words.timeWorked : STATUS_ITEM_LABELS[item];
+                const name = statusItemName(item, words);
                 return (
                     <li key={item} className="status-piece">
                         <label className="settings-check">
@@ -586,9 +597,10 @@ function StatusLineSettings({ settings }: { settings: Settings }) {
 
 /** Every keyboard shortcut, by where it applies. */
 function Shortcuts() {
+    const words = useWords();
     return (
-        <section className="settings-group" aria-label="Keyboard shortcuts">
-            <h3>Keyboard shortcuts</h3>
+        <section className="settings-group" aria-label={words.shortcuts}>
+            <h3>{words.shortcuts}</h3>
             <ShortcutLists />
         </section>
     );

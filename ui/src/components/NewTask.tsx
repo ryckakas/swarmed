@@ -22,6 +22,7 @@ import { sentOn } from "../slash";
 import { useStore } from "../store";
 import { taskNameForPrompt, taskNameFrom, uniqueTaskName } from "../tree";
 import { useWords } from "../useWords";
+import type { Words } from "../wording";
 import { wordsFor } from "../wording";
 import { AgentNotice } from "./AgentNotice";
 import { ComposerBox } from "./ComposerBox";
@@ -128,13 +129,13 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 onFiles={setFiles}
                 onSend={() => void send()}
                 canSend={canSend}
-                placeholder="Describe the task"
+                placeholder={words.describeTask}
                 disabled={creating !== null}
                 autoFocus
                 commands={commands}
             >
                 <Picker
-                    label="Repository"
+                    label={words.repository}
                     value={project.name}
                     onChange={(value) => {
                         setChosen(value);
@@ -185,7 +186,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
             <AgentNotice agentId={agentId} />
             <p className="new-task-note" aria-live="polite">
                 {creating !== null && <Incubating />}
-                {note(creating, prompt, hookLine)}
+                {note(creating, prompt, hookLine, words)}
             </p>
         </div>
     );
@@ -195,11 +196,13 @@ export function NewTask({ projects }: { projects: Project[] }) {
 const NAMING = "";
 
 /** The line under the box: what sending will do, or what is being done. */
-function note(creating: string | null, prompt: string, hookLine: string | null) {
+function note(creating: string | null, prompt: string, hookLine: string | null, words: Words) {
     if (creating === null) {
-        return prompt.trim() !== "" && "Creates a task for this in its own worktree.";
+        return prompt.trim() !== "" && words.newTaskHint;
     }
-    return creating === NAMING ? "Naming the task…" : `Setting up ${creating}… ${hookLine ?? ""}`;
+    return creating === NAMING
+        ? words.namingTask
+        : `${words.settingUp(creating)} ${hookLine ?? ""}`;
 }
 
 /** What a model calls the task, or `null` to name it after the prompt. Never fails a send. */
@@ -279,6 +282,7 @@ interface VariantsProps {
  * way to take it off again. Only where a new branch is made, since each needs its own.
  */
 function Variants({ offered, agents, first, variants, onChange }: VariantsProps) {
+    const words = useWords();
     const choices = variantChoices(agents, [first, ...variants]);
     if (!offered) {
         return null;
@@ -291,7 +295,7 @@ function Variants({ offered, agents, first, variants, onChange }: VariantsProps)
                     value=""
                     onChange={(key) => key && onChange([...variants, variantFrom(key)])}
                     options={[
-                        ["", "Also run on…"],
+                        ["", words.alsoRunOn],
                         ...choices.map((choice): [string, string] => [
                             variantKey(choice),
                             variantLabel(choice, agents),
@@ -394,7 +398,7 @@ function EnvironmentPicker(props: {
             value={chosenEnvironment(props.names, props.value) ?? ""}
             onChange={props.onChange}
             options={[
-                ["", "Default setup"],
+                ["", words.defaultSetup],
                 ...props.names.map((name): [string, string] => [name, name]),
             ]}
         />

@@ -136,6 +136,81 @@ export interface Words {
         /** The setting that has Swarmed update by itself. */
         automatic: string;
     };
+    /** The user's preferences: the button and window, the window's close button, and a pointer to it. */
+    settings: string;
+    closeSettings: string;
+    installInSettings: string;
+    /** The list of keyboard shortcuts. */
+    shortcuts: string;
+    /** The button that adds one of the user's own buttons. */
+    addAction: string;
+    /** A session, in the middle of a sentence: "a new session", "in any session". */
+    session: string;
+    /** A session by its number, at the start of a line or alone. */
+    sessionNumbered: (id: number) => string;
+    /** What a session that has no title yet is called. */
+    untitled: string;
+    /** The line under a session another session started. */
+    startedBy: (id: number) => string;
+    /** The transcript's button that starts a session from one message on, and what it does. */
+    forkHere: string;
+    forkHereHint: string;
+    /** What a session started from part of another says at its top. */
+    forkedFrom: (id: number) => string;
+    /** A message another session sent, by that session's number. */
+    fromSession: (id: number) => string;
+    /** While a session's conversation is read. */
+    loadingConversation: string;
+    /** What a session says before anything was said in it. */
+    emptySession: string;
+    /** The message box's placeholder while the agent waits for the next message. */
+    reply: string;
+    /** The new-task screen: what sending does, and what is going on after. */
+    newTaskHint: string;
+    namingTask: string;
+    settingUp: (name: string) => string;
+    /** Its box's placeholder, and the picker of the repository it goes in. */
+    describeTask: string;
+    repository: string;
+    /** The picker that runs a new task's prompt on another agent too. */
+    alsoRunOn: string;
+    /** A task set up with no environment of its own. */
+    defaultSetup: string;
+    /** The changes tab: while they are read, and when there are none. */
+    readingChanges: string;
+    noChanges: (base: string) => string;
+    /** Its button that hands the review comments to the session, and what that does. */
+    sendToSession: string;
+    sendToSessionHint: string;
+    /** Comparing tasks: a file one did not change, the picker, and a cloud task's changes. */
+    notChanged: string;
+    notChangedHere: string;
+    compareTask: string;
+    askingChanges: string;
+    /** The files tab when the worktree holds nothing to list. */
+    noFiles: string;
+    /** Something left running by a sub-agent, and the button to the session that started it. */
+    backgroundAgent: string;
+    backgroundOwner: string;
+    /** A sub-agent's pane: before it has said anything, and over what it answered. */
+    subAgentSilent: string;
+    subAgentAnswer: string;
+    /** The sidebar with no repositories, and the toggle that folds a repository's tasks. */
+    noRepositories: string;
+    showTasks: string;
+    hideTasks: string;
+    /** The cloud dialog's button that hands the work over, and while it does. */
+    delegateButton: string;
+    delegating: string;
+    /** The list of what waits for the user, and when nothing does. */
+    waitingForYou: string;
+    nothingWaits: string;
+    /** The search box's placeholder. */
+    searchPlaceholder: string;
+    /** What the activity charts count a turn as. */
+    turns: string;
+    /** A stack's button while it starts. */
+    stackStarting: string;
 }
 
 const PLAIN: Words = {
@@ -219,6 +294,54 @@ const PLAIN: Words = {
         restart: "Restart to update",
         automatic: "Update automatically",
     },
+    settings: "Settings",
+    closeSettings: "Close settings",
+    installInSettings: "Install it in Settings",
+    shortcuts: "Keyboard shortcuts",
+    addAction: "Add an action",
+    session: "session",
+    sessionNumbered: (id) => `Session ${id}`,
+    untitled: "New session",
+    startedBy: (id) => `Started by session ${id}`,
+    forkHere: "Fork from here",
+    forkHereHint:
+        "Starts a new session with this message and everything said after it, and nothing from before",
+    forkedFrom: (id) =>
+        `Forked from session ${id}. What stands above was said there; this session's agent is given it with your first message.`,
+    fromSession: (id) => `From session ${id}`,
+    loadingConversation: "Loading the conversation…",
+    emptySession: "Nothing has been said yet. The agent starts with your first message.",
+    reply: "Reply to the agent",
+    newTaskHint: "Creates a task for this in its own worktree.",
+    namingTask: "Naming the task…",
+    settingUp: (name) => `Setting up ${name}…`,
+    describeTask: "Describe the task",
+    repository: "Repository",
+    alsoRunOn: "Also run on…",
+    defaultSetup: "Default setup",
+    readingChanges: "Reading the changes…",
+    noChanges: (base) => `Nothing has changed since this branch left ${base}.`,
+    sendToSession: "Send to this session",
+    sendToSessionHint: "Sends the comments to the session on screen, as one message",
+    notChanged: "not changed",
+    notChangedHere: "Not changed in this task.",
+    compareTask: "Compare with another task",
+    askingChanges: "Asking for the changes…",
+    noFiles: "Nothing here yet.",
+    backgroundAgent: "Agent",
+    backgroundOwner: "Show the session that started it",
+    subAgentSilent: "Nothing heard from it yet.",
+    subAgentAnswer: "What it handed back",
+    noRepositories: "No repositories yet.",
+    showTasks: "Show this repository's tasks",
+    hideTasks: "Hide its tasks",
+    delegateButton: "Delegate",
+    delegating: "Delegating…",
+    waitingForYou: "Waiting for you",
+    nothingWaits: "Nothing waits for you.",
+    searchPlaceholder: "Search what was said, in any session",
+    turns: "Turns",
+    stackStarting: "Starting…",
 };
 
 const SWARM: Words = {
@@ -239,6 +362,7 @@ const SWARM: Words = {
         Starting: ["Stirring", "Waking"],
         Thinking: ["Gestating", "Digesting", "Brooding"],
         Writing: ["Secreting", "Spinning"],
+        "Presenting its plan": ["Unfurling its plan"],
     },
     needYou: (count) => (count === 1 ? "1 awaits you" : `${count} await you`),
     unread: (count) => `${count} hatched`,
@@ -297,6 +421,44 @@ const SWARM: Words = {
         restart: "Restart to evolve",
         automatic: "Evolve automatically",
     },
+    settings: "Evolution Chamber",
+    closeSettings: "Close the Evolution Chamber",
+    installInSettings: "Install it in the Evolution Chamber",
+    shortcuts: "Reflexes",
+    addAction: "Add an instinct",
+    session: "spawn",
+    sessionNumbered: (id) => `Spawn ${id}`,
+    untitled: "New spawn",
+    startedBy: (id) => `Sent out by spawn ${id}`,
+    forkHere: "Split from here",
+    forkHereHint:
+        "Spawns from this message: everything said after it comes along, and nothing from before",
+    forkedFrom: (id) =>
+        `Split from spawn ${id}. What stands above was said there; this spawn's agent is given it with your first message.`,
+    fromSession: (id) => `From spawn ${id}`,
+    loadingConversation: "Waking the spawn…",
+    emptySession: "Nothing has stirred yet. The spawn wakes with your first message.",
+    reply: "Reply to the spawn",
+    settingUp: (name) => `Incubating ${name}…`,
+    alsoRunOn: "Also spawn on…",
+    defaultSetup: "Default pool",
+    readingChanges: "Reading the mutations…",
+    noChanges: (base) => `No mutations since this branch left ${base}.`,
+    sendToSession: "Send to this spawn",
+    sendToSessionHint: "Sends the comments to the spawn on screen, as one message",
+    notChanged: "no mutations",
+    notChangedHere: "No mutations in this task.",
+    askingChanges: "Asking for the mutations…",
+    noFiles: "These tunnels are empty.",
+    backgroundAgent: "Hatchling",
+    backgroundOwner: "Show the spawn that sent it out",
+    subAgentSilent: "No word from the hatchling yet.",
+    subAgentAnswer: "What it brought back",
+    waitingForYou: "Awaiting you",
+    nothingWaits: "Nothing awaits you.",
+    searchPlaceholder: "Search what was said, in any spawn",
+    turns: "Molts",
+    stackStarting: "Waking…",
 };
 
 /** The swarm's words, and its names for the tree as well. */
@@ -315,6 +477,16 @@ const COLONY: Words = {
     askAgain: "Sniff again",
     openInClaude: "Open in Claude Code's lair",
     backToShell: "Back to the burrow",
+    newTaskHint: "Lays a brood for this in its own worktree.",
+    namingTask: "Naming the brood…",
+    describeTask: "Describe the brood",
+    repository: "Colony",
+    compareTask: "Compare with another brood",
+    noRepositories: "No colonies yet.",
+    showTasks: "Show this colony's broods",
+    hideTasks: "Hide its broods",
+    delegateButton: "Send spores",
+    delegating: "Sending spores…",
 };
 
 const WORDS: Record<Style, Words> = { plain: PLAIN, swarm: SWARM, colony: COLONY };

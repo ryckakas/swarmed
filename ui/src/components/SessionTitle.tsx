@@ -2,9 +2,11 @@ import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { Session } from "../api/types";
 import { useStore } from "../store";
+import { useWords } from "../useWords";
 
 /** The session's title. Double-click it, or press Rename, to type a better one. */
 export function SessionTitle({ session }: { session: Session }) {
+    const words = useWords();
     const rename = useStore((state) => state.rename);
     const [draft, setDraft] = useState<string | null>(null);
     // A rename asked for elsewhere, by its shortcut, starts the same edit as the button here.
@@ -16,7 +18,7 @@ export function SessionTitle({ session }: { session: Session }) {
             setDraft(session.title);
         }
     }, [asked, session.title]);
-    const title = session.title || "New session";
+    const title = session.title || words.untitled;
 
     if (draft === null) {
         return (

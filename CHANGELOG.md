@@ -28,8 +28,13 @@ notice adds its line under Unreleased.
 
 ### Changed
 
-- **In the swarm's styles the version is an evolution:** `e0.2.1` in the corner, "Evolution
-  0.2.1" in About.
+- **The swarm's styles reach further.** Settings is the Evolution Chamber and the keyboard
+  shortcuts are Reflexes. The version is an evolution: `e0.2.1` in the corner, "Evolution 0.2.1"
+  in About. Untitled sessions, empty and loading sessions, forks, changes, files, sub-agents,
+  actions, the inbox, search and the activity charts now take the swarm's words where they still
+  had the plain ones. The colony style also calls repositories and tasks colonies and broods in
+  the new-task screen, the sidebar and the cloud dialog. Questions and errors stay plain, and
+  the plain style reads as before.
 
 ### Fixed
 
