@@ -1904,6 +1904,7 @@ export function createMockApi(): Api {
         rules: "",
         status_items: ["branch", "changes", "model", "context", "cost", "duration"],
         status_command: "",
+        updates: "automatic",
     };
     return {
         overview: async () => structuredClone(agent.projects),
@@ -1917,11 +1918,17 @@ export function createMockApi(): Api {
         effortDefault: sampleEffortDefault,
         ...setupApi(hookListeners),
         agents: async () => [
-            { id: "claude", name: "Claude Code", models: ["opus", "sonnet", "haiku", "fable"] },
+            {
+                id: "claude",
+                name: "Claude Code",
+                models: ["opus", "sonnet", "haiku", "fable"],
+                default_model: null,
+            },
             {
                 id: "opencode",
                 name: "OpenCode",
                 models: ["openrouter/openai/gpt-5.6", "openrouter/google/gemini-3-pro"],
+                default_model: "openrouter/openai/gpt-5.6",
             },
         ],
         // A browser gives no paths, so the sample hands out two that look real.
@@ -2013,6 +2020,13 @@ export function createMockApi(): Api {
         settings: async () => ({ ...settings }),
         // The sample's own: a browser has no app to ask.
         version: async () => "0.1.0",
+        // A newer version is out in the sample, so the About view has something to show.
+        updateState: async () => ({ state: "unknown" }),
+        updateCheck: async () => ({ state: "available", version: "0.2.0" }),
+        updateRestart: async () => {
+            throw new Error("A browser has no Swarmed to restart.");
+        },
+        onUpdateState: async () => () => undefined,
         setBadge: async () => {},
         setSettings: async (changed) => {
             settings = changed;

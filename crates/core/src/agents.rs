@@ -7,10 +7,15 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::{AcpBackend, AgentBackend, ClaudeBackend};
+use crate::agent_setup::defaults_to_first_listed;
 use crate::error::{Error, Result};
+use crate::mcp_opencode::opencode_model;
 
 /// The id of the agent every installation has.
 pub const CLAUDE: &str = "claude";
+
+/// The id OpenCode is set up under.
+const OPENCODE: &str = "opencode";
 
 /// An agent as a front end shows it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -21,6 +26,10 @@ pub struct AgentInfo {
     pub name: String,
     /// Model names worth offering. A session may also name one that is not listed.
     pub models: Vec<String>,
+    /// What a session that leaves the model open runs on, where Swarmed decides that and not
+    /// the agent: the first of `models`, for an agent whose own default is not one to go by
+    /// and whose own configuration names none.
+    pub default_model: Option<String>,
 }
 
 /// One entry of `agents.toml`: an ACP agent and how to start it.
@@ -82,6 +91,7 @@ fn claude_info() -> AgentInfo {
         id: CLAUDE.to_string(),
         name: "Claude Code".to_string(),
         models,
+        default_model: None,
     }
 }
 
@@ -98,17 +108,19 @@ impl Agents {
         Self(BTreeMap::from([(CLAUDE.to_string(), agent)]))
     }
 
-    /// Claude Code plus the ACP agents in `agents.toml`, if that file exists.
-    pub(crate) fn load(config: &Path) -> Result<Self> {
+    /// Claude Code plus the ACP agents in `agents.toml`, if that file exists. `opencode` is
+    /// OpenCode's configuration directory.
+    pub(crate) fn load(config: &Path, opencode: &Path) -> Result<Self> {
         let mut agents = Self::only_claude(Arc::new(ClaudeBackend::default()));
-        agents.reload(config)?;
+        agents.reload(config, opencode)?;
         Ok(agents)
     }
 
     /// Reads `agents.toml` again: the agents it listed before are replaced by the ones it lists
     /// now. Claude Code and agents registered directly stay as they are. A file that cannot be
-    /// read leaves everything as it was.
-    pub(crate) fn reload(&mut self, config: &Path) -> Result<()> {
+    /// read leaves everything as it was. OpenCode's own configuration, in `opencode`, is read
+    /// with it: a model the user chose there is OpenCode's default, and Swarmed picks none.
+    pub(crate) fn reload(&mut self, config: &Path, opencode: &Path) -> Result<()> {
         let text = match std::fs::read_to_string(config) {
             Ok(text) => text,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
@@ -126,24 +138,31 @@ impl Agents {
             )));
         }
         self.0.retain(|_, agent| !agent.from_file);
+        let has_its_own = |id: &str| id == OPENCODE && opencode_model(opencode).is_some();
         for (id, entry) in entries {
-            self.add(id, entry);
+            let first_listed = defaults_to_first_listed(&id) && !has_its_own(&id);
+            self.add(id, entry, first_listed);
         }
         Ok(())
     }
 
-    fn add(&mut self, id: String, entry: AgentConfig) {
+    /// Adds an entry of the file. With `first_listed`, a session that leaves the model open
+    /// runs on the first model the entry lists.
+    fn add(&mut self, id: String, entry: AgentConfig, first_listed: bool) {
         let name = entry.name.unwrap_or_else(|| id.clone());
+        let default_model = entry.models.first().filter(|_| first_listed).cloned();
         let info = AgentInfo {
             id: id.clone(),
             name,
-            models: entry.models,
+            models: entry.models.clone(),
+            default_model: default_model.clone(),
         };
         let program = PathBuf::from(&entry.command);
         let backend = AcpBackend {
             program: entry.command.into(),
             args: entry.args,
             env: entry.env.into_iter().collect(),
+            default_model,
         };
         let agent = Agent {
             info,
@@ -198,6 +217,11 @@ impl Agents {
             .ok_or_else(|| Error::AgentNotFound(id.to_string()))
     }
 
+    /// What a session on this agent that leaves the model open runs on, if Swarmed decides it.
+    pub(crate) fn default_model(&self, id: &str) -> Option<String> {
+        self.0.get(id)?.info.default_model.clone()
+    }
+
     pub(crate) fn backend(&self, id: &str) -> Result<Arc<dyn AgentBackend>> {
         Ok(Arc::clone(&self.agent(id)?.backend))
     }
@@ -216,7 +240,7 @@ mod tests {
         let dir = tempfile::tempdir()?;
         let path = dir.path().join("agents.toml");
         std::fs::write(&path, toml)?;
-        Agents::load(&path)
+        Agents::load(&path, dir.path())
     }
 
     #[test]
@@ -247,6 +271,51 @@ OPENCODE_CONFIG = "/tmp/x"
     }
 
     #[test]
+    fn only_an_agent_whose_models_come_from_openrouter_defaults_to_the_first_listed() {
+        let agents = load(
+            "[opencode]\ncommand = \"opencode\"\nmodels = [\"openrouter/a/one\", \"openrouter/b/two\"]\n\
+             [codex]\ncommand = \"codex-acp\"\nmodels = [\"gpt-x\", \"gpt-y\"]\n\
+             [bare]\ncommand = \"opencode\"\n",
+        )
+        .expect("loads");
+        let defaults: Vec<(String, Option<String>)> = agents
+            .infos()
+            .into_iter()
+            .map(|info| (info.id, info.default_model))
+            .collect();
+        assert_eq!(
+            defaults,
+            [
+                ("claude".to_string(), None),
+                ("bare".to_string(), None),
+                ("codex".to_string(), None),
+                ("opencode".to_string(), Some("openrouter/a/one".to_string())),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_model_named_in_opencodes_own_configuration_stays_its_default() {
+        let dir = tempfile::tempdir().expect("folder");
+        let path = dir.path().join("agents.toml");
+        std::fs::write(
+            &path,
+            "[opencode]\ncommand = \"opencode\"\nmodels = [\"openrouter/a/one\"]\n",
+        )
+        .expect("writes");
+        let default_model = |agents: &Agents| agents.default_model("opencode");
+
+        let mut agents = Agents::load(&path, dir.path()).expect("loads");
+        assert_eq!(default_model(&agents), Some("openrouter/a/one".to_string()));
+
+        // The user chose a model there: it is OpenCode's default, and Swarmed picks none.
+        let own = "{ // mine\n \"model\": \"anthropic/claude\" }";
+        std::fs::write(dir.path().join("opencode.jsonc"), own).expect("writes");
+        agents.reload(&path, dir.path()).expect("reloads");
+        assert_eq!(default_model(&agents), None);
+    }
+
+    #[test]
     fn every_agent_gets_the_shared_mcp_servers_unless_told_not_to() {
         // The setting's earlier name is read past, whatever it says.
         let agents = load(
@@ -267,7 +336,11 @@ OPENCODE_CONFIG = "/tmp/x"
 
     #[test]
     fn a_missing_file_means_only_claude_and_a_bad_one_is_an_error() {
-        let missing = Agents::load(Path::new("/nonexistent/agents.toml")).expect("loads");
+        let missing = Agents::load(
+            Path::new("/nonexistent/agents.toml"),
+            Path::new("/nonexistent"),
+        )
+        .expect("loads");
         assert_eq!(missing.infos().len(), 1);
         assert!(matches!(
             load("[x]\ncomand = \"typo\"\n"),

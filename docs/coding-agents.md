@@ -20,6 +20,12 @@ writes it into `agents.toml` with its full path and the models to offer: Codex's
 Antigravity's are asked of the agent, and OpenCode starts with a few, with OpenRouter's public
 list to pick more from in Settings. `swarmed agent` does the same from a terminal.
 
+An OpenCode session left on "Default model" runs on the first model listed for it, which the
+model menu names. Left to itself OpenCode would run on the newest model it knows of, which
+changes whenever one comes out. A `model` set in your own `opencode.json` is the exception: it
+stays OpenCode's default, and Swarmed picks none. Swarmed reads that file when it starts and
+whenever the agents in Settings change.
+
 An agent other than Claude Code is offered for a session only while its program can be found: on
 your shell's `PATH`, or in `/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin` or
 `~/.opencode/bin`.

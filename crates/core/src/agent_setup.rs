@@ -170,6 +170,16 @@ pub struct AgentSetup {
     pub model_source: String,
 }
 
+/// Whether a session on agent `id` that leaves the model open runs on the first model listed
+/// for it rather than on the agent's own default. So for an agent whose models the user picks
+/// from OpenRouter: with no model named in its own configuration, OpenCode's default is
+/// whichever model OpenRouter added last, which may be one the user's account is not allowed,
+/// or one no good at using tools. Whether its configuration names one is the caller's to ask.
+pub(crate) fn defaults_to_first_listed(id: &str) -> bool {
+    let picked = |agent: &&Known| matches!(agent.models, Models::OpenRouter(_));
+    KNOWN.iter().filter(picked).any(|agent| agent.id == id)
+}
+
 fn known(id: &str) -> Result<&'static Known> {
     KNOWN
         .iter()
@@ -391,7 +401,11 @@ impl Core {
             .agents
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        Agents::reload(&mut agents, &self.paths.agents_config())
+        Agents::reload(
+            &mut agents,
+            &self.paths.agents_config(),
+            &self.paths.opencode_config_dir,
+        )
     }
 }
 

@@ -59,12 +59,15 @@ curl -fsSL https://raw.githubusercontent.com/ryckakas/swarmed/main/install.sh | 
 ```
 
 puts Swarmed.app in `/Applications` (`~/Applications` when that cannot be written to) and links
-the `swarmed` command into `~/.local/bin`. Run it again to update. Or with Homebrew, which puts
-`swarmed` on the PATH as well:
+the `swarmed` command into `~/.local/bin`. Or with Homebrew, which puts `swarmed` on the PATH as
+well:
 
 ```sh
 brew install --cask ryckakas/tap/swarmed
 ```
+
+Swarmed then updates itself: it installs a new version when you quit, or from About at once
+(Settings → About turns that off). Running the install script again updates it too.
 
 `cargo install swarmed` builds the command alone. The releases are built for macOS so far, so
 elsewhere that is how to get the command.

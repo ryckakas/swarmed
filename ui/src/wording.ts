@@ -114,6 +114,25 @@ export interface Words {
     about: string;
     /** What Swarmed is, in a sentence, in the About view. */
     aboutLine: string;
+    /** Updating Swarmed, in the About view and its settings. */
+    update: {
+        /** While it looks for a new version. */
+        checking: string;
+        /** The installed version is the newest. */
+        upToDate: string;
+        /** The button that looks for a new version. */
+        check: string;
+        /** A new version is out, and the button that installs it and restarts. */
+        available: (version: string) => string;
+        install: string;
+        /** A new version coming in, with how far it got, such as "40%". */
+        downloading: (version: string, progress: string) => string;
+        /** A new version downloaded and checked, and the button that restarts into it. */
+        ready: (version: string) => string;
+        restart: string;
+        /** The setting that has Swarmed update by itself. */
+        automatic: string;
+    };
 }
 
 const PLAIN: Words = {
@@ -184,6 +203,17 @@ const PLAIN: Words = {
     moreActions: "More actions…",
     about: "About Swarmed",
     aboutLine: "Coding agents side by side, each on a branch and in a worktree of its own.",
+    update: {
+        checking: "Checking for updates…",
+        upToDate: "Swarmed is up to date.",
+        check: "Check for updates",
+        available: (version) => `Swarmed ${version} is out.`,
+        install: "Update and restart",
+        downloading: (version, progress) => `Downloading Swarmed ${version}… ${progress}`,
+        ready: (version) => `Swarmed ${version} is downloaded, and goes in when you quit.`,
+        restart: "Restart to update",
+        automatic: "Update automatically",
+    },
 };
 
 const SWARM: Words = {
@@ -249,6 +279,17 @@ const SWARM: Words = {
     about: "About the hive",
     aboutLine:
         "A swarm of coding agents at work side by side, each on a branch and in a worktree of its own.",
+    update: {
+        checking: "Sensing the next evolution…",
+        upToDate: "The hive is fully evolved.",
+        check: "Sense the next evolution",
+        available: (version) => `Evolution ${version} has emerged.`,
+        install: "Evolve and restart",
+        downloading: (version, progress) => `Gestating evolution ${version}… ${progress}`,
+        ready: (version) => `Evolution ${version} has gestated, and takes hold when you quit.`,
+        restart: "Restart to evolve",
+        automatic: "Evolve automatically",
+    },
 };
 
 /** The swarm's words, and its names for the tree as well. */

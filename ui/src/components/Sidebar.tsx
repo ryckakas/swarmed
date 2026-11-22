@@ -8,6 +8,7 @@ import { agentName, iconForAgent } from "../providerIcons";
 import { useStore } from "../store";
 import type { SubAgent } from "../subagents";
 import { countUnread, countWaiting, nestedSessions, projectStatus, projectUnread } from "../tree";
+import { newVersion, updateLine } from "../updates";
 import { useWords } from "../useWords";
 import { wordsFor } from "../wording";
 import { ForgetCloudDialog } from "./ForgetCloudDialog";
@@ -23,6 +24,9 @@ export function Sidebar() {
     const showInbox = useStore((state) => state.showInbox);
     const showBanner = useStore((state) => state.showBanner);
     const version = useStore((state) => state.version);
+    const update = useStore((state) => state.update);
+    // A newer version that is out or ready marks the version, which opens the About view.
+    const fresh = newVersion(update);
     const waiting = countWaiting(projects);
     const unread = countUnread(projects);
     const words = useStore((state) => wordsFor(state.settings?.style));
@@ -34,8 +38,9 @@ export function Sidebar() {
                     <button
                         type="button"
                         className="sidebar-version"
-                        title={words.about}
-                        aria-label={`${words.about}, version ${version}`}
+                        data-new={fresh === null ? undefined : ""}
+                        title={fresh === null ? words.about : updateLine(update, words)}
+                        aria-label={`${words.about}, version ${version}${fresh === null ? "" : `, ${updateLine(update, words)}`}`}
                         onClick={() => showBanner("about")}
                     >
                         v{version}

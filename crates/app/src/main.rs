@@ -10,6 +10,7 @@ mod commands;
 mod menu;
 mod navigation;
 mod notify;
+mod update;
 
 use std::borrow::Cow;
 use std::io::Write;
@@ -171,6 +172,7 @@ fn with_state<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
     builder
         .plugin(navigation::guard())
         .manage(Arc::clone(&core))
+        .manage(update::Updates::default())
         .register_uri_scheme_protocol(VIEW_SCHEME, move |_context, request| {
             view_response(&core, request.uri().path())
         })
@@ -219,6 +221,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::status_line, commands::session_usage_refresh, commands::session_rename, commands::session_close, commands::session_delete,
         commands::sessions_search, commands::sessions_closed, commands::session_reopen,
         commands::session_fork, commands::session_set_agent,
+        commands::update_state, commands::update_check, commands::update_restart,
     ])
 }
 
@@ -249,8 +252,12 @@ fn main() {
     let bus = core.subscribe();
     let terminals = core.subscribe_terminals();
     let claude_terminals = core.subscribe_claude_terminals();
-    // The dialog plugin is the native folder picker, for adding a repository.
-    with_core(Builder::default().plugin(tauri_plugin_dialog::init()), core)
+    // The dialog plugin is the native folder picker, for adding a repository; the updater
+    // fetches and checks new versions (`update.rs`).
+    let plugins = Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build());
+    with_core(plugins, core)
         .setup(move |app| {
             drop(tauri::async_runtime::spawn(forward_events(
                 bus,
@@ -260,6 +267,8 @@ fn main() {
             // Where the sessions' own tool servers reach the core: to see, message and start
             // other sessions. If it cannot listen, those tools say so; nothing else depends on it.
             drop(tauri::async_runtime::spawn(serve_session_tools(listening)));
+            // New versions, looked for by themselves only if the user wants that.
+            update::watch(app.handle().clone());
             // Asked once, by the system; from then on its settings hold the answer.
             notify::ask_permission();
             // In place of the default menu bar, whose About is the system's bare panel.
@@ -284,7 +293,12 @@ fn main() {
         .run(move |app, event| match event {
             // What the tasks' `start` commands left running goes with Swarmed: nothing it
             // started is to carry on unseen.
-            tauri::RunEvent::Exit => tauri::async_runtime::block_on(leaving.leave()),
+            // A new version that is ready goes in now, as Swarmed goes. Agents it started may
+            // still be on their way out: they run on from the files they were started from.
+            tauri::RunEvent::Exit => {
+                tauri::async_runtime::block_on(leaving.leave());
+                update::install_ready(app);
+            }
             // Closing the window puts Swarmed away, as it does for most apps on a Mac: the
             // sessions carry on and tell the user when they need them. Quitting is ⌘Q.
             tauri::RunEvent::WindowEvent {

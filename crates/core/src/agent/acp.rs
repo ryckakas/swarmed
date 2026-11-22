@@ -38,6 +38,9 @@ pub struct AcpBackend {
     pub args: Vec<String>,
     /// Extra environment variables for the agent, on top of Swarmed's own.
     pub env: Vec<(String, String)>,
+    /// What a session that leaves the model to the agent runs on, for an agent whose own
+    /// default is not one to go by: `None` leaves it to the agent.
+    pub default_model: Option<String>,
 }
 
 fn missing_pipe() -> Error {
@@ -77,7 +80,7 @@ impl AgentBackend for AcpBackend {
 
         let (event_tx, events) = mpsc::unbounded_channel();
         let (commands, command_rx) = mpsc::unbounded_channel();
-        let session = Conversation::new(spec, stdin, event_tx);
+        let session = Conversation::new(spec, self.default_model.clone(), stdin, event_tx);
         // The task holds the process, which is killed when the task goes.
         let driving = tokio::spawn(drive(session, child, stdout, stderr, command_rx));
         Ok(AgentHandle {
@@ -205,14 +208,18 @@ struct Conversation {
     failure: Option<String>,
     /// The modes of its own the agent offers, by id. Empty if it has none.
     modes: Vec<String>,
+    /// See [`AcpBackend::default_model`].
+    default_model: Option<String>,
 }
 
 impl Conversation {
     fn new(
-        spec: SessionSpec,
+        mut spec: SessionSpec,
+        default_model: Option<String>,
         stdin: ChildStdin,
         events: mpsc::UnboundedSender<AgentEvent>,
     ) -> Self {
+        spec.model = spec.model.or_else(|| default_model.clone());
         Self {
             spec,
             stdin: Some(stdin),
@@ -232,6 +239,7 @@ impl Conversation {
             woken: false,
             failure: None,
             modes: vec![],
+            default_model,
         }
     }
 
@@ -396,8 +404,10 @@ impl Conversation {
     }
 
     /// Switches the open session to `model`. The protocol has no way back to the agent's own
-    /// default, so `None` only applies when the session is next started.
+    /// default, so `None` only applies when the session is next started, unless Swarmed has a
+    /// default of its own for the agent, which it switches to.
     async fn set_model(&mut self, model: Option<String>) {
+        let model = model.or_else(|| self.default_model.clone());
         self.spec.model.clone_from(&model);
         let (Some(model), Some(session_id)) = (model, self.session_id.clone()) else {
             return;

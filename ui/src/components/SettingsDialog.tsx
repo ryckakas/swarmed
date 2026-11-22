@@ -5,7 +5,7 @@ import { LAYOUTS, PALETTES, STYLES } from "../appearance";
 import { movedItem, STATUS_ITEM_LABELS, STATUS_ITEMS, withItem } from "../statusline";
 import { SETTINGS_TABS, type SettingsTab, useStore } from "../store";
 import { useWords } from "../useWords";
-import { About } from "./About";
+import { About, lookForUpdate } from "./About";
 import { ActionsSettings } from "./ActionsSettings";
 import { AgentsSettings } from "./AgentsSettings";
 import { ApiKeys } from "./ApiKeys";
@@ -154,7 +154,7 @@ function Panel({ tab, settings }: { tab: SettingsTab; settings: Settings }) {
         case "shortcuts":
             return <Shortcuts />;
         case "about":
-            return <AboutSection />;
+            return <AboutSection settings={settings} />;
     }
 }
 
@@ -594,11 +594,29 @@ function Shortcuts() {
     );
 }
 
-function AboutSection() {
+function AboutSection({ settings }: { settings: Settings }) {
+    const change = useStore((state) => state.changeSettings);
+    const words = useWords();
     return (
         <section className="settings-group" aria-label="About">
             <h3>About</h3>
             <About />
+            <Row
+                label={words.update.automatic}
+                hint="Swarmed looks for a new version at launch and every few hours, downloads it, and installs it when you quit. Off, it looks only when this view or About opens, and installs only when you ask."
+            >
+                <input
+                    type="checkbox"
+                    aria-label={words.update.automatic}
+                    checked={settings.updates === "automatic"}
+                    onChange={(event) =>
+                        // A version held ready is put away or downloaded again by the look.
+                        void change(api, {
+                            updates: event.target.checked ? "automatic" : "when_asked",
+                        }).then(lookForUpdate)
+                    }
+                />
+            </Row>
         </section>
     );
 }

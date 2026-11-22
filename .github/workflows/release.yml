@@ -94,7 +94,20 @@ jobs:
           corepack enable
           pnpm install --frozen-lockfile
 
+      # The archive installed apps update from is signed with it (RELEASING.md).
+      - name: Require the updater's signing key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::error::The TAURI_SIGNING_PRIVATE_KEY secret is not set, so installed apps could not update to this release (RELEASING.md)"
+            exit 1
+          fi
+
       - name: Build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: scripts/build-release.sh
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -113,6 +126,26 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: ${{ runner.temp }}/artifacts
+
+      # What installed apps look at to update: this release's version, notes, and its signed
+      # archive. The one app runs on both, so both of the updater's macOS names point at it.
+      - name: Write latest.json
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+          ARTIFACTS: ${{ runner.temp }}/artifacts
+        run: |
+          archive="Swarmed-$VERSION-macos-universal.app.tar.gz"
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION/$archive"
+          jq -n \
+            --arg version "$VERSION" \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg url "$url" \
+            --arg signature "$(cat "$ARTIFACTS/release-assets/$archive.sig")" \
+            --rawfile notes "$ARTIFACTS/notes/notes.md" \
+            '{version: $version, notes: $notes, pub_date: $date, platforms: {
+              "darwin-aarch64": {url: $url, signature: $signature},
+              "darwin-x86_64": {url: $url, signature: $signature}}}' \
+            > "$ARTIFACTS/release-assets/latest.json"
 
       # A rerun finds the release there already and replaces its files instead.
       - name: Publish

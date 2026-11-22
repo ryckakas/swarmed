@@ -2,6 +2,8 @@
 //! runtime. The argument names here are the ones `ui/src/api/tauri.ts` sends: if a command's
 //! parameters are renamed, this is where it shows.
 
+use std::io::{BufRead, BufReader, Write};
+use std::net::TcpListener;
 use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
@@ -45,6 +47,12 @@ fn git(dir: &Path, args: &[&str]) {
 
 /// The app on the mock runtime, over a core with the scripted agent and one git repository.
 fn app() -> App {
+    // Nothing listens on the discard port: a look for a new version fails at once.
+    app_updating_from("https://127.0.0.1:9/latest.json")
+}
+
+/// The same app, looking for new versions of itself at `endpoint`.
+fn app_updating_from(endpoint: &str) -> App {
     let dir = TempDir::new().expect("temp dir");
     let root = dir.path().canonicalize().expect("temp dir resolves");
     let repo = root.join("demo");
@@ -65,8 +73,16 @@ fn app() -> App {
         opencode_config_dir: root.join("opencode"),
     };
     let core = Core::with_backend(paths, Arc::new(FakeBackend::default())).expect("core opens");
-    let app = with_core(mock_builder(), Arc::new(core))
-        .build(mock_context(noop_assets()))
+    let mut context = mock_context(noop_assets());
+    let updater = json!({ "pubkey": "none", "endpoints": [endpoint] });
+    context
+        .config_mut()
+        .plugins
+        .0
+        .insert("updater".to_string(), updater);
+    let plugins = mock_builder().plugin(tauri_plugin_updater::Builder::new().build());
+    let app = with_core(plugins, Arc::new(core))
+        .build(context)
         .expect("app builds");
     let window = WebviewWindowBuilder::new(&app, "main", WebviewUrl::default())
         .build()
@@ -451,7 +467,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
             "text_scale": 100,
             "html_views": true, "notifications": true, "default_supervision": "auto",
             "status_items": ["branch", "changes", "model", "context", "cost"],
-            "status_command": "", "rules": "",
+            "status_command": "", "rules": "", "updates": "automatic",
         })
     );
 
@@ -522,6 +538,85 @@ fn the_ui_can_list_what_was_left_running_and_cannot_stop_what_no_agent_runs() {
     assert_eq!(app.invoke("task_background", target), Ok(json!([])));
     let stop = json!({ "id": 999, "taskId": "b1" });
     assert!(app.invoke("session_stop_background", stop).is_err());
+}
+
+#[test]
+fn nothing_is_known_of_updates_until_asked_and_a_build_from_the_sources_is_not_updated() {
+    let app = app();
+    assert_eq!(
+        app.invoke("update_state", json!({})),
+        Ok(json!({ "state": "unknown" }))
+    );
+    let refused = app.invoke("update_restart", json!({}));
+    let message = refused.expect_err("refused");
+    assert!(
+        message
+            .as_str()
+            .is_some_and(|m| m.contains("not updated: install a release")),
+        "{message}"
+    );
+}
+
+/// Answers every request on a port of this machine with `body`, as JSON, and returns its
+/// address. It goes with the test's process.
+fn serving(body: &'static str) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("a port");
+    let address = listener.local_addr().expect("its address");
+    std::thread::spawn(move || {
+        for mut asked in listener.incoming().flatten() {
+            // What is asked does not matter, only that it was read to the end of its headers.
+            let lines = BufReader::new(&asked).lines().map_while(Result::ok);
+            lines.take_while(|line| !line.is_empty()).for_each(drop);
+            let head = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close";
+            let answer = format!("{head}\r\nContent-Length: {}\r\n\r\n{body}", body.len());
+            asked.write_all(answer.as_bytes()).ok();
+        }
+    });
+    format!("http://{address}/latest.json")
+}
+
+#[test]
+fn a_look_that_gets_no_answer_says_so_and_the_state_agrees() {
+    let app = app();
+    let looked = app
+        .invoke("update_check", json!({}))
+        .expect("update_check answers");
+    assert_eq!(looked["state"], "failed", "{looked}");
+    assert!(looked["reason"].is_string(), "{looked}");
+    assert_eq!(app.invoke("update_state", json!({})), Ok(looked));
+}
+
+/// A build from the sources looks when asked, and downloads nothing.
+#[test]
+fn a_look_finds_a_newer_version_and_none_in_an_older_one() {
+    let newer = r#"{"version":"999.0.0","url":"http://127.0.0.1:9/a.tar.gz","signature":"none"}"#;
+    let app = app_updating_from(&serving(newer));
+    let out = json!({ "state": "available", "version": "999.0.0" });
+    assert_eq!(app.invoke("update_check", json!({})), Ok(out.clone()));
+    assert_eq!(app.invoke("update_state", json!({})), Ok(out));
+
+    let older = r#"{"version":"0.0.1","url":"http://127.0.0.1:9/a.tar.gz","signature":"none"}"#;
+    let app = app_updating_from(&serving(older));
+    let current = json!({ "state": "up_to_date" });
+    assert_eq!(app.invoke("update_check", json!({})), Ok(current));
+}
+
+/// A configuration the updater refused would stop the app as it starts, in a release only.
+#[test]
+fn the_updater_accepts_its_configuration_with_its_key_and_the_signed_version() {
+    let file: Value =
+        serde_json::from_str(include_str!("../tauri.conf.json")).expect("tauri.conf.json is JSON");
+    let section = file.pointer("/plugins/updater").cloned();
+    let config: tauri_plugin_updater::Config =
+        serde_json::from_value(section.expect("configured")).expect("accepted");
+    assert!(config.require_signed_version);
+    // Without it no update could be checked, and the release would only find out when built.
+    assert!(!config.pubkey.is_empty(), "plugins.updater.pubkey is empty");
+    let endpoints: Vec<&str> = config.endpoints.iter().map(Url::as_str).collect();
+    assert_eq!(
+        endpoints,
+        ["https://github.com/ryckakas/swarmed/releases/latest/download/latest.json"]
+    );
 }
 
 #[test]

@@ -3,6 +3,7 @@ import { sampleProjects } from "./api/mock";
 import type { Project, Session, SessionEvent } from "./api/types";
 import {
     applySessionEvent,
+    countBusy,
     countUnread,
     countWaiting,
     findSession,
@@ -169,6 +170,11 @@ describe("lookups", () => {
         expect(home?.project.name).toBe("storefront");
         expect(home?.task.name).toBe("invoice-export");
         expect(findSession(projects, null)).toBeUndefined();
+    });
+
+    it("counts the sessions in a turn: at work or waiting, not idle or failed", () => {
+        expect(countBusy(sampleProjects())).toBe(2);
+        expect(countBusy([])).toBe(0);
     });
 
     it("counts the sessions waiting for a decision", () => {
