@@ -265,6 +265,29 @@ impl Paths {
             .collect()
     }
 
+    /// What the skill called `name` says it is for, as a session on `agent` in `worktree`
+    /// would find it: the agent's own skill of that name first, then any other. A plugin's
+    /// skill is also found by `plugin:name`, as Claude Code calls it. `None` for a name no
+    /// skill has, or a skill that does not say.
+    pub(crate) fn skill_description(
+        &self,
+        agent: Option<&str>,
+        worktree: Option<&Path>,
+        name: &str,
+    ) -> Option<String> {
+        let bare = name.rsplit(':').next().unwrap_or(name);
+        let skills = self.skills_with(worktree);
+        let named = || {
+            skills
+                .iter()
+                .filter(|skill| skill.name == name || skill.name == bare)
+        };
+        let own = agent.and_then(|agent| named().find(|skill| reads_itself(agent, &skill.origin)));
+        let skill = own.or_else(|| named().next())?;
+        let description = skill.description.trim();
+        (!description.is_empty()).then(|| description.to_string())
+    }
+
     /// What the agent is sent in place of a message that calls a skill by name, `/name` and
     /// whatever follows: what the skill says, then the rest of the message. `None` for any
     /// other message, which goes as it is.

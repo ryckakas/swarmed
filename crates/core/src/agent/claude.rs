@@ -54,7 +54,8 @@ const NAMING_TIMEOUT: Duration = Duration::from_secs(30);
 
 const NAMING_INSTRUCTIONS: &str = "You name conversations. Reply with a title of three to six \
     words for the request you are given: plain text, no quotes, no full stop, in the language \
-    of the request. Never answer the request itself.";
+    of the request. Never answer the request itself. A request may be a call of a skill or \
+    command, given with what it is for: name what the user asks of it.";
 
 /// How long writing a commit message may take: the changes take longer to read than a prompt.
 const COMMIT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -74,12 +75,15 @@ impl ClaudeNamer {
     }
 
     /// One call to the smallest model under `instructions`, with nothing of the user's setup.
+    /// No skill or command runs either: Claude Code reads a prompt that starts with `/` as one,
+    /// even with no settings, and the model then answers with a stand-in for a tool call.
     fn asking(&self, instructions: &str, prompt: &str) -> Command {
         let mut command = Command::new(self.backend.resolved());
         command
             .args(["-p", "--model", "haiku", "--output-format", "text"])
             .args(["--setting-sources", "", "--strict-mcp-config"])
             .args(["--no-session-persistence", "--tools", ""])
+            .arg("--disable-slash-commands")
             .args(["--system-prompt", instructions])
             .arg(prompt)
             .current_dir(std::env::temp_dir())
@@ -1172,6 +1176,11 @@ mod tests {
         assert!(line.starts_with("-p --model haiku"), "{line}");
         assert!(
             line.contains("--strict-mcp-config --no-session-persistence"),
+            "{line}"
+        );
+        // A prompt such as `/code-review 123` would otherwise run the user's skill.
+        assert!(
+            args.iter().any(|arg| arg == "--disable-slash-commands"),
             "{line}"
         );
         assert_eq!(args.last().map(String::as_str), Some("fix the login"));

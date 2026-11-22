@@ -325,9 +325,13 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   report's summary, and its row in the Background list opens it. Nothing in the store or the database knows of sub-agents. Conversations
   recorded before this have a sub-agent's words among the agent's own.
 - **A session's title** starts as the first line of its first message. A `Namer` (`ClaudeNamer`:
-  one call to Claude Code's smallest model, with none of the user's settings, tools or MCP
-  servers) then suggests a better one, unless `auto_title` is off or the user renamed the session
-  first. Every change of title is an event, `Renamed`, so all front ends follow.
+  one call to Claude Code's smallest model, with none of the user's settings, tools, MCP
+  servers, skills or commands) then suggests a better one, unless `auto_title` is off or the
+  user renamed the session first. Every change of title is an event, `Renamed`, so all front
+  ends follow. A message that calls a skill, `/name …`, is named as the request it stands
+  for: the namer is given the skill's description and what follows it, never the text as
+  typed, which Claude Code would run (`naming_prompt`). An answer that is no title, such as
+  the `<invoke_…>` tag a model without tools gives, is dropped (`title_of`).
 - **A new task is named before it exists** (`naming.rs`): the same `Namer` is asked, with a
   short timeout, and its answer is both the first session's title and, as lower-case words
   joined by dashes, the task's name. With no answer the front end names the task after the

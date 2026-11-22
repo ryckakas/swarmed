@@ -73,6 +73,11 @@ notice adds its line under Unreleased.
 
 ### Fixed
 
+- **A session started with a skill gets a real title.** A first message such as
+  `/code-review 123` used to title the session `<invoke_skill_or_bash_placeholder>`, and a new
+  task started with it got that as its name, folder and branch. It is now named after what the
+  skill is for, "Review PR 123", and an answer that is no title falls back to the prompt.
+
 - **A session waiting on background sub-agents is neither "finished" nor "working".** When an
   agent ended its turn to wait for sub-agents it left working in the background, the session
   was marked unread with a "Finished" notice, and then showed as working whenever they wrote,
