@@ -5339,3 +5339,45 @@ kbd {
     content: "";
     vertical-align: middle;
 }
+
+/* The swarm dictionary: each swarm word, then the plain word it stands for and what it is. */
+.dictionary-search {
+    width: 100%;
+    margin-bottom: var(--space-3);
+    padding: 6px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--dusk);
+    color: var(--text);
+    font: inherit;
+}
+
+.dictionary {
+    display: grid;
+    grid-template-columns: minmax(8rem, max-content) 1fr;
+    gap: var(--space-2) var(--space-4);
+    margin: 0;
+}
+
+.dictionary-entry {
+    display: contents;
+}
+
+.dictionary dt {
+    color: var(--text);
+    font-weight: 600;
+}
+
+.dictionary dd {
+    margin: 0;
+    color: var(--muted);
+}
+
+.dictionary .dictionary-plain {
+    margin-right: var(--space-2);
+    color: var(--text);
+}
+
+.dictionary .dictionary-plain::after {
+    content: ":";
+}

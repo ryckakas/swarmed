@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { nextStep, unpublishedSummary } from "./publish";
+import { wordsFor } from "./wording";
 
 const state = (changed: number, unpushed: number, pushed_before: boolean) => ({
     changed,
@@ -32,5 +33,12 @@ describe("unpublishedSummary", () => {
     it("tells a finished branch from one nothing happened on", () => {
         expect(unpublishedSummary(state(0, 0, true))).toBe("Everything is committed and pushed");
         expect(unpublishedSummary(state(0, 0, false))).toBe("Nothing to publish yet");
+        const colony = wordsFor("colony");
+        expect(unpublishedSummary(state(3, 2, true), colony)).toBe(
+            "3 files not sealed, 2 seals not released",
+        );
+        expect(unpublishedSummary(state(0, 0, true), colony)).toBe(
+            "Everything is sealed and released",
+        );
     });
 });

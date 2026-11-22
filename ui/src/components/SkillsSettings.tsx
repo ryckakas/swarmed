@@ -4,6 +4,8 @@ import type { Skill } from "../api/types";
 import { iconForAgent } from "../providerIcons";
 import { SKILL_ORIGINS, skillCount, skillsOf } from "../skills";
 import { useStore } from "../store";
+import { useWords } from "../useWords";
+import { capitalized, withArticle } from "../wording";
 import { ProviderMark } from "./ProviderMark";
 
 /** A skill of Swarmed's own as the form holds it while it is being written. */
@@ -22,6 +24,7 @@ const NEW: Draft = { editing: null, name: "", description: "", body: "" };
  * which sessions on other agents are offered unless they are kept back.
  */
 export function SkillsSettings() {
+    const words = useWords();
     const report = useStore((state) => state.report);
     const [skills, setSkills] = useState<Skill[]>([]);
     const [draft, setDraft] = useState<Draft | null>(null);
@@ -66,8 +69,8 @@ export function SkillsSettings() {
         api.skillShare(skill.origin, skill.name, shared).then(setSkills).catch(report);
 
     return (
-        <section className="settings-group" aria-label="Skills">
-            <h3>Skills</h3>
+        <section className="settings-group" aria-label={capitalized(words.terms.skills)}>
+            <h3>{capitalized(words.terms.skills)}</h3>
             <p className="settings-hint">
                 A skill is a set of instructions for one kind of task. Every agent keeps its own and
                 knows nothing of the others'. Swarmed reads them all and offers each session the
@@ -95,7 +98,7 @@ export function SkillsSettings() {
                 />
             ) : (
                 <button type="button" className="button" onClick={() => setDraft(NEW)}>
-                    Add a skill
+                    Add {withArticle(words.terms.skill)}
                 </button>
             )}
             <p className="settings-hint">
@@ -119,7 +122,9 @@ export function SkillsSettings() {
                     <ul className="mcp-list">
                         {skillsOf(skills, group.origin).map((skill) => (
                             <li key={skill.name} className="skill-row">
-                                <label title="Offer it to sessions on other agents">
+                                <label
+                                    title={`Offer it to sessions on other ${words.terms.agents}`}
+                                >
                                     <input
                                         type="checkbox"
                                         checked={skill.shared}
@@ -151,6 +156,7 @@ interface FormProps {
 }
 
 function SkillForm({ draft, onChange, onSave, onRemove, onCancel }: FormProps) {
+    const words = useWords();
     const set = (change: Partial<Draft>) => onChange({ ...draft, ...change });
     const submit = (event: FormEvent) => {
         event.preventDefault();
@@ -162,7 +168,7 @@ function SkillForm({ draft, onChange, onSave, onRemove, onCancel }: FormProps) {
                 <span className="settings-label">Name</span>
                 <input
                     className="key-input mono"
-                    aria-label="Name of the skill"
+                    aria-label={`Name of the ${words.terms.skill}`}
                     placeholder="release-notes"
                     spellCheck={false}
                     required
@@ -177,7 +183,7 @@ function SkillForm({ draft, onChange, onSave, onRemove, onCancel }: FormProps) {
                 </span>
                 <input
                     className="key-input"
-                    aria-label="When to use the skill"
+                    aria-label={`When to use the ${words.terms.skill}`}
                     placeholder="Write release notes. Use when the user asks for a changelog or release notes."
                     required
                     value={draft.description}
@@ -188,7 +194,7 @@ function SkillForm({ draft, onChange, onSave, onRemove, onCancel }: FormProps) {
                 <span className="settings-label">What it says to do</span>
                 <textarea
                     className="key-input"
-                    aria-label="What the skill says to do"
+                    aria-label={`What the ${words.terms.skill} says to do`}
                     rows={10}
                     required
                     value={draft.body}
@@ -205,7 +211,7 @@ function SkillForm({ draft, onChange, onSave, onRemove, onCancel }: FormProps) {
                     Cancel
                 </button>
                 <button type="submit" className="button button-primary">
-                    Save skill
+                    Save {words.terms.skill}
                 </button>
             </div>
         </form>

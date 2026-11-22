@@ -22,7 +22,8 @@ import { sentOn } from "../slash";
 import { useStore } from "../store";
 import { taskNameForPrompt, taskNameFrom, uniqueTaskName } from "../tree";
 import { useWords } from "../useWords";
-import { wordsFor } from "../wording";
+import type { Words } from "../wording";
+import { capitalized, wordsFor } from "../wording";
 import { AgentNotice } from "./AgentNotice";
 import { ComposerBox } from "./ComposerBox";
 import { EffortPicker } from "./EffortPicker";
@@ -128,13 +129,13 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 onFiles={setFiles}
                 onSend={() => void send()}
                 canSend={canSend}
-                placeholder="Describe the task"
+                placeholder={words.describeTask}
                 disabled={creating !== null}
                 autoFocus
                 commands={commands}
             >
                 <Picker
-                    label="Repository"
+                    label={words.repository}
                     value={project.name}
                     onChange={(value) => {
                         setChosen(value);
@@ -143,11 +144,14 @@ export function NewTask({ projects }: { projects: Project[] }) {
                     options={projects.map((candidate) => [candidate.name, candidate.name])}
                 />
                 <Picker
-                    label="Branch"
+                    label={capitalized(words.terms.branch)}
                     value={branch}
                     onChange={setBranch}
                     options={[
-                        [NEW_BRANCH, `New branch from ${choices?.base ?? "the default branch"}`],
+                        [
+                            NEW_BRANCH,
+                            `New ${words.terms.branch} from ${choices?.base ?? `the default ${words.terms.branch}`}`,
+                        ],
                         ...(choices?.existing ?? []).map((existing): [string, string] => [
                             existing,
                             existing,
@@ -185,7 +189,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
             <AgentNotice agentId={agentId} />
             <p className="new-task-note" aria-live="polite">
                 {creating !== null && <Incubating />}
-                {note(creating, prompt, hookLine)}
+                {note(creating, prompt, hookLine, words)}
             </p>
         </div>
     );
@@ -195,11 +199,13 @@ export function NewTask({ projects }: { projects: Project[] }) {
 const NAMING = "";
 
 /** The line under the box: what sending will do, or what is being done. */
-function note(creating: string | null, prompt: string, hookLine: string | null) {
+function note(creating: string | null, prompt: string, hookLine: string | null, words: Words) {
     if (creating === null) {
-        return prompt.trim() !== "" && "Creates a task for this in its own worktree.";
+        return prompt.trim() !== "" && words.newTaskHint;
     }
-    return creating === NAMING ? "Naming the task…" : `Setting up ${creating}… ${hookLine ?? ""}`;
+    return creating === NAMING
+        ? words.namingTask
+        : `${words.settingUp(creating)} ${hookLine ?? ""}`;
 }
 
 /** What a model calls the task, or `null` to name it after the prompt. Never fails a send. */
@@ -279,6 +285,7 @@ interface VariantsProps {
  * way to take it off again. Only where a new branch is made, since each needs its own.
  */
 function Variants({ offered, agents, first, variants, onChange }: VariantsProps) {
+    const words = useWords();
     const choices = variantChoices(agents, [first, ...variants]);
     if (!offered) {
         return null;
@@ -287,11 +294,11 @@ function Variants({ offered, agents, first, variants, onChange }: VariantsProps)
         <>
             {choices.length > 0 && (
                 <Picker
-                    label="Also run on another agent or model"
+                    label={`Also run on another ${words.terms.agent} or ${words.terms.model}`}
                     value=""
                     onChange={(key) => key && onChange([...variants, variantFrom(key)])}
                     options={[
-                        ["", "Also run on…"],
+                        ["", words.alsoRunOn],
                         ...choices.map((choice): [string, string] => [
                             variantKey(choice),
                             variantLabel(choice, agents),
@@ -350,6 +357,7 @@ function setupFor(
 
 /** The agent menu, shown only when there is a choice, and the models of the chosen agent. */
 function AgentPickers(props: AgentPickersProps) {
+    const words = useWords();
     const { agents, agentId, model, onAgent, onModel, effort, onEffort } = props;
     const agent = agents.find((candidate) => candidate.id === agentId);
     const usual = useEffortDefault(agentId, model || null);
@@ -357,13 +365,18 @@ function AgentPickers(props: AgentPickersProps) {
         <>
             {agents.length > 1 && (
                 <Picker
-                    label="Agent"
+                    label={capitalized(words.terms.agent)}
                     value={agentId}
                     onChange={onAgent}
                     options={agents.map((candidate) => [candidate.id, candidate.name])}
                 />
             )}
-            <Picker label="Model" value={model} onChange={onModel} options={modelChoices(agent)} />
+            <Picker
+                label={capitalized(words.terms.model)}
+                value={model}
+                onChange={onModel}
+                options={modelChoices(agent, null, words)}
+            />
             {takesEffort(agentId) && (
                 <EffortPicker value={effort} applied={usual} onChange={onEffort} />
             )}
@@ -394,7 +407,7 @@ function EnvironmentPicker(props: {
             value={chosenEnvironment(props.names, props.value) ?? ""}
             onChange={props.onChange}
             options={[
-                ["", "Default setup"],
+                ["", words.defaultSetup],
                 ...props.names.map((name): [string, string] => [name, name]),
             ]}
         />

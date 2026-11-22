@@ -5,6 +5,7 @@ import { PANEL_WIDTH } from "../resize";
 import { useStore } from "../store";
 import { findSession, findSessionHome } from "../tree";
 import { useWords } from "../useWords";
+import { capitalized } from "../wording";
 import { ActionBar } from "./ActionBar";
 import { Background, runningCount, useBackground } from "./Background";
 import { Changes } from "./Changes";
@@ -24,6 +25,7 @@ interface Props {
 
 /** The right-hand side of the window: the selected session's task, and ways out of Swarmed. */
 export function TaskPanel({ width, onResize }: Props) {
+    const words = useWords();
     const projects = useStore((state) => state.projects);
     const selectedSessionId = useStore((state) => state.selectedSessionId);
     const open = useStore((state) => state.panelOpen);
@@ -35,13 +37,16 @@ export function TaskPanel({ width, onResize }: Props) {
     return (
         <>
             <Resizer
-                label="Resize task panel"
+                label={`Resize ${words.terms.task} panel`}
                 width={width}
                 limits={PANEL_WIDTH}
                 side="right"
                 onResize={onResize}
             />
-            <aside className="task-panel" aria-label={`Task ${home.task.name}`}>
+            <aside
+                className="task-panel"
+                aria-label={`${capitalized(words.terms.task)} ${home.task.name}`}
+            >
                 <div className="drag-strip" data-tauri-drag-region />
                 <TaskHead project={home.project} task={home.task} />
                 <Tabs key={home.task.id} project={home.project} task={home.task} />
@@ -68,7 +73,11 @@ function Tabs({ project, task }: { project: Project; task: Task }) {
     ];
     return (
         <>
-            <div className="panel-tabs" role="tablist" aria-label="What to show of the task">
+            <div
+                className="panel-tabs"
+                role="tablist"
+                aria-label={`What to show of the ${words.terms.task}`}
+            >
                 {tabs.map(([id, label]) => (
                     <button
                         key={id}
@@ -100,6 +109,7 @@ function Tabs({ project, task }: { project: Project; task: Task }) {
  * ones chosen in the settings, so their buttons are icons beside the one that hides the panel.
  */
 function TaskHead({ project, task }: { project: Project; task: Task }) {
+    const words = useWords();
     const report = useStore((state) => state.report);
     const editor = useStore((state) => state.settings?.editor ?? "code");
     const terminalApp = useStore((state) => state.settings?.terminal_app ?? "Terminal");
@@ -119,7 +129,7 @@ function TaskHead({ project, task }: { project: Project; task: Task }) {
                 >
                     <EditorIcon />
                 </IconButton>
-                <IconButton label="Hide the task panel" onClick={togglePanel}>
+                <IconButton label={`Hide the ${words.terms.task} panel`} onClick={togglePanel}>
                     <CloseIcon />
                 </IconButton>
             </div>
@@ -160,6 +170,7 @@ export function browserLabel(url: string, of: number): string {
 
 /** Sets this task beside another of the same repository. Nothing without another task. */
 function CompareWith({ project, task }: { project: Project; task: Task }) {
+    const words = useWords();
     const compare = useStore((state) => state.compare);
     const others = project.tasks.filter((other) => !other.archived && other.id !== task.id);
     if (others.length === 0) {
@@ -168,7 +179,7 @@ function CompareWith({ project, task }: { project: Project; task: Task }) {
     return (
         <div className="panel-actions">
             <Picker
-                label="Compare with another task"
+                label={words.compareTask}
                 value=""
                 onChange={(other) =>
                     other && compare({ project: project.name, left: task.name, right: other })

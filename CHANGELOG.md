@@ -25,6 +25,22 @@ notice adds its line under Unreleased.
   be put in says why at the next launch. An app built from the sources is never updated. This version still has to be installed by hand: the
   ones after it update from here.
 - **`swarmed-core`: `Settings` has `updates`,** an `UpdateMode`: `automatic` or `when_asked`.
+- **A swarm dictionary,** in Settings just before About, in the swarm's styles. It lists every
+  swarm word with the plain word it stands for and what that is, and you can search it. It is
+  made from the words the app uses, so it always matches them.
+
+### Changed
+
+- **The swarm's styles reach further.** Settings is the Evolution Chamber and the keyboard
+  shortcuts are Reflexes. The version is an evolution: `e0.2.1` in the corner, "Evolution 0.2.1"
+  in About. Untitled sessions, empty and loading sessions, forks, changes, files, sub-agents,
+  actions, the inbox, search and the activity charts now take the swarm's words where they still
+  had the plain ones. True swarm goes all the way. Repositories and tasks are colonies and
+  broods, a worktree is a cell, a branch a strain and the base branch the mother strain.
+  Committing is sealing, pushing is releasing, and a pull request is an offering. Agents are
+  species, models minds, MCP servers symbionts, skills genes, prompts pheromones, and the rules
+  are the hive law. Questions, errors and setting hints stay plain, and so does everything an
+  agent is given. The plain style reads as before.
 
 ### Fixed
 

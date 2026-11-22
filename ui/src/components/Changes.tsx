@@ -56,14 +56,12 @@ export function Changes({ project, task }: Props) {
             </div>
             <ReviewBar taskId={task.id} />
             <div className="changes-scroll">
-                {changes === null && <p className="changes-note">Reading the changes…</p>}
+                {changes === null && <p className="changes-note">{words.readingChanges}</p>}
                 {typeof changes === "string" && (
                     <p className="changes-note changes-error">{changes}</p>
                 )}
                 {Array.isArray(changes) && changes.length === 0 && (
-                    <p className="changes-note">
-                        Nothing has changed since this branch left {task.base_ref}.
-                    </p>
+                    <p className="changes-note">{words.noChanges(task.base_ref)}</p>
                 )}
                 {Array.isArray(changes) &&
                     changes.map((change) => (
@@ -142,6 +140,7 @@ interface Target {
 
 /** The comments made so far, with the way to send them to the session on screen. */
 function ReviewBar({ taskId }: { taskId: number }) {
+    const words = useWords();
     const comments = useStore((state) => state.reviews[taskId]);
     const clearReview = useStore((state) => state.clearReview);
     const sessionId = useStore((state) => state.selectedSessionId);
@@ -165,13 +164,8 @@ function ReviewBar({ taskId }: { taskId: number }) {
             <button type="button" className="changes-refresh" onClick={() => clearReview(taskId)}>
                 Discard
             </button>
-            <button
-                type="button"
-                className="button"
-                title="Sends the comments to the session on screen, as one message"
-                onClick={send}
-            >
-                Send to this session
+            <button type="button" className="button" title={words.sendToSessionHint} onClick={send}>
+                {words.sendToSession}
             </button>
         </div>
     );

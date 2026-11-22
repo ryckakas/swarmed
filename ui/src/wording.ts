@@ -112,6 +112,9 @@ export interface Words {
     moreActions: string;
     /** What the version in the corner opens, and what the About view is called. */
     about: string;
+    /** The installed version: short, as the corner shows it, and as the About view names it. */
+    versionTag: (version: string) => string;
+    versionName: (version: string) => string;
     /** What Swarmed is, in a sentence, in the About view. */
     aboutLine: string;
     /** Updating Swarmed, in the About view and its settings. */
@@ -132,6 +135,116 @@ export interface Words {
         restart: string;
         /** The setting that has Swarmed update by itself. */
         automatic: string;
+    };
+    /** The user's preferences: the button and window, the window's close button, and a pointer to it. */
+    settings: string;
+    closeSettings: string;
+    installInSettings: string;
+    /** The list of keyboard shortcuts. */
+    shortcuts: string;
+    /** The button that adds one of the user's own buttons. */
+    addAction: string;
+    /** A session, in the middle of a sentence: "a new session", "in any session". */
+    session: string;
+    /** A session by its number, at the start of a line or alone. */
+    sessionNumbered: (id: number) => string;
+    /** What a session that has no title yet is called. */
+    untitled: string;
+    /** The line under a session another session started. */
+    startedBy: (id: number) => string;
+    /** The transcript's button that starts a session from one message on, and what it does. */
+    forkHere: string;
+    forkHereHint: string;
+    /** What a session started from part of another says at its top. */
+    forkedFrom: (id: number) => string;
+    /** A message another session sent, by that session's number. */
+    fromSession: (id: number) => string;
+    /** While a session's conversation is read. */
+    loadingConversation: string;
+    /** What a session says before anything was said in it. */
+    emptySession: string;
+    /** The message box's placeholder while the agent waits for the next message. */
+    reply: string;
+    /** The new-task screen: what sending does, and what is going on after. */
+    newTaskHint: string;
+    namingTask: string;
+    settingUp: (name: string) => string;
+    /** Its box's placeholder, and the picker of the repository it goes in. */
+    describeTask: string;
+    repository: string;
+    /** The picker that runs a new task's prompt on another agent too. */
+    alsoRunOn: string;
+    /** A task set up with no environment of its own. */
+    defaultSetup: string;
+    /** The changes tab: while they are read, and when there are none. */
+    readingChanges: string;
+    noChanges: (base: string) => string;
+    /** Its button that hands the review comments to the session, and what that does. */
+    sendToSession: string;
+    sendToSessionHint: string;
+    /** Comparing tasks: a file one did not change, the picker, and a cloud task's changes. */
+    notChanged: string;
+    notChangedHere: string;
+    compareTask: string;
+    askingChanges: string;
+    /** The files tab when the worktree holds nothing to list. */
+    noFiles: string;
+    /** Something left running by a sub-agent, and the button to the session that started it. */
+    backgroundAgent: string;
+    backgroundOwner: string;
+    /** A sub-agent's pane: before it has said anything, and over what it answered. */
+    subAgentSilent: string;
+    subAgentAnswer: string;
+    /** The sidebar with no repositories, and the toggle that folds a repository's tasks. */
+    noRepositories: string;
+    showTasks: string;
+    hideTasks: string;
+    /** The cloud dialog's button that hands the work over, and while it does. */
+    delegateButton: string;
+    delegating: string;
+    /** The list of what waits for the user, and when nothing does. */
+    waitingForYou: string;
+    nothingWaits: string;
+    /** The search box's placeholder. */
+    searchPlaceholder: string;
+    /** What the activity charts count a turn as. */
+    turns: string;
+    /** A stack's button while it starts. */
+    stackStarting: string;
+    /**
+     * What things are called, in lower case as they stand in a sentence; `capitalized` makes a
+     * label of one. Only the colony style names these its own way: git's and the agents' words
+     * included, which the swarm dictionary explains.
+     */
+    terms: {
+        repository: string;
+        repositories: string;
+        task: string;
+        tasks: string;
+        worktree: string;
+        worktrees: string;
+        branch: string;
+        baseBranch: string;
+        /** A commit, and to commit; several, while it is done, and done. */
+        commit: string;
+        commits: string;
+        committing: string;
+        committed: string;
+        /** To push a branch; while it is done, and done. */
+        push: string;
+        pushing: string;
+        pushed: string;
+        pullRequest: string;
+        agent: string;
+        agents: string;
+        model: string;
+        models: string;
+        mcpServers: string;
+        skill: string;
+        skills: string;
+        prompt: string;
+        prompts: string;
+        rules: string;
     };
 }
 
@@ -202,6 +315,8 @@ const PLAIN: Words = {
     actions: "Actions",
     moreActions: "More actions…",
     about: "About Swarmed",
+    versionTag: (version) => `v${version}`,
+    versionName: (version) => `Version ${version}`,
     aboutLine: "Coding agents side by side, each on a branch and in a worktree of its own.",
     update: {
         checking: "Checking for updates…",
@@ -213,6 +328,82 @@ const PLAIN: Words = {
         ready: (version) => `Swarmed ${version} is downloaded, and goes in when you quit.`,
         restart: "Restart to update",
         automatic: "Update automatically",
+    },
+    settings: "Settings",
+    closeSettings: "Close settings",
+    installInSettings: "Install it in Settings",
+    shortcuts: "Keyboard shortcuts",
+    addAction: "Add an action",
+    session: "session",
+    sessionNumbered: (id) => `Session ${id}`,
+    untitled: "New session",
+    startedBy: (id) => `Started by session ${id}`,
+    forkHere: "Fork from here",
+    forkHereHint:
+        "Starts a new session with this message and everything said after it, and nothing from before",
+    forkedFrom: (id) =>
+        `Forked from session ${id}. What stands above was said there; this session's agent is given it with your first message.`,
+    fromSession: (id) => `From session ${id}`,
+    loadingConversation: "Loading the conversation…",
+    emptySession: "Nothing has been said yet. The agent starts with your first message.",
+    reply: "Reply to the agent",
+    newTaskHint: "Creates a task for this in its own worktree.",
+    namingTask: "Naming the task…",
+    settingUp: (name) => `Setting up ${name}…`,
+    describeTask: "Describe the task",
+    repository: "Repository",
+    alsoRunOn: "Also run on…",
+    defaultSetup: "Default setup",
+    readingChanges: "Reading the changes…",
+    noChanges: (base) => `Nothing has changed since this branch left ${base}.`,
+    sendToSession: "Send to this session",
+    sendToSessionHint: "Sends the comments to the session on screen, as one message",
+    notChanged: "not changed",
+    notChangedHere: "Not changed in this task.",
+    compareTask: "Compare with another task",
+    askingChanges: "Asking for the changes…",
+    noFiles: "Nothing here yet.",
+    backgroundAgent: "Agent",
+    backgroundOwner: "Show the session that started it",
+    subAgentSilent: "Nothing heard from it yet.",
+    subAgentAnswer: "What it handed back",
+    noRepositories: "No repositories yet.",
+    showTasks: "Show this repository's tasks",
+    hideTasks: "Hide its tasks",
+    delegateButton: "Delegate",
+    delegating: "Delegating…",
+    waitingForYou: "Waiting for you",
+    nothingWaits: "Nothing waits for you.",
+    searchPlaceholder: "Search what was said, in any session",
+    turns: "Turns",
+    stackStarting: "Starting…",
+    terms: {
+        repository: "repository",
+        repositories: "repositories",
+        task: "task",
+        tasks: "tasks",
+        worktree: "worktree",
+        worktrees: "worktrees",
+        branch: "branch",
+        baseBranch: "base branch",
+        commit: "commit",
+        commits: "commits",
+        committing: "committing",
+        committed: "committed",
+        push: "push",
+        pushing: "pushing",
+        pushed: "pushed",
+        pullRequest: "pull request",
+        agent: "agent",
+        agents: "agents",
+        model: "model",
+        models: "models",
+        mcpServers: "MCP servers",
+        skill: "skill",
+        skills: "skills",
+        prompt: "prompt",
+        prompts: "prompts",
+        rules: "rules",
     },
 };
 
@@ -234,6 +425,7 @@ const SWARM: Words = {
         Starting: ["Stirring", "Waking"],
         Thinking: ["Gestating", "Digesting", "Brooding"],
         Writing: ["Secreting", "Spinning"],
+        "Presenting its plan": ["Unfurling its plan"],
     },
     needYou: (count) => (count === 1 ? "1 awaits you" : `${count} await you`),
     unread: (count) => `${count} hatched`,
@@ -277,6 +469,8 @@ const SWARM: Words = {
     actions: "Instincts",
     moreActions: "More instincts…",
     about: "About the hive",
+    versionTag: (version) => `e${version}`,
+    versionName: (version) => `Evolution ${version}`,
     aboutLine:
         "A swarm of coding agents at work side by side, each on a branch and in a worktree of its own.",
     update: {
@@ -290,6 +484,44 @@ const SWARM: Words = {
         restart: "Restart to evolve",
         automatic: "Evolve automatically",
     },
+    settings: "Evolution Chamber",
+    closeSettings: "Close the Evolution Chamber",
+    installInSettings: "Install it in the Evolution Chamber",
+    shortcuts: "Reflexes",
+    addAction: "Add an instinct",
+    session: "spawn",
+    sessionNumbered: (id) => `Spawn ${id}`,
+    untitled: "New spawn",
+    startedBy: (id) => `Sent out by spawn ${id}`,
+    forkHere: "Split from here",
+    forkHereHint:
+        "Spawns from this message: everything said after it comes along, and nothing from before",
+    forkedFrom: (id) =>
+        `Split from spawn ${id}. What stands above was said there; this spawn's agent is given it with your first message.`,
+    fromSession: (id) => `From spawn ${id}`,
+    loadingConversation: "Waking the spawn…",
+    emptySession: "Nothing has stirred yet. The spawn wakes with your first message.",
+    reply: "Reply to the spawn",
+    settingUp: (name) => `Incubating ${name}…`,
+    alsoRunOn: "Also spawn on…",
+    defaultSetup: "Default pool",
+    readingChanges: "Reading the mutations…",
+    noChanges: (base) => `No mutations since this branch left ${base}.`,
+    sendToSession: "Send to this spawn",
+    sendToSessionHint: "Sends the comments to the spawn on screen, as one message",
+    notChanged: "no mutations",
+    notChangedHere: "No mutations in this task.",
+    askingChanges: "Asking for the mutations…",
+    noFiles: "These tunnels are empty.",
+    backgroundAgent: "Hatchling",
+    backgroundOwner: "Show the spawn that sent it out",
+    subAgentSilent: "No word from the hatchling yet.",
+    subAgentAnswer: "What it brought back",
+    waitingForYou: "Awaiting you",
+    nothingWaits: "Nothing awaits you.",
+    searchPlaceholder: "Search what was said, in any spawn",
+    turns: "Molts",
+    stackStarting: "Waking…",
 };
 
 /** The swarm's words, and its names for the tree as well. */
@@ -308,6 +540,44 @@ const COLONY: Words = {
     askAgain: "Sniff again",
     openInClaude: "Open in Claude Code's lair",
     backToShell: "Back to the burrow",
+    newTaskHint: "Lays a brood for this in its own worktree.",
+    namingTask: "Naming the brood…",
+    describeTask: "Describe the brood",
+    repository: "Colony",
+    compareTask: "Compare with another brood",
+    noRepositories: "No colonies yet.",
+    showTasks: "Show this colony's broods",
+    hideTasks: "Hide its broods",
+    delegateButton: "Send spores",
+    delegating: "Sending spores…",
+    terms: {
+        repository: "colony",
+        repositories: "colonies",
+        task: "brood",
+        tasks: "broods",
+        worktree: "cell",
+        worktrees: "cells",
+        branch: "strain",
+        baseBranch: "mother strain",
+        commit: "seal",
+        commits: "seals",
+        committing: "sealing",
+        committed: "sealed",
+        push: "release",
+        pushing: "releasing",
+        pushed: "released",
+        pullRequest: "offering",
+        agent: "species",
+        agents: "species",
+        model: "mind",
+        models: "minds",
+        mcpServers: "symbionts",
+        skill: "gene",
+        skills: "genes",
+        prompt: "pheromone",
+        prompts: "pheromones",
+        rules: "hive law",
+    },
 };
 
 const WORDS: Record<Style, Words> = { plain: PLAIN, swarm: SWARM, colony: COLONY };
@@ -315,6 +585,78 @@ const WORDS: Record<Style, Words> = { plain: PLAIN, swarm: SWARM, colony: COLONY
 /** The words that go with a style. */
 export function wordsFor(style: Style | undefined): Words {
     return WORDS[style ?? DEFAULT_STYLE];
+}
+
+/** A word as a label starts: "worktree" as "Worktree". Names such as "MCP servers" stay as they are. */
+export function capitalized(word: string): string {
+    return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
+/** One of the swarm's words, the plain word it stands for, and what that is, in plain words. */
+export interface Term {
+    swarm: string;
+    plain: string;
+    meaning: string;
+}
+
+/**
+ * Every word the swarm's styles may call something otherwise, by where it is found in `Words`,
+ * with what it is. The dictionary is made from these and the words themselves, so a word
+ * renamed here is renamed there too.
+ */
+const ENTRIES: [pick: (words: Words) => string, meaning: string][] = [
+    [(w) => w.overview || "Overview", "Everything Swarmed works on, in the sidebar."],
+    [(w) => w.terms.repository, "A git repository you added to Swarmed."],
+    [(w) => w.terms.task, "A piece of work, on a branch and in a worktree of its own."],
+    [(w) => w.session, "A conversation with an agent, in a task."],
+    [(w) => w.subAgent, "An agent that a session's agent started for part of its work."],
+    [(w) => w.background, "Commands and agents a session left running."],
+    [(w) => w.terms.worktree, "The folder a task works in: a git worktree of the repository."],
+    [(w) => w.terms.branch, "A task's git branch."],
+    [(w) => w.terms.baseBranch, "The branch a task starts from, and is compared with."],
+    [(w) => w.terms.commit, "A git commit, and committing."],
+    [(w) => w.terms.push, "Pushing a branch to the remote, such as GitHub."],
+    [(w) => w.terms.pullRequest, "A pull request on GitHub."],
+    [(w) => w.terms.agent, "A coding agent: Claude Code, Codex, OpenCode and the like."],
+    [(w) => w.terms.model, "The model an agent runs on."],
+    [(w) => w.terms.mcpServers, "Tools from outside that agents can use."],
+    [(w) => w.terms.skills, "Instructions an agent takes up when they fit the work."],
+    [(w) => w.terms.prompts, "Prompts you saved, to start work from."],
+    [(w) => w.terms.rules, "Your own rules, given to every agent."],
+    [(w) => w.changes, "What a task changed."],
+    [(w) => w.files, "A task's files."],
+    [(w) => w.environment, "How a new task is set up."],
+    [(w) => w.snapshot, "What a task's setup made, kept for new tasks to start from."],
+    [(w) => w.actions, "Buttons of your own, on every task."],
+    [(w) => w.settings, "Swarmed's settings."],
+    [(w) => w.shortcuts, "The keyboard shortcuts."],
+    [(w) => w.turns, "An agent's work on one message."],
+    [(w) => w.archiveSession, "Closing a session, keeping its conversation."],
+    [(w) => w.deleteSession, "Deleting a session and its conversation for good."],
+    [(w) => w.fast, "An agent's fast mode."],
+    [(w) => w.versionName("").trim(), "The installed version of Swarmed."],
+    [(w) => w.status.idle.join(", "), "A session waiting for your next message."],
+    [(w) => w.status.working.join(", "), "A session whose agent is at work."],
+    [(w) => w.status.unread.join(", "), "A session with a reply you have not read."],
+];
+
+/** What the swarm's words in a style mean, those that differ from the plain ones, A to Z. */
+export function dictionary(style: Style | undefined): Term[] {
+    const words = wordsFor(style);
+    return ENTRIES.map(([pick, meaning]) => ({
+        swarm: capitalized(pick(words)),
+        plain: capitalized(pick(PLAIN)),
+        meaning,
+    }))
+        .filter((term) => term.swarm !== term.plain)
+        .sort((a, b) => a.swarm.localeCompare(b.swarm));
+}
+
+/** The terms with what was typed in either word or in what they mean, ignoring case. */
+export function searchTerms(terms: Term[], query: string): Term[] {
+    const wanted = query.trim().toLowerCase();
+    const has = (text: string) => text.toLowerCase().includes(wanted);
+    return terms.filter((term) => has(term.swarm) || has(term.plain) || has(term.meaning));
 }
 
 /** A name as it stands in the middle of a sentence: "an environment", "a spawning pool". */

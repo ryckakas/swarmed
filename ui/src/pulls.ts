@@ -2,6 +2,7 @@
 // Pure, so it can be tested.
 
 import type { Check, Pull } from "./api/types";
+import { capitalized, type Words, wordsFor } from "./wording";
 
 /** How a pull request's checks stand as a whole. */
 export type PullTone = "failed" | "running" | "passed" | "none";
@@ -45,9 +46,10 @@ export function checksSummary(pull: Pull): string {
     return parts.join(", ");
 }
 
-/** What pointing at the pull request's badge says. */
-export function pullTooltip(pull: Pull): string {
-    return `Pull request #${pull.number}, ${pullState(pull)}: ${checksSummary(pull)}. Click to open.`;
+/** What pointing at the pull request's badge says, in the style's words. */
+export function pullTooltip(pull: Pull, words: Words = wordsFor("plain")): string {
+    const name = capitalized(words.terms.pullRequest);
+    return `${name} #${pull.number}, ${pullState(pull)}: ${checksSummary(pull)}. Click to open.`;
 }
 
 /** The checks that failed. */

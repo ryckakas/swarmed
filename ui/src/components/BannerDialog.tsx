@@ -25,7 +25,7 @@ export function BannerDialog() {
     if (!banner) {
         return null;
     }
-    const title = banner === "about" ? words.about : "Keyboard shortcuts";
+    const title = banner === "about" ? words.about : words.shortcuts;
     return (
         // biome-ignore lint/a11y/useKeyWithClickEvents: the keyboard's way out is Esc, which a modal dialog has by itself
         <dialog
@@ -37,7 +37,7 @@ export function BannerDialog() {
             onClick={(event) => event.target === dialog.current && showBanner(null)}
         >
             <header className="banner-head">
-                {banner === "shortcuts" && <h2>Keyboard shortcuts</h2>}
+                {banner === "shortcuts" && <h2>{words.shortcuts}</h2>}
                 <IconButton label={`Close ${title.toLowerCase()}`} onClick={() => showBanner(null)}>
                     <CloseIcon />
                 </IconButton>

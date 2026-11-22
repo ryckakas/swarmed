@@ -4,6 +4,7 @@ import type { PullDraft, Task, Unpublished } from "../api/types";
 import { nextStep, unpublishedSummary } from "../publish";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
+import { capitalized, withArticle } from "../wording";
 
 interface Props {
     project: string;
@@ -33,6 +34,7 @@ function useUnpublished(project: string, task: Task, version: number): Unpublish
  * open a pull request. Each is done only when its button is pressed.
  */
 export function Publish({ project, task }: Props) {
+    const words = useWords();
     const edits = useStore((state) => state.edits[task.id] ?? 0);
     const hasPull = useStore((state) => Boolean(state.pulls[task.id]));
     const loadPull = useStore((state) => state.loadPull);
@@ -59,7 +61,7 @@ export function Publish({ project, task }: Props) {
     };
     return (
         <section className="publish" aria-label="Publish">
-            <p className="publish-summary">{unpublishedSummary(state)}</p>
+            <p className="publish-summary">{unpublishedSummary(state, words)}</p>
             {step === "commit" && (
                 <CommitForm
                     busy={busy}
@@ -75,7 +77,7 @@ export function Publish({ project, task }: Props) {
                     title={`Pushes ${task.branch} to origin`}
                     onClick={() => run(api.taskPush(project, task.name))}
                 >
-                    {busy ? "Pushing…" : "Push"}
+                    {busy ? `${capitalized(words.terms.pushing)}…` : capitalized(words.terms.push)}
                 </button>
             )}
             {step === "pull" && (
@@ -134,8 +136,12 @@ function CommitForm({ busy, write, onCommit }: CommitFormProps) {
             <div className="publish-message">
                 <textarea
                     className="publish-input publish-message-input"
-                    aria-label="Commit message"
-                    placeholder={writing ? "Reading the changes…" : "Commit message"}
+                    aria-label={`${capitalized(words.terms.commit)} message`}
+                    placeholder={
+                        writing
+                            ? words.readingChanges
+                            : `${capitalized(words.terms.commit)} message`
+                    }
                     rows={messageRows(message)}
                     disabled={writing}
                     value={message}
@@ -156,7 +162,9 @@ function CommitForm({ busy, write, onCommit }: CommitFormProps) {
                 />
             </div>
             <button type="submit" className="button" disabled={busy || message.trim() === ""}>
-                {busy ? "Committing…" : "Commit all"}
+                {busy
+                    ? `${capitalized(words.terms.committing)}…`
+                    : `${capitalized(words.terms.commit)} all`}
             </button>
         </form>
     );
@@ -222,7 +230,7 @@ function PullForm({ project, task, busy, write, onOpen }: PullFormProps) {
                 className="button"
                 onClick={() => api.taskPullDraft(project, task.name).then(setDraft, report)}
             >
-                Open a pull request…
+                Open {withArticle(words.terms.pullRequest)}…
             </button>
         );
     }
@@ -237,8 +245,8 @@ function PullForm({ project, task, busy, write, onOpen }: PullFormProps) {
             <div className="publish-message">
                 <input
                     className="publish-input publish-title-input"
-                    aria-label="Pull request title"
-                    placeholder={writing ? "Reading the branch…" : "Title"}
+                    aria-label={`${capitalized(words.terms.pullRequest)} title`}
+                    placeholder={writing ? `Reading the ${words.terms.branch}…` : "Title"}
                     disabled={writing}
                     value={draft.title}
                     onChange={(event) => setDraft({ ...draft, title: event.target.value })}
@@ -253,8 +261,8 @@ function PullForm({ project, task, busy, write, onOpen }: PullFormProps) {
             </div>
             <textarea
                 className="publish-input"
-                aria-label="Pull request description"
-                placeholder={writing ? "Reading the branch…" : "Description"}
+                aria-label={`${capitalized(words.terms.pullRequest)} description`}
+                placeholder={writing ? `Reading the ${words.terms.branch}…` : "Description"}
                 rows={6}
                 disabled={writing}
                 value={draft.body}

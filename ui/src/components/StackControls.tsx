@@ -69,7 +69,7 @@ export function StackControls({ project, task }: { project: string; task: Task }
                 {words.stack[task.stack]}
             </p>
             <button type="button" className="button" disabled={busy} onClick={toggle}>
-                {stackAction(running, busy)}
+                {stackAction(running, busy, words.stackStarting)}
             </button>
             <button
                 type="button"
@@ -85,9 +85,9 @@ export function StackControls({ project, task }: { project: string; task: Task }
 }
 
 /** What the button that starts or stops a stack says. */
-export function stackAction(running: boolean, busy: boolean): string {
+export function stackAction(running: boolean, busy: boolean, starting = "Starting…"): string {
     if (busy) {
-        return running ? "Stopping…" : "Starting…";
+        return running ? "Stopping…" : starting;
     }
     return running ? "Stop" : "Start";
 }

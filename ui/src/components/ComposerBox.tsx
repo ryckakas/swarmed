@@ -22,6 +22,7 @@ import {
 } from "../slash";
 import { useStore } from "../store";
 import { takesSuggestion } from "../suggestion";
+import { useWords } from "../useWords";
 import { FileChips } from "./FileChips";
 
 interface Props {
@@ -300,6 +301,7 @@ function useSlashMenu(
     templates: Template[],
     onChange: (value: string, select?: [number, number] | null) => void,
 ) {
+    const words = useWords();
     const [active, setActive] = useState(0);
     // The text Esc was pressed on; the list stays away until the text changes.
     const [dismissed, setDismissed] = useState<string | null>(null);
@@ -348,7 +350,7 @@ function useSlashMenu(
         /** What the list says beside a name: that it is the user's own, or what Swarmed does. */
         kind: (name: string) =>
             kept.has(name)
-                ? "your prompt"
+                ? `your ${words.terms.prompt}`
                 : kindLabel(commands.find((command) => command.name === name)),
     };
 }

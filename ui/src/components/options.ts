@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { AgentInfo, Effort, SlashCommand, Supervision, Theme } from "../api/types";
 import { useStore } from "../store";
+import { type Words, wordsFor } from "../wording";
 
 // The choices a session is started with, and how they are named in the UI.
 
@@ -55,20 +56,25 @@ export function modelLabel(model: string | null): string {
  * The default model as a menu option names: the model itself where Swarmed chooses it, since
  * a session left on it runs on that one; else whatever the agent runs on by itself.
  */
-function defaultModelLabel(agent: AgentInfo | undefined): string {
+function defaultModelLabel(agent: AgentInfo | undefined, words: Words): string {
+    const name = `Default ${words.terms.model}`;
     const chosen = agent?.default_model;
-    return chosen ? `${modelLabel(null)} (${modelLabel(chosen)})` : modelLabel(null);
+    return chosen ? `${name} (${modelLabel(chosen)})` : name;
 }
 
-/** The agent's default, then the models it offers, as menu options. */
-export function modelChoices(agent: AgentInfo | undefined, current?: string | null) {
+/** The agent's default, then the models it offers, as menu options, in the style's words. */
+export function modelChoices(
+    agent: AgentInfo | undefined,
+    current?: string | null,
+    words: Words = wordsFor("plain"),
+) {
     const models = new Set(agent?.models ?? []);
     // A session may run on a model the list does not know; it still has to be shown as chosen.
     if (current) {
         models.add(current);
     }
     return [
-        ["", defaultModelLabel(agent)],
+        ["", defaultModelLabel(agent, words)],
         ...[...models].map((model): [string, string] => [model, modelLabel(model)]),
     ] satisfies [string, string][];
 }

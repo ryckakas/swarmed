@@ -270,7 +270,7 @@ function Form({ draft, onChange, onSave, onRemove, onCancel }: FormProps) {
                 </span>
                 <input
                     className="key-input mono"
-                    aria-label="Address of the running task"
+                    aria-label={`Address of the running ${words.terms.task}`}
                     placeholder="http://localhost:{{port.web}}"
                     spellCheck={false}
                     value={draft.openUrl}

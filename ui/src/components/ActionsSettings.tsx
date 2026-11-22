@@ -3,6 +3,8 @@ import { ACTION_ICONS, actionLabel, pickedIcon } from "../actionbar";
 import { api } from "../api";
 import type { Action } from "../api/types";
 import { useStore } from "../store";
+import { useWords } from "../useWords";
+import { capitalized, withArticle } from "../wording";
 import { Picker } from "./Picker";
 
 /** What an action does when its button is pressed. */
@@ -49,6 +51,7 @@ const EVERYWHERE = "";
  * in the session's terminal. Kept for every repository or for one.
  */
 export function ActionsSettings() {
+    const words = useWords();
     const projects = useStore((state) => state.projects);
     const report = useStore((state) => state.report);
     const noteChanged = useStore((state) => state.noteActionsChanged);
@@ -97,8 +100,8 @@ export function ActionsSettings() {
     const own = actions.filter((action) => action.of_project === (project !== null));
 
     return (
-        <section className="settings-group" aria-label="Actions">
-            <h3>Actions</h3>
+        <section className="settings-group" aria-label={words.actions}>
+            <h3>{words.actions}</h3>
             <p className="settings-hint">
                 Buttons of your own, shown on every task in the order they stand here, those for
                 every repository first. Each sends a prompt to the agent of the session on screen,
@@ -117,7 +120,7 @@ export function ActionsSettings() {
                         setDraft(null);
                     }}
                     options={[
-                        [EVERYWHERE, "Every repository"],
+                        [EVERYWHERE, `Every ${words.terms.repository}`],
                         ...projects.map((one): [string, string] => [one.name, one.name]),
                     ]}
                 />
@@ -179,7 +182,7 @@ export function ActionsSettings() {
                 />
             ) : (
                 <button type="button" className="button" onClick={() => setDraft(NEW)}>
-                    Add an action
+                    {words.addAction}
                 </button>
             )}
         </section>
@@ -196,6 +199,7 @@ interface FormProps {
 }
 
 function ActionForm({ draft, onChange, onSave, onRemove, onCancel }: FormProps) {
+    const words = useWords();
     const submit = (event: FormEvent) => {
         event.preventDefault();
         onSave();
@@ -254,16 +258,21 @@ function ActionForm({ draft, onChange, onSave, onRemove, onCancel }: FormProps) 
                     value={draft.kind}
                     onChange={(kind) => onChange({ ...draft, kind: kind as Kind })}
                     options={[
-                        ["prompt", "Send a prompt to the agent"],
+                        [
+                            "prompt",
+                            `Send ${withArticle(words.terms.prompt)} to the ${words.terms.agent}`,
+                        ],
                         ["command", "Run a command in the terminal"],
                     ]}
                 />
             </div>
             <label>
-                <span className="settings-label">{isPrompt ? "Prompt" : "Command"}</span>
+                <span className="settings-label">
+                    {isPrompt ? capitalized(words.terms.prompt) : "Command"}
+                </span>
                 <textarea
                     className={isPrompt ? "key-input" : "key-input mono"}
-                    aria-label={isPrompt ? "The prompt" : "The command"}
+                    aria-label={isPrompt ? `The ${words.terms.prompt}` : "The command"}
                     placeholder={
                         isPrompt
                             ? "Run the end-to-end tests and mark this session green if they pass."

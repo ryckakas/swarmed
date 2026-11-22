@@ -3,6 +3,8 @@ import { api } from "../api";
 import type { McpServerInput, McpServerView } from "../api/types";
 import { iconForAgent } from "../providerIcons";
 import { useStore } from "../store";
+import { useWords } from "../useWords";
+import { capitalized } from "../wording";
 import { ProviderMark } from "./ProviderMark";
 
 /** A server as the form holds it while it is being written. */
@@ -55,6 +57,7 @@ function inputOf(draft: Draft): McpServerInput {
  * Swarmed runs is given all of them that it lacks. Secrets are typed in and never shown again.
  */
 export function McpSettings() {
+    const words = useWords();
     const report = useStore((state) => state.report);
     const [servers, setServers] = useState<McpServerView[]>([]);
     const [draft, setDraft] = useState<Draft | null>(null);
@@ -73,8 +76,8 @@ export function McpSettings() {
     const remove = (name: string) => api.mcpRemove(name).then(setServers).catch(report);
 
     return (
-        <section className="settings-group" aria-label="MCP servers">
-            <h3>MCP servers</h3>
+        <section className="settings-group" aria-label={capitalized(words.terms.mcpServers)}>
+            <h3>{capitalized(words.terms.mcpServers)}</h3>
             <p className="settings-hint">
                 Every agent Swarmed runs is given the servers set up here and the ones the other
                 agents have that it lacks, from the next session started. Secrets of servers set up

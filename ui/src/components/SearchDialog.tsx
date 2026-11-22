@@ -2,6 +2,7 @@ import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { SearchHit } from "../api/types";
 import { useStore } from "../store";
+import { useWords } from "../useWords";
 
 /** How long typing has to pause before the search is run, in milliseconds. */
 const PAUSE_MS = 180;
@@ -50,6 +51,7 @@ function moveFocus(event: KeyboardEvent<HTMLElement>) {
  * included. Choosing one opens it, reopening it first if it was closed.
  */
 export function SearchDialog() {
+    const words = useWords();
     const open = useStore((state) => state.searchOpen);
     const showSearch = useStore((state) => state.showSearch);
     const openSession = useStore((state) => state.open);
@@ -89,7 +91,7 @@ export function SearchDialog() {
                 className="search-box"
                 type="search"
                 aria-label="Search conversations"
-                placeholder="Search what was said, in any session"
+                placeholder={words.searchPlaceholder}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
             />
@@ -102,7 +104,7 @@ export function SearchDialog() {
                     onClick={() => go(hit)}
                 >
                     <span className="search-hit-head">
-                        <span className="inbox-title">{hit.title || "New session"}</span>
+                        <span className="inbox-title">{hit.title || words.untitled}</span>
                         <span className="inbox-place">
                             {hit.project} / {hit.task}
                             {hit.closed && ", closed"}

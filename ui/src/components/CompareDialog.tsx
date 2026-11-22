@@ -4,6 +4,7 @@ import type { FileChange, FileDiff } from "../api/types";
 import { type ComparedFile, compared, totals } from "../broadcast";
 import { parseDiff } from "../diff";
 import { useStore } from "../store";
+import { useWords } from "../useWords";
 
 /** Two tasks of one repository, to set side by side. */
 export interface Comparison {
@@ -102,6 +103,7 @@ interface HeadProps {
 
 /** One side's task: its name, what it changed in all, and the way to drop it. */
 function CompareHead({ project, task, changes }: HeadProps) {
+    const words = useWords();
     const askToRemove = useStore((state) => state.askToRemove);
     const compare = useStore((state) => state.compare);
     const sum = Array.isArray(changes) ? totals(changes) : null;
@@ -109,7 +111,7 @@ function CompareHead({ project, task, changes }: HeadProps) {
         <div className="compare-head">
             <h3 className="mono">{task}</h3>
             <p className="settings-hint">
-                {changes === null && "Reading the changes…"}
+                {changes === null && words.readingChanges}
                 {typeof changes === "string" && changes}
                 {sum &&
                     `${sum.files} ${sum.files === 1 ? "file" : "files"}, +${sum.added} −${sum.removed}`}
@@ -168,8 +170,9 @@ function CompareRow({ row, comparing, open, onToggle }: RowProps) {
 
 /** What one task did to a file, in a few characters; a dash if it left the file alone. */
 function Side({ change }: { change: FileChange | null }) {
+    const words = useWords();
     if (!change) {
-        return <span className="compare-side compare-untouched">not changed</span>;
+        return <span className="compare-side compare-untouched">{words.notChanged}</span>;
     }
     const binary = change.added === null || change.removed === null;
     return (
@@ -189,6 +192,7 @@ interface SideDiffProps {
 
 /** One task's diff of a file, read when the row is opened. */
 function SideDiff({ project, task, file, side }: SideDiffProps) {
+    const words = useWords();
     const [diff, setDiff] = useState<FileDiff | string | null>(null);
     const touched = file[side] !== null;
     useEffect(() => {
@@ -205,7 +209,7 @@ function SideDiff({ project, task, file, side }: SideDiffProps) {
         };
     }, [project, task, file.path, touched]);
     if (!touched) {
-        return <p className="compare-diff changes-note">Not changed in this task.</p>;
+        return <p className="compare-diff changes-note">{words.notChangedHere}</p>;
     }
     if (diff === null || typeof diff === "string") {
         return <p className="compare-diff changes-note">{diff ?? "Reading the diff…"}</p>;

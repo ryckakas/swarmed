@@ -2,6 +2,7 @@ import { type KeyboardEvent, useEffect, useState } from "react";
 import { api } from "../api";
 import type { QueuedMessage } from "../api/types";
 import { useStore } from "../store";
+import { useWords } from "../useWords";
 
 /** Stands in for a queue that has not been read, without a new array on every render. */
 const NONE: QueuedMessage[] = [];
@@ -17,6 +18,7 @@ interface Props {
  * rewritten or taken out for as long as it waits.
  */
 export function MessageQueue({ sessionId, busy }: Props) {
+    const words = useWords();
     const queue = useStore((state) => state.queues[sessionId] ?? NONE);
     const setQueue = useStore((state) => state.setQueue);
     const report = useStore((state) => state.report);
@@ -41,7 +43,7 @@ export function MessageQueue({ sessionId, busy }: Props) {
             <div className="queue-head">
                 <span>
                     {queue.length === 1 ? "1 message waiting" : `${queue.length} messages waiting`}
-                    {busy ? ", sent when the agent is done" : ""}
+                    {busy ? `, sent when the ${words.terms.agent} is done` : ""}
                 </span>
                 {!busy && (
                     <button

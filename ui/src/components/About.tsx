@@ -19,7 +19,7 @@ export function About() {
             <img className="about-icon" src={icon} alt="" width={64} height={64} />
             <div>
                 <p className="about-name">Swarmed</p>
-                {version && <p className="about-version">Version {version}</p>}
+                {version && <p className="about-version">{words.versionName(version)}</p>}
             </div>
             <UpdateRow />
             <p className="about-line">{words.aboutLine}</p>

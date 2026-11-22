@@ -10,7 +10,7 @@ import type { SubAgent } from "../subagents";
 import { countUnread, countWaiting, nestedSessions, projectStatus, projectUnread } from "../tree";
 import { newVersion, updateLine } from "../updates";
 import { useWords } from "../useWords";
-import { wordsFor } from "../wording";
+import { withArticle, wordsFor } from "../wording";
 import { ForgetCloudDialog } from "./ForgetCloudDialog";
 import { ProviderMark } from "./ProviderMark";
 import { PullBadge } from "./PullRequest";
@@ -32,7 +32,11 @@ export function Sidebar() {
     const words = useStore((state) => wordsFor(state.settings?.style));
 
     return (
-        <nav className="sidebar" aria-label="Projects, tasks and sessions" onKeyDown={moveFocus}>
+        <nav
+            className="sidebar"
+            aria-label={`Projects, ${words.terms.tasks} and sessions`}
+            onKeyDown={moveFocus}
+        >
             <div className="sidebar-top" data-tauri-drag-region>
                 {version && (
                     <button
@@ -40,10 +44,10 @@ export function Sidebar() {
                         className="sidebar-version"
                         data-new={fresh === null ? undefined : ""}
                         title={fresh === null ? words.about : updateLine(update, words)}
-                        aria-label={`${words.about}, version ${version}${fresh === null ? "" : `, ${updateLine(update, words)}`}`}
+                        aria-label={`${words.about}, ${words.versionName(version)}${fresh === null ? "" : `, ${updateLine(update, words)}`}`}
                         onClick={() => showBanner("about")}
                     >
-                        v{version}
+                        {words.versionTag(version)}
                     </button>
                 )}
                 {words.overview && <span className="sidebar-name">{words.overview}</span>}
@@ -84,7 +88,7 @@ export function Sidebar() {
                         className="quiet-button quiet-button-centred"
                         onClick={() => showSettings(true)}
                     >
-                        Settings
+                        {words.settings}
                     </button>
                 </div>
             )}
@@ -108,16 +112,20 @@ function moveFocus(event: KeyboardEvent<HTMLElement>) {
 }
 
 function NoProjects() {
+    const words = useWords();
     return (
         <div className="sidebar-empty">
-            <p>No repositories yet.</p>
-            <p>Add one to start a task in it. Swarmed never writes into the repository itself.</p>
+            <p>{words.noRepositories}</p>
+            <p>
+                Add one to start {withArticle(words.terms.task)} in it. Swarmed never writes into
+                the {words.terms.repository} itself.
+            </p>
             <button
                 type="button"
                 className="button button-primary"
                 onClick={() => void addProject()}
             >
-                Add repository
+                {words.addRepository}
             </button>
         </div>
     );
@@ -139,7 +147,7 @@ function ProjectGroup({ project }: { project: Project }) {
                         type="button"
                         className="project-toggle"
                         aria-expanded={!folded}
-                        title={folded ? "Show this repository's tasks" : "Hide its tasks"}
+                        title={folded ? words.showTasks : words.hideTasks}
                         onClick={() => toggleFolded(project.id)}
                     >
                         <svg className="fold-chevron" viewBox="0 0 10 10" aria-hidden="true">
@@ -157,8 +165,8 @@ function ProjectGroup({ project }: { project: Project }) {
                 <button
                     type="button"
                     className="row-add"
-                    aria-label={`New task in ${project.name}`}
-                    title="New task"
+                    aria-label={`${words.startTask} in ${project.name}`}
+                    title={words.startTask}
                     onClick={() => startNew(project.name)}
                 >
                     +
@@ -178,7 +186,7 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
     return (
         <div className="task">
             <div className="row-head">
-                <h3 className="task-name" title={taskTooltip(task)}>
+                <h3 className="task-name" title={taskTooltip(task, words)}>
                     <WorktreeIcon />
                     <span className="task-title">{task.name}</span>
                     {task.setup === "failed" && <span className="task-flag">setup failed</span>}
@@ -254,6 +262,7 @@ const CLOUD_POLL_MS = 45_000;
  * unfinished, their statuses are asked for again from time to time.
  */
 function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] }) {
+    const words = useWords();
     const showCloudDiff = useStore((state) => state.showCloudDiff);
     const refresh = useStore((state) => state.refresh);
     const report = useStore((state) => state.report);
@@ -311,7 +320,7 @@ function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] })
                                 type="button"
                                 className="row-add"
                                 aria-label={`Show what ${cloudTitle(task)} changed`}
-                                title="Show what it changed, and apply that to a local task"
+                                title={`Show what it changed, and apply that to a local ${words.terms.task}`}
                                 onClick={() => showCloudDiff(task.id)}
                             >
                                 ±
@@ -320,8 +329,8 @@ function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] })
                         <button
                             type="button"
                             className="row-close"
-                            aria-label={`Take ${cloudTitle(task)} off the list`}
-                            title="Take off the list. The task itself is not stopped."
+                            aria-label={`${words.forgetCloud}: ${cloudTitle(task)}`}
+                            title={`${words.forgetCloud}. The task itself is not stopped.`}
                             onClick={() => setForgetting(task)}
                         >
                             ×
@@ -451,7 +460,7 @@ function ClosedSessions({ project, task, count }: ClosedProps) {
             {sessions?.map((session) => (
                 <div key={session.id} className="closed-row">
                     <span className="session-title" title={session.title}>
-                        {session.title || "New session"}
+                        {session.title || words.untitled}
                     </span>
                     <button
                         type="button"
@@ -463,7 +472,7 @@ function ClosedSessions({ project, task, count }: ClosedProps) {
                     <button
                         type="button"
                         className="row-close"
-                        aria-label={`${words.deleteSession} ${session.title || "New session"} for good`}
+                        aria-label={`${words.deleteSession} ${session.title || words.untitled} for good`}
                         title={`${words.deleteSession} for good`}
                         onClick={() => askToDelete({ id: session.id, title: session.title })}
                     >
@@ -477,8 +486,10 @@ function ClosedSessions({ project, task, count }: ClosedProps) {
 
 /** Asks to remove a repository or a task. Nothing goes before the question is answered. */
 function RemoveButton({ project, task }: { project: string; task: string | null }) {
+    const words = useWords();
     const askToRemove = useStore((state) => state.askToRemove);
-    const label = task === null ? `Remove ${project} from Swarmed` : `Remove the task ${task}`;
+    const label =
+        task === null ? `Remove ${project} from Swarmed` : `Remove the ${words.terms.task} ${task}`;
     return (
         <button
             type="button"
@@ -497,7 +508,7 @@ function SessionRow({ session }: { session: Session }) {
     const selected = useStore((state) => state.selectedSessionId === session.id);
     const open = useStore((state) => state.open);
     const askToClose = useStore((state) => state.askToClose);
-    const title = session.title || "New session";
+    const title = session.title || words.untitled;
     return (
         <div
             className={`session-line status-${session.status}`}
@@ -516,8 +527,8 @@ function SessionRow({ session }: { session: Session }) {
                 {session.spawned_by !== null && (
                     <span
                         className="session-spawned"
-                        title={`Started by session ${session.spawned_by}`}
-                        aria-label={`Started by session ${session.spawned_by}`}
+                        title={words.startedBy(session.spawned_by)}
+                        aria-label={words.startedBy(session.spawned_by)}
                         role="img"
                     >
                         <svg viewBox="0 0 12 12" aria-hidden="true">
@@ -568,12 +579,12 @@ function SubAgentRows({ session }: { session: Session }) {
                     <button
                         type="button"
                         className="sub-agent-row"
-                        title={`${words.subAgent}: ${one.name}`}
+                        title={`${words.subAgent}: ${one.name || words.subAgent}`}
                         aria-current={viewed === one.id ? "true" : undefined}
                         onClick={() => void openSub(api, session.id, one.id)}
                     >
                         <span className="sub-agent-pulse" aria-hidden="true" />
-                        <span className="session-title">{one.name}</span>
+                        <span className="session-title">{one.name || words.subAgent}</span>
                         {one.kind && <span className="sub-agent-kind">{one.kind}</span>}
                     </button>
                 </li>

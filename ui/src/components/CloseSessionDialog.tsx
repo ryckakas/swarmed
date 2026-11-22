@@ -40,7 +40,7 @@ export function CloseSessionDialog() {
             <h2 id="confirm-title">
                 {closing ? words.closeAsk : `${words.deleteSession} this session for good?`}
             </h2>
-            <p className="confirm-what">{asked.title || "New session"}</p>
+            <p className="confirm-what">{asked.title || words.untitled}</p>
             {closing && (
                 <p>
                     {busy ? "The agent is still working and will be stopped. " : ""}

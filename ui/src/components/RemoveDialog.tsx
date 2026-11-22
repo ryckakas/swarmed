@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { Project, RemoveTarget } from "../api/types";
 import { useStore } from "../store";
+import { useWords } from "../useWords";
+import type { Words } from "../wording";
 
 /** Asks before a repository or a task is removed from Swarmed, and says what goes with it. */
 export function RemoveDialog() {
@@ -20,26 +22,27 @@ function removalKey(target: RemoveTarget): string {
     return `${target.project}/${target.task ?? ""}`;
 }
 
-/** What the dialog says about a repository, or about one of its tasks. */
-function wording(target: RemoveTarget, project: Project) {
+/** What the dialog says about a repository, or about one of its tasks; its button in the style's words. */
+function wording(target: RemoveTarget, project: Project, words: Words) {
     const tasks = project.tasks.filter((task) => !task.archived);
     if (target.task === null) {
         const worktrees = tasks.length === 1 ? "1 task" : `${tasks.length} tasks`;
         return {
             title: `Remove ${project.name} from Swarmed?`,
             what: `Its ${worktrees}, their worktrees and sessions, and your notes on it are deleted. The repository itself and its branches stay as they are.`,
-            action: "Remove repository",
+            action: `Remove ${words.terms.repository}`,
         };
     }
     const branch = tasks.find((task) => task.name === target.task)?.branch;
     return {
         title: `Remove the task ${target.task}?`,
         what: `Its worktree, its sessions and your note on it are deleted, and so is ${branch ? `the branch ${branch}` : "its branch"}, unless commits on it are on neither the base nor a remote. A branch on a remote stays.`,
-        action: "Remove task",
+        action: `Remove ${words.terms.task}`,
     };
 }
 
 function Question({ target, project }: { target: RemoveTarget; project: Project }) {
+    const words = useWords();
     const askToRemove = useStore((state) => state.askToRemove);
     const refresh = useStore((state) => state.refresh);
     const report = useStore((state) => state.report);
@@ -51,7 +54,7 @@ function Question({ target, project }: { target: RemoveTarget; project: Project 
     const busy = useStore((state) => state.removals.includes(key));
     // What stopped the last attempt. After one, the button removes regardless.
     const [problem, setProblem] = useState<string | null>(null);
-    const { title, what, action } = wording(target, project);
+    const { title, what, action } = wording(target, project, words);
 
     useEffect(() => {
         dialog.current?.showModal();

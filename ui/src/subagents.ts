@@ -30,7 +30,8 @@ function started(event: AgentEvent): SubAgent | null {
     const kind = text(input.subagent_type);
     return {
         id: event.id,
-        name: text(input.description) || kind || "Sub-agent",
+        // Nothing to name it by: the window calls it what the style calls a sub-agent.
+        name: text(input.description) || kind,
         kind,
         prompt: text(input.prompt),
     };

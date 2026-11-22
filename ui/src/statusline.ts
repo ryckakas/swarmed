@@ -1,5 +1,6 @@
 import type { AgentEvent, FileChange, Session, StatusItem, Task } from "./api/types";
 import { formatDuration, timeWorked } from "./turns";
+import { capitalized, type Words } from "./wording";
 
 // The built-in pieces of the status line under the message box. Pure, so it can be tested.
 
@@ -13,6 +14,21 @@ export const STATUS_ITEM_LABELS: Record<StatusItem, string> = {
     worktree: "Worktree",
     duration: "Time worked",
 };
+
+/** The pieces the style has words of its own for. */
+const STYLED_NAMES: Partial<Record<StatusItem, (words: Words) => string>> = {
+    branch: (words) => capitalized(words.terms.branch),
+    changes: (words) => words.changes,
+    model: (words) => capitalized(words.terms.model),
+    agent: (words) => capitalized(words.terms.agent),
+    worktree: (words) => capitalized(words.terms.worktree),
+    duration: (words) => words.timeWorked,
+};
+
+/** What a piece is called in the style's words, where the style has its own. */
+export function statusItemName(item: StatusItem, words: Words): string {
+    return STYLED_NAMES[item]?.(words) ?? STATUS_ITEM_LABELS[item];
+}
 
 /** Every built-in piece, in the order they are offered. */
 export const STATUS_ITEMS = Object.keys(STATUS_ITEM_LABELS) as StatusItem[];

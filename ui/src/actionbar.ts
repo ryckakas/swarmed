@@ -1,6 +1,7 @@
 // What the row of the user's own buttons shows. Pure, so it can be tested.
 
 import type { Action } from "./api/types";
+import { type Words, wordsFor } from "./wording";
 
 /** How many actions are shown as buttons; the rest are in a menu. */
 export const SHOWN_ACTIONS = 6;
@@ -13,10 +14,10 @@ export function splitActions(actions: Action[], shown = SHOWN_ACTIONS): [Action[
 }
 
 /** What an action does, for its tooltip: the start of its prompt or its command. */
-export function actionTooltip(action: Action): string {
+export function actionTooltip(action: Action, words: Words = wordsFor("plain")): string {
     const [kind, text] =
         action.command === ""
-            ? ["Sends the agent", action.prompt]
+            ? [`Sends the ${words.terms.agent}`, action.prompt]
             : ["Runs in the terminal", action.command];
     const first = text.split("\n")[0] ?? "";
     const cut = first.length > 120 || text.includes("\n");

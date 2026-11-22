@@ -2,9 +2,10 @@ import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 
 import { api } from "../api";
 import type { Settings, StatusItem, Style, Supervision, Theme } from "../api/types";
 import { LAYOUTS, PALETTES, STYLES } from "../appearance";
-import { movedItem, STATUS_ITEM_LABELS, STATUS_ITEMS, withItem } from "../statusline";
+import { movedItem, STATUS_ITEMS, statusItemName, withItem } from "../statusline";
 import { SETTINGS_TABS, type SettingsTab, useStore } from "../store";
 import { useWords } from "../useWords";
+import { capitalized, type Words } from "../wording";
 import { About, lookForUpdate } from "./About";
 import { ActionsSettings } from "./ActionsSettings";
 import { AgentsSettings } from "./AgentsSettings";
@@ -21,11 +22,13 @@ import {
 import { Picker } from "./Picker";
 import { ShortcutLists } from "./Shortcuts";
 import { SkillsSettings } from "./SkillsSettings";
+import { SwarmDictionary } from "./SwarmDictionary";
 import { TemplatesSettings } from "./TemplatesSettings";
 import { UsageSettings } from "./UsageSettings";
 
 /** The user's preferences. Every change takes effect, and is saved, at once. */
 export function SettingsDialog() {
+    const words = useWords();
     const open = useStore((state) => state.settingsOpen);
     const settings = useStore((state) => state.settings);
     const showSettings = useStore((state) => state.showSettings);
@@ -50,8 +53,8 @@ export function SettingsDialog() {
             onClose={() => showSettings(false)}
         >
             <header className="settings-head">
-                <h2 id="settings-title">Settings</h2>
-                <IconButton label="Close settings" onClick={() => showSettings(false)}>
+                <h2 id="settings-title">{words.settings}</h2>
+                <IconButton label={words.closeSettings} onClick={() => showSettings(false)}>
                     <CloseIcon />
                 </IconButton>
             </header>
@@ -82,15 +85,18 @@ export function SettingsDialog() {
 
 /** The tabs down the left side. Up and down move between them, as in any list of tabs. */
 function Tabs({ tab }: { tab: SettingsTab }) {
+    const words = useWords();
     const showSettings = useStore((state) => state.showSettings);
+    const style = useStore((state) => state.settings?.style);
+    const tabs = shownTabs(style);
     const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
         const step = { ArrowDown: 1, ArrowUp: -1 }[event.key];
         if (step === undefined) {
             return;
         }
         event.preventDefault();
-        const at = SETTINGS_TABS.findIndex(([id]) => id === tab);
-        const next = SETTINGS_TABS[(at + step + SETTINGS_TABS.length) % SETTINGS_TABS.length];
+        const at = tabs.findIndex(([id]) => id === tab);
+        const next = tabs[(at + step + tabs.length) % tabs.length];
         if (next) {
             showSettings(true, next[0]);
             document.getElementById(`settings-tab-${next[0]}`)?.focus();
@@ -100,11 +106,11 @@ function Tabs({ tab }: { tab: SettingsTab }) {
         <div
             className="settings-tabs"
             role="tablist"
-            aria-label="Settings"
+            aria-label={words.settings}
             aria-orientation="vertical"
             onKeyDown={onKeyDown}
         >
-            {SETTINGS_TABS.map(([id, label]) => (
+            {tabs.map(([id, label]) => (
                 <button
                     key={id}
                     type="button"
@@ -117,11 +123,30 @@ function Tabs({ tab }: { tab: SettingsTab }) {
                     tabIndex={id === tab ? 0 : -1}
                     onClick={() => showSettings(true, id)}
                 >
-                    {label}
+                    {tabLabel(id, label, words)}
                 </button>
             ))}
         </div>
     );
+}
+
+/** The tabs there are in a style: the swarm dictionary only where there are swarm words. */
+function shownTabs(style: Style | undefined) {
+    return SETTINGS_TABS.filter(([id]) => id !== "dictionary" || style !== "plain");
+}
+
+/** A tab's name: the style's own where it has one. */
+function tabLabel(id: SettingsTab, label: string, words: Words): string {
+    const named: Partial<Record<SettingsTab, string>> = {
+        actions: words.actions,
+        shortcuts: words.shortcuts,
+        rules: capitalized(words.terms.rules),
+        agents: capitalized(words.terms.agents),
+        skills: capitalized(words.terms.skills),
+        prompts: capitalized(words.terms.prompts),
+        mcp: capitalized(words.terms.mcpServers),
+    };
+    return named[id] ?? label;
 }
 
 /** The part of the settings a tab stands for. Only the one on screen is built. */
@@ -153,6 +178,8 @@ function Panel({ tab, settings }: { tab: SettingsTab; settings: Settings }) {
             return <UsageSettings />;
         case "shortcuts":
             return <Shortcuts />;
+        case "dictionary":
+            return <SwarmDictionary />;
         case "about":
             return <AboutSection settings={settings} />;
     }
@@ -448,6 +475,7 @@ function rulesState(tooLong: boolean, changed: boolean, saved: string): string {
 }
 
 function Rules({ settings }: { settings: Settings }) {
+    const words = useWords();
     const change = useStore((state) => state.changeSettings);
     const [rules, setRules] = useState(settings.rules);
     const tooLong = new TextEncoder().encode(rules).length > MAX_RULES_BYTES;
@@ -458,8 +486,8 @@ function Rules({ settings }: { settings: Settings }) {
         }
     };
     return (
-        <section className="settings-group" aria-label="Rules">
-            <h3>Rules</h3>
+        <section className="settings-group" aria-label={capitalized(words.terms.rules)}>
+            <h3>{capitalized(words.terms.rules)}</h3>
             <p className="settings-hint">
                 What every agent should keep to, whatever the agent or model: how to answer, what to
                 avoid, how you like things done. Written in plain words, one rule per line. They are
@@ -506,7 +534,7 @@ function StatusPieces({ settings, disabled }: { settings: Settings; disabled: bo
         <ul className="status-pieces" aria-disabled={disabled}>
             {[...chosen, ...rest].map((item) => {
                 const at = chosen.indexOf(item);
-                const name = item === "duration" ? words.timeWorked : STATUS_ITEM_LABELS[item];
+                const name = statusItemName(item, words);
                 return (
                     <li key={item} className="status-piece">
                         <label className="settings-check">
@@ -586,9 +614,10 @@ function StatusLineSettings({ settings }: { settings: Settings }) {
 
 /** Every keyboard shortcut, by where it applies. */
 function Shortcuts() {
+    const words = useWords();
     return (
-        <section className="settings-group" aria-label="Keyboard shortcuts">
-            <h3>Keyboard shortcuts</h3>
+        <section className="settings-group" aria-label={words.shortcuts}>
+            <h3>{words.shortcuts}</h3>
             <ShortcutLists />
         </section>
     );

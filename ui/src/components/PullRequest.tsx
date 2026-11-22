@@ -15,9 +15,12 @@ import {
 } from "../pulls";
 import { useStore } from "../store";
 import { usePull } from "../usePull";
+import { useWords } from "../useWords";
+import { capitalized } from "../wording";
 
 /** A task's pull request in the sidebar: its number, coloured by how its checks stand. */
 export function PullBadge({ project, task }: { project: string; task: Task }) {
+    const words = useWords();
     const pull = usePull(project, task);
     const report = useStore((state) => state.report);
     if (!pull) {
@@ -29,8 +32,8 @@ export function PullBadge({ project, task }: { project: string; task: Task }) {
             className="pull-badge"
             data-tone={pullTone(pull)}
             data-state={pull.state}
-            title={pullTooltip(pull)}
-            aria-label={pullTooltip(pull)}
+            title={pullTooltip(pull, words)}
+            aria-label={pullTooltip(pull, words)}
             onClick={() => api.taskPullOpen(project, task.name, null).catch(report)}
         >
             #{pull.number}
@@ -50,6 +53,7 @@ const OUTCOMES: Record<Check["outcome"], string> = {
  * hand the failed ones to the session on screen.
  */
 export function PullSection({ project, task }: { project: string; task: Task }) {
+    const words = useWords();
     const pull = usePull(project, task);
     const report = useStore((state) => state.report);
     const sessionId = useStore((state) => state.selectedSessionId);
@@ -60,7 +64,7 @@ export function PullSection({ project, task }: { project: string; task: Task }) 
         api.taskPullOpen(project, task.name, check).catch(report);
     const summary = `${checksSummary(pull)}${pull.review ? `, ${pull.review.replaceAll("_", " ")}` : ""}`;
     return (
-        <section className="pull" aria-label="Pull request">
+        <section className="pull" aria-label={capitalized(words.terms.pullRequest)}>
             <button type="button" className="pull-title" onClick={() => void open(null)}>
                 <span className="pull-number" data-state={pull.state}>
                     #{pull.number} {pullState(pull)}

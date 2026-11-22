@@ -10,6 +10,7 @@ import { appliedEffort } from "../statusline";
 import { useStore } from "../store";
 import { suggestionOf } from "../suggestion";
 import { useWords } from "../useWords";
+import { capitalized } from "../wording";
 import { ComposerBox } from "./ComposerBox";
 import { EffortPicker } from "./EffortPicker";
 import { FastToggle } from "./FastToggle";
@@ -33,6 +34,7 @@ const TerminalBox = lazy(async () => {
 });
 
 const PLACEHOLDER: Record<Session["status"], string> = {
+    // The style's own words, in place of this.
     idle: "Reply to the agent",
     working: "Write the next message: it waits until the agent is done. Esc stops the agent.",
     waiting: "Answer the request above. A message written here waits until the agent is done.",
@@ -64,7 +66,7 @@ function TerminalPane({ id, busy }: { id: number; busy: boolean }) {
                     <>
                         <p>What you run here goes to the agent with your next message.</p>
                         <button type="button" className="button" disabled={busy} onClick={share}>
-                            Send to the agent now
+                            Send to the {words.terms.agent} now
                         </button>
                     </>
                 ) : (
@@ -88,6 +90,7 @@ function TerminalPane({ id, busy }: { id: number; busy: boolean }) {
 
 /** The message box of an existing session. */
 export function Composer({ session }: { session: Session }) {
+    const words = useWords();
     const [text, setText] = useState("");
     const [files, setFiles] = useState<string[]>([]);
     const terminal = useStore((state) => state.terminalOpen);
@@ -154,7 +157,7 @@ export function Composer({ session }: { session: Session }) {
                         onSend={send}
                         onStop={status === "working" ? stop : undefined}
                         canSend={canSend}
-                        placeholder={PLACEHOLDER[status]}
+                        placeholder={status === "idle" ? words.reply : PLACEHOLDER[status]}
                         suggestion={busy ? null : suggestion}
                         inputRef={input}
                         commands={commands}
@@ -164,7 +167,7 @@ export function Composer({ session }: { session: Session }) {
                             type="button"
                             className="icon-picker"
                             aria-label="Terminal"
-                            title="Terminal: a shell in the task's worktree (Ctrl+`)"
+                            title={`Terminal: a shell in the ${words.terms.task}'s ${words.terms.worktree} (Ctrl+\`)`}
                             onClick={toggleTerminal}
                         >
                             <TerminalIcon />
@@ -189,6 +192,7 @@ function hasBegun(session: Session, events: AgentEvent[] | undefined): boolean {
 
 /** The session's supervision, model and effort, changeable at any time, also while the agent works. */
 function SessionPickers({ session }: { session: Session }) {
+    const words = useWords();
     const configure = useStore((state) => state.configure);
     const setAgent = useStore((state) => state.setAgent);
     const agents = useAgents();
@@ -212,7 +216,7 @@ function SessionPickers({ session }: { session: Session }) {
             />
             {choosable && (
                 <Picker
-                    label="Agent"
+                    label={capitalized(words.terms.agent)}
                     value={session.agent}
                     onChange={(value) => void setAgent(api, id, value)}
                     options={agents.map((candidate) => [candidate.id, candidate.name])}
@@ -222,10 +226,10 @@ function SessionPickers({ session }: { session: Session }) {
                 <span className="option-label">{agent?.name ?? session.agent}</span>
             )}
             <Picker
-                label="Model"
+                label={capitalized(words.terms.model)}
                 value={model ?? ""}
                 onChange={(value) => void configure(api, id, { ...current, model: value || null })}
-                options={modelChoices(agent, model)}
+                options={modelChoices(agent, model, words)}
             />
             {/* Changing it restarts the agent between turns. */}
             {takesEffort(session.agent) && (

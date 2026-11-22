@@ -27,7 +27,7 @@ export function UsageButton({ session, events }: { session: Session; events: Age
     };
     // Past the warning, the coins say so before they are opened.
     const warning = limitWarning(limitWindows(events));
-    const about = `${words.usage}: your plan's limits and extra usage, asked of Claude Code as it opens.`;
+    const about = `${words.usage}: your plan's limits and ${words.extraUsage.toLowerCase()}, asked of Claude Code as it opens.`;
     const label = warning ? `${about} ${warningLine(warning)}` : about;
     return (
         <div className="usage-wrap" ref={wrap}>

@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { activityWords, pickWord, statusKind, withArticle, wordsFor } from "./wording";
+import {
+    activityWords,
+    dictionary,
+    pickWord,
+    searchTerms,
+    statusKind,
+    withArticle,
+    wordsFor,
+} from "./wording";
 
 describe("wordsFor", () => {
     it("keeps the plain words in the plain style", () => {
@@ -24,6 +32,13 @@ describe("wordsFor", () => {
         expect(words.status.idle).toEqual(["Dormant"]);
         expect(words.status.unread).toEqual(["Hatched"]);
         expect(words.status.working).toEqual(["Mutating", "Incubating"]);
+    });
+
+    it("names the installed version as an evolution in the swarm's styles", () => {
+        expect(wordsFor("plain").versionTag("0.2.1")).toBe("v0.2.1");
+        expect(wordsFor("plain").versionName("0.2.1")).toBe("Version 0.2.1");
+        expect(wordsFor("swarm").versionTag("0.2.1")).toBe("e0.2.1");
+        expect(wordsFor("colony").versionName("0.2.1")).toBe("Evolution 0.2.1");
     });
 
     it("counts in the swarm's terms", () => {
@@ -121,5 +136,39 @@ describe("pickWord", () => {
         });
         expect(wordsFor("swarm").turnDone).toBe("Molt complete");
         expect(wordsFor("swarm").timeWorked).toBe("Time mutating");
+    });
+});
+
+describe("dictionary", () => {
+    const named = (style: "plain" | "swarm" | "colony") =>
+        Object.fromEntries(dictionary(style).map((term) => [term.swarm, term.plain]));
+
+    it("has nothing to explain in the plain style", () => {
+        expect(dictionary("plain")).toEqual([]);
+    });
+
+    it("explains the swarm's words, and leaves git's to the colony", () => {
+        const swarm = named("swarm");
+        expect(swarm.Spawn).toBe("Session");
+        expect(swarm["Evolution Chamber"]).toBe("Settings");
+        expect(swarm.Cell).toBeUndefined();
+        const colony = named("colony");
+        expect(colony.Cell).toBe("Worktree");
+        expect(colony.Strain).toBe("Branch");
+        expect(colony.Offering).toBe("Pull request");
+        expect(colony.Symbionts).toBe("MCP servers");
+    });
+
+    it("lists its words from A to Z", () => {
+        const words = dictionary("colony").map((term) => term.swarm);
+        expect(words).toEqual([...words].sort((a, b) => a.localeCompare(b)));
+    });
+
+    it("finds a word by either name or by what it means, ignoring case", () => {
+        const terms = dictionary("colony");
+        expect(searchTerms(terms, "WORKTREE").map((term) => term.swarm)).toContain("Cell");
+        expect(searchTerms(terms, "github").map((term) => term.swarm)).toContain("Offering");
+        expect(searchTerms(terms, "  ")).toEqual(terms);
+        expect(searchTerms(terms, "zzz")).toEqual([]);
     });
 });
