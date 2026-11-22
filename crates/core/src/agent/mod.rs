@@ -569,6 +569,10 @@ pub enum AgentEvent {
         state: BackgroundState,
         /// The agent's own line about how it ended.
         summary: Option<String>,
+        /// The tool call that started it, for a sub-agent: what its events are filed under.
+        /// Absent from what was recorded before this.
+        #[serde(default)]
+        tool_use_id: Option<String>,
     },
     /// The session was forked from another: what stands before this is a copy of what was
     /// said there. Recorded by the core, not produced by a backend.

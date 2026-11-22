@@ -675,6 +675,8 @@ export type AgentEvent =
           kind: string;
           state: BackgroundState;
           summary: string | null;
+          /** The tool call that started it, for a sub-agent; `null` in older conversations. */
+          tool_use_id: string | null;
       }
     /** One of the agent's own screens, such as `/usage`, with the contents the agent gave. */
     | { type: "screen"; command: string; title: string; note: string; sections: ScreenSection[] }
@@ -715,6 +717,8 @@ export interface BackgroundTask {
     state: BackgroundState;
     /** The agent's own line about how it ended. */
     summary: string | null;
+    /** The tool call that started it, for a sub-agent: what opens its conversation. */
+    tool_use_id: string | null;
 }
 
 export interface SessionEvent {

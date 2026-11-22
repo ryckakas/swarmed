@@ -778,6 +778,7 @@ fn parse_background(message: &Value) -> Option<AgentEvent> {
         kind: str_of(message, "task_type"),
         state,
         summary: kind_of(message, "summary").map(String::from),
+        tool_use_id: kind_of(message, "tool_use_id").map(String::from),
     })
 }
 
@@ -1636,6 +1637,42 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_sub_agent_in_the_background_is_tied_to_the_call_that_started_it() {
+        let pending = Pending::default();
+        let started = json!({
+            "type": "system", "subtype": "task_started", "task_id": "a1",
+            "description": "Code review of PR 258", "task_type": "local_agent",
+            "tool_use_id": "toolu_agent",
+        });
+        let ended = json!({
+            "type": "system", "subtype": "task_notification", "task_id": "a1",
+            "status": "completed", "summary": "Agent completed", "tool_use_id": "toolu_agent",
+        });
+        for (message, state) in [
+            (started, BackgroundState::Running),
+            (ended, BackgroundState::Completed),
+        ] {
+            let parsed = parse_message(&message, &pending);
+            let tied = matches!(
+                parsed.as_slice(),
+                [AgentEvent::Background { tool_use_id: Some(id), state: read, .. }]
+                    if id == "toolu_agent" && *read == state
+            );
+            assert!(tied, "{parsed:?}");
+        }
+        // One recorded before the field was there still reads, as tied to nothing.
+        let old = r#"{"type":"background","task_id":"b1","description":"d","kind":"local_bash","state":"running","summary":null}"#;
+        let read: AgentEvent = serde_json::from_str(old).expect("reads");
+        assert!(matches!(
+            read,
+            AgentEvent::Background {
+                tool_use_id: None,
+                ..
+            }
+        ));
+    }
+
     /// How Claude Code's report of an end with this status is read.
     fn ended_as(status: &str) -> Option<BackgroundState> {
         let ended = json!({
@@ -1665,6 +1702,7 @@ mod tests {
                 kind: "local_bash".into(),
                 state: BackgroundState::Running,
                 summary: None,
+                tool_use_id: None,
             }]
         );
         assert_eq!(ended_as("completed"), Some(BackgroundState::Completed));

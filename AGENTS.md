@@ -300,9 +300,14 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   holds in `Sub` under that call, so it is stored with the session and stays out of the
   conversation, which is between the user and the session's agent. A sub-agent is at work
   from its `Agent` (earlier `Task`) call to that call's result, and the UI works that out
-  from the events it hears: the sidebar lists the ones at work under their session and drops
-  them when they are done, and pressing one shows its own conversation, read-only, in place
-  of the session's. Nothing in the store or the database knows of sub-agents. Conversations
+  from the events it hears (`atWork`, `working`): the sidebar lists the ones at work under
+  their session and drops them when they are done, and pressing one shows its own
+  conversation, read-only, in place of the session's. One in the background (Claude Code's
+  default now) gets its call's result at once and works on past the turn: its
+  `AgentEvent::Background` report names the call (`tool_use_id`), which keeps it at work,
+  listed under the session even while it is idle, until the report of its end or the
+  agent's exit, in whichever order the result and the report came. Its answer is that end
+  report's summary, and its row in the Background list opens it. Nothing in the store or the database knows of sub-agents. Conversations
   recorded before this have a sub-agent's words among the agent's own.
 - **A session's title** starts as the first line of its first message. A `Namer` (`ClaudeNamer`:
   one call to Claude Code's smallest model, with none of the user's settings, tools or MCP

@@ -31,6 +31,8 @@ pub struct BackgroundTask {
     pub state: BackgroundState,
     /// The agent's own line about how it ended.
     pub summary: Option<String>,
+    /// The tool call that started it, for a sub-agent: what opens its conversation.
+    pub tool_use_id: Option<String>,
 }
 
 /// A report from a session's history: whose it is, and the event itself.
@@ -88,6 +90,7 @@ fn listed(reported: Vec<Reported>, alive: &[i64]) -> Vec<BackgroundTask> {
             kind,
             state,
             summary,
+            tool_use_id,
         } = event
         else {
             continue;
@@ -104,6 +107,7 @@ fn listed(reported: Vec<Reported>, alive: &[i64]) -> Vec<BackgroundTask> {
                 kind,
                 state,
                 summary,
+                tool_use_id,
             });
             continue;
         };
@@ -111,6 +115,7 @@ fn listed(reported: Vec<Reported>, alive: &[i64]) -> Vec<BackgroundTask> {
         let mut task = tasks.remove(at);
         task.state = state;
         task.summary = summary.or(task.summary);
+        task.tool_use_id = task.tool_use_id.or(tool_use_id);
         tasks.push(task);
     }
     for task in &mut tasks {
@@ -141,8 +146,21 @@ mod tests {
             kind: "local_bash".to_string(),
             state,
             summary: (!started).then(|| format!("{id} ended")),
+            // Only the start names the call here: the end leaves it out.
+            tool_use_id: started.then(|| format!("call-{id}")),
         };
         (session, format!("session {session}"), event)
+    }
+
+    #[test]
+    fn a_task_keeps_the_call_that_started_it_past_its_end() {
+        let reported = vec![
+            report(1, "a", BackgroundState::Running),
+            report(1, "a", BackgroundState::Completed),
+        ];
+        let tasks = listed(reported, &[1]);
+        assert_eq!(tasks[0].tool_use_id.as_deref(), Some("call-a"));
+        assert_eq!(tasks[0].state, BackgroundState::Completed);
     }
 
     fn states(tasks: &[BackgroundTask]) -> Vec<(&str, BackgroundState)> {

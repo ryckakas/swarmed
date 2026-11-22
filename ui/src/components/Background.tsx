@@ -68,6 +68,9 @@ function Row({ task, onChanged }: { task: BackgroundTask; onChanged(): void }) {
     const words = useWords();
     const report = useStore((state) => state.report);
     const open = useStore((state) => state.open);
+    const openSub = useStore((state) => state.openSub);
+    // A sub-agent tied to the call that started it can be followed in its own conversation.
+    const call = task.kind === "local_agent" ? task.tool_use_id : null;
     const [stopping, setStopping] = useState(false);
     const stop = () => {
         setStopping(true);
@@ -77,7 +80,18 @@ function Row({ task, onChanged }: { task: BackgroundTask; onChanged(): void }) {
     };
     return (
         <li className="background-row" data-state={task.state}>
-            <p className="background-what">{task.description || task.task_id}</p>
+            {call === null ? (
+                <p className="background-what">{task.description || task.task_id}</p>
+            ) : (
+                <button
+                    type="button"
+                    className="background-what background-open"
+                    title={`Show what this ${words.subAgent} says and does`}
+                    onClick={() => void openSub(api, task.session_id, call)}
+                >
+                    {task.description || task.task_id}
+                </button>
+            )}
             <p className="background-facts">
                 <span className="background-state">{words.backgroundState[task.state]}</span>
                 <span>

@@ -9,6 +9,7 @@ import type {
     AgentEvent,
     AgentSetup,
     ApiKeyInfo,
+    BackgroundState,
     BackgroundTask,
     Check,
     CloudProvider,
@@ -564,6 +565,7 @@ function backgroundApi(): Pick<Api, "taskBackground" | "sessionStopBackground"> 
             kind: "local_bash",
             state: "running",
             summary: null,
+            tool_use_id: null,
         },
         {
             session_id: 1,
@@ -573,6 +575,7 @@ function backgroundApi(): Pick<Api, "taskBackground" | "sessionStopBackground"> 
             kind: "local_bash",
             state: "completed",
             summary: 'Background command "Run the whole test suite" completed (exit code 0)',
+            tool_use_id: null,
         },
         {
             session_id: 2,
@@ -582,6 +585,7 @@ function backgroundApi(): Pick<Api, "taskBackground" | "sessionStopBackground"> 
             kind: "local_agent",
             state: "failed",
             summary: "The agent stopped with an error",
+            tool_use_id: null,
         },
     ];
     return {
@@ -1427,7 +1431,9 @@ class MockAgent {
 
     /** Does what a scripted message asks for; `false` if `text` is not one of them. */
     private scripted(id: number, text: string, done: AgentEvent): boolean {
-        if (text === "delegate") {
+        if (text === "delegate background") {
+            this.delegateInBackground(id, done);
+        } else if (text === "delegate") {
             this.delegate(id, done);
         } else if (text.startsWith("ask")) {
             this.askQuestions(id, text === "ask one", done);
@@ -1519,6 +1525,46 @@ class MockAgent {
     }
 
     /** Starts two sub-agents, which report for a while and hand their answers back in turn. */
+    /**
+     * Starts a sub-agent in the background, as Claude Code now does by default: its call comes
+     * back at once, the turn ends, and the sub-agent works on and reports its own end.
+     */
+    private delegateInBackground(id: number, done: AgentEvent) {
+        const call = `sub-${this.nextId++}`;
+        const task = `task-${call}`;
+        const description = "Review the change";
+        const input = { description, subagent_type: "general-purpose", prompt: "Review it." };
+        this.later(id, { type: "tool_use", id: call, name: "Agent", input }, "working");
+        const report = (state: BackgroundState, summary: string | null): AgentEvent => ({
+            type: "background",
+            task_id: task,
+            description,
+            kind: "local_agent",
+            state,
+            summary,
+            tool_use_id: call,
+        });
+        this.later(id, report("running", null), "working");
+        const launched = "Async agent launched successfully.";
+        const result: AgentEvent = {
+            type: "tool_result",
+            tool_use_id: call,
+            content: launched,
+            is_error: false,
+        };
+        this.later(id, result, "working");
+        this.later(id, { type: "text", text: "It is working in the background." }, "working");
+        this.later(id, done, "idle", 2);
+        const said = (text: string): AgentEvent => ({
+            type: "sub",
+            parent: call,
+            event: { type: "text", text },
+        });
+        this.later(id, said("Reading the diff."), null, 6);
+        this.later(id, said("Two things to fix."), null, 20);
+        this.later(id, report("completed", "Found two things to fix."), null, 40);
+    }
+
     private delegate(id: number, done: AgentEvent) {
         const start = (toolId: string, description: string): AgentEvent => ({
             type: "tool_use",

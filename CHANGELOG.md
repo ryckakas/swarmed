@@ -49,6 +49,11 @@ notice adds its line under Unreleased.
 
 ### Fixed
 
+- **A sub-agent working in the background stays in the sidebar.** Claude Code now starts
+  sub-agents in the background, and they dropped out of the sidebar at once, though they went
+  on working past the turn. They stay listed under their session, even while it is idle,
+  until they report their end, and the Background list opens one to show what it says and
+  does.
 - **A waiting message is no longer sent while you edit it.** If the agent's turn ended while a
   waiting message was open for editing, its old text was sent and what you were typing was
   lost. It now waits until you finish: saved, it goes with the new text; given up with

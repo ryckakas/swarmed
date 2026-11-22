@@ -739,6 +739,20 @@ code {
     text-decoration: underline;
 }
 
+.background-open {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.background-open:hover {
+    text-decoration: underline;
+}
+
 .background-stop {
     grid-column: 2;
     grid-row: 1 / span 2;
