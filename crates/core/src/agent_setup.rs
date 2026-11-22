@@ -395,17 +395,23 @@ impl Core {
         self.reload_agents()
     }
 
-    /// Reads `agents.toml` again, so a change to it takes effect without a restart.
+    /// Reads `agents.toml` again, so a change to it takes effect without a restart. What of
+    /// it could not be understood is left out and is the error, so whoever just changed the
+    /// file hears it; the agents that could be read are in use either way.
     pub(crate) fn reload_agents(&self) -> Result<()> {
         let mut agents = self
             .agents
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        Agents::reload(
-            &mut agents,
-            &self.paths.agents_config(),
-            &self.paths.opencode_config_dir,
-        )
+        let path = self.paths.agents_config();
+        let problems = Agents::reload(&mut agents, &path, &self.paths.opencode_config_dir)?;
+        if problems.is_empty() {
+            return Ok(());
+        }
+        Err(Error::Config {
+            path,
+            message: problems.join(" "),
+        })
     }
 }
 

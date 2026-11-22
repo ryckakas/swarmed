@@ -210,7 +210,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::task_pull, commands::task_pull_open, commands::task_changes,
         commands::task_diff, commands::note, commands::set_note, commands::api_keys,
         commands::set_api_key, commands::delete_api_key, commands::settings,
-        commands::settings_problems,
+        commands::config_problems,
         commands::set_settings, commands::custom_layout, commands::custom_layout_save, commands::terminal_config, commands::terminal_config_save, commands::session_new, commands::session_events,
         commands::session_send, commands::session_mark_read, commands::session_queue,
         commands::session_enqueue, commands::session_queue_edit, commands::session_queue_hold,

@@ -20,6 +20,7 @@ use crate::Core;
 use crate::agents::CLAUDE;
 use crate::commands;
 use crate::error::{Error, Result};
+use crate::lenient::{self, Problems};
 use crate::paths::{self, Paths};
 
 /// The file a skill is written in, inside its folder.
@@ -54,9 +55,10 @@ pub struct Skill {
     pub shared: bool,
 }
 
-/// Which skills are kept back from other agents, by `origin/name`.
+/// Which skills are kept back from other agents, by `origin/name`. A key it does not know is
+/// read past and named (`lenient`).
 #[derive(Debug, Default, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 struct Sharing {
     hidden: BTreeSet<String>,
 }
@@ -203,10 +205,40 @@ impl Paths {
     }
 
     fn sharing(&self) -> Sharing {
-        let text = std::fs::read_to_string(self.data_dir.join("skills.toml"));
-        text.ok()
-            .and_then(|text| toml::from_str(&text).ok())
-            .unwrap_or_default()
+        self.sharing_with_problems().0
+    }
+
+    /// Which skills are kept back, with what of `skills.toml` could not be understood, said
+    /// for the user. A file that cannot be read keeps none back until it is fixed, which is
+    /// said rather than passed over: every skill it kept back is offered meanwhile.
+    fn sharing_with_problems(&self) -> (Sharing, Problems) {
+        let path = self.data_dir.join("skills.toml");
+        let text = lenient::read_if_there(&path);
+        let Ok(Some(text)) = text else {
+            let unread = text
+                .err()
+                .map(|error| format!("it could not be read: {error}."));
+            return (Sharing::default(), unread.into_iter().collect());
+        };
+        match text.parse::<toml::Table>() {
+            Ok(table) => lenient::fields::<Sharing>(table),
+            Err(error) => {
+                let meanwhile = format!(
+                    "Every skill is offered to other agents until it is fixed, and sharing or \
+                     keeping back a skill keeps a copy of it as `{}`.",
+                    lenient::unreadable_name(&path)
+                );
+                (
+                    Sharing::default(),
+                    vec![lenient::not_toml(&text, &error, &meanwhile)],
+                )
+            }
+        }
+    }
+
+    /// What of `skills.toml` cannot be understood, said for the user.
+    pub(crate) fn sharing_problems(&self) -> Problems {
+        self.sharing_with_problems().1
     }
 
     /// Every skill Swarmed knows of wherever a session runs: its own first, then each agent's
@@ -371,6 +403,7 @@ impl Core {
             message: error.to_string(),
         })?;
         std::fs::create_dir_all(&self.paths.data_dir)?;
+        lenient::keep_if_unreadable(&path)?;
         std::fs::write(path, text)?;
         Ok(())
     }

@@ -689,10 +689,10 @@ pub(crate) fn settings(core: CoreState<'_>) -> Command<Settings> {
     Ok(core.settings()?)
 }
 
-/// What of the settings file could not be understood, for the window to show.
-#[tauri::command]
-pub(crate) fn settings_problems(core: CoreState<'_>) -> Command<Vec<String>> {
-    Ok(core.settings_problems()?)
+/// What of Swarmed's configuration could not be understood, for the window to show.
+#[tauri::command(async)]
+pub(crate) fn config_problems(core: CoreState<'_>) -> Command<Vec<String>> {
+    Ok(core.config_problems()?)
 }
 
 #[tauri::command]

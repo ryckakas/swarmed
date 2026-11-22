@@ -386,9 +386,10 @@ async fn main() -> Result<()> {
         return Ok(served?);
     }
     let core = Arc::new(open_core()?);
-    // What of the settings could not be understood: said, and the command goes on with the rest.
-    for problem in core.settings_problems().unwrap_or_default() {
-        aside(&format!("settings.toml: {problem}"));
+    // What of the configuration could not be understood: said, and the command goes on with
+    // the rest.
+    for problem in core.config_problems().unwrap_or_default() {
+        aside(&problem);
     }
     // A session run from here gets the same tools for reaching other sessions as in the app.
     if matches!(cli.command, Command::Session(_)) {

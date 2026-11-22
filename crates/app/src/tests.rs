@@ -507,9 +507,9 @@ fn a_settings_file_with_a_key_the_app_does_not_know_still_opens_and_says_so() {
     let written = "editor = \"zed\"\ncoming_later = true\n";
     std::fs::write(app.data_dir().join("settings.toml"), written).expect("writes");
     assert_eq!(app.ok("settings", json!({}))["editor"], json!("zed"));
-    let problems = app.ok("settings_problems", json!({}));
+    let problems = app.ok("config_problems", json!({}));
     let said = problems[0].as_str().expect("one problem, in words");
-    assert!(said.contains("`coming_later`"), "{said}");
+    assert!(said.starts_with("settings.toml: `coming_later`"), "{said}");
     assert_eq!(problems.as_array().map(Vec::len), Some(1));
 }
 

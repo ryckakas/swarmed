@@ -94,13 +94,24 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   something it left running ends. `acp.rs` treats that as a turn of the agent's own: it ends
   when the agent has said something and reports its usage, or has been silent for `QUIET`,
   and a stop from the user ends it at once, since the agent has nothing to answer one with.
-- **A setting Swarmed cannot understand costs only itself** (`Settings::read`). The file is
-  read key by key, never refused whole: two Swarmeds of different versions can share one data
-  directory, and one key the older does not know must not stop it. A key this version does
-  not know is left out and written back as it was on saving; a value it cannot take leaves
-  that setting at its default; a file that is not TOML gives the defaults and is kept as
-  `settings.toml.unreadable` before it is saved over. Each is said (`settings_problems`): in
-  the window's problem banner, and on stderr from the command line.
+- **What Swarmed cannot understand in its configuration costs only itself** (`lenient.rs`,
+  #300). Two Swarmeds of different versions can share one data directory, and one key the
+  older does not know must not stop it.
+  - **Not refused whole:** the files are read with `serde_ignored`, not `deny_unknown_fields`.
+    A key a struct does not know is left out at any depth and named.
+  - **A value that cannot be read** costs the smallest part it is in: a setting's key at its
+    default (`lenient::fields`), or one entry left out of `agents.toml`, `mcp.toml` or a
+    repository's environments (`lenient::entries`).
+  - **A file that is not TOML** gives the defaults where there are safe ones (settings, agents,
+    MCP servers, skills) and is kept as `<file>.unreadable` before it is written over. A
+    repository's configuration or environments stay an error: there is no telling what their
+    hooks were.
+  - **Said, never in the way:** `Core::config_problems` names each problem with its file. The
+    window shows them in its problem banner and the command line on stderr.
+  - **Settings keep unknown keys:** saving the settings writes keys this version does not know
+    back as they were.
+  - **New configuration files** are read the same way. A new struct for one gets no
+    `deny_unknown_fields`.
 - **A stack is also remembered on disk** (`run/stacks/<task>.pid`: its leading process and
   when that started). A Swarmed that ended without stopping its stacks finds them again, counts
   them as running and can stop them. Stopping asks the stack's process group, waits, then

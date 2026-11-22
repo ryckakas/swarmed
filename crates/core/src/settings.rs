@@ -6,11 +6,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::Supervision;
 use crate::error::{Error, Result};
+use crate::lenient::{self, Problems};
 use crate::statusline::StatusItem;
 
 /// The user's own preferences, one TOML file in the data directory.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+// Unknown keys are read past and named (`lenient`), never refused: see `Settings::read`.
+#[serde(default)]
 pub struct Settings {
     /// The command that opens a folder in the user's code editor, such as `code` or `zed`.
     pub editor: String,
@@ -181,27 +183,27 @@ impl Settings {
     /// key this version does not know is left out (a newer Swarmed may have written it), a value
     /// it cannot take leaves that setting at its default, and a file that is not TOML at all
     /// gives the defaults. One key must not stop the app, and none goes unsaid.
-    pub(crate) fn read(path: &Path) -> Result<(Self, Vec<String>)> {
-        let Some(text) = read_if_there(path)? else {
+    pub(crate) fn read(path: &Path) -> Result<(Self, Problems)> {
+        let Some(text) = lenient::read_if_there(path)? else {
             return Ok((Self::default(), Vec::new()));
         };
-        let table = match text.parse::<toml::Table>() {
-            Ok(table) => table,
-            Err(error) => return Ok((Self::default(), vec![unreadable(&text, &error)])),
-        };
-        let known = known_keys();
-        let mut problems = Vec::new();
-        let taken: toml::Table = table
-            .into_iter()
-            .filter_map(|(key, value)| {
-                let kept =
-                    understood(&known, &key, &value).map_err(|problem| problems.push(problem));
-                kept.ok().map(|()| (key, value))
-            })
-            .collect();
-        // Each key was read on its own already, so together they read too.
-        let settings: Self = toml::Value::Table(taken).try_into().unwrap_or_default();
-        Ok((settings.within_limits(), problems))
+        match text.parse::<toml::Table>() {
+            Ok(table) => {
+                let (settings, problems) = lenient::fields::<Self>(table);
+                Ok((settings.within_limits(), problems))
+            }
+            Err(error) => {
+                let meanwhile = format!(
+                    "Every setting is at its default until it is fixed, and saving the settings \
+                     keeps a copy of it as `{}`.",
+                    lenient::unreadable_name(path)
+                );
+                Ok((
+                    Self::default(),
+                    vec![lenient::not_toml(&text, &error, &meanwhile)],
+                ))
+            }
+        }
     }
 
     /// The settings with every value brought into the range the app can show.
@@ -213,8 +215,8 @@ impl Settings {
 
     /// Writes the settings. Keys this version does not know, which a newer Swarmed may have
     /// written, are written back as they were, so this one does not erase that one's choices. A
-    /// file that is not TOML is kept beside it first (`UNREADABLE`): what the user wrote there
-    /// is not lost to the defaults that stood in for it.
+    /// file that is not TOML is kept beside it first: what the user wrote there is not lost to
+    /// the defaults that stood in for it.
     pub(crate) fn save(&self, path: &Path) -> Result<()> {
         if self.rules.len() > MAX_RULES_BYTES {
             return Err(Error::RulesTooLong(MAX_RULES_BYTES));
@@ -235,18 +237,6 @@ impl Settings {
     }
 }
 
-/// What a settings file that is not TOML is kept as when the settings are saved over it.
-const UNREADABLE: &str = "settings.toml.unreadable";
-
-/// The file's text, or `None` if there is no such file.
-fn read_if_there(path: &Path) -> Result<Option<String>> {
-    match std::fs::read_to_string(path) {
-        Ok(text) => Ok(Some(text)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e.into()),
-    }
-}
-
 /// The keys this version of the settings file has: every field, as it is written.
 fn known_keys() -> Vec<String> {
     let written = toml::Value::try_from(Settings::default()).ok();
@@ -254,44 +244,15 @@ fn known_keys() -> Vec<String> {
     table.map_or_else(Vec::new, |table| table.keys().cloned().collect())
 }
 
-/// Whether `key` with `value` is a setting this version can take, or what to tell the user.
-fn understood(known: &[String], key: &str, value: &toml::Value) -> std::result::Result<(), String> {
-    if !known.iter().any(|name| name == key) {
-        return Err(format!(
-            "`{key}` is not a setting this version of Swarmed knows, perhaps one a newer \
-             version wrote: it stays in the file and changes nothing here."
-        ));
-    }
-    let alone = toml::Table::from_iter([(key.to_string(), value.clone())]);
-    match toml::Value::Table(alone).try_into::<Settings>() {
-        Ok(_) => Ok(()),
-        Err(error) => Err(format!(
-            "`{key}` could not be read ({}), so it is at its default.",
-            error.message().trim()
-        )),
-    }
-}
-
-/// What to tell the user of a settings file that is not TOML: where it went wrong, and what
-/// is done meanwhile.
-fn unreadable(text: &str, error: &toml::de::Error) -> String {
-    let before = error.span().and_then(|span| text.get(..span.start));
-    let line = before.map_or(1, |before| before.matches('\n').count() + 1);
-    format!(
-        "The settings file is not TOML (line {line}: {}), so every setting is at its default. \
-         Saving the settings keeps a copy of it as `{UNREADABLE}`.",
-        error.message().trim()
-    )
-}
-
 /// The keys of the file at `path` that this version does not know, to be written back. A file
-/// that is not TOML is moved aside to `UNREADABLE` instead, before it is written over.
+/// that is not TOML is moved aside instead (`lenient::keep_if_unreadable`), before it is
+/// written over.
 fn unknown_kept(path: &Path) -> Result<toml::Table> {
-    let Some(text) = read_if_there(path)? else {
+    lenient::keep_if_unreadable(path)?;
+    let Some(text) = lenient::read_if_there(path)? else {
         return Ok(toml::Table::new());
     };
     let Ok(table) = text.parse::<toml::Table>() else {
-        std::fs::rename(path, path.with_file_name(UNREADABLE))?;
         return Ok(toml::Table::new());
     };
     let known = known_keys();
@@ -388,7 +349,7 @@ mod tests {
         assert_eq!(settings.editor, "zed");
         assert_eq!(problems.len(), 2, "{problems:?}");
         assert!(
-            problems[0].contains("`coming_later` is not a setting"),
+            problems[0].contains("`coming_later` is not something"),
             "{problems:?}"
         );
         assert!(problems[1].contains("`editr`"), "{problems:?}");
@@ -439,7 +400,8 @@ mod tests {
         assert!(problems[0].contains("not TOML (line 2"), "{problems:?}");
 
         Settings::default().save(&path).expect("saves");
-        let kept = std::fs::read_to_string(dir.path().join(UNREADABLE)).expect("kept aside");
+        let kept = std::fs::read_to_string(dir.path().join("settings.toml.unreadable"))
+            .expect("kept aside");
         assert_eq!(kept, written);
         assert_eq!(
             Settings::read(&path).expect("reads").1,

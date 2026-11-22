@@ -2357,8 +2357,8 @@ export function createMockApi(): Api {
         setApiKey: async (name, key) => storeKey(keys, name, key.trim() !== ""),
         deleteApiKey: async (name) => storeKey(keys, name, false),
         settings: async () => ({ ...settings }),
-        // The sample's settings file is understood whole.
-        settingsProblems: async () => [],
+        // The sample's configuration is understood whole.
+        configProblems: async () => [],
         // The sample's own: a browser has no app to ask.
         version: async () => "0.1.0",
         // A newer version is out in the sample, so the About view has something to show.

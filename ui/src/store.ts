@@ -572,9 +572,9 @@ function leftForRemoval(state: State, target: RemoveTarget): Partial<State> {
     );
 }
 
-/** What the window says of what in the settings file could not be understood. */
-export function settingsProblemsSaid(problems: string[]): string {
-    return `Swarmed uses its settings file except for what it could not understand. ${problems.join(" ")}`;
+/** What the window says of what in Swarmed's configuration could not be understood. */
+export function configProblemsSaid(problems: string[]): string {
+    return `Swarmed works with what it understood of its configuration. It could not understand this: ${problems.join(" ")}`;
 }
 
 /** Has the core keep something it checks first; what is wrong with it, or nothing once `taken`. */
@@ -845,15 +845,15 @@ const inView = typeof window === "undefined" ? null : window;
 
 /**
  * Reads the settings and the kept prompts, at the start and whenever an agent changed them.
- * What of the settings file could not be understood is said, never in the way: the rest is in
+ * What of the configuration could not be understood is said, never in the way: the rest is in
  * use.
  */
 function readConfiguration(api: Api) {
     void reporting(async () => useStore.setState({ settings: await api.settings() }));
     void reporting(async () => {
-        const problems = await api.settingsProblems();
+        const problems = await api.configProblems();
         if (problems.length > 0) {
-            useStore.getState().report(settingsProblemsSaid(problems));
+            useStore.getState().report(configProblemsSaid(problems));
         }
     });
     void reporting(async () => useStore.setState({ customLayout: await api.customLayout() }));

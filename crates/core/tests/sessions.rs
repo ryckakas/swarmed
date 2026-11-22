@@ -2449,3 +2449,54 @@ async fn a_message_told_to_an_agent_that_ended_before_hearing_it_waits_again() {
     let said = |event: &AgentEvent| matches!(event, AgentEvent::UserMessage { text } if text.ends_with("hint"));
     assert!(!stored.iter().any(said), "{stored:?}");
 }
+
+#[tokio::test]
+async fn configuration_swarmed_cannot_understand_stops_no_agent_and_is_named() {
+    let fx = fixture();
+    // A key a newer Swarmed may write, in the repository's own configuration and its hooks.
+    common::write_config(
+        &fx,
+        "max_stacks = 3\nlater = true\n[hooks]\nwarmup = \"x\"\n",
+    );
+    let core = core_with_task(&fx).await;
+    let data = &fx.paths.data_dir;
+    let write = |name: &str, text: &str| std::fs::write(data.join(name), text).expect("writes");
+    write("settings.toml", "editor = \"zed\"\ncoming_later = 1\n");
+    write("agents.toml", "[other]\ncomand = \"typo\"\n");
+    write(
+        "mcp.toml",
+        "[docs]\ncommand = \"docs\"\nenabled = true\ntimeout = 3\n",
+    );
+    write("skills.toml", "hidden = [\"own/one\"\n");
+
+    // The agent starts and answers: none of it stood in its way.
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+    core.session_send(session.id, "hello").expect("sends");
+    let events = turn(&mut bus, session.id).await;
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::TurnDone { .. }))
+    );
+
+    let problems = core.config_problems().expect("reads");
+    let named = |file: &str, key: &str| {
+        problems
+            .iter()
+            .any(|problem| problem.starts_with(file) && problem.contains(key))
+    };
+    assert!(named("settings.toml: ", "`coming_later`"), "{problems:?}");
+    assert!(
+        named("agents.toml: ", "`other` could not be read"),
+        "{problems:?}"
+    );
+    assert!(named("mcp.toml: ", "`docs.timeout`"), "{problems:?}");
+    assert!(named("skills.toml: ", "not TOML"), "{problems:?}");
+    assert!(named("projects/demo.toml: ", "`later`"), "{problems:?}");
+    assert!(
+        named("projects/demo.toml: ", "`hooks.warmup`"),
+        "{problems:?}"
+    );
+    assert_eq!(problems.len(), 6, "{problems:?}");
+}

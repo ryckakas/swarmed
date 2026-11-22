@@ -23,6 +23,14 @@ notice adds its line under Unreleased.
   default, and a key it does not know is kept in the file when the settings are saved. A file
   that is not TOML at all gives the defaults and is kept as `settings.toml.unreadable` before
   anything is saved over it.
+- **The same holds for agents, MCP servers, skills and a repository's configuration.** One key
+  Swarmed did not know in `agents.toml` kept the app from opening, and one in `mcp.toml` kept
+  every agent from starting. In a repository's configuration or environments, it kept that
+  repository's agents from starting. Each now costs only itself: a key it does not know is left
+  out, an agent, server or environment that cannot be read is left out, and a setting that
+  cannot be read is at its default. Each is named with its file. A `skills.toml` that could not
+  be read used to offer every hidden skill again without a word, and the next change wiped what
+  it held. Now that is said, and the file is kept as `skills.toml.unreadable`.
 
 ## [0.3.0] - 2026-11-22
 

@@ -10,7 +10,7 @@
 
 use std::collections::BTreeMap;
 use std::fs::OpenOptions;
-use std::io::{ErrorKind, Write};
+use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
@@ -19,11 +19,13 @@ use serde::{Deserialize, Serialize};
 use crate::Core;
 use crate::config::ProjectConfig;
 use crate::error::{Error, Result};
+use crate::lenient::{self, Problems};
 use crate::paths;
 
-/// One environment of a project. Whatever is left empty is as the project has it.
+/// One environment of a project. Whatever is left empty is as the project has it. A key it
+/// does not know is read past and named (`lenient`).
 #[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct Environment {
     /// Runs once after a task's worktree is created, in place of the project's `setup` hook.
     pub setup: String,
@@ -83,13 +85,28 @@ fn replace(own: &str, target: &mut String) {
 
 type Environments = BTreeMap<String, Environment>;
 
+/// The environments that can be read. One that cannot is left out (`problems_in` says why),
+/// so tasks in the others go on as before. A file that is not TOML is an error: there is no
+/// telling which environment was which.
 fn read(path: &Path) -> Result<Environments> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Environments::new()),
-        Err(error) => return Err(error.into()),
+    Ok(read_with_problems(path)?.0)
+}
+
+/// The environments that can be read, with what could not, said for the user.
+fn read_with_problems(path: &Path) -> Result<(Environments, Problems)> {
+    let Some(text) = lenient::read_if_there(path)? else {
+        return Ok((Environments::new(), Vec::new()));
     };
-    toml::from_str(&text).map_err(|error| invalid(path, &error))
+    let table = text.parse::<toml::Table>().map_err(|error| {
+        let meanwhile = "Tasks in its environments cannot be set up or started until it is fixed.";
+        invalid(path, &lenient::not_toml(&text, &error, meanwhile))
+    })?;
+    Ok(lenient::entries::<Environment>(table))
+}
+
+/// What of the environments file at `path` cannot be understood, said for the user.
+pub(crate) fn problems_in(path: &Path) -> Result<Problems> {
+    Ok(read_with_problems(path)?.1)
 }
 
 fn invalid(path: &Path, error: &dyn std::fmt::Display) -> Error {
