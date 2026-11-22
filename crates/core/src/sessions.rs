@@ -119,6 +119,7 @@ impl SessionStatus {
             | AgentEvent::Suggestion { .. }
             | AgentEvent::Closed
             | AgentEvent::Deleted
+            | AgentEvent::Reordered { .. }
             | AgentEvent::Background { .. }
             | AgentEvent::View { .. }
             | AgentEvent::Queue { .. }
@@ -270,8 +271,10 @@ impl Store {
         let title = options.title.clone().unwrap_or_default();
         let agent = options.agent.clone().unwrap_or_else(|| CLAUDE.to_string());
         self.conn.execute(
-            "INSERT INTO sessions (task_id, title, model, supervision, agent, effort, fast) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            // At the end of its task's sessions.
+            "INSERT INTO sessions (task_id, title, model, supervision, agent, effort, fast, \
+             position) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, \
+             (SELECT COALESCE(MAX(position), 0) + 1 FROM sessions WHERE task_id = ?1))",
             params![
                 task_id,
                 title,
@@ -329,7 +332,7 @@ impl Store {
 
     pub(crate) fn sessions(&self, task_id: i64) -> Result<Vec<Session>> {
         let mut stmt = self.conn.prepare(&format!(
-            "{SESSION_SELECT} WHERE task_id = ?1 AND closed_at IS NULL ORDER BY id"
+            "{SESSION_SELECT} WHERE task_id = ?1 AND closed_at IS NULL ORDER BY position, id"
         ))?;
         let rows = stmt.query_map(params![task_id], session_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -345,7 +348,7 @@ impl Store {
 
     pub(crate) fn sessions_all(&self) -> Result<Vec<Session>> {
         let mut stmt = self.conn.prepare(&format!(
-            "{SESSION_SELECT} WHERE closed_at IS NULL ORDER BY id"
+            "{SESSION_SELECT} WHERE closed_at IS NULL ORDER BY position, id"
         ))?;
         let rows = stmt.query_map([], session_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -1509,6 +1512,7 @@ fn shown_only(event: &AgentEvent) -> bool {
             | AgentEvent::Queue { .. }
             | AgentEvent::ConfigChanged { .. }
             | AgentEvent::Deleted
+            | AgentEvent::Reordered { .. }
     )
 }
 
@@ -1718,6 +1722,18 @@ impl Live {
         }
         open.remove(&id);
         SessionStatus::after(event, false)
+    }
+
+    /// Tells every front end of something that belongs to no session, under session id 0.
+    pub(crate) fn publish_apart(&self, event: AgentEvent) {
+        let apart = SessionEvent {
+            session_id: 0,
+            status: None,
+            unread: None,
+            event,
+        };
+        // An error only means nobody is subscribed right now.
+        self.bus.send(apart).ok();
     }
 
     /// Stores an event, unless it is one that is only ever shown, then publishes it.

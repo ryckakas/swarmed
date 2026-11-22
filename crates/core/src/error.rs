@@ -281,6 +281,9 @@ pub enum Error {
     /// Only Claude Code reports the account's usage.
     #[error("only Claude Code reports usage, and this session runs `{0}`")]
     UsageNotReported(String),
+    /// No cloud task has this id.
+    #[error("cloud task {0} not found")]
+    CloudTaskNotFound(i64),
     /// The session was closed. Its agent is not started until it is reopened.
     #[error("session {0} is closed: reopen it first")]
     SessionClosed(i64),

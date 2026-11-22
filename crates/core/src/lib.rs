@@ -40,6 +40,7 @@ mod naming;
 mod notes;
 mod notices;
 mod open;
+mod order;
 mod overview;
 mod paths;
 mod peers;

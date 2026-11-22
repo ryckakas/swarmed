@@ -180,6 +180,30 @@ const MIGRATIONS: &[&str] = &[
         UNIQUE (task_id, name)
     );
 ",
+    // The order the user puts things in, among their siblings, starting from the order they
+    // were listed in before: repositories by name, tasks and sessions oldest first, cloud
+    // tasks newest first.
+    "
+    ALTER TABLE projects ADD COLUMN position INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE tasks ADD COLUMN position INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE sessions ADD COLUMN position INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE cloud_tasks ADD COLUMN position INTEGER NOT NULL DEFAULT 0;
+    UPDATE projects SET position = (
+        SELECT n FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY name) AS n FROM projects) AS o
+        WHERE o.id = projects.id);
+    UPDATE tasks SET position = (
+        SELECT n FROM (SELECT id, ROW_NUMBER() OVER (
+            PARTITION BY project_id ORDER BY created_at, id) AS n FROM tasks) AS o
+        WHERE o.id = tasks.id);
+    UPDATE sessions SET position = (
+        SELECT n FROM (SELECT id, ROW_NUMBER() OVER (
+            PARTITION BY task_id ORDER BY id) AS n FROM sessions) AS o
+        WHERE o.id = sessions.id);
+    UPDATE cloud_tasks SET position = (
+        SELECT n FROM (SELECT id, ROW_NUMBER() OVER (
+            PARTITION BY project_id ORDER BY id DESC) AS n FROM cloud_tasks) AS o
+        WHERE o.id = cloud_tasks.id);
+",
 ];
 
 /// Stands in [`MIGRATIONS`] for the one change SQL in a transaction cannot make: every
@@ -209,7 +233,9 @@ impl Store {
 
     pub(crate) fn project_insert(&self, name: &str, repo_path: &Path) -> Result<Project> {
         self.conn.execute(
-            "INSERT INTO projects (name, repo_path) VALUES (?1, ?2)",
+            // At the end of the list.
+            "INSERT INTO projects (name, repo_path, position)
+             VALUES (?1, ?2, (SELECT COALESCE(MAX(position), 0) + 1 FROM projects))",
             params![name, repo_path.to_string_lossy()],
         )?;
         Ok(Project {
@@ -248,15 +274,18 @@ impl Store {
     pub(crate) fn projects(&self) -> Result<Vec<Project>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT id, name, repo_path FROM projects ORDER BY name")?;
+            .prepare("SELECT id, name, repo_path FROM projects ORDER BY position, name")?;
         let rows = stmt.query_map([], project_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     pub(crate) fn task_insert(&self, new: &NewTask<'_>) -> Result<Task> {
         self.conn.execute(
-            "INSERT INTO tasks (project_id, name, branch, base_ref, worktree_path, slot, environment)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            // At the end of its repository's tasks.
+            "INSERT INTO tasks (project_id, name, branch, base_ref, worktree_path, slot, environment,
+                                position)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7,
+                     (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks WHERE project_id = ?1))",
             params![
                 new.project_id,
                 new.name,
@@ -324,7 +353,7 @@ impl Store {
         };
         let mut stmt = self.conn.prepare(&format!(
             "{TASK_SELECT} WHERE project_id = ?1 {filter} \
-             ORDER BY archived_at IS NOT NULL, created_at, id"
+             ORDER BY archived_at IS NOT NULL, position, created_at, id"
         ))?;
         let rows = stmt.query_map(params![project_id], task_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -346,7 +375,8 @@ impl Store {
     }
 
     pub(crate) fn tasks_all(&self) -> Result<Vec<Task>> {
-        let sql = format!("{TASK_SELECT} ORDER BY archived_at IS NOT NULL, created_at, id");
+        let sql =
+            format!("{TASK_SELECT} ORDER BY archived_at IS NOT NULL, position, created_at, id");
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map([], task_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -539,6 +569,55 @@ mod tests {
             "{tables:?}"
         );
         assert_eq!(count(&conn, "PRAGMA foreign_keys"), 1);
+    }
+
+    /// The ids of a table's rows in the order its positions give, `WHERE` `filter`.
+    fn in_order(conn: &Connection, table: &str, filter: &str) -> Vec<i64> {
+        let sql = format!("SELECT id FROM {table} WHERE {filter} ORDER BY position");
+        let mut statement = conn.prepare(&sql).expect("reads");
+        let rows = statement.query_map([], |row| row.get(0)).expect("reads");
+        rows.collect::<rusqlite::Result<_>>().expect("reads")
+    }
+
+    #[test]
+    fn a_store_made_before_positions_keeps_the_order_it_listed_things_in() {
+        let mut conn = Connection::open_in_memory().expect("opens");
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .expect("sets");
+        // Every step but the last, which adds the positions.
+        let before = MIGRATIONS.len() - 1;
+        assert!(MIGRATIONS[before].contains("ADD COLUMN position"));
+        let plain = MIGRATIONS[..before]
+            .iter()
+            .filter(|sql| **sql != AUTOINCREMENT_IDS);
+        for sql in plain {
+            conn.execute_batch(sql).expect("migrates");
+        }
+        let version = i64::try_from(before).expect("a few migrations");
+        conn.pragma_update(None, "user_version", version)
+            .expect("sets");
+        conn.execute_batch(
+            "INSERT INTO projects (id, name, repo_path) VALUES (1, 'zeta', '/z'), (2, 'alpha', '/a');
+             INSERT INTO tasks (id, project_id, name, branch, base_ref, worktree_path, slot,
+                                created_at)
+                 VALUES (3, 1, 'late', 'b1', 'main', '/w1', 1, '2026-02-01'),
+                        (4, 1, 'early', 'b2', 'main', '/w2', 2, '2026-01-01'),
+                        (5, 2, 'other', 'b3', 'main', '/w3', 1, '2026-03-01');
+             INSERT INTO sessions (id, task_id, supervision) VALUES (9, 4, 'ask'), (7, 4, 'ask'),
+                                                                    (8, 3, 'ask');
+             INSERT INTO cloud_tasks (id, project_id, provider, remote_id, url, prompt, branch,
+                                      status)
+                 VALUES (10, 1, 'codex', 'r1', 'u', 'p', 'b', 'done'),
+                        (11, 1, 'codex', 'r2', 'u', 'p', 'b', 'done');",
+        )
+        .expect("test setup");
+
+        migrate(&mut conn).expect("migrates");
+        // Repositories by name, tasks and sessions oldest first, cloud tasks newest first.
+        assert_eq!(in_order(&conn, "projects", "1"), [2, 1]);
+        assert_eq!(in_order(&conn, "tasks", "project_id = 1"), [4, 3]);
+        assert_eq!(in_order(&conn, "sessions", "task_id = 4"), [7, 9]);
+        assert_eq!(in_order(&conn, "cloud_tasks", "project_id = 1"), [11, 10]);
     }
 
     #[test]
