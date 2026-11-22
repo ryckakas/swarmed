@@ -16,10 +16,11 @@ use crate::changes::untracked;
 use crate::error::Error;
 use crate::pulls::Pull;
 use crate::sessions::Session;
+use crate::store::Task;
 use crate::{Core, Result, asking, git};
 
 /// What of a task's work has not left its worktree yet.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Unpublished {
     /// How many files are changed, added or removed and not committed.
     pub changed: u32,
@@ -28,6 +29,9 @@ pub struct Unpublished {
     pub unpushed: u32,
     /// Whether the branch has been pushed before.
     pub pushed_before: bool,
+    /// The branch the worktree is on, which is the task's own unless something switched it;
+    /// none when it is on no branch at all. The figures above are that branch's.
+    pub branch: Option<String>,
 }
 
 /// A title and a description to start a pull request from, made of the task's commits.
@@ -171,6 +175,32 @@ fn draft_of(answer: &str) -> Option<PullDraft> {
     })
 }
 
+/// The branch a worktree is on, or none when it is on no branch (a detached `HEAD`).
+async fn branch_of(worktree: &Path) -> Result<Option<String>> {
+    let branch = git::git(worktree, &["branch", "--show-current"]).await?;
+    Ok((!branch.is_empty()).then_some(branch))
+}
+
+/// Why nothing is done for a task whose worktree is on `found` and not on its own branch.
+fn elsewhere(found: Option<&str>, task: &Task) -> Error {
+    let found = found.map_or_else(|| "no branch".to_string(), |branch| format!("`{branch}`"));
+    refused(format!(
+        "this worktree is on {found}, not on the task's branch `{}`: switch back first",
+        task.branch
+    ))
+}
+
+/// Refuses unless the task's worktree is on the task's own branch. Pushing and opening a pull
+/// request name that branch, so on any other they would publish something else than the work
+/// in the worktree and look as if they had published it.
+async fn on_its_branch(task: &Task) -> Result<()> {
+    let found = branch_of(&task.worktree_path).await?;
+    if found.as_deref() == Some(task.branch.as_str()) {
+        return Ok(());
+    }
+    Err(elsewhere(found.as_deref(), task))
+}
+
 /// The branch a pull request goes into: the task's base without its remote's name.
 fn base_branch(base_ref: &str) -> &str {
     base_ref.strip_prefix("origin/").unwrap_or(base_ref)
@@ -188,7 +218,17 @@ impl Core {
             changed: u32::try_from(changed).unwrap_or(u32::MAX),
             unpushed: git::unpushed_commits(worktree, &task.base_ref).await?,
             pushed_before: git::git(worktree, &upstream).await.is_ok(),
+            branch: branch_of(worktree).await?,
         })
+    }
+
+    /// Puts a task's worktree back on the task's own branch, after something switched it to
+    /// another. Git takes changes that are not committed along when they do not conflict, and
+    /// refuses with its reason when they do; the other branch keeps its commits.
+    pub async fn task_switch_back(&self, project: &str, name: &str) -> Result<()> {
+        let (_, task) = self.task(project, name)?;
+        git::git(&task.worktree_path, &["switch", "--quiet", &task.branch]).await?;
+        Ok(())
     }
 
     /// Commits everything in a task's worktree, new files included, under `message`.
@@ -270,9 +310,11 @@ impl Core {
         Ok(asking::ask(backend, spec, question, ASKING_TIMEOUT).await)
     }
 
-    /// Pushes a task's branch to `origin`, and makes that its upstream.
+    /// Pushes a task's branch to `origin`, and makes that its upstream. Refused while the
+    /// worktree is on another branch.
     pub async fn task_push(&self, project: &str, name: &str) -> Result<()> {
         let (_, task) = self.task(project, name)?;
+        on_its_branch(&task).await?;
         let push = ["push", "--quiet", "--set-upstream", "origin", &task.branch];
         git::git(&task.worktree_path, &push).await?;
         Ok(())
@@ -281,6 +323,7 @@ impl Core {
     /// A title and description to start the task's pull request from: its commits.
     pub async fn task_pull_draft(&self, project: &str, name: &str) -> Result<PullDraft> {
         let (_, task) = self.task(project, name)?;
+        on_its_branch(&task).await?;
         let range = format!("{}..HEAD", task.base_ref);
         let log = ["log", "--reverse", "--format=%s%x1f%b%x1e", &range];
         let log = git::git(&task.worktree_path, &log).await?;
@@ -299,6 +342,7 @@ impl Core {
         session: Option<i64>,
     ) -> Result<PullDraft> {
         let (_, task) = self.task(project, name)?;
+        on_its_branch(&task).await?;
         let worktree = &task.worktree_path;
         let range = format!("{}..HEAD", task.base_ref);
         let log = ["log", "--reverse", "--format=%s%n%b", &range];
@@ -342,6 +386,7 @@ impl Core {
         if draft.title.trim().is_empty() {
             return Err(refused("a pull request needs a title"));
         }
+        on_its_branch(&task).await?;
         let gh = find_program("gh", &self.tool_dirs).ok_or_else(|| {
             refused("the GitHub CLI `gh` is not installed: https://cli.github.com")
         })?;

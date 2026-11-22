@@ -114,6 +114,7 @@ export const tauriApi: Api = {
         invoke<string>("task_commit_message", { project, name, session }),
     taskCommit: (project, name, message) => invoke<void>("task_commit", { project, name, message }),
     taskPush: (project, name) => invoke<void>("task_push", { project, name }),
+    taskSwitchBack: (project, name) => invoke<void>("task_switch_back", { project, name }),
     taskPullDraft: (project, name) => invoke<PullDraft>("task_pull_draft", { project, name }),
     taskPullCreate: (project, name, draft, asDraft) =>
         invoke<Pull>("task_pull_create", { project, name, draft, asDraft }),

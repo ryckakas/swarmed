@@ -7,10 +7,22 @@ import { type Words, wordsFor } from "./wording";
 /** The next thing to do with a task's work; `done` when nothing is left. */
 export type PublishStep = "commit" | "push" | "pull" | "done";
 
-/** Commit before pushing, push before a pull request, and one pull request is enough. */
-export function nextStep(state: Unpublished, hasPull: boolean): PublishStep {
+/** Whether the worktree is somewhere else than on the task's own branch. */
+export function isAway(state: Unpublished, taskBranch: string): boolean {
+    return state.branch !== taskBranch;
+}
+
+/**
+ * Commit before pushing, push before a pull request, and one pull request is enough. On
+ * another branch than the task's (`away`) only committing is left: pushing and opening a
+ * pull request name the task's branch, which is not what the worktree holds.
+ */
+export function nextStep(state: Unpublished, hasPull: boolean, away = false): PublishStep {
     if (state.changed > 0) {
         return "commit";
+    }
+    if (away) {
+        return "done";
     }
     if (state.unpushed > 0) {
         return "push";

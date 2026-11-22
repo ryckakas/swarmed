@@ -576,6 +576,16 @@ pub(crate) async fn task_push(core: CoreState<'_>, project: String, name: String
     Ok(core.task_push(&project, &name).await?)
 }
 
+/// Puts a task's worktree back on the task's own branch.
+#[tauri::command]
+pub(crate) async fn task_switch_back(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+) -> Command<()> {
+    Ok(core.task_switch_back(&project, &name).await?)
+}
+
 /// A title and description to start a task's pull request from.
 #[tauri::command]
 pub(crate) async fn task_pull_draft(

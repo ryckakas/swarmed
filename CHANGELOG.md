@@ -37,6 +37,12 @@ notice adds its line under Unreleased.
   line shrank alike, so beside a long branch the cost and the time worked were cut to `$…` and
   `1…`. The figures (changes, context, cost, time worked) now keep their width, the branch,
   model, agent and worktree share what is left, and hovering a piece shows all of it.
+- **Push no longer pushes the wrong branch after a task's worktree was switched.** When an
+  agent, or you, switched a task's worktree to another branch, the task panel showed the
+  task's pull request beside the other branch's work, and Push pushed the task's branch, so
+  the new commits never left the machine. The panel now says which branch the worktree is on,
+  pushes and opens nothing under the task's name while it is elsewhere, and offers to switch
+  back. `swarmed task switch-back` does the same from the command line.
 
 ## [0.2.2] - 2026-11-22
 

@@ -374,8 +374,9 @@ fn the_ui_can_commit_a_tasks_work_and_is_told_what_cannot_be_published() {
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
     let task = json!({ "project": "demo", "name": "one", "branch": null });
     app.ok("task_new", task);
-    let worktree = app.ok("overview", json!({}))[0]["tasks"][0]["worktree_path"].clone();
-    let worktree = Path::new(worktree.as_str().expect("a path"));
+    let made = app.ok("overview", json!({}))[0]["tasks"][0].clone();
+    let branch = made["branch"].clone();
+    let worktree = Path::new(made["worktree_path"].as_str().expect("a path"));
     std::fs::write(worktree.join("notes.txt"), "one\n").expect("writes");
     let target = json!({ "project": "demo", "name": "one" });
     // A branch that was never pushed has no pull request, and opening it says so.
@@ -388,7 +389,7 @@ fn the_ui_can_commit_a_tasks_work_and_is_told_what_cannot_be_published() {
     // The file written above is not committed yet; committing it leaves one commit to push.
     assert_eq!(
         app.ok("task_unpublished", target.clone()),
-        json!({ "changed": 1, "unpushed": 0, "pushed_before": false })
+        json!({ "changed": 1, "unpushed": 0, "pushed_before": false, "branch": branch })
     );
     // No session has run, so nothing is known of what an agent's default effort comes to.
     let effort = json!({ "agent": "claude", "model": null });
@@ -412,7 +413,7 @@ fn the_ui_can_commit_a_tasks_work_and_is_told_what_cannot_be_published() {
     assert_eq!(app.ok("task_commit", commit), json!(null));
     assert_eq!(
         app.ok("task_unpublished", target.clone()),
-        json!({ "changed": 0, "unpushed": 1, "pushed_before": false })
+        json!({ "changed": 0, "unpushed": 1, "pushed_before": false, "branch": branch })
     );
     assert_eq!(
         app.ok("task_pull_draft", target.clone()),
@@ -424,6 +425,8 @@ fn the_ui_can_commit_a_tasks_work_and_is_told_what_cannot_be_published() {
         unwritten.expect_err("no namer"),
         json!("nothing here can write a pull request")
     );
+    // The worktree is on the task's own branch, so putting it back there changes nothing.
+    assert_eq!(app.ok("task_switch_back", target.clone()), json!(null));
     // The test repository has no remote: pushing and opening a pull request both say why not.
     app.invoke("task_push", target.clone())
         .expect_err("nowhere to push to");

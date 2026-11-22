@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { PullDraft, Task, Unpublished } from "../api/types";
-import { nextStep, unpublishedSummary } from "../publish";
+import { isAway, nextStep, unpublishedSummary } from "../publish";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
 import { capitalized, withArticle } from "../wording";
@@ -47,7 +47,8 @@ export function Publish({ project, task }: Props) {
     if (!state) {
         return null;
     }
-    const step = nextStep(state, hasPull);
+    const away = isAway(state, task.branch);
+    const step = nextStep(state, hasPull, away);
     /** Runs one step, then reads again what is left. */
     const run = (action: Promise<unknown>) => {
         setBusy(true);
@@ -61,6 +62,15 @@ export function Publish({ project, task }: Props) {
     };
     return (
         <section className="publish" aria-label="Publish">
+            {away && (
+                <Elsewhere
+                    on={state.branch}
+                    task={task}
+                    hasPull={hasPull}
+                    busy={busy}
+                    onBack={() => run(api.taskSwitchBack(project, task.name))}
+                />
+            )}
             <p className="publish-summary">{unpublishedSummary(state, words)}</p>
             {step === "commit" && (
                 <CommitForm
@@ -92,6 +102,50 @@ export function Publish({ project, task }: Props) {
                 />
             )}
         </section>
+    );
+}
+
+interface ElsewhereProps {
+    /** The branch the worktree is on instead, or null when it is on none. */
+    on: string | null;
+    task: Task;
+    hasPull: boolean;
+    busy: boolean;
+    onBack(): void;
+}
+
+/**
+ * Says that the worktree is not on the task's branch, and offers the way back. What is counted
+ * under it is the other branch's, and nothing of it is pushed under the task's name.
+ */
+function Elsewhere({ on, task, hasPull, busy, onBack }: ElsewhereProps) {
+    const words = useWords();
+    const { branch, pullRequest, pushed, task: taskWord, worktree } = words.terms;
+    const own = <span className="mono">{task.branch}</span>;
+    return (
+        <div className="publish-elsewhere" role="status">
+            <p>
+                This {worktree} is on{" "}
+                {on === null ? `no ${branch}` : <span className="mono">{on}</span>}, not on this{" "}
+                {taskWord}'s {branch} {own}. What is counted here is not {own}'s, and none of it is{" "}
+                {pushed} as this {taskWord}'s.
+                {hasPull && (
+                    <>
+                        {" "}
+                        The {pullRequest} shown is {own}'s.
+                    </>
+                )}
+            </p>
+            <button
+                type="button"
+                className="button"
+                disabled={busy}
+                title={`Runs git switch ${task.branch}. Changes that are not committed come along unless they conflict.`}
+                onClick={onBack}
+            >
+                Switch back to {task.branch}
+            </button>
+        </div>
     );
 }
 

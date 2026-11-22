@@ -564,6 +564,12 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **A task's work leaves its worktree only when asked** (`publish.rs`): commit everything, push
   the branch, open a pull request, each a step of its own behind a button. Commits are made by
   the user's git as them, the pull request by their `gh`; nothing is added to either.
+- **A task's branch is recorded once, and its worktree can still be switched to another**, by
+  an agent or by hand. `Unpublished::branch` says where the worktree is, and what it counts is
+  that branch's. Whatever names `task.branch` (push, the pull request and its writers) refuses
+  while the worktree is elsewhere (`on_its_branch`) instead of publishing a branch that is not
+  the work at hand; committing does not, since a commit goes where the worktree is. The task
+  never takes on the other branch: `task_switch_back` is the way back.
 - **A pull request's title and description can be written for the user too**
   (`task_pull_message`), by the same writer as a commit message and under the same rules:
   shown the branch's commits and its diff against the base (three dots, so only what the

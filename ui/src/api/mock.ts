@@ -895,12 +895,20 @@ index 1a2b3c4..5d6e7f8 100644
 +}
 `;
 
-/** One sample task has work to commit, another a branch waiting for a pull request. */
+/** The sample tasks whose worktree something switched to another branch. */
+const switchedAway = new Set(["shop-142"]);
+
+/**
+ * One sample task has work to commit, another a branch waiting for a pull request, and a
+ * third has its worktree on a branch that is not its own.
+ */
 async function sampleUnpublished(_project: string, name: string): Promise<Unpublished> {
+    const away = switchedAway.has(name);
     return {
         changed: name === "fix-login-redirect" ? 4 : 0,
-        unpushed: 0,
+        unpushed: away ? 2 : 0,
         pushed_before: name === "invoice-export",
+        branch: away ? "you/shop-150" : `you/${name}`,
     };
 }
 
@@ -2047,6 +2055,9 @@ export function createMockApi(): Api {
         },
         taskCommit: async () => undefined,
         taskPush: async () => undefined,
+        taskSwitchBack: async (_project, name) => {
+            switchedAway.delete(name);
+        },
         taskPullDraft: async () => SAMPLE_DRAFT,
         taskPullCreate: sampleOpenedPull,
         taskPull: samplePull,

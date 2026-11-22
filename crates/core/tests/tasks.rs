@@ -1756,6 +1756,101 @@ async fn a_tasks_work_is_committed_and_pushed_when_asked() {
     assert_eq!((pushed.unpushed, pushed.pushed_before), (0, true));
 }
 
+/// A worktree something switched to a second branch: the task says so, publishes nothing
+/// under its own branch's name, and can be put back.
+#[tokio::test]
+async fn a_worktree_on_another_branch_is_noticed_and_not_published_as_the_tasks() {
+    let fx = fixture();
+    let root = fx.repo.parent().expect("test setup");
+    let remote = root.join("remote.git");
+    git(
+        root,
+        &["init", "--quiet", "--bare", "-b", "main", "remote.git"],
+    );
+    git(
+        &fx.repo,
+        &["remote", "add", "origin", &remote.to_string_lossy()],
+    );
+    git(&fx.repo, &["push", "--quiet", "-u", "origin", "main"]);
+    let core = core_with_project(&fx).await;
+    let task = core
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    let worktree = &task.worktree_path;
+    let own = core.task_unpublished("demo", "one").await.expect("reads");
+    assert_eq!(own.branch.as_deref(), Some(task.branch.as_str()));
+
+    git(worktree, &["switch", "--quiet", "-c", "second"]);
+    std::fs::write(worktree.join("a.txt"), "a").expect("test setup");
+    core.task_commit("demo", "one", "feat: on the second branch")
+        .await
+        .expect("commits");
+    let switched = core.task_unpublished("demo", "one").await.expect("reads");
+    assert_eq!(switched.branch.as_deref(), Some("second"));
+    assert_eq!(switched.unpushed, 1);
+
+    let why = format!(
+        "this worktree is on `second`, not on the task's branch `{}`: switch back first",
+        task.branch
+    );
+    let pushed = core.task_push("demo", "one").await;
+    assert_eq!(pushed.expect_err("refused").to_string(), why);
+    let drafted = core.task_pull_draft("demo", "one").await;
+    assert_eq!(drafted.expect_err("refused").to_string(), why);
+    let described = core.task_pull_message("demo", "one", None).await;
+    assert_eq!(described.expect_err("refused").to_string(), why);
+    let draft = swarmed_core::PullDraft {
+        title: "feat: on the second branch".to_string(),
+        body: String::new(),
+    };
+    let opened = core.task_pull_create("demo", "one", &draft, false).await;
+    assert_eq!(opened.expect_err("refused").to_string(), why);
+    // Nothing reached the remote under either name.
+    let there = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&remote)
+        .args(["for-each-ref", "--format=%(refname:short)", "refs/heads"])
+        .output()
+        .expect("test setup");
+    assert_eq!(String::from_utf8_lossy(&there.stdout).trim(), "main");
+    // The second branch's commit is nowhere else, so the task is not removed over it.
+    let removed = core
+        .task_remove("demo", "one", RemoveOptions::default(), &hooks::discard)
+        .await;
+    assert!(matches!(removed, Err(Error::TaskNotClean { .. })));
+
+    // On no branch at all, the same holds.
+    git(worktree, &["switch", "--quiet", "--detach"]);
+    let detached = core.task_unpublished("demo", "one").await.expect("reads");
+    assert_eq!(detached.branch, None);
+    let pushed = core.task_push("demo", "one").await.expect_err("refused");
+    assert!(
+        pushed
+            .to_string()
+            .starts_with("this worktree is on no branch,")
+    );
+
+    // Back on its own branch, with a change that is not committed carried across.
+    std::fs::write(worktree.join("b.txt"), "b").expect("test setup");
+    core.task_switch_back("demo", "one")
+        .await
+        .expect("switches");
+    let back = core.task_unpublished("demo", "one").await.expect("reads");
+    assert_eq!(back.branch.as_deref(), Some(task.branch.as_str()));
+    assert_eq!((back.changed, back.unpushed), (1, 0));
+    assert!(!worktree.join("a.txt").exists());
+
+    // A change that would be overwritten stops the switch, with git's reason.
+    git(worktree, &["switch", "--quiet", "second"]);
+    std::fs::write(worktree.join("a.txt"), "changed").expect("test setup");
+    let stuck = core.task_switch_back("demo", "one").await;
+    let said = stuck.expect_err("refused").to_string();
+    assert!(said.contains("a.txt"), "{said}");
+    let still = core.task_unpublished("demo", "one").await.expect("reads");
+    assert_eq!(still.branch.as_deref(), Some("second"));
+}
+
 fn action(name: &str, prompt: &str, command: &str) -> Action {
     Action {
         name: name.to_string(),

@@ -1,11 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { nextStep, unpublishedSummary } from "./publish";
+import { isAway, nextStep, unpublishedSummary } from "./publish";
 import { wordsFor } from "./wording";
 
-const state = (changed: number, unpushed: number, pushed_before: boolean) => ({
-    changed,
-    unpushed,
-    pushed_before,
+const state = (
+    changed: number,
+    unpushed: number,
+    pushed_before: boolean,
+    branch: string | null = "you/fix-login",
+) => ({ changed, unpushed, pushed_before, branch });
+
+describe("isAway", () => {
+    it("is not while the worktree is on the task's branch", () => {
+        expect(isAway(state(0, 1, true), "you/fix-login")).toBe(false);
+    });
+
+    it("is on another branch, and on none at all", () => {
+        expect(isAway(state(0, 1, true, "second"), "you/fix-login")).toBe(true);
+        expect(isAway(state(0, 1, true, null), "you/fix-login")).toBe(true);
+    });
 });
 
 describe("nextStep", () => {
@@ -14,6 +26,12 @@ describe("nextStep", () => {
         expect(nextStep(state(0, 1, false), false)).toBe("push");
         expect(nextStep(state(0, 0, true), false)).toBe("pull");
         expect(nextStep(state(0, 0, true), true)).toBe("done");
+    });
+
+    it("only commits on another branch than the task's", () => {
+        expect(nextStep(state(2, 1, true), false, true)).toBe("commit");
+        expect(nextStep(state(0, 1, false), false, true)).toBe("done");
+        expect(nextStep(state(0, 0, true), false, true)).toBe("done");
     });
 
     it("offers no pull request for a branch that was never pushed", () => {

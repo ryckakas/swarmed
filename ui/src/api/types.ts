@@ -156,6 +156,11 @@ export interface Unpublished {
     unpushed: number;
     /** Whether the branch has been pushed before. */
     pushed_before: boolean;
+    /**
+     * The branch the worktree is on: the task's own unless something switched it, and null
+     * when it is on no branch at all. The figures above are that branch's.
+     */
+    branch: string | null;
 }
 
 /** A title and a description to start a pull request from. */
