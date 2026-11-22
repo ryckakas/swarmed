@@ -1,30 +1,69 @@
-# Releasing, step 2 of 3: tag the merged release PR.
+# Releasing, step 2 of 3: tag the merged release PR, once main's CI has passed on it.
 #
-# When a release-prep/v* PR opened by release-prep.yml is merged into main, this pushes the
-# annotated tag vX.Y.Z at the merge commit. The push authenticates with RELEASE_PAT: GitHub starts
-# no workflow for a tag pushed with the default GITHUB_TOKEN, so release.yml would never run.
+# When CI finishes on main for the merge commit of a release-prep/v* PR opened by
+# release-prep.yml, and has passed, this pushes the annotated tag vX.Y.Z at that commit, which
+# starts release.yml. The checks main's ruleset requires are all jobs of CI, so its passing is
+# theirs: a release is built from a commit seen to be green, not from a PR that was green before
+# it was merged, against a main that may have moved since. A CI run that fails tags nothing;
+# rerunning it from its page, once it passes, tags then.
+#
+# The tag is made through the API, with no code checked out, and with RELEASE_PAT: GitHub
+# starts no workflow for a tag made with the default GITHUB_TOKEN, so release.yml would never run.
 name: Release tag
 
 on:
-  pull_request:
-    types: [closed]
+  # Only CI's runs for pushes to main in this repository are acted on (the job's `if`), and the
+  # only code checked out is the commit such a run tested.
+  workflow_run: # zizmor: ignore[dangerous-triggers] see the comment above
+    workflows: [CI]
+    types: [completed]
     branches: [main]
 
-permissions:
-  contents: read
+permissions: {}
+
+# CI runs on main may finish close together; their tags are looked at one at a time.
+concurrency:
+  group: release-tag
+  cancel-in-progress: false
 
 jobs:
   tag:
     name: Tag the release's merge commit
-    # A fork's PR gets no secrets anyway; the head.repo check makes that an explicit skip rather
-    # than something the platform happens to do.
     if: >-
-      github.event.pull_request.merged == true
-      && github.event.pull_request.head.repo.full_name == github.repository
-      && startsWith(github.event.pull_request.head.ref, 'release-prep/v')
+      github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
+      # Most of main's commits are no release's: then there is nothing to do.
+      - name: Find the release PR this commit merged
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          head="$(gh api "repos/$REPO/commits/$SHA/pulls" --jq '[.[]
+            | select(.merged_at != null and .merge_commit_sha == env.SHA
+              and .base.ref == "main" and .head.repo.full_name == env.REPO
+              and (.head.ref | startswith("release-prep/v")))
+            | .head.ref][0] // ""')"
+          if [ -z "$head" ]; then
+            echo "$SHA merged no release PR: nothing to tag"
+            exit 0
+          fi
+          version="${head#release-prep/v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::$head does not name an X.Y.Z version; no tag pushed"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Require the RELEASE_PAT secret
+        if: steps.release.outputs.version != ''
         env:
           RELEASE_PAT: ${{ secrets.RELEASE_PAT }}
         run: |
@@ -33,30 +72,26 @@ jobs:
             exit 1
           fi
 
-      # The tags come along for the check that this one does not exist yet.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: # zizmor: ignore[artipacked] the tag push below needs this token
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
-          fetch-depth: 0
-          token: ${{ secrets.RELEASE_PAT }}
-
-      - name: Tag and push
+      # Through the API, with no checkout: a tag needs only the commit's id, and no code of any
+      # commit runs here. A ref made with RELEASE_PAT starts release.yml as a pushed tag does.
+      - name: Tag the commit
+        if: steps.release.outputs.version != ''
         env:
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          REPO: ${{ github.repository }}
+          VERSION: ${{ steps.release.outputs.version }}
+          MERGE_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          version="${HEAD_REF#release-prep/v}"
-          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::$HEAD_REF does not name an X.Y.Z version; no tag pushed"
-            exit 1
-          fi
-          tag="v$version"
+          tag="v$VERSION"
           # A rerun after the release went out has nothing to do.
-          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+          if gh api "repos/$REPO/git/ref/tags/$tag" --silent 2>/dev/null; then
             echo "$tag exists already"
             exit 0
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "$tag" -m "Swarmed $tag" "$MERGE_SHA"
-          git push origin "refs/tags/$tag"
+          object="$(gh api "repos/$REPO/git/tags" \
+            -f tag="$tag" -f message="Swarmed $tag" -f object="$MERGE_SHA" -f type=commit \
+            -f "tagger[name]=github-actions[bot]" \
+            -f "tagger[email]=41898282+github-actions[bot]@users.noreply.github.com" \
+            --jq .sha)"
+          gh api "repos/$REPO/git/refs" -f ref="refs/tags/$tag" -f sha="$object" --silent
+          echo "Tagged $MERGE_SHA $tag"

@@ -605,9 +605,18 @@ The UI is held to the same bar: Biome's recommended rules plus cognitive complex
 
 ## Conventions
 
-- Rust edition 2024, current stable toolchain (`rust-version` in `Cargo.toml`).
+- Rust edition 2024, on the current stable toolchain, pinned to its exact version in
+  `rust-toolchain.toml`, which every workflow installs from (`rustup toolchain install`) and
+  Dependabot moves to each new release. `rust-version` in `Cargo.toml` is the oldest it builds
+  with.
 - Dependencies are declared once in `[workspace.dependencies]` and inherited by the crates.
-- Every action in the workflows is pinned to a commit, with its version in a comment.
+- Everything the workflows run is pinned, so a run uses only what a reviewed change chose:
+  every action to a commit, with its version in a comment; a binary downloaded by hand to its
+  version and SHA-256; a tool `taiki-e/install-action` installs to its version; Node to
+  `.node-version`; pnpm to its version and hash in `package.json`'s `packageManager`. Every
+  cargo command runs `--locked` and every `pnpm install` `--frozen-lockfile`, so the lockfiles
+  are what is built. Dependabot moves the actions, the crates, the npm packages and Rust; the
+  tools, Node and pnpm are moved by hand.
 - Commit and PR titles use conventional prefixes (`feat:`, `fix:`, `chore:`).
 - A PR with a change a user would notice adds its line under `## [Unreleased]` in
   `CHANGELOG.md`, under Added, Changed, Fixed or Removed, written for the user. The release

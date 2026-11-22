@@ -1,0 +1,6 @@
+# The Rust every build uses: CI, the release, and rustup on a developer's machine, which installs
+# it on first use. Dependabot proposes each new stable release (its `rust-toolchain` updates).
+[toolchain]
+channel = "1.100.0"
+components = ["clippy", "rustfmt"]
+profile = "minimal"
