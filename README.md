@@ -93,6 +93,9 @@ swarmed session run shop fix-login "Fix the login form's error message"
 
 ## Documentation
 
+The documentation site is at **[swarmed.kauneckas.dev](https://swarmed.kauneckas.dev)**. It is
+written from the files below, which can also be read here:
+
 - [Projects and configuration](docs/configuration.md): hooks, ports, environments and where
   Swarmed keeps things
 - [Coding agents](docs/coding-agents.md): adding agents, MCP servers, skills, and the tools
