@@ -160,6 +160,7 @@ export const tauriApi: Api = {
     sessionQueueEdit: (id, message, text) =>
         invoke<QueuedMessage[]>("session_queue_edit", { id, message, text }),
     sessionSendQueued: (id) => invoke("session_send_queued", { id }),
+    sessionSendNow: (id, message) => invoke("session_send_now", { id, message }),
     sessionMarkRead: (id) => invoke("session_mark_read", { id }),
     sessionAllow: (id, requestId) => invoke("session_allow", { id, requestId }),
     sessionAnswer: (id, requestId, answers) => invoke("session_answer", { id, requestId, answers }),

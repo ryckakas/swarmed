@@ -679,6 +679,17 @@ fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
     assert_eq!(app.ok("session_queue", json!({ "id": id })), json!([]));
     // With nothing waiting, sending the next one is not an error.
     app.ok("session_send_queued", json!({ "id": id }));
+
+    // One sent now stops the turn under way and goes ahead of the others.
+    app.ok("session_send", json!({ "id": id, "text": "slow" }));
+    app.ok("session_enqueue", json!({ "id": id, "text": "later" }));
+    let queue = app.ok("session_enqueue", json!({ "id": id, "text": "now" }));
+    app.ok(
+        "session_send_now",
+        json!({ "id": id, "message": queue[1]["id"] }),
+    );
+    app.wait_for_text(id, "echo: now");
+    app.wait_for_text(id, "echo: later");
 }
 
 #[test]

@@ -14,6 +14,19 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Added
+
+- **A waiting message can be sent now.** Each message in the queue has an arrow beside it.
+  While the agent works, pressing it stops the turn, as Stop does, and sends that message as
+  soon as the turn has ended, ahead of the others. While the agent is not working, it sends
+  that message at once. The rest of the queue follows as before, each when a turn ends well.
+
+### Changed
+
+- **Stopping a turn sends the next waiting message.** Stop, or Esc, used to leave the queue
+  standing until "Send the next one now" was pressed. A turn that fails still leaves it for
+  you to send.
+
 ### Fixed
 
 - **"This session runs on it now: its turns are billed" goes once the limits say so.** After a

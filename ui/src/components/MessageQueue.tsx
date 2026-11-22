@@ -15,7 +15,8 @@ interface Props {
 
 /**
  * The messages written while the agent was busy, in the order they will be sent. Each can be
- * rewritten or taken out for as long as it waits.
+ * rewritten, taken out, or sent at once for as long as it waits; sent at once while the agent
+ * is busy, it stops the turn under way.
  */
 export function MessageQueue({ sessionId, busy }: Props) {
     const words = useWords();
@@ -38,6 +39,10 @@ export function MessageQueue({ sessionId, busy }: Props) {
             .then((messages) => setQueue(sessionId, messages))
             .catch(report);
     };
+    const sendNow = (message: QueuedMessage) => {
+        api.sessionSendNow(sessionId, message.id).catch(report);
+    };
+    const sendNowLabel = busy ? `Stop the ${words.terms.agent} and send this now` : "Send this now";
     return (
         <section className="queue" aria-label="Messages waiting to be sent">
             <div className="queue-head">
@@ -58,7 +63,12 @@ export function MessageQueue({ sessionId, busy }: Props) {
             <ol className="queue-list">
                 {queue.map((message) => (
                     <li key={message.id}>
-                        <QueuedRow message={message} onSave={(text) => save(message, text)} />
+                        <QueuedRow
+                            message={message}
+                            sendNowLabel={sendNowLabel}
+                            onSave={(text) => save(message, text)}
+                            onSendNow={() => sendNow(message)}
+                        />
                     </li>
                 ))}
             </ol>
@@ -66,7 +76,15 @@ export function MessageQueue({ sessionId, busy }: Props) {
     );
 }
 
-function QueuedRow({ message, onSave }: { message: QueuedMessage; onSave(text: string): void }) {
+interface RowProps {
+    message: QueuedMessage;
+    /** What sending the message at once does, which depends on whether the agent is busy. */
+    sendNowLabel: string;
+    onSave(text: string): void;
+    onSendNow(): void;
+}
+
+function QueuedRow({ message, sendNowLabel, onSave, onSendNow }: RowProps) {
     // `null` while the message is only shown; the text being typed while it is edited.
     const [draft, setDraft] = useState<string | null>(null);
     if (draft === null) {
@@ -79,6 +97,17 @@ function QueuedRow({ message, onSave }: { message: QueuedMessage; onSave(text: s
                     onClick={() => setDraft(message.text)}
                 >
                     {message.text}
+                </button>
+                <button
+                    type="button"
+                    className="queue-send"
+                    aria-label={sendNowLabel}
+                    title={sendNowLabel}
+                    onClick={onSendNow}
+                >
+                    <svg viewBox="0 0 16 16" aria-hidden="true">
+                        <path d="M8 12.5v-9M4 7.5l4-4 4 4" />
+                    </svg>
                 </button>
                 <button
                     type="button"

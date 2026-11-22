@@ -790,6 +790,12 @@ pub(crate) async fn session_send_queued(core: CoreState<'_>, id: i64) -> Command
     Ok(core.session_resume_queue(id, Auth::default())?)
 }
 
+/// Async for the same reason as `session_send`, which it is a form of.
+#[tauri::command]
+pub(crate) async fn session_send_now(core: CoreState<'_>, id: i64, message: u64) -> Command<()> {
+    Ok(core.session_send_now(id, message, Auth::default())?)
+}
+
 /// The sessions in which `query` was said, closed ones included.
 #[tauri::command(async)]
 pub(crate) fn sessions_search(core: CoreState<'_>, query: String) -> Command<Vec<SearchHit>> {

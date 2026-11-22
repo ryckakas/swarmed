@@ -1,20 +1,22 @@
 //! Messages the user wrote while an agent was busy, waiting for its turn to end.
 //!
-//! A queue belongs to a session and lives only as long as the core does. When a turn ends well
-//! the first message is sent as if the user had just typed it; a turn that was stopped or
-//! failed leaves the queue as it is, for the user to decide. Every change is published as an
-//! event and not stored: a queue is not part of what was said.
+//! A queue belongs to a session and lives only as long as the core does. When a turn ends well,
+//! or the user stops it, the first message is sent as if the user had just typed it; a turn
+//! that failed leaves the queue as it is, for the user to decide, and so does an agent that
+//! was stopped. The user can also send a waiting message at once, which puts it first and
+//! stops the turn under way. Every change is published as an event and not stored: a queue is
+//! not part of what was said.
 
-use std::collections::HashMap;
-use std::sync::Mutex;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
 
-use crate::agent::{AgentEvent, Auth};
+use crate::agent::{AgentCommand, AgentEvent, Auth};
 use crate::error::{Error, Result};
 use crate::paths::Paths;
-use crate::sessions::{Live, send_text};
+use crate::sessions::{Live, is_busy_status, send_text};
 use crate::store::Store;
 use crate::terminal::Terminals;
 use crate::{Core, lock};
@@ -32,6 +34,10 @@ pub struct QueuedMessage {
 #[derive(Debug, Default)]
 pub(crate) struct Queues {
     waiting: Mutex<HashMap<i64, Vec<QueuedMessage>>>,
+    /// The sessions whose turn the user stopped, which sends their first waiting message the
+    /// moment it ends. Also held while a turn's end is dealt with and while a message is sent
+    /// from the queue at once, so that the two cannot both send one.
+    pressing: Mutex<HashSet<i64>>,
     ids: AtomicU64,
 }
 
@@ -67,6 +73,26 @@ impl Queues {
         } else if let Some(message) = queue.iter_mut().find(|message| message.id == id) {
             message.text = text.to_string();
         }
+    }
+
+    /// Puts a waiting message first, the others keeping their order. `false` if it is no
+    /// longer waiting.
+    fn to_front(&self, session: i64, id: u64) -> bool {
+        let mut waiting = lock(&self.waiting);
+        let Some(queue) = waiting.get_mut(&session) else {
+            return false;
+        };
+        let Some(at) = queue.iter().position(|message| message.id == id) else {
+            return false;
+        };
+        queue[..=at].rotate_right(1);
+        true
+    }
+
+    /// The sessions whose first waiting message goes as soon as their turn ends. Nothing else
+    /// sends from a queue while this is held.
+    pub(crate) fn pressing(&self) -> MutexGuard<'_, HashSet<i64>> {
+        lock(&self.pressing)
     }
 
     fn take_first(&self, session: i64) -> Option<QueuedMessage> {
@@ -145,8 +171,32 @@ impl Core {
     }
 
     /// Sends the first waiting message now, instead of when a turn ends. For a queue left
-    /// standing by a turn that was stopped or failed.
+    /// standing by a turn that failed or an agent that was stopped.
     pub fn session_send_queued(&self, id: i64) -> Result<()> {
+        send_next(&self.store, &self.live, (&*self.terminals, &self.paths), id)
+    }
+
+    /// Sends a waiting message now, ahead of the others. A turn under way is stopped first and
+    /// the message goes the moment that turn has ended, however it ends; an agent that is not
+    /// running is started. A message that has been sent meanwhile is left alone. Must be
+    /// called from within a tokio runtime.
+    pub fn session_send_now(&self, id: i64, message: u64, auth: Auth) -> Result<()> {
+        if !self.live.queues.to_front(id, message) {
+            return Ok(());
+        }
+        publish(&self.store, &self.live, id)?;
+        // A session can count as busy with no agent running, left so by a Swarmed that ended
+        // in the middle of a turn: there is no turn to stop then.
+        let running = self.live.is_running(id);
+        self.session_start(id, auth)?;
+        let mut pressing = self.live.queues.pressing();
+        let busy = self
+            .session(id)
+            .is_ok_and(|session| is_busy_status(session.status));
+        if running && busy {
+            pressing.insert(id);
+            return self.live.command(id, AgentCommand::Interrupt);
+        }
         send_next(&self.store, &self.live, (&*self.terminals, &self.paths), id)
     }
 

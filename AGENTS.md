@@ -503,9 +503,16 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   under what to do, its latest `MAX_HANDED` characters. Never what the agent read or ran, which
   may hold anything, and no file: the form says what of the task is not on GitHub.
 - **Messages can wait in a queue** (`queue.rs`) while a session's agent is busy. The core sends
-  the first one when a turn ends well, as if it had just been typed; a turn that was stopped
-  or failed leaves the queue standing. The queue lives in memory, and its changes are published
-  as `Queue` events that are never stored, like the pieces of a reply.
+  the first one when a turn ends well or the user stops it (`session_interrupt`), as if it had
+  just been typed; a turn that failed, or an agent that was stopped, leaves the queue standing.
+  The queue lives in memory, and its changes are published as `Queue` events that are never
+  stored, like the pieces of a reply.
+- **A waiting message can be sent at once** (`session_send_now`): it is put first and the turn
+  under way is stopped as Stop stops it, so it goes when that turn has ended. Never straight
+  into a busy agent, which would take an open request away and is not something every agent
+  can take. A stopped turn is marked in `Queues::pressing` before the interrupt goes out, and
+  that lock is held while a turn's end is dealt with (`end_turn`) and while a message is sent
+  at once, so a stop that crosses the turn's own end sends one message, not two.
 - **What is worth interrupting the user for is decided in the core** (`notices.rs`): a session
   that asks for a decision, finishes a turn, or fails. A front end shows it only while the user
   looks elsewhere; the app does so as a macOS notification (`crates/app/src/notify.rs`) and

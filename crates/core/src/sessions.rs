@@ -640,7 +640,7 @@ fn without_pastes(message: &str) -> String {
     typed
 }
 
-fn is_busy_status(status: SessionStatus) -> bool {
+pub(crate) fn is_busy_status(status: SessionStatus) -> bool {
     matches!(status, SessionStatus::Working | SessionStatus::Waiting)
 }
 
@@ -1060,18 +1060,27 @@ impl Core {
         self.session(id)
     }
 
-    /// Stops the current turn. The session stays running.
+    /// Stops the current turn. The session stays running, and the first message waiting in
+    /// its queue goes the moment the turn has ended, as after a turn that ended well.
     ///
     /// A session that counts as busy though no agent runs for it, which a Swarmed that ended
     /// in the middle of a turn leaves behind, is put right instead: its turn is recorded as
-    /// stopped.
+    /// stopped, and its queue left as it is.
     pub fn session_interrupt(&self, id: i64) -> Result<()> {
-        let stopped = self.live.command(id, AgentCommand::Interrupt);
-        let left_busy = || {
+        let busy = || {
             self.session(id)
                 .is_ok_and(|session| is_busy_status(session.status))
         };
-        if stopped.is_ok() || !left_busy() {
+        // Whether the turn is under way is asked before it is stopped, and under the lock its
+        // end is dealt with under, so the end finds the session marked however soon it comes.
+        let mut pressing = self.live.queues.pressing();
+        let under_way = busy();
+        let stopped = self.live.command(id, AgentCommand::Interrupt);
+        if stopped.is_ok() && under_way {
+            pressing.insert(id);
+        }
+        drop(pressing);
+        if stopped.is_ok() || !busy() {
             return stopped;
         }
         let ended = AgentEvent::TurnDone {
@@ -1096,6 +1105,8 @@ impl Core {
     /// The agent is asked to end by closing its input, and counts as stopped at once. One
     /// that has not gone a few seconds later is killed.
     pub fn session_stop(&self, id: i64) {
+        // A turn stopped to send a waiting message ends with the agent: the message waits.
+        self.live.queues.pressing().remove(&id);
         self.live.stop(id);
     }
 
@@ -1439,7 +1450,7 @@ impl Live {
             .ok_or(Error::SessionNotRunning(id))
     }
 
-    fn is_running(&self, id: i64) -> bool {
+    pub(crate) fn is_running(&self, id: i64) -> bool {
         self.commands().contains_key(&id)
     }
 
@@ -1776,8 +1787,10 @@ fn take(shared: &Shared, (id, run): (i64, u64), ending: &Ending, event: AgentEve
 fn on_event(shared: &Shared, id: i64, event: AgentEvent) {
     let (store, live) = (&shared.store, &shared.live);
     let turn_over = matches!(event, AgentEvent::TurnDone { .. });
-    // A turn that ended well makes room for the next message the user left waiting. One
-    // that was stopped or failed does not: what comes next is then theirs to decide.
+    let gone = matches!(event, AgentEvent::Exited { .. });
+    // A turn that ended well makes room for the next message the user left waiting, and so
+    // does one the user stopped (marked by `session_interrupt`). One that failed does not:
+    // what comes next is then theirs to decide.
     let finished = matches!(
         event,
         AgentEvent::TurnDone {
@@ -1797,20 +1810,43 @@ fn on_event(shared: &Shared, id: i64, event: AgentEvent) {
     if settled {
         show_views(store, live, id, &shared.spool);
     }
-    if turn_over && lock(&live.restarts).remove(&id) {
-        restart(shared, id, finished);
+    if turn_over {
+        end_turn(shared, id, finished);
     }
-    if finished {
+    if gone {
+        // An agent that went in the middle of a turn the user stopped never ends it.
+        live.queues.pressing().remove(&id);
+    }
+}
+
+/// What follows the end of a turn. The first waiting message goes if the turn ended well or
+/// the user stopped it ([`Core::session_interrupt`], [`Core::session_send_now`]), unless a
+/// message went to the agent since; an agent whose settings changed during the turn is
+/// started again first.
+fn end_turn(shared: &Shared, id: i64, finished: bool) {
+    let (store, live) = (&shared.store, &shared.live);
+    // Held until the message has gone: one sent from the queue at once right as the turn
+    // ended is then either sent here or already with the agent, never both.
+    let mut pressing = live.queues.pressing();
+    let pressed = pressing.remove(&id);
+    let busy = lock(store)
+        .session_by_id(id)
+        .is_ok_and(|session| is_busy_status(session.status));
+    let sends = (finished || pressed) && !busy;
+    if lock(&live.restarts).remove(&id) {
+        restart(shared, id, sends);
+    }
+    if sends {
         queue::send_next(store, live, (&shared.terminals, &shared.paths), id).ok();
     }
 }
 
 /// Stops the agent of a session whose settings changed during the turn that is now over, so
-/// that it starts again with them. With nothing waiting, it starts with the next message. A
-/// message waiting in the queue is sent as this turn ends, and it is the new settings the
-/// user wants it answered with: the agent is started again here, before the message goes.
-fn restart(shared: &Shared, id: i64, finished: bool) {
-    let waiting = finished && shared.live.queues.is_waiting(id);
+/// that it starts again with them. With nothing to send, it starts with the next message. A
+/// message waiting in the queue that is sent as this turn ends is to be answered with the
+/// new settings the user wants: the agent is started again here, before the message goes.
+fn restart(shared: &Shared, id: i64, sends: bool) {
+    let waiting = sends && shared.live.queues.is_waiting(id);
     if !(waiting && relaunch(shared, id).is_ok()) {
         shared.live.stop(id);
     }

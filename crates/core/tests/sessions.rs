@@ -1163,7 +1163,7 @@ async fn queued_messages_are_sent_one_by_one_as_turns_end() {
 }
 
 #[tokio::test]
-async fn a_stopped_turn_leaves_the_queue_for_the_user_to_send() {
+async fn stopping_a_turn_sends_the_next_waiting_message() {
     let fx = fixture();
     let core = core_with_task(&fx).await;
     let mut bus = core.subscribe();
@@ -1173,7 +1173,43 @@ async fn a_stopped_turn_leaves_the_queue_for_the_user_to_send() {
     core.session_enqueue(session.id, "after").expect("queues");
     assert_eq!(queue_change(&mut bus).await, ["after"]);
     core.session_interrupt(session.id).expect("interrupts");
-    turn(&mut bus, session.id).await;
+    let stopped = turn(&mut bus, session.id).await;
+    assert!(
+        stopped
+            .iter()
+            .any(|event| matches!(event, AgentEvent::TurnDone { is_error: true, .. })),
+        "{stopped:?}"
+    );
+    let next = turn(&mut bus, session.id).await;
+    assert!(next.contains(&text("echo: after")), "{next:?}");
+    assert_eq!(core.session_queue(session.id).expect("reads"), vec![]);
+
+    // Stopped while it waits for an answer, the request is taken back and the same follows.
+    core.session_send(session.id, "run: ls").expect("sends");
+    let (request_id, _) = permission_request(&mut bus).await;
+    core.session_enqueue(session.id, "then").expect("queues");
+    core.session_interrupt(session.id).expect("interrupts");
+    let stopped = turn(&mut bus, session.id).await;
+    assert!(
+        stopped.contains(&AgentEvent::PermissionWithdrawn { request_id }),
+        "{stopped:?}"
+    );
+    let next = turn(&mut bus, session.id).await;
+    assert!(next.contains(&text("echo: then")), "{next:?}");
+    assert_eq!(core.session_queue(session.id).expect("reads"), vec![]);
+}
+
+#[tokio::test]
+async fn a_failed_turn_or_a_stopped_agent_leaves_the_queue_for_the_user_to_send() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    core.session_enqueue(session.id, "after").expect("queues");
+    core.session_send(session.id, "fail").expect("sends");
+    let failed = turn(&mut bus, session.id).await;
+    assert!(failed.contains(&text("trying…")), "{failed:?}");
     assert_eq!(core.session_queue(session.id).expect("reads").len(), 1);
 
     core.session_send_queued(session.id).expect("sends");
@@ -1189,6 +1225,89 @@ async fn a_stopped_turn_leaves_the_queue_for_the_user_to_send() {
         Err(Error::SessionNotRunning(_))
     ));
     assert_eq!(core.session_queue(session.id).expect("reads").len(), 1);
+}
+
+#[tokio::test]
+async fn a_waiting_message_sent_now_stops_the_turn_and_goes_ahead_of_the_others() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    core.session_send(session.id, "slow").expect("sends");
+    core.session_enqueue(session.id, "first").expect("queues");
+    let queue = core.session_enqueue(session.id, "second").expect("queues");
+    core.session_send_now(session.id, queue[1].id, Auth::default())
+        .expect("sends now");
+    assert_eq!(queue_change(&mut bus).await, ["first"]);
+    assert_eq!(queue_change(&mut bus).await, ["first", "second"]);
+    assert_eq!(queue_change(&mut bus).await, ["second", "first"]);
+
+    // The turn is stopped, the one sent now goes, and the rest follow as turns end well.
+    let stopped = turn(&mut bus, session.id).await;
+    assert!(
+        stopped
+            .iter()
+            .any(|event| matches!(event, AgentEvent::TurnDone { is_error: true, .. })),
+        "{stopped:?}"
+    );
+    let now = turn(&mut bus, session.id).await;
+    assert!(now.contains(&text("echo: second")), "{now:?}");
+    let then = turn(&mut bus, session.id).await;
+    assert!(then.contains(&text("echo: first")), "{then:?}");
+    assert_eq!(core.session_queue(session.id).expect("reads"), vec![]);
+
+    // One no longer waiting is left alone.
+    core.session_send_now(session.id, queue[0].id, Auth::default())
+        .expect("nothing to send");
+    assert_eq!(core.session_queue(session.id).expect("reads"), vec![]);
+}
+
+#[tokio::test]
+async fn a_waiting_message_sent_now_takes_the_place_of_an_open_request() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    core.session_send(session.id, "run: rm -rf build")
+        .expect("sends");
+    let (request_id, _) = permission_request(&mut bus).await;
+    let queue = core.session_enqueue(session.id, "instead").expect("queues");
+    core.session_send_now(session.id, queue[0].id, Auth::default())
+        .expect("sends now");
+
+    let stopped = turn(&mut bus, session.id).await;
+    assert!(
+        stopped.contains(&AgentEvent::PermissionWithdrawn { request_id }),
+        "{stopped:?}"
+    );
+    let now = turn(&mut bus, session.id).await;
+    assert!(now.contains(&text("echo: instead")), "{now:?}");
+    assert_eq!(core.session_queue(session.id).expect("reads"), vec![]);
+}
+
+#[tokio::test]
+async fn a_waiting_message_sent_now_starts_an_agent_that_was_stopped() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    core.session_send(session.id, "slow").expect("sends");
+    let queue = core.session_enqueue(session.id, "after").expect("queues");
+    core.session_stop(session.id);
+    core.session_send_now(session.id, queue[0].id, Auth::default())
+        .expect("starts and sends");
+    let events = turn(&mut bus, session.id).await;
+    let events = if events.contains(&text("echo: after")) {
+        events
+    } else {
+        // What the stopped run still said is passed over.
+        turn(&mut bus, session.id).await
+    };
+    assert!(events.contains(&text("echo: after")), "{events:?}");
+    assert_eq!(core.session_queue(session.id).expect("reads"), vec![]);
 }
 
 #[tokio::test]
