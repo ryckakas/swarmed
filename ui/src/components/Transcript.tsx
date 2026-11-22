@@ -42,7 +42,7 @@ interface Props {
 
 export function Transcript({ sessionId, events, working }: Props) {
     const words = useWords();
-    const toolCalls = useStore((state) => state.settings?.tool_calls ?? "all");
+    const toolCalls = useStore((state) => state.settings?.tool_calls ?? "folded");
     const items = useMemo(
         () => shownTools(toItems(events, words), toolCalls),
         [events, words, toolCalls],

@@ -508,7 +508,7 @@ async fn what_outlives_the_session_is_only_proposed_until_the_user_accepts_it() 
     let settings = core.settings().expect("reads");
     assert_eq!(
         (settings.palette, settings.tool_calls),
-        (Palette::Plum, ToolCalls::All)
+        (Palette::Plum, ToolCalls::Folded)
     );
     core.config_answer(&hides, true).expect("accepts");
     assert_eq!(

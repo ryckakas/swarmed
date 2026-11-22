@@ -233,6 +233,14 @@ function Appearance({ settings }: { settings: Settings }) {
                     options={STYLES}
                 />
             </Row>
+            <Row label="Text size" hint="On top of what the layout starts from.">
+                <Picker
+                    label="Text size"
+                    value={String(settings.text_scale)}
+                    onChange={(scale) => void change(api, { text_scale: Number(scale) })}
+                    options={withCurrent(TEXT_SCALES, String(settings.text_scale))}
+                />
+            </Row>
             <Row
                 label="Layout"
                 hint="How large and how far apart things are. Works with any palette."
@@ -259,25 +267,6 @@ function Appearance({ settings }: { settings: Settings }) {
                 </div>
             </Row>
             {settings.layout === "custom" && <LayoutEditor />}
-            <Row label="Text size" hint="On top of what the layout starts from.">
-                <Picker
-                    label="Text size"
-                    value={String(settings.text_scale)}
-                    onChange={(scale) => void change(api, { text_scale: Number(scale) })}
-                    options={withCurrent(TEXT_SCALES, String(settings.text_scale))}
-                />
-            </Row>
-            <Row
-                label="Tool calls"
-                hint="How what the agent runs shows in a conversation. Permission requests, questions, plans and views always show."
-            >
-                <Picker
-                    label="Tool calls"
-                    value={settings.tool_calls}
-                    onChange={(value) => void change(api, { tool_calls: value as ToolCalls })}
-                    options={TOOL_CALLS}
-                />
-            </Row>
         </section>
     );
 }
@@ -433,6 +422,17 @@ function Sessions({ settings }: { settings: Settings }) {
                         void change(api, { default_supervision: value as Supervision })
                     }
                     options={supervisionChoices(settings.default_supervision)}
+                />
+            </Row>
+            <Row
+                label="Tool calls"
+                hint="How what the agent runs shows in a conversation. Permission requests, questions, plans and views always show."
+            >
+                <Picker
+                    label="Tool calls"
+                    value={settings.tool_calls}
+                    onChange={(value) => void change(api, { tool_calls: value as ToolCalls })}
+                    options={TOOL_CALLS}
                 />
             </Row>
             <Row

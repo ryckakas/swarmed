@@ -28,10 +28,12 @@ notice adds its line under Unreleased.
   window and `swarmed project move`, `task move`, `session move` and `cloud move` share it.
   Sub-agents come and go as they work and are not moved. A newly added repository now goes at
   the end instead of in alphabetical order.
-- **Tool calls can be folded or hidden.** A new setting under Appearance, Tool calls: All, as
-  before; Folded, where calls in a row become one line that counts them and names the last one,
-  and opens to list them all; or Hidden, where they are left out and a larger animation shows
-  while the agent works, so a long run of them does not look like a stuck session. Permission
+- **Tool calls are folded, and can be shown or hidden.** A new setting under Sessions, right
+  after "New sessions start in", Tool calls: Folded, now the default, where calls in a row
+  become one line that counts them and names the last one, and opens to list them all; All,
+  each on a line of its own as before; or Hidden, where they are left out and a larger
+  animation shows while the agent works, so a long run of them does not look like a stuck
+  session. Permission
   requests, questions, plans and views always show. An agent can change it with the rest of
   the appearance, except that it can only propose hiding them: that is done when you accept
   it in the conversation.
@@ -78,6 +80,7 @@ notice adds its line under Unreleased.
 
 ### Changed
 
+- **Text size is right under Icons and words** in Appearance, before the layouts.
 - **Skip one question, not all of them.** When an agent asks several questions at once, each
   can be skipped on its own, with its button or the S key, and the rest answered; Skip all is
   still there. The agent is told plainly that a skipped question was skipped and not to choose
