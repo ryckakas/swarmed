@@ -4,7 +4,7 @@ import { api } from "../api";
 import type { AgentEvent, Session } from "../api/types";
 import { noteCommandSent } from "../commandSent";
 import { expandPastes, forgetPastes } from "../pastes";
-import { type Browsing, browse, type Direction, sentMessages } from "../recall";
+import { browse, type Direction, sentMessages } from "../recall";
 import { type Draft, NO_DRAFT, waitsItsTurn } from "../sending";
 import { takenBySwarmed } from "../slash";
 import { appliedEffort } from "../statusline";
@@ -105,7 +105,7 @@ export function Composer({ session }: { session: Session }) {
     const toggleTerminal = useStore((state) => state.toggleTerminal);
     const report = useStore((state) => state.report);
     const input = useRef<HTMLTextAreaElement>(null);
-    const recalling = useRecall(id, { text, files });
+    const recalling = useRecall(id, session.spawned_by !== null, { text, files });
     const busy = waitsItsTurn(status);
     const commands = useSlashCommands(id, status);
     const suggestion = useStore((state) => suggestionOf(state.events[id]));
@@ -188,28 +188,28 @@ export function Composer({ session }: { session: Session }) {
 
 /**
  * What ↑ and ↓ do in session `id`'s message box, which holds `now`: go back through what was
- * sent to the session, and forward again to what was typed. Where that stands is kept with the
- * box, so it goes when another session is opened.
+ * sent to the session, and forward again to what was typed. Where that stands is kept in the
+ * store beside the draft, so what was typed before ↑ is still there to come back to after
+ * another session was opened. `spawned` says another session started this one.
  */
-function useRecall(id: number, now: Draft) {
+function useRecall(id: number, spawned: boolean, now: Draft) {
     const editDraft = useStore((state) => state.editDraft);
-    const browsing = useRef<Browsing | null>(null);
+    const noteRecall = useStore((state) => state.noteRecall);
     return {
         recall: (direction: Direction): Draft | null => {
+            const { events, recalls } = useStore.getState();
             // The events are read already, for the transcript; the list is made from them only
             // when ↑ starts going back.
-            const sent = () => sentMessages(useStore.getState().events[id] ?? []);
-            const next = browse(browsing.current, direction, now, sent);
+            const sent = () => sentMessages(events[id] ?? [], spawned);
+            const next = browse(recalls[id] ?? null, direction, now, sent);
             if (next !== null) {
-                browsing.current = next;
+                noteRecall(id, next);
                 editDraft(id, next.shown);
             }
             return next?.shown ?? null;
         },
         /** A message was sent: ↑ starts again from the newest. */
-        forget: () => {
-            browsing.current = null;
-        },
+        forget: () => noteRecall(id, null),
     };
 }
 

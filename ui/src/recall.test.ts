@@ -25,16 +25,24 @@ const draft = (text: string, files: string[] = []): Draft => ({ text, files });
 describe("recallDirection", () => {
     const TEXT = "first line\nsecond line\nthird";
 
-    it("takes ↑ only on the first line and ↓ only on the last", () => {
-        expect(recallDirection(press("ArrowUp"), TEXT, 4, 4)).toBe("older");
-        expect(recallDirection(press("ArrowUp"), TEXT, 10, 10)).toBe("older");
+    it("takes ↑ only at the very start and ↓ only at the very end", () => {
+        expect(recallDirection(press("ArrowUp"), TEXT, 0, 0)).toBe("older");
         expect(recallDirection(press("ArrowUp"), TEXT, 14, 14)).toBeNull();
-        expect(recallDirection(press("ArrowDown"), TEXT, 25, 25)).toBe("newer");
+        expect(recallDirection(press("ArrowDown"), TEXT, TEXT.length, TEXT.length)).toBe("newer");
         expect(recallDirection(press("ArrowDown"), TEXT, 14, 14)).toBeNull();
-        expect(recallDirection(press("ArrowDown"), TEXT, 4, 4)).toBeNull();
-        // One line is both the first and the last.
+        expect(recallDirection(press("ArrowDown"), TEXT, 0, 0)).toBeNull();
+        // An empty box is both.
         expect(recallDirection(press("ArrowUp"), "", 0, 0)).toBe("older");
-        expect(recallDirection(press("ArrowDown"), "one", 1, 1)).toBe("newer");
+        expect(recallDirection(press("ArrowDown"), "", 0, 0)).toBe("newer");
+    });
+
+    it("leaves the arrows to move the caret within a line the box may have wrapped", () => {
+        // One line of text, which a narrow box shows as several rows.
+        const long = "a prompt long enough to wrap ".repeat(12);
+        expect(recallDirection(press("ArrowUp"), long, 4, 4)).toBeNull();
+        expect(recallDirection(press("ArrowUp"), long, long.length, long.length)).toBeNull();
+        expect(recallDirection(press("ArrowDown"), long, 200, 200)).toBeNull();
+        expect(recallDirection(press("ArrowDown"), long, 0, 0)).toBeNull();
     });
 
     it("leaves a selection, a modifier and other keys alone", () => {
@@ -68,6 +76,17 @@ describe("sentMessages", () => {
         const left =
             'Message from session 4 ("Docs"), another agent session of the same user:\n\nDone.';
         expect(sentMessages([said("mine"), said(left)])).toEqual([draft("mine")]);
+    });
+
+    it("leaves out the first message of a session another one started", () => {
+        const events: AgentEvent[] = [
+            { type: "text", text: "Starting." },
+            said("Check the docs.\n\n(You were started by session 2, another agent session…)"),
+            { type: "text", text: "Done." },
+            said("and the README"),
+        ];
+        expect(sentMessages(events, true)).toEqual([draft("and the README")]);
+        expect(sentMessages(events)).toHaveLength(2);
     });
 });
 
@@ -124,8 +143,14 @@ describe("browse", () => {
 
 describe("caretAfter", () => {
     it("leaves the caret where the same key goes on working", () => {
-        expect(caretAfter("older", "one\ntwo")).toBe(3);
-        expect(caretAfter("older", "one")).toBe(3);
+        expect(caretAfter("older", "one\ntwo")).toBe(0);
+        expect(caretAfter("older", "one")).toBe(0);
         expect(caretAfter("newer", "one\ntwo")).toBe(7);
+        // Where it leaves the caret, the same key is taken again.
+        const text = "one\ntwo";
+        const back = caretAfter("older", text);
+        expect(recallDirection(press("ArrowUp"), text, back, back)).toBe("older");
+        const on = caretAfter("newer", text);
+        expect(recallDirection(press("ArrowDown"), text, on, on)).toBe("newer");
     });
 });

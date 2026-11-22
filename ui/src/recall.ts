@@ -19,8 +19,11 @@ export type Direction = "older" | "newer";
 
 /**
  * Which way `press` goes through the messages sent, or `null` if it is not a key that does here.
- * ↑ only with the caret on the first line and ↓ only on the last, with no selection and no
+ * ↑ only with the caret at the very start and ↓ only at the very end, with no selection and no
  * modifier: anywhere else they move the caret, so a message of several lines stays editable.
+ * Not "on the first line": a long line the box wraps is several rows of one line, which the
+ * text does not tell apart, and ↑ has to move between them. On the first row ↑ takes the caret
+ * to the start and on the last ↓ takes it to the end, so one more press gets here.
  */
 export function recallDirection(
     press: RecallPress,
@@ -32,10 +35,10 @@ export function recallDirection(
         return null;
     }
     if (press.key === "ArrowUp") {
-        return value.lastIndexOf("\n", start - 1) === -1 ? "older" : null;
+        return start === 0 ? "older" : null;
     }
     if (press.key === "ArrowDown") {
-        return value.indexOf("\n", end) === -1 ? "newer" : null;
+        return end === value.length ? "newer" : null;
     }
     return null;
 }
@@ -44,11 +47,13 @@ export function recallDirection(
  * The messages the user sent to a session, newest first, as they typed them: a skill's call as
  * `/name …`, not what it expanded to, and attached files apart from the text. A message another
  * session left is not the user's and is left out, and the same message sent again right after
- * itself is offered once.
+ * itself is offered once. So is the first message of a session another one started (`spawned`):
+ * the core records what that session's agent wrote, and what it added, as the first message.
  */
-export function sentMessages(events: AgentEvent[]): Draft[] {
+export function sentMessages(events: AgentEvent[], spawned = false): Draft[] {
+    const first = spawned ? events.findIndex((event) => event.type === "user_message") : -1;
     const sent: Draft[] = [];
-    for (const event of events.toReversed()) {
+    for (const event of events.filter((_, index) => index !== first).toReversed()) {
         if (event.type !== "user_message" || isFromSession(event.text)) {
             continue;
         }
@@ -111,7 +116,6 @@ export function browse(
 
 /** Where the caret goes in a message brought back: where the next press of the same key works. */
 export function caretAfter(direction: Direction, text: string): number {
-    const newline = text.indexOf("\n");
-    // Going back, at the end of the first line; going on, at the very end.
-    return direction === "older" && newline !== -1 ? newline : text.length;
+    // Going back, at the very start; going on, at the very end.
+    return direction === "older" ? 0 : text.length;
 }

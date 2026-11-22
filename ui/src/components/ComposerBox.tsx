@@ -52,8 +52,8 @@ interface Props {
     /** What sits under the text, left of the button: pickers or labels. */
     children?: ReactNode;
     /**
-     * Brings back a message sent earlier, or goes on to a newer one, for ↑ on the first line or
-     * ↓ on the last: what the box holds then, or `null` to leave the key to move the caret.
+     * Brings back a message sent earlier, or goes on to a newer one, for ↑ at the very start
+     * or ↓ at the very end: what the box holds then, or `null` to leave the key to move the caret.
      */
     onRecall?: (direction: Direction) => Draft | null;
 }

@@ -521,10 +521,14 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   own session's draft, wherever the user is by then. A draft goes with its session when that is
   closed or forgotten, and with its repository.
 - **The message box handles a few keys itself** (`ui/src/editing.ts`): Home and End move within
-  the line, and ⌘⌫ at the very start empties the box. ↑ on the first line and ↓ on the last go
-  through what was sent to the session (`ui/src/recall.ts`): its `user_message` events as typed,
-  files apart, never a message another session left. The command list and a question that
-  has the keyboard take the arrows first.
+  the line, and ⌘⌫ at the very start empties the box. ↑ at the very start and ↓ at the very end
+  go through what was sent to the session (`ui/src/recall.ts`): its `user_message` events as
+  typed, files apart, never a message another session left, nor the first message of a session
+  another one started (`spawned_by`), which that session's agent wrote. Not on the first and
+  last line: a long line the box wraps is several rows, and the arrows have to move between
+  them. Where it stands is in the store (`recalls`), since it holds what was typed before ↑,
+  and goes with the session as its draft does. The command list and a question that has the
+  keyboard take the arrows first.
 - **The status line** under the message box is drawn by the UI from built-in pieces
   (`ui/src/statusline.ts`) chosen in the settings. A `status_command` replaces them: the core
   runs it (`statusline.rs`) with the session as JSON on standard input and shows its first line.

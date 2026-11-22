@@ -361,7 +361,7 @@ describe("the session on screen going", () => {
 
 describe("unsent messages", () => {
     const drafts = () => useStore.getState().drafts;
-    beforeEach(() => useStore.setState({ drafts: {}, newTaskDrafts: {} }));
+    beforeEach(() => useStore.setState({ drafts: {}, newTaskDrafts: {}, recalls: {} }));
 
     it("are kept per session, and opening another session changes none", async () => {
         const api = createMockApi();
@@ -408,6 +408,28 @@ describe("unsent messages", () => {
         const taskId = (session && findSessionHome(projects, session)?.task.id) ?? -1;
         useStore.getState().forgetTasks([taskId]);
         expect(drafts()).toEqual({});
+    });
+
+    it("keep what was typed before ↑ while another session is open, and go with the session", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        const typed = { text: "half a thought", files: [] };
+        const sent = { text: "sent before", files: [] };
+        const browsing = { sent: [sent], at: 0, draft: typed, shown: sent };
+        useStore.getState().noteRecall(4, browsing);
+        useStore.getState().editDraft(4, sent);
+        await useStore.getState().open(api, 3);
+        await useStore.getState().open(api, 4);
+        expect(useStore.getState().recalls).toEqual({ 4: browsing });
+
+        useStore.getState().noteRecall(5, browsing);
+        useStore.getState().noteRecall(5, null);
+        expect(Object.keys(useStore.getState().recalls)).toEqual(["4"]);
+        await useStore.getState().deleteSession(api, 4);
+        expect(useStore.getState().recalls).toEqual({});
+        useStore.getState().noteRecall(5, browsing);
+        await useStore.getState().close(api, 5);
+        expect(useStore.getState().recalls).toEqual({});
     });
 
     it("are kept per repository in the new-task box, and go with a removed repository", async () => {

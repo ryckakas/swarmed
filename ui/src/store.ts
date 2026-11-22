@@ -17,6 +17,7 @@ import type {
 } from "./api/types";
 import type { CloudTarget } from "./cloud";
 import type { Comparison } from "./components/CompareDialog";
+import type { Browsing } from "./recall";
 import { type ReviewComment, withComment } from "./review";
 import { type Draft, NO_DRAFT, putBack, withDraft } from "./sending";
 import { atWork, type SubAgent, subAgentsIn } from "./subagents";
@@ -77,6 +78,14 @@ interface State {
      * then, unless something else was written there meanwhile, which is theirs to keep.
      */
     putDraftBack(sessionId: number, unsent: Draft): void;
+    /**
+     * Where going through the messages sent with ↑ and ↓ stands in each session's message box.
+     * It holds what was typed before the first ↑, which is not in `drafts` while a sent message
+     * is in the box, so it is kept here, where opening another session does not lose it.
+     */
+    recalls: Record<number, Browsing>;
+    /** Notes where going through the messages sent stands in session `sessionId`, or that it ended. */
+    noteRecall(sessionId: number, browsing: Browsing | null): void;
     /** What the new-task box holds and has not sent, per repository by its name; in memory too. */
     newTaskDrafts: Record<string, Draft>;
     /** Changes what the new-task box holds for repository `project`. */
@@ -471,6 +480,7 @@ function forgotten(state: State, sessionIds: number[], taskIds: number[]): Parti
         claudeTerminals: without(state.claudeTerminals, sessionIds),
         queues: without(state.queues, sessionIds),
         drafts: without(state.drafts, sessionIds),
+        recalls: without(state.recalls, sessionIds),
         subView: of(state.subView),
         terminalCommand: of(state.terminalCommand),
         edits: without(state.edits, taskIds),
@@ -509,6 +519,7 @@ function closed(state: State, sessionId: number): Partial<State> {
         projects: withoutSession(state.projects, sessionId),
         // Put away, it cannot be written to; and its task can go while it is put away.
         drafts: without(state.drafts, [sessionId]),
+        recalls: without(state.recalls, [sessionId]),
     };
 }
 
@@ -522,6 +533,17 @@ function readAgain(state: State, projects: Project[]): Partial<State> {
         newTaskDrafts: listedOnly(state.newTaskDrafts, projects),
         ...(gone ? leaving(state, [selected]) : {}),
     };
+}
+
+/** `recalls` with session `sessionId`'s set to `browsing`, or dropped when that is `null`. */
+function withRecall(
+    recalls: Record<number, Browsing>,
+    sessionId: number,
+    browsing: Browsing | null,
+): Record<number, Browsing> {
+    return browsing === null
+        ? without(recalls, [sessionId])
+        : { ...recalls, [sessionId]: browsing };
 }
 
 /** The new-task drafts of the repositories still listed: a removed one's goes with it. */
@@ -582,6 +604,9 @@ export const useStore = create<State>((set, get) => ({
             const now = state.drafts[sessionId] ?? NO_DRAFT;
             return { drafts: withDraft(state.drafts, sessionId, putBack(now, unsent)) };
         }),
+    recalls: {},
+    noteRecall: (sessionId, browsing) =>
+        set((state) => ({ recalls: withRecall(state.recalls, sessionId, browsing) })),
     newTaskDrafts: {},
     editNewTaskDraft: (project, change) =>
         set((state) => ({ newTaskDrafts: withDraft(state.newTaskDrafts, project, change) })),
