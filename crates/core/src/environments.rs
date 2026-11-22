@@ -7,6 +7,11 @@
 //! They live in a file of their own beside the project's configuration, written from a front
 //! end. Their variables may hold credentials: the file is readable by the user alone, and the
 //! values are never logged.
+//!
+//! One of them can be the project's default, which a new task is set up in when none is
+//! chosen. That is kept in the database, not in either file: a Swarmed sharing the data
+//! directory that does not know the key would refuse the file, as 0.3.0 does, or name the key
+//! as a problem every time it starts. A column it does not know, it never sees.
 
 use std::collections::BTreeMap;
 use std::fs::OpenOptions;
@@ -74,6 +79,19 @@ impl Environment {
         config.env.extend(self.env.clone());
         config
     }
+}
+
+/// Which of a project's environments a new task is set up in.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EnvironmentChoice {
+    /// The project's default environment, or its own setup when it has none.
+    #[default]
+    Default,
+    /// The project's own setup, whatever its default.
+    Own,
+    /// The environment of this name, which the project must have.
+    Named(String),
 }
 
 /// Puts `own` in `target`'s place, unless it is blank.
@@ -185,7 +203,51 @@ impl Core {
         if environments.remove(name).is_some() {
             write(&path, &environments)?;
         }
+        let store = self.store();
+        if store.project_default_environment(project.id)?.as_deref() == Some(name) {
+            store.project_set_default_environment(project.id, None)?;
+        }
         Ok(())
+    }
+
+    /// The environment new tasks of `project` are set up in when none is chosen, if it has
+    /// one. A default that is no longer among its environments, taken out of the file by hand
+    /// or by an older Swarmed, is none.
+    pub fn environment_default(&self, project: &str) -> Result<Option<String>> {
+        let project = self.project(project)?;
+        let Some(name) = self.store().project_default_environment(project.id)? else {
+            return Ok(None);
+        };
+        let environments = read(&self.paths.project_environments(&project.name))?;
+        Ok(environments.contains_key(&name).then_some(name))
+    }
+
+    /// Makes `name` the environment new tasks of `project` are set up in when none is chosen;
+    /// `None` leaves them to the project's own setup. Tasks already made keep theirs.
+    pub fn environment_set_default(&self, project: &str, name: Option<&str>) -> Result<()> {
+        let project = self.project(project)?;
+        if let Some(name) = name {
+            self.require_environment(&project.name, name)?;
+        }
+        self.store()
+            .project_set_default_environment(project.id, name)
+    }
+
+    /// The environment `choice` comes to for a new task of `project`: `None` for the project's
+    /// own setup. A named one the project does not have is refused.
+    pub(crate) fn environment_chosen(
+        &self,
+        project: &str,
+        choice: &EnvironmentChoice,
+    ) -> Result<Option<String>> {
+        match choice {
+            EnvironmentChoice::Default => self.environment_default(project),
+            EnvironmentChoice::Own => Ok(None),
+            EnvironmentChoice::Named(name) => {
+                self.require_environment(project, name)?;
+                Ok(Some(name.clone()))
+            }
+        }
     }
 
     /// The project's configuration as a task in `environment` sees it. An environment that is

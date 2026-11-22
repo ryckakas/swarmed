@@ -422,6 +422,15 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   environment, copied with `cp -c` so that APFS clones them. A new task gets them put into its
   worktree before `setup` runs, never over a file that is already there. They may include the
   likes of `.env`: the folder is the user's alone and its contents are never logged.
+- **A repository's default environment is kept in the database** (`default_environment` on
+  `projects`, `Core::environment_default`), not in its config or environments file: a
+  Swarmed sharing the data directory that does not know the key would refuse the file, as
+  0.3.0 does, or name it as a problem every time it starts, while a column it does not know
+  it never sees. A new task is asked for with an `EnvironmentChoice` (the default, the
+  repository's own setup, or one by name) and the core settles the default as the task is
+  made, so the window and the command line get the same. A default whose environment is gone
+  is none; removing that environment clears it. Agents cannot set it: `configure` has no way
+  to.
 - **Prompts the user keeps** (`templates.rs`) are a name and a text in `templates.toml` in the
   data directory. A front end puts one into the message box; the core never sends one by
   itself, and agents are not told about them. `{{something}}` marks a place to fill in.

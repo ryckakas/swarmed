@@ -12,6 +12,7 @@ import type {
     Costs,
     CustomLayout,
     Environment,
+    EnvironmentChoice,
     FileChange,
     FileDiff,
     FileListing,
@@ -143,7 +144,7 @@ export interface Api {
         project: string,
         name: string,
         branch: string | null,
-        environment: string | null,
+        environment: EnvironmentChoice,
     ): Promise<Task>;
     /**
      * Hands a prompt to a cloud agent working on the project's repository, from the branch of
@@ -196,6 +197,10 @@ export interface Api {
     /** Adds an environment to a project, or replaces the one of that name. */
     environmentSave(project: string, name: string, environment: Environment): Promise<void>;
     environmentRemove(project: string, name: string): Promise<void>;
+    /** The environment a new task of the project is set up in when none is chosen, if any. */
+    environmentDefault(project: string): Promise<string | null>;
+    /** Makes an environment the default for new tasks; `null` leaves them to the project's own setup. */
+    environmentSetDefault(project: string, name: string | null): Promise<void>;
     /** The files the task has changed since its branch left its base, uncommitted ones included. */
     /** What of a task's work is not committed, and what is not pushed. */
     taskUnpublished(project: string, name: string): Promise<Unpublished>;

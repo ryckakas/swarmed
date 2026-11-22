@@ -133,6 +133,13 @@ ports and variables, which are added to the project's in place of any of the sam
 is created in one environment, or none, and keeps it. An environment cannot be removed while a
 task still uses it.
 
+One environment can be the project's default. A new task is set up in it unless another, or the
+project's own setup, is chosen when the task is started: in the new-task view's menu, which
+opens on the default, or with `--environment` or `--no-environment` on `swarmed task new`.
+Choose it in the app's Environments dialog or with `swarmed environment <project> --default
+<name>`; `--no-default` goes back to the project's own setup. Tasks already made keep the
+environment they were set up in. Removing the default environment leaves the project without one.
+
 Environments are edited in the app and kept in `projects/<project>.environments.toml`, which
 Swarmed creates readable by you alone, since their variables may hold credentials. `swarmed environment <project>` lists
 them.

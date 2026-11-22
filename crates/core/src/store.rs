@@ -204,6 +204,12 @@ const MIGRATIONS: &[&str] = &[
             PARTITION BY project_id ORDER BY id DESC) AS n FROM cloud_tasks) AS o
         WHERE o.id = cloud_tasks.id);
 ",
+    // The environment a new task of the project is set up in when none is chosen. Here, not
+    // in the project's files, where a Swarmed that does not know the key would refuse it or
+    // name it as a problem.
+    "
+    ALTER TABLE projects ADD COLUMN default_environment TEXT;
+",
 ];
 
 /// Stands in [`MIGRATIONS`] for the one change SQL in a transaction cannot make: every
@@ -269,6 +275,29 @@ impl Store {
             .conn
             .query_row(sql, params![id], project_from_row)
             .optional()?)
+    }
+
+    /// The name the project's default environment was last given, whether or not the project
+    /// still has an environment of that name.
+    pub(crate) fn project_default_environment(&self, id: i64) -> Result<Option<String>> {
+        let sql = "SELECT default_environment FROM projects WHERE id = ?1";
+        let found: Option<Option<String>> = self
+            .conn
+            .query_row(sql, params![id], |row| row.get(0))
+            .optional()?;
+        Ok(found.flatten())
+    }
+
+    pub(crate) fn project_set_default_environment(
+        &self,
+        id: i64,
+        name: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE projects SET default_environment = ?2 WHERE id = ?1",
+            params![id, name],
+        )?;
+        Ok(())
     }
 
     pub(crate) fn projects(&self) -> Result<Vec<Project>> {

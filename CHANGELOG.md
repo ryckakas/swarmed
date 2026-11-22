@@ -14,6 +14,16 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Added
+
+- **A repository can have a default environment.** Choose it in the Environments dialog, and
+  every new task in that repository is set up in it: the new-task view's menu opens on it, and
+  `swarmed task new` uses it when no `--environment` is given. You can still pick another
+  environment, or the repository's own setup, for a single task. `swarmed environment
+  <project> --default <name>` sets it from the command line. The menu's entry for no
+  environment is now called "Repository's own setup", since "Default setup" no longer meant
+  the default.
+
 ### Fixed
 
 - **A setting Swarmed cannot understand no longer stops it.** One key in `settings.toml` that

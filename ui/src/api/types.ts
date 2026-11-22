@@ -199,6 +199,12 @@ export interface Pull {
 }
 
 /**
+ * Which environment a new task is set up in: the project's default one (or its own setup when
+ * it has none), the project's own setup, or the one of this name.
+ */
+export type EnvironmentChoice = "default" | "own" | { named: string };
+
+/**
  * One way of setting a project's tasks up on this machine. Whatever is left empty is as the
  * project's own configuration has it.
  */

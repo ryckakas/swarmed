@@ -87,7 +87,7 @@ pub use cloud::{CloudOrigin, CloudProvider, CloudTask, MAX_DELEGATED};
 pub use commands::{CommandKind, SlashCommand};
 pub use config::{Hooks, ProjectConfig};
 pub use costs::{Costs, DayCost, TaskCost};
-pub use environments::Environment;
+pub use environments::{Environment, EnvironmentChoice};
 pub use error::{Error, Result};
 pub use files::{FileEntry, FileListing};
 pub use handoff::MAX_HANDED;

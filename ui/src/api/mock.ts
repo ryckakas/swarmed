@@ -18,6 +18,7 @@ import type {
     Costs,
     CustomLayout,
     Environment,
+    EnvironmentChoice,
     FileChange,
     FileDiff,
     FileListing,
@@ -778,8 +779,29 @@ function skillApi(): Pick<
     };
 }
 
-/** Environments, kept per repository for as long as the page is open. */
-function environmentApi(): Pick<Api, "environments" | "environmentSave" | "environmentRemove"> {
+type EnvironmentApi = Pick<
+    Api,
+    | "environments"
+    | "environmentSave"
+    | "environmentRemove"
+    | "environmentDefault"
+    | "environmentSetDefault"
+>;
+
+/** The environment a sample task is set up in for what the window chose, as the core decides it. */
+async function environmentIn(
+    environments: EnvironmentApi,
+    project: string,
+    choice: EnvironmentChoice,
+): Promise<string | null> {
+    if (choice === "own") {
+        return null;
+    }
+    return choice === "default" ? environments.environmentDefault(project) : choice.named;
+}
+
+/** Environments and each repository's default, kept for as long as the page is open. */
+function environmentApi(): EnvironmentApi {
     const kept = new Map<string, Record<string, Environment>>([
         [
             "storefront",
@@ -797,8 +819,23 @@ function environmentApi(): Pick<Api, "environments" | "environmentSave" | "envir
         ],
     ]);
     const of = (project: string) => kept.get(project) ?? {};
+    const defaults = new Map<string, string>();
     return {
         environments: async (project) => ({ ...of(project) }),
+        environmentDefault: async (project) => {
+            const name = defaults.get(project);
+            return name !== undefined && name in of(project) ? name : null;
+        },
+        environmentSetDefault: async (project, name) => {
+            if (name === null) {
+                defaults.delete(project);
+                return;
+            }
+            if (!(name in of(project))) {
+                throw new Error(`project \`${project}\` has no environment \`${name}\``);
+            }
+            defaults.set(project, name);
+        },
         environmentSave: async (project, name, environment) => {
             if (!/^[a-z0-9][a-z0-9._-]*$/.test(name)) {
                 throw new Error(`invalid name \`${name}\``);
@@ -808,6 +845,9 @@ function environmentApi(): Pick<Api, "environments" | "environmentSave" | "envir
         environmentRemove: async (project, name) => {
             const { [name]: _removed, ...rest } = of(project);
             kept.set(project, rest);
+            if (defaults.get(project) === name) {
+                defaults.delete(project);
+            }
         },
     };
 }
@@ -2216,6 +2256,7 @@ export function createMockApi(): Api {
         { name: "ANTHROPIC_API_KEY", provider: "Anthropic API", stored: false },
         { name: "GEMINI_API_KEY", provider: "Google Gemini", stored: false },
     ];
+    const environments = environmentApi();
     let customLayout: CustomLayout = { base: "classic" };
     let terminalConfig: TerminalConfig = {};
     let settings: Settings = {
@@ -2295,11 +2336,11 @@ export function createMockApi(): Api {
         }),
         // The sample data has no model to ask, so tasks are named after their prompts.
         taskNameFor: async () => null,
-        ...environmentApi(),
+        ...environments,
         ...skillApi(),
         ...stackApi(() => agent.projects),
         ...cloudApi(() => agent.projects),
-        taskNew: async (projectName, name, branch, environment) => {
+        taskNew: async (projectName, name, branch, choice) => {
             const project = agent.projects.find((candidate) => candidate.name === projectName);
             if (!project) {
                 throw new Error(`project \`${projectName}\` not found`);
@@ -2310,6 +2351,7 @@ export function createMockApi(): Api {
                 }
                 await new Promise((resolve) => setTimeout(resolve, PACE * 2));
             }
+            const environment = await environmentIn(environments, projectName, choice);
             const created = {
                 ...task(Date.now(), project.id, name, []),
                 ...(branch ? { branch } : {}),
