@@ -171,15 +171,37 @@ impl Default for Settings {
 }
 
 impl Settings {
-    /// Loads the settings, or returns the defaults if the file does not exist.
+    /// Loads the settings, or returns the defaults if the file does not exist. What cannot be
+    /// understood costs only itself (`read`): only a file that cannot be read is an error.
     pub(crate) fn load(path: &Path) -> Result<Self> {
-        let text = match std::fs::read_to_string(path) {
-            Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
-            Err(e) => return Err(e.into()),
+        Ok(Self::read(path)?.0)
+    }
+
+    /// Reads the settings key by key, with what could not be understood, said for the user. A
+    /// key this version does not know is left out (a newer Swarmed may have written it), a value
+    /// it cannot take leaves that setting at its default, and a file that is not TOML at all
+    /// gives the defaults. One key must not stop the app, and none goes unsaid.
+    pub(crate) fn read(path: &Path) -> Result<(Self, Vec<String>)> {
+        let Some(text) = read_if_there(path)? else {
+            return Ok((Self::default(), Vec::new()));
         };
-        let settings: Self = toml::from_str(&text).map_err(|e| invalid(path, &e))?;
-        Ok(settings.within_limits())
+        let table = match text.parse::<toml::Table>() {
+            Ok(table) => table,
+            Err(error) => return Ok((Self::default(), vec![unreadable(&text, &error)])),
+        };
+        let known = known_keys();
+        let mut problems = Vec::new();
+        let taken: toml::Table = table
+            .into_iter()
+            .filter_map(|(key, value)| {
+                let kept =
+                    understood(&known, &key, &value).map_err(|problem| problems.push(problem));
+                kept.ok().map(|()| (key, value))
+            })
+            .collect();
+        // Each key was read on its own already, so together they read too.
+        let settings: Self = toml::Value::Table(taken).try_into().unwrap_or_default();
+        Ok((settings.within_limits(), problems))
     }
 
     /// The settings with every value brought into the range the app can show.
@@ -189,17 +211,94 @@ impl Settings {
         self
     }
 
+    /// Writes the settings. Keys this version does not know, which a newer Swarmed may have
+    /// written, are written back as they were, so this one does not erase that one's choices. A
+    /// file that is not TOML is kept beside it first (`UNREADABLE`): what the user wrote there
+    /// is not lost to the defaults that stood in for it.
     pub(crate) fn save(&self, path: &Path) -> Result<()> {
         if self.rules.len() > MAX_RULES_BYTES {
             return Err(Error::RulesTooLong(MAX_RULES_BYTES));
         }
-        let text = toml::to_string(&self.clone().within_limits()).map_err(|e| invalid(path, &e))?;
+        let mut text =
+            toml::to_string(&self.clone().within_limits()).map_err(|e| invalid(path, &e))?;
+        let unknown = unknown_kept(path)?;
+        // After every setting: the settings hold no tables, so nothing written here can land
+        // inside one of theirs.
+        if !unknown.is_empty() {
+            text.push_str(&toml::to_string(&unknown).map_err(|e| invalid(path, &e))?);
+        }
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
         std::fs::write(path, text)?;
         Ok(())
     }
+}
+
+/// What a settings file that is not TOML is kept as when the settings are saved over it.
+const UNREADABLE: &str = "settings.toml.unreadable";
+
+/// The file's text, or `None` if there is no such file.
+fn read_if_there(path: &Path) -> Result<Option<String>> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// The keys this version of the settings file has: every field, as it is written.
+fn known_keys() -> Vec<String> {
+    let written = toml::Value::try_from(Settings::default()).ok();
+    let table = written.as_ref().and_then(toml::Value::as_table);
+    table.map_or_else(Vec::new, |table| table.keys().cloned().collect())
+}
+
+/// Whether `key` with `value` is a setting this version can take, or what to tell the user.
+fn understood(known: &[String], key: &str, value: &toml::Value) -> std::result::Result<(), String> {
+    if !known.iter().any(|name| name == key) {
+        return Err(format!(
+            "`{key}` is not a setting this version of Swarmed knows, perhaps one a newer \
+             version wrote: it stays in the file and changes nothing here."
+        ));
+    }
+    let alone = toml::Table::from_iter([(key.to_string(), value.clone())]);
+    match toml::Value::Table(alone).try_into::<Settings>() {
+        Ok(_) => Ok(()),
+        Err(error) => Err(format!(
+            "`{key}` could not be read ({}), so it is at its default.",
+            error.message().trim()
+        )),
+    }
+}
+
+/// What to tell the user of a settings file that is not TOML: where it went wrong, and what
+/// is done meanwhile.
+fn unreadable(text: &str, error: &toml::de::Error) -> String {
+    let before = error.span().and_then(|span| text.get(..span.start));
+    let line = before.map_or(1, |before| before.matches('\n').count() + 1);
+    format!(
+        "The settings file is not TOML (line {line}: {}), so every setting is at its default. \
+         Saving the settings keeps a copy of it as `{UNREADABLE}`.",
+        error.message().trim()
+    )
+}
+
+/// The keys of the file at `path` that this version does not know, to be written back. A file
+/// that is not TOML is moved aside to `UNREADABLE` instead, before it is written over.
+fn unknown_kept(path: &Path) -> Result<toml::Table> {
+    let Some(text) = read_if_there(path)? else {
+        return Ok(toml::Table::new());
+    };
+    let Ok(table) = text.parse::<toml::Table>() else {
+        std::fs::rename(path, path.with_file_name(UNREADABLE))?;
+        return Ok(toml::Table::new());
+    };
+    let known = known_keys();
+    Ok(table
+        .into_iter()
+        .filter(|(key, _)| !known.contains(key))
+        .collect())
 }
 
 fn invalid(path: &Path, error: &dyn std::fmt::Display) -> Error {
@@ -279,10 +378,72 @@ mod tests {
     }
 
     #[test]
-    fn a_misspelt_key_is_an_error_not_a_silent_default() {
+    fn a_key_this_version_does_not_know_is_named_and_costs_nothing_else() {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = dir.path().join("settings.toml");
-        std::fs::write(&path, "editr = \"zed\"").expect("writes");
-        assert!(matches!(Settings::load(&path), Err(Error::Config { .. })));
+        // A newer Swarmed's setting, and a misspelt one: neither stops the rest.
+        let written = "editor = \"zed\"\ncoming_later = \"yes\"\neditr = \"vim\"\n";
+        std::fs::write(&path, written).expect("writes");
+        let (settings, problems) = Settings::read(&path).expect("reads");
+        assert_eq!(settings.editor, "zed");
+        assert_eq!(problems.len(), 2, "{problems:?}");
+        assert!(
+            problems[0].contains("`coming_later` is not a setting"),
+            "{problems:?}"
+        );
+        assert!(problems[1].contains("`editr`"), "{problems:?}");
+
+        // Saved by this version, the newer one's keys are still there for it.
+        Settings {
+            auto_title: false,
+            ..settings
+        }
+        .save(&path)
+        .expect("saves");
+        let saved = std::fs::read_to_string(&path).expect("reads back");
+        assert!(saved.contains("coming_later = \"yes\""), "{saved}");
+        let (again, _) = Settings::read(&path).expect("reads again");
+        assert_eq!((again.editor.as_str(), again.auto_title), ("zed", false));
+    }
+
+    #[test]
+    fn a_value_that_cannot_be_read_leaves_only_its_own_setting_at_its_default() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.toml");
+        let written = "theme = \"neon\"\npalette = \"forest\"\ntext_scale = \"big\"\n";
+        std::fs::write(&path, written).expect("writes");
+        let (settings, problems) = Settings::read(&path).expect("reads");
+        assert_eq!(
+            (settings.theme, settings.palette, settings.text_scale),
+            (Theme::System, Palette::Forest, 100)
+        );
+        assert_eq!(problems.len(), 2, "{problems:?}");
+        assert!(problems.iter().any(|problem| problem.contains("`theme`")));
+        assert!(
+            problems
+                .iter()
+                .any(|problem| problem.contains("`text_scale`"))
+        );
+        assert!(problems[0].contains("at its default"), "{problems:?}");
+    }
+
+    #[test]
+    fn a_file_that_is_not_toml_gives_the_defaults_and_is_kept_when_saved_over() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.toml");
+        let written = "editor = \"zed\"\nrules = \"keep it short\n";
+        std::fs::write(&path, written).expect("writes");
+        let (settings, problems) = Settings::read(&path).expect("reads");
+        assert_eq!(settings, Settings::default());
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("not TOML (line 2"), "{problems:?}");
+
+        Settings::default().save(&path).expect("saves");
+        let kept = std::fs::read_to_string(dir.path().join(UNREADABLE)).expect("kept aside");
+        assert_eq!(kept, written);
+        assert_eq!(
+            Settings::read(&path).expect("reads").1,
+            Vec::<String>::new()
+        );
     }
 }

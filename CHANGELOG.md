@@ -14,6 +14,16 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A setting Swarmed cannot understand no longer stops it.** One key in `settings.toml` that
+  the app did not know, such as one a newer Swarmed wrote beside an older one, kept the whole
+  app from working. It now uses every setting it understands and names the rest in the window,
+  and the command line notes them. A value it cannot take leaves only that setting at its
+  default, and a key it does not know is kept in the file when the settings are saved. A file
+  that is not TOML at all gives the defaults and is kept as `settings.toml.unreadable` before
+  anything is saved over it.
+
 ## [0.3.0] - 2026-11-22
 
 ### Added

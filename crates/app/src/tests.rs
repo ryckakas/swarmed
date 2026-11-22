@@ -501,6 +501,19 @@ fn files_are_listed_within_the_worktree(app: &App) {
 }
 
 #[test]
+fn a_settings_file_with_a_key_the_app_does_not_know_still_opens_and_says_so() {
+    let app = app();
+    std::fs::create_dir_all(app.data_dir()).expect("data dir");
+    let written = "editor = \"zed\"\ncoming_later = true\n";
+    std::fs::write(app.data_dir().join("settings.toml"), written).expect("writes");
+    assert_eq!(app.ok("settings", json!({}))["editor"], json!("zed"));
+    let problems = app.ok("settings_problems", json!({}));
+    let said = problems[0].as_str().expect("one problem, in words");
+    assert!(said.contains("`coming_later`"), "{said}");
+    assert_eq!(problems.as_array().map(Vec::len), Some(1));
+}
+
+#[test]
 fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));

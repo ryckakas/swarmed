@@ -150,6 +150,12 @@ Set in the app's Settings, kept in `settings.toml`.
 | `status_items`, `status_command` | branch, changes, model, context, cost | the status line: built-in pieces, or a script whose first line is shown |
 | `theme`, `palette`, `style`, `layout`, `text_scale` | system, swarm, colony, classic, 100 | how the app looks |
 
+A key Swarmed cannot understand never stops it. It uses the rest of the file and names each such key in the window, and the command line notes it on stderr:
+
+- **A key it does not know** is left out, as a misspelt one or one a newer version of Swarmed wrote. Saving the settings writes it back as it was, so an older Swarmed beside a newer one does not erase that one's choices.
+- **A value it cannot take**, such as a choice this version does not have, leaves that setting at its default.
+- **A file that is not TOML** gives every setting its default. Saving the settings first keeps a copy of it as `settings.toml.unreadable`.
+
 ## Environment variables
 
 | Variable | Effect |

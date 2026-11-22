@@ -352,6 +352,12 @@ pub(crate) fn say(line: &str) {
     writeln!(std::io::stdout().lock(), "{line}").ok();
 }
 
+/// Writes a line to stderr, apart from what a command prints: a note on the side, which must
+/// not get into what is piped on. A closed stderr is no reason to fail either.
+fn aside(line: &str) {
+    writeln!(std::io::stderr().lock(), "{line}").ok();
+}
+
 /// Shows hook output, indented so it reads apart from Swarmed's own lines.
 fn hook_line(line: &str) {
     say(&format!("  | {line}"));
@@ -380,6 +386,10 @@ async fn main() -> Result<()> {
         return Ok(served?);
     }
     let core = Arc::new(open_core()?);
+    // What of the settings could not be understood: said, and the command goes on with the rest.
+    for problem in core.settings_problems().unwrap_or_default() {
+        aside(&format!("settings.toml: {problem}"));
+    }
     // A session run from here gets the same tools for reaching other sessions as in the app.
     if matches!(cli.command, Command::Session(_)) {
         drop(tokio::spawn(swarmed_core::serve_session_tools(Arc::clone(

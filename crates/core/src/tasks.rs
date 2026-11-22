@@ -458,9 +458,17 @@ impl Core {
         open::in_terminal(&self.settings()?.terminal_app, &task.worktree_path)
     }
 
-    /// The user's own preferences.
+    /// The user's own preferences. What of the file could not be understood keeps its default
+    /// here, and `settings_problems` says what that was.
     pub fn settings(&self) -> Result<Settings> {
         Settings::load(&self.paths.settings())
+    }
+
+    /// What of the settings file could not be understood, each said for the user: keys this
+    /// version does not know, values it cannot take, or a file that is not TOML. Empty when
+    /// all of it was.
+    pub fn settings_problems(&self) -> Result<Vec<String>> {
+        Ok(Settings::read(&self.paths.settings())?.1)
     }
 
     /// Replaces the user's preferences.

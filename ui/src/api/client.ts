@@ -250,6 +250,11 @@ export interface Api {
     setApiKey(name: string, key: string): Promise<void>;
     deleteApiKey(name: string): Promise<void>;
     settings(): Promise<Settings>;
+    /**
+     * What of the settings file could not be understood, each said for the user. The rest is in
+     * use, and each of these settings is at its default.
+     */
+    settingsProblems(): Promise<string[]>;
     setSettings(settings: Settings): Promise<void>;
     /** The installed app's version, such as `0.1.0`. */
     version(): Promise<string>;

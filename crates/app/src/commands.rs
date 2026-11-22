@@ -689,6 +689,12 @@ pub(crate) fn settings(core: CoreState<'_>) -> Command<Settings> {
     Ok(core.settings()?)
 }
 
+/// What of the settings file could not be understood, for the window to show.
+#[tauri::command]
+pub(crate) fn settings_problems(core: CoreState<'_>) -> Command<Vec<String>> {
+    Ok(core.settings_problems()?)
+}
+
 #[tauri::command]
 pub(crate) fn set_settings(core: CoreState<'_>, settings: Settings) -> Command<()> {
     Ok(core.set_settings(&settings)?)

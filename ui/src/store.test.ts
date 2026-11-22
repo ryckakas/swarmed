@@ -8,6 +8,7 @@ import {
     heardWhileReading,
     menuChosen,
     type Reading,
+    settingsProblemsSaid,
     useStore,
     withEvent,
     withStreamed,
@@ -447,6 +448,20 @@ describe("unsent messages", () => {
         expect(Object.keys(useStore.getState().newTaskDrafts)).toEqual(["storefront"]);
         editNewTaskDraft("storefront", { text: "" });
         expect(useStore.getState().newTaskDrafts).toEqual({});
+    });
+});
+
+describe("a settings file that is not understood whole", () => {
+    it("is said in the window, and the settings that were understood are in use", async () => {
+        const problem = "`coming_later` is not a setting this version of Swarmed knows.";
+        const api: Api = { ...createMockApi(), settingsProblems: async () => [problem] };
+        useStore.setState({ problem: null, settings: null });
+        const disconnect = connect(api);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(useStore.getState().problem).toBe(settingsProblemsSaid([problem]));
+        expect(useStore.getState().problem).toContain("`coming_later`");
+        expect(useStore.getState().settings).not.toBeNull();
+        disconnect();
     });
 });
 
