@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::agent::{AcpBackend, AgentBackend, ClaudeBackend};
 use crate::agent_setup::defaults_to_first_listed;
 use crate::error::{Error, Result};
+use crate::lenient::{self, Problems};
 use crate::mcp_opencode::opencode_model;
 
 /// The id of the agent every installation has.
@@ -36,9 +37,9 @@ pub struct AgentInfo {
     pub hears_mid_turn: bool,
 }
 
-/// One entry of `agents.toml`: an ACP agent and how to start it.
+/// One entry of `agents.toml`: an ACP agent and how to start it. A key it does not know is
+/// read past and named (`lenient`), never a reason to leave the agent out.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
 struct AgentConfig {
     /// The name to show; defaults to the entry's key.
     name: Option<String>,
@@ -78,6 +79,38 @@ struct Agent {
     program: Option<PathBuf>,
 }
 
+/// The entries of `agents.toml` that can be read, with what could not, said for the user;
+/// `None` if the text is not TOML at all.
+fn entries_in(text: &str) -> Option<(BTreeMap<String, AgentConfig>, Problems)> {
+    let table = text.parse::<toml::Table>().ok()?;
+    let (mut entries, mut problems) = lenient::entries::<AgentConfig>(table);
+    if entries.remove(CLAUDE).is_some() {
+        problems.push(format!(
+            "`{CLAUDE}` is built in and cannot be redefined, so that entry is left out."
+        ));
+    }
+    Some((entries, problems))
+}
+
+/// What of `agents.toml`'s `text` cannot be understood, said for the user.
+fn problems_in_text(text: &str) -> Problems {
+    if let Some((_, problems)) = entries_in(text) {
+        return problems;
+    }
+    let meanwhile = "Its agents are not offered until it is fixed; Claude Code is.";
+    let error = text.parse::<toml::Table>().err();
+    error.map_or_else(Vec::new, |error| {
+        vec![lenient::not_toml(text, &error, meanwhile)]
+    })
+}
+
+/// What of the `agents.toml` at `path` cannot be understood, said for the user.
+pub(crate) fn problems_in(path: &Path) -> Result<Problems> {
+    Ok(problems_in_text(
+        &lenient::read_if_there(path)?.unwrap_or_default(),
+    ))
+}
+
 /// Whether `program` can be started: the file it names if it names a path, else a file of
 /// that name in one of `dirs`.
 fn is_installed(program: &Path, dirs: &[PathBuf]) -> bool {
@@ -114,7 +147,8 @@ impl Agents {
     }
 
     /// Claude Code plus the ACP agents in `agents.toml`, if that file exists. `opencode` is
-    /// OpenCode's configuration directory.
+    /// OpenCode's configuration directory. What of the file cannot be understood is left out
+    /// (`problems_in` says what): it never keeps Swarmed from starting.
     pub(crate) fn load(config: &Path, opencode: &Path) -> Result<Self> {
         let mut agents = Self::only_claude(Arc::new(ClaudeBackend::default()));
         agents.reload(config, opencode)?;
@@ -122,33 +156,22 @@ impl Agents {
     }
 
     /// Reads `agents.toml` again: the agents it listed before are replaced by the ones it lists
-    /// now. Claude Code and agents registered directly stay as they are. A file that cannot be
-    /// read leaves everything as it was. OpenCode's own configuration, in `opencode`, is read
+    /// now. Claude Code and agents registered directly stay as they are. An entry that cannot
+    /// be read is left out, and a file that is not TOML leaves everything as it was; what that
+    /// was is returned, said for the user. OpenCode's own configuration, in `opencode`, is read
     /// with it: a model the user chose there is OpenCode's default, and Swarmed picks none.
-    pub(crate) fn reload(&mut self, config: &Path, opencode: &Path) -> Result<()> {
-        let text = match std::fs::read_to_string(config) {
-            Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(e) => return Err(e.into()),
+    pub(crate) fn reload(&mut self, config: &Path, opencode: &Path) -> Result<Problems> {
+        let text = lenient::read_if_there(config)?.unwrap_or_default();
+        let Some((entries, problems)) = entries_in(&text) else {
+            return Ok(problems_in_text(&text));
         };
-        let invalid = |message: String| Error::Config {
-            path: config.to_path_buf(),
-            message,
-        };
-        let entries: BTreeMap<String, AgentConfig> =
-            toml::from_str(&text).map_err(|e| invalid(e.to_string()))?;
-        if entries.contains_key(CLAUDE) {
-            return Err(invalid(format!(
-                "`{CLAUDE}` is built in and cannot be redefined"
-            )));
-        }
         self.0.retain(|_, agent| !agent.from_file);
         let has_its_own = |id: &str| id == OPENCODE && opencode_model(opencode).is_some();
         for (id, entry) in entries {
             let first_listed = defaults_to_first_listed(&id) && !has_its_own(&id);
             self.add(id, entry, first_listed);
         }
-        Ok(())
+        Ok(problems)
     }
 
     /// Adds an entry of the file. With `first_listed`, a session that leaves the model open
@@ -349,20 +372,61 @@ OPENCODE_CONFIG = "/tmp/x"
     }
 
     #[test]
-    fn a_missing_file_means_only_claude_and_a_bad_one_is_an_error() {
+    fn a_missing_file_means_only_claude_and_what_cannot_be_read_costs_only_itself() {
         let missing = Agents::load(
             Path::new("/nonexistent/agents.toml"),
             Path::new("/nonexistent"),
         )
         .expect("loads");
         assert_eq!(missing.infos().len(), 1);
-        assert!(matches!(
-            load("[x]\ncomand = \"typo\"\n"),
-            Err(Error::Config { .. })
-        ));
-        assert!(matches!(
-            load("[claude]\ncommand = \"other\"\n"),
-            Err(Error::Config { .. })
-        ));
+
+        // A misspelt entry, a redefined Claude Code and a key from a newer Swarmed: the rest
+        // is still offered, and each is said.
+        let text = "[x]\ncomand = \"typo\"\n[claude]\ncommand = \"other\"\n\
+                    [good]\ncommand = \"good\"\ncolour = \"red\"\n";
+        let agents = load(text).expect("loads");
+        let ids: Vec<String> = agents.infos().into_iter().map(|info| info.id).collect();
+        assert_eq!(ids, ["claude", "good"]);
+        assert!(agents.backend("claude").is_ok());
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("agents.toml");
+        std::fs::write(&path, text).expect("writes");
+        let problems = problems_in(&path).expect("reads");
+        assert_eq!(problems.len(), 3, "{problems:?}");
+        assert!(
+            problems
+                .iter()
+                .any(|problem| problem.contains("`x` could not be read"))
+        );
+        assert!(
+            problems
+                .iter()
+                .any(|problem| problem.contains("`good.colour`"))
+        );
+        assert!(
+            problems
+                .iter()
+                .any(|problem| problem.contains("`claude` is built in"))
+        );
+    }
+
+    #[test]
+    fn a_file_that_is_not_toml_leaves_the_agents_as_they_were() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("agents.toml");
+        std::fs::write(&path, "[a]\ncommand = \"a\"\n").expect("writes");
+        let mut agents = Agents::load(&path, dir.path()).expect("loads");
+        std::fs::write(&path, "[a\ncommand = \"a\"\n").expect("writes");
+        let problems = agents.reload(&path, dir.path()).expect("reloads");
+        assert!(problems[0].contains("not TOML (line 1"), "{problems:?}");
+        assert_eq!(agents.infos().len(), 2);
+        // Opened that way, Swarmed starts with Claude Code alone.
+        assert_eq!(
+            Agents::load(&path, dir.path())
+                .expect("loads")
+                .infos()
+                .len(),
+            1
+        );
     }
 }

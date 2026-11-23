@@ -4,10 +4,12 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
+use crate::lenient::{self, Problems};
 
-/// A project's local configuration, one TOML file per project in the data directory.
+/// A project's local configuration, one TOML file per project in the data directory. A key it
+/// does not know is read past and named (`ProjectConfig::read`), never refused.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct ProjectConfig {
     /// Branch name for a new task. Variables: `user`, `task`, `project`.
     pub branch_pattern: String,
@@ -32,7 +34,7 @@ pub struct ProjectConfig {
 /// skipped. A `{{variable}}` in one is filled in as one word of the command, whatever its
 /// value holds.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct Hooks {
     /// Runs once after the worktree is created: install dependencies, create and seed the database.
     pub setup: String,
@@ -93,24 +95,35 @@ port_step = 100                 # task port = base + slot * port_step
 "#;
 
 impl ProjectConfig {
-    /// Loads the config, or returns the defaults if the file does not exist.
+    /// Loads the config, or returns the defaults if the file does not exist. What of it cannot be
+    /// understood is at its default (`read` says what).
     pub(crate) fn load(path: &Path) -> Result<Self> {
-        let text = match std::fs::read_to_string(path) {
-            Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
-            Err(e) => return Err(e.into()),
+        Ok(Self::read(path)?.0)
+    }
+
+    /// Reads the config key by key, with what could not be understood, said for the user: a key
+    /// it does not know is left out, and a value it cannot take is at its default. Only a file
+    /// that is not TOML is an error. There is no telling what its hooks and ports were, and
+    /// tasks set up or removed without them could leave behind what `teardown` would have
+    /// ended.
+    pub(crate) fn read(path: &Path) -> Result<(Self, Problems)> {
+        let Some(text) = lenient::read_if_there(path)? else {
+            return Ok((Self::default(), Vec::new()));
         };
-        let config: Self = toml::from_str(&text).map_err(|e| Error::Config {
+        let table = text.parse::<toml::Table>().map_err(|error| Error::Config {
             path: path.to_path_buf(),
-            message: e.to_string(),
+            message: lenient::not_toml(
+                &text,
+                &error,
+                "Its tasks cannot be set up, started or removed with their hooks until it is fixed.",
+            ),
         })?;
+        let (mut config, mut problems) = lenient::fields::<Self>(table);
         if config.port_step == 0 {
-            return Err(Error::Config {
-                path: path.to_path_buf(),
-                message: "port_step must be at least 1".to_string(),
-            });
+            config.port_step = Self::default().port_step;
+            problems.push("`port_step` must be at least 1, so it is at its default.".to_string());
         }
-        Ok(config)
+        Ok((config, problems))
     }
 
     /// Writes the commented starter config unless a file is already there.
@@ -146,8 +159,37 @@ mod tests {
     }
 
     #[test]
-    fn unknown_keys_are_rejected() {
-        assert!(toml::from_str::<ProjectConfig>("branch_patern = \"x\"").is_err());
+    fn what_cannot_be_understood_is_named_and_costs_only_itself() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("demo.toml");
+        let text = "branch_patern = \"x\"\nport_step = 0\nmax_stacks = 3\n\
+                    [hooks]\nsetup = \"make\"\nwarmup = \"later\"\n";
+        std::fs::write(&path, text).expect("writes");
+        let (config, problems) = ProjectConfig::read(&path).expect("reads");
+        assert_eq!((config.max_stacks, config.port_step), (3, 100));
+        assert_eq!(config.hooks.setup, "make");
+        assert_eq!(problems.len(), 3, "{problems:?}");
+        assert!(
+            problems
+                .iter()
+                .any(|problem| problem.contains("`branch_patern`"))
+        );
+        assert!(
+            problems
+                .iter()
+                .any(|problem| problem.contains("`hooks.warmup`"))
+        );
+        assert!(
+            problems
+                .iter()
+                .any(|problem| problem.contains("`port_step`"))
+        );
+        // Not TOML at all, its hooks are unknown: that stays an error.
+        std::fs::write(&path, "[hooks\n").expect("writes");
+        assert!(matches!(
+            ProjectConfig::read(&path),
+            Err(Error::Config { .. })
+        ));
     }
 
     #[test]

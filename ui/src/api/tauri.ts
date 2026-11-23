@@ -112,6 +112,9 @@ export const tauriApi: Api = {
     environmentSave: (project, name, environment) =>
         invoke<void>("environment_save", { project, name, environment }),
     environmentRemove: (project, name) => invoke<void>("environment_remove", { project, name }),
+    environmentDefault: (project) => invoke<string | null>("environment_default", { project }),
+    environmentSetDefault: (project, name) =>
+        invoke<void>("environment_set_default", { project, name }),
     taskUnpublished: (project, name) => invoke<Unpublished>("task_unpublished", { project, name }),
     taskPullMessage: (project, name, session) =>
         invoke<PullDraft>("task_pull_message", { project, name, session }),
@@ -140,6 +143,7 @@ export const tauriApi: Api = {
     setApiKey: (name, key) => invoke("set_api_key", { name, key }),
     deleteApiKey: (name) => invoke("delete_api_key", { name }),
     settings: () => invoke<Settings>("settings"),
+    configProblems: () => invoke<string[]>("config_problems"),
     setSettings: (settings) => invoke("set_settings", { settings }),
     version: () => getVersion(),
     updateState: () => invoke<UpdateState>("update_state"),

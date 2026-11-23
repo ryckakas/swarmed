@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { envFromText, envToText, portsFromText, portsToText, taskTooltip } from "./environments";
+import {
+    envFromText,
+    environmentChoice,
+    environmentOptions,
+    environmentShown,
+    envToText,
+    OWN_SETUP,
+    portsFromText,
+    portsToText,
+    taskTooltip,
+} from "./environments";
 
 describe("an environment's variables", () => {
     it("are typed as lines, the way a .env file has them", () => {
@@ -28,6 +38,40 @@ describe("an environment's variables", () => {
     it("are shown again as they are kept", () => {
         expect(envToText({ A: "1", B: "two words" })).toBe("A=1\nB=two words");
         expect(envFromText(envToText({ A: "1", B: "x=y" }))).toEqual({ A: "1", B: "x=y" });
+    });
+});
+
+describe("a new task's environment", () => {
+    const names = ["docker", "staging"];
+
+    it("is the repository's default until another is picked", () => {
+        expect(environmentShown(names, "docker", undefined)).toBe("docker");
+        expect(environmentChoice(names, undefined)).toBe("default");
+        expect(environmentShown(names, "docker", "staging")).toBe("staging");
+        expect(environmentChoice(names, "staging")).toEqual({ named: "staging" });
+    });
+
+    it("can be the repository's own setup, whatever its default", () => {
+        expect(environmentShown(names, "docker", OWN_SETUP)).toBe(OWN_SETUP);
+        expect(environmentChoice(names, OWN_SETUP)).toBe("own");
+        expect(environmentShown(names, null, undefined)).toBe(OWN_SETUP);
+    });
+
+    it("goes back to the default when the one picked or the default is gone", () => {
+        expect(environmentShown(names, "docker", "removed")).toBe("docker");
+        expect(environmentChoice(names, "removed")).toBe("default");
+        expect(environmentShown(names, "removed", undefined)).toBe(OWN_SETUP);
+    });
+
+    it("is listed with the default one marked", () => {
+        expect(environmentOptions(names, "docker")).toEqual([
+            ["docker", "docker (default)"],
+            ["staging", "staging"],
+        ]);
+        expect(environmentOptions(names, null)).toEqual([
+            ["docker", "docker"],
+            ["staging", "staging"],
+        ]);
     });
 });
 

@@ -94,6 +94,24 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   something it left running ends. `acp.rs` treats that as a turn of the agent's own: it ends
   when the agent has said something and reports its usage, or has been silent for `QUIET`,
   and a stop from the user ends it at once, since the agent has nothing to answer one with.
+- **What Swarmed cannot understand in its configuration costs only itself** (`lenient.rs`,
+  #300). Two Swarmeds of different versions can share one data directory, and one key the
+  older does not know must not stop it.
+  - **Not refused whole:** the files are read with `serde_ignored`, not `deny_unknown_fields`.
+    A key a struct does not know is left out at any depth and named.
+  - **A value that cannot be read** costs the smallest part it is in: a setting's key at its
+    default (`lenient::fields`), or one entry left out of `agents.toml`, `mcp.toml` or a
+    repository's environments (`lenient::entries`).
+  - **A file that is not TOML** gives the defaults where there are safe ones (settings, agents,
+    MCP servers, skills) and is kept as `<file>.unreadable` before it is written over. A
+    repository's configuration or environments stay an error: there is no telling what their
+    hooks were.
+  - **Said, never in the way:** `Core::config_problems` names each problem with its file. The
+    window shows them in its problem banner and the command line on stderr.
+  - **Settings keep unknown keys:** saving the settings writes keys this version does not know
+    back as they were.
+  - **New configuration files** are read the same way. A new struct for one gets no
+    `deny_unknown_fields`.
 - **A stack is also remembered on disk** (`run/stacks/<task>.pid`: its leading process and
   when that started). A Swarmed that ended without stopping its stacks finds them again, counts
   them as running and can stop them. Stopping asks the stack's process group, waits, then
@@ -404,6 +422,15 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   environment, copied with `cp -c` so that APFS clones them. A new task gets them put into its
   worktree before `setup` runs, never over a file that is already there. They may include the
   likes of `.env`: the folder is the user's alone and its contents are never logged.
+- **A repository's default environment is kept in the database** (`default_environment` on
+  `projects`, `Core::environment_default`), not in its config or environments file: a
+  Swarmed sharing the data directory that does not know the key would refuse the file, as
+  0.3.0 does, or name it as a problem every time it starts, while a column it does not know
+  it never sees. A new task is asked for with an `EnvironmentChoice` (the default, the
+  repository's own setup, or one by name) and the core settles the default as the task is
+  made, so the window and the command line get the same. A default whose environment is gone
+  is none; removing that environment clears it. Agents cannot set it: `configure` has no way
+  to.
 - **Prompts the user keeps** (`templates.rs`) are a name and a text in `templates.toml` in the
   data directory. A front end puts one into the message box; the core never sends one by
   itself, and agents are not told about them. `{{something}}` marks a place to fill in.

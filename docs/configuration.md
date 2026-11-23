@@ -33,6 +33,21 @@ In the data directory:
 The app and the `swarmed` command write these. The TOML and JSON files may be edited by hand
 as well.
 
+### What Swarmed cannot understand
+
+One key Swarmed cannot understand never stops it, whether it is misspelt or written by a newer version of Swarmed. It works with the rest, and names each problem with its file in the window, when the window opens and whenever the configuration changes. The command line notes them on stderr.
+
+| File | A key it does not know | A value it cannot take | Not TOML at all |
+| --- | --- | --- | --- |
+| `settings.toml` | left out, and written back as it was when the settings are saved | that setting is at its default | every setting is at its default, and the file is kept as `settings.toml.unreadable` before the settings are saved over it |
+| `agents.toml` | left out of that agent | that agent is not offered | none of its agents is offered; Claude Code is |
+| `mcp.toml` | left out of that server | that server is not given to agents | none of its servers is given, and the file is kept as `mcp.toml.unreadable` before a server is saved over it |
+| `skills.toml` | left out | every skill is offered | every skill is offered, and the file is kept as `skills.toml.unreadable` before a skill is shared or kept back |
+| `projects/<project>.toml` | left out | that key is at its default | an error: the project's tasks cannot be set up, started or removed with their hooks, which there is no telling |
+| `projects/<project>.environments.toml` | left out of that environment | that environment is left out | an error for tasks in its environments |
+
+`templates.toml`, the actions, `layout.json` and `terminal.json` affect only their own part: the saved prompts, the action buttons, the custom layout and the terminal.
+
 ## A project's configuration
 
 `swarmed project add` writes a commented template, and `swarmed project config <project>` prints
@@ -118,6 +133,13 @@ ports and variables, which are added to the project's in place of any of the sam
 is created in one environment, or none, and keeps it. An environment cannot be removed while a
 task still uses it.
 
+One environment can be the project's default. A new task is set up in it unless another, or the
+project's own setup, is chosen when the task is started: in the new-task view's menu, which
+opens on the default, or with `--environment` or `--no-environment` on `swarmed task new`.
+Choose it in the app's Environments dialog or with `swarmed environment <project> --default
+<name>`; `--no-default` goes back to the project's own setup. Tasks already made keep the
+environment they were set up in. Removing the default environment leaves the project without one.
+
 Environments are edited in the app and kept in `projects/<project>.environments.toml`, which
 Swarmed creates readable by you alone, since their variables may hold credentials. `swarmed environment <project>` lists
 them.
@@ -149,6 +171,8 @@ Set in the app's Settings, kept in `settings.toml`.
 | `rules` | none | rules every agent is given, in every session |
 | `status_items`, `status_command` | branch, changes, model, context, cost | the status line: built-in pieces, or a script whose first line is shown |
 | `theme`, `palette`, `style`, `layout`, `text_scale` | system, swarm, colony, classic, 100 | how the app looks |
+
+A key Swarmed does not know stays in `settings.toml` when the settings are saved, so an older Swarmed beside a newer one does not erase that one's choices. What else happens to what it cannot understand is in [What Swarmed cannot understand](#what-swarmed-cannot-understand).
 
 ## Environment variables
 

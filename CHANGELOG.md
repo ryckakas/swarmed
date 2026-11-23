@@ -14,6 +14,34 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Added
+
+- **A repository can have a default environment.** Choose it in the Environments dialog, and
+  every new task in that repository is set up in it: the new-task view's menu opens on it, and
+  `swarmed task new` uses it when no `--environment` is given. You can still pick another
+  environment, or the repository's own setup, for a single task. `swarmed environment
+  <project> --default <name>` sets it from the command line. The menu's entry for no
+  environment is now called "Repository's own setup", since "Default setup" no longer meant
+  the default.
+
+### Fixed
+
+- **A setting Swarmed cannot understand no longer stops it.** One key in `settings.toml` that
+  the app did not know, such as one a newer Swarmed wrote beside an older one, kept the whole
+  app from working. It now uses every setting it understands and names the rest in the window,
+  and the command line notes them. A value it cannot take leaves only that setting at its
+  default, and a key it does not know is kept in the file when the settings are saved. A file
+  that is not TOML at all gives the defaults and is kept as `settings.toml.unreadable` before
+  anything is saved over it.
+- **The same holds for agents, MCP servers, skills and a repository's configuration.** One key
+  Swarmed did not know in `agents.toml` kept the app from opening, and one in `mcp.toml` kept
+  every agent from starting. In a repository's configuration or environments, it kept that
+  repository's agents from starting. Each now costs only itself: a key it does not know is left
+  out, an agent, server or environment that cannot be read is left out, and a setting that
+  cannot be read is at its default. Each is named with its file. A `skills.toml` that could not
+  be read used to offer every hidden skill again without a word, and the next change wiped what
+  it held. Now that is said, and the file is kept as `skills.toml.unreadable`.
+
 ## [0.3.0] - 2026-11-22
 
 ### Added

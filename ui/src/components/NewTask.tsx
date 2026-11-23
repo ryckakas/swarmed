@@ -4,6 +4,7 @@ import type {
     AgentInfo,
     BranchChoices,
     Effort,
+    EnvironmentChoice,
     Project,
     SessionSetup,
     Supervision,
@@ -17,6 +18,12 @@ import {
     variantLabel,
     variantNames,
 } from "../broadcast";
+import {
+    environmentChoice,
+    environmentOptions,
+    environmentShown,
+    OWN_SETUP,
+} from "../environments";
 import { expandPastes, forgetPastes } from "../pastes";
 import { NO_DRAFT } from "../sending";
 import { sentOn } from "../slash";
@@ -77,10 +84,12 @@ export function NewTask({ projects }: { projects: Project[] }) {
     const editNewTaskDraft = useStore((state) => state.editNewTaskDraft);
     const choices = useBranchChoices(project?.name);
     const environments = useEnvironments(project?.name);
-    const [environment, setEnvironment] = useState("");
+    // What was picked, by repository: one where nothing was picked starts on its default.
+    const [picked, setPicked] = useState<Record<string, string>>({});
     if (!project) {
         return null;
     }
+    const environment = picked[project.name];
 
     // A removed task's name too, since its branch may still be there. The core has the last
     // word: it steps past branches here and on a remote, and the task it makes says its name.
@@ -106,7 +115,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 name: chosen,
                 title: naming?.title ?? null,
                 branch: branch === NEW_BRANCH ? null : branch,
-                environment: chosenEnvironment(environments, environment),
+                environment: environmentChoice(environments.names, environment),
                 setup: setupFor(agentId, model, supervision, effort, fast),
                 prompt: expandPastes(prompt.trim()),
                 files,
@@ -165,9 +174,9 @@ export function NewTask({ projects }: { projects: Project[] }) {
                     ]}
                 />
                 <EnvironmentPicker
-                    names={environments}
-                    value={environment}
-                    onChange={setEnvironment}
+                    environments={environments}
+                    picked={environment}
+                    onChange={(name) => setPicked({ ...picked, [project.name]: name })}
                 />
                 <ModePicker value={supervision} agentId={agentId} onChange={setSupervision} />
                 <AgentPickers
@@ -225,8 +234,8 @@ interface Start {
     /** The first session's title, if the task was named by a model. */
     title: string | null;
     branch: string | null;
-    /** The environment of the project to set the task up in, if one was chosen. */
-    environment: string | null;
+    /** The environment of the project to set the task up in. */
+    environment: EnvironmentChoice;
     setup: SessionSetup;
     prompt: string;
     /** The files the first message points the agent at. */
@@ -392,55 +401,64 @@ function AgentPickers(props: AgentPickersProps) {
 }
 
 /** The branches a task in `project` can start from; `null` until they are read. */
-/** The environment picked, as long as the project still has it; `null` for the default setup. */
-function chosenEnvironment(names: string[], picked: string): string | null {
-    return names.includes(picked) ? picked : null;
+/** A project's environments by name, and the one new tasks are set up in unless told otherwise. */
+interface Environments {
+    names: string[];
+    usual: string | null;
 }
 
-/** The menu of a project's environments. A project without any has no menu. */
+const NO_ENVIRONMENTS: Environments = { names: [], usual: null };
+
+/**
+ * The menu of a project's environments, on its default until another is picked. A project
+ * without any has no menu.
+ */
 function EnvironmentPicker(props: {
-    names: string[];
-    value: string;
+    environments: Environments;
+    picked: string | undefined;
     onChange(value: string): void;
 }) {
     const words = useWords();
-    if (props.names.length === 0) {
+    const { names, usual } = props.environments;
+    if (names.length === 0) {
         return null;
     }
     return (
         <Picker
             label={words.environment}
-            value={chosenEnvironment(props.names, props.value) ?? ""}
+            value={environmentShown(names, usual, props.picked)}
             onChange={props.onChange}
-            options={[
-                ["", words.defaultSetup],
-                ...props.names.map((name): [string, string] => [name, name]),
-            ]}
+            options={[[OWN_SETUP, words.ownSetup], ...environmentOptions(names, usual)]}
         />
     );
 }
 
-/** The names of the project's environments, read again whenever they may have been edited. */
-function useEnvironments(project: string | undefined): string[] {
-    const [names, setNames] = useState<string[]>([]);
+/** The project's environments and its default, read again whenever they may have been edited. */
+function useEnvironments(project: string | undefined): Environments {
+    const [environments, setEnvironments] = useState(NO_ENVIRONMENTS);
     // The dialog that edits them closing is when they may have changed.
     const editing = useStore((state) => state.environmentsOf);
     // biome-ignore lint/correctness/useExhaustiveDependencies: editing exists to trigger a re-read
     useEffect(() => {
-        setNames([]);
+        setEnvironments(NO_ENVIRONMENTS);
         if (project === undefined) {
             return;
         }
         let current = true;
-        api.environments(project)
-            .then((read) => current && setNames(Object.keys(read)))
-            // Without them a task is simply set up the default way.
+        Promise.all([api.environments(project), api.environmentDefault(project)])
+            .then(([read, usual]) => {
+                if (current) {
+                    setEnvironments({ names: Object.keys(read), usual });
+                }
+            })
+            // Without them the menu is left out, and the core still sets the task up in the
+            // project's default.
             .catch(() => undefined);
         return () => {
             current = false;
         };
     }, [project, editing]);
-    return names;
+    return environments;
 }
 
 function useBranchChoices(project: string | undefined): BranchChoices | null {

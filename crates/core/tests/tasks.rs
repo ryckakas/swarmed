@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex};
 use common::{core_with_project, fixture, git, write_config};
 use swarmed_core::agent::{AgentEvent, Auth, FakeBackend};
 use swarmed_core::{
-    Action, ChangeKind, Core, Environment, Error, NewTaskOptions, ProjectConfig, RemoveOptions,
-    SessionOptions, Settings, SetupStatus, StackState, hooks,
+    Action, ChangeKind, Core, Environment, EnvironmentChoice, Error, NewTaskOptions, ProjectConfig,
+    RemoveOptions, SessionOptions, Settings, SetupStatus, StackState, hooks,
 };
 
 #[tokio::test]
@@ -300,7 +300,7 @@ async fn a_made_up_name_steps_past_branches_here_and_on_a_remote_and_folders_in_
         ..NewTaskOptions::default()
     };
     let task = core
-        .task_new("demo", "fix", free, &hooks::discard)
+        .task_new("demo", "fix", free.clone(), &hooks::discard)
         .await
         .expect("creates");
     assert_eq!(
@@ -683,19 +683,20 @@ async fn a_task_is_set_up_in_the_environment_it_was_created_in() {
     );
     assert_eq!(mode & 0o777, 0o600);
 
-    let options = |environment| NewTaskOptions {
-        environment,
+    let options = |environment: &str| NewTaskOptions {
+        environment: EnvironmentChoice::Named(environment.to_string()),
         ..NewTaskOptions::default()
     };
     let how = |task: &swarmed_core::Task| {
         std::fs::read_to_string(task.worktree_path.join("how.txt")).expect("set up")
     };
+    // With no default environment, a task that chooses none is set up the project's own way.
     let plain = core
-        .task_new("demo", "one", options(None), &hooks::discard)
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
         .await
         .expect("creates");
     let staged = core
-        .task_new("demo", "two", options(Some("staging")), &hooks::discard)
+        .task_new("demo", "two", options("staging"), &hooks::discard)
         .await
         .expect("creates");
     assert_eq!(
@@ -731,7 +732,7 @@ async fn a_task_is_set_up_in_the_environment_it_was_created_in() {
     // One that is not there is refused. One a task uses cannot be removed, and one that goes
     // all the same, deleted by hand, leaves its tasks on the project's own.
     let missing = core
-        .task_new("demo", "three", options(Some("nope")), &hooks::discard)
+        .task_new("demo", "three", options("nope"), &hooks::discard)
         .await;
     assert!(matches!(missing, Err(Error::EnvironmentNotFound { .. })));
     let in_use = core.environment_remove("demo", "staging");
@@ -752,6 +753,77 @@ async fn a_task_is_set_up_in_the_environment_it_was_created_in() {
         core.environment_save("demo", "bad", &bad),
         Err(Error::InvalidVariable(_))
     ));
+}
+
+#[tokio::test]
+async fn a_task_that_chooses_no_environment_is_set_up_in_the_projects_default() {
+    let fx = fixture();
+    write_config(&fx, "[hooks]\nsetup = \"echo plain > how.txt\"\n");
+    let core = core_with_project(&fx).await;
+    for (name, setup) in [("docker", "echo docker > how.txt"), ("spare", "")] {
+        let environment = Environment {
+            setup: setup.to_string(),
+            ..Environment::default()
+        };
+        core.environment_save("demo", name, &environment)
+            .expect("saves");
+    }
+    assert_eq!(core.environment_default("demo").expect("reads"), None);
+    let missing = core.environment_set_default("demo", Some("nope"));
+    assert!(matches!(missing, Err(Error::EnvironmentNotFound { .. })));
+    core.environment_set_default("demo", Some("docker"))
+        .expect("sets");
+    assert_eq!(
+        core.environment_default("demo").expect("reads").as_deref(),
+        Some("docker")
+    );
+
+    let how = |task: &swarmed_core::Task| {
+        let set_up = std::fs::read_to_string(task.worktree_path.join("how.txt")).expect("set up");
+        (set_up.trim().to_string(), task.environment.clone())
+    };
+    let new = |name: &'static str, environment: EnvironmentChoice| {
+        let options = NewTaskOptions {
+            environment,
+            ..NewTaskOptions::default()
+        };
+        core.task_new("demo", name, options, &hooks::discard)
+    };
+    // Chosen by nobody, the default; the project's own setup, or another, only when chosen.
+    let default = new("a", EnvironmentChoice::Default).await.expect("creates");
+    let own = new("b", EnvironmentChoice::Own).await.expect("creates");
+    let named = EnvironmentChoice::Named("spare".to_string());
+    let spare = new("c", named).await.expect("creates");
+    let docker = "docker".to_string();
+    assert_eq!(how(&default), (docker.clone(), Some(docker)));
+    assert_eq!(how(&own), ("plain".to_string(), None));
+    assert_eq!(spare.environment.as_deref(), Some("spare"));
+
+    // Removing the default leaves none, and so does setting none.
+    let force = RemoveOptions {
+        force: true,
+        ..RemoveOptions::default()
+    };
+    core.task_remove("demo", "c", force, &hooks::discard)
+        .await
+        .expect("removes");
+    core.environment_set_default("demo", Some("spare"))
+        .expect("sets");
+    core.environment_remove("demo", "spare").expect("removes");
+    assert_eq!(core.environment_default("demo").expect("reads"), None);
+    core.environment_set_default("demo", Some("docker"))
+        .expect("sets");
+    core.environment_set_default("demo", None).expect("clears");
+    assert_eq!(core.environment_default("demo").expect("reads"), None);
+
+    // A default taken out of the file by hand, as an older Swarmed would, is none: a new task
+    // is then set up the project's own way, not refused.
+    core.environment_set_default("demo", Some("docker"))
+        .expect("sets");
+    std::fs::remove_file(fx.paths.project_environments("demo")).expect("deletes");
+    assert_eq!(core.environment_default("demo").expect("reads"), None);
+    let after = new("d", EnvironmentChoice::Default).await.expect("creates");
+    assert_eq!(how(&after), ("plain".to_string(), None));
 }
 
 #[tokio::test]
@@ -1095,7 +1167,7 @@ async fn a_snapshot_takes_any_file_name_and_environments_keep_theirs_apart() {
     }
     let new = |name: &'static str, environment: &'static str| {
         let options = NewTaskOptions {
-            environment: Some(environment),
+            environment: EnvironmentChoice::Named(environment.to_string()),
             ..NewTaskOptions::default()
         };
         core.task_new("demo", name, options, &hooks::discard)
@@ -2064,7 +2136,7 @@ async fn tasks_named_alike_at_the_same_time_each_get_a_name_of_their_own() {
         ..NewTaskOptions::default()
     };
     // Five sessions started at once with `/code-review 123` are all named alike.
-    let new = || core.task_new("demo", "code-review-pr-123", free, &hooks::discard);
+    let new = || core.task_new("demo", "code-review-pr-123", free.clone(), &hooks::discard);
     let made = tokio::join!(new(), new(), new(), new(), new());
     let made = [made.0, made.1, made.2, made.3, made.4];
     let mut names: Vec<String> = made

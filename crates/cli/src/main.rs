@@ -16,8 +16,8 @@ use layout::LayoutCommand;
 use session::SessionCommand;
 use swarmed_core::agent::FakeBackend;
 use swarmed_core::{
-    AgentSetup, ApiKeyInfo, CloudOrigin, CloudProvider, CloudTask, Core, McpServerView,
-    NewTaskOptions, Paths, RemoveOptions, Settings, SetupStatus, Task,
+    AgentSetup, ApiKeyInfo, CloudOrigin, CloudProvider, CloudTask, Core, EnvironmentChoice,
+    McpServerView, NewTaskOptions, Paths, RemoveOptions, Settings, SetupStatus, Task,
 };
 use terminal::TerminalCommand;
 
@@ -67,9 +67,18 @@ enum Command {
         /// The new command, such as `code`, `zed` or `cursor`.
         command: Option<String>,
     },
-    /// List a project's environments: the ways a task can be set up in it. They are edited
-    /// in the app.
-    Environment { project: String },
+    /// List a project's environments: the ways a task can be set up in it, the default one
+    /// marked. They are edited in the app. With `--default` or `--no-default`, choose the one
+    /// a new task is set up in when it names none.
+    Environment {
+        project: String,
+        /// Set new tasks that name no environment up in this one.
+        #[arg(long, value_name = "NAME", conflicts_with = "no_default")]
+        default: Option<String>,
+        /// Set new tasks that name no environment up the project's own way.
+        #[arg(long)]
+        no_default: bool,
+    },
     /// List the skills Swarmed knows of, or those a session on AGENT would be offered: the
     /// ones that agent does not have by itself.
     Skills {
@@ -238,8 +247,12 @@ enum TaskCommand {
         #[arg(long)]
         branch: Option<String>,
         /// Set the task up in this environment of the project; see `swarmed environment`.
-        #[arg(long)]
+        /// Without it, the task is set up in the project's default environment, if it has one.
+        #[arg(long, conflicts_with = "no_environment")]
         environment: Option<String>,
+        /// Set the task up the project's own way, whatever its default environment.
+        #[arg(long)]
+        no_environment: bool,
     },
     /// Suggest a name for a task that starts with PROMPT, as the app names new tasks.
     Name { project: String, prompt: String },
@@ -352,6 +365,12 @@ pub(crate) fn say(line: &str) {
     writeln!(std::io::stdout().lock(), "{line}").ok();
 }
 
+/// Writes a line to stderr, apart from what a command prints: a note on the side, which must
+/// not get into what is piped on. A closed stderr is no reason to fail either.
+fn aside(line: &str) {
+    writeln!(std::io::stderr().lock(), "{line}").ok();
+}
+
 /// Shows hook output, indented so it reads apart from Swarmed's own lines.
 fn hook_line(line: &str) {
     say(&format!("  | {line}"));
@@ -380,6 +399,11 @@ async fn main() -> Result<()> {
         return Ok(served?);
     }
     let core = Arc::new(open_core()?);
+    // What of the configuration could not be understood: said, and the command goes on with
+    // the rest.
+    for problem in core.config_problems().unwrap_or_default() {
+        aside(&problem);
+    }
     // A session run from here gets the same tools for reaching other sessions as in the app.
     if matches!(cli.command, Command::Session(_)) {
         drop(tokio::spawn(swarmed_core::serve_session_tools(Arc::clone(
@@ -416,7 +440,16 @@ async fn run(core: &Core, command: Command) -> Result<()> {
         Command::AutoTitle { state } => auto_title(core, state),
         Command::Key(command) => key(core, command),
         Command::Note { project, task, set } => note(core, &project, task.as_deref(), set),
-        Command::Environment { project } => environments(core, &project),
+        Command::Environment {
+            project,
+            default,
+            no_default,
+        } => {
+            if default.is_some() || no_default {
+                core.environment_set_default(&project, default.as_deref())?;
+            }
+            environments(core, &project)
+        }
         Command::Cloud(command) => cloud(core, command).await,
         Command::Skills { agent } => {
             skills(core, agent.as_deref());
@@ -711,12 +744,45 @@ async fn stack(core: &Core, project: &str, name: &str) -> Result<()> {
     Ok(())
 }
 
-/// One line per environment: its name, what it sets up with, and the names of its variables.
+/// What is said of a task just created. Its environment is named, since a task that names none
+/// may still have been set up in the project's default.
+fn created(task: &Task) -> String {
+    let set_up_in = task
+        .environment
+        .as_ref()
+        .map_or_else(String::new, |name| format!(" in environment `{name}`"));
+    format!(
+        "created task `{}` on branch `{}` (slot {}){set_up_in} at {}",
+        task.name,
+        task.branch,
+        task.slot,
+        task.worktree_path.display()
+    )
+}
+
+/// The environment a new task is asked for: the one named, the project's own setup, or else
+/// whatever the project's default is.
+fn environment_choice(named: Option<String>, own: bool) -> EnvironmentChoice {
+    match (named, own) {
+        (Some(name), _) => EnvironmentChoice::Named(name),
+        (None, true) => EnvironmentChoice::Own,
+        (None, false) => EnvironmentChoice::Default,
+    }
+}
+
+/// One line per environment: its name, what it sets up with, and the names of its variables,
+/// then `default` on the one new tasks that name none are set up in.
 fn environments(core: &Core, project: &str) -> Result<()> {
+    let default = core.environment_default(project)?;
     for (name, environment) in core.environments(project)? {
         let variables: Vec<&str> = environment.env.keys().map(String::as_str).collect();
+        let marked = if default.as_ref() == Some(&name) {
+            "\tdefault"
+        } else {
+            ""
+        };
         say(&format!(
-            "{name}\t{}\t{}",
+            "{name}\t{}\t{}{marked}",
             environment.setup,
             variables.join(", ")
         ));
@@ -992,21 +1058,16 @@ async fn task(core: &Core, command: TaskCommand) -> Result<()> {
             name,
             branch,
             environment,
+            no_environment,
         } => {
             // The name is the user's own: one that is taken is refused, not changed.
             let options = NewTaskOptions {
                 existing_branch: branch.as_deref(),
-                environment: environment.as_deref(),
+                environment: environment_choice(environment, no_environment),
                 free_name: false,
             };
             let task = core.task_new(&project, &name, options, &hook_line).await?;
-            say(&format!(
-                "created task `{}` on branch `{}` (slot {}) at {}",
-                task.name,
-                task.branch,
-                task.slot,
-                task.worktree_path.display()
-            ));
+            say(&created(&task));
         }
         TaskCommand::List { project, all } => {
             core.tasks(&project, all)?

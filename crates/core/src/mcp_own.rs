@@ -15,14 +15,15 @@ use crate::Core;
 use crate::agent::AgentEvent;
 use crate::agents::CLAUDE;
 use crate::error::{Error, Result};
+use crate::lenient::{self, Problems};
 use crate::mcp::{self, McpServer, McpTransport};
 use crate::mcp_codex;
 use crate::mcp_opencode;
 use crate::toolserver::SERVER_NAME;
 
-/// One entry of `mcp.toml`.
+/// One entry of `mcp.toml`. A key it does not know is read past and named (`lenient`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 struct OwnServer {
     /// The program to start, for a server spoken to over its standard input and output.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -144,16 +145,36 @@ fn valid_name(name: &str) -> bool {
     !name.is_empty() && name.len() <= 64 && name.chars().all(fits)
 }
 
+/// The servers of `mcp.toml` that can be read. One that cannot is left out, and a file that is
+/// not TOML gives none: every agent still starts, without them (`problems_in` says why).
 fn read(path: &Path) -> Result<OwnServers> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(OwnServers::new()),
-        Err(e) => return Err(e.into()),
+    Ok(read_with_problems(path)?.0)
+}
+
+/// The servers of `mcp.toml` that can be read, with what could not, said for the user.
+fn read_with_problems(path: &Path) -> Result<(OwnServers, Problems)> {
+    let Some(text) = lenient::read_if_there(path)? else {
+        return Ok((OwnServers::new(), Vec::new()));
     };
-    toml::from_str(&text).map_err(|e| Error::Config {
-        path: path.to_path_buf(),
-        message: e.to_string(),
-    })
+    match text.parse::<toml::Table>() {
+        Ok(table) => Ok(lenient::entries::<OwnServer>(table)),
+        Err(error) => {
+            let meanwhile = format!(
+                "No server set up in Swarmed is given to agents until it is fixed, and saving a \
+                 server keeps a copy of it as `{}`.",
+                lenient::unreadable_name(path)
+            );
+            Ok((
+                OwnServers::new(),
+                vec![lenient::not_toml(&text, &error, &meanwhile)],
+            ))
+        }
+    }
+}
+
+/// What of the `mcp.toml` at `path` cannot be understood, said for the user.
+pub(crate) fn problems_in(path: &Path) -> Result<Problems> {
+    Ok(read_with_problems(path)?.1)
 }
 
 fn write(path: &Path, servers: &OwnServers) -> Result<()> {
@@ -164,6 +185,7 @@ fn write(path: &Path, servers: &OwnServers) -> Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
+    lenient::keep_if_unreadable(path)?;
     let header = "# MCP servers set up in Swarmed, given to every agent it runs. Secrets are \
                   named here and kept in the keychain.\n\n";
     Ok(std::fs::write(path, format!("{header}{text}"))?)
@@ -417,6 +439,30 @@ fn claude_view(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_server_that_cannot_be_read_is_left_out_and_the_others_are_given() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("mcp.toml");
+        let text = "[docs]\ncommand = \"docs-mcp\"\nenabled = true\ntimeout = 30\n\
+                    [broken]\nargs = \"not a list\"\n";
+        std::fs::write(&path, text).expect("writes");
+        let (servers, problems) = read_with_problems(&path).expect("reads");
+        assert_eq!(servers.keys().collect::<Vec<_>>(), ["docs"]);
+        assert_eq!(problems.len(), 2, "{problems:?}");
+        assert!(
+            problems[0].contains("`broken` could not be read"),
+            "{problems:?}"
+        );
+        assert!(problems[1].contains("`docs.timeout`"), "{problems:?}");
+
+        // One that is not TOML gives none, and is kept when a server is saved over it.
+        std::fs::write(&path, "[docs\n").expect("writes");
+        assert!(read(&path).expect("reads").is_empty());
+        write(&path, &servers).expect("writes");
+        let kept = dir.path().join("mcp.toml.unreadable");
+        assert_eq!(std::fs::read_to_string(kept).expect("kept"), "[docs\n");
+    }
 
     #[test]
     fn a_command_line_is_split_into_words_and_quotes_keep_spaces() {

@@ -4539,6 +4539,20 @@ code {
     border-color: var(--faint);
 }
 
+/* Which of them a new task is set up in when none is chosen for it. */
+.environment-default {
+    display: grid;
+    justify-items: start;
+    gap: 2px;
+    margin-top: var(--space-3);
+}
+
+.environment-default .settings-hint {
+    margin: 0;
+    color: var(--faint);
+    font-size: var(--text-xs);
+}
+
 .environment-form {
     display: grid;
     gap: var(--space-3);

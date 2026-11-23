@@ -1,6 +1,6 @@
 // A project's environments as the form shows and takes them. Pure, so it can be tested.
 
-import type { Environment } from "./api/types";
+import type { Environment, EnvironmentChoice } from "./api/types";
 import { capitalized, type Words, wordsFor } from "./wording";
 
 /** An environment with nothing set: all as the project has it. */
@@ -66,6 +66,41 @@ function unquoted(value: string): string {
     const quote = value[0];
     const quoted = value.length >= 2 && (quote === '"' || quote === "'") && value.endsWith(quote);
     return quoted ? value.slice(1, -1) : value;
+}
+
+/** Stands, in the new-task menu, for the repository's own setup: no environment at all. */
+export const OWN_SETUP = "";
+
+/**
+ * What the new-task menu of environments stands at: what was picked for this repository, as
+ * long as it still has it, else its default; `OWN_SETUP` when there is neither.
+ */
+export function environmentShown(
+    names: string[],
+    usual: string | null,
+    picked: string | undefined,
+): string {
+    if (picked === OWN_SETUP || (picked !== undefined && names.includes(picked))) {
+        return picked;
+    }
+    return usual !== null && names.includes(usual) ? usual : OWN_SETUP;
+}
+
+/**
+ * What a new task is created with for what was picked. Nothing picked, or a name that is gone,
+ * is the repository's default, which the core settles as the task is made: a task sent before
+ * the environments were read is still set up in it.
+ */
+export function environmentChoice(names: string[], picked: string | undefined): EnvironmentChoice {
+    if (picked === OWN_SETUP) {
+        return "own";
+    }
+    return picked !== undefined && names.includes(picked) ? { named: picked } : "default";
+}
+
+/** The new-task menu's entries for the environments, the default one said to be so. */
+export function environmentOptions(names: string[], usual: string | null): [string, string][] {
+    return names.map((name) => [name, name === usual ? `${name} (default)` : name]);
 }
 
 /** What a task's worktree tooltip says of where and how it was set up, in the style's words. */

@@ -9,6 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 
 use crate::config::ProjectConfig;
+use crate::environments::EnvironmentChoice;
 use crate::error::{Error, Result};
 use crate::hooks::OutputSink;
 use crate::paths::Paths;
@@ -19,12 +20,13 @@ use crate::{Core, git, hooks, leftovers, lock, paths};
 use crate::{Settings, open};
 
 /// Options for [`Core::task_new`].
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone)]
 pub struct NewTaskOptions<'a> {
     /// Check out this existing branch instead of creating one from the base.
     pub existing_branch: Option<&'a str>,
-    /// The project's environment to set the task up in; `None` for the project's own setup.
-    pub environment: Option<&'a str>,
+    /// The environment of the project to set the task up in: by default the project's default
+    /// one, if it has one.
+    pub environment: EnvironmentChoice,
     /// Take the first of the name, `name-2`, `name-3` and so on that is free, as a name made
     /// up for the user is: one no task of the project has had, whose branch exists neither
     /// here nor on a remote, and whose folder is free. Without it, a name that is taken is
@@ -95,10 +97,9 @@ impl Core {
     ) -> Result<Task> {
         paths::validate_name(name)?;
         let project = self.project(project)?;
-        if let Some(environment) = options.environment {
-            self.require_environment(&project.name, environment)?;
-        }
-        let config = self.config_in(&project.name, options.environment)?;
+        let environment = self.environment_chosen(&project.name, &options.environment)?;
+        let environment = environment.as_deref();
+        let config = self.config_in(&project.name, environment)?;
         let repo = &project.repo_path;
 
         git::fetch(repo).await?;
@@ -108,7 +109,7 @@ impl Core {
         // After the fetch, so that a branch just pushed from elsewhere counts too.
         // Claimed until the task is written down, which then takes the name.
         let claim = self
-            .name_for_task(&project, name, &config.branch_pattern, options)
+            .name_for_task(&project, name, &config.branch_pattern, &options)
             .await?;
         let name = &claim.name;
         let worktree = self.paths.worktree(&project.name, name);
@@ -134,7 +135,7 @@ impl Core {
             base_ref: &base,
             worktree_path: &worktree,
             slot: 0,
-            environment: options.environment,
+            environment,
         };
         let task = match self.insert_in_free_slot(new) {
             Ok(task) => task,
@@ -149,7 +150,7 @@ impl Core {
         // What an earlier task's setup produced, so that this one's has less to do. Not
         // having it is no reason to fail: setup then does all the work, as it always could.
         let seeded = self
-            .seed_from_snapshot(&project.name, options.environment, &worktree)
+            .seed_from_snapshot(&project.name, environment, &worktree)
             .await;
         match seeded {
             Ok(true) => sink("started from the snapshot of this environment"),
@@ -259,7 +260,7 @@ impl Core {
         project: &Project,
         name: &str,
         pattern: &str,
-        options: NewTaskOptions<'_>,
+        options: &NewTaskOptions<'_>,
     ) -> Result<NameClaim<'_>> {
         let tasks = self.store().tasks(project.id, options.free_name)?;
         let branches = git::branch_names(&project.repo_path).await?;
@@ -458,7 +459,8 @@ impl Core {
         open::in_terminal(&self.settings()?.terminal_app, &task.worktree_path)
     }
 
-    /// The user's own preferences.
+    /// The user's own preferences. What of the file could not be understood keeps its default
+    /// here, and `config_problems` says what that was.
     pub fn settings(&self) -> Result<Settings> {
         Settings::load(&self.paths.settings())
     }

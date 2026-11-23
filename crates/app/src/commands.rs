@@ -13,11 +13,11 @@ use serde::{Deserialize, Serialize};
 use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
     Action, AgentInfo, AgentSetup, ApiKeyInfo, BackgroundOutput, BackgroundTask, BranchChoices,
-    CloudOrigin, CloudProvider, CloudTask, Core, Costs, CustomLayout, Environment, FileChange,
-    FileDiff, FileListing, McpServerInput, McpServerView, NewTaskOptions, Project, ProjectOverview,
-    Pull, PullDraft, QueuedMessage, RemoveOptions, SearchHit, Session, SessionOptions,
-    SessionSettings, Settings, Skill, SlashCommand, Snapshot, Task, TaskNaming, Template,
-    TerminalConfig, TerminalOpened, TurnStats, Unpublished, Usage,
+    CloudOrigin, CloudProvider, CloudTask, Core, Costs, CustomLayout, Environment,
+    EnvironmentChoice, FileChange, FileDiff, FileListing, McpServerInput, McpServerView,
+    NewTaskOptions, Project, ProjectOverview, Pull, PullDraft, QueuedMessage, RemoveOptions,
+    SearchHit, Session, SessionOptions, SessionSettings, Settings, Skill, SlashCommand, Snapshot,
+    Task, TaskNaming, Template, TerminalConfig, TerminalOpened, TurnStats, Unpublished, Usage,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -189,14 +189,14 @@ pub(crate) async fn task_new<R: Runtime>(
     project: String,
     name: String,
     branch: Option<String>,
-    environment: Option<String>,
+    environment: Option<EnvironmentChoice>,
 ) -> Command<Task> {
     // The window makes the name up, from the prompt or a branch: one that is taken, by a task
     // or a branch here or on a remote, gives way to the first free one, which the task returned
-    // has.
+    // has. No environment named is the project's default.
     let options = NewTaskOptions {
         existing_branch: branch.as_deref(),
-        environment: environment.as_deref(),
+        environment: environment.unwrap_or_default(),
         free_name: true,
     };
     let sink = hook_sink(&app, &project, &name);
@@ -521,6 +521,23 @@ pub(crate) fn environment_remove(
     Ok(core.environment_remove(&project, &name)?)
 }
 
+/// The environment a new task of a project is set up in when none is chosen, if any.
+#[tauri::command(async)]
+pub(crate) fn environment_default(core: CoreState<'_>, project: String) -> Command<Option<String>> {
+    Ok(core.environment_default(&project)?)
+}
+
+/// Makes an environment the one new tasks of a project are set up in when none is chosen;
+/// `null` leaves them to the project's own setup.
+#[tauri::command]
+pub(crate) fn environment_set_default(
+    core: CoreState<'_>,
+    project: String,
+    name: Option<String>,
+) -> Command<()> {
+    Ok(core.environment_set_default(&project, name.as_deref())?)
+}
+
 #[tauri::command(async)]
 pub(crate) fn note(core: CoreState<'_>, project: String, task: Option<String>) -> Command<String> {
     Ok(core.note(&project, task.as_deref())?)
@@ -687,6 +704,12 @@ pub(crate) async fn task_diff(
 #[tauri::command(async)]
 pub(crate) fn settings(core: CoreState<'_>) -> Command<Settings> {
     Ok(core.settings()?)
+}
+
+/// What of Swarmed's configuration could not be understood, for the window to show.
+#[tauri::command(async)]
+pub(crate) fn config_problems(core: CoreState<'_>) -> Command<Vec<String>> {
+    Ok(core.config_problems()?)
 }
 
 #[tauri::command]

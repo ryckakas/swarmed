@@ -4,6 +4,7 @@ import { createMockApi } from "./api/mock";
 import type { AgentEvent, SessionEvent } from "./api/types";
 import {
     appendEvent,
+    configProblemsSaid,
     connect,
     heardWhileReading,
     menuChosen,
@@ -447,6 +448,20 @@ describe("unsent messages", () => {
         expect(Object.keys(useStore.getState().newTaskDrafts)).toEqual(["storefront"]);
         editNewTaskDraft("storefront", { text: "" });
         expect(useStore.getState().newTaskDrafts).toEqual({});
+    });
+});
+
+describe("configuration that is not understood whole", () => {
+    it("is said in the window, and the settings that were understood are in use", async () => {
+        const problem = "settings.toml: `coming_later` is not something this version knows.";
+        const api: Api = { ...createMockApi(), configProblems: async () => [problem] };
+        useStore.setState({ problem: null, settings: null });
+        const disconnect = connect(api);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(useStore.getState().problem).toBe(configProblemsSaid([problem]));
+        expect(useStore.getState().problem).toContain("`coming_later`");
+        expect(useStore.getState().settings).not.toBeNull();
+        disconnect();
     });
 });
 

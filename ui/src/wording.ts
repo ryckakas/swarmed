@@ -174,8 +174,8 @@ export interface Words {
     repository: string;
     /** The picker that runs a new task's prompt on another agent too. */
     alsoRunOn: string;
-    /** A task set up with no environment of its own. */
-    defaultSetup: string;
+    /** A task set up with no environment: the repository's own setup. */
+    ownSetup: string;
     /** The changes tab: while they are read, and when there are none. */
     readingChanges: string;
     noChanges: (base: string) => string;
@@ -353,7 +353,7 @@ const PLAIN: Words = {
     describeTask: "Describe the task",
     repository: "Repository",
     alsoRunOn: "Also run on…",
-    defaultSetup: "Default setup",
+    ownSetup: "Repository's own setup",
     readingChanges: "Reading the changes…",
     noChanges: (base) => `Nothing has changed since this branch left ${base}.`,
     sendToSession: "Send to this session",
@@ -504,7 +504,7 @@ const SWARM: Words = {
     reply: "Reply to the spawn",
     settingUp: (name) => `Incubating ${name}…`,
     alsoRunOn: "Also spawn on…",
-    defaultSetup: "Default pool",
+    ownSetup: "Colony's own pool",
     readingChanges: "Reading the mutations…",
     noChanges: (base) => `No mutations since this branch left ${base}.`,
     sendToSession: "Send to this spawn",

@@ -501,6 +501,19 @@ fn files_are_listed_within_the_worktree(app: &App) {
 }
 
 #[test]
+fn a_settings_file_with_a_key_the_app_does_not_know_still_opens_and_says_so() {
+    let app = app();
+    std::fs::create_dir_all(app.data_dir()).expect("data dir");
+    let written = "editor = \"zed\"\ncoming_later = true\n";
+    std::fs::write(app.data_dir().join("settings.toml"), written).expect("writes");
+    assert_eq!(app.ok("settings", json!({}))["editor"], json!("zed"));
+    let problems = app.ok("config_problems", json!({}));
+    let said = problems[0].as_str().expect("one problem, in words");
+    assert!(said.starts_with("settings.toml: `coming_later`"), "{said}");
+    assert_eq!(problems.as_array().map(Vec::len), Some(1));
+}
+
+#[test]
 fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
@@ -1348,7 +1361,10 @@ fn the_ui_can_keep_an_environment_start_a_task_in_it_and_snapshot_what_its_setup
 
     let task = app.ok(
         "task_new",
-        json!({ "project": "demo", "name": "one", "branch": null, "environment": "cached" }),
+        json!({
+            "project": "demo", "name": "one", "branch": null,
+            "environment": { "named": "cached" },
+        }),
     );
     assert_eq!(
         (&task["environment"], &task["setup"]),
@@ -1376,6 +1392,45 @@ fn the_ui_can_keep_an_environment_start_a_task_in_it_and_snapshot_what_its_setup
     let unnamed = json!({ "project": "demo", "name": "Bad Name", "environment": environment });
     app.invoke("environment_save", unnamed)
         .expect_err("refused");
+}
+
+#[test]
+fn the_ui_can_make_an_environment_the_default_that_tasks_choosing_none_are_set_up_in() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let project = json!({ "project": "demo" });
+    assert_eq!(app.ok("environment_default", project.clone()), json!(null));
+    let environment = json!({
+        "setup": "", "start": "", "stop": "", "teardown": "", "open_url": "", "ports": {}, "env": {},
+    });
+    let save = json!({ "project": "demo", "name": "docker", "environment": environment });
+    app.ok("environment_save", save);
+    app.invoke(
+        "environment_set_default",
+        json!({ "project": "demo", "name": "nope" }),
+    )
+    .expect_err("no such environment");
+    let set = json!({ "project": "demo", "name": "docker" });
+    assert_eq!(app.ok("environment_set_default", set), json!(null));
+    assert_eq!(
+        app.ok("environment_default", project.clone()),
+        json!("docker")
+    );
+
+    // The window sends what the menu says: the default, the project's own setup, or a name.
+    let new = |name: &str, environment: Value| {
+        let start = json!({
+            "project": "demo", "name": name, "branch": null, "environment": environment,
+        });
+        app.ok("task_new", start)["environment"].clone()
+    };
+    assert_eq!(new("one", json!("default")), json!("docker"));
+    assert_eq!(new("two", json!("own")), json!(null));
+
+    let none = json!({ "project": "demo", "name": null });
+    assert_eq!(app.ok("environment_set_default", none), json!(null));
+    assert_eq!(app.ok("environment_default", project), json!(null));
+    assert_eq!(new("three", json!("default")), json!(null));
 }
 
 /// `stack_start` is not `async`, so Tauri runs it on a thread that has no Tokio runtime, as

@@ -5,12 +5,14 @@ import {
     EMPTY_ENVIRONMENT,
     envFromText,
     envToText,
+    OWN_SETUP,
     portsFromText,
     portsToText,
 } from "../environments";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
-import { withArticle } from "../wording";
+import { capitalized, withArticle } from "../wording";
+import { Picker } from "./Picker";
 import { Snapshots } from "./Snapshots";
 
 /** A repository's environments, opened from the sidebar. */
@@ -79,15 +81,40 @@ function environmentOf(draft: Draft): Environment {
     };
 }
 
+/**
+ * Saves what the form holds. Saved under a new name, the old one goes: it was renamed, not
+ * copied. Removing the default leaves none, so a renamed default is made the default again.
+ */
+async function saveDraft(project: string, draft: Draft, usual: string | null) {
+    const name = draft.name.trim();
+    await api.environmentSave(project, name, environmentOf(draft));
+    if (draft.editing === null || draft.editing === name) {
+        return;
+    }
+    await api.environmentRemove(project, draft.editing);
+    if (draft.editing === usual) {
+        await api.environmentSetDefault(project, name);
+    }
+}
+
 function Editor({ project }: { project: string }) {
     const words = useWords();
     const close = () => useStore.getState().askForEnvironments(null);
     const dialog = useRef<HTMLDialogElement>(null);
     const [environments, setEnvironments] = useState<Record<string, Environment>>({});
+    // The one new tasks are set up in unless another is chosen.
+    const [usual, setUsual] = useState<string | null>(null);
     const [draft, setDraft] = useState<Draft | null>(null);
     const [problem, setProblem] = useState<string | null>(null);
     const failed = (error: unknown) => setProblem(String(error));
-    const read = () => api.environments(project).then(setEnvironments, failed);
+    const read = () =>
+        Promise.all([api.environments(project), api.environmentDefault(project)]).then(
+            ([kept, chosen]) => {
+                setEnvironments(kept);
+                setUsual(chosen);
+            },
+            failed,
+        );
 
     // biome-ignore lint/correctness/useExhaustiveDependencies: read once, when the dialog opens
     useEffect(() => {
@@ -97,11 +124,7 @@ function Editor({ project }: { project: string }) {
 
     const save = async (saved: Draft) => {
         try {
-            await api.environmentSave(project, saved.name.trim(), environmentOf(saved));
-            // Saved under a new name, the old one goes: it was renamed, not copied.
-            if (saved.editing !== null && saved.editing !== saved.name.trim()) {
-                await api.environmentRemove(project, saved.editing);
-            }
+            await saveDraft(project, saved, usual);
             setProblem(null);
             setDraft(null);
             await read();
@@ -114,6 +137,8 @@ function Editor({ project }: { project: string }) {
             .environmentRemove(project, name)
             .then(() => setDraft(null))
             .then(read, failed);
+    const makeDefault = (name: string | null) =>
+        api.environmentSetDefault(project, name).then(read, failed);
     const names = Object.keys(environments);
 
     return (
@@ -128,12 +153,15 @@ function Editor({ project }: { project: string }) {
             </h2>
             <p>
                 Different ways of setting a task up on this Mac: what runs when its worktree is
-                made, and the variables its hooks and agents get. One is chosen when a task is
-                started. Whatever one leaves empty is as the repository's own config has it.
+                made, and the variables its hooks and agents get. A new task is set up in the
+                default one unless another is chosen when it is started. Whatever one leaves empty
+                is as the repository's own config has it.
             </p>
             {draft === null ? (
                 <Listing
                     names={names}
+                    usual={usual}
+                    onDefault={(name) => void makeDefault(name)}
                     onEdit={(name) => {
                         const found = environments[name];
                         setDraft(found ? draftOf(name, found) : NEW);
@@ -162,28 +190,71 @@ function Editor({ project }: { project: string }) {
     );
 }
 
-function Listing(props: { names: string[]; onEdit(name: string): void; onNew(): void }) {
+interface ListingProps {
+    names: string[];
+    /** The default one; `null` when new tasks get the repository's own setup. */
+    usual: string | null;
+    onDefault(name: string | null): void;
+    onEdit(name: string): void;
+    onNew(): void;
+}
+
+function Listing(props: ListingProps) {
     const words = useWords();
     return (
-        <div className="environment-list">
-            {props.names.length === 0 && (
-                <p className="settings-hint">
-                    None yet. Tasks are set up the way the repository's own config says.
-                </p>
-            )}
-            {props.names.map((name) => (
-                <button
-                    key={name}
-                    type="button"
-                    className="environment-name mono"
-                    onClick={() => props.onEdit(name)}
-                >
-                    {name}
+        <>
+            <div className="environment-list">
+                {props.names.length === 0 && (
+                    <p className="settings-hint">
+                        None yet. Tasks are set up the way the repository's own config says.
+                    </p>
+                )}
+                {props.names.map((name) => (
+                    <button
+                        key={name}
+                        type="button"
+                        className="environment-name mono"
+                        onClick={() => props.onEdit(name)}
+                    >
+                        {name}
+                    </button>
+                ))}
+                <button type="button" className="button" onClick={props.onNew}>
+                    Add {withArticle(words.environment)}
                 </button>
-            ))}
-            <button type="button" className="button" onClick={props.onNew}>
-                Add {withArticle(words.environment)}
-            </button>
+            </div>
+            {props.names.length > 0 && (
+                <DefaultPicker names={props.names} usual={props.usual} onChange={props.onDefault} />
+            )}
+        </>
+    );
+}
+
+/** Which environment new tasks are set up in when none is chosen as they start. */
+function DefaultPicker(props: {
+    names: string[];
+    usual: string | null;
+    onChange(name: string | null): void;
+}) {
+    const words = useWords();
+    const label = `Default ${words.environment.toLowerCase()}`;
+    // The menu names itself: a label around a component would not be tied to its control.
+    return (
+        <div className="environment-default">
+            <span className="settings-label">{label}</span>
+            <span className="settings-hint">
+                What a new {words.terms.task} is set up in unless another is chosen for it.{" "}
+                {capitalized(words.terms.task)}s already made keep theirs.
+            </span>
+            <Picker
+                label={label}
+                value={props.usual ?? OWN_SETUP}
+                onChange={(value) => props.onChange(value === OWN_SETUP ? null : value)}
+                options={[
+                    [OWN_SETUP, words.ownSetup],
+                    ...props.names.map((name): [string, string] => [name, name]),
+                ]}
+            />
         </div>
     );
 }
