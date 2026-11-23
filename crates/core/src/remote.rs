@@ -18,7 +18,7 @@ use std::sync::Mutex;
 use crate::agent::{AgentCommand, AgentEvent, Auth, RemoteState};
 use crate::agents::CLAUDE;
 use crate::error::{Error, Result};
-use crate::sessions::Live;
+use crate::sessions::{Live, Session};
 use crate::store::Store;
 use crate::{Core, lock};
 
@@ -60,15 +60,21 @@ impl Core {
         let sessions = self.store().sessions_all()?;
         let mut started = 0;
         for session in sessions.iter().filter(|session| session.agent == CLAUDE) {
-            started += usize::from(self.resume_remote_control(session.id, auth)?);
+            started += usize::from(self.resume_remote_control(session, auth)?);
         }
         Ok(started)
     }
 
-    /// Starts the agent of session `id` if it wants Remote Control and is not running, and
-    /// says whether it did.
-    fn resume_remote_control(&self, id: i64, auth: &Auth) -> Result<bool> {
+    /// Starts the agent of `session` if it wants Remote Control and is not running, and says
+    /// whether it did. Never for a session of a removed task, which no list shows and whose
+    /// worktree is gone.
+    fn resume_remote_control(&self, session: &Session, auth: &Auth) -> Result<bool> {
+        let id = session.id;
         if !wanted(&self.store, id)? || self.live.is_running(id) {
+            return Ok(false);
+        }
+        let task = self.store().task_by_id(session.task_id)?;
+        if task.is_none_or(|task| task.archived) {
             return Ok(false);
         }
         let Err(error) = self.session_start(id, auth.clone()) else {

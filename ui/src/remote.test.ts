@@ -49,7 +49,7 @@ describe("remoteSummary", () => {
         expect(remoteSummary(remoteOf([report("on")]))).toBe("On");
         expect(remoteSummary(remoteOf([report("on", null)]))).toBe("Connecting to claude.ai…");
         expect(remoteSummary(remoteOf([report("failed", null, "sign in again")]))).toBe(
-            "Could not be turned on: sign in again",
+            "Not on: sign in again",
         );
         expect(remoteSummary(remoteOf([report("paused")]))).toBe(
             "Waits for the agent to run again",

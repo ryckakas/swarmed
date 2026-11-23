@@ -81,6 +81,10 @@ const IN_SWARMED: &str = "A session runs in Swarmed, and is not handed to anothe
 const AT_ONCE: &str = "Remote Control is turned on and off at once, from the session's header \
                        or with /rc and /rc off.";
 
+/// What `/remote-control` takes after it, for one followed by anything else.
+const ON_OR_OFF: &str = "Type it alone or with `on` to turn Remote Control on, or with `off` to \
+                         turn it off.";
+
 /// Claude Code's own commands, each in the one kind it is handled as.
 ///
 /// A command Claude Code gains goes in here on purpose: the test below holds every command a
@@ -502,7 +506,7 @@ impl Core {
             Some(how) => how,
         };
         match (how, argument.is_empty()) {
-            (Remote, _) => self.remote_command(id, argument, auth)?,
+            (Remote, _) => self.remote_command(id, (name, argument), auth)?,
             (Show(kind), true) => self.show(id, kind, auth)?,
             // With something after it, Claude Code takes the command in words itself:
             // `/mcp reconnect docs`, `/config thinking=false`.
@@ -542,10 +546,25 @@ impl Core {
         skill_called(&self.store, &self.paths, id, text.trim()).is_some()
     }
 
-    /// Turns Remote Control on, or off for `off`. With `auth` the agent is started to turn it
-    /// on; without, it must be running.
-    fn remote_command(&self, id: i64, argument: &str, auth: Option<Auth>) -> Result<()> {
-        let on = !argument.eq_ignore_ascii_case("off");
+    /// Turns Remote Control on, for the command alone or with `on`, or off for `off`. Any
+    /// other word is refused: `/rc stop` must not turn on what it was meant to end. With
+    /// `auth` the agent is started to turn it on; without, it must be running.
+    fn remote_command(
+        &self,
+        id: i64,
+        (name, argument): (&str, &str),
+        auth: Option<Auth>,
+    ) -> Result<()> {
+        let on = match argument.to_ascii_lowercase().as_str() {
+            "" | "on" => true,
+            "off" => false,
+            _ => {
+                return Err(Error::TerminalOnly {
+                    command: name.to_string(),
+                    instead: ON_OR_OFF.to_string(),
+                });
+            }
+        };
         let auth = match auth {
             Some(auth) => auth,
             None if on && !self.live.is_running(id) => return Err(Error::SessionNotRunning(id)),

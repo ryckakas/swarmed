@@ -267,7 +267,9 @@ impl Core {
              found to it with the `send_message` tool, to session {from}.)"
         );
         self.session_start(child.id, Auth::Subscription)?;
-        self.session_send(child.id, &message)?;
+        // As typed: a prompt that begins like a command is the starting agent's words, never
+        // a command of the user's, which could turn Remote Control on with nobody asked.
+        self.session_send_as_typed(child.id, &message)?;
         self.session(child.id)
     }
 

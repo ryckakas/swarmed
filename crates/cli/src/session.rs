@@ -398,14 +398,25 @@ async fn next_or_interrupt(
     }
 }
 
+/// What turning Remote Control off from the command line leaves as it is.
+const OFF_ELSEWHERE: &str = "No later run of the session's agent turns it on. An agent that the \
+                             Swarmed app runs for the session now stays reachable until it is \
+                             turned off there, or stopped.";
+
 /// Turns Remote Control off, or on and shows the session's events until Ctrl-C, the agent's
 /// end, or Remote Control's. A request for permission is left to be answered on claude.ai,
 /// where it is shown as well.
 async fn remote_control(core: &Core, id: i64, off: bool, auth: AuthMode) -> Result<()> {
     let auth = auth.resolve()?;
     if off {
+        // This command runs no agent of the session's: one a running Swarmed has is not
+        // reached from here, and saying only "off" would be untrue of it.
+        let here = core.running_sessions().contains(&id);
         core.session_remote_control(id, false, auth)?;
         say("Remote Control is off");
+        if !here {
+            say(OFF_ELSEWHERE);
+        }
         return Ok(());
     }
     let mut bus = core.subscribe();

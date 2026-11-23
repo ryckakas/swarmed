@@ -83,7 +83,8 @@ requests can be answered on either side.
 - Claude Code has to be signed in with a claude.ai subscription; an API key does not do. On a
   Team or Enterprise plan, an admin may have to allow Remote Control.
 - While it is on, the conversation is kept on Anthropic's servers as well.
-- It stays on until you turn it off (**Turn off**, or `/rc off`), or close the session. When
+- It stays on until you turn it off (**Turn off**, or `/rc off`), close the session or remove
+  its task. When
   Claude Code stops, for a change of effort or because Swarmed quit, it is turned on again as
   soon as Claude Code starts for the session, at the same place on claude.ai. When Swarmed
   starts, it starts Claude Code for every open session that had it on.
@@ -92,7 +93,8 @@ requests can be answered on either side.
 - A permission mode changed on claude.ai is not shown here, and views show as code there.
 
 Other agents have no Remote Control. `swarmed session remote-control <id>` does the same from the
-command line for as long as it runs.
+command line for as long as it runs. With `--off` it keeps later runs of the agent from turning
+it on; a session the app has running stays reachable until it is turned off there.
 
 ## Any other agent
 

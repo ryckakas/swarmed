@@ -8,7 +8,8 @@ use std::sync::Arc;
 use common::{core_with_project, fixture, next, turn};
 use swarmed_core::agent::{AgentEvent, Auth, FakeBackend, RemoteState};
 use swarmed_core::{
-    AgentInfo, Core, Error, NewTaskOptions, SessionEvent, SessionOptions, SessionStatus, hooks,
+    AgentInfo, Core, Error, NewTaskOptions, RemoveOptions, SessionEvent, SessionOptions,
+    SessionStatus, hooks,
 };
 use tokio::sync::broadcast::Receiver;
 
@@ -336,9 +337,98 @@ async fn rc_turns_it_on_and_off_at_once_and_never_waits_in_the_queue() {
         matches!(&waits, Err(Error::TerminalOnly { command, .. }) if command == "rc"),
         "{waits:?}"
     );
+    // A word that is neither on nor off turns nothing on, least of all one meant to end it.
+    let stop = core.session_send(id, "/rc stop");
+    assert!(
+        matches!(&stop, Err(Error::TerminalOnly { command, .. }) if command == "rc"),
+        "{stop:?}"
+    );
+    assert_eq!(
+        recorded(&core, id),
+        [RemoteState::Starting, RemoteState::On]
+    );
     // While the agent works, it is turned off all the same.
     core.session_send(id, "/remote-control off")
         .expect("turns it off");
     assert_eq!(remote(&mut bus, id).await.0, RemoteState::Off);
     core.session_interrupt(id).expect("stops");
+}
+
+#[tokio::test]
+async fn a_report_that_names_no_place_keeps_the_one_known_and_a_repeat_is_dropped() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let id = new_session(&core);
+    let mut bus = core.subscribe();
+    core.session_remote_control(id, true, Auth::Subscription)
+        .expect("turns it on");
+    while remote(&mut bus, id).await.0 != RemoteState::On {}
+    // On once more, which says nothing new; then the connection is lost and found again.
+    core.session_send(id, "remote wavers").expect("sends");
+    let (state, remote_id, url) = remote(&mut bus, id).await;
+    assert_eq!(state, RemoteState::Reconnecting);
+    assert_eq!(remote_id.as_deref(), Some("remote-1"));
+    assert_eq!(url.as_deref(), Some("https://claude.ai/code/remote-1"));
+    let (state, _, url) = remote(&mut bus, id).await;
+    assert_eq!(state, RemoteState::On);
+    assert_eq!(url.as_deref(), Some("https://claude.ai/code/remote-1"));
+    assert_eq!(
+        recorded(&core, id),
+        [
+            RemoteState::Starting,
+            RemoteState::On,
+            RemoteState::Reconnecting,
+            RemoteState::On,
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_session_another_started_takes_its_prompt_as_words_never_as_rc() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let parent = new_session(&core);
+    let mut bus = core.subscribe();
+    let child = core.peer_spawn(parent, "/rc", None).expect("spawns");
+    turn(&mut bus, child.id).await;
+    // An agent's prompt turns nothing on: only the user does, where they are told what it means.
+    assert_eq!(recorded(&core, child.id), []);
+    let said = messages(&core, child.id);
+    assert!(
+        matches!(said.as_slice(), [(prompt, false)] if prompt.starts_with("/rc\n\n(You were")),
+        "{said:?}"
+    );
+}
+
+#[tokio::test]
+async fn removing_a_task_turns_it_off_for_its_sessions() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let id = new_session(&core);
+    let mut bus = core.subscribe();
+    core.session_remote_control(id, true, Auth::Subscription)
+        .expect("turns it on");
+    while remote(&mut bus, id).await.0 != RemoteState::On {}
+    let force = RemoveOptions {
+        force: true,
+        delete_branch: false,
+    };
+    core.task_remove("demo", "one", force, &hooks::discard)
+        .await
+        .expect("removes");
+    // Paused as its agent went, then off: no Swarmed that starts later starts it again.
+    assert_eq!(
+        recorded(&core, id),
+        [
+            RemoteState::Starting,
+            RemoteState::On,
+            RemoteState::Paused,
+            RemoteState::Off,
+        ]
+    );
+    assert_eq!(
+        core.remote_controls_resume(&Auth::Subscription)
+            .expect("resumes"),
+        0
+    );
 }

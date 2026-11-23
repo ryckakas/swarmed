@@ -1210,9 +1210,13 @@ impl Core {
     /// unread views and private files. Only once the task is gone: a removal that was refused
     /// leaves its sessions as they were.
     pub(crate) fn sessions_forgotten(&self, task_id: i64) -> Result<()> {
-        for id in self.store().session_ids(task_id)? {
+        // Read first: the store is let go before the loop, which records in it.
+        let ids = self.store().session_ids(task_id)?;
+        for id in ids {
             self.live.queues.clear(id);
             self.forget_session_files(id);
+            // Its sessions are in no list any more: none is to be started again for it.
+            self.remote_control_closing(id)?;
         }
         Ok(())
     }
@@ -1651,7 +1655,10 @@ impl Live {
         let Some(kept) = sent.get_mut(&id) else {
             return false;
         };
-        let at = kept.iter().position(|message| message == text);
+        // Compared without the space around them, which Claude Code does not always keep.
+        let at = kept
+            .iter()
+            .position(|message| message.trim() == text.trim());
         at.and_then(|at| kept.remove(at)).is_some()
     }
 
@@ -1737,11 +1744,7 @@ impl Live {
     /// either for the end of the session's own turn, which is the new agent's to report. So is
     /// a message it says back: what it was told and never heard waits in the queue again.
     fn note_late(&self, store: &Mutex<Store>, session_id: i64, event: AgentEvent) {
-        let dropped = matches!(
-            event,
-            AgentEvent::TurnDone { .. } | AgentEvent::Exited { .. } | AgentEvent::Heard { .. }
-        );
-        if dropped {
+        if dropped_when_late(&event) {
             return;
         }
         if !shown_only(&event) {
@@ -2154,6 +2157,20 @@ async fn record_and_publish(
     shared.live.forget(id, run);
 }
 
+/// Whether an event of a run that another has taken the place of changes nothing and is
+/// dropped: its end, and what it says back. What it reports of Remote Control too, which is
+/// about a connection that went with it: kept, it would stand as the session's latest word
+/// on the one the run in its place has.
+fn dropped_when_late(event: &AgentEvent) -> bool {
+    matches!(
+        event,
+        AgentEvent::TurnDone { .. }
+            | AgentEvent::Exited { .. }
+            | AgentEvent::Heard { .. }
+            | AgentEvent::RemoteControl { .. }
+    )
+}
+
 /// Deals with one event of run number `run` of session `id`, by how that run stands now.
 fn take(shared: &Shared, (id, run): (i64, u64), ending: &Ending, event: AgentEvent) {
     match shared.live.standing(id, run, ending) {
@@ -2276,6 +2293,31 @@ fn restart(shared: &Shared, id: i64, sends: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::RemoteState;
+
+    #[test]
+    fn a_replaced_run_has_no_say_on_remote_control_but_its_words_are_kept() {
+        let failed = AgentEvent::RemoteControl {
+            state: RemoteState::Failed,
+            url: None,
+            remote_id: None,
+            detail: Some("the bridge closed".into()),
+        };
+        assert!(dropped_when_late(&failed));
+        assert!(dropped_when_late(&AgentEvent::Heard { text: "hi".into() }));
+        assert!(!dropped_when_late(&AgentEvent::Text { text: "hi".into() }));
+    }
+
+    #[test]
+    fn a_message_said_back_is_known_as_sent_once_whatever_space_is_around_it() {
+        let live = Live::default();
+        live.sent(7, "hello\n");
+        assert!(!live.was_sent(7, "something typed elsewhere"));
+        assert!(!live.was_sent(8, "hello"));
+        assert!(live.was_sent(7, "hello"));
+        // Said back, it is forgotten: the same words again were typed elsewhere.
+        assert!(!live.was_sent(7, "hello"));
+    }
 
     #[test]
     fn a_message_heard_is_recorded_as_typed_whatever_was_told_before_it() {

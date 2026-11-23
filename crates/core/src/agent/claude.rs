@@ -1031,9 +1031,11 @@ fn parse_rate_limit(message: &Value) -> AgentEvent {
 
 /// A message of the user's that Claude Code repeats as it takes it in: its text as sent, which
 /// is a string or, for a message with more than text, its text blocks. One it made up itself
-/// (`isSynthetic`), such as a reminder or a summary, is nobody's message.
+/// (`isSynthetic`), such as a reminder or a summary, or keeps for itself beside the
+/// conversation (`isMeta`), such as what a skill of its own says, is nobody's message.
 fn heard(message: &Value) -> Option<AgentEvent> {
-    if message.get("isSynthetic").and_then(Value::as_bool) == Some(true) {
+    let marked = |key: &str| message.get(key).and_then(Value::as_bool) == Some(true);
+    if marked("isSynthetic") || marked("isMeta") {
         return None;
     }
     let content = message.pointer("/message/content")?;
@@ -1932,6 +1934,12 @@ mod tests {
             "message": { "role": "user", "content": "This session is being continued." },
         });
         assert_eq!(parse_message(&made_up, &pending), []);
+        // Nor is one it keeps beside the conversation, such as what a skill of its own says.
+        let beside = json!({
+            "type": "user", "isReplay": true, "isMeta": true,
+            "message": { "role": "user", "content": "Base directory for this skill: /skills/x" },
+        });
+        assert_eq!(parse_message(&beside, &pending), []);
     }
 
     #[test]

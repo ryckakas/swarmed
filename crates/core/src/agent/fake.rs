@@ -27,6 +27,9 @@ use crate::error::Result;
 /// - `background bash`: leaves a command running in the background and ends the turn;
 /// - `remote: <text>`: replies as to plain text; then, with Remote Control on, `<text>` comes
 ///   as if typed on claude.ai, and is answered in a turn of its own;
+/// - `remote wavers`: replies as to plain text; then, with Remote Control on, reports the
+///   connection as Claude Code does, without saying where the session is: on once more,
+///   reconnecting, and on again;
 /// - in plan mode, anything: presents a plan and waits for it to be approved.
 ///
 /// Like Claude Code, it says each message back as it takes it in, and turns Remote Control on
@@ -186,12 +189,30 @@ impl Script {
             text: message.clone(),
         });
         let next = self.turn(&message).await;
-        match message.strip_prefix("remote:") {
-            Some(typed) if next == Next::Continue && self.remote => {
-                self.typed_on_claude_ai(typed.trim())
-            }
-            _ => next,
+        if next != Next::Continue || !self.remote {
+            return next;
         }
+        if message == "remote wavers" {
+            self.wavers();
+        }
+        match message.strip_prefix("remote:") {
+            Some(typed) => self.typed_on_claude_ai(typed.trim()),
+            None => next,
+        }
+    }
+
+    /// The connection to claude.ai reported as Claude Code reports it after it is turned on,
+    /// by its state alone: on, which it was already, then lost and found again.
+    fn wavers(&self) {
+        let report = |state, detail: Option<&str>| AgentEvent::RemoteControl {
+            state,
+            url: None,
+            remote_id: None,
+            detail: detail.map(String::from),
+        };
+        self.emit(report(RemoteState::On, None));
+        self.emit(report(RemoteState::Reconnecting, Some("network")));
+        self.emit(report(RemoteState::On, None));
     }
 
     /// Turns Remote Control on, at the session on claude.ai it is to attach to again or at a

@@ -308,7 +308,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     (`reattach_session_id`, kept by `keep_session_on_exit`) unless the latest report is a
     failure. An agent that goes leaves it `Paused`; the first Swarmed to arrive starts the
     agents of the sessions that want it (`remote_controls_resume`). Closing a session turns
-    it off. The core fills in the address and id on each report from the one before, since
+    it off, and so does removing its task. Only the user turns it on: `/rc` takes nothing
+    after it but `on` or `off`, and a prompt an agent starts a session with (`peer_spawn`)
+    is sent as typed, never read as a command. What a run still reports of it after
+    another took its place is dropped (`dropped_when_late`). The core fills in the address and id on each report from the one before, since
     Claude Code names them only when it is turned on, and drops a report that repeats the last.
   - **Changes made there are not all heard here.** A permission mode changed on claude.ai is
     not reported; the model is, after the turn. Views show as code there.

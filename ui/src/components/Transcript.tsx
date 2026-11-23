@@ -270,14 +270,17 @@ function ItemView({ item, sessionId, latest }: ItemProps) {
     }
 }
 
-/** Remote Control turned on, with where the session is on claude.ai, or off, or failed. */
+/**
+ * Remote Control turned on, with where the session is on claude.ai, or off, or failed: never
+ * turned on, or ended after it was, which Claude Code reports alike.
+ */
 function RemoteLine({ item }: { item: Extract<Item, { kind: "remote" }> }) {
     const { url } = item;
     if (item.state === "failed") {
         const because = item.detail ? `: ${item.detail}` : ".";
         return (
             <p className="notice-line notice-warning" role="alert">
-                Remote Control could not be turned on{because}
+                Remote Control is not on{because}
             </p>
         );
     }

@@ -1565,7 +1565,7 @@ class MockAgent {
             throw new Error(`/${command.name} is not sent. ${command.note}`);
         }
         if (command?.kind === "own") {
-            this.remoteControl(id, !/^\s*\/\S+\s+off\b/i.test(text));
+            this.remoteControl(id, remoteAsked(command.name, text));
             return true;
         }
         const screen = command?.kind === "screen" && bare ? mockScreen(command.name) : null;
@@ -2293,6 +2293,23 @@ function updateApi(): Pick<Api, "updateState" | "updateCheck" | "updateRestart" 
 async function sampleEffortDefault(agent: string, model: string | null): Promise<string | null> {
     const known: Record<string, string> = { claude: "xhigh", codex: "medium" };
     return model === "haiku" ? null : (known[agent] ?? null);
+}
+
+/**
+ * Whether `/rc` as typed turns Remote Control on, alone or with `on`, or off, with `off`.
+ * Anything else after it is refused, as the core refuses it.
+ */
+function remoteAsked(name: string, text: string): boolean {
+    const argument = text.trim().split(/\s+/).slice(1).join(" ").toLowerCase();
+    if (argument === "" || argument === "on") {
+        return true;
+    }
+    if (argument === "off") {
+        return false;
+    }
+    throw new Error(
+        `/${name} is not sent. Type it alone or with \`on\` to turn Remote Control on, or with \`off\` to turn it off.`,
+    );
 }
 
 export function createMockApi(): Api {

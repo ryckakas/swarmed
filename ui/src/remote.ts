@@ -47,7 +47,7 @@ export function remoteSummary(remote: Remote | null): string {
         case "paused":
             return "Waits for the agent to run again";
         case "failed":
-            return `Could not be turned on${because}`;
+            return `Not on${because}`;
         default:
             return "Off";
     }
