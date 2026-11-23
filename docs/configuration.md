@@ -46,7 +46,7 @@ One key Swarmed cannot understand never stops it, whether it is misspelt or writ
 | `projects/<project>.toml` | left out | that key is at its default | an error: the project's tasks cannot be set up, started or removed with their hooks, which there is no telling |
 | `projects/<project>.environments.toml` | left out of that environment | that environment is left out | an error for tasks in its environments |
 
-`templates.toml`, the actions, `layout.json` and `terminal.json` affect only their own part: the saved prompts, the action buttons, the custom layout and the terminal.
+`templates.toml`, the actions, `layout.json` and `terminal.json` affect only their own part: the saved prompts, the action buttons, the custom layout and the terminal. A key `layout.json` does not know is left out and named like the others above; see [The custom layout](#the-custom-layout).
 
 ## A project's configuration
 
@@ -185,6 +185,29 @@ Set in the app's Settings, kept in `settings.toml`.
 | `theme`, `palette`, `style`, `layout`, `text_scale` | system, swarm, colony, classic, 100 | how the app looks |
 
 A key Swarmed does not know stays in `settings.toml` when the settings are saved, so an older Swarmed beside a newer one does not erase that one's choices. What else happens to what it cannot understand is in [What Swarmed cannot understand](#what-swarmed-cannot-understand).
+
+### The custom layout
+
+`layout.json` holds the custom layout, which Settings shows as JSON and an agent can write for you. It starts from classic or senior (`base`) and changes only how things look: the five text sizes, line height, spacing, icons, the heights of rows and controls, the two fonts, the palette's colours in dark and in light, and the sidebar's levels. `swarmed layout schema` prints every field with its range.
+
+`sidebar` sets the four levels of the sidebar apart from each other and from the rest of the app: `repository`, `task`, `session` and `sub_agent`. Each can take a text `size` in pixels (9 to 40), a `weight` from 400 to 700, and for `dark` and `light` a `colour` for its text and a `background` for its rows:
+
+```json
+{
+  "base": "classic",
+  "sidebar": {
+    "repository": { "size": 16 },
+    "session": { "size": 14, "weight": 500,
+      "dark": { "colour": "#e8e4f0", "background": "#24202c" } }
+  }
+}
+```
+
+A level you leave out is drawn as its base draws it, and the repository's name grows and shrinks with the text sizes like the rest. A session's colour is used whatever the session is doing; one that waits on you or has an answer you have not read is still drawn heavier. Where a session is selected, pointed at or waits on you, its row keeps the background that says so.
+
+Swarmed refuses a layout it could not draw readably, with the reason, and keeps the one before. Text has to stand out from its background by 4.5 to 1 (3 to 1 for sub-agents, which are drawn quieter). A level that gives a colour has to give its background too, or its form a `panel`, which the sidebar is; one that gives a background has to give its colour. The palette's own colours are only known to the window, so nothing could be checked against them.
+
+A key the layout does not know, misspelt or written by a newer Swarmed, is left out when `layout.json` is read and named with the other problems, and the rest of the layout is drawn. Saving a layout with one is refused, so a misspelt key is caught when you save it.
 
 ## Environment variables
 

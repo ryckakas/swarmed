@@ -94,7 +94,10 @@ pub use error::{Error, Result};
 pub use files::{FileEntry, FileListing};
 pub use handoff::MAX_HANDED;
 pub use hooks::OutputSink;
-pub use layouts::{Colour, Colours, CustomLayout, LayoutBase, TextSizes, layout_schema};
+pub use layouts::{
+    Colour, Colours, CustomLayout, LayoutBase, LevelColours, SidebarLevel, SidebarLevels,
+    TextSizes, layout_schema,
+};
 pub use marks::{MAX_MARK_LABEL_CHARS, Mark, MarkColour};
 pub use mcp_own::{McpServerInput, McpServerView};
 pub use naming::TaskNaming;

@@ -197,6 +197,12 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   of range, a colour is not `#rrggbb`, or text would not stand out from the backgrounds given;
   a new field gets a range there, a line in `layout_schema`, and a line in the UI's
   `customLayout.ts`, which writes only values of a form it knows into the stylesheet it builds.
+  A key it does not know is refused on saving (`parse`) and only left out on reading
+  (`CustomLayout::read`, through `serde_ignored`, colour names included), where
+  `config_problems` names it: a newer Swarmed's key must not cost an older one the layout.
+  The sidebar's levels (`sidebar`: repository, task, session, sub-agent) are drawn from
+  `--sidebar-<level>-size`, `-weight`, `-colour` and `-background`, which only the custom
+  stylesheet sets; each rule's fallback is what classic and senior draw, so keep it so.
   Agents save it whole through `configure`'s `layout` kind, at once: it cannot hide or move
   anything, and it has to stay that way for that to be safe.
 - **The terminal is xterm.js, drawn from the palette and the user's `terminal.json`**

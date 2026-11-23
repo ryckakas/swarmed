@@ -30,6 +30,12 @@ notice adds its line under Unreleased.
   needs and whether one has an answer you have not read, and keeps its buttons. It unfolds by
   itself when you open one of its sessions from anywhere else, or start a new one in it.
   Swarmed remembers which tasks are folded until you unfold or remove them.
+- **Set the sidebar's levels apart in a custom layout.** A `sidebar` section in `layout.json`
+  gives repositories, tasks, sessions and sub-agents each their own text size, weight, and
+  colour and background in dark and in light, without changing the rest of the window. A level
+  you leave out looks as it does now, and the repository's name now grows with the text sizes
+  like everything else. Colours that would be hard to read are refused with the reason. Ask an
+  agent to change the layout, or edit it in Settings.
 
 ### Changed
 
@@ -41,6 +47,10 @@ notice adds its line under Unreleased.
 
 ### Fixed
 
+- **A custom layout with a key Swarmed does not know is still drawn.** One key a newer Swarmed
+  wrote into `layout.json` made an older one beside it refuse the whole layout. The key is now
+  left out and named with the other configuration problems, and the rest of the layout is drawn.
+  Saving a layout with a key Swarmed does not know is still refused, so a misspelt one is caught.
 - **The sidebar's + and × line up with the icons beside them.** They were letters, which sat
   where the font put them: off the centre line of the cloud, environments and note, and larger
   and heavier. They are now drawn like those icons, at the same size and weight, in every

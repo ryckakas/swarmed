@@ -286,6 +286,23 @@ export type Layout = "classic" | "senior" | "custom";
 /** Colours of one form of the app, by the stylesheet's names for them, each `#rrggbb`. */
 export type LayoutColours = Record<string, string>;
 
+/** The levels of the sidebar a custom layout can set apart, by the core's names for them. */
+export type SidebarLevelName = "repository" | "task" | "session" | "sub_agent";
+
+/** A sidebar level's text colour and the background of its rows in one form, each `#rrggbb`. */
+export interface LevelColours {
+    colour?: string;
+    background?: string;
+}
+
+/** How one level of the sidebar is drawn: its text size in pixels, its weight and colours. */
+export interface SidebarLevel {
+    size?: number;
+    weight?: number;
+    dark?: LevelColours;
+    light?: LevelColours;
+}
+
 /**
  * A layout of the user's own, as the core checked it: whatever it leaves out is drawn as in
  * the layout it starts from. Sizes are in pixels, the rest in percent of the classic layout's.
@@ -300,6 +317,7 @@ export interface CustomLayout {
     control_height?: number;
     font?: string;
     mono_font?: string;
+    sidebar?: Partial<Record<SidebarLevelName, SidebarLevel>>;
     dark?: LayoutColours;
     light?: LayoutColours;
 }

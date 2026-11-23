@@ -275,8 +275,10 @@ function Appearance({ settings }: { settings: Settings }) {
 const LAYOUT_FIELDS =
     "base (classic or senior), text { xs, sm, md, lg, xl } in pixels, line_height, spacing and icons in percent, " +
     "row_height and control_height in pixels, font, mono_font, and dark and light colours such as dusk, panel, " +
-    "raised, line, text, muted, faint, bright, focus, sky, pollen, moss, busy, clay. Leave out what should stay " +
-    "as it is. An agent can write it for you: ask one to change the layout.";
+    "raised, line, text, muted, faint, bright, focus, sky, pollen, moss, busy, clay. The sidebar's levels " +
+    "(sidebar { repository, task, session, sub_agent }) each take a size in pixels, a weight from 400 to 700, " +
+    "and dark and light { colour, background }. Leave out what should stay as it is. An agent can write it for " +
+    "you: ask one to change the layout.";
 
 /** The custom layout as the JSON it is. The core checks it on saving and says what is wrong. */
 function LayoutEditor() {

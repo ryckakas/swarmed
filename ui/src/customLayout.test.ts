@@ -16,6 +16,43 @@ describe("drawnLayout", () => {
 describe("layoutCss", () => {
     it("writes nothing for a layout that sets nothing", () => {
         expect(layoutCss({ base: "classic" })).toBe("");
+        expect(layoutCss({ base: "senior", sidebar: { task: {}, session: { dark: {} } } })).toBe(
+            "",
+        );
+    });
+
+    it("sets each level of the sidebar apart by its own tokens", () => {
+        const css = layoutCss({
+            base: "classic",
+            sidebar: {
+                repository: { size: 18, weight: 600 },
+                sub_agent: { size: 12, dark: { colour: "#c0c0c0", background: "#202020" } },
+                session: { light: { colour: "#101010" } },
+            },
+        });
+        expect(css).toContain(
+            ":root[data-custom] body { --sidebar-repository-size: 1.125rem; --sidebar-repository-weight: 600; --sidebar-sub-agent-size: 0.75rem; }",
+        );
+        expect(css).toContain(
+            ':root[data-custom][data-theme="dark"] body { --sidebar-sub-agent-colour: #c0c0c0; --sidebar-sub-agent-background: #202020; }',
+        );
+        expect(css).toContain(
+            ':root[data-custom][data-theme="light"] body { --sidebar-session-colour: #101010; }',
+        );
+        expect(css).toContain(
+            '@media (prefers-color-scheme: light) { :root[data-custom]:not([data-theme="dark"]) body { --sidebar-session-colour: #101010; }',
+        );
+    });
+
+    it("writes a level's colours beside the form's own", () => {
+        const css = layoutCss({
+            base: "classic",
+            dark: { panel: "#181818" },
+            sidebar: { task: { dark: { colour: "#e0e0e0" } } },
+        });
+        expect(css).toContain(
+            ':root[data-custom][data-theme="dark"] body { --panel: #181818; --sidebar-task-colour: #e0e0e0; }',
+        );
     });
 
     it("sets sizes in rem, so that the text size setting still scales them", () => {
@@ -71,6 +108,22 @@ describe("layoutCss", () => {
             ':root[data-custom][data-theme="dark"] body { --text: #ffffff; }\n' +
                 '@media (prefers-color-scheme: dark) { :root[data-custom]:not([data-theme="light"]) body { --text: #ffffff; }\n }\n',
         );
+    });
+
+    it("leaves out a level's values that are not of the form it knows", () => {
+        const hostile = {
+            base: "classic",
+            sidebar: {
+                session: {
+                    size: "2; } * { display: none",
+                    weight: 600.5,
+                    dark: { colour: "red; } body { display: none", background: 12 },
+                },
+                task: { weight: "700; } * { display: none", light: "#ffffff" },
+                "x; } * { display: none": { size: 14 },
+            },
+        } as unknown as CustomLayout;
+        expect(layoutCss(hostile)).toBe("");
     });
 });
 

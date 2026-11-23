@@ -6,15 +6,22 @@
 //! here before it is kept, so that neither a hand-edited file nor an agent can leave the app
 //! unreadable: numbers have ranges, colours are `#rrggbb`, and text must stand out from what
 //! it is written on. A file that fails the check is refused as a whole and nothing changes.
+//!
+//! A key the layout does not know is refused when it is saved, and left out and named when
+//! the file is read: two Swarmeds of different versions can share one data directory, and a
+//! key the newer one wrote must not cost the older one the rest of the layout.
 
 use std::collections::BTreeMap;
+use std::fmt;
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::de::{IgnoredAny, IntoDeserializer, MapAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Value, json};
 
 use crate::Core;
 use crate::error::{Error, Result};
+use crate::lenient::{Problems, read_if_there, unknown_said};
 
 /// The layout a custom one starts from: whatever it does not set is drawn as there.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -30,7 +37,7 @@ pub enum LayoutBase {
 /// The five sizes all of the app's text is set in, in pixels, from the smallest labels to the
 /// largest heading.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct TextSizes {
     /// Labels, counts, hints.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -92,9 +99,77 @@ pub enum Colour {
 /// The colours a custom layout sets, each as `#rrggbb`. What is not named stays the palette's.
 pub type Colours = BTreeMap<Colour, String>;
 
+/// The colour of a sidebar level's text and of its rows behind it, in one form of the app, each
+/// as `#rrggbb`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LevelColours {
+    /// The level's text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub colour: Option<String>,
+    /// The level's rows, behind the text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background: Option<String>,
+}
+
+/// How one level of the sidebar is drawn. What it leaves out is drawn as in the layout the
+/// custom one starts from.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SidebarLevel {
+    /// The size of its text, in pixels.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<u16>,
+    /// The weight of its text, from 400 for regular to 700 for bold.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weight: Option<u16>,
+    /// Its colours in the dark form of the app.
+    #[serde(skip_serializing_if = "is_default")]
+    pub dark: LevelColours,
+    /// Its colours in the light form of the app.
+    #[serde(skip_serializing_if = "is_default")]
+    pub light: LevelColours,
+}
+
+/// The four levels of the sidebar, each set apart from the others and from the rest of the app.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SidebarLevels {
+    /// A repository's name.
+    #[serde(skip_serializing_if = "is_default")]
+    pub repository: SidebarLevel,
+    /// A task's name, on the band its sessions hang from.
+    #[serde(skip_serializing_if = "is_default")]
+    pub task: SidebarLevel,
+    /// A session's row.
+    #[serde(skip_serializing_if = "is_default")]
+    pub session: SidebarLevel,
+    /// The row of a sub-agent at work, under its session.
+    #[serde(skip_serializing_if = "is_default")]
+    pub sub_agent: SidebarLevel,
+}
+
+impl SidebarLevels {
+    /// Each level by its name in the file, with how far its text has to stand out.
+    fn each(&self) -> [(&'static str, &SidebarLevel, u32); 4] {
+        [
+            ("repository", &self.repository, TEXT_CONTRAST),
+            ("task", &self.task, TEXT_CONTRAST),
+            ("session", &self.session, TEXT_CONTRAST),
+            // Drawn quieter than the others, as muted text is.
+            ("sub_agent", &self.sub_agent, QUIET_CONTRAST),
+        ]
+    }
+}
+
+/// Whether `value` is its type's default, which is left out when a layout is written.
+fn is_default<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
+}
+
 /// A layout of the user's own.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct CustomLayout {
     /// The layout this one starts from.
     pub base: LayoutBase,
@@ -121,12 +196,67 @@ pub struct CustomLayout {
     /// A font installed on this machine for code and the terminal, by its family name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mono_font: Option<String>,
+    /// The sidebar's levels, each drawn on its own.
+    #[serde(skip_serializing_if = "is_default")]
+    pub sidebar: SidebarLevels,
     /// Colours for the dark form of the app.
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(
+        skip_serializing_if = "BTreeMap::is_empty",
+        deserialize_with = "known_colours"
+    )]
     pub dark: Colours,
     /// Colours for the light form of the app.
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(
+        skip_serializing_if = "BTreeMap::is_empty",
+        deserialize_with = "known_colours"
+    )]
     pub light: Colours,
+}
+
+/// Reads the colours of one form, passing over a name this version does not know as a struct
+/// passes over a field it does not know, so that reading the layout can name it.
+fn known_colours<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Colours, D::Error> {
+    deserializer.deserialize_map(KnownColours)
+}
+
+struct KnownColours;
+
+impl<'de> Visitor<'de> for KnownColours {
+    type Value = Colours;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("colours by their names, each #rrggbb")
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> std::result::Result<Colours, A::Error> {
+        let mut colours = Colours::new();
+        while let Some(name) = map.next_key::<String>()? {
+            take_colour(&mut map, &name, &mut colours)?;
+        }
+        Ok(colours)
+    }
+}
+
+/// Takes the value under `name` into `colours` if a colour has that name, and passes over it
+/// otherwise.
+fn take_colour<'de, A: MapAccess<'de>>(
+    map: &mut A,
+    name: &str,
+    colours: &mut Colours,
+) -> std::result::Result<(), A::Error> {
+    let known: std::result::Result<Colour, serde::de::value::Error> =
+        Colour::deserialize(name.into_deserializer());
+    match known {
+        Ok(colour) => {
+            colours.insert(colour, map.next_value()?);
+        }
+        Err(_) => {
+            map.next_value::<IgnoredAny>()?;
+        }
+    }
+    Ok(())
 }
 
 /// The least and the most a number of the layout may be.
@@ -138,6 +268,7 @@ const SPACING: Range = (50, 220);
 const ICONS: Range = (80, 220);
 const ROW_HEIGHT: Range = (20, 88);
 const CONTROL_HEIGHT: Range = (20, 72);
+const WEIGHT: Range = (400, 700);
 /// The longest name of a font, in characters.
 pub(crate) const MAX_FONT_CHARS: usize = 60;
 /// How far text has to stand out from its background, as WCAG measures it, times ten.
@@ -152,21 +283,37 @@ fn refused(why: impl Into<String>) -> Error {
 }
 
 impl CustomLayout {
-    /// Reads a layout from JSON text and checks it.
+    /// Reads a layout from JSON text and checks it, as it is to be kept. A key it does not know
+    /// is refused as well: one misspelt would otherwise be dropped without a word.
     pub fn parse(text: &str) -> Result<Self> {
+        let (layout, unknown) = Self::read(text)?;
+        match unknown.first() {
+            Some(key) => Err(refused(format!("`{key}` is not something a layout has"))),
+            None => Ok(layout),
+        }
+    }
+
+    /// Reads a layout from JSON text and checks it, leaving out each key it does not know, at
+    /// any depth. Those keys are returned too, by where they stand.
+    pub(crate) fn read(text: &str) -> Result<(Self, Vec<String>)> {
         if text.len() > MAX_LAYOUT_BYTES {
             return Err(refused(format!(
                 "a layout is at most {MAX_LAYOUT_BYTES} bytes"
             )));
         }
-        let layout: Self = serde_json::from_str(text).map_err(|e| refused(e.to_string()))?;
-        layout.checked()
+        let mut unknown = Vec::new();
+        let mut json = serde_json::Deserializer::from_str(text);
+        let layout: Self =
+            serde_ignored::deserialize(&mut json, |key| unknown.push(key.to_string()))
+                .map_err(|e| refused(e.to_string()))?;
+        json.end().map_err(|e| refused(e.to_string()))?;
+        Ok((layout.checked()?, unknown))
     }
 
     /// Every number of the layout that is set, with its name and range.
-    fn numbers(&self) -> Vec<(&'static str, Option<u16>, Range)> {
+    fn numbers(&self) -> Vec<(String, Option<u16>, Range)> {
         let text = &self.text;
-        vec![
+        let fixed = [
             ("text.xs", text.xs, TEXT_PX),
             ("text.sm", text.sm, TEXT_PX),
             ("text.md", text.md, TEXT_PX),
@@ -177,12 +324,26 @@ impl CustomLayout {
             ("icons", self.icons, ICONS),
             ("row_height", self.row_height, ROW_HEIGHT),
             ("control_height", self.control_height, CONTROL_HEIGHT),
-        ]
+        ];
+        let fixed = fixed
+            .into_iter()
+            .map(|(name, value, range)| (name.to_string(), value, range));
+        let levels = self
+            .sidebar
+            .each()
+            .into_iter()
+            .flat_map(|(name, level, _)| {
+                [
+                    (format!("sidebar.{name}.size"), level.size, TEXT_PX),
+                    (format!("sidebar.{name}.weight"), level.weight, WEIGHT),
+                ]
+            });
+        fixed.chain(levels).collect()
     }
 
     /// The layout if all of it can be drawn and read; otherwise what is wrong with it.
     fn checked(self) -> Result<Self> {
-        let out_of_range = |(_, value, (least, most)): &(&str, Option<u16>, Range)| {
+        let out_of_range = |(_, value, (least, most)): &(String, Option<u16>, Range)| {
             value.is_some_and(|value| value < *least || value > *most)
         };
         if let Some((name, _, (least, most))) = self.numbers().iter().find(|n| out_of_range(n)) {
@@ -198,6 +359,7 @@ impl CustomLayout {
         }
         check_colours("dark", &self.dark)?;
         check_colours("light", &self.light)?;
+        check_levels(&self.sidebar, &self.dark, &self.light)?;
         Ok(self)
     }
 }
@@ -299,17 +461,84 @@ fn check_ink(
         return Ok(());
     };
     let (ink, surface) = (name_of(ink), name_of(*surface));
-    let (whole, tenth) = (tenths / 10, tenths % 10);
     Err(refused(format!(
         "`{form}.{ink}` cannot be read on `{form}.{surface}`: their contrast has to be at least \
-         {whole}.{tenth} to 1"
+         {} to 1",
+        ratio(tenths)
+    )))
+}
+
+/// A contrast given in tenths, as it is said: 45 is 4.5.
+fn ratio(tenths: u32) -> String {
+    format!("{}.{}", tenths / 10, tenths % 10)
+}
+
+/// Checks the colours of the sidebar's levels in both forms of the app.
+fn check_levels(levels: &SidebarLevels, dark: &Colours, light: &Colours) -> Result<()> {
+    for (name, level, tenths) in levels.each() {
+        let forms = [("dark", &level.dark, dark), ("light", &level.light, light)];
+        for (form, colours, palette) in forms {
+            let at = format!("sidebar.{name}.{form}");
+            check_level(&at, colours, form, palette.get(&Colour::Panel), tenths)?;
+        }
+    }
+    Ok(())
+}
+
+/// That each colour of a level is a colour, and that its text stands out from its own
+/// background, or from the form's `panel`, which the sidebar is, where it gives none.
+///
+/// Against a palette's colours, which only the front end knows, nothing could be checked: a
+/// level that gives a colour has to give what it is drawn on too, and one that gives a
+/// background has to give the colour drawn on it.
+fn check_level(
+    at: &str,
+    colours: &LevelColours,
+    form: &str,
+    panel: Option<&String>,
+    tenths: u32,
+) -> Result<()> {
+    let read = |part: &str, value: Option<&str>| {
+        value
+            .map(|value| {
+                rgb(value).ok_or_else(|| refused(format!("`{at}.{part}` is a colour like #1b1e26")))
+            })
+            .transpose()
+    };
+    let ink = read("colour", colours.colour.as_deref())?;
+    let background = read("background", colours.background.as_deref())?;
+    let Some(ink) = ink else {
+        return match background {
+            None => Ok(()),
+            Some(_) => Err(refused(format!(
+                "`{at}` gives a background, so it has to give its `colour` as well"
+            ))),
+        };
+    };
+    let under = match background {
+        Some(background) => Some((background, format!("`{at}.background`"))),
+        None => panel
+            .and_then(|panel| rgb(panel))
+            .map(|panel| (panel, format!("`{form}.panel`"))),
+    };
+    let Some((under, named)) = under else {
+        return Err(refused(format!(
+            "`{at}` gives a colour, so it has to give its `background` as well, or `{form}` its \
+             `panel`"
+        )));
+    };
+    if stands_out(ink, under, tenths) {
+        return Ok(());
+    }
+    Err(refused(format!(
+        "`{at}.colour` cannot be read on {named}: their contrast has to be at least {} to 1",
+        ratio(tenths)
     )))
 }
 
 /// The JSON Schema of a custom layout, for editors and for agents.
 #[must_use]
 pub fn layout_schema() -> Value {
-    let number = |(least, most): Range, what: &str| json!({ "type": "integer", "minimum": least, "maximum": most, "description": what });
     let font =
         |what: &str| json!({ "type": "string", "maxLength": MAX_FONT_CHARS, "description": what });
     let size = |what: &str| number(TEXT_PX, what);
@@ -373,10 +602,58 @@ pub fn layout_schema() -> Value {
             "control_height": number(CONTROL_HEIGHT, "The least height of buttons and menus, in pixels."),
             "font": font("A font installed on this machine for the app's text, by family name."),
             "mono_font": font("A font installed on this machine for code and the terminal."),
+            "sidebar": sidebar_schema(),
             "dark": colours("dark"),
             "light": colours("light"),
         },
     })
+}
+
+/// The part of the schema that sets the sidebar's levels apart.
+fn sidebar_schema() -> Value {
+    let forms = |form: &str| {
+        json!({
+            "type": "object",
+            "additionalProperties": false,
+            "description": format!("The level's colours in the {form} form, each #rrggbb."),
+            "properties": {
+                "colour": colour("Its text."),
+                "background": colour("Its rows, behind the text."),
+            },
+        })
+    };
+    let level = |what: &str| {
+        json!({
+            "type": "object",
+            "additionalProperties": false,
+            "description": what,
+            "properties": {
+                "size": number(TEXT_PX, "The size of its text, in pixels."),
+                "weight": number(WEIGHT, "The weight of its text: 400 regular, 600 semibold, 700 bold."),
+                "dark": forms("dark"),
+                "light": forms("light"),
+            },
+        })
+    };
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "description": "The sidebar's four levels, each set apart from the others and from the \
+            rest of the app. What a level leaves out is drawn as in the base layout. A colour \
+            has to stand out from the level's background, or from the form's panel where it \
+            gives none, and one of the two has to be given: 4.5 to 1, 3 to 1 for sub-agents. \
+            A background needs a colour beside it.",
+        "properties": {
+            "repository": level("A repository's name. Classic 14px, senior 18px; weight 700; bright."),
+            "task": level("A task's name, in the mono font on its band. Classic 11px, senior 14px; weight 600; text."),
+            "session": level("A session's row. Classic 13px, senior 16px; weight 400; text, muted while idle. A colour given is used whatever the session is doing; one waiting on you or with an answer you have not read is still drawn heavier."),
+            "sub_agent": level("A sub-agent at work, under its session. Classic 13px, senior 16px; weight 400; muted."),
+        },
+    })
+}
+
+fn number((least, most): Range, what: &str) -> Value {
+    json!({ "type": "integer", "minimum": least, "maximum": most, "description": what })
 }
 
 fn colour(what: &str) -> Value {
@@ -384,12 +661,22 @@ fn colour(what: &str) -> Value {
 }
 
 /// The layout kept in the file at `path`; the base layout and nothing else if there is none.
+/// What it does not know is left out here and said by `problems_in`.
 fn load(path: &Path) -> Result<CustomLayout> {
-    match std::fs::read_to_string(path) {
-        Ok(text) => CustomLayout::parse(&text),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(CustomLayout::default()),
-        Err(e) => Err(e.into()),
-    }
+    let Some(text) = read_if_there(path)? else {
+        return Ok(CustomLayout::default());
+    };
+    CustomLayout::read(&text).map(|(layout, _)| layout)
+}
+
+/// What of the layout in the file at `path` is not understood, said for the user. A layout
+/// refused as a whole is said where it is read, by `Core::custom_layout`, and not again here.
+pub(crate) fn problems_in(path: &Path) -> Problems {
+    let Ok(Some(text)) = read_if_there(path) else {
+        return Problems::new();
+    };
+    let unknown = CustomLayout::read(&text).map_or_else(|_| Vec::new(), |(_, unknown)| unknown);
+    unknown.iter().map(|key| unknown_said(key)).collect()
 }
 
 impl Core {
@@ -446,8 +733,16 @@ mod tests {
             "`text.xs` is from 9 to 40"
         );
         assert_eq!(why(r#"{ "icons": 900 }"#), "`icons` is from 80 to 220");
-        assert!(why(r#"{ "sidebar": "right" }"#).contains("unknown field `sidebar`"));
-        assert!(why(r##"{ "dark": { "glow": "#ffffff" } }"##).contains("unknown variant `glow`"));
+        assert_eq!(
+            why(r#"{ "sidebar_side": "right" }"#),
+            "`sidebar_side` is not something a layout has"
+        );
+        assert_eq!(
+            why(r##"{ "dark": { "glow": "#ffffff" } }"##),
+            "`dark.glow` is not something a layout has"
+        );
+        assert!(why(r#"{ "icons": "big" }"#).contains("invalid type"));
+        assert!(why(r#"{ "icons": 120 } trailing"#).contains("trailing characters"));
         assert!(why(r#"{ "font": "x; } body { display: none" }"#).contains("family name"));
         assert!(why(r#"{ "dark": { "sky": "blue" } }"#).contains("`dark.sky` is a colour"));
         assert!(why(&format!("{{ \"font\": \"{}\" }}", "a".repeat(30_000))).contains("at most"));
@@ -470,16 +765,164 @@ mod tests {
     }
 
     #[test]
+    fn reading_leaves_out_and_names_what_it_does_not_know_and_keeps_the_rest() {
+        let text = r##"{ "icons": 120, "later": 1, "text": { "sm": 15, "xxl": 30 },
+            "sidebar": { "task": { "size": 12, "italic": true }, "pinned": {} },
+            "dark": { "glow": "#ffffff", "pollen": "#ffcc00" } }"##;
+        let (layout, unknown) = CustomLayout::read(text).expect("reads");
+        assert_eq!(
+            unknown,
+            [
+                "later",
+                "text.xxl",
+                "sidebar.task.italic",
+                "sidebar.pinned",
+                "dark.glow"
+            ]
+        );
+        assert_eq!(
+            (layout.icons, layout.text.sm, layout.sidebar.task.size),
+            (Some(120), Some(15), Some(12))
+        );
+        assert_eq!(
+            layout.dark,
+            Colours::from([(Colour::Pollen, "#ffcc00".to_string())])
+        );
+        // Kept, it is refused instead: a misspelt key would be dropped without a word.
+        assert_eq!(why(text), "`later` is not something a layout has");
+        // What is wrong with a value it knows still refuses the whole file.
+        let wrong = r#"{ "later": 1, "icons": 900 }"#;
+        assert!(CustomLayout::read(wrong).is_err());
+    }
+
+    #[test]
+    fn a_layout_file_with_a_key_it_does_not_know_is_drawn_and_the_key_named() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("layout.json");
+        assert_eq!(problems_in(&path), Problems::new());
+        std::fs::write(&path, r#"{ "icons": 120, "later": { "a": 1 } }"#).expect("writes");
+        assert_eq!(load(&path).expect("reads").icons, Some(120));
+        let problems = problems_in(&path);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].starts_with("`later` is not something this version of Swarmed knows"),
+            "{problems:?}"
+        );
+        // A layout refused as a whole is said where it is read.
+        std::fs::write(&path, r#"{ "icons": 900, "later": 1 }"#).expect("writes");
+        assert_eq!(problems_in(&path), Problems::new());
+        assert!(load(&path).is_err());
+    }
+
+    #[test]
+    fn each_level_of_the_sidebar_is_read_and_written_without_what_it_leaves_out() {
+        let text = r##"{ "sidebar": {
+            "repository": { "size": 16 },
+            "session": { "size": 15, "weight": 600,
+                "dark": { "colour": "#f0f0f0", "background": "#202020" } },
+            "sub_agent": {} } }"##;
+        let layout = CustomLayout::parse(text).expect("reads");
+        assert_eq!(layout.sidebar.session.weight, Some(600));
+        let written = serde_json::to_value(&layout).expect("writes");
+        let expected = json!({ "base": "classic", "text": {}, "sidebar": {
+            "repository": { "size": 16 },
+            "session": { "size": 15, "weight": 600,
+                "dark": { "colour": "#f0f0f0", "background": "#202020" } } } });
+        assert_eq!(written, expected);
+        let empty = r#"{ "sidebar": { "task": {} } }"#;
+        let written = serde_json::to_value(CustomLayout::parse(empty).expect("reads"));
+        assert_eq!(
+            written.expect("writes"),
+            json!({ "base": "classic", "text": {} })
+        );
+    }
+
+    #[test]
+    fn a_level_of_the_sidebar_is_refused_with_the_reason() {
+        let level = |inner: &str| why(&format!("{{ \"sidebar\": {{ {inner} }} }}"));
+        assert_eq!(
+            level(r#""task": { "size": 8 }"#),
+            "`sidebar.task.size` is from 9 to 40"
+        );
+        assert_eq!(
+            level(r#""session": { "weight": 900 }"#),
+            "`sidebar.session.weight` is from 400 to 700"
+        );
+        assert_eq!(
+            level(r#""task": { "dark": { "colour": "white" } }"#),
+            "`sidebar.task.dark.colour` is a colour like #1b1e26"
+        );
+        assert_eq!(
+            level(r##""session": { "light": { "colour": "#909090", "background": "#808080" } }"##),
+            "`sidebar.session.light.colour` cannot be read on `sidebar.session.light.background`: \
+             their contrast has to be at least 4.5 to 1"
+        );
+        assert_eq!(
+            level(r##""repository": { "dark": { "colour": "#ffcc00" } }"##),
+            "`sidebar.repository.dark` gives a colour, so it has to give its `background` as \
+             well, or `dark` its `panel`"
+        );
+        assert_eq!(
+            level(r##""task": { "dark": { "background": "#000000" } }"##),
+            "`sidebar.task.dark` gives a background, so it has to give its `colour` as well"
+        );
+        assert_eq!(
+            level(r#""session": { "italic": true }"#),
+            "`sidebar.session.italic` is not something a layout has"
+        );
+    }
+
+    #[test]
+    fn a_level_without_a_background_is_read_on_the_panel() {
+        let on_panel = |colour: &str| {
+            CustomLayout::parse(&format!(
+                "{{ \"dark\": {{ \"dusk\": \"#101010\", \"text\": \"#f0f0f0\", \
+                 \"panel\": \"#202020\" }}, \"sidebar\": {{ \"task\": {{ \"dark\": \
+                 {{ \"colour\": \"{colour}\" }} }} }} }}"
+            ))
+        };
+        assert!(on_panel("#e0e0e0").is_ok());
+        let refused = on_panel("#303030").expect_err("too close").to_string();
+        assert_eq!(
+            refused,
+            "`sidebar.task.dark.colour` cannot be read on `dark.panel`: their contrast has to be \
+             at least 4.5 to 1"
+        );
+        // Sub-agents are drawn quieter, and may stand out less.
+        let quiet = r##"{ "sidebar": { "sub_agent": { "light": { "colour": "#8a8a8a", "background": "#ffffff" } } } }"##;
+        assert!(CustomLayout::parse(quiet).is_ok());
+        let loud = quiet.replace("sub_agent", "session");
+        assert!(why(&loud).contains("at least 4.5 to 1"));
+    }
+
+    #[test]
     fn the_schema_names_every_field_the_layout_has() {
         let schema = layout_schema();
         let full = r##"{ "base": "classic", "text": { "xs": 12, "sm": 14, "md": 16, "lg": 19, "xl": 24 },
             "line_height": 150, "spacing": 110, "icons": 120, "row_height": 36,
             "control_height": 34, "font": "Inter", "mono_font": "Menlo",
+            "sidebar": { "session": { "size": 14, "weight": 500,
+                "dark": { "colour": "#f0f0f0", "background": "#202020" } } },
             "dark": { "dusk": "#101010", "text": "#f0f0f0" },
             "light": { "dusk": "#ffffff", "text": "#101010" } }"##;
         let layout = serde_json::to_value(CustomLayout::parse(full).expect("reads")).expect("json");
         for field in layout.as_object().expect("an object").keys() {
             assert!(schema["properties"].get(field).is_some(), "{field}");
+        }
+        let sidebar = &schema["properties"]["sidebar"]["properties"];
+        let mut levels: Vec<_> = sidebar.as_object().expect("levels").keys().collect();
+        levels.sort();
+        assert_eq!(levels, ["repository", "session", "sub_agent", "task"]);
+        let session = &layout["sidebar"]["session"];
+        for field in session.as_object().expect("a level").keys() {
+            assert!(
+                sidebar["session"]["properties"].get(field).is_some(),
+                "{field}"
+            );
+        }
+        for field in session["dark"].as_object().expect("colours").keys() {
+            let forms = &sidebar["session"]["properties"]["dark"]["properties"];
+            assert!(forms.get(field).is_some(), "{field}");
         }
         let colours = schema["properties"]["dark"]["properties"]
             .as_object()

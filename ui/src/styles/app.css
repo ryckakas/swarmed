@@ -1137,7 +1137,11 @@ code {
 /* Sidebar tree: three levels told apart at a glance. A repository is a section, with a rule
    above it and the largest, brightest name. A worktree is a labelled band, set in from the
    repository's name. Its sessions hang off a guide line that starts under the chevron that
-   folds them, as a tree's guides start under their parent's. */
+   folds them, as a tree's guides start under their parent's.
+
+   Each level's text and rows read --sidebar-<level>-size, -weight, -colour and -background,
+   which only a custom layout sets (customLayout.ts). Unset, each falls back to what classic
+   and senior draw, so a level is set apart from the rest of the app only when it is set. */
 
 .project + .project {
     margin-top: var(--space-3);
@@ -1148,9 +1152,10 @@ code {
 .project-name {
     flex: 1;
     min-width: 0;
-    color: var(--bright);
-    font-size: 0.875rem;
-    font-weight: 700;
+    color: var(--sidebar-repository-colour, var(--bright));
+    /* Halfway between the app's text and what stands out a little: 14px in classic. */
+    font-size: var(--sidebar-repository-size, calc((var(--text-sm) + var(--text-md)) / 2));
+    font-weight: var(--sidebar-repository-weight, 700);
     letter-spacing: 0.01em;
 }
 
@@ -1315,10 +1320,10 @@ code {
 .task-name {
     flex: 1;
     min-width: 0;
-    color: var(--text);
+    color: var(--sidebar-task-colour, var(--text));
     font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    font-weight: 600;
+    font-size: var(--sidebar-task-size, var(--text-xs));
+    font-weight: var(--sidebar-task-weight, 600);
 }
 
 /* The task's name folds its sessions away and brings them back, as a repository's does its
@@ -1441,13 +1446,18 @@ code {
     color: var(--moss);
 }
 
-/* A session's line: the row that opens it, and a close button that shows on approach. */
+/* A session's line: the row that opens it, and a close button that shows on approach. A
+   colour the layout gives sessions is theirs whatever they are doing; one that waits on you,
+   or has an answer you have not read, is still drawn at least as heavy as the signal needs. */
 .session-line {
     display: flex;
     align-items: center;
     /* The bar that turns pollen when a session needs you; transparent holds its place. */
     border-left: 2px solid transparent;
-    color: var(--text);
+    background: var(--sidebar-session-background, none);
+    color: var(--sidebar-session-colour, var(--text));
+    font-size: var(--sidebar-session-size, var(--text-sm));
+    font-weight: var(--sidebar-session-weight, 400);
 }
 
 .session-line:hover {
@@ -1459,13 +1469,13 @@ code {
 }
 
 .session-line.status-idle {
-    color: var(--muted);
+    color: var(--sidebar-session-colour, var(--muted));
 }
 
 .session-line.status-waiting {
     border-left-color: var(--pollen);
     background: var(--pollen-wash);
-    font-weight: 600;
+    font-weight: max(600, var(--sidebar-session-weight, 400));
 }
 
 .session-row {
@@ -1713,11 +1723,16 @@ code {
     stroke: var(--text);
 }
 
+/* A repository's row: on the sidebar itself, unless a custom layout gives it a background. */
+.project > .row-head {
+    background: var(--sidebar-repository-background, none);
+}
+
 /* The worktree's band: marked off from the rows around it, and quieter than a repository. */
 .task > .row-head {
     margin: 0 6px 0 22px;
     border-radius: 5px;
-    background: color-mix(in srgb, var(--raised) 55%, transparent);
+    background: var(--sidebar-task-background, color-mix(in srgb, var(--raised) 55%, transparent));
 }
 
 .task > .row-head .row-close {
@@ -1749,10 +1764,11 @@ code {
     gap: var(--space-2);
     padding: 3px var(--space-2) 3px 9px;
     border: 0;
-    background: none;
-    color: var(--muted);
+    background: var(--sidebar-sub-agent-background, none);
+    color: var(--sidebar-sub-agent-colour, var(--muted));
     font: inherit;
-    font-size: var(--text-sm);
+    font-size: var(--sidebar-sub-agent-size, var(--text-sm));
+    font-weight: var(--sidebar-sub-agent-weight, 400);
     text-align: left;
     cursor: pointer;
 }
@@ -1854,7 +1870,7 @@ code {
 
 .session-line[data-unread="true"] .session-title {
     color: var(--bright);
-    font-weight: 650;
+    font-weight: max(650, var(--sidebar-session-weight, 400));
 }
 
 .sidebar-empty {

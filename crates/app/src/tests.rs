@@ -527,6 +527,37 @@ fn a_settings_file_with_a_key_the_app_does_not_know_still_opens_and_says_so() {
 }
 
 #[test]
+fn a_layout_with_a_key_the_app_does_not_know_is_drawn_and_says_so() {
+    let app = app();
+    std::fs::create_dir_all(app.data_dir()).expect("data dir");
+    let written = r#"{ "icons": 120, "sidebar": { "task": { "size": 12, "italic": true } } }"#;
+    std::fs::write(app.data_dir().join("layout.json"), written).expect("writes");
+    let kept = json!({ "base": "classic", "text": {}, "icons": 120,
+        "sidebar": { "task": { "size": 12 } } });
+    assert_eq!(app.ok("custom_layout", json!({})), kept);
+    let problems = app.ok("config_problems", json!({}));
+    let said = problems[0].as_str().expect("one problem, in words");
+    assert!(
+        said.starts_with("layout.json: `sidebar.task.italic`"),
+        "{said}"
+    );
+    // Saved, a layout is held to what this version knows.
+    let refused = app.invoke("custom_layout_save", json!({ "text": written }));
+    let said = refused.expect_err("refused");
+    assert!(
+        said.as_str().is_some_and(|said| said.contains("italic")),
+        "{said}"
+    );
+    let level =
+        json!({ "text": "{ \"sidebar\": { \"session\": { \"size\": 15, \"weight\": 600 } } }" });
+    let saved = app.ok("custom_layout_save", level);
+    assert_eq!(
+        saved["sidebar"]["session"],
+        json!({ "size": 15, "weight": 600 })
+    );
+}
+
+#[test]
 fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));

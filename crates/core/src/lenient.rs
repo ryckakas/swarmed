@@ -10,7 +10,7 @@ use serde::de::DeserializeOwned;
 
 use crate::config::ProjectConfig;
 use crate::error::{Error, Result};
-use crate::{Core, Settings, agents, environments, mcp_own};
+use crate::{Core, Settings, agents, environments, layouts, mcp_own};
 
 /// What could not be understood, each said for the user.
 pub(crate) type Problems = Vec<String>;
@@ -63,6 +63,14 @@ fn path_of(at: &str, key: &str) -> String {
     }
 }
 
+/// What to tell the user of a key left out, by where it stands in its file.
+pub(crate) fn unknown_said(key: &str) -> String {
+    format!(
+        "`{key}` is not something this version of Swarmed knows, perhaps something a newer \
+         version wrote: it is left out."
+    )
+}
+
 /// `value` read as `T`, leaving out what `T` has no place for, at any depth: each key left out
 /// is said, by where it stands under `at`. A value `T` cannot take is the error, in words.
 fn read_as<T: DeserializeOwned>(
@@ -72,13 +80,9 @@ fn read_as<T: DeserializeOwned>(
     let mut unknown = Vec::new();
     let read = serde_ignored::deserialize(value, |key| unknown.push(key.to_string()))
         .map_err(|error: toml::de::Error| error.message().trim().to_string())?;
-    let said = unknown.into_iter().map(|key| {
-        format!(
-            "`{}` is not something this version of Swarmed knows, perhaps something a newer \
-             version wrote: it is left out.",
-            path_of(at, &key)
-        )
-    });
+    let said = unknown
+        .into_iter()
+        .map(|key| unknown_said(&path_of(at, &key)));
     Ok((read, said.collect()))
 }
 
@@ -126,8 +130,9 @@ pub(crate) fn entries<T: DeserializeOwned>(table: toml::Table) -> (BTreeMap<Stri
 impl Core {
     /// What of Swarmed's configuration could not be understood, each said for the user and led
     /// by the file it is in: the settings, the agents, the MCP servers set up here, the skills
-    /// kept back, and each repository's configuration and environments. What was understood is
-    /// in use; none of this stops the app. Empty when all of it was understood.
+    /// kept back, the custom layout, and each repository's configuration and environments.
+    /// What was understood is in use; none of this stops the app. Empty when all of it was
+    /// understood.
     pub fn config_problems(&self) -> Result<Vec<String>> {
         let paths = &self.paths;
         let mut said = Vec::new();
@@ -152,6 +157,10 @@ impl Core {
         add(
             &paths.data_dir.join("skills.toml"),
             paths.sharing_problems(),
+        );
+        add(
+            &paths.custom_layout(),
+            layouts::problems_in(&paths.custom_layout()),
         );
         for project in self.projects()? {
             let config = paths.project_config(&project.name);
