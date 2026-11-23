@@ -426,8 +426,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   environment. Each top-level path is cloned whole with one `fclonefileat` (`clone.rs`, through
   `rustix`, since unsafe code is forbidden here): a 275,000-file `node_modules` in 6 s against
   48 s for `cp -c`, which clones file by file and is what a path falls back to where a whole
-  clone cannot be made. Both taking a snapshot and starting from one say each step in the setup
-  output, which the new-task view shows as it goes. A new task gets them put into its
+  clone cannot be made. Starting from a snapshot, and the first one Swarmed takes itself, say
+  each step in the setup output, which the new-task view shows as it goes; one taken by hand
+  (`snapshot_save`) says nothing. A new task gets them put into its
   worktree before `setup` runs, never over a file that is already there. They may include the
   likes of `.env`: the folder is the user's alone and its contents are never logged. The first
   task set up well in an environment without one is kept as its snapshot (`snapshot_first`,

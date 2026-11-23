@@ -21,7 +21,7 @@ pub(crate) fn clone_whole(from: &Path, to: &Path) -> bool {
     let (Some(parent), Some(name)) = (to.parent(), to.file_name()) else {
         return false;
     };
-    // Asked first, so that what is cleared after a failed clone can only be what it made.
+    // Asked first: nothing is cloned over what is there.
     let taken = std::fs::symlink_metadata(to).is_ok();
     if taken || !(kind.is_file() || kind.is_dir()) {
         return false;
@@ -33,8 +33,11 @@ pub(crate) fn clone_whole(from: &Path, to: &Path) -> bool {
     ) else {
         return false;
     };
-    if fclonefileat(&source, &folder, name, CloneFlags::empty()).is_ok() {
-        return true;
+    match fclonefileat(&source, &folder, name, CloneFlags::empty()) {
+        Ok(()) => return true,
+        // Something took the name since it was asked for: that is not this clone's to clear.
+        Err(rustix::io::Errno::EXIST) => return false,
+        Err(_) => {}
     }
     // A clone that failed part of the way must not leave half of `to` for the copy to land in.
     let _gone: std::io::Result<()> = if kind.is_dir() {

@@ -1454,12 +1454,12 @@ async fn a_snapshot_is_put_in_place_part_by_part_saying_how_far_it_is() {
     // A folder git tracks, with one it ignores inside it, as in a monorepo's apps.
     std::fs::create_dir_all(fx.repo.join("apps/web")).expect("test setup");
     std::fs::write(fx.repo.join("apps/web/index.js"), "app\n").expect("writes");
-    std::fs::write(fx.repo.join(".gitignore"), "node_modules/\n.env\n").expect("writes");
+    std::fs::write(fx.repo.join(".gitignore"), "node_modules/\n.env\nlinked\n").expect("writes");
     git(&fx.repo, &["add", "."]);
     git(&fx.repo, &["commit", "--quiet", "-m", "an app"]);
     write_config(
         &fx,
-        "[hooks]\nsetup = \"test -f .env || { mkdir -p node_modules/acme apps/web/node_modules/ui && echo lib > node_modules/acme/lib.js && echo ui > apps/web/node_modules/ui/ui.js && echo KEY={{task}} > .env; }\"\n",
+        "[hooks]\nsetup = \"test -f .env || { mkdir -p node_modules/acme apps/web/node_modules/ui && echo lib > node_modules/acme/lib.js && echo ui > apps/web/node_modules/ui/ui.js && ln -s node_modules/acme linked && echo KEY={{task}} > .env; }\"\n",
     );
     let core = core_with_project(&fx).await;
     let said = Mutex::new(Vec::<String>::new());
@@ -1477,11 +1477,12 @@ async fn a_snapshot_is_put_in_place_part_by_part_saying_how_far_it_is() {
     // Each missing folder is put there whole, and each step is said as it begins.
     let lines = said.lock().expect("not poisoned").clone();
     let step = |n: usize, path: &str| {
-        let line = format!("starting from the snapshot of this environment: {n} of 2, {path}");
+        let line = format!("starting from the snapshot of this environment: {n} of 3, {path}");
         lines.contains(&line)
     };
     assert!(step(1, "apps/web/node_modules"), "{lines:?}");
-    assert!(step(2, "node_modules"), "{lines:?}");
+    assert!(step(2, "linked"), "{lines:?}");
+    assert!(step(3, "node_modules"), "{lines:?}");
     let done = "started from the snapshot of this environment (copied in ";
     assert!(lines.iter().any(|line| line.starts_with(done)), "{lines:?}");
     let read = |path: &str| std::fs::read_to_string(two.worktree_path.join(path)).expect("there");
@@ -1489,6 +1490,9 @@ async fn a_snapshot_is_put_in_place_part_by_part_saying_how_far_it_is() {
     assert_eq!(read("apps/web/node_modules/ui/ui.js"), "ui\n");
     assert_eq!(read("apps/web/index.js"), "app\n");
     assert_eq!(read(".env"), "KEY=tracked\n");
+    // A link cannot be cloned whole: it is copied, into the snapshot and out of it, as a link.
+    let link = std::fs::read_link(two.worktree_path.join("linked")).expect("a link");
+    assert_eq!(link, Path::new("node_modules/acme"));
 }
 
 #[tokio::test]

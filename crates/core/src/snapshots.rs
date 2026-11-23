@@ -482,4 +482,44 @@ mod tests {
         // Inside is at any depth, not only directly in the folder.
         assert_eq!(outermost(&["a", "a/b/c"]), ["a"]);
     }
+
+    fn package(files: &Path, name: &str) {
+        let folder = files.join("node_modules").join(name);
+        std::fs::create_dir_all(&folder).expect("test setup");
+        std::fs::write(folder.join("lib.js"), name).expect("test setup");
+    }
+
+    #[tokio::test]
+    async fn an_empty_folder_in_the_worktree_is_filled_part_by_part() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let (files, worktree) = (dir.path().join("files"), dir.path().join("worktree"));
+        package(&files, "acme");
+        package(&files, "beta");
+        std::fs::create_dir_all(worktree.join("node_modules")).expect("test setup");
+
+        // The folder is there, so it is looked into, and each package is a part of its own.
+        let missing = missing_from(&files, &worktree).expect("reads");
+        let [acme, beta] = ["node_modules/acme", "node_modules/beta"].map(PathBuf::from);
+        assert_eq!(missing, [acme.clone(), beta.clone()]);
+        let placed = put(&files.join(&acme), &worktree.join(&acme), true).await;
+        placed.expect("puts");
+        let placed = put(&files.join(&beta), &worktree.join(&beta), true).await;
+        placed.expect("puts");
+
+        // The folder was filled where it stood, and nothing landed inside itself.
+        let modules = worktree.join("node_modules");
+        let read = |path: &str| std::fs::read_to_string(modules.join(path)).expect("there");
+        assert_eq!(read("acme/lib.js"), "acme");
+        assert_eq!(read("beta/lib.js"), "beta");
+        let mut names: Vec<_> = std::fs::read_dir(&modules)
+            .expect("reads")
+            .map(|entry| entry.expect("an entry").file_name())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["acme", "beta"]);
+        assert!(!modules.join("acme/acme").exists());
+        // Nothing is left to put a second time.
+        let left = missing_from(&files, &worktree).expect("reads");
+        assert_eq!(left, Vec::<PathBuf>::new());
+    }
 }
