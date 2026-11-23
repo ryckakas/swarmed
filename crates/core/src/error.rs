@@ -225,6 +225,10 @@ pub enum Error {
         "{0} takes no message in the middle of its turn: send it now instead, which stops the turn"
     )]
     HearsNoMessageMidTurn(String),
+    /// Something an agent left running was to be stopped, and the agent offers no way to stop
+    /// it: it runs until it ends by itself or the agent goes.
+    #[error("`{0}` cannot be stopped from Swarmed: its agent offers no way to stop it")]
+    Unstoppable(String),
     /// Work a call waits on was to be sent to the background, which only Claude Code can do.
     #[error("only Claude Code can send work to the background, and this session runs `{0}`")]
     NoSendingToBackground(String),

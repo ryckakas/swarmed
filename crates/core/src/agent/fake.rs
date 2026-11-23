@@ -119,6 +119,7 @@ impl Script {
             output_file: (!what.starts_with("agent"))
                 .then(|| format!("/tmp/swarmed-fake-agent/bg-{what}.output")),
             moved: false,
+            unstoppable: false,
         };
         if !what.starts_with("agent") {
             self.emit(report(BackgroundState::Running, "local_bash", None));
@@ -185,6 +186,7 @@ impl Script {
             tool_use_id: Some(call.clone()),
             output_file: (!agent).then(|| format!("/tmp/swarmed-fake-agent/bg-fg-{what}.output")),
             moved: true,
+            unstoppable: false,
         };
         self.emit(report(BackgroundState::Running, None));
         self.emit(AgentEvent::ToolResult {

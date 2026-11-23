@@ -97,6 +97,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   something it left running ends. `acp.rs` treats that as a turn of the agent's own: it ends
   when the agent has said something and reports its usage, or has been silent for `QUIET`,
   and a stop from the user ends it at once, since the agent has nothing to answer one with.
+  A sub-agent's run that starts or ends after the turn, or a request it makes then, counts
+  the same, so that the session is told it is done.
 - **What Swarmed cannot understand in its configuration costs only itself** (`lenient.rs`,
   #300). Two Swarmeds of different versions can share one data directory, and one key the
   older does not know must not stop it.
@@ -408,6 +410,24 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   call waited on it is reported the same way when it moves. Its answer is that end
   report's summary, and its row in the Background list opens it. Nothing in the store or the database knows of sub-agents. Conversations
   recorded before this have a sub-agent's words among the agent's own.
+- **ACP agents' sub-agents are shown as Claude Code's are** (`agent/acp/children.rs`). A
+  sub-agent there is a session of its own, which `acp.rs` asks for at `initialize`: the
+  protocol's unstable `subagents` (Codex sends `subagent_update` on the session, then the
+  child's updates and permission requests under the child's `sessionId`) and OpenCode's
+  `_meta["opencode/child-session-updates"]` (`opencode/session/child_update` notifications;
+  without it, a child's updates come on the session's own stream marked with
+  `_meta["opencode/child-session"]`). Whatever a child sends is `Sub` under the call that
+  shows its run, never the agent's own: its words, its tool calls, and its usage, which is
+  not the session's. Each run is reported as `local_agent` work in the background, from the
+  agent's word that it runs to its word that it is idle or done, so the UI follows it as it
+  does a Claude Code sub-agent in the background, and its last words are its answer. OpenCode's
+  `subagent` (earlier `task`) call is that run's call, shown as `Agent` with its `agent` as
+  `subagent_type`; Codex hides its call, so one is made up (`Agent`, the child's session id,
+  then `~2` and on for later runs) and returns at once. A run Codex says started is shown
+  once what it was asked is known (`session_message`), or once it does something. A child's
+  permission request is the session's own, with `description` naming the child. Stopping one
+  cancels its session (Codex); OpenCode has no way, so its runs are `unstoppable`. Antigravity
+  reports nothing of the kind, so its sub-agents are plain tool calls.
 - **A session's title** starts as the first line of its first message. A `Namer` (`ClaudeNamer`:
   one call to Claude Code's smallest model, with none of the user's settings, tools, MCP
   servers, skills or commands) then suggests a better one, unless `auto_title` is off or the
@@ -470,6 +490,22 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   Claude Code reports a `task_started` and a `task_notification` for each background command
   or agent, which become `AgentEvent::Background`. Stopping one is the `stop_task` control
   request. What ran under an agent that is no longer running is listed as stopped.
+  - **OpenCode's shells** (`agent/acp/shells.rs`): a call that ends with
+    `rawOutput.metadata.status: "running"` and a `shellID` left one running, reported as
+    `local_bash`. Nothing over ACP tells its end, so every shell reported running is taken to
+    have ended when the agent next takes something up by itself (what a shell's end wakes it
+    for), or when it goes. Like Claude Code's, a command left running holds nothing up.
+  - **What cannot be stopped is marked** (`unstoppable` on the report, `stoppable` on
+    `BackgroundTask`): `session_stop_background` refuses it (`Error::Unstoppable`) and the
+    Background list offers no Stop. Reading output stays Claude Code's: ACP agents name no file.
+  - **Codex's work left running is not followed.** codex-acp reports it only to a client that
+    declares JetBrains' AIR, which changes the shape of everything else it sends; it is not
+    declared. ACP v2's `state_update.background` and `terminal/cancel` are the way, once
+    codex-acp sends them to a client like Swarmed.
+- **What a command printed beside its call is its result** (`agent/acp/printed.rs`). Codex
+  streams a command's output in `_meta.terminal_output_delta` and ends the call with no
+  content; the pieces are kept by call (the latest 64 KB) and stand in for content that is
+  missing, before `rawOutput`.
 - **Work a call waits on is not work left running** (`claude.rs`, `Pending`). Claude Code
   reports a `Bash` command or sub-agent its call waits on with `task_started` and
   `is_backgrounded: false`; `claude.rs` keeps that report to itself, says nothing of its end

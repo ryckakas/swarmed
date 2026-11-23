@@ -594,6 +594,11 @@ pub enum AgentEvent {
         /// in the background, and from what was recorded before this.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         moved: bool,
+        /// Whether the agent offers no way to stop it, so that it runs until it ends by itself
+        /// or the agent goes, such as a shell OpenCode left running. Absent from what can be
+        /// stopped, and from what was recorded before this.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        unstoppable: bool,
     },
     /// The session was forked from another: what stands before this is a copy of what was
     /// said there. Recorded by the core, not produced by a backend.

@@ -1010,6 +1010,7 @@ fn task_report(message: &Value, state: BackgroundState) -> AgentEvent {
             .filter(|file| !file.is_empty())
             .map(String::from),
         moved: false,
+        unstoppable: false,
     }
 }
 
@@ -1030,6 +1031,7 @@ fn moved_to_background(task_id: &str, patch: &Value, pending: &Pending) -> Optio
         tool_use_id: None,
         output_file: None,
         moved: true,
+        unstoppable: false,
     };
     let mut report = started.unwrap_or_else(bare);
     if let AgentEvent::Background { moved, .. } = &mut report {
@@ -1081,6 +1083,7 @@ fn started_in_background(result: &AgentEvent) -> Option<AgentEvent> {
         tool_use_id: Some(tool_use_id.clone()),
         output_file: Some(file.to_string()),
         moved,
+        unstoppable: false,
     })
 }
 
@@ -2253,6 +2256,7 @@ mod tests {
                 tool_use_id: None,
                 output_file: None,
                 moved: false,
+                unstoppable: false,
             }]
         );
         assert_eq!(ended_as("completed"), Some(BackgroundState::Completed));
@@ -2298,6 +2302,7 @@ mod tests {
                 tool_use_id: Some("toolu_agent".into()),
                 output_file: None,
                 moved: true,
+                unstoppable: false,
             }]
         );
         // From there on it is work left running, whose end is told.

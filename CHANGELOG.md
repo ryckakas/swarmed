@@ -16,6 +16,15 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **Codex and OpenCode sub-agents show as Claude Code's do.** While one works it is listed
+  under its session; press it to read what it says and does, apart from the conversation, and
+  the Background list shows it until it is done, with what it handed back. Its permission
+  requests are answered in the session, which names the sub-agent asking. A Codex sub-agent
+  can be stopped there; OpenCode has no way to stop one. Shells OpenCode leaves running are in
+  the Background list too, without a Stop button, since OpenCode cannot stop one shell, and
+  shown running until OpenCode next takes something up by itself, since it does not say when
+  a shell ends. `docs/coding-agents.md` lists what each agent shows; Antigravity reports
+  neither.
 - **Clean up what removed tasks leave behind.** Settings, under Storage and activity, lists
   worktrees of removed tasks not deleted yet, branches kept when their tasks were removed,
   stale worktrees no task owns, and snapshots, each with how many and their size. Each button
@@ -76,6 +85,11 @@ notice adds its line under Unreleased.
 
 ### Fixed
 
+- **A Codex command's output shows under its call.** Codex sends what a command prints beside
+  the call, and its calls ended with nothing to show.
+- **An OpenCode sub-agent's words no longer join the agent's reply.** What a sub-agent said
+  during the turn that started it was taken for the agent's own, and its tool calls were shown
+  in the conversation.
 - **What a Claude Code turn waits on is no longer listed as left running.** Claude Code reports
   a command or sub-agent its call waits on as it starts, and Swarmed took each such report for
   work left in the background: it showed in the Background list, and a sub-agent could keep

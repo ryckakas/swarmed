@@ -839,6 +839,8 @@ export interface BackgroundTask {
     tool_use_id: string | null;
     /** Whether what it printed can be read, with `sessionBackgroundOutput`. */
     output: boolean;
+    /** Whether it can be stopped: not what its agent offers no way to stop, such as an OpenCode shell. */
+    stoppable: boolean;
 }
 
 /** What a command an agent left running printed, or the part of it read this time. */

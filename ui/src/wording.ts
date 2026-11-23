@@ -192,6 +192,8 @@ export interface Words {
     /** Something left running by a sub-agent, and the button to the session that started it. */
     backgroundAgent: string;
     backgroundOwner: string;
+    /** In place of the stop button, for what its agent offers no way to stop. */
+    backgroundUnstoppable: string;
     /** A sub-agent's pane: before it has said anything, and over what it answered. */
     subAgentSilent: string;
     subAgentAnswer: string;
@@ -369,6 +371,7 @@ const PLAIN: Words = {
     noFiles: "Nothing here yet.",
     backgroundAgent: "Agent",
     backgroundOwner: "Show the session that started it",
+    backgroundUnstoppable: "Its agent offers no way to stop it from here.",
     subAgentSilent: "Nothing heard from it yet.",
     subAgentAnswer: "What it handed back",
     noRepositories: "No repositories yet.",
@@ -522,6 +525,7 @@ const SWARM: Words = {
     noFiles: "These tunnels are empty.",
     backgroundAgent: "Hatchling",
     backgroundOwner: "Show the spawn that sent it out",
+    backgroundUnstoppable: "Its spawn cannot call this drone back.",
     subAgentSilent: "No word from the hatchling yet.",
     subAgentAnswer: "What it brought back",
     waitingForYou: "Awaiting you",

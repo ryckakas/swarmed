@@ -806,6 +806,20 @@ function backgroundApi(
             summary: null,
             tool_use_id: null,
             output: true,
+            stoppable: true,
+        },
+        {
+            // As OpenCode leaves one: nothing says when it ends, and nothing stops it.
+            session_id: 2,
+            session_title: "Write a regression test for the loop",
+            task_id: "sh_7",
+            description: "pnpm dev --port 3200",
+            kind: "local_bash",
+            state: "running",
+            summary: null,
+            tool_use_id: null,
+            output: false,
+            stoppable: false,
         },
         {
             session_id: 1,
@@ -817,6 +831,7 @@ function backgroundApi(
             summary: 'Background command "Run the whole test suite" completed (exit code 0)',
             tool_use_id: null,
             output: true,
+            stoppable: true,
         },
         {
             session_id: 2,
@@ -828,6 +843,7 @@ function backgroundApi(
             summary: "The agent stopped with an error",
             tool_use_id: null,
             output: false,
+            stoppable: true,
         },
     ];
     const all = () => [...agent.sentToBackground.map((sent) => sent.listed), ...tasks];
@@ -849,6 +865,11 @@ function backgroundApi(
         },
         sessionStopBackground: async (id, taskId) => {
             const task = all().find((one) => one.session_id === id && one.task_id === taskId);
+            if (task && !task.stoppable) {
+                throw new Error(
+                    `\`${taskId}\` cannot be stopped from Swarmed: its agent offers no way to stop it`,
+                );
+            }
             if (task) {
                 task.state = "stopped";
             }
@@ -1899,6 +1920,7 @@ class MockAgent {
             summary: null,
             tool_use_id: call,
             output: false,
+            stoppable: true,
         };
         this.sentToBackground.push({ task: task?.name ?? "", listed });
         return true;

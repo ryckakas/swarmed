@@ -44,6 +44,9 @@ pub struct BackgroundTask {
     pub tool_use_id: Option<String>,
     /// Whether what it printed can be read, with [`Core::session_background_output`].
     pub output: bool,
+    /// Whether it can be stopped, with [`Core::session_stop_background`]. Not what an agent
+    /// offers no way to stop, such as a shell OpenCode left running.
+    pub stoppable: bool,
 }
 
 impl BackgroundTask {
@@ -60,6 +63,7 @@ impl BackgroundTask {
         }
         self.tool_use_id = self.tool_use_id.take().or(later.tool_use_id);
         self.output |= later.output;
+        self.stoppable &= later.stoppable;
     }
 }
 
@@ -162,10 +166,14 @@ impl Core {
     }
 
     /// Asks the session's agent to stop something it left running. Refused if the agent is
-    /// not running: what it started went with it.
+    /// not running, since what it started went with it, and for what the agent offers no way
+    /// to stop.
     pub fn session_stop_background(&self, id: i64, task_id: &str) -> Result<()> {
         if task_id.trim().is_empty() {
             return Err(Error::InvalidName(task_id.to_string()));
+        }
+        if self.store().unstoppable(id, task_id)? {
+            return Err(Error::Unstoppable(task_id.to_string()));
         }
         let task_id = task_id.to_string();
         self.live
@@ -174,26 +182,47 @@ impl Core {
 }
 
 impl Store {
-    /// Where session `session`'s agent last said what `task_id` prints is written.
-    fn output_file(&self, session: i64, task_id: &str) -> Result<Option<String>> {
+    /// What session `session`'s agent reported of `task_id`, oldest first.
+    fn reports_of(&self, session: i64, task_id: &str) -> Result<Vec<AgentEvent>> {
         let mut statement = self.conn.prepare(
             "SELECT event FROM session_events
              WHERE session_id = ?1 AND event LIKE '{\"type\":\"background\"%'
              ORDER BY id",
         )?;
         let rows = statement.query_map(params![session], |row| row.get::<_, String>(0))?;
-        let named = |event: AgentEvent| match event {
-            AgentEvent::Background {
-                task_id: id,
-                output_file,
-                ..
-            } if id == task_id => output_file,
-            _ => None,
-        };
+        let about = |event: &AgentEvent| matches!(event, AgentEvent::Background { task_id: id, .. } if id == task_id);
         let events = rows.filter_map(std::result::Result::ok);
         Ok(events
-            .filter_map(|text| named(event_from_json(&text)))
-            .last())
+            .map(|text| event_from_json(&text))
+            .filter(about)
+            .collect())
+    }
+
+    /// Where session `session`'s agent last said what `task_id` prints is written.
+    fn output_file(&self, session: i64, task_id: &str) -> Result<Option<String>> {
+        let named = |event: AgentEvent| match event {
+            AgentEvent::Background { output_file, .. } => output_file,
+            _ => None,
+        };
+        Ok(self
+            .reports_of(session, task_id)?
+            .into_iter()
+            .filter_map(named)
+            .next_back())
+    }
+
+    /// Whether session `session`'s agent said it offers no way to stop `task_id`.
+    fn unstoppable(&self, session: i64, task_id: &str) -> Result<bool> {
+        let unstoppable = |event: &AgentEvent| {
+            matches!(
+                event,
+                AgentEvent::Background {
+                    unstoppable: true,
+                    ..
+                }
+            )
+        };
+        Ok(self.reports_of(session, task_id)?.iter().any(unstoppable))
     }
 
     /// What the task's open sessions said of the things they left running, oldest first.
@@ -224,6 +253,7 @@ fn task_of(session_id: i64, session_title: String, event: AgentEvent) -> Option<
         summary,
         tool_use_id,
         output_file,
+        unstoppable,
         ..
     } = event
     else {
@@ -239,6 +269,7 @@ fn task_of(session_id: i64, session_title: String, event: AgentEvent) -> Option<
         summary,
         tool_use_id,
         output: output_file.is_some(),
+        stoppable: !unstoppable,
     })
 }
 
@@ -351,6 +382,7 @@ mod tests {
             tool_use_id: started.then(|| format!("call-{id}")),
             output_file: (!started).then(|| format!("/tmp/{id}.output")),
             moved: false,
+            unstoppable: false,
         };
         (session, format!("session {session}"), event)
     }

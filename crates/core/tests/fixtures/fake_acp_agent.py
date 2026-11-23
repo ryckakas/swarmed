@@ -9,7 +9,16 @@
 - "mcp": names the MCP servers it was given;
 - "model": names the model it was put on, or "fake/default" if none;
 - "wake": ends its turn, then carries on by itself, as an agent whose timer went off does;
-- "linger": ends its turn, then starts a tool and never says another word.
+- "linger": ends its turn, then starts a tool and never says another word;
+- "spawn": starts a sub-agent the way the protocol has it, as Codex does, which asks
+  permission for "run: cat README.md" and hands back what it found;
+- "spawn slow": the same, but the sub-agent works until its session is cancelled;
+- "delegate": starts a sub-agent the way OpenCode does to a client that asked to hear of
+  them, which works on after the turn and wakes the agent when it is done;
+- "inline": the same, to a client that did not ask: the sub-agent's updates come on the
+  agent's own stream, marked as the sub-agent's;
+- "shell": leaves a shell running, as OpenCode does, and wakes when it ends;
+- "printed": runs a command and sends what it printed only in `_meta`, as Codex does.
 
 Set FAKE_ACP_LOAD_ONLY=1 to offer only session/load, which replays a history first.
 Set FAKE_ACP_EFFORT=1 to have an effort setting, standing at medium.
@@ -36,7 +45,9 @@ STAY = os.environ.get("FAKE_ACP_STAY")
 EFFORT = [{"id": "reasoning_effort", "currentValue": "medium",
            "options": [{"value": "low"}, {"value": "medium"}, {"value": "high"}]}
           ] if os.environ.get("FAKE_ACP_EFFORT") == "1" else []
-state = {"pending_prompt": None, "tool": None, "permission_id": None, "requests": 100}
+state = {"pending_prompt": None, "tool": None, "permission_id": None, "requests": 100,
+         "subagents": False, "child_updates": False, "child": None}
+CHILD = "acp-1:subagent:T1"
 
 
 def send(message):
@@ -50,6 +61,154 @@ def update(session, body):
 
 def chunk(session, text):
     update(session, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}})
+
+
+def child_notice(session, child, title, body):
+    """What OpenCode tells a client that asked to hear of its sub-agents."""
+    send({"method": "opencode/session/child_update", "params": {
+        "rootSessionId": session, "childSessionId": child, "parentSessionId": session,
+        "depth": 1, "title": title, **body}})
+
+
+def marked(child, title, body):
+    """A sub-agent's update as OpenCode marks it on the agent's own stream."""
+    return {**body, "_meta": {"opencode/child-session": {
+        "id": child, "parentID": "acp-1", "depth": 1, "title": title}}}
+
+
+def subagent_update(session, body):
+    if state["subagents"]:
+        update(session, {"sessionUpdate": "subagent_update", "sessionId": CHILD, **body})
+
+
+def spawn(session, slow):
+    """A sub-agent as the protocol has it: announced, then at work under its own session."""
+    chunk(session, "I will ask a helper.")
+    subagent_update(session, {"capabilities": {}})
+    subagent_update(session, {"title": "Explorer 1", "description": "explorer"})
+    update(session, {"sessionUpdate": "session_message", "messageId": "m1", "senderSessionId": session,
+                     "recipientSessionId": CHILD, "content": [{"type": "text", "text": "Find the README."}]})
+    subagent_update(session, {"state": {"state": "running"}})
+    chunk(CHILD, "Looking.")
+    # What it uses is its own, not the agent's.
+    update(CHILD, {"sessionUpdate": "usage_update", "used": 99, "size": 100})
+    state["child"] = "slow" if slow else "asking"
+    if slow:
+        return
+    update(CHILD, {"sessionUpdate": "tool_call", "toolCallId": "child-call", "title": "Terminal",
+                   "kind": "execute", "status": "pending", "rawInput": {"command": "cat README.md"}})
+    state["requests"] += 1
+    state["permission_id"] = state["requests"]
+    state["session"] = session
+    send({"id": state["requests"], "method": "session/request_permission", "params": {
+        "sessionId": CHILD,
+        "toolCall": {"toolCallId": "child-call", "title": "Terminal", "kind": "execute",
+                     "rawInput": {"command": "cat README.md"}},
+        "options": [{"optionId": "allow", "name": "Allow", "kind": "allow_once"},
+                    {"optionId": "reject", "name": "Reject", "kind": "reject_once"}]}})
+
+
+def child_answered(result):
+    session = state["session"]
+    allowed = result["outcome"].get("optionId") == "allow"
+    update(CHILD, {"sessionUpdate": "tool_call_update", "toolCallId": "child-call",
+                   "status": "completed" if allowed else "failed",
+                   "content": [{"type": "content", "content": {"type": "text", "text": "demo"}}]})
+    chunk(CHILD, "Found it: demo.")
+    subagent_update(session, {"state": {"state": "idle", "stopReason": "end_turn"}})
+    state["child"] = None
+    chunk(session, "The helper is done.")
+    update(session, {"sessionUpdate": "usage_update", "used": 1, "size": 2})
+    finish()
+
+
+def subagent_call(session, call, description):
+    update(session, {"sessionUpdate": "tool_call", "toolCallId": call, "name": "subagent",
+                     "title": "subagent", "kind": "think", "status": "pending", "rawInput": {}})
+    update(session, {"sessionUpdate": "tool_call_update", "toolCallId": call, "status": "in_progress",
+                     "kind": "think", "title": "subagent",
+                     "rawInput": {"agent": "explore", "description": description, "prompt": "Look for it."}})
+
+
+def subagent_returns(session, call, child):
+    update(session, {"sessionUpdate": "tool_call_update", "toolCallId": call, "status": "completed",
+                     "content": [{"type": "content", "content": {"type": "text",
+                                  "text": "The subagent is working in the background (sessionID: %s)." % child}}],
+                     "rawOutput": {"metadata": {"sessionID": child, "status": "running"}}})
+
+
+def delegate(session):
+    """A sub-agent as OpenCode has it, told of in notifications of its own."""
+    if not state["child_updates"]:
+        chunk(session, "You did not ask to hear of sub-agents.")
+        return finish()
+    title = "Find auth code"
+    subagent_call(session, "call_sub", title)
+    child_notice(session, "ses_C", title, {"type": "status", "status": "created"})
+    child_notice(session, "ses_C", title, {"type": "status", "status": "running"})
+    subagent_returns(session, "call_sub", "ses_C")
+    child_notice(session, "ses_C", title, {"type": "update", "update": marked("ses_C", title, {
+        "sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "Reading."}})})
+    child_notice(session, "ses_C", title, {"type": "update", "update": marked("ses_C", title, {
+        "sessionUpdate": "tool_call", "toolCallId": "ses_C:call_1", "title": title + ": read", "kind": "read",
+        "status": "pending", "rawInput": {"path": "auth.rs"}})})
+    child_notice(session, "ses_C", title, {"type": "update", "update": marked("ses_C", title, {
+        "sessionUpdate": "tool_call_update", "toolCallId": "ses_C:call_1", "status": "completed",
+        "content": [{"type": "content", "content": {"type": "text", "text": "fn login"}}]})})
+    chunk(session, "It works on it.")
+    finish()
+    time.sleep(0.2)
+    child_notice(session, "ses_C", title, {"type": "update", "update": marked("ses_C", title, {
+        "sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "Found it in auth.rs."}})})
+    child_notice(session, "ses_C", title, {"type": "status", "status": "completed"})
+    # Its end wakes the agent, which reads what it handed back.
+    chunk(session, "The helper found it.")
+    update(session, {"sessionUpdate": "usage_update", "used": 3, "size": 4})
+
+
+def inline(session):
+    """A sub-agent as OpenCode has it, to a client that did not ask to hear of them."""
+    title = "Count lines"
+    subagent_call(session, "call_in", title)
+    update(session, marked("ses_I", title, {"sessionUpdate": "agent_message_chunk",
+                                            "content": {"type": "text", "text": "Counting."}}))
+    update(session, marked("ses_I", title, {"sessionUpdate": "tool_call", "toolCallId": "ses_I:call_1",
+                                            "title": title + ": wc", "kind": "execute", "status": "completed",
+                                            "rawInput": {"command": "wc -l"}}))
+    subagent_returns(session, "call_in", "ses_I")
+    chunk(session, "Asked.")
+    finish()
+
+
+def shell(session):
+    """A shell left running, as OpenCode reports one: its call ends, and nothing tells its end."""
+    update(session, {"sessionUpdate": "tool_call", "toolCallId": "call_sh", "title": "shell", "kind": "execute",
+                     "status": "pending", "rawInput": {}})
+    update(session, {"sessionUpdate": "tool_call_update", "toolCallId": "call_sh", "status": "in_progress",
+                     "title": "pnpm dev", "rawInput": {"command": "pnpm dev", "background": True}})
+    update(session, {"sessionUpdate": "tool_call_update", "toolCallId": "call_sh", "status": "completed",
+                     "content": [{"type": "content", "content": {"type": "text",
+                                  "text": "Command moved to the background (shell ID: sh_X)."}}],
+                     "rawOutput": {"metadata": {"status": "running", "truncated": False, "shellID": "sh_X"}}})
+    chunk(session, "It runs.")
+    finish()
+    if os.environ.get("FAKE_ACP_SHELL_ENDS") == "1":
+        time.sleep(0.2)
+        chunk(session, "The dev server stopped.")
+        update(session, {"sessionUpdate": "usage_update", "used": 3, "size": 4})
+
+
+def printed(session):
+    """A command whose output comes only in `_meta`, as Codex sends it to most clients."""
+    update(session, {"sessionUpdate": "tool_call", "toolCallId": "call_ls", "title": "ls", "kind": "execute",
+                     "status": "in_progress", "rawInput": {"command": "ls"},
+                     "content": [{"type": "terminal", "terminalId": "call_ls"}]})
+    for data in ("README.md\n", "src\n"):
+        update(session, {"sessionUpdate": "tool_call_update", "toolCallId": "call_ls",
+                         "_meta": {"terminal_output_delta": {"data": data, "terminal_id": "call_ls"}}})
+    update(session, {"sessionUpdate": "tool_call_update", "toolCallId": "call_ls", "status": "completed",
+                     "_meta": {"terminal_exit": {"exit_code": 0, "signal": None, "terminal_id": "call_ls"}}})
+    finish()
 
 
 def finish(stop_reason="end_turn"):
@@ -91,6 +250,16 @@ def on_prompt(request_id, params):
                          "kind": "other", "status": "in_progress", "rawInput": {"for": "ever"}})
     elif text == "slow":
         chunk(session, "working")
+    elif text in ("spawn", "spawn slow"):
+        spawn(session, text == "spawn slow")
+    elif text == "delegate":
+        delegate(session)
+    elif text == "inline":
+        inline(session)
+    elif text == "shell":
+        shell(session)
+    elif text == "printed":
+        printed(session)
     elif text == "fail":
         send({"id": request_id, "error": {"code": -32000, "message": "auth_required"}})
         state["pending_prompt"] = None
@@ -162,6 +331,10 @@ for line in sys.stdin:
     method, request_id = message.get("method"), message.get("id")
     params = message.get("params", {})
     if method == "initialize":
+        asked = params.get("clientCapabilities", {})
+        # As Codex and OpenCode read what a client asks for.
+        state["subagents"] = isinstance(asked.get("subagents"), dict)
+        state["child_updates"] = asked.get("_meta", {}).get("opencode/child-session-updates") is True
         capabilities = {"loadSession": True} if LOAD_ONLY else {"sessionCapabilities": {"resume": {}}}
         if os.environ.get("FAKE_ACP_NO_HTTP") != "1":
             capabilities["mcpCapabilities"] = {"http": True}
@@ -174,8 +347,17 @@ for line in sys.stdin:
         send({"id": request_id, "result": {}})
     elif method == "session/prompt":
         on_prompt(request_id, params)
+    elif method == "session/cancel" and params.get("sessionId") == CHILD:
+        # Cancelling a sub-agent's session stops what it does, and not its starter's turn.
+        if state["child"] == "slow":
+            subagent_update("acp-1", {"state": {"state": "idle", "stopReason": "cancelled"}})
+            state["child"] = None
+            chunk("acp-1", "The helper was stopped.")
+            finish()
     elif method == "session/cancel":
         finish("cancelled")
+    elif method is None and request_id == state["permission_id"] and state["child"] == "asking":
+        child_answered(message["result"])
     elif method is None and request_id == state["permission_id"]:
         on_permission_answer(message["result"])
 

@@ -166,6 +166,36 @@ answered in the conversation. Approving a plan moves the
 session to the default supervision from the settings, or to Ask if that default is Plan itself.
 Models and effort are chosen per session, and can change mid-session.
 
+## Sub-agents and work left running
+
+Agents can start sub-agents for parts of their work, and leave commands running past a turn.
+Swarmed lists a sub-agent under its session while it works: press it to read what it says and
+does, apart from the conversation. The task panel's Background list shows the sub-agents and
+commands left running, with a Stop button where the agent has a way to stop them.
+
+| Agent | Sub-agents | Commands left running |
+| --- | --- | --- |
+| Claude Code | listed, opened, stopped | listed, stopped, output readable |
+| Codex | listed, opened, stopped | not shown |
+| OpenCode | listed, opened; cannot be stopped from Swarmed | listed; cannot be stopped from Swarmed |
+| Antigravity | not shown apart | not shown |
+
+- **Codex** does not show the call that starts a sub-agent, so Swarmed shows one for it,
+  named after the sub-agent, with what it was asked. A sub-agent that Codex sets to work
+  again is shown again. Codex reports commands left running only to JetBrains' own client,
+  in a form that changes everything else it sends, so Swarmed does not ask for it.
+- **OpenCode** offers no way to stop one sub-agent or one shell. It does not say when a shell
+  ends either: a shell is shown running until OpenCode next takes something up by itself,
+  which is what a shell's end wakes it for, or until it stops. With several shells running,
+  all of them are then shown as ended.
+- **Antigravity** reports neither in a form Swarmed can read: its sub-agents and long commands
+  are tool calls in the conversation like any other.
+
+A sub-agent's permission requests are answered in its session's conversation, which names the
+sub-agent asking. While a sub-agent works on after its session's turn, the session waits to
+tell you it is done until the sub-agent is too. A command left running does not hold it back:
+a dev server may never end. Reading what a command printed is Claude Code's alone.
+
 ## MCP servers: one pool
 
 When a session starts, Swarmed reads the MCP servers set up for Claude Code, Codex and OpenCode,

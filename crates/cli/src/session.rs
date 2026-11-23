@@ -596,9 +596,21 @@ fn describe(event: &AgentEvent) -> Option<String> {
                 .unwrap_or_default();
             Some(format!("{}\n? approve this plan [y/N]", plan.trim_end()))
         }
+        // A sub-agent's request names the sub-agent; another agent's says what it is for.
         AgentEvent::PermissionRequest {
-            tool_name, input, ..
-        } => Some(format!("? allow {tool_name}: {} [y/N]", summary(input))),
+            tool_name,
+            input,
+            description,
+            ..
+        } => {
+            let why = description
+                .as_deref()
+                .map_or_else(String::new, |why| format!(" ({why})"));
+            Some(format!(
+                "? allow {tool_name}: {}{why} [y/N]",
+                summary(input)
+            ))
+        }
         AgentEvent::RateLimit {
             status, resets_at, ..
         } if status != "allowed" => Some(format!(
@@ -715,6 +727,20 @@ mod tests {
                 .chars()
                 .count(),
             SUMMARY_CHARS
+        );
+    }
+
+    #[test]
+    fn a_request_says_who_asks_when_it_is_a_sub_agent() {
+        let asked = AgentEvent::PermissionRequest {
+            request_id: "1".into(),
+            tool_name: "Terminal".into(),
+            input: json!({ "command": "cat README.md" }),
+            description: Some("Asked by the sub-agent Explorer 1".into()),
+        };
+        assert_eq!(
+            describe(&asked).as_deref(),
+            Some("? allow Terminal: cat README.md (Asked by the sub-agent Explorer 1) [y/N]")
         );
     }
 

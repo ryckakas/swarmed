@@ -17,6 +17,9 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
 use tokio::sync::mpsc;
 
+use self::children::Children;
+use self::printed::Printed;
+use self::shells::Shells;
 use super::{
     AgentBackend, AgentCommand, AgentEvent, AgentHandle, Effort, McpServerInfo, SessionSpec,
     Supervision,
@@ -24,10 +27,16 @@ use super::{
 use crate::error::{Error, Result};
 use crate::mcp::{McpServer, McpTransport};
 
+mod children;
+mod printed;
+mod shells;
+
 /// How much of the process's stderr is kept for [`AgentEvent::Exited`].
 const STDERR_TAIL_CHARS: usize = 2000;
 /// JSON-RPC's code for a method the receiver does not implement.
 const METHOD_NOT_FOUND: i64 = -32601;
+/// The notification OpenCode tells a client that asked for it about a sub-agent with.
+const CHILD_UPDATE: &str = "opencode/session/child_update";
 
 /// Runs sessions with an ACP agent, such as `opencode acp` or `goose acp`.
 #[derive(Debug, Clone)]
@@ -172,6 +181,32 @@ struct PendingPermission {
     reject: Option<String>,
 }
 
+/// What one speaker in a conversation has said and done and not yet passed on: the agent
+/// itself, or one of its sub-agents.
+#[derive(Debug, Default)]
+struct Voice {
+    /// The reply so far; ACP streams it in pieces and Swarmed shows whole blocks.
+    text: String,
+    /// The last whole reply passed on: what a sub-agent hands back when it is done.
+    said: String,
+    /// Tool calls announced without their arguments yet, by id; some agents send those later.
+    unannounced: HashMap<String, Value>,
+    /// The arguments of the calls shown and not yet ended, by id.
+    open: HashMap<String, Value>,
+}
+
+impl Voice {
+    /// The reply so far, which is passed on whole, if there is any.
+    fn take_text(&mut self) -> Option<String> {
+        if self.text.is_empty() {
+            return None;
+        }
+        let text = std::mem::take(&mut self.text);
+        self.said.clone_from(&text);
+        Some(text)
+    }
+}
+
 /// One ACP conversation: what has been asked, what is waiting, and what was heard so far.
 struct Conversation {
     spec: SessionSpec,
@@ -184,14 +219,18 @@ struct Conversation {
     session_id: Option<String>,
     /// Messages sent before the conversation was open.
     queued: VecDeque<String>,
-    /// The agent's reply so far; ACP streams it in pieces and Swarmed shows whole blocks.
-    text: String,
+    /// What the agent itself has said and done and not yet passed on.
+    own: Voice,
+    /// The sub-agents the agent started, and what they have said and done.
+    children: Children,
+    /// What the commands the agent runs have printed, for an agent that says so apart.
+    printed: Printed,
+    /// The shells the agent left running, for an agent that reports them.
+    shells: Shells,
     cost: Option<f64>,
     /// Tokens used and the window's size, as last reported and not yet passed on.
     context: Option<(u64, u64)>,
     permissions: HashMap<String, PendingPermission>,
-    /// Tool calls announced without their arguments yet, by id; some agents send those later.
-    unannounced: HashMap<String, Value>,
     /// The MCP servers given to the agent, by name, in ACP's shape.
     passed: Vec<(String, Value)>,
     /// While an old conversation is loaded the agent replays it; Swarmed has it stored already.
@@ -228,11 +267,13 @@ impl Conversation {
             calls: HashMap::new(),
             session_id: None,
             queued: VecDeque::new(),
-            text: String::new(),
+            own: Voice::default(),
+            children: Children::default(),
+            printed: Printed::default(),
+            shells: Shells::default(),
             cost: None,
             context: None,
             permissions: HashMap::new(),
-            unannounced: HashMap::new(),
             passed: Vec::new(),
             replaying: false,
             restoring: false,
@@ -245,6 +286,12 @@ impl Conversation {
 
     fn emit(&self, event: AgentEvent) {
         self.events.send(event).ok();
+    }
+
+    fn emit_all(&self, events: Vec<AgentEvent>) {
+        for event in events {
+            self.emit(event);
+        }
     }
 
     async fn write(&mut self, message: &Value) {
@@ -270,8 +317,16 @@ impl Conversation {
     async fn initialize(&mut self) {
         let params = json!({
             "protocolVersion": 1,
-            // Swarmed offers no file or terminal services; the agent uses its own tools.
-            "clientCapabilities": { "fs": { "readTextFile": false, "writeTextFile": false }, "terminal": false },
+            // Swarmed offers no file or terminal services; the agent uses its own tools. It
+            // follows sub-agents, as the protocol has them and as OpenCode tells of them. Codex
+            // reports work left running only to a client that declares JetBrains' AIR, which
+            // changes the shape of all it sends besides, so that is not declared.
+            "clientCapabilities": {
+                "fs": { "readTextFile": false, "writeTextFile": false },
+                "terminal": false,
+                "subagents": {},
+                "_meta": { "opencode/child-session-updates": true },
+            },
         });
         self.call(Call::Initialize, "initialize", params).await;
     }
@@ -373,7 +428,7 @@ impl Conversation {
 
     async fn on_model_restored(&mut self) {
         self.restoring = false;
-        self.text.clear();
+        self.own.text.clear();
         self.send_queued().await;
     }
 
@@ -509,11 +564,66 @@ impl Conversation {
         self.passed.iter().map(info).collect()
     }
 
-    fn flush_text(&mut self) {
-        if !self.text.is_empty() {
-            let text = std::mem::take(&mut self.text);
-            self.emit(AgentEvent::Text { text });
+    /// The voice of the agent itself, for `None`, or of its sub-agent by that session id.
+    fn voice(&mut self, child: Option<&str>) -> Option<&mut Voice> {
+        match child {
+            None => Some(&mut self.own),
+            Some(child) => self.children.voice(child),
         }
+    }
+
+    /// Passes on what the agent itself did, for `None`, or what its sub-agent by that session
+    /// id did, filed under the call that sub-agent is shown by.
+    fn emit_by(&self, child: Option<&str>, event: AgentEvent) {
+        let Some(child) = child else {
+            return self.emit(event);
+        };
+        if let Some(parent) = self.children.call_of(child) {
+            self.emit(AgentEvent::Sub {
+                parent: parent.to_string(),
+                event: Box::new(event),
+            });
+        }
+    }
+
+    /// Passes on what the agent itself, for `None`, or its sub-agent by that session id has
+    /// said since it last moved on.
+    fn flush_text(&mut self, child: Option<&str>) {
+        let said = match child {
+            None => self.own.take_text().map(|text| AgentEvent::Text { text }),
+            Some(child) => self.children.flush(child),
+        };
+        if let Some(said) = said {
+            self.emit(said);
+        }
+    }
+
+    /// Passes on what follows from something a sub-agent did, such as the start or end of
+    /// its work. Outside a turn the agent is then at work by itself, as far as anyone can
+    /// tell: that ends when it goes quiet, so that the session does not stay busy.
+    fn emit_for_children(&mut self, events: Vec<AgentEvent>) {
+        if events.is_empty() {
+            return;
+        }
+        if self.session_id.is_some() && !self.in_turn() {
+            self.woken = true;
+        }
+        self.emit_all(events);
+    }
+
+    /// The sub-agent a request or update on the agent's stream is from, by its session id:
+    /// the session it names, if that is not the agent's own, else the one OpenCode marks it as
+    /// coming from. OpenCode's is followed from then on.
+    fn child_of(&mut self, params: &Value, marked_in: &Value) -> Option<String> {
+        let session = str_of(params, "sessionId");
+        let own = self.session_id.as_deref();
+        if let Some(session) = session.filter(|session| own.is_some_and(|own| own != *session)) {
+            return Some(session.to_string());
+        }
+        let (child, title) = children::marked(marked_in)?;
+        let started = self.children.follow(&child, Some(&title));
+        self.emit_for_children(started);
+        Some(child)
     }
 
     async fn on_response(&mut self, id: u64, message: &Value) {
@@ -546,7 +656,9 @@ impl Conversation {
     /// Reports a turn as over: what was said in it whole, how full the window is, and how it
     /// ended.
     fn finish_turn(&mut self, is_error: bool, error: Option<String>) {
-        self.flush_text();
+        self.flush_text(None);
+        let said = self.children.flush_all();
+        self.emit_all(said);
         if let Some(error) = &error {
             self.emit(AgentEvent::Text {
                 text: format!("The agent reported an error: {error}"),
@@ -580,23 +692,43 @@ impl Conversation {
         if self.allows_unasked() {
             return self.answer(&pending, true).await;
         }
+        // A sub-agent's request is answered where its starter's are, naming the sub-agent.
         let tool = params.get("toolCall").unwrap_or(&Value::Null);
-        let tool_id = str_of(tool, "toolCallId").unwrap_or_default().to_string();
-        if let Some(known) = self.unannounced.get_mut(&tool_id) {
-            merge_tool(known, tool);
+        let child = self.child_of(params, tool);
+        let child = child.as_deref();
+        if let Some(child) = child.filter(|child| self.children.knows(child)) {
+            // What it asks is something it does: it is shown at work if it was not yet.
+            let started = self.children.follow(child, None);
+            self.emit_for_children(started);
         }
+        let description = child.and_then(|child| self.children.asked_by(child));
+        if child.is_some() && !self.in_turn() {
+            // Nothing else would end the work it makes the session do after its turn.
+            self.woken = true;
+        }
+        let titled = child.and_then(|child| self.children.title(child));
+        let tool = &titled.map_or_else(|| tool.clone(), |title| children::untitled(tool, &title));
+        let tool_id = str_of(tool, "toolCallId").unwrap_or_default().to_string();
+        let voice = self.voice(child);
+        let known = voice.and_then(|voice| voice.unannounced.get_mut(&tool_id));
         // Named from all that is known of the call: its announcement may say what kind of
         // call it is where the request does not.
-        let known = self.unannounced.get(&tool_id).unwrap_or(tool);
-        let tool_name = tool_name(known).to_string();
-        self.announce_tool(&tool_id);
-        self.flush_text();
+        let tool_name = known.map_or_else(
+            || tool_name(tool).to_string(),
+            |known| {
+                merge_tool(known, tool);
+                tool_name(known).to_string()
+            },
+        );
+        self.announce_tool(&tool_id, child);
+        self.flush_text(None);
+        self.flush_text(child);
         let request_id = id.to_string();
         self.emit(AgentEvent::PermissionRequest {
             request_id: request_id.clone(),
             tool_name,
             input: tool.get("rawInput").cloned().unwrap_or_else(|| json!({})),
-            description: None,
+            description,
         });
         self.permissions.insert(request_id, pending);
     }
@@ -665,21 +797,31 @@ impl Conversation {
             return;
         }
         match kind {
-            "agent_message_chunk" | "tool_call" | "tool_call_update" => self.woken = true,
-            "usage_update" if self.woken && !self.text.is_empty() => self.end_own_turn(false),
+            "agent_message_chunk" | "tool_call" | "tool_call_update" if !self.woken => {
+                self.woken = true;
+                // What wakes it is something it left running that ended, and a shell does
+                // not say which it was: every one is taken to have ended.
+                let ended = self.shells.ended();
+                self.emit_all(ended);
+            }
+            "usage_update" if self.woken && !self.own.text.is_empty() => self.end_own_turn(false),
             _ => {}
         }
     }
 
     /// A piece of the reply: shown at once, and kept to be sent whole when the agent moves on.
-    fn on_chunk(&mut self, update: &Value) {
+    /// A sub-agent's is only kept: a piece filed under it would be stored.
+    fn on_chunk(&mut self, update: &Value, child: Option<&str>) {
         if self.restoring {
             return;
         }
         let chunk = update.pointer("/content/text").and_then(Value::as_str);
         let chunk = chunk.unwrap_or_default();
-        self.text.push_str(chunk);
-        if !chunk.is_empty() {
+        let Some(voice) = self.voice(child) else {
+            return;
+        };
+        voice.text.push_str(chunk);
+        if child.is_none() && !chunk.is_empty() {
             self.emit(AgentEvent::TextDelta {
                 text: chunk.to_string(),
             });
@@ -696,51 +838,146 @@ impl Conversation {
         self.context = tokens("used").zip(tokens("size")).or(self.context);
     }
 
-    /// One `session/update` notification: a piece of what the agent is doing.
-    fn on_update(&mut self, update: &Value) {
+    /// One `session/update` notification: a piece of what the agent is doing, or of what one
+    /// of its sub-agents is doing, which is kept apart.
+    fn on_update(&mut self, params: &Value) {
+        let update = params.get("update").unwrap_or(&Value::Null);
+        if let Some(child) = self.child_of(params, update) {
+            return self.on_child_update(&child, update);
+        }
         let kind = str_of(update, "sessionUpdate").unwrap_or_default();
         match kind {
-            "agent_message_chunk" => self.on_chunk(update),
-            "tool_call" | "tool_call_update" => self.on_tool(update),
+            "agent_message_chunk" => self.on_chunk(update, None),
+            "tool_call" | "tool_call_update" => self.on_tool(update, None),
             "usage_update" => self.on_usage(update),
+            "subagent_update" | "session_message" => self.on_children(update),
             // Thoughts, plans, mode and command lists are not shown yet.
             _ => {}
         }
         self.on_own_activity(kind);
     }
 
-    /// A tool call or a change to one. The call is shown once its arguments are known, or when
-    /// it ends or needs permission, whichever comes first.
-    fn on_tool(&mut self, update: &Value) {
-        let id = str_of(update, "toolCallId").unwrap_or_default().to_string();
-        let status = str_of(update, "status").unwrap_or_default();
-        let ended = status == "completed" || status == "failed";
-        if str_of(update, "sessionUpdate") == Some("tool_call") {
-            self.unannounced.insert(id.clone(), update.clone());
+    /// What the agent, or one of its sub-agents, says of a sub-agent: that it is there and
+    /// how its work stands, or what it was sent.
+    fn on_children(&mut self, update: &Value) {
+        let events = if str_of(update, "sessionUpdate") == Some("subagent_update") {
+            self.children.update(update)
+        } else {
+            self.children.message(update)
+        };
+        self.emit_for_children(events);
+    }
+
+    /// One update of sub-agent `child`'s own: kept apart under the call it is shown by, and
+    /// never taken for the agent's own. What it uses is not the agent's own usage either.
+    fn on_child_update(&mut self, child: &str, update: &Value) {
+        if !self.children.knows(child) {
+            // A session nobody announced is no sub-agent this conversation knows of.
+            return;
         }
-        if let Some(known) = self.unannounced.get_mut(&id) {
-            merge_tool(known, update);
-        }
-        let has_input = self.unannounced.get(&id).is_some_and(has_arguments);
-        if ended || has_input {
-            self.announce_tool(&id);
-        }
-        if ended {
-            let content = tool_output(update);
-            self.emit(AgentEvent::ToolResult {
-                tool_use_id: id,
-                content,
-                is_error: status == "failed",
-            });
+        let started = self.children.follow(child, None);
+        self.emit_for_children(started);
+        let title = self.children.title(child).unwrap_or_default();
+        let update = children::untitled(update, &title);
+        let child = Some(child);
+        match str_of(&update, "sessionUpdate").unwrap_or_default() {
+            "agent_message_chunk" => self.on_chunk(&update, child),
+            "tool_call" | "tool_call_update" => self.on_tool(&update, child),
+            // A sub-agent of its own, or what it sent one, as Codex tells it.
+            "subagent_update" => self.on_children(&update),
+            "session_message" if str_of(&update, "recipientSessionId") != child => {
+                self.on_children(&update);
+            }
+            _ => {}
         }
     }
 
-    /// Shows a tool call that has not been shown yet.
-    fn announce_tool(&mut self, id: &str) {
-        if let Some(known) = self.unannounced.remove(id) {
-            self.flush_text();
-            self.emit(tool_use(&known));
+    /// What OpenCode tells of a sub-agent, to a client that asked for it: how its work stands,
+    /// or one of its own updates.
+    fn on_child_notice(&mut self, params: &Value) {
+        let Some(child) = str_of(params, "childSessionId") else {
+            return;
+        };
+        let title = str_of(params, "title").unwrap_or_default();
+        if str_of(params, "type") == Some("status") {
+            let events = self.children.status(child, title, params);
+            return self.emit_for_children(events);
         }
+        let started = self.children.follow_noticed(child, title);
+        self.emit_for_children(started);
+        if let Some(update) = params.get("update") {
+            self.on_child_update(child, update);
+        }
+    }
+
+    /// A tool call or a change to one. The call is shown once its arguments are known, or when
+    /// it ends or needs permission, whichever comes first.
+    fn on_tool(&mut self, update: &Value, child: Option<&str>) {
+        let id = str_of(update, "toolCallId").unwrap_or_default().to_string();
+        let status = str_of(update, "status").unwrap_or_default();
+        let ended = status == "completed" || status == "failed";
+        self.printed.heard(&id, update);
+        let Some(voice) = self.voice(child) else {
+            return;
+        };
+        if str_of(update, "sessionUpdate") == Some("tool_call") {
+            voice.unannounced.insert(id.clone(), update.clone());
+        }
+        if let Some(known) = voice.unannounced.get_mut(&id) {
+            merge_tool(known, update);
+        }
+        let has_input = voice.unannounced.get(&id).is_some_and(has_arguments);
+        if ended || has_input {
+            self.announce_tool(&id, child);
+        }
+        if ended {
+            self.end_tool(&id, update, child);
+        }
+    }
+
+    /// Passes on how a tool call ended, and what it left running: a sub-agent it started, or
+    /// a shell it put in the background.
+    fn end_tool(&mut self, id: &str, update: &Value, child: Option<&str>) {
+        let printed = self.printed.take(id);
+        let input = self.voice(child).and_then(|voice| voice.open.remove(id));
+        let result = AgentEvent::ToolResult {
+            tool_use_id: id.to_string(),
+            content: tool_output(update, printed),
+            is_error: str_of(update, "status") == Some("failed"),
+        };
+        self.emit_by(child, result);
+        if child.is_none() {
+            self.children.answered(id, update);
+        }
+        if let Some(shell) = self.shells.left_running(id, update, input.as_ref()) {
+            self.emit(shell);
+        }
+    }
+
+    /// Shows a tool call that has not been shown yet. One of the agent's own that starts a
+    /// sub-agent is shown by the name front ends know such a call by.
+    fn announce_tool(&mut self, id: &str, child: Option<&str>) {
+        let Some(voice) = self.voice(child) else {
+            return;
+        };
+        let Some(known) = voice.unannounced.remove(id) else {
+            return;
+        };
+        let input = known.get("rawInput").cloned().unwrap_or_else(|| json!({}));
+        voice.open.insert(id.to_string(), input.clone());
+        let shown = if child.is_none() && children::starts_one(&known) {
+            let input = children::starting_input(&input);
+            self.children.starting(id, &input);
+            AgentEvent::ToolUse {
+                id: id.to_string(),
+                name: children::STARTING_TOOL.to_string(),
+                input,
+            }
+        } else {
+            tool_use(&known)
+        };
+        self.flush_text(child);
+        self.emit_by(child, shown);
     }
 
     async fn on_command(&mut self, command: AgentCommand) {
@@ -766,13 +1003,23 @@ impl Conversation {
                     refused: Some("this agent cannot send work to the background".to_string()),
                 });
             }
-            // These agents report nothing left running, so there is nothing to stop, describe
-            // no screens of their own, and cannot be reached from claude.ai.
-            AgentCommand::StopBackground { .. }
-            | AgentCommand::Show(_)
-            | AgentCommand::AskUsage
-            | AgentCommand::RemoteControl { .. } => {}
+            AgentCommand::StopBackground { task_id } => self.stop_child(&task_id).await,
+            // These agents describe no screens of their own, and cannot be reached from
+            // claude.ai.
+            AgentCommand::Show(_) | AgentCommand::AskUsage | AgentCommand::RemoteControl { .. } => {
+            }
         }
+    }
+
+    /// Stops the sub-agent whose work is reported under `task_id`, by cancelling its session,
+    /// which only stops what it is doing. Nothing else an ACP agent reports can be stopped.
+    async fn stop_child(&mut self, task_id: &str) {
+        let Some(child) = self.children.to_stop(task_id).map(String::from) else {
+            return;
+        };
+        let params = json!({ "sessionId": child });
+        self.write(&json!({ "jsonrpc": "2.0", "method": "session/cancel", "params": params }))
+            .await;
     }
 
     async fn on_line(&mut self, line: &str) {
@@ -788,9 +1035,8 @@ impl Conversation {
                 self.on_response(id.as_u64().unwrap_or_default(), &message)
                     .await;
             }
-            (None, Some("session/update")) if !self.replaying => {
-                self.on_update(params.get("update").unwrap_or(&Value::Null));
-            }
+            (None, Some("session/update")) if !self.replaying => self.on_update(params),
+            (None, Some(CHILD_UPDATE)) if !self.replaying => self.on_child_notice(params),
             _ => {}
         }
     }
@@ -986,8 +1232,9 @@ fn tool_use(update: &Value) -> AgentEvent {
     }
 }
 
-/// What a finished tool call produced: its text content, or else its raw output.
-fn tool_output(update: &Value) -> String {
+/// What a finished tool call produced: its text content, or else what it printed, as some
+/// agents send apart, or else its raw output.
+fn tool_output(update: &Value, printed: Option<String>) -> String {
     let blocks = update.get("content").and_then(Value::as_array);
     let texts: Vec<&str> = blocks
         .into_iter()
@@ -996,6 +1243,9 @@ fn tool_output(update: &Value) -> String {
         .collect();
     if !texts.is_empty() {
         return texts.join("\n");
+    }
+    if let Some(printed) = printed {
+        return printed;
     }
     match update.get("rawOutput") {
         None | Some(Value::Null) => String::new(),
@@ -1098,13 +1348,19 @@ mod tests {
             "content": [{ "type": "content", "content": { "type": "text", "text": "42 passed" } }],
             "rawOutput": { "exit": 0 },
         });
-        assert_eq!(tool_output(&with_content), "42 passed");
-        assert_eq!(tool_output(&json!({ "rawOutput": "plain" })), "plain");
+        assert_eq!(tool_output(&with_content, None), "42 passed");
+        assert_eq!(tool_output(&json!({ "rawOutput": "plain" }), None), "plain");
         assert_eq!(
-            tool_output(&json!({ "rawOutput": { "exit": 1 } })),
+            tool_output(&json!({ "rawOutput": { "exit": 1 } }), None),
             r#"{"exit":1}"#
         );
-        assert_eq!(tool_output(&json!({})), "");
+        assert_eq!(tool_output(&json!({}), None), "");
+        // What a command printed apart, as Codex sends it, comes before its exit code.
+        let printed = Some("total 8\n".to_string());
+        assert_eq!(
+            tool_output(&json!({ "rawOutput": { "exit_code": 0 } }), printed),
+            "total 8\n"
+        );
     }
 
     #[test]
