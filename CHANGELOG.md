@@ -41,6 +41,11 @@ notice adds its line under Unreleased.
   cannot be read is at its default. Each is named with its file. A `skills.toml` that could not
   be read used to offer every hidden skill again without a word, and the next change wiped what
   it held. Now that is said, and the file is kept as `skills.toml.unreadable`.
+- **A snapshot can be taken where `.gitignore` ignores what is in a folder.** For a rule like
+  `/vendor/*`, git names the folder and then each thing in it, and the snapshot copied both: each
+  package a second time, into the copy already made. That nested the packages inside themselves,
+  and failed with "Not a directory" at one holding a file of its own name, as
+  `phpstan/phpstan` does. Each file is now copied once.
 
 ## [0.3.0] - 2026-11-22
 

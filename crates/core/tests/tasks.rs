@@ -1297,6 +1297,37 @@ async fn a_new_task_starts_from_what_an_earlier_one_was_set_up_with() {
 }
 
 #[tokio::test]
+async fn a_snapshot_copies_once_what_a_rule_for_a_folders_contents_ignores() {
+    let fx = fixture();
+    // As Composer's folder is often ignored: what is in it, not the folder. Git then names the
+    // folder and each thing in it.
+    std::fs::write(fx.repo.join(".gitignore"), "/vendor/*\n").expect("writes");
+    git(&fx.repo, &["add", "."]);
+    git(&fx.repo, &["commit", "--quiet", "-m", "ignore vendor"]);
+    // Copied a second time, into the first copy, a package lands inside itself; one holding a
+    // file of its own name, as phpstan/phpstan holds `phpstan`, meets that file and fails.
+    write_config(
+        &fx,
+        "[hooks]\nsetup = \"test -f vendor/autoload.php || { mkdir -p vendor/able vendor/acme/acme && echo lib > vendor/able/lib && echo tool > vendor/acme/acme/acme && echo {{task}} > vendor/autoload.php; }\"\n",
+    );
+    let core = core_with_project(&fx).await;
+    let new = |name: &'static str| {
+        core.task_new("demo", name, NewTaskOptions::default(), &hooks::discard)
+    };
+    new("one").await.expect("creates");
+    let snapshot = core.snapshot_save("demo", "one").await.expect("saves");
+    assert_eq!(snapshot.entries, 1);
+
+    // The next task starts from it, with each file once and where it was.
+    let two = new("two").await.expect("creates");
+    let read = |path: &str| std::fs::read_to_string(two.worktree_path.join(path)).expect("seeded");
+    assert_eq!(read("vendor/autoload.php"), "one\n");
+    assert_eq!(read("vendor/acme/acme/acme"), "tool\n");
+    assert_eq!(read("vendor/able/lib"), "lib\n");
+    assert!(!two.worktree_path.join("vendor/able/able").exists());
+}
+
+#[tokio::test]
 async fn a_task_whose_setup_failed_or_left_nothing_cannot_be_kept_as_a_snapshot() {
     let fx = fixture();
     let core = core_with_project(&fx).await;
