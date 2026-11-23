@@ -1317,6 +1317,91 @@ async fn the_first_task_set_up_well_is_what_the_next_ones_start_from() {
     assert_eq!(kept(), [("two".to_string(), 1, None)]);
 }
 
+/// A repository whose setup leaves `deps/`, which git ignores, once `allow-setup` is there.
+fn fixture_with_deps(setup: &str) -> common::Fixture {
+    let fx = fixture();
+    std::fs::write(fx.repo.join(".gitignore"), "deps/\nallow-setup\n").expect("writes");
+    git(&fx.repo, &["add", "."]);
+    git(&fx.repo, &["commit", "--quiet", "-m", "ignore deps"]);
+    write_config(&fx, &format!("[hooks]\nsetup = \"{setup}\"\n"));
+    fx
+}
+
+#[tokio::test]
+async fn a_snapshot_being_taken_is_neither_taken_again_nor_forgotten() {
+    let fx = fixture_with_deps("mkdir -p deps && echo built > deps/lib.txt");
+    let core = core_with_project(&fx).await;
+    // Held as another Swarmed building this environment's snapshot holds it.
+    let folder = fx.paths.data_dir.join("snapshots/demo");
+    std::fs::create_dir_all(&folder).expect("creates");
+    let building = std::fs::File::create(folder.join("_lock._default")).expect("creates");
+    building.try_lock().expect("free");
+
+    // The task is set up as ever, and its snapshot is left to whoever is taking one.
+    let one = core
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates");
+    assert_eq!(one.setup, SetupStatus::Ok);
+    assert_eq!(core.snapshots("demo").expect("reads"), []);
+    // By hand it is refused, and so is forgetting what is about to be there.
+    let saved = core.snapshot_save("demo", "one").await;
+    assert!(matches!(saved, Err(Error::Snapshot(_))));
+    let forgotten = core.snapshot_remove("demo", None);
+    assert!(matches!(forgotten, Err(Error::Snapshot(_))));
+
+    // Let go as a build lets it go, it can be taken and forgotten.
+    building.unlock().expect("unlocks");
+    core.snapshot_save("demo", "one").await.expect("saves");
+    core.snapshot_remove("demo", None).expect("forgets");
+    assert_eq!(core.snapshots("demo").expect("reads"), []);
+}
+
+#[tokio::test]
+async fn a_snapshot_that_cannot_be_kept_costs_the_task_nothing() {
+    // A file nobody may read cannot be copied.
+    let fx = fixture_with_deps("mkdir -p deps && echo x > deps/lib.txt && chmod 000 deps/lib.txt");
+    let core = core_with_project(&fx).await;
+    let said = Mutex::new(Vec::<String>::new());
+    let note = |line: &str| said.lock().expect("not poisoned").push(line.to_string());
+
+    let one = core
+        .task_new("demo", "one", NewTaskOptions::default(), &note)
+        .await
+        .expect("creates");
+    assert_eq!(one.setup, SetupStatus::Ok);
+    let said = said.lock().expect("not poisoned");
+    assert!(
+        said.iter()
+            .any(|line| line.contains("the snapshot could not be kept"))
+    );
+    assert_eq!(core.snapshots("demo").expect("reads"), []);
+}
+
+#[tokio::test]
+async fn setting_up_again_keeps_a_task_only_if_it_was_never_set_up_well() {
+    let fx = fixture_with_deps("test -f allow-setup && mkdir -p deps && echo built > deps/lib.txt");
+    let core = core_with_project(&fx).await;
+    let kept = || core.snapshots("demo").expect("reads").len();
+    let again = || core.task_setup("demo", "one", &hooks::discard);
+
+    let failed = core
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await;
+    assert!(failed.is_err());
+    assert_eq!(kept(), 0);
+    // Set up well for the first time, it is as good as a new task that was.
+    let (_, task) = core.task("demo", "one").expect("there");
+    std::fs::write(task.worktree_path.join("allow-setup"), "").expect("writes");
+    again().await.expect("sets up");
+    assert_eq!(kept(), 1);
+
+    // Set up again later, it has been lived in: what its stack and agents left is not kept.
+    core.snapshot_remove("demo", None).expect("forgets");
+    again().await.expect("sets up");
+    assert_eq!(kept(), 0);
+}
+
 #[tokio::test]
 async fn a_snapshot_copies_once_what_a_rule_for_a_folders_contents_ignores() {
     let fx = fixture();

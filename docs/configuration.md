@@ -156,7 +156,8 @@ extra space until changed.
 There is one per environment, and Swarmed takes it itself: the first task whose `setup` succeeds
 in an environment with no snapshot is kept as its snapshot, before the task's stack starts, so
 that its logs and caches are not in it. That copy runs once, and the task waits for it. The
-next tasks start from it. Once what setup makes has changed, such as after a dependency update,
+next tasks start from it. A task whose `setup` is run again is kept only if it had not
+succeeded before: one that had has been worked in since. Once what setup makes has changed, such as after a dependency update,
 take it again from a task set up since, in the app's Environments dialog or with
 `swarmed snapshot save <project> <task>`; forgetting it has the next task set up well kept
 instead.

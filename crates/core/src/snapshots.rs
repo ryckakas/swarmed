@@ -141,15 +141,17 @@ impl Core {
         if kept() {
             return Ok(None);
         }
+        // Asked before the lock is: taking it makes its file, which a repository whose setup
+        // leaves nothing to keep would get for nothing with every task.
+        let ignored = ignored_in(&task.worktree_path).await?;
+        if ignored.is_empty() {
+            return Ok(None);
+        }
         let Some(_building) = building_lock(&folder)? else {
             return Ok(None);
         };
         // Once more, now that no other can be taken: one may have been kept just before.
         if kept() {
-            return Ok(None);
-        }
-        let ignored = ignored_in(&task.worktree_path).await?;
-        if ignored.is_empty() {
             return Ok(None);
         }
         sink(
@@ -163,13 +165,20 @@ impl Core {
         remove(&self.paths.data_dir.join("snapshots").join(project))
     }
 
-    /// Forgets the snapshot of an environment, or of tasks without one.
+    /// Forgets the snapshot of an environment, or of tasks without one. Refused while one is
+    /// being taken: it would be there again as soon as it is built.
     pub fn snapshot_remove(&self, project: &str, environment: Option<&str>) -> Result<()> {
         let project = self.project(project)?;
         if let Some(name) = environment {
             paths::validate_name(name)?;
         }
-        remove(&self.snapshot_folder(&project.name, environment))
+        let folder = self.snapshot_folder(&project.name, environment);
+        let Some(_building) = building_lock(&folder)? else {
+            return Err(failed(
+                "a snapshot of this environment is being taken; forget it once it is kept",
+            ));
+        };
+        remove(&folder)
     }
 
     /// Puts the environment's snapshot into a fresh worktree, if there is one. Says whether
@@ -215,10 +224,22 @@ async fn build(folder: &Path, task: &Task, ignored: &[String]) -> Result<Snapsho
     Ok(snapshot)
 }
 
-/// The right to build the snapshot in `folder`, for as long as the file is kept open, or
+/// The right to build a snapshot, held until it is dropped.
+#[derive(Debug)]
+struct Building(std::fs::File);
+
+impl Drop for Building {
+    fn drop(&mut self) {
+        // Unlocked, not only closed: a program started meanwhile holds a copy of the file
+        // until it runs, and the lock would stay with that copy, refusing the next build.
+        let _unlocked: std::io::Result<()> = self.0.unlock();
+    }
+}
+
+/// The right to build the snapshot in `folder`, for as long as what is returned is kept, or
 /// `None` while another holds it. One build at a time, whether by this Swarmed or by another
 /// process, such as the `swarmed` command: two would build in the same place.
-fn building_lock(folder: &Path) -> Result<Option<std::fs::File>> {
+fn building_lock(folder: &Path) -> Result<Option<Building>> {
     let name = folder.file_name().unwrap_or_default().to_string_lossy();
     let path = folder.with_file_name(format!("{LOCK}{name}"));
     if let Some(project) = path.parent() {
@@ -230,7 +251,7 @@ fn building_lock(folder: &Path) -> Result<Option<std::fs::File>> {
         .truncate(false)
         .open(&path)?;
     match file.try_lock() {
-        Ok(()) => Ok(Some(file)),
+        Ok(()) => Ok(Some(Building(file))),
         Err(std::fs::TryLockError::WouldBlock) => Ok(None),
         Err(std::fs::TryLockError::Error(error)) => Err(error.into()),
     }
@@ -347,7 +368,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let local = dir.path().join("demo").join("local");
         let first = building_lock(&local).expect("locks").expect("free");
-        // Another build of the same environment, from here or from another process, waits.
+        // Another build of the same environment is turned away.
         assert!(building_lock(&local).expect("asks").is_none());
         // Another environment's does not.
         let staging = building_lock(&dir.path().join("demo").join("staging"));
