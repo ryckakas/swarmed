@@ -424,7 +424,15 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **A snapshot is the files git ignores in one well set up task** (`snapshots.rs`), one per
   environment, copied with `cp -c` so that APFS clones them. A new task gets them put into its
   worktree before `setup` runs, never over a file that is already there. They may include the
-  likes of `.env`: the folder is the user's alone and its contents are never logged.
+  likes of `.env`: the folder is the user's alone and its contents are never logged. The first
+  task set up well in an environment without one is kept as its snapshot (`snapshot_first`,
+  from `run_setup`), before its stack starts writing logs and caches beside what setup made.
+  A task whose setup is run again (`task_setup`) is kept only if it was never set up well
+  before: one that was has been lived in.
+  One build per environment at a time: `building_lock` holds a file lock beside the folder, so
+  parallel first setups, and the app beside the `swarmed` command, do not build in one place.
+  Forgetting a snapshot takes the same lock and is refused while one is built, which would
+  put it back.
 - **A repository's default environment is kept in the database** (`default_environment` on
   `projects`, `Core::environment_default`), not in its config or environments file: a
   Swarmed sharing the data directory that does not know the key would refuse the file, as

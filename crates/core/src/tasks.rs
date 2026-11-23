@@ -157,7 +157,7 @@ impl Core {
             Ok(false) => {}
             Err(error) => sink(&format!("the snapshot could not be used: {error}")),
         }
-        self.run_setup(&project, &config, task, sink).await
+        self.run_setup(&project, &config, task, true, sink).await
     }
 
     /// Takes the slot and writes the row under one lock, so two concurrent creations cannot
@@ -177,14 +177,19 @@ impl Core {
     ) -> Result<Task> {
         let (project, task) = self.task(project, name)?;
         let config = self.config_in(&project.name, task.environment.as_deref())?;
-        self.run_setup(&project, &config, task, sink).await
+        // A task set up well before has been lived in since: its stack's logs and caches lie
+        // beside what setup made, so it is not what new tasks should start from.
+        let fresh = task.setup != SetupStatus::Ok;
+        self.run_setup(&project, &config, task, fresh, sink).await
     }
 
+    /// `fresh` for a task never set up well before, which is one a first snapshot can be of.
     async fn run_setup(
         &self,
         project: &Project,
         config: &ProjectConfig,
         mut task: Task,
+        fresh: bool,
         sink: OutputSink<'_>,
     ) -> Result<Task> {
         let result = self
@@ -196,6 +201,12 @@ impl Core {
             SetupStatus::Failed
         };
         self.store().task_set_setup(task.id, task.setup)?;
+        // The first task set up well in its environment is what the next ones start from: kept
+        // before its stack starts writing logs and caches beside what setup made. Not keeping
+        // it is said, and costs the task nothing.
+        if result.is_ok() && fresh {
+            self.keep_first_snapshot(project, &task, sink).await;
+        }
         // Set up, so what the task keeps running can be started. That failing does not make
         // the task unusable: it is said, and the stack can be started again later.
         let started = result

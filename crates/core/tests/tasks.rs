@@ -1249,8 +1249,14 @@ async fn a_stack_left_behind_is_found_again_and_stopped_with_what_set_itself_apa
     );
 }
 
+/// Which task a snapshot was taken from, how much it kept, and for which environment.
+fn taken_from(snapshot: &swarmed_core::Snapshot) -> (String, usize, Option<String>) {
+    let environment = snapshot.environment.clone();
+    (snapshot.task.clone(), snapshot.entries, environment)
+}
+
 #[tokio::test]
-async fn a_new_task_starts_from_what_an_earlier_one_was_set_up_with() {
+async fn the_first_task_set_up_well_is_what_the_next_ones_start_from() {
     let fx = fixture();
     std::fs::write(fx.repo.join(".gitignore"), "deps/\n").expect("writes");
     git(&fx.repo, &["add", "."]);
@@ -1261,23 +1267,32 @@ async fn a_new_task_starts_from_what_an_earlier_one_was_set_up_with() {
         "[hooks]\nsetup = \"mkdir -p deps && test -f deps/lib.txt || echo built-{{task}} > deps/lib.txt\"\n",
     );
     let core = core_with_project(&fx).await;
-    let new = |name: &'static str| {
-        core.task_new("demo", name, NewTaskOptions::default(), &hooks::discard)
+    let said = Mutex::new(Vec::<String>::new());
+    let note = |line: &str| said.lock().expect("not poisoned").push(line.to_string());
+    let heard = |what: &str| {
+        let lines = std::mem::take(&mut *said.lock().expect("not poisoned"));
+        lines.iter().any(|line| line.contains(what))
     };
+    let new = |name: &'static str| core.task_new("demo", name, NewTaskOptions::default(), &note);
     let built = |task: &swarmed_core::Task| {
         std::fs::read_to_string(task.worktree_path.join("deps/lib.txt")).expect("built")
     };
+    let kept = || {
+        let snapshots = core.snapshots("demo").expect("reads");
+        snapshots.iter().map(taken_from).collect::<Vec<_>>()
+    };
+
+    // Set up well with nothing to start from, the task is kept as the snapshot, and it is said.
     let one = new("one").await.expect("creates");
     assert_eq!(built(&one), "built-one\n");
-    assert_eq!(core.snapshots("demo").expect("reads"), []);
-
-    let snapshot = core.snapshot_save("demo", "one").await.expect("saves");
-    assert_eq!((snapshot.task.as_str(), snapshot.entries), ("one", 1));
-    assert_eq!(snapshot.environment, None);
-    assert_eq!(core.snapshots("demo").expect("reads"), [snapshot]);
+    assert_eq!(kept(), [("one".to_string(), 1, None)]);
+    assert!(heard("kept: new tasks of this environment start from it"));
 
     // The next task finds the first one's work in place, and what git checked out untouched.
     let two = new("two").await.expect("creates");
+    assert!(heard("started from the snapshot of this environment"));
+    // It does not take the snapshot's place: the first one set up well stays what is kept.
+    assert_eq!(kept(), [("one".to_string(), 1, None)]);
     assert_eq!(built(&two), "built-one\n");
     let readme = std::fs::read_to_string(two.worktree_path.join("README.md")).expect("reads");
     assert_eq!(readme, "demo\n");
@@ -1290,10 +1305,101 @@ async fn a_new_task_starts_from_what_an_earlier_one_was_set_up_with() {
     // Nothing git tracks was changed, and what was put there is all ignored.
     assert_eq!(String::from_utf8_lossy(&status.stdout), "");
 
-    // Without the snapshot a task is set up from nothing again.
+    // Without the snapshot a task is set up from nothing again, and is kept in its place.
     core.snapshot_remove("demo", None).expect("removes");
     let three = new("three").await.expect("creates");
     assert_eq!(built(&three), "built-three\n");
+    assert_eq!(kept(), [("three".to_string(), 1, None)]);
+
+    // And one can be taken by hand from any task set up well, in place of the one there is.
+    let replaced = core.snapshot_save("demo", "two").await.expect("saves");
+    assert_eq!(replaced.task, "two");
+    assert_eq!(kept(), [("two".to_string(), 1, None)]);
+}
+
+/// A repository whose setup leaves `deps/`, which git ignores, once `allow-setup` is there.
+fn fixture_with_deps(setup: &str) -> common::Fixture {
+    let fx = fixture();
+    std::fs::write(fx.repo.join(".gitignore"), "deps/\nallow-setup\n").expect("writes");
+    git(&fx.repo, &["add", "."]);
+    git(&fx.repo, &["commit", "--quiet", "-m", "ignore deps"]);
+    write_config(&fx, &format!("[hooks]\nsetup = \"{setup}\"\n"));
+    fx
+}
+
+#[tokio::test]
+async fn a_snapshot_being_taken_is_neither_taken_again_nor_forgotten() {
+    let fx = fixture_with_deps("mkdir -p deps && echo built > deps/lib.txt");
+    let core = core_with_project(&fx).await;
+    // Held as another Swarmed building this environment's snapshot holds it.
+    let folder = fx.paths.data_dir.join("snapshots/demo");
+    std::fs::create_dir_all(&folder).expect("creates");
+    let building = std::fs::File::create(folder.join("_lock._default")).expect("creates");
+    building.try_lock().expect("free");
+
+    // The task is set up as ever, and its snapshot is left to whoever is taking one.
+    let one = core
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates");
+    assert_eq!(one.setup, SetupStatus::Ok);
+    assert_eq!(core.snapshots("demo").expect("reads"), []);
+    // By hand it is refused, and so is forgetting what is about to be there.
+    let saved = core.snapshot_save("demo", "one").await;
+    assert!(matches!(saved, Err(Error::Snapshot(_))));
+    let forgotten = core.snapshot_remove("demo", None);
+    assert!(matches!(forgotten, Err(Error::Snapshot(_))));
+
+    // Let go as a build lets it go, it can be taken and forgotten.
+    building.unlock().expect("unlocks");
+    core.snapshot_save("demo", "one").await.expect("saves");
+    core.snapshot_remove("demo", None).expect("forgets");
+    assert_eq!(core.snapshots("demo").expect("reads"), []);
+}
+
+#[tokio::test]
+async fn a_snapshot_that_cannot_be_kept_costs_the_task_nothing() {
+    // A file nobody may read cannot be copied.
+    let fx = fixture_with_deps("mkdir -p deps && echo x > deps/lib.txt && chmod 000 deps/lib.txt");
+    let core = core_with_project(&fx).await;
+    let said = Mutex::new(Vec::<String>::new());
+    let note = |line: &str| said.lock().expect("not poisoned").push(line.to_string());
+
+    let one = core
+        .task_new("demo", "one", NewTaskOptions::default(), &note)
+        .await
+        .expect("creates");
+    assert_eq!(one.setup, SetupStatus::Ok);
+    let said = said.lock().expect("not poisoned");
+    assert!(
+        said.iter()
+            .any(|line| line.contains("the snapshot could not be kept"))
+    );
+    assert_eq!(core.snapshots("demo").expect("reads"), []);
+}
+
+#[tokio::test]
+async fn setting_up_again_keeps_a_task_only_if_it_was_never_set_up_well() {
+    let fx = fixture_with_deps("test -f allow-setup && mkdir -p deps && echo built > deps/lib.txt");
+    let core = core_with_project(&fx).await;
+    let kept = || core.snapshots("demo").expect("reads").len();
+    let again = || core.task_setup("demo", "one", &hooks::discard);
+
+    let failed = core
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await;
+    assert!(failed.is_err());
+    assert_eq!(kept(), 0);
+    // Set up well for the first time, it is as good as a new task that was.
+    let (_, task) = core.task("demo", "one").expect("there");
+    std::fs::write(task.worktree_path.join("allow-setup"), "").expect("writes");
+    again().await.expect("sets up");
+    assert_eq!(kept(), 1);
+
+    // Set up again later, it has been lived in: what its stack and agents left is not kept.
+    core.snapshot_remove("demo", None).expect("forgets");
+    again().await.expect("sets up");
+    assert_eq!(kept(), 0);
 }
 
 #[tokio::test]

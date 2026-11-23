@@ -39,7 +39,7 @@ export function Snapshots({ project, environments }: Props) {
         <section className="snapshots" aria-label={words.snapshots}>
             <h3>{words.snapshots}</h3>
             <p className="settings-hint">
-                {`Setting a task up again and again repeats the same installing and building. Take ${withArticle(words.snapshot)} from a task that was set up well, and new tasks start with what git ignores in it already in place: dependencies, build output, local configuration. Their setup still runs, with less to do. On this Mac's disk the copies share their space until they change.`}
+                {`Setting a task up again and again repeats the same installing and building. The first task set up well in an environment is kept as its ${words.snapshot.toLowerCase()}, and new tasks start with what git ignores in it already in place: dependencies, build output, local configuration. Their setup still runs, with less to do. Take it again from another task once what setup makes has changed. On this Mac's disk the copies share their space until they change.`}
             </p>
             <ul className="snapshot-list">
                 {snapshotRows(environments, snapshots, tasks ?? []).map((row) => (
@@ -75,7 +75,7 @@ function Row({ row, busy, onTake, onForget }: RowProps) {
                 <p className="settings-hint">
                     {snapshot
                         ? `From ${snapshot.task}, ${takenAt(snapshot)}`
-                        : `No ${words.snapshot.toLowerCase()}: ${words.terms.tasks} are set up from nothing.`}
+                        : `No ${words.snapshot.toLowerCase()} yet: the next ${words.terms.task} set up well is kept as one.`}
                 </p>
             </div>
             {sources.length > 0 && (
