@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
 import { api } from "../api";
 import type {
     LimitWarnings,
@@ -19,7 +19,7 @@ import { About, lookForUpdate } from "./About";
 import { ActionsSettings } from "./ActionsSettings";
 import { AgentsSettings } from "./AgentsSettings";
 import { ApiKeys } from "./ApiKeys";
-import { CloseIcon, IconButton } from "./IconButton";
+import { Dialog } from "./Dialog";
 import { McpSettings } from "./McpSettings";
 import {
     editorChoices,
@@ -44,31 +44,22 @@ export function SettingsDialog() {
     const settings = useStore((state) => state.settings);
     const showSettings = useStore((state) => state.showSettings);
     const tab = useStore((state) => state.settingsTab);
-    const dialog = useRef<HTMLDialogElement>(null);
-    const shown = open && settings !== null;
 
-    useEffect(() => {
-        if (shown && !dialog.current?.open) {
-            dialog.current?.showModal();
-        }
-    }, [shown]);
-
-    if (!(shown && settings)) {
+    if (!(open && settings)) {
         return null;
     }
+    // A field such as a key is saved by its own button, so a click beside it could lose what
+    // was typed: Esc, the × and Done close it.
     return (
-        <dialog
-            ref={dialog}
-            className="confirm settings"
-            aria-labelledby="settings-title"
+        <Dialog
+            title={words.settings}
+            size="large"
+            fixedHeight={true}
+            panes={true}
+            className="settings"
             onClose={() => showSettings(false)}
+            dismiss="Done"
         >
-            <header className="settings-head">
-                <h2 id="settings-title">{words.settings}</h2>
-                <IconButton label={words.closeSettings} onClick={() => showSettings(false)}>
-                    <CloseIcon />
-                </IconButton>
-            </header>
             <div className="settings-main">
                 <Tabs tab={tab} />
                 {/* Only this part scrolls: the title, the tabs and the way out stay put. */}
@@ -81,16 +72,7 @@ export function SettingsDialog() {
                     <Panel tab={tab} settings={settings} />
                 </div>
             </div>
-            <footer className="settings-foot">
-                <button
-                    type="button"
-                    className="button button-primary"
-                    onClick={() => showSettings(false)}
-                >
-                    Done
-                </button>
-            </footer>
-        </dialog>
+        </Dialog>
     );
 }
 
@@ -132,6 +114,8 @@ function Tabs({ tab }: { tab: SettingsTab }) {
                     aria-controls="settings-panel"
                     // Only the chosen tab is a Tab stop; the arrows reach the others.
                     tabIndex={id === tab ? 0 : -1}
+                    // The keyboard starts on the chosen tab, where the arrows move from.
+                    data-dialog-start={id === tab || undefined}
                     onClick={() => showSettings(true, id)}
                 >
                     {tabLabel(id, label, words)}

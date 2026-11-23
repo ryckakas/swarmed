@@ -308,7 +308,7 @@ function ServerForm({ draft, onChange, onSave, onCancel }: FormProps) {
                     />
                 </div>
             ))}
-            <div className="confirm-actions">
+            <div className="form-actions">
                 <button
                     type="button"
                     className="button"

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import type { Cleanup, CleanupItem, CleanupKind } from "../api/types";
 import {
@@ -15,6 +15,7 @@ import {
 } from "../cleanup";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
+import { Dialog } from "./Dialog";
 
 /**
  * What removed tasks left behind, and the snapshots: each kind with how many and their size,
@@ -117,7 +118,6 @@ interface DialogProps {
  */
 function CleanupDialog({ kind, items, onClose, onCleaned }: DialogProps) {
     const words = useWords();
-    const dialog = useRef<HTMLDialogElement>(null);
     const [ticks, setTicks] = useState(() => initialTicks(items));
     const [busy, setBusy] = useState(false);
     const [problem, setProblem] = useState<string | null>(null);
@@ -126,10 +126,6 @@ function CleanupDialog({ kind, items, onClose, onCleaned }: DialogProps) {
     const safe = items.filter((item) => !item.at_risk);
     const atRisk = items.filter((item) => item.at_risk);
     const toggle = (key: string) => setTicks((now) => toggledTick(now, key));
-
-    useEffect(() => {
-        dialog.current?.showModal();
-    }, []);
 
     const clean = async () => {
         setBusy(true);
@@ -150,46 +146,37 @@ function CleanupDialog({ kind, items, onClose, onCleaned }: DialogProps) {
         }
     };
 
+    // Opened from the settings, over them: Esc closes this one and leaves them open. What is
+    // ticked is the user's choice, so a click beside it closes nothing. No main button, so the
+    // keyboard starts on the first item and a stray Enter deletes nothing.
     return (
-        <dialog
-            ref={dialog}
-            className="confirm cleanup"
-            aria-labelledby="cleanup-title"
-            aria-busy={busy}
-            onClose={(event) => {
-                // The settings around it are a dialog too, which must stay open.
-                event.stopPropagation();
-                onClose();
-            }}
-        >
-            <h2 id="cleanup-title">{title}</h2>
-            <p>{what}</p>
-            <div className="cleanup-body">
-                <Items kind={kind} items={safe} ticks={ticks} onToggle={toggle} />
-                {atRisk.length > 0 && (
-                    <div className="cleanup-risk">
-                        <h3>Would lose work found nowhere else</h3>
-                        <p>Each is deleted only if you tick it.</p>
-                        <Items kind={kind} items={atRisk} ticks={ticks} onToggle={toggle} />
-                    </div>
-                )}
-            </div>
-            {problem && <p className="note-problem">{problem}</p>}
-            {/* Opening the dialog focuses its first button, so a stray Enter deletes nothing. */}
-            <div className="confirm-actions">
-                <button type="button" className="button" onClick={onClose}>
-                    Close
-                </button>
+        <Dialog
+            title={title}
+            size="medium"
+            onClose={onClose}
+            problem={problem}
+            busy={busy}
+            actions={
                 <button
                     type="button"
                     className="button button-danger"
-                    disabled={busy || chosen.length === 0}
+                    disabled={chosen.length === 0}
                     onClick={() => void clean()}
                 >
                     {deleteLabel(chosen.length, busy)}
                 </button>
-            </div>
-        </dialog>
+            }
+        >
+            <p>{what}</p>
+            <Items kind={kind} items={safe} ticks={ticks} onToggle={toggle} />
+            {atRisk.length > 0 && (
+                <div className="cleanup-risk">
+                    <h3>Would lose work found nowhere else</h3>
+                    <p>Each is deleted only if you tick it.</p>
+                    <Items kind={kind} items={atRisk} ticks={ticks} onToggle={toggle} />
+                </div>
+            )}
+        </Dialog>
     );
 }
 

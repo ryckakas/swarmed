@@ -136,9 +136,8 @@ export interface Words {
         /** The setting that has Swarmed update by itself. */
         automatic: string;
     };
-    /** The user's preferences: the button and window, the window's close button, and a pointer to it. */
+    /** The user's preferences: the button and window, and a pointer to it. */
     settings: string;
-    closeSettings: string;
     installInSettings: string;
     /** The list of keyboard shortcuts. */
     shortcuts: string;
@@ -336,7 +335,6 @@ const PLAIN: Words = {
         automatic: "Update automatically",
     },
     settings: "Settings",
-    closeSettings: "Close settings",
     installInSettings: "Install it in Settings",
     shortcuts: "Keyboard shortcuts",
     addAction: "Add an action",
@@ -495,7 +493,6 @@ const SWARM: Words = {
         automatic: "Evolve automatically",
     },
     settings: "Evolution Chamber",
-    closeSettings: "Close the Evolution Chamber",
     installInSettings: "Install it in the Evolution Chamber",
     shortcuts: "Reflexes",
     addAction: "Add an instinct",

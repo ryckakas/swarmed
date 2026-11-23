@@ -82,6 +82,13 @@ notice adds its line under Unreleased.
   the row opens it as before, a click that slips no longer moves it, and dragging across it no
   longer selects its text. The grip's tooltip names the shortcuts that still move the focused
   row from the keyboard. A repository is still dragged by its name.
+- **Every dialog has the same head, body and buttons.** Its title and a × are at the top, its
+  buttons at the bottom, and only what lies between them scrolls, so a long diff, form or list
+  never takes the buttons out of view. Esc, the × and Close or Cancel close any of them, and so
+  does a click beside one where nothing would be lost: never with something typed or ticked in
+  it, nor while it is at work. The keyboard starts on the first field or the main button; a
+  question whose answer cannot be undone starts on keeping things as they are. The inbox,
+  search, About and the keyboard shortcuts now have a Close button too.
 
 ### Fixed
 

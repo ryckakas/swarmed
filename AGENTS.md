@@ -202,6 +202,14 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **Keyboard shortcuts are one table** (`ui/src/hotkeys.ts`), matched in `useHotkeys.ts` and
   listed in Settings from the same table. A new action gets its shortcut there, not a key
   handler of its own. Combinations macOS or the window already use are not taken.
+- **Every dialog is built with `Dialog`** (`ui/src/components/Dialog.tsx`), the one file with a
+  `<dialog>` element, which `dialogs.test.ts` holds it to. It opens modal and gives the same
+  three parts: a head with the title and ×, a body that alone scrolls, and a footer with the
+  way out first and the main button last. Width is a size by name (`small`, `medium`, `large`,
+  `wide`); spacing, radius and colours come from the tokens, so every layout applies. A click
+  beside one closes it only when the dialog says nothing would be lost (`closeOnBackdrop`), and
+  `busy` disables its actions but never the way out. A dialog opened from another keeps Esc to
+  itself. A new dialog takes these props, not a frame or a class of its own.
 - **A layout is a setting apart from palette and style** (`Settings::layout`, `data-layout` on
   the root). Classic is what `app.css` draws; `layouts.css` holds only what senior changes:
   the text and spacing tokens, quiet colours mixed from the palette's own, and fixed-size icons

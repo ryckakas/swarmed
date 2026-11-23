@@ -201,7 +201,7 @@ function SkillForm({ draft, onChange, onSave, onRemove, onCancel }: FormProps) {
                     onChange={(event) => set({ body: event.target.value })}
                 />
             </label>
-            <div className="confirm-actions">
+            <div className="form-actions">
                 {onRemove && (
                     <button type="button" className="button environment-remove" onClick={onRemove}>
                         Remove

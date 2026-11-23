@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { api } from "../api";
 import type { Project, RemoveTarget } from "../api/types";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
 import type { Words } from "../wording";
+import { Dialog } from "./Dialog";
 
 /** Asks before a repository or a task is removed from Swarmed, and says what goes with it. */
 export function RemoveDialog() {
@@ -49,17 +50,12 @@ function Question({ target, project }: { target: RemoveTarget; project: Project 
     const removalBegun = useStore((state) => state.removalBegun);
     const removalEnded = useStore((state) => state.removalEnded);
     const leaveForRemoval = useStore((state) => state.leaveForRemoval);
-    const dialog = useRef<HTMLDialogElement>(null);
     // Kept in the store: a dialog closed and asked for again must not start a second removal.
     const key = removalKey(target);
     const busy = useStore((state) => state.removals.includes(key));
     // What stopped the last attempt. After one, the button removes regardless.
     const [problem, setProblem] = useState<string | null>(null);
     const { title, what, action } = wording(target, project, words);
-
-    useEffect(() => {
-        dialog.current?.showModal();
-    }, []);
 
     // Closing the dialog does not stop a removal: what comes of it is then said elsewhere.
     const stillAsked = () => useStore.getState().removing === target;
@@ -94,32 +90,33 @@ function Question({ target, project }: { target: RemoveTarget; project: Project 
         }
     };
 
+    // No main button, so the keyboard starts on Close and a stray Enter removes nothing.
     return (
-        <dialog
-            ref={dialog}
-            className="confirm"
-            aria-labelledby="remove-title"
-            aria-busy={busy}
+        <Dialog
+            title={title}
+            size="small"
+            closeOnBackdrop={true}
             onClose={() => askToRemove(null)}
-        >
-            <h2 id="remove-title">{title}</h2>
-            <p>{what}</p>
-            <Progress problem={problem} busy={busy} />
-            {/* Opening the dialog focuses its first button, so a stray Enter removes nothing. */}
-            <div className="confirm-actions">
-                <button type="button" className="button" onClick={() => askToRemove(null)}>
-                    Close
-                </button>
+            problem={problem && `Not removed: ${problem}. Removing anyway discards that work.`}
+            busy={busy}
+            actions={
                 <button
                     type="button"
                     className="button button-danger"
-                    disabled={busy}
                     onClick={() => void remove()}
                 >
                     {buttonLabel(busy, problem, action)}
                 </button>
-            </div>
-        </dialog>
+            }
+        >
+            <p>{what}</p>
+            {busy && (
+                <p>
+                    Agents and stacks are stopped first, which can take a while. Closing this does
+                    not stop the removal.
+                </p>
+            )}
+        </Dialog>
     );
 }
 
@@ -134,25 +131,6 @@ function removeTarget(target: RemoveTarget, force: boolean): Promise<string[]> {
     return target.task === null
         ? api.projectRemove(target.project, force)
         : api.taskRemove(target.project, target.task, force);
-}
-
-/** What stopped the last attempt, and that one that runs can take a while. */
-function Progress({ problem, busy }: { problem: string | null; busy: boolean }) {
-    return (
-        <>
-            {problem && (
-                <p className="note-problem">
-                    Not removed: {problem}. Removing anyway discards that work.
-                </p>
-            )}
-            {busy && (
-                <p>
-                    Agents and stacks are stopped first, which can take a while. Closing this does
-                    not stop the removal.
-                </p>
-            )}
-        </>
-    );
 }
 
 function buttonLabel(busy: boolean, problem: string | null, action: string): string {
