@@ -456,6 +456,11 @@ code {
     font-weight: 400;
 }
 
+/* Merged in the lilac of its badge in the sidebar. */
+.pull-number[data-state="merged"] {
+    color: var(--lilac);
+}
+
 .pull-summary {
     color: var(--muted);
     font-size: var(--text-sm);
@@ -1373,8 +1378,14 @@ code {
     color: var(--clay);
 }
 
-/* Merged or closed: done with, whatever its checks said. */
-.pull-badge[data-state="merged"],
+/*
+ * Merged or closed: done with, whatever its checks said. Merged is lilac, as GitHub draws it in
+ * purple, so that it cannot be taken for a draft, which is grey until its checks say otherwise.
+ */
+.pull-badge[data-state="merged"] {
+    color: var(--lilac);
+}
+
 .pull-badge[data-state="closed"] {
     color: var(--faint);
     border-style: dashed;

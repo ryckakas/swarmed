@@ -88,7 +88,7 @@ pub enum Colour {
     Busy,
     /// What failed.
     Clay,
-    /// Names and headings in what agents write.
+    /// Names and headings in what agents write, and a merged pull request.
     Lilac,
     /// Code in what agents write.
     Teal,
@@ -567,7 +567,7 @@ pub fn layout_schema() -> Value {
                 "moss": colour("What went well."),
                 "busy": colour("Work going on."),
                 "clay": colour("What failed."),
-                "lilac": colour("Names and headings in what agents write."),
+                "lilac": colour("Names and headings in what agents write, and a merged pull request."),
                 "teal": colour("Code in what agents write."),
                 "sand": colour("Numbers and strings in code."),
             },

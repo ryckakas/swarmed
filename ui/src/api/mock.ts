@@ -1206,15 +1206,15 @@ const switchedTo = new Map([["shop-142", "you/shop-150"]]);
 const alsoOn = new Map([["shop-142", ["you/shop-150"]]]);
 
 /**
- * One sample task has work to commit, another a branch waiting for a pull request, and a
- * third has its worktree on a branch that is not its own.
+ * One sample task has work to commit, another a branch waiting for a pull request, a third has
+ * its worktree on a branch that is not its own, and a fourth has everything pushed and merged.
  */
 async function sampleUnpublished(name: string, own: string): Promise<Unpublished> {
     const branch = switchedTo.get(name) ?? own;
     return {
         changed: name === "fix-login-redirect" ? 4 : 0,
         unpushed: branch === own ? 0 : 2,
-        pushed_before: name === "invoice-export",
+        pushed_before: name === "invoice-export" || name === "rust-support",
         branch,
         branches: [own, ...(alsoOn.get(name) ?? [])],
         rebasing: false,
@@ -1234,11 +1234,41 @@ async function sampleOpenedPull(): Promise<Pull> {
     return pull;
 }
 
-/** One sample task has a pull request with a failed check; the others have none. */
+/**
+ * Three sample tasks have a pull request: one open with a failed check, one merged, and one a
+ * draft with no checks yet, which is grey beside the merged one's lilac. The others have none.
+ */
 async function samplePull(_project: string, name: string): Promise<Pull | null> {
-    if (name !== "fix-login-redirect") {
-        return null;
-    }
+    const pull = SAMPLE_PULLS[name];
+    return pull ? pull() : null;
+}
+
+const SAMPLE_PULLS: Record<string, () => Pull> = {
+    "fix-login-redirect": openPull,
+    "rust-support": () => ({
+        number: 87,
+        title: "Lint Rust files",
+        url: "https://github.com/example/bonsai-lint/pull/87",
+        state: "merged",
+        draft: false,
+        review: "approved",
+        checks: [
+            { name: "Lint", workflow: "CI", outcome: "passed", url: null },
+            { name: "Test", workflow: "CI", outcome: "passed", url: null },
+        ],
+    }),
+    "shop-142": () => ({
+        number: 415,
+        title: "Show the shop's opening hours",
+        url: "https://github.com/example/storefront/pull/415",
+        state: "open",
+        draft: true,
+        review: null,
+        checks: [],
+    }),
+};
+
+function openPull(): Pull {
     return {
         number: 412,
         title: "Fix the redirect loop after login",

@@ -96,6 +96,11 @@ notice adds its line under Unreleased.
   is closed and down while it is open. While the run is still at work, a call in it that failed
   no longer pulses as if running, and the run's count of failed calls is red as it is once the
   run is done.
+- **A merged pull request no longer looks like a draft.** Its number in the sidebar was drawn
+  faint, as a draft with no checks is, and on a badge that small the two looked the same. A
+  merged pull request is now lilac, as GitHub draws it in purple, in the sidebar and in the
+  task panel, in every palette, light and dark. A draft stays grey until its checks say
+  otherwise, and a closed one stays faint with a dashed border.
 
 ## [0.4.0] - 2026-11-23
 
