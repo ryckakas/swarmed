@@ -277,5 +277,7 @@ mod tests {
         );
         // A name that only starts like a folder's is not inside it.
         assert_eq!(outermost(&["deps", "deps.lock"]), ["deps", "deps.lock"]);
+        // Inside is at any depth, not only directly in the folder.
+        assert_eq!(outermost(&["a", "a/b/c"]), ["a"]);
     }
 }

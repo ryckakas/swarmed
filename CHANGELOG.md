@@ -45,7 +45,8 @@ notice adds its line under Unreleased.
   `/vendor/*`, git names the folder and then each thing in it, and the snapshot copied both: each
   package a second time, into the copy already made. That nested the packages inside themselves,
   and failed with "Not a directory" at one holding a file of its own name, as
-  `phpstan/phpstan` does. Each file is now copied once.
+  `phpstan/phpstan` does. Each file is now copied once. A snapshot taken before this holds
+  those extra copies until it is taken again.
 
 ## [0.3.0] - 2026-11-22
 
