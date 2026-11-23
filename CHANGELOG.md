@@ -16,6 +16,13 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **Send a running command or sub-agent to the background, as Ctrl+B does in Claude Code.** A
+  `Bash` or `Agent` call that a Claude Code session waits on has a **Send to background** button
+  on its line. The call returns at once, the turn goes on, and the work runs on in the
+  Background list until it ends; the call's line says it moved. If it had ended already, or
+  Claude Code would not, the line says so quietly. `bg` typed while `swarmed session send` runs
+  a turn does the same.
+
 - **Remote Control: carry on with a Claude Code session from your phone.** Press the phone at
   the top right of a Claude Code session, or type `/rc`, and the session can be reached from
   claude.ai and the Claude app. What you type there is answered in the same worktree and shows
@@ -53,6 +60,10 @@ notice adds its line under Unreleased.
 
 ### Fixed
 
+- **What a Claude Code turn waits on is no longer listed as left running.** Claude Code reports
+  a command or sub-agent its call waits on as it starts, and Swarmed took each such report for
+  work left in the background: it showed in the Background list, and a sub-agent could keep
+  the session's answer back. It is now listed only once it moves to the background.
 - **A custom layout with a key Swarmed does not know is still drawn.** One key a newer Swarmed
   wrote into `layout.json` made an older one beside it refuse the whole layout. The key is now
   left out and named with the other configuration problems, and the rest of the layout is drawn.

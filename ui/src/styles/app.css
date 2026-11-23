@@ -2910,6 +2910,50 @@ code {
 }
 
 /*
+ * Sending the work a running call waits on to the background, and what is said where it did
+ * not go: at the right of the call's line, before its state, and as quiet as the state.
+ */
+.tool-send-background,
+.tool-note {
+    flex: none;
+    margin-left: auto;
+    font-family: var(--font-ui);
+    font-size: var(--text-xs);
+}
+
+.tool-send-background {
+    padding: 0 var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+}
+
+.tool-send-background:hover:not(:disabled) {
+    color: var(--text);
+}
+
+.tool-send-background:disabled {
+    cursor: default;
+    opacity: 0.7;
+}
+
+/* What the agent said can be long: it gives way to the call's state, and its title has it all. */
+.tool-note {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--faint);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+:is(.tool-send-background, .tool-note) + .tool-state {
+    margin-left: 0;
+}
+
+/*
  * A state is read from the call's own summary, since a run's state is not that of each call
  * listed in it. A running run's count of failed calls keeps its own colour and does not pulse.
  */

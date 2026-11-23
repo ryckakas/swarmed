@@ -101,9 +101,13 @@ export interface ToolResult {
 export type ToolItem = {
     kind: "tool";
     key: number;
+    /** The agent's id for the call. */
+    id: string;
     name: string;
     input: unknown;
     result: ToolResult | null;
+    /** Whether the work it waited on was moved to the background, where it goes on. */
+    moved: boolean;
 };
 
 /** The line that opens the list of attached files in a message, as the core writes it. */
@@ -384,11 +388,30 @@ export function toolRunSummary(calls: [ToolItem, ...ToolItem[]]): ToolRunSummary
     };
 }
 
-/** What of a tool call is drawn: its name, its arguments and how it ended. */
+/** What of a tool call is drawn: its name, its arguments, how it ended and where it went on. */
 export interface ToolShown {
+    id: string;
     name: string;
     input: unknown;
     result: ToolResult | null;
+    moved: boolean;
+}
+
+/** The tools whose call waits on work that can go to the background: a command, a sub-agent. */
+const GOES_TO_BACKGROUND = ["Bash", "Agent", "Task"];
+
+/**
+ * Whether the work a call waits on could be sent to the background now: a command or a
+ * sub-agent that runs in the foreground and has not ended. One the agent started in the
+ * background is there already. Whether the agent can, and is at work, is the caller's to know.
+ */
+export function mayGoToBackground(call: ToolShown): boolean {
+    const input = (call.input ?? {}) as Record<string, unknown>;
+    return (
+        call.result === null &&
+        GOES_TO_BACKGROUND.includes(call.name) &&
+        input.run_in_background !== true
+    );
 }
 
 /**
@@ -398,8 +421,10 @@ export interface ToolShown {
  */
 export function sameToolCall(a: ToolShown, b: ToolShown): boolean {
     return (
+        a.id === b.id &&
         a.name === b.name &&
         a.input === b.input &&
+        a.moved === b.moved &&
         a.result?.content === b.result?.content &&
         a.result?.isError === b.result?.isError
     );
@@ -435,6 +460,8 @@ function add(draft: Draft, event: AgentEvent, key: number) {
             return addLimit(draft, event, key);
         case "remote_control":
             return addRemote(draft, event, key);
+        case "background":
+            return markMoved(draft.tools.get(event.tool_use_id ?? ""), event);
         default:
             return addSingle(draft, event, key);
     }
@@ -531,9 +558,17 @@ function addSingle(draft: Draft, event: AgentEvent, key: number) {
 }
 
 function addTool(draft: Draft, event: Extract<AgentEvent, { type: "tool_use" }>, key: number) {
-    const tool: Item = { kind: "tool", key, name: event.name, input: event.input, result: null };
-    draft.tools.set(event.id, tool);
+    const { id, name, input } = event;
+    const tool: Item = { kind: "tool", key, id, name, input, result: null, moved: false };
+    draft.tools.set(id, tool);
     draft.items.push(tool);
+}
+
+/** Marks the call whose work a report says was moved to the background. */
+function markMoved(tool: ToolItem | undefined, event: Extract<AgentEvent, { type: "background" }>) {
+    if (tool && event.moved === true) {
+        tool.moved = true;
+    }
 }
 
 function attachResult(

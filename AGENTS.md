@@ -347,7 +347,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   over: only what was said.
 - **Check UI changes in a browser** with `pnpm dev`. The mock agent answers plain text, asks
   permission for `run: <command>`, answers `show …` with an HTML view, ends its turn with a
-  weekly usage warning for `warn <percent>`, and runs until stopped for `slow`; one sample session has 2,000 messages for checking scroll speed. The README's
+  weekly usage warning for `warn <percent>`, runs until stopped for `slow`, and runs a
+  command its turn waits on for `long: <command>`, until it is sent to the background or
+  stopped; one sample session has 2,000 messages for checking scroll speed. The README's
   screenshot and GIF are of this sample data, never of anyone's real projects.
 - **MCP servers are one pool for every agent** (`mcp_pool.rs`). When a session starts, each
   agent's servers are read from its own configuration (`mcp.rs` and `mcp_plugins.rs` for
@@ -387,7 +389,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   default now) gets its call's result at once and works on past the turn: its
   `AgentEvent::Background` report names the call (`tool_use_id`), which keeps it at work,
   listed under the session even while it is idle, until the report of its end or the
-  agent's exit, in whichever order the result and the report came. Its answer is that end
+  agent's exit, in whichever order the result and the report came. One sent there while its
+  call waited on it is reported the same way when it moves. Its answer is that end
   report's summary, and its row in the Background list opens it. Nothing in the store or the database knows of sub-agents. Conversations
   recorded before this have a sub-agent's words among the agent's own.
 - **A session's title** starts as the first line of its first message. A `Namer` (`ClaudeNamer`:
@@ -440,7 +443,20 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **What agents leave running** (`background.rs`) is read back from the sessions' histories:
   Claude Code reports a `task_started` and a `task_notification` for each background command
   or agent, which become `AgentEvent::Background`. Stopping one is the `stop_task` control
-  request. What ran under an agent that is no longer running is listed as stopped. A stack's
+  request. What ran under an agent that is no longer running is listed as stopped.
+- **Work a call waits on is not work left running** (`claude.rs`, `Pending`). Claude Code
+  reports a `Bash` command or sub-agent its call waits on with `task_started` and
+  `is_backgrounded: false`; `claude.rs` keeps that report to itself, says nothing of its end
+  there, and tells it as `Background` (with `moved`) only when a `task_updated` moves it to
+  the background. Such work can be sent there, as Ctrl+B does in Claude Code's terminal, by
+  `session_send_to_background` (the `background_tasks` control request, with the call's
+  `tool_use_id` or for every call): the call returns, the turn goes on, and the work is
+  listed until it ends. Claude Code's answer arrives as `AgentEvent::SentToBackground`, which
+  the core hands to whoever asked (`Live::await_sent`) and neither stores nor publishes; only
+  Claude Code can (`AgentInfo::sends_to_background`), and the core refuses for the others.
+  The transcript offers it on a running `Bash`, `Agent` or `Task` call of such an agent while
+  it works (`mayGoToBackground`), and says quietly when it did not go; `bg` typed during
+  `swarmed session send` does the same for every call. A stack's
   `start` command is spawned with `std::process`, never Tokio's: window commands that are not
   `async` run on a thread without a runtime, where a Tokio spawn aborts the app.
 - **What a background command printed can be read** (`session_background_output`), from the

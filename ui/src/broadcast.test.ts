@@ -17,6 +17,7 @@ const agents: AgentInfo[] = [
         models: ["opus", "sonnet"],
         default_model: null,
         hears_mid_turn: true,
+        sends_to_background: true,
     },
     {
         id: "codex",
@@ -24,6 +25,7 @@ const agents: AgentInfo[] = [
         models: ["gpt-6.2-sol"],
         default_model: null,
         hears_mid_turn: false,
+        sends_to_background: false,
     },
 ];
 const change = (

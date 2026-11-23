@@ -589,6 +589,11 @@ pub enum AgentEvent {
         /// what was recorded before this.
         #[serde(default)]
         output_file: Option<String>,
+        /// Whether it ran in the foreground first, its call waiting on it, and was then moved
+        /// to the background: by the user, or by the agent itself. Absent from what started
+        /// in the background, and from what was recorded before this.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        moved: bool,
     },
     /// The session was forked from another: what stands before this is a copy of what was
     /// said there. Recorded by the core, not produced by a backend.
@@ -650,6 +655,18 @@ pub enum AgentEvent {
     Heard {
         /// The message as it was sent.
         text: String,
+    },
+    /// The agent's answer to [`AgentCommand::SendToBackground`]. Never stored or published:
+    /// the core hands it to whoever asked, and the move itself is reported as
+    /// [`AgentEvent::Background`].
+    SentToBackground {
+        /// The call that was to go, or `None` for every call that waited.
+        tool_use_id: Option<String>,
+        /// Whether it went. A call that had ended, or was in the background already, did not;
+        /// asked for every call, whether the agent took the request.
+        moved: bool,
+        /// Why the agent would not, in words for the user; `None` unless it refused.
+        refused: Option<String>,
     },
     /// How Remote Control of the session stands: whether it can be reached from claude.ai and
     /// the Claude app, and where. Claude Code reports it; the core records what it asked for
@@ -725,6 +742,14 @@ pub enum AgentCommand {
     StopBackground {
         /// The [`AgentEvent::Background`] task to stop.
         task_id: String,
+    },
+    /// Move a command or sub-agent that a tool call waits on to the background, as Ctrl+B does
+    /// in Claude Code's terminal: the call returns at once, the turn goes on, and the work runs
+    /// on. Answered with [`AgentEvent::SentToBackground`], by an agent that cannot with a
+    /// refusal.
+    SendToBackground {
+        /// The call whose work is to go; `None` sends every one the agent waits on.
+        tool_use_id: Option<String>,
     },
     /// Report one of the agent's own screens, as an [`AgentEvent::Screen`]. An agent that has
     /// no such screens ignores this.

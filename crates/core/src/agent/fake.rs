@@ -25,6 +25,9 @@ use crate::error::Result;
 ///   then writes, reports its end, and the agent takes a turn of its own to read its report;
 ///   `background agent left` leaves it at work, with no end;
 /// - `background bash`: leaves a command running in the background and ends the turn;
+/// - `foreground bash`, `foreground agent`: calls a tool whose command or sub-agent runs in the
+///   foreground until it is sent to the background, then goes on as `background …` does; a
+///   stop meanwhile ends the turn;
 /// - `remote: <text>`: replies as to plain text; then, with Remote Control on, `<text>` comes
 ///   as if typed on claude.ai, and is answered in a turn of its own;
 /// - `remote wavers`: replies as to plain text; then, with Remote Control on, reports the
@@ -115,6 +118,7 @@ impl Script {
             // Named as Claude Code names it, and never there: the fake writes nothing.
             output_file: (!what.starts_with("agent"))
                 .then(|| format!("/tmp/swarmed-fake-agent/bg-{what}.output")),
+            moved: false,
         };
         if !what.starts_with("agent") {
             self.emit(report(BackgroundState::Running, "local_bash", None));
@@ -148,6 +152,83 @@ impl Script {
         self.emit(done(false, Some("It is back.")));
     }
 
+    /// Calls a tool whose work runs in the foreground, the call waiting on it, until it is sent
+    /// to the background or the turn is stopped: a command (`bash`), which then runs on, or a
+    /// sub-agent (`agent`), which then works on past the turn, reports its end, and is read in
+    /// a turn of the agent's own. Claude Code tells nothing of such work until it moves.
+    async fn foreground(&mut self, what: &str) -> Next {
+        let call = format!("tool-fg-{what}");
+        let agent = what == "agent";
+        let (name, input) = if agent {
+            let asked = json!({ "description": "look around", "prompt": "Look around." });
+            ("Agent", asked)
+        } else {
+            (
+                "Bash",
+                json!({ "command": "sleep 600", "description": "Wait" }),
+            )
+        };
+        self.emit(AgentEvent::ToolUse {
+            id: call.clone(),
+            name: name.to_string(),
+            input,
+        });
+        if let Err(next) = self.until_sent_away(&call).await {
+            return next;
+        }
+        let report = |state, summary: Option<&str>| AgentEvent::Background {
+            task_id: format!("bg-fg-{what}"),
+            description: format!("foreground {what}"),
+            kind: if agent { "local_agent" } else { "local_bash" }.to_string(),
+            state,
+            summary: summary.map(str::to_string),
+            tool_use_id: Some(call.clone()),
+            output_file: (!agent).then(|| format!("/tmp/swarmed-fake-agent/bg-fg-{what}.output")),
+            moved: true,
+        };
+        self.emit(report(BackgroundState::Running, None));
+        self.emit(AgentEvent::ToolResult {
+            tool_use_id: call.clone(),
+            content: format!("Sent to the background with ID: bg-fg-{what}."),
+            is_error: false,
+        });
+        self.text("It goes on in the background.");
+        self.emit(done(false, None));
+        if agent {
+            self.emit(report(BackgroundState::Completed, Some("found it")));
+            self.text("It is back: found it.");
+            self.emit(done(false, Some("It is back.")));
+        }
+        Next::Continue
+    }
+
+    /// Waits until the work of call `call` is sent to the background, answering each request
+    /// to send work there as Claude Code does: one for another call does not move it. If it
+    /// never is, what follows instead: the turn was stopped, or the front end went away.
+    async fn until_sent_away(&mut self, call: &str) -> std::result::Result<(), Next> {
+        let mut moved = false;
+        while !moved {
+            let command = wait_for(&mut self.commands, &mut self.told, sends_or_stops).await;
+            let tool_use_id = self.sending(command)?;
+            moved = tool_use_id.as_deref().is_none_or(|id| id == call);
+            self.emit(sent_to_background(tool_use_id, moved));
+        }
+        Ok(())
+    }
+
+    /// The call whose work `command` sends to the background, or `None` for every call's; if
+    /// it sends none, what follows: a stop ends the turn, and no command at all ends the agent.
+    fn sending(&self, command: Option<AgentCommand>) -> std::result::Result<Option<String>, Next> {
+        match command {
+            Some(AgentCommand::SendToBackground { tool_use_id }) => Ok(tool_use_id),
+            Some(_) => {
+                self.emit(done(true, Some("interrupted")));
+                Err(Next::Interrupted)
+            }
+            None => Err(Next::Stop),
+        }
+    }
+
     async fn run(mut self) {
         while self.step().await != Next::Stop {}
     }
@@ -177,6 +258,13 @@ impl Script {
             }
             AgentCommand::RemoteControl { on, reattach, .. } => {
                 self.remote_control(on, reattach);
+                return Next::Continue;
+            }
+            // Between turns no call waits on anything. Asked for every call, Claude Code takes
+            // the request all the same.
+            AgentCommand::SendToBackground { tool_use_id } => {
+                let every = tool_use_id.is_none();
+                self.emit(sent_to_background(tool_use_id, every));
                 return Next::Continue;
             }
             _ => return Next::Continue,
@@ -291,6 +379,9 @@ impl Script {
         if let Some(what) = message.strip_prefix("background ") {
             self.background(what);
             return Next::Continue;
+        }
+        if let Some(what) = message.strip_prefix("foreground ") {
+            return self.foreground(what).await;
         }
         if message == "instructions" {
             let told = self.spec.append_system_prompt.clone();
@@ -413,6 +504,14 @@ fn is_interrupt(command: &AgentCommand) -> bool {
     matches!(command, AgentCommand::Interrupt)
 }
 
+/// Whether `command` sends work to the background or stops the turn.
+fn sends_or_stops(command: &AgentCommand) -> bool {
+    matches!(
+        command,
+        AgentCommand::SendToBackground { .. } | AgentCommand::Interrupt
+    )
+}
+
 /// The end of a turn, as the scripted agent reports it.
 fn done(is_error: bool, result: Option<&str>) -> AgentEvent {
     AgentEvent::TurnDone {
@@ -420,6 +519,15 @@ fn done(is_error: bool, result: Option<&str>) -> AgentEvent {
         result: result.map(String::from),
         cost_usd: Some(0.0),
         duration_ms: None,
+    }
+}
+
+/// The scripted agent's answer to sending work to the background.
+fn sent_to_background(tool_use_id: Option<String>, moved: bool) -> AgentEvent {
+    AgentEvent::SentToBackground {
+        tool_use_id,
+        moved,
+        refused: None,
     }
 }
 

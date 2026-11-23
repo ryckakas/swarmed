@@ -39,6 +39,7 @@ async fn core_with(fx: &common::Fixture, backend: AcpBackend) -> Core {
         models: vec![],
         default_model: None,
         hears_mid_turn: false,
+        sends_to_background: false,
     };
     core.add_agent(info, Arc::new(backend));
     core.project_add(&fx.repo, None).await.expect("test setup");
@@ -881,6 +882,7 @@ async fn a_running_session_goes_back_to_the_default_as_it_stands_now() {
         models: vec![NOW.into()],
         default_model: Some(NOW.into()),
         hears_mid_turn: false,
+        sends_to_background: false,
     };
     let agent = AcpBackend {
         default_model: Some(NOW.into()),
@@ -1048,6 +1050,7 @@ async fn an_agent_with_servers_of_its_own_is_given_only_the_ones_it_lacks() {
         models: vec![],
         default_model: None,
         hears_mid_turn: false,
+        sends_to_background: false,
     };
     core.add_agent(codex, Arc::new(scripted_agent(&[])));
     let mut bus = core.subscribe();
@@ -1183,4 +1186,10 @@ async fn an_acp_agent_is_not_told_a_message_in_the_middle_of_its_turn() {
     );
     // It still waits, to be sent when the turn ends or sent now.
     assert_eq!(core.session_queue(id).expect("reads"), queue);
+    // Nor can it send work a call waits on to the background: the core does not ask it.
+    let sent = core.session_send_to_background(id, None).await;
+    assert!(
+        matches!(&sent, Err(Error::NoSendingToBackground(agent)) if agent == AGENT),
+        "{sent:?}"
+    );
 }

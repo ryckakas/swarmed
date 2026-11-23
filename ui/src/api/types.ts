@@ -750,6 +750,11 @@ export type AgentEvent =
           tool_use_id: string | null;
           /** Where a command's output is written, if the agent said. */
           output_file: string | null;
+          /**
+           * Set when it ran in the foreground first, its call waiting on it, and was then moved
+           * to the background. Absent otherwise.
+           */
+          moved?: boolean;
       }
     /** One of the agent's own screens, such as `/usage`, with the contents the agent gave. */
     | { type: "screen"; command: string; title: string; note: string; sections: ScreenSection[] }
@@ -873,6 +878,11 @@ export interface AgentInfo {
      * next step, without stopping it: Claude Code's way.
      */
     hears_mid_turn: boolean;
+    /**
+     * Whether a command or sub-agent that a tool call waits on can be sent to the background,
+     * so that the call returns and the turn goes on: Claude Code's Ctrl+B.
+     */
+    sends_to_background: boolean;
 }
 
 /** How a new session should run. */

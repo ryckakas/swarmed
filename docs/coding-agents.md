@@ -85,6 +85,23 @@ Whatever you choose, the conversation says when a limit is reached and when Clau
 with extra usage, which is billed, and the coins and the card show the same. An agent can change
 it for you with `configure`.
 
+### Sending a command or sub-agent to the background
+
+In Claude Code's own terminal, Ctrl+B moves a long command, or a sub-agent, that the turn waits
+on into the background. In Swarmed, a running `Bash` or `Agent` call of a Claude Code session has
+a **Send to background** button on its line while the session works. The call returns at once,
+the turn goes on, and the command or sub-agent runs on: the call's line then says "moved to the
+background", and the task panel's Background list shows it, with a way to stop it, until it ends.
+A sub-agent sent there keeps the session's answer back until it is done, as one Claude Code
+started in the background does.
+
+If it had already ended, or was in the background already, nothing breaks: the line says it was
+not sent. So does a Claude Code that refuses, such as one started with
+`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`, or a version too old for it, which is then to be
+updated. Work that a call waits on is not listed in the Background list until it moves there.
+Other agents have no such thing, and their calls have no button. From the command line, type
+`bg` and Enter while `swarmed session run` or `session send` shows a turn.
+
 ### Remote Control: carry on from your phone
 
 A Claude Code session can be reached from claude.ai and from the Claude app on your phone. Press

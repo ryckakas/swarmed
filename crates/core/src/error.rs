@@ -217,6 +217,13 @@ pub enum Error {
         "{0} takes no message in the middle of its turn: send it now instead, which stops the turn"
     )]
     HearsNoMessageMidTurn(String),
+    /// Work a call waits on was to be sent to the background, which only Claude Code can do.
+    #[error("only Claude Code can send work to the background, and this session runs `{0}`")]
+    NoSendingToBackground(String),
+    /// The agent would not send work to the background, or did not say whether it did. Says
+    /// why, in words for the user.
+    #[error("not sent to the background: {0}")]
+    NotSentToBackground(String),
     /// A port's name is not one a hook could use.
     #[error(
         "`{0}` cannot name a port: use lowercase letters, digits and underscores, starting with a letter"

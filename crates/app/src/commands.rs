@@ -1036,6 +1036,19 @@ pub(crate) fn session_background_output(
     Ok(core.session_background_output(id, &task_id, from)?)
 }
 
+/// Asks a session's agent to send the work a call waits on, or every call's, to the
+/// background, and says whether it went.
+#[tauri::command]
+pub(crate) async fn session_send_to_background(
+    core: CoreState<'_>,
+    id: i64,
+    tool_use_id: Option<String>,
+) -> Command<bool> {
+    Ok(core
+        .session_send_to_background(id, tool_use_id.as_deref())
+        .await?)
+}
+
 /// Asks a session's agent to stop something it left running.
 #[tauri::command]
 pub(crate) fn session_stop_background(

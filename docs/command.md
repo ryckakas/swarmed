@@ -23,8 +23,10 @@ swarmed task rm shop fix-login                        # teardown hook, worktree 
 no longer knows; `--force` removes it anyway. A failing `teardown` does not stop it: what it had to pass over is printed.
 
 `session run` and `session send` print the conversation as it happens and ask on the terminal
-when the agent wants permission (`[y/N]`). Ctrl-C stops the turn, not the session. They exit
-non-zero when the turn is stopped or fails, so a script can tell.
+when the agent wants permission (`[y/N]`). Ctrl-C stops the turn, not the session. Typing `bg`
+and Enter sends a command or sub-agent that Claude Code waits on to the background, as Ctrl+B
+does in its own terminal: the turn goes on, and `task background` lists it while it runs. They
+exit non-zero when the turn is stopped or fails, so a script can tell.
 
 A session runs on Claude Code unless `--agent` names another (`swarmed agents` lists them).
 `--ask`, `--auto` and `--plan` choose how it is supervised; without one, the settings' default

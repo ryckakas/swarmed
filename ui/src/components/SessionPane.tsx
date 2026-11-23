@@ -9,7 +9,7 @@ import { capitalized } from "../wording";
 import { Composer } from "./Composer";
 import { CloudIcon, EndIcon, ForkIcon, IconButton, PanelIcon } from "./IconButton";
 import { NewTask } from "./NewTask";
-import { CLAUDE, useAgents } from "./options";
+import { CLAUDE, useAgents, useSendsToBackground } from "./options";
 import { Picker } from "./Picker";
 import { ProviderMark } from "./ProviderMark";
 import { RemoteButton } from "./RemoteButton";
@@ -45,6 +45,7 @@ export function SessionPane() {
     const session = findSession(projects, selectedSessionId);
     const home = session && findSessionHome(projects, session);
     const subView = useStore((state) => state.subView);
+    const sendsToBackground = useSendsToBackground(session?.agent ?? "");
 
     if (!(session && home)) {
         return <NewTask projects={projects} />;
@@ -135,6 +136,7 @@ export function SessionPane() {
                     sessionId={session.id}
                     events={events}
                     working={session.status === "working"}
+                    sendsToBackground={sendsToBackground}
                 />
             )}
             <Composer key={`composer-${session.id}`} session={session} />

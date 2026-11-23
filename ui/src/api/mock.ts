@@ -53,7 +53,8 @@ import type {
 // shell. The agent behaves like the core's FakeBackend: plain text is echoed, `run: <command>`
 // asks permission first, `ask` puts questions, `delegate` starts sub-agents, `show` answers
 // with an HTML view, `warn <percent>` ends its turn with a usage warning for the weekly window
-// that full, and `slow` runs until interrupted.
+// that full, `slow` runs until interrupted, and `long: <command>` runs a command the turn
+// waits on until it is sent to the background or stopped.
 
 // `show` answers with this view: a chart in the app's colours, with buttons that redraw it.
 const SAMPLE_VIEW = `<style>
@@ -652,9 +653,14 @@ function sampleOutput(taskId: string): string | null {
     return `${lines.join("\n")}\n`;
 }
 
-function backgroundApi(): Pick<
+function backgroundApi(
+    agent: MockAgent,
+): Pick<
     Api,
-    "taskBackground" | "sessionStopBackground" | "sessionBackgroundOutput"
+    | "taskBackground"
+    | "sessionStopBackground"
+    | "sessionBackgroundOutput"
+    | "sessionSendToBackground"
 > {
     const tasks: BackgroundTask[] = [
         {
@@ -691,9 +697,14 @@ function backgroundApi(): Pick<
             output: false,
         },
     ];
+    const all = () => [...agent.sentToBackground.map((sent) => sent.listed), ...tasks];
     return {
-        taskBackground: async (_project, name) =>
-            name === "fix-login-redirect" ? tasks.map((task) => ({ ...task })) : [],
+        taskBackground: async (_project, name) => {
+            const sent = agent.sentToBackground.filter((one) => one.task === name);
+            const sample = name === "fix-login-redirect" ? tasks : [];
+            return [...sent.map((one) => one.listed), ...sample].map((task) => ({ ...task }));
+        },
+        sessionSendToBackground: async (id, toolUseId) => agent.sendToBackground(id, toolUseId),
         sessionBackgroundOutput: async (_id, taskId, from) => {
             const text = sampleOutput(taskId);
             if (text === null) {
@@ -704,7 +715,7 @@ function backgroundApi(): Pick<
             return { text: text.slice(start), start, end: text.length };
         },
         sessionStopBackground: async (id, taskId) => {
-            const task = tasks.find((one) => one.session_id === id && one.task_id === taskId);
+            const task = all().find((one) => one.session_id === id && one.task_id === taskId);
             if (task) {
                 task.state = "stopped";
             }
@@ -1362,6 +1373,10 @@ class MockAgent {
         (allowed: boolean, answers?: Record<string, string>) => void
     >();
     private readonly interrupts = new Map<number, () => void>();
+    /** The command each session's turn waits on, while `long:` runs one. */
+    private readonly waitedOn = new Map<number, { call: string; command: string }>();
+    /** What was sent to the background, by the task it belongs to, as its list shows it. */
+    readonly sentToBackground: { task: string; listed: BackgroundTask }[] = [];
     /** The waiting message each session has open for editing. */
     private readonly holds = new Map<number, number>();
     /** Sessions whose first message would have gone but was open for editing. */
@@ -1636,6 +1651,8 @@ class MockAgent {
             this.askQuestions(id, text === "ask one", done);
         } else if (text.startsWith("run:")) {
             this.askPermission(id, text.slice(4).trim(), done);
+        } else if (text.startsWith("long:")) {
+            this.runLong(id, text.slice(5).trim());
         } else if (text.startsWith("show")) {
             this.showView(id, done);
         } else if (text.startsWith("switch ")) {
@@ -1645,6 +1662,82 @@ class MockAgent {
         } else {
             return false;
         }
+        return true;
+    }
+
+    /**
+     * Runs a command the turn waits on, as a build or a dev server keeps it waiting, until it
+     * is sent to the background or the turn is stopped.
+     */
+    private runLong(id: number, command: string) {
+        const call = `long-${this.nextId++}`;
+        const input = { command, description: `Run ${command}` };
+        this.later(id, { type: "tool_use", id: call, name: "Bash", input }, "working");
+        this.waitedOn.set(id, { call, command });
+        this.interrupts.set(id, () => {
+            this.waitedOn.delete(id);
+            const stopped = "Interrupted by the user";
+            const result: AgentEvent = {
+                type: "tool_result",
+                tool_use_id: call,
+                content: stopped,
+                is_error: true,
+            };
+            this.publish(id, result, "working");
+            this.publish(id, mockTurnEnd(true), "idle");
+        });
+    }
+
+    /**
+     * Sends the command a `long:` turn waits on to the background, as Claude Code does: the
+     * call returns, the turn goes on and ends, and the command runs on. Whether it went.
+     */
+    sendToBackground(id: number, toolUseId: string | null): boolean {
+        const waited = this.waitedOn.get(id);
+        if (!waited || (toolUseId !== null && toolUseId !== waited.call)) {
+            return false;
+        }
+        this.waitedOn.delete(id);
+        this.interrupts.delete(id);
+        const { call, command } = waited;
+        const taskId = `bg-${call}`;
+        const output = `/private/tmp/claude-501/tasks/${taskId}.output`;
+        const description = `Run ${command}`;
+        const moved: AgentEvent = {
+            type: "background",
+            task_id: taskId,
+            description,
+            kind: "local_bash",
+            state: "running",
+            summary: null,
+            tool_use_id: call,
+            output_file: output,
+            moved: true,
+        };
+        this.publish(id, moved, "working");
+        const content = `Command was manually backgrounded by user with ID: ${taskId}. Output is being written to: ${output}.`;
+        const result: AgentEvent = {
+            type: "tool_result",
+            tool_use_id: call,
+            content,
+            is_error: false,
+        };
+        this.publish(id, result, "working");
+        this.later(id, { type: "text", text: `${command} goes on in the background.` }, "working");
+        this.later(id, mockTurnEnd(false), "idle", 2);
+        const task = this.tasks().find((one) => one.sessions.some((session) => session.id === id));
+        const listed: BackgroundTask = {
+            session_id: id,
+            session_title: this.configure(id, {}).title,
+            task_id: taskId,
+            description,
+            kind: "local_bash",
+            state: "running",
+            summary: null,
+            tool_use_id: call,
+            output: false,
+        };
+        this.sentToBackground.push({ task: task?.name ?? "", listed });
         return true;
     }
 
@@ -2102,6 +2195,17 @@ class MockAgent {
     }
 }
 
+/** The end of a sample turn: stopped, or ended well. */
+function mockTurnEnd(stopped: boolean): AgentEvent {
+    return {
+        type: "turn_done",
+        is_error: stopped,
+        result: stopped ? "interrupted" : null,
+        cost_usd: 0.0123,
+        duration_ms: 72_000,
+    };
+}
+
 /** Closing sessions, listing the closed ones of a task, and reopening one. */
 /** The sample sessions whose title holds the words: the sample conversations are not kept. */
 function sampleSearch(projects: Project[], query: string): SearchHit[] {
@@ -2385,6 +2489,7 @@ export function createMockApi(): Api {
                 models: ["opus", "sonnet", "haiku", "fable"],
                 default_model: null,
                 hears_mid_turn: true,
+                sends_to_background: true,
             },
             {
                 id: "opencode",
@@ -2392,6 +2497,7 @@ export function createMockApi(): Api {
                 models: ["openrouter/openai/gpt-5.6", "openrouter/google/gemini-3-pro"],
                 default_model: "openrouter/openai/gpt-5.6",
                 hears_mid_turn: false,
+                sends_to_background: false,
             },
         ],
         // A browser gives no paths, so the sample hands out two that look real.
@@ -2549,7 +2655,7 @@ export function createMockApi(): Api {
         sessionInterrupt: async (id) => {
             agent.interrupt(id);
         },
-        ...backgroundApi(),
+        ...backgroundApi(agent),
         slashCommands: async () => MOCK_COMMANDS,
         sessionCommandAnswer: async (id, requestId, answers) =>
             agent.answerCommand(id, requestId, answers),

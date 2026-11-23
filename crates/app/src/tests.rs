@@ -656,6 +656,8 @@ fn the_ui_can_list_what_was_left_running_and_cannot_stop_what_no_agent_runs() {
     assert_eq!(app.invoke("task_background", target), Ok(json!([])));
     let stop = json!({ "id": 999, "taskId": "b1" });
     assert!(app.invoke("session_stop_background", stop).is_err());
+    let send = json!({ "id": 999, "toolUseId": "toolu_1" });
+    assert!(app.invoke("session_send_to_background", send).is_err());
     // Output is read only of what a session's own agent named: nothing here did.
     let output = json!({ "id": 999, "taskId": "b1", "from": null });
     assert!(app.invoke("session_background_output", output).is_err());
@@ -838,6 +840,23 @@ fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
         json!({ "id": id, "requestId": request["request_id"] }),
     );
     app.wait_for_text(id, "heard: a hint");
+
+    // A command a call waits on can be sent to the background, and the turn goes on.
+    app.ok(
+        "session_send",
+        json!({ "id": id, "text": "foreground bash" }),
+    );
+    wait_for(&app, id, "the call", |e| {
+        e["type"] == "tool_use" && e["id"] == "tool-fg-bash"
+    });
+    let sent = json!({ "id": id, "toolUseId": "tool-fg-bash" });
+    assert_eq!(app.ok("session_send_to_background", sent), json!(true));
+    app.wait_for_text(id, "It goes on in the background.");
+    // With no call waiting, a call's work does not go; asked for every call, it is taken.
+    let gone = json!({ "id": id, "toolUseId": "tool-fg-bash" });
+    assert_eq!(app.ok("session_send_to_background", gone), json!(false));
+    let every = json!({ "id": id, "toolUseId": null });
+    assert_eq!(app.ok("session_send_to_background", every), json!(true));
 }
 
 #[test]

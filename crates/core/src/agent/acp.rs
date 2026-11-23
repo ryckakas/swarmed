@@ -758,6 +758,14 @@ impl Conversation {
                 self.spec.supervision = supervision;
                 self.set_mode().await;
             }
+            // The protocol has no way to let a call return while its work goes on.
+            AgentCommand::SendToBackground { tool_use_id } => {
+                self.emit(AgentEvent::SentToBackground {
+                    tool_use_id,
+                    moved: false,
+                    refused: Some("this agent cannot send work to the background".to_string()),
+                });
+            }
             // These agents report nothing left running, so there is nothing to stop, describe
             // no screens of their own, and cannot be reached from claude.ai.
             AgentCommand::StopBackground { .. }

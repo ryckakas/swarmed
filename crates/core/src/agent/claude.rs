@@ -4,7 +4,7 @@
 //! shapes. Parsing is deliberately loose: unknown message types become [`AgentEvent::Other`]
 //! and missing fields fall back to defaults, because the CLI changes often.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
@@ -119,23 +119,55 @@ async fn answer(mut command: Command, limit: Duration) -> Option<String> {
     Some(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-/// Inputs of pending permission requests, which have to be echoed back when allowing.
+/// How many commands and sub-agents in the foreground are kept, the latest: a turn waits on a
+/// few at most, and Claude Code may say nothing of one that ends there.
+const FOREGROUND_KEPT: usize = 256;
+
+/// What is pending between messages: the inputs of permission requests, which have to be
+/// echoed back when allowing, and the commands and sub-agents a call waits on, by task id,
+/// each with the report of its start, which is told only if it moves to the background.
 #[derive(Debug, Clone, Default)]
-struct Pending(Arc<Mutex<HashMap<String, Value>>>);
+struct Pending {
+    requests: Arc<Mutex<HashMap<String, Value>>>,
+    foreground: Arc<Mutex<VecDeque<(String, AgentEvent)>>>,
+}
 
 impl Pending {
     fn insert(&self, request_id: String, input: Value) {
-        self.0
+        self.requests
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .insert(request_id, input);
     }
 
     fn take(&self, request_id: &str) -> Option<Value> {
-        self.0
+        self.requests
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(request_id)
+    }
+
+    /// Keeps the report of a task that started in the foreground.
+    fn in_foreground(&self, task_id: &str, started: AgentEvent) {
+        let mut kept = self
+            .foreground
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        kept.push_back((task_id.to_string(), started));
+        while kept.len() > FOREGROUND_KEPT {
+            kept.pop_front();
+        }
+    }
+
+    /// The report of task `task_id`'s start, if it started in the foreground and has not left
+    /// it until now. It has now: it is forgotten.
+    fn out_of_foreground(&self, task_id: &str) -> Option<AgentEvent> {
+        let mut kept = self
+            .foreground
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let at = kept.iter().position(|(id, _)| id == task_id)?;
+        kept.remove(at).map(|(_, started)| started)
     }
 }
 
@@ -470,7 +502,8 @@ fn usage_request() -> Value {
 fn parse_answer(message: &Value) -> Vec<AgentEvent> {
     let known = parse_context(message)
         .or_else(|| parse_applied(message))
-        .or_else(|| parse_remote_answer(message));
+        .or_else(|| parse_remote_answer(message))
+        .or_else(|| parse_background_answer(message));
     if let Some(event) = known {
         return vec![event];
     }
@@ -669,12 +702,72 @@ fn command_line(command: AgentCommand, pending: &Pending, requests: &mut u64) ->
             requests,
             &json!({ "subtype": "stop_task", "task_id": task_id }),
         ),
+        AgentCommand::SendToBackground { tool_use_id } => {
+            background_request(tool_use_id.as_deref())
+        }
         AgentCommand::Show(kind) => screens::request(kind),
         AgentCommand::AskUsage => usage_request(),
         AgentCommand::RemoteControl { on, name, reattach } => {
             remote_control_request(on, &name, reattach.as_deref())
         }
     }
+}
+
+/// The id of a request that sends work to the background. One for a single call is followed
+/// by `:` and the call's id, so that its answer says which call it is about.
+const BACKGROUND_REQUEST: &str = "swarmed-background";
+
+/// Sends the command or sub-agent that call `tool_use_id` waits on to the background, or with
+/// `None` every one that a call waits on, as Ctrl+B does in Claude Code's terminal.
+fn background_request(tool_use_id: Option<&str>) -> Value {
+    let (request_id, request) = match tool_use_id {
+        Some(id) => (
+            format!("{BACKGROUND_REQUEST}:{id}"),
+            json!({ "subtype": "background_tasks", "tool_use_id": id }),
+        ),
+        None => (
+            BACKGROUND_REQUEST.to_string(),
+            json!({ "subtype": "background_tasks" }),
+        ),
+    };
+    json!({
+        "type": "control_request",
+        "request_id": request_id,
+        "request": request,
+    })
+}
+
+/// Claude Code's answer to [`background_request`], if `message` is one. Asked about one call,
+/// it says whether that call's work went; asked about every call, it only takes the request.
+/// What it says when it refuses is passed on, except where only its version is to blame.
+fn parse_background_answer(message: &Value) -> Option<AgentEvent> {
+    let response = message.get("response")?;
+    let rest = kind_of(response, "request_id")?.strip_prefix(BACKGROUND_REQUEST)?;
+    let tool_use_id = match rest {
+        "" => None,
+        call => Some(call.strip_prefix(':')?.to_string()),
+    };
+    if kind_of(response, "subtype") != Some("success") {
+        let said = kind_of(response, "error").unwrap_or("Claude Code gave no reason");
+        let refused = if said.contains("Unsupported control request subtype") {
+            "this version of Claude Code cannot send work to the background: update it".to_string()
+        } else {
+            said.to_string()
+        };
+        return Some(AgentEvent::SentToBackground {
+            tool_use_id,
+            moved: false,
+            refused: Some(refused),
+        });
+    }
+    let went = response
+        .pointer("/response/backgrounded")
+        .and_then(Value::as_bool);
+    Some(AgentEvent::SentToBackground {
+        moved: went.unwrap_or_else(|| tool_use_id.is_none()),
+        tool_use_id,
+        refused: None,
+    })
 }
 
 /// The id of the request that turns Remote Control on, which its answer is known by.
@@ -837,7 +930,7 @@ fn parse_message(message: &Value, pending: &Pending) -> Vec<AgentEvent> {
         "system" if kind_of(message, "subtype") == Some("bridge_state") => {
             parse_bridge_state(message).into_iter().collect()
         }
-        "system" => parse_background(message).into_iter().collect(),
+        "system" => parse_background(message, pending).into_iter().collect(),
         _ => vec![AgentEvent::Other {
             raw: message.clone(),
         }],
@@ -872,36 +965,94 @@ fn of_sub_agent(message: &Value, event: AgentEvent) -> AgentEvent {
     }
 }
 
-/// What Claude Code says of the things it left running: that one started, and how one ended.
-/// Its other system messages, hooks and counters, are not shown.
-fn parse_background(message: &Value) -> Option<AgentEvent> {
-    let state = match kind_of(message, "subtype")? {
-        "task_started" => BackgroundState::Running,
-        "task_notification" => match kind_of(message, "status")? {
-            "completed" => BackgroundState::Completed,
-            "stopped" | "killed" => BackgroundState::Stopped,
-            _ => BackgroundState::Failed,
-        },
-        _ => return None,
-    };
-    Some(AgentEvent::Background {
-        task_id: kind_of(message, "task_id")?.to_string(),
+/// What Claude Code says of the commands and sub-agents it runs as tasks: that one started,
+/// moved to the background, or ended. One that a call waits on, in the foreground, is no work
+/// left running: its start is kept here and told only if it moves to the background, and its
+/// end in the foreground, which that call's result says, is not told at all. Its other system
+/// messages, hooks and counters, are not shown.
+fn parse_background(message: &Value, pending: &Pending) -> Option<AgentEvent> {
+    let task_id = kind_of(message, "task_id")?;
+    match kind_of(message, "subtype")? {
+        "task_started" => {
+            let started = task_report(message, BackgroundState::Running);
+            let waited_on = message.get("is_backgrounded").and_then(Value::as_bool) == Some(false);
+            if !waited_on {
+                return Some(started);
+            }
+            pending.in_foreground(task_id, started);
+            None
+        }
+        "task_updated" => moved_to_background(task_id, message.get("patch")?, pending),
+        "task_notification" => {
+            let state = match kind_of(message, "status")? {
+                "completed" => BackgroundState::Completed,
+                "stopped" | "killed" => BackgroundState::Stopped,
+                _ => BackgroundState::Failed,
+            };
+            let in_foreground = pending.out_of_foreground(task_id).is_some();
+            (!in_foreground).then(|| task_report(message, state))
+        }
+        _ => None,
+    }
+}
+
+/// A report of a task as Claude Code describes it in `message`.
+fn task_report(message: &Value, state: BackgroundState) -> AgentEvent {
+    AgentEvent::Background {
+        task_id: str_of(message, "task_id"),
         description: str_of(message, "description"),
         kind: str_of(message, "task_type"),
         state,
         summary: kind_of(message, "summary").map(String::from),
         tool_use_id: kind_of(message, "tool_use_id").map(String::from),
-        output_file: kind_of(message, "output_file").map(String::from),
-    })
+        // Claude Code names an empty file for a task that writes none.
+        output_file: kind_of(message, "output_file")
+            .filter(|file| !file.is_empty())
+            .map(String::from),
+        moved: false,
+    }
 }
 
-/// Claude Code's word, in a `Bash` call's result, that the command went on in the background
+/// A task that ran in the foreground and now runs in the background, if `patch`, a change to
+/// task `task_id`, says it moved there: reported as it started, now running in the
+/// background. Any other change is not told.
+fn moved_to_background(task_id: &str, patch: &Value, pending: &Pending) -> Option<AgentEvent> {
+    if patch.get("is_backgrounded").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    let started = pending.out_of_foreground(task_id);
+    let bare = || AgentEvent::Background {
+        task_id: task_id.to_string(),
+        description: str_of(patch, "description"),
+        kind: String::new(),
+        state: BackgroundState::Running,
+        summary: None,
+        tool_use_id: None,
+        output_file: None,
+        moved: true,
+    };
+    let mut report = started.unwrap_or_else(bare);
+    if let AgentEvent::Background { moved, .. } = &mut report {
+        *moved = true;
+    }
+    Some(report)
+}
+
+/// How Claude Code starts a `Bash` call's result when the command goes on in the background,
+/// each with whether it ran in the foreground first and was moved there.
+const IN_BACKGROUND: [(&str, bool); 2] = [
+    ("Command running in background with ID: ", false),
+    ("Command was manually backgrounded by user with ID: ", true),
+];
+
+/// Claude Code's word, in a `Bash` call's result, that the command goes on in the background
 /// and where what it prints goes: "Command running in background with ID: bzufoxos3. Output
-/// is being written to: /private/tmp/claude-501/.../bzufoxos3.output". Read as a report of it
-/// running, since its own report of the start does not say where its output goes. Other
-/// wording is passed over: such a command shows what it printed only once it has ended. So
-/// is a result that only holds those words further in: a file or a page that quotes them
-/// would otherwise report a command that never ran, writing wherever the quote says.
+/// is being written to: /private/tmp/claude-501/.../bzufoxos3.output", or the same after
+/// "Command was manually backgrounded by user with ID: " for one sent there while it ran. Read
+/// as a report of it running, since its own report of the start does not say where its output
+/// goes. Other wording is passed over: such a command shows what it printed only once it has
+/// ended. So is a result that only holds those words further in: a file or a page that quotes
+/// them would otherwise report a command that never ran, writing wherever the quote says.
 fn started_in_background(result: &AgentEvent) -> Option<AgentEvent> {
     let AgentEvent::ToolResult {
         tool_use_id,
@@ -911,9 +1062,10 @@ fn started_in_background(result: &AgentEvent) -> Option<AgentEvent> {
     else {
         return None;
     };
-    let rest = content
-        .trim_start()
-        .strip_prefix("Command running in background with ID: ")?;
+    let said = content.trim_start();
+    let (rest, moved) = IN_BACKGROUND
+        .iter()
+        .find_map(|(words, moved)| Some((said.strip_prefix(words)?, *moved)))?;
     let (task_id, rest) = rest.split_once(". Output is being written to: ")?;
     let named = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
     if task_id.is_empty() || !task_id.chars().all(named) {
@@ -928,6 +1080,7 @@ fn started_in_background(result: &AgentEvent) -> Option<AgentEvent> {
         summary: None,
         tool_use_id: Some(tool_use_id.clone()),
         output_file: Some(file.to_string()),
+        moved,
     })
 }
 
@@ -1877,6 +2030,22 @@ mod tests {
         let events = parse_message(&ended, &pending);
         let named = matches!(events.as_slice(), [AgentEvent::Background { output_file: Some(named), .. }] if named == file);
         assert!(named, "{events:?}");
+        // A command sent there while its call waited on it is worded as Claude Code 2.1.330
+        // words it, and marked as moved.
+        let manual = json!({
+            "type": "user",
+            "message": { "content": [{
+                "type": "tool_result", "tool_use_id": "toolu_2",
+                "content": format!("Command was manually backgrounded by user with ID: b7. Output is being written to: {file}."),
+            }]},
+        });
+        let events = parse_message(&manual, &pending);
+        let moved = matches!(
+            events.as_slice(),
+            [AgentEvent::ToolResult { .. }, AgentEvent::Background { task_id, moved: true, output_file: Some(named), .. }]
+                if task_id == "b7" && named == file
+        );
+        assert!(moved, "{events:?}");
         // Other wording says nothing about where output goes.
         let other = json!({
             "type": "user",
@@ -2083,6 +2252,7 @@ mod tests {
                 summary: None,
                 tool_use_id: None,
                 output_file: None,
+                moved: false,
             }]
         );
         assert_eq!(ended_as("completed"), Some(BackgroundState::Completed));
@@ -2091,6 +2261,144 @@ mod tests {
         // The other things it says about them are not events of their own.
         let changed = json!({ "type": "system", "subtype": "background_tasks_changed" });
         assert_eq!(parse_message(&changed, &pending), []);
+    }
+
+    /// Claude Code's report of the start of task `id`, which call `call` started; in the
+    /// foreground, its call waiting on it, unless `background`.
+    fn task_started(id: &str, call: &str, kind: &str, background: bool) -> Value {
+        json!({
+            "type": "system", "subtype": "task_started", "task_id": id,
+            "description": format!("run {id}"), "task_type": kind, "tool_use_id": call,
+            "is_backgrounded": background,
+        })
+    }
+
+    /// Claude Code's report of a change to task `id`, as Claude Code 2.1.330 sends it.
+    fn task_updated(id: &str, patch: &Value) -> Value {
+        json!({ "type": "system", "subtype": "task_updated", "task_id": id, "patch": patch })
+    }
+
+    #[test]
+    fn work_a_call_waits_on_is_reported_only_once_it_moves_to_the_background() {
+        let pending = Pending::default();
+        let started = task_started("a1", "toolu_agent", "local_agent", false);
+        assert_eq!(parse_message(&started, &pending), []);
+        // A change that is no move says nothing either.
+        let running = task_updated("a1", &json!({ "status": "running" }));
+        assert_eq!(parse_message(&running, &pending), []);
+        let moved = task_updated("a1", &json!({ "is_backgrounded": true }));
+        assert_eq!(
+            parse_message(&moved, &pending),
+            [AgentEvent::Background {
+                task_id: "a1".into(),
+                description: "run a1".into(),
+                kind: "local_agent".into(),
+                state: BackgroundState::Running,
+                summary: None,
+                tool_use_id: Some("toolu_agent".into()),
+                output_file: None,
+                moved: true,
+            }]
+        );
+        // From there on it is work left running, whose end is told.
+        let ended = json!({
+            "type": "system", "subtype": "task_notification", "task_id": "a1",
+            "status": "completed", "summary": "done", "output_file": "",
+        });
+        let told = parse_message(&ended, &pending);
+        let end = matches!(
+            told.as_slice(),
+            [AgentEvent::Background {
+                state: BackgroundState::Completed,
+                output_file: None,
+                ..
+            }]
+        );
+        assert!(end, "{told:?}");
+    }
+
+    #[test]
+    fn work_that_ends_where_its_call_waited_is_never_listed_as_left_running() {
+        let pending = Pending::default();
+        let started = task_started("b1", "toolu_bash", "local_bash", false);
+        let finished = task_updated("b1", &json!({ "status": "completed" }));
+        let ended = json!({
+            "type": "system", "subtype": "task_notification", "task_id": "b1",
+            "status": "completed", "summary": "exit code 0",
+        });
+        for message in [started, finished, ended] {
+            assert_eq!(parse_message(&message, &pending), [], "{message}");
+        }
+        // One that started in the background is reported as before, end and all.
+        let background = task_started("b2", "toolu_2", "local_bash", true);
+        assert_eq!(parse_message(&background, &pending).len(), 1);
+        // A move nobody saw start is still a move, if a bare one.
+        let unseen = task_updated("b3", &json!({ "is_backgrounded": true }));
+        let bare = matches!(
+            parse_message(&unseen, &pending).as_slice(),
+            [AgentEvent::Background { task_id, moved: true, state: BackgroundState::Running, .. }]
+                if task_id == "b3"
+        );
+        assert!(bare);
+    }
+
+    #[test]
+    fn a_call_is_sent_to_the_background_as_the_agent_sdk_sends_it_and_the_answer_is_read() {
+        let one = AgentCommand::SendToBackground {
+            tool_use_id: Some("toolu_1".into()),
+        };
+        let line = command_line(one, &Pending::default(), &mut 0);
+        assert_eq!(
+            line,
+            json!({
+                "type": "control_request", "request_id": "swarmed-background:toolu_1",
+                "request": { "subtype": "background_tasks", "tool_use_id": "toolu_1" },
+            })
+        );
+        let every = AgentCommand::SendToBackground { tool_use_id: None };
+        let line = command_line(every, &Pending::default(), &mut 0);
+        assert_eq!(line["request"], json!({ "subtype": "background_tasks" }));
+
+        let answer = |request_id: &str, response: Value| {
+            let message = json!({ "type": "control_response", "response": with_fields(
+                json!({ "request_id": request_id }), response) });
+            parse_message(&message, &Pending::default())
+        };
+        let sent = |call: Option<&str>, moved: bool, refused: Option<&str>| {
+            vec![AgentEvent::SentToBackground {
+                tool_use_id: call.map(String::from),
+                moved,
+                refused: refused.map(String::from),
+            }]
+        };
+        let success = |response: Value| json!({ "subtype": "success", "response": response });
+        let call = "swarmed-background:toolu_1";
+        let went = success(json!({ "backgrounded": true }));
+        assert_eq!(answer(call, went), sent(Some("toolu_1"), true, None));
+        // Ended already, or in the background already: it did not go.
+        let stayed = success(json!({ "backgrounded": false }));
+        assert_eq!(answer(call, stayed), sent(Some("toolu_1"), false, None));
+        // Asked for every call, Claude Code answers with nothing but that it took the request.
+        let taken = answer("swarmed-background", success(json!({})));
+        assert_eq!(taken, sent(None, true, None));
+
+        let error = |said: &str| json!({ "subtype": "error", "error": said });
+        let disabled = "Background tasks are disabled in this session.";
+        assert_eq!(
+            answer(call, error(disabled)),
+            sent(Some("toolu_1"), false, Some(disabled))
+        );
+        let older = answer(
+            call,
+            error("Unsupported control request subtype: background_tasks"),
+        );
+        let update = matches!(
+            older.as_slice(),
+            [AgentEvent::SentToBackground { refused: Some(said), .. }] if said.contains("update it")
+        );
+        assert!(update, "{older:?}");
+        // An answer to another request of Swarmed's own is not taken for one.
+        assert_eq!(answer("swarmed-backgroundx", success(json!({}))), []);
     }
 
     #[test]

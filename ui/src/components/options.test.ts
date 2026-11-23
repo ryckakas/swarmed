@@ -8,6 +8,7 @@ const opencode: AgentInfo = {
     models: ["openrouter/openai/gpt-6.2-sol", "openrouter/x-ai/grok-4.7"],
     default_model: "openrouter/openai/gpt-6.2-sol",
     hears_mid_turn: false,
+    sends_to_background: false,
 };
 
 describe("modelChoices", () => {

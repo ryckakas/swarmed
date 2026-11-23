@@ -140,6 +140,14 @@ export function useHearsMidTurn(id: string): boolean {
 }
 
 /**
+ * Whether agent `id` can send work a call waits on to the background; `false` until the
+ * agents are read.
+ */
+export function useSendsToBackground(id: string): boolean {
+    return useAgents().some((agent) => agent.id === id && agent.sends_to_background);
+}
+
+/**
  * What an agent's default effort came to the last time a session left it to the agent, on
  * `model` or, for `null`, on the agent's default model. `null` until that is known.
  */

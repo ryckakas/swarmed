@@ -341,6 +341,12 @@ export interface Api {
     /** Asks a session's agent to stop something it left running. */
     sessionStopBackground(id: number, taskId: string): Promise<void>;
     /**
+     * Asks a session's agent to send the command or sub-agent that call `toolUseId` waits on
+     * to the background, or with `null` every one a call waits on: the call returns and the
+     * turn goes on. `false` when it did not go: it had ended, or was there already.
+     */
+    sessionSendToBackground(id: number, toolUseId: string | null): Promise<boolean>;
+    /**
      * What a command a session's agent left running printed: from `from` on, or its latest
      * part; `null` once the file is gone.
      */

@@ -1,5 +1,6 @@
 //! The `swarmed session` commands: run a turn in the terminal and read back history.
 
+use std::collections::VecDeque;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
@@ -351,24 +352,62 @@ fn ending(event: &AgentEvent) -> Option<Result<()>> {
     }
 }
 
+/// What, typed on its own line while a turn runs, sends the work the agent waits on to the
+/// background.
+const TO_BACKGROUND: &str = "bg";
+
+/// The lines typed on the terminal while a turn runs. [`TO_BACKGROUND`] is acted on as it is
+/// typed; any other line answers the next question, as it did when nothing was read until a
+/// question came.
+struct Typed {
+    lines: Lines<BufReader<Stdin>>,
+    /// Lines typed before a question came, first typed first.
+    ahead: VecDeque<String>,
+    /// Whether stdin may still have more: a closed one would be read for ever.
+    open: bool,
+}
+
+impl Typed {
+    fn new() -> Self {
+        Self {
+            lines: BufReader::new(tokio::io::stdin()).lines(),
+            ahead: VecDeque::new(),
+            open: true,
+        }
+    }
+
+    /// The next line typed, those typed ahead first; `None` once stdin is closed.
+    async fn next(&mut self) -> Result<Option<String>> {
+        if let Some(line) = self.ahead.pop_front() {
+            return Ok(Some(line));
+        }
+        if !self.open {
+            return Ok(None);
+        }
+        let line = self.lines.next_line().await?;
+        self.open = line.is_some();
+        Ok(line)
+    }
+}
+
 /// Sends `prompt`, with `files` listed under it, and shows the session's events until the
-/// turn ends. Permission requests are answered from stdin; Ctrl-C interrupts the turn instead
-/// of killing the session.
+/// turn ends. Permission requests are answered from stdin, and `bg` there sends what the agent
+/// waits on to the background; Ctrl-C interrupts the turn instead of killing the session.
 async fn run_turn(core: &Core, id: i64, prompt: &str, files: &[PathBuf], auth: Auth) -> Result<()> {
     let mut bus = core.subscribe();
     core.session_message(id, prompt, files, auth)?;
-    let mut answers = BufReader::new(tokio::io::stdin()).lines();
+    let mut typed = Typed::new();
     // The user's own message is the first event published; it is on screen already. A
     // command Swarmed answers itself is no message, and what comes first is its answer.
     let mut first = true;
-    while let Some(event) = next_or_interrupt(core, &mut bus, id).await? {
+    while let Some(event) = next_or_interrupt(core, &mut bus, id, &mut typed).await? {
         let own = first && matches!(event, AgentEvent::UserMessage { .. });
         first = false;
         if let Some(line) = describe(&event).filter(|_| !own) {
             say(&line);
         }
         if let AgentEvent::PermissionRequest { request_id, .. } = &event {
-            decide(core, id, &mut answers, request_id).await?;
+            decide(core, id, &mut typed, request_id).await?;
         }
         // The line above has said how it went; the error only carries it to the exit code.
         if let Some(ended) = ending(&event) {
@@ -379,11 +418,13 @@ async fn run_turn(core: &Core, id: i64, prompt: &str, files: &[PathBuf], auth: A
 }
 
 /// The session's next event, or `None` if the event stream ended. Ctrl-C interrupts the turn
-/// and keeps waiting.
+/// and keeps waiting, and so does [`TO_BACKGROUND`], which sends what the agent waits on to
+/// the background.
 async fn next_or_interrupt(
     core: &Core,
     bus: &mut Receiver<SessionEvent>,
     id: i64,
+    typed: &mut Typed,
 ) -> Result<Option<AgentEvent>> {
     loop {
         tokio::select! {
@@ -394,7 +435,21 @@ async fn next_or_interrupt(
                 Err(RecvError::Closed) => return Ok(None),
             },
             _ = tokio::signal::ctrl_c() => core.session_interrupt(id)?,
+            line = typed.lines.next_line(), if typed.open => match line? {
+                Some(line) if line.trim() == TO_BACKGROUND => to_background(core, id).await,
+                Some(line) => typed.ahead.push_back(line),
+                None => typed.open = false,
+            },
         }
+    }
+}
+
+/// Sends what the session's agent waits on to the background, as Ctrl+B does in Claude Code's
+/// own terminal, and says what came of it.
+async fn to_background(core: &Core, id: i64) {
+    match core.session_send_to_background(id, None).await {
+        Ok(_) => say("↳ anything the agent waited on now goes on in the background"),
+        Err(error) => say(&format!("↳ {error}")),
     }
 }
 
@@ -480,13 +535,8 @@ fn remote_line(state: RemoteState, url: Option<&str>, detail: Option<&str>) -> O
 }
 
 /// Reads one line; anything but `y` or `yes` refuses, and so does a closed stdin.
-async fn decide(
-    core: &Core,
-    id: i64,
-    answers: &mut Lines<BufReader<Stdin>>,
-    request_id: &str,
-) -> Result<()> {
-    let answer = answers.next_line().await?.unwrap_or_default();
+async fn decide(core: &Core, id: i64, typed: &mut Typed, request_id: &str) -> Result<()> {
+    let answer = typed.next().await?.unwrap_or_default();
     if matches!(answer.trim(), "y" | "yes") {
         core.session_allow(id, request_id)?;
     } else {

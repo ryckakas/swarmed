@@ -1,7 +1,8 @@
 //! What a task's agents left running behind their turns.
 //!
 //! An agent can put a command in the background and carry on, or end its turn with it still
-//! running. It says when such a thing starts and when it ends; this reads those two reports
+//! running, and Claude Code can be asked to move a command or sub-agent a call waits on there.
+//! It says when such a thing starts or moves there and when it ends; this reads those reports
 //! back out of the sessions' histories, so a front end can list them and stop the ones that
 //! run. What a command prints can be read too, from the file Claude Code writes it to: only a
 //! file the session's own agent named, and only from Claude Code's temporary folder. It can
@@ -11,6 +12,7 @@ use std::fs::File;
 use std::io::{ErrorKind, Read, Seek, SeekFrom};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use rusqlite::params;
 use serde::Serialize;
@@ -67,6 +69,10 @@ type Reported = (i64, String, AgentEvent);
 /// How much of what a command printed is read at once: its latest part, when there is more.
 const OUTPUT_LIMIT: u64 = 256 * 1024;
 
+/// How long an agent has to say whether work went to the background. Claude Code answers at
+/// once, in the middle of a turn too.
+const SENDING_WAIT: Duration = Duration::from_secs(10);
+
 /// What a command an agent left running printed, or the part of it read this time.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BackgroundOutput {
@@ -112,6 +118,47 @@ impl Core {
             return Ok(None);
         };
         read_output(&file, from).map(Some)
+    }
+
+    /// Asks session `id`'s agent to send the command or sub-agent that call `tool_use_id`
+    /// waits on to the background, as Ctrl+B does in Claude Code's terminal: the call returns
+    /// at once, the turn goes on, and the work is listed with what the agent left running
+    /// until it ends. `None` sends every one a call waits on. Says whether it went: work that
+    /// had ended, or was in the background already, did not. Refused for an agent that cannot
+    /// (only Claude Code can), for one that is not running, and with the agent's own words
+    /// when it would not.
+    pub async fn session_send_to_background(
+        &self,
+        id: i64,
+        tool_use_id: Option<&str>,
+    ) -> Result<bool> {
+        let agent = self.session(id)?.agent;
+        if !self.agents_now().sends_to_background(&agent) {
+            return Err(Error::NoSendingToBackground(agent));
+        }
+        if tool_use_id.is_some_and(|call| call.trim().is_empty()) {
+            let blank = "a call is named by its id, and none was given";
+            return Err(Error::NotSentToBackground(blank.to_string()));
+        }
+        let call = tool_use_id.map(String::from);
+        // Waited for before it is asked: the answer can come before this would be done.
+        let answered = self.live.await_sent(id, call.clone());
+        let asked = self
+            .live
+            .command(id, AgentCommand::SendToBackground { tool_use_id: call });
+        if let Err(error) = asked {
+            self.live.sending_ends_unless_running(id);
+            return Err(error);
+        }
+        match tokio::time::timeout(SENDING_WAIT, answered).await {
+            Ok(Ok((moved, None))) => Ok(moved),
+            Ok(Ok((_, Some(refused)))) => Err(Error::NotSentToBackground(refused)),
+            // The agent went without answering.
+            Ok(Err(_)) => Err(Error::SessionNotRunning(id)),
+            Err(_) => Err(Error::NotSentToBackground(
+                "the agent did not answer".to_string(),
+            )),
+        }
     }
 
     /// Asks the session's agent to stop something it left running. Refused if the agent is
@@ -177,6 +224,7 @@ fn task_of(session_id: i64, session_title: String, event: AgentEvent) -> Option<
         summary,
         tool_use_id,
         output_file,
+        ..
     } = event
     else {
         return None;
@@ -302,6 +350,7 @@ mod tests {
             // Only the start names the call here: the end leaves it out.
             tool_use_id: started.then(|| format!("call-{id}")),
             output_file: (!started).then(|| format!("/tmp/{id}.output")),
+            moved: false,
         };
         (session, format!("session {session}"), event)
     }

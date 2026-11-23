@@ -141,6 +141,7 @@ impl SessionStatus {
             | AgentEvent::WorktreeMoved { .. }
             | AgentEvent::RemoteControl { .. }
             | AgentEvent::Heard { .. }
+            | AgentEvent::SentToBackground { .. }
             // A sub-agent in the foreground works inside its starter's turn, which is busy
             // already; one in the background works between turns, when the session is not.
             | AgentEvent::Sub { .. }
@@ -1530,6 +1531,18 @@ fn shown_only(event: &AgentEvent) -> bool {
     )
 }
 
+/// What an agent answered to sending work to the background: whether it went, and why not if
+/// the agent refused.
+pub(crate) type Sent = (bool, Option<String>);
+
+/// Someone waiting for an agent to answer whether work went to the background.
+#[derive(Debug)]
+struct Sending {
+    /// The call whose work was to go; `None` for every call.
+    call: Option<String>,
+    answer: oneshot::Sender<Sent>,
+}
+
 /// A message told to an agent in the middle of its turn.
 #[derive(Debug)]
 pub(crate) struct Told {
@@ -1578,6 +1591,9 @@ pub(crate) struct Live {
     /// The sessions whose agent has Remote Control on, or was asked to turn it on, in the run
     /// it is in now.
     remote: Mutex<HashSet<i64>>,
+    /// Who waits for each session's agent to answer whether work went to the background,
+    /// first asked first.
+    sending: Mutex<HashMap<i64, Vec<Sending>>>,
     runs: AtomicU64,
     bus: broadcast::Sender<SessionEvent>,
 }
@@ -1600,6 +1616,7 @@ impl Default for Live {
             told: Mutex::default(),
             sent: Mutex::default(),
             remote: Mutex::default(),
+            sending: Mutex::default(),
             runs: AtomicU64::new(0),
             bus: broadcast::Sender::new(EVENT_BUFFER),
         }
@@ -1660,6 +1677,39 @@ impl Live {
             .iter()
             .position(|message| message.trim() == text.trim());
         at.and_then(|at| kept.remove(at)).is_some()
+    }
+
+    /// Notes that someone waits for session `id`'s agent to answer whether the work of `call`,
+    /// or of every call, went to the background, and is where the answer arrives.
+    pub(crate) fn await_sent(&self, id: i64, call: Option<String>) -> oneshot::Receiver<Sent> {
+        let (answer, answered) = oneshot::channel();
+        let waiting = Sending { call, answer };
+        lock(&self.sending).entry(id).or_default().push(waiting);
+        answered
+    }
+
+    /// Hands the agent's answer about `call` to whoever asked about it first and still waits.
+    /// One who gave up waiting is passed over.
+    fn answer_sent(&self, id: i64, call: Option<&str>, answer: &Sent) {
+        let mut sending = lock(&self.sending);
+        let Some(waiting) = sending.get_mut(&id) else {
+            return;
+        };
+        let mut given = false;
+        while !given && let Some(at) = waiting.iter().position(|one| one.call.as_deref() == call) {
+            given = waiting.remove(at).answer.send(answer.clone()).is_ok();
+        }
+        if waiting.is_empty() {
+            sending.remove(&id);
+        }
+    }
+
+    /// Forgets who waits for session `id`'s agent to answer about the background, unless it
+    /// runs: an agent that is not running answers nobody, and they hear so at once.
+    pub(crate) fn sending_ends_unless_running(&self, id: i64) {
+        if !self.is_running(id) {
+            lock(&self.sending).remove(&id);
+        }
     }
 
     /// Notes that the session's agent has been asked to turn Remote Control on.
@@ -1946,6 +1996,8 @@ impl Live {
         if commands.get(&id).is_some_and(|live| live.number == run) {
             commands.remove(&id);
         }
+        drop(commands);
+        self.sending_ends_unless_running(id);
     }
 }
 
@@ -2171,8 +2223,20 @@ fn dropped_when_late(event: &AgentEvent) -> bool {
     )
 }
 
-/// Deals with one event of run number `run` of session `id`, by how that run stands now.
+/// Deals with one event of run number `run` of session `id`, by how that run stands now. An
+/// answer to sending work to the background goes to whoever asked, whichever run gave it, and
+/// nowhere else: the move itself is reported apart.
 fn take(shared: &Shared, (id, run): (i64, u64), ending: &Ending, event: AgentEvent) {
+    if let AgentEvent::SentToBackground {
+        tool_use_id,
+        moved,
+        refused,
+    } = event
+    {
+        let answer = (moved, refused);
+        shared.live.answer_sent(id, tool_use_id.as_deref(), &answer);
+        return;
+    }
     match shared.live.standing(id, run, ending) {
         Standing::Current => on_event(shared, id, event),
         Standing::Replaced => shared.live.note_late(&shared.store, id, event),
