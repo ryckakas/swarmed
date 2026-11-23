@@ -6,8 +6,8 @@ use anyhow::{Context, Result, anyhow};
 use clap::{Subcommand, ValueEnum};
 use serde_json::Value;
 use swarmed_core::agent::{
-    AgentEvent, Asked, Auth, Effort, McpServerInfo, PLAN_TOOL, ScreenRow, ScreenSection,
-    Supervision,
+    AgentEvent, Asked, Auth, Effort, McpServerInfo, PLAN_TOOL, RemoteState, ScreenRow,
+    ScreenSection, Supervision,
 };
 use swarmed_core::{Core, Session, SessionEvent, SessionOptions, SessionSettings};
 use tokio::io::{AsyncBufReadExt, BufReader, Lines, Stdin};
@@ -122,6 +122,17 @@ pub(crate) enum SessionCommand {
         /// A few words beside the colour.
         #[arg(default_value = "")]
         label: String,
+    },
+    /// Let a Claude Code session be reached from claude.ai and the Claude app while this runs,
+    /// printing what is said there and here. Ctrl-C ends it; the next agent started for the
+    /// session is reached at the same place on claude.ai again.
+    RemoteControl {
+        id: i64,
+        /// Turn it off instead, for good: no later run of the agent turns it on again.
+        #[arg(long)]
+        off: bool,
+        #[arg(long, value_enum, default_value_t)]
+        auth: AuthMode,
     },
     /// Take a session out of the lists. Its history is kept.
     Close { id: i64 },
@@ -251,12 +262,11 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             Ok(())
         }
         SessionCommand::Rename { id, title } => renamed(core, id, &title),
-        SessionCommand::Move { id, by } => {
-            core.session_move(id, by)?;
-            say("moved");
-            Ok(())
-        }
+        SessionCommand::Move { id, by } => moved(core, id, by),
         SessionCommand::Mark { id, colour, label } => mark(core, id, &colour, &label),
+        SessionCommand::RemoteControl { id, off, auth } => {
+            remote_control(core, id, off, auth).await
+        }
         SessionCommand::Close { id } => Ok(core.session_close(id)?),
         SessionCommand::Delete { id } => Ok(core.session_delete(id)?),
         SessionCommand::Reopen { id } => {
@@ -284,6 +294,12 @@ fn chosen_or_kept(core: &Core, id: i64, chosen: Option<Supervision>) -> Result<S
         Some(supervision) => Ok(supervision),
         None => Ok(core.session(id)?.supervision),
     }
+}
+
+fn moved(core: &Core, id: i64, by: i32) -> Result<()> {
+    core.session_move(id, by)?;
+    say("moved");
+    Ok(())
 }
 
 fn renamed(core: &Core, id: i64, title: &str) -> Result<()> {
@@ -382,6 +398,76 @@ async fn next_or_interrupt(
     }
 }
 
+/// Turns Remote Control off, or on and shows the session's events until Ctrl-C, the agent's
+/// end, or Remote Control's. A request for permission is left to be answered on claude.ai,
+/// where it is shown as well.
+async fn remote_control(core: &Core, id: i64, off: bool, auth: AuthMode) -> Result<()> {
+    let auth = auth.resolve()?;
+    if off {
+        core.session_remote_control(id, false, auth)?;
+        say("Remote Control is off");
+        return Ok(());
+    }
+    let mut bus = core.subscribe();
+    core.session_remote_control(id, true, auth)?;
+    while let Some(event) = next_until_stopped(&mut bus, id).await {
+        match &event {
+            AgentEvent::PermissionRequest { tool_name, .. } => {
+                say(&format!("? {tool_name} waits for an answer on claude.ai"));
+            }
+            _ => describe(&event).into_iter().for_each(|line| say(&line)),
+        }
+        if let Some(ended) = remote_ending(&event) {
+            return ended;
+        }
+    }
+    Ok(())
+}
+
+/// How following a session reached from claude.ai ends, if `event` ends it.
+fn remote_ending(event: &AgentEvent) -> Option<Result<()>> {
+    match event {
+        AgentEvent::RemoteControl {
+            state: RemoteState::Failed,
+            ..
+        } => Some(Err(anyhow!("Remote Control is not on"))),
+        AgentEvent::Exited {
+            code: Some(code), ..
+        } if *code != 0 => Some(Err(anyhow!("the agent exited with code {code}"))),
+        AgentEvent::Exited { .. } => Some(Ok(())),
+        _ => None,
+    }
+}
+
+/// The session's next event, or `None` once Ctrl-C is pressed or the event stream ended.
+async fn next_until_stopped(bus: &mut Receiver<SessionEvent>, id: i64) -> Option<AgentEvent> {
+    loop {
+        tokio::select! {
+            published = bus.recv() => match published {
+                Ok(published) if published.session_id == id => return Some(published.event),
+                // Another session's event, or events lost to a full buffer: keep reading.
+                Ok(_) | Err(RecvError::Lagged(_)) => {}
+                Err(RecvError::Closed) => return None,
+            },
+            _ = tokio::signal::ctrl_c() => return None,
+        }
+    }
+}
+
+/// What a report of Remote Control says, if it says something worth a line: not that it was
+/// asked for, nor that it is on before Claude Code has said where.
+fn remote_line(state: RemoteState, url: Option<&str>, detail: Option<&str>) -> Option<String> {
+    let because = detail.map_or_else(String::new, |detail| format!(": {detail}"));
+    match state {
+        RemoteState::Starting => None,
+        RemoteState::On => url.map(|url| format!("Remote Control is on: {url}")),
+        RemoteState::Reconnecting => Some(format!("Remote Control is reconnecting{because}")),
+        RemoteState::Paused => Some("Remote Control waits for the agent to run again".into()),
+        RemoteState::Off => Some("Remote Control is off".into()),
+        RemoteState::Failed => Some(format!("Remote Control failed{because}")),
+    }
+}
+
 /// Reads one line; anything but `y` or `yes` refuses, and so does a closed stdin.
 async fn decide(
     core: &Core,
@@ -401,7 +487,13 @@ async fn decide(
 /// The line an event is shown as, or `None` for events not worth a line.
 fn describe(event: &AgentEvent) -> Option<String> {
     match event {
-        AgentEvent::UserMessage { text } => Some(format!("> {text}")),
+        AgentEvent::UserMessage { text, remote } => {
+            let from = if *remote { "[claude.ai] " } else { "" };
+            Some(format!("> {from}{text}"))
+        }
+        AgentEvent::RemoteControl {
+            state, url, detail, ..
+        } => remote_line(*state, url.as_deref(), detail.as_deref()),
         AgentEvent::Init {
             model,
             permission_mode,

@@ -111,7 +111,7 @@ async fn a_message_reaches_an_idle_session_at_once_and_a_busy_one_when_it_is_don
     let sent = core.peer_message(first.id, second.id, "the API changed");
     assert_eq!(sent.expect("delivers"), Delivery::Sent);
     let events = turn(&mut bus, second.id).await;
-    let Some(AgentEvent::UserMessage { text: got }) = events.first() else {
+    let Some(AgentEvent::UserMessage { text: got, .. }) = events.first() else {
         panic!("no message: {events:?}");
     };
     assert!(got.starts_with(&format!(
@@ -152,7 +152,7 @@ async fn a_session_starts_others_beside_itself_within_limits() {
     assert_eq!(child.title, "Tests");
     // It is running on its prompt, and knows whom to report to.
     let events = turn(&mut bus, child.id).await;
-    let Some(AgentEvent::UserMessage { text: prompt }) = events.first() else {
+    let Some(AgentEvent::UserMessage { text: prompt, .. }) = events.first() else {
         panic!("no prompt: {events:?}");
     };
     assert!(prompt.starts_with("write the tests\n\n(You were started by session"));

@@ -7,8 +7,11 @@ import { type Words, wordsFor } from "./wording";
 // Turns a session's raw events into what the transcript shows. Pure, so it can be tested.
 
 export type Item =
-    /** What the user wrote, and the files they pointed the agent at with it. */
-    | { kind: "user"; key: number; text: string; files: string[] }
+    /**
+     * What the user wrote, and the files they pointed the agent at with it; `remote` for what
+     * they typed on claude.ai or in the Claude app, which reached the session from there.
+     */
+    | { kind: "user"; key: number; text: string; files: string[]; remote: boolean }
     /** A message another of the user's sessions left for this one. */
     | { kind: "peer"; key: number; from: number; title: string; text: string }
     /** Something the agent said. `streaming` while its end has not arrived yet. */
@@ -59,6 +62,17 @@ export type Item =
       }
     /** A command the agent could only show on a screen in its own terminal. */
     | { kind: "terminal-only"; key: number; command: string }
+    /**
+     * Remote Control was turned on, with where the session is on claude.ai, or off, or it
+     * failed. Reconnecting and waiting for the agent are shown in the header alone.
+     */
+    | {
+          kind: "remote";
+          key: number;
+          state: "on" | "off" | "failed";
+          url: string | null;
+          detail: string | null;
+      }
     /** The task's worktree moved to another branch: during the turn, or since the last one. */
     | { kind: "moved"; key: number; from: string | null; to: string | null; betweenTurns: boolean }
     /** HTML the agent showed the user through Swarmed's tool. */
@@ -133,10 +147,10 @@ export function isFromSession(text: string): boolean {
 }
 
 /** A message as the transcript shows it: the user's own, or one another session left. */
-function messageItem(text: string, key: number): Item {
+function messageItem(text: string, key: number, remote = false): Item {
     const left = FROM_SESSION.exec(text);
     if (!left) {
-        return { kind: "user", key, ...splitFiles(text) };
+        return { kind: "user", key, ...splitFiles(text), remote };
     }
     return { kind: "peer", key, from: Number(left[1]), title: left[2] ?? "", text: left[3] ?? "" };
 }
@@ -175,7 +189,7 @@ const CLOSES_REQUESTS = new Set<AgentEvent["type"]>(["user_message", "turn_done"
 function single(event: AgentEvent, key: number, words: Words): Item | null {
     switch (event.type) {
         case "user_message":
-            return messageItem(event.text, key);
+            return messageItem(event.text, key, event.remote === true);
         case "text":
             return { kind: "text", key, text: event.text, streaming: false };
         // A reply still being written reads like a finished one, and becomes one in place.
@@ -263,6 +277,8 @@ interface Draft {
     asked: Map<string, Extract<Item, { kind: "asked" }>>;
     /** Claude Code's last usage report, so that a warning is said once. */
     limit: RateLimit | null;
+    /** Where Remote Control was last shown to be on, so that it is said once until it ends. */
+    remoteAt: string | null;
     /** The style's words, for what the items say of their own. */
     words: Words;
 }
@@ -277,6 +293,7 @@ export function toItems(events: AgentEvent[], words: Words = wordsFor("plain")):
         proposals: new Map(),
         asked: new Map(),
         limit: null,
+        remoteAt: null,
         words,
     };
     events.forEach((event, key) => {
@@ -406,8 +423,29 @@ function add(draft: Draft, event: AgentEvent, key: number) {
             return answerAsked(draft, event, key);
         case "rate_limit":
             return addLimit(draft, event, key);
+        case "remote_control":
+            return addRemote(draft, event, key);
         default:
             return addSingle(draft, event, key);
+    }
+}
+
+/**
+ * Remote Control's line: once when it is on, with the address, however often the agent starts
+ * again and attaches to the same session there; and when it is turned off or fails.
+ */
+function addRemote(
+    draft: Draft,
+    event: Extract<AgentEvent, { type: "remote_control" }>,
+    key: number,
+) {
+    const { state, url, detail } = event;
+    if (state === "on" && url !== null && url !== draft.remoteAt) {
+        draft.remoteAt = url;
+        draft.items.push({ kind: "remote", key, state, url, detail: null });
+    } else if (state === "off" || state === "failed") {
+        draft.remoteAt = null;
+        draft.items.push({ kind: "remote", key, state, url: null, detail });
     }
 }
 

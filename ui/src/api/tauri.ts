@@ -210,6 +210,7 @@ export const tauriApi: Api = {
         listen<TerminalOutput>("claude-terminal-output", (event) => listener(event.payload)),
     statusLine: (id) => invoke<string | null>("status_line", { id }),
     sessionUsageRefresh: (id) => invoke("session_usage_refresh", { id }),
+    sessionRemoteControl: (id, on) => invoke("session_remote_control", { id, on }),
     sessionRename: (id, title) => invoke<Session>("session_rename", { id, title }),
     sessionMark: (id, colour, label) => invoke<Session>("session_mark", { id, colour, label }),
     sessionClose: (id) => invoke("session_close", { id }),

@@ -110,7 +110,7 @@ fn brief(session: &Session, task: &Task, own: i64) -> String {
 /// What a session said or was told, if the event is that, as one paragraph.
 fn spoken(event: &AgentEvent) -> Option<String> {
     match event {
-        AgentEvent::UserMessage { text } => Some(format!("User: {text}")),
+        AgentEvent::UserMessage { text, .. } => Some(format!("User: {text}")),
         AgentEvent::Text { text } => Some(format!("Agent: {text}")),
         _ => None,
     }

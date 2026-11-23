@@ -38,7 +38,7 @@ pub struct SearchHit {
 /// The text of an event that is something somebody said, and whether the user said it.
 fn said(event: &AgentEvent) -> Option<(&str, bool)> {
     match event {
-        AgentEvent::UserMessage { text } => Some((text, true)),
+        AgentEvent::UserMessage { text, .. } => Some((text, true)),
         AgentEvent::Text { text } => Some((text, false)),
         _ => None,
     }
@@ -189,6 +189,7 @@ mod tests {
     fn only_what_somebody_said_counts() {
         let typed = AgentEvent::UserMessage {
             text: "hello".to_string(),
+            remote: false,
         };
         assert_eq!(said(&typed), Some(("hello", true)));
         let reply = AgentEvent::Text {

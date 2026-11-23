@@ -758,11 +758,12 @@ impl Conversation {
                 self.spec.supervision = supervision;
                 self.set_mode().await;
             }
-            // These agents report nothing left running, so there is nothing to stop, and
-            // describe no screens of their own.
+            // These agents report nothing left running, so there is nothing to stop, describe
+            // no screens of their own, and cannot be reached from claude.ai.
             AgentCommand::StopBackground { .. }
             | AgentCommand::Show(_)
-            | AgentCommand::AskUsage => {}
+            | AgentCommand::AskUsage
+            | AgentCommand::RemoteControl { .. } => {}
         }
     }
 

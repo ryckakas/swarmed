@@ -117,7 +117,7 @@ function useAsking(sessionId: number, events: AgentEvent[]) {
 }
 
 /** Closes what is open when the user presses Escape or clicks anywhere outside `inside`. */
-function useDismiss(
+export function useDismiss(
     inside: RefObject<HTMLElement | null>,
     open: boolean,
     setOpen: (open: boolean) => void,

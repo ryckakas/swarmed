@@ -51,6 +51,7 @@ mod publish;
 mod pulls;
 mod queue;
 mod reach;
+mod remote;
 mod search;
 pub mod secrets;
 mod sessions;

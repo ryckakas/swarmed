@@ -2,9 +2,10 @@
 //!
 //! In a terminal, many of Claude Code's commands open a screen: `/usage`, `/status`, `/model`.
 //! Run as Swarmed runs it, Claude Code has no screen. Each command it has is therefore one of
-//! four kinds here, in one table: sent on as a message, shown as a screen whose contents
-//! Claude Code is asked for, put to the user as a question whose answer Swarmed applies, or
-//! refused because Swarmed has its own way to do it. A command the table does not name is
+//! five kinds here, in one table: sent on as a message, shown as a screen whose contents
+//! Claude Code is asked for, put to the user as a question whose answer Swarmed applies, done
+//! by Swarmed itself with nothing to ask (Remote Control), or refused because Swarmed has its
+//! own way to do it. A command the table does not name is
 //! sent on: a skill, a command of the user's own, or one that only opens a screen in the
 //! terminal, which Claude Code answers itself, marked as such.
 
@@ -28,6 +29,8 @@ pub enum CommandKind {
     Screen,
     /// Swarmed puts the choices to the user and makes the change itself.
     Setting,
+    /// Swarmed does it itself, with nothing to ask.
+    Own,
     /// It only means something in the agent's own terminal, and is not sent.
     Terminal,
 }
@@ -59,11 +62,13 @@ enum Handling {
     Send,
     Show(ScreenKind),
     Ask(Setting),
+    /// Remote Control turned on, or off with `off` after it: Swarmed asks Claude Code itself.
+    Remote,
     /// Refused, with what to do in Swarmed instead.
     Terminal(&'static str),
 }
 
-use Handling::{Ask, Send, Show, Terminal};
+use Handling::{Ask, Remote, Send, Show, Terminal};
 
 const MODE_MENU: &str = "What an agent may do without asking is chosen in the session's mode menu.";
 const FORK: &str = "A session is forked from one of its messages.";
@@ -72,6 +77,9 @@ const CLOSE: &str = "A session is closed with the button in its header.";
 const NEW_SESSION: &str = "For an empty conversation, start a new session in the task.";
 const WORKTREE: &str = "A session works in its task's worktree and nowhere else.";
 const IN_SWARMED: &str = "A session runs in Swarmed, and is not handed to another app.";
+/// Why `/remote-control` does not wait in the queue.
+const AT_ONCE: &str = "Remote Control is turned on and off at once, from the session's header \
+                       or with /rc and /rc off.";
 
 /// Claude Code's own commands, each in the one kind it is handled as.
 ///
@@ -96,6 +104,8 @@ const CLAUDE_COMMANDS: &[(&str, Handling)] = &[
     ("model", Ask(Setting::Model)),
     ("effort", Ask(Setting::Effort)),
     ("config", Ask(Setting::Config)),
+    // Turned on and off by Swarmed, which records what is typed on claude.ai.
+    ("remote-control", Remote),
     // Answered by Claude Code in words, or prompts of its own.
     ("advisor", Send),
     ("agents", Send),
@@ -127,7 +137,6 @@ const CLAUDE_COMMANDS: &[(&str, Handling)] = &[
     ("add-dir", Terminal(WORKTREE)),
     ("cd", Terminal(WORKTREE)),
     ("desktop", Terminal(IN_SWARMED)),
-    ("remote-control", Terminal(IN_SWARMED)),
     ("teleport", Terminal(IN_SWARMED)),
     ("branch", Terminal(FORK)),
     (
@@ -244,13 +253,14 @@ fn kind_of(how: Handling) -> (CommandKind, &'static str) {
         Send => (CommandKind::Prompt, ""),
         Show(_) => (CommandKind::Screen, ""),
         Ask(_) => (CommandKind::Setting, ""),
+        Remote => (CommandKind::Own, ""),
         Terminal(instead) => (CommandKind::Terminal, instead),
     }
 }
 
 /// The commands a message box offers for `agent`: the `names` it reported and the skills
-/// handed to it, each with what Swarmed does with it, then the screens and settings Swarmed
-/// has for the agent that the agent did not list itself. Run without its screen, Claude Code
+/// handed to it, each with what Swarmed does with it, then the screens, settings and switches
+/// Swarmed has for the agent that the agent did not list itself. Run without its screen, Claude Code
 /// leaves out the commands that need one, such as `/status`, which Swarmed can still show.
 pub(crate) fn offered(agent: &str, names: Vec<String>) -> Vec<SlashCommand> {
     let entry = |name: String, how: Option<Handling>| {
@@ -262,7 +272,8 @@ pub(crate) fn offered(agent: &str, names: Vec<String>) -> Vec<SlashCommand> {
     let own = CLAUDE_COMMANDS
         .iter()
         .filter(|(name, how)| {
-            agent == CLAUDE && matches!(how, Show(_) | Ask(_)) && !listed.contains(*name)
+            let own = matches!(how, Show(_) | Ask(_) | Remote);
+            agent == CLAUDE && own && !listed.contains(*name)
         })
         .map(|(name, how)| entry((*name).to_string(), Some(*how)));
     let reported = names.into_iter().map(|name| {
@@ -453,13 +464,19 @@ impl Core {
         let Some((name, _)) = called(text) else {
             return Ok(());
         };
-        match handling(&session.agent, name) {
-            Some(Terminal(instead)) if !self.calls_skill(id, text) => Err(Error::TerminalOnly {
-                command: name.to_string(),
-                instead: instead.to_string(),
-            }),
-            _ => Ok(()),
+        let instead = match handling(&session.agent, name) {
+            Some(Terminal(instead)) => instead,
+            // Sent as typed, Claude Code would only say it cannot do it without its screen.
+            Some(Remote) => AT_ONCE,
+            _ => return Ok(()),
+        };
+        if self.calls_skill(id, text) {
+            return Ok(());
         }
+        Err(Error::TerminalOnly {
+            command: name.to_string(),
+            instead: instead.to_string(),
+        })
     }
 
     /// Does what `text` asks itself, if it is one of the agent's own commands that is not
@@ -485,6 +502,7 @@ impl Core {
             Some(how) => how,
         };
         match (how, argument.is_empty()) {
+            (Remote, _) => self.remote_command(id, argument, auth)?,
             (Show(kind), true) => self.show(id, kind, auth)?,
             // With something after it, Claude Code takes the command in words itself:
             // `/mcp reconnect docs`, `/config thinking=false`.
@@ -522,6 +540,19 @@ impl Core {
     /// Whether `text` calls a skill that Swarmed sends to the session's agent by name.
     fn calls_skill(&self, id: i64, text: &str) -> bool {
         skill_called(&self.store, &self.paths, id, text.trim()).is_some()
+    }
+
+    /// Turns Remote Control on, or off for `off`. With `auth` the agent is started to turn it
+    /// on; without, it must be running.
+    fn remote_command(&self, id: i64, argument: &str, auth: Option<Auth>) -> Result<()> {
+        let on = !argument.eq_ignore_ascii_case("off");
+        let auth = match auth {
+            Some(auth) => auth,
+            None if on && !self.live.is_running(id) => return Err(Error::SessionNotRunning(id)),
+            // A running agent, or nothing to start: what it signs in with is not asked.
+            None => Auth::default(),
+        };
+        self.session_remote_control(id, on, auth)
     }
 
     /// Asks the session's agent for one of its screens, which arrives as an event.
@@ -707,7 +738,7 @@ mod tests {
         for name in REPORTED {
             assert!(
                 handling(CLAUDE, name).is_some(),
-                "/{name} is in none of the four kinds"
+                "/{name} is in none of the five kinds"
             );
         }
         let mut names: Vec<&str> = CLAUDE_COMMANDS.iter().map(|(name, _)| *name).collect();
@@ -773,14 +804,7 @@ mod tests {
             );
         }
         // Where a session works, and what runs it, are never left to Claude Code.
-        for name in [
-            "cd",
-            "add-dir",
-            "remote-control",
-            "rc",
-            "teleport",
-            "desktop",
-        ] {
+        for name in ["cd", "add-dir", "teleport", "desktop"] {
             assert!(
                 matches!(handling(CLAUDE, name), Some(Terminal(note)) if !note.is_empty()),
                 "/{name}"
@@ -795,6 +819,15 @@ mod tests {
         // come to work without a screen, as `/doctor` has, is not refused by an old guess.
         assert_eq!(handling(CLAUDE, "privacy-settings"), None);
         assert_eq!(handling(CLAUDE, "doctor"), None);
+    }
+
+    #[test]
+    fn remote_control_is_swarmeds_to_turn_on_by_either_name() {
+        // Asked of Claude Code by Swarmed, which records what comes of it.
+        assert_eq!(handling(CLAUDE, "remote-control"), Some(Remote));
+        assert_eq!(handling(CLAUDE, "rc"), Some(Remote));
+        assert_eq!(kind_of(Remote), (CommandKind::Own, ""));
+        assert_eq!(handling("codex", "rc"), None);
     }
 
     #[test]
@@ -859,6 +892,7 @@ mod tests {
         // Not reported by Claude Code without its screen, and shown by Swarmed all the same.
         assert_eq!(kind("status"), Some(CommandKind::Screen));
         assert_eq!(kind("model"), Some(CommandKind::Setting));
+        assert_eq!(kind("remote-control"), Some(CommandKind::Own));
         // What only works in a terminal is offered only where the agent offers it.
         assert_eq!(kind("login"), None);
         assert_eq!(

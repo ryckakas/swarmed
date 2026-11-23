@@ -71,6 +71,29 @@ small yellow triangle, red once a limit is used up, and their label names the wi
 are yellow and red likewise. Like the card, the triangle follows the figures last heard, so it
 appears after the turn that passes 75%.
 
+### Remote Control: carry on from your phone
+
+A Claude Code session can be reached from claude.ai and from the Claude app on your phone. Press
+the phone at the top right of the session and **Turn on**, or type `/rc` in it. The session is
+then listed with your other sessions in the Claude app, and the panel gives its address on
+claude.ai to open or copy. What you type there is answered by the same Claude Code, in the
+task's worktree, and shows in the conversation here marked "Typed on claude.ai". Permission
+requests can be answered on either side.
+
+- Claude Code has to be signed in with a claude.ai subscription; an API key does not do. On a
+  Team or Enterprise plan, an admin may have to allow Remote Control.
+- While it is on, the conversation is kept on Anthropic's servers as well.
+- It stays on until you turn it off (**Turn off**, or `/rc off`), or close the session. When
+  Claude Code stops, for a change of effort or because Swarmed quit, it is turned on again as
+  soon as Claude Code starts for the session, at the same place on claude.ai. When Swarmed
+  starts, it starts Claude Code for every open session that had it on.
+- The phone turns green while the session can be reached, and yellow while it connects or
+  waits for Claude Code to run again.
+- A permission mode changed on claude.ai is not shown here, and views show as code there.
+
+Other agents have no Remote Control. `swarmed session remote-control <id>` does the same from the
+command line for as long as it runs.
+
 ## Any other agent
 
 Any agent that speaks the [Agent Client Protocol](https://agentclientprotocol.com) can be added

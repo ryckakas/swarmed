@@ -21,7 +21,7 @@ use tokio::sync::mpsc;
 use super::{
     AgentBackend, AgentCommand, AgentEvent, AgentHandle, Auth, BackgroundState,
     COMMIT_INSTRUCTIONS, ContextCategory, McpServerInfo, Namer, Naming, PULL_INSTRUCTIONS,
-    SessionSpec, Supervision, UsageLimit,
+    RemoteState, SessionSpec, Supervision, UsageLimit,
 };
 use crate::agent_setup::{default_tool_dirs, find_program};
 use crate::error::{Error, Result};
@@ -468,7 +468,10 @@ fn usage_request() -> Value {
 /// the account's usage too, which is read from it as well, so that what the user last saw
 /// is what the context card shows.
 fn parse_answer(message: &Value) -> Vec<AgentEvent> {
-    if let Some(event) = parse_context(message).or_else(|| parse_applied(message)) {
+    let known = parse_context(message)
+        .or_else(|| parse_applied(message))
+        .or_else(|| parse_remote_answer(message));
+    if let Some(event) = known {
         return vec![event];
     }
     if answers(message, USAGE_REQUEST) {
@@ -668,6 +671,96 @@ fn command_line(command: AgentCommand, pending: &Pending, requests: &mut u64) ->
         ),
         AgentCommand::Show(kind) => screens::request(kind),
         AgentCommand::AskUsage => usage_request(),
+        AgentCommand::RemoteControl { on, name, reattach } => {
+            remote_control_request(on, &name, reattach.as_deref())
+        }
+    }
+}
+
+/// The id of the request that turns Remote Control on, which its answer is known by.
+const REMOTE_ON_REQUEST: &str = "swarmed-remote-control";
+
+/// The id of the request that turns it off, whose answer says nothing worth hearing.
+const REMOTE_OFF_REQUEST: &str = "swarmed-remote-control-off";
+
+/// Turns Remote Control on or off, which Claude Code offers a host that runs it without its
+/// screen, as the Agent SDK's `enableRemoteControl` does. Its session on claude.ai is kept when
+/// the process ends (`keep_session_on_exit`), so that the next run can attach to it again
+/// (`reattach_session_id`) instead of listing the same session there twice.
+fn remote_control_request(on: bool, name: &str, reattach: Option<&str>) -> Value {
+    if !on {
+        return json!({
+            "type": "control_request",
+            "request_id": REMOTE_OFF_REQUEST,
+            "request": { "subtype": "remote_control", "enabled": false },
+        });
+    }
+    let mut request = json!({
+        "subtype": "remote_control",
+        "enabled": true,
+        "name": name,
+        "keep_session_on_exit": true,
+    });
+    if let (Some(id), Some(fields)) = (reattach, request.as_object_mut()) {
+        fields.insert("reattach_session_id".to_string(), json!(id));
+    }
+    json!({
+        "type": "control_request",
+        "request_id": REMOTE_ON_REQUEST,
+        "request": request,
+    })
+}
+
+/// Claude Code's answer to turning Remote Control on, if `message` is one: where the session
+/// is on claude.ai, or why it could not be turned on.
+fn parse_remote_answer(message: &Value) -> Option<AgentEvent> {
+    let response = message.get("response")?;
+    if kind_of(response, "request_id") != Some(REMOTE_ON_REQUEST) {
+        return None;
+    }
+    if kind_of(response, "subtype") != Some("success") {
+        let said = kind_of(response, "error").unwrap_or("Claude Code gave no reason");
+        return Some(remote(RemoteState::Failed, Some(said)));
+    }
+    let answer = response.get("response");
+    let field = |name: &str| {
+        answer
+            .and_then(|answer| kind_of(answer, name))
+            .map(String::from)
+    };
+    Some(AgentEvent::RemoteControl {
+        state: RemoteState::On,
+        url: field("session_url"),
+        remote_id: field("bridge_session_id"),
+        detail: None,
+    })
+}
+
+/// How Remote Control stands, as Claude Code reports each change: `ready` and `connected`
+/// when it can be reached; `failed`, which is for good unless its kind says it is not and it
+/// tries again; `policy_disabled` when the organisation's policy turned it off; anything else
+/// is a connection it is trying to get back.
+fn parse_bridge_state(message: &Value) -> Option<AgentEvent> {
+    let detail = kind_of(message, "detail").filter(|detail| !detail.is_empty());
+    let for_good = message
+        .get("failure_kind")
+        .and_then(Value::as_str)
+        .is_none_or(|kind| kind == "terminal");
+    let state = match kind_of(message, "state")? {
+        "ready" | "connected" => RemoteState::On,
+        "failed" if for_good => RemoteState::Failed,
+        "policy_disabled" => RemoteState::Failed,
+        _ => RemoteState::Reconnecting,
+    };
+    Some(remote(state, detail))
+}
+
+fn remote(state: RemoteState, detail: Option<&str>) -> AgentEvent {
+    AgentEvent::RemoteControl {
+        state,
+        url: None,
+        remote_id: None,
+        detail: detail.map(String::from),
     }
 }
 
@@ -741,6 +834,9 @@ fn parse_message(message: &Value, pending: &Pending) -> Vec<AgentEvent> {
         "prompt_suggestion" => parse_suggestion(message).into_iter().collect(),
         // The replies to our own control requests that are of use.
         "control_response" => parse_answer(message),
+        "system" if kind_of(message, "subtype") == Some("bridge_state") => {
+            parse_bridge_state(message).into_iter().collect()
+        }
         "system" => parse_background(message).into_iter().collect(),
         _ => vec![AgentEvent::Other {
             raw: message.clone(),
@@ -934,8 +1030,12 @@ fn parse_rate_limit(message: &Value) -> AgentEvent {
 }
 
 /// A message of the user's that Claude Code repeats as it takes it in: its text as sent, which
-/// is a string or, for a message with more than text, its text blocks.
+/// is a string or, for a message with more than text, its text blocks. One it made up itself
+/// (`isSynthetic`), such as a reminder or a summary, is nobody's message.
 fn heard(message: &Value) -> Option<AgentEvent> {
+    if message.get("isSynthetic").and_then(Value::as_bool) == Some(true) {
+        return None;
+    }
     let content = message.pointer("/message/content")?;
     let text = content.as_str().map_or_else(
         || {
@@ -1826,6 +1926,122 @@ mod tests {
             parse_message(&result, &pending).as_slice(),
             [AgentEvent::ToolResult { .. }]
         ));
+        // One Claude Code made up itself is nobody's message.
+        let made_up = json!({
+            "type": "user", "isReplay": true, "isSynthetic": true,
+            "message": { "role": "user", "content": "This session is being continued." },
+        });
+        assert_eq!(parse_message(&made_up, &pending), []);
+    }
+
+    #[test]
+    fn remote_control_is_asked_for_as_the_agent_sdk_asks_and_its_session_is_kept() {
+        let line = |on, reattach: Option<&str>| {
+            let command = AgentCommand::RemoteControl {
+                on,
+                name: "Fix the login".into(),
+                reattach: reattach.map(String::from),
+            };
+            command_line(command, &Pending::default(), &mut 0)
+        };
+        let fresh = line(true, None);
+        assert_eq!(fresh.get("request_id"), Some(&json!(REMOTE_ON_REQUEST)));
+        assert_eq!(
+            fresh.get("request"),
+            Some(&json!({ "subtype": "remote_control", "enabled": true,
+                "name": "Fix the login", "keep_session_on_exit": true }))
+        );
+        let again = line(true, Some("cse_1"));
+        assert_eq!(
+            again.pointer("/request/reattach_session_id"),
+            Some(&json!("cse_1"))
+        );
+        let off = line(false, Some("cse_1"));
+        assert_eq!(
+            off.get("request"),
+            Some(&json!({ "subtype": "remote_control", "enabled": false }))
+        );
+        assert_ne!(off.get("request_id"), Some(&json!(REMOTE_ON_REQUEST)));
+    }
+
+    #[test]
+    fn claude_code_says_where_the_session_is_or_why_it_could_not_be_reached() {
+        let pending = Pending::default();
+        // As Claude Code 2.1.330 answers: the addresses, and its ids for the session.
+        let on = json!({ "type": "control_response", "response": {
+            "subtype": "success", "request_id": REMOTE_ON_REQUEST, "response": {
+                "session_url": "https://claude.ai/code/cse_1",
+                "connect_url": "https://claude.ai/code?environment=env_1",
+                "environment_id": "env_1", "bridge_epoch": 1, "bridge_session_id": "cse_1" } } });
+        assert_eq!(
+            parse_message(&on, &pending),
+            [AgentEvent::RemoteControl {
+                state: RemoteState::On,
+                url: Some("https://claude.ai/code/cse_1".into()),
+                remote_id: Some("cse_1".into()),
+                detail: None,
+            }]
+        );
+        let refused = json!({ "type": "control_response", "response": {
+            "subtype": "error", "request_id": REMOTE_ON_REQUEST,
+            "error": "Remote Control requires a claude.ai subscription",
+            "error_code": "remote_control_auth" } });
+        assert_eq!(
+            parse_message(&refused, &pending),
+            [remote(
+                RemoteState::Failed,
+                Some("Remote Control requires a claude.ai subscription")
+            )]
+        );
+        // Turning it off is answered with nothing worth hearing.
+        let off = json!({ "type": "control_response", "response": {
+            "subtype": "success", "request_id": REMOTE_OFF_REQUEST } });
+        assert_eq!(parse_message(&off, &pending), []);
+    }
+
+    #[test]
+    fn each_change_of_the_connection_to_claude_ai_is_reported() {
+        let state = |fields: Value| {
+            let message = with_fields(
+                json!({ "type": "system", "subtype": "bridge_state",
+                    "bridge_epoch": 1, "uuid": "u", "session_id": "s" }),
+                fields,
+            );
+            match parse_message(&message, &Pending::default()).as_slice() {
+                [AgentEvent::RemoteControl { state, detail, .. }] => (*state, detail.clone()),
+                other => panic!("{other:?}"),
+            }
+        };
+        assert_eq!(state(json!({ "state": "ready" })).0, RemoteState::On);
+        assert_eq!(
+            state(json!({ "state": "connected", "recovered": true })).0,
+            RemoteState::On
+        );
+        assert_eq!(
+            state(json!({ "state": "reconnecting", "detail": "network" })),
+            (RemoteState::Reconnecting, Some("network".to_string()))
+        );
+        // A failure is for good unless its kind says otherwise.
+        assert_eq!(
+            state(json!({ "state": "failed", "detail": "gone", "failure_kind": "terminal" })),
+            (RemoteState::Failed, Some("gone".to_string()))
+        );
+        assert_eq!(
+            state(json!({ "state": "failed", "failure_kind": "transient" })).0,
+            RemoteState::Reconnecting
+        );
+        assert_eq!(
+            state(json!({ "state": "policy_disabled", "detail": "" })),
+            (RemoteState::Failed, None)
+        );
+    }
+
+    /// `message` with the fields of `more` added.
+    fn with_fields(mut message: Value, more: Value) -> Value {
+        if let (Some(message), Value::Object(more)) = (message.as_object_mut(), more) {
+            message.extend(more);
+        }
+        message
     }
 
     /// How Claude Code's report of an end with this status is read.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentEvent } from "./api/types";
+import type { AgentEvent, RemoteState } from "./api/types";
 import {
     activity,
     fileName,
@@ -554,5 +554,49 @@ describe("shownTools", () => {
             running: false,
         });
         expect(toolRunSummary(last.calls)).toMatchObject({ count: 1, running: true });
+    });
+});
+
+describe("Remote Control in the transcript", () => {
+    const at = "https://claude.ai/code/cse_1";
+    const report = (state: RemoteState, url: string | null = at, detail: string | null = null) =>
+        ({ type: "remote_control", state, url, remote_id: "cse_1", detail }) as const;
+
+    it("marks what was typed on claude.ai, and says once where the session can be reached", () => {
+        const items = toItems([
+            report("starting", null),
+            report("on", null),
+            report("on"),
+            { type: "user_message", text: "from my phone", remote: true },
+            { type: "text", text: "answered here" },
+            // The agent started again and attached to the same session: nothing new to say.
+            report("paused"),
+            report("starting"),
+            report("on"),
+            { type: "user_message", text: "typed here" },
+            report("off"),
+            report("starting"),
+            report("failed", null, "sign in again"),
+        ]);
+        expect(items.map((item) => item.kind)).toEqual([
+            "remote",
+            "user",
+            "text",
+            "user",
+            "remote",
+            "remote",
+        ]);
+        expect(items[0]).toMatchObject({ state: "on", url: at });
+        expect(items[1]).toMatchObject({ text: "from my phone", remote: true });
+        expect(items[3]).toMatchObject({ text: "typed here", remote: false });
+        expect(items[4]).toMatchObject({ state: "off" });
+        expect(items[5]).toMatchObject({ state: "failed", detail: "sign in again" });
+    });
+
+    it("says it is on again after it was turned off", () => {
+        const kinds = toItems([report("on"), report("off"), report("on")]).map(
+            (item) => item.kind === "remote" && item.state,
+        );
+        expect(kinds).toEqual(["on", "off", "on"]);
     });
 });

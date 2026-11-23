@@ -29,6 +29,7 @@ import type {
     Pull,
     PullDraft,
     QueuedMessage,
+    RemoteState,
     SearchHit,
     Session,
     SessionEvent,
@@ -1563,6 +1564,10 @@ class MockAgent {
         if (command?.kind === "terminal") {
             throw new Error(`/${command.name} is not sent. ${command.note}`);
         }
+        if (command?.kind === "own") {
+            this.remoteControl(id, !/^\s*\/\S+\s+off\b/i.test(text));
+            return true;
+        }
         const screen = command?.kind === "screen" && bare ? mockScreen(command.name) : null;
         const questions = command?.kind === "setting" ? mockQuestions(command.name) : null;
         if (screen) {
@@ -1967,6 +1972,44 @@ class MockAgent {
         }
         this.later(id, sampleUsageLimits(), null, 4);
         this.later(id, { ...SAMPLE_EXTRA_USAGE, used: 4126 }, null, 4);
+    }
+
+    /**
+     * Turns Remote Control on or off, as Claude Code answers. Once it is on, a message comes
+     * from the phone a little later and is answered here, so that both can be looked at.
+     */
+    remoteControl(id: number, on: boolean) {
+        const asked = this.configure(id, {}) as Session;
+        if (asked.agent !== "claude") {
+            throw `only a Claude Code session has Remote Control, and this session runs \`${asked.agent}\``;
+        }
+        const remote_id = `sample-${id}`;
+        const url = `https://claude.ai/code/${remote_id}`;
+        const report = (state: RemoteState, at: string | null): AgentEvent => ({
+            type: "remote_control",
+            state,
+            url: at,
+            remote_id,
+            detail: null,
+        });
+        if (!on) {
+            this.publish(id, report("off", url), null);
+            return;
+        }
+        this.publish(id, report("starting", null), null);
+        this.later(id, report("on", url), null, 3);
+        const typed = "How is it going? Typed on my phone.";
+        this.later(id, { type: "user_message", text: typed, remote: true }, "working", 12);
+        const answer = "Going well: the tests pass. Answered here, in the task's worktree.";
+        this.later(id, { type: "text", text: answer }, "working", 14);
+        const done: AgentEvent = {
+            type: "turn_done",
+            is_error: false,
+            result: null,
+            cost_usd: 0.0123,
+            duration_ms: 4_000,
+        };
+        this.later(id, done, "idle", 15);
     }
 
     rename(id: number, title: string): Session {
@@ -2498,6 +2541,7 @@ export function createMockApi(): Api {
         },
         statusLine: async (id) => scriptedStatus(settings.status_command, id),
         sessionUsageRefresh: async (id) => agent.refreshUsage(id),
+        sessionRemoteControl: async (id, on) => agent.remoteControl(id, on),
         sessionRename: async (id, title) => agent.rename(id, title),
         sessionMark: async (id, colour, label) => agent.mark(id, colour, label),
         sessionsSearch: async (query) => sampleSearch(agent.projects, query),

@@ -67,7 +67,8 @@ async fn a_turn_is_stored_published_and_names_the_session() {
     assert_eq!(
         events.first(),
         Some(&AgentEvent::UserMessage {
-            text: "hello there".into()
+            text: "hello there".into(),
+            remote: false,
         })
     );
     assert!(
@@ -1021,7 +1022,7 @@ async fn a_stopped_session_exits_and_restarting_continues_the_conversation() {
     let messages: Vec<_> = history
         .iter()
         .filter_map(|event| match event {
-            AgentEvent::UserMessage { text } => Some(text.as_str()),
+            AgentEvent::UserMessage { text, .. } => Some(text.as_str()),
             _ => None,
         })
         .collect();
@@ -1698,7 +1699,7 @@ async fn a_fork_from_a_message_holds_it_and_what_followed_and_nothing_from_befor
     let messages = |id: i64| -> Vec<String> {
         let events = core.session_events(id).expect("reads");
         let said = events.into_iter().filter_map(|event| match event {
-            AgentEvent::UserMessage { text } => Some(text),
+            AgentEvent::UserMessage { text, .. } => Some(text),
             _ => None,
         });
         said.collect()
@@ -1755,7 +1756,8 @@ async fn a_fork_starts_with_what_was_said_and_tells_its_agent_once() {
     assert_eq!(
         first.first(),
         Some(&AgentEvent::UserMessage {
-            text: "echo: what was it?".into()
+            text: "echo: what was it?".into(),
+            remote: false,
         })
     );
     let heard = |events: &[AgentEvent]| {
@@ -2391,6 +2393,7 @@ async fn a_waiting_message_told_now_is_taken_into_the_turn_and_recorded_where_it
     let at = |wanted: &AgentEvent| events.iter().position(|event| event == wanted);
     let message = AgentEvent::UserMessage {
         text: "a hint".to_string(),
+        remote: false,
     };
     let result = events
         .iter()
@@ -2446,7 +2449,7 @@ async fn a_message_told_to_an_agent_that_ended_before_hearing_it_waits_again() {
         .collect();
     assert_eq!(waiting, ["first hint", "second hint"]);
     let stored = core.session_events(session.id).expect("reads");
-    let said = |event: &AgentEvent| matches!(event, AgentEvent::UserMessage { text } if text.ends_with("hint"));
+    let said = |event: &AgentEvent| matches!(event, AgentEvent::UserMessage { text, .. } if text.ends_with("hint"));
     assert!(!stored.iter().any(said), "{stored:?}");
 }
 

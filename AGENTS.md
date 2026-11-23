@@ -260,7 +260,7 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   it could not start for one, would end without a word. Held open, that side never reports
   its end, so `feed` waits for the program and tells `pump`, which reads on until nothing
   has come for `LAST_WORDS`.
-- **Claude Code's own `/` commands are each one of four kinds, in one table**
+- **Claude Code's own `/` commands are each one of five kinds, in one table**
   (`commands.rs`, `CLAUDE_COMMANDS`). In a terminal many of them open a screen; run as Swarmed
   runs it, Claude Code has none. A *screen* (`/usage`, `/status`, `/context`, `/cost`,
   `/memory`, `/skills`, `/hooks`, `/mcp`) is asked of Claude Code with one control request
@@ -269,11 +269,14 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   `/effort`, `/config`) is put to the user as questions, `CommandAsked`, in the shape of an
   agent's own questions, and the answer (`session_command_answer`) is applied by the core:
   model and effort with `session_configure`, Claude Code's settings by sending it
-  `/config key=value`, which it takes in words. A command Swarmed has its own way to do
+  `/config key=value`, which it takes in words. One Swarmed does itself with nothing to ask
+  is *own* (`/remote-control`, `/rc`, and `/rc off`): see Remote Control below. It is sent
+  at once, and refused in the queue, where it would reach Claude Code as typed. A command
+  Swarmed has its own way to do
   (`/rename`, `/fork`, `/clear`) is refused (`Error::TerminalOnly`) with what to do instead,
   under any of its names (`CLAUDE_ALIASES`: `/new` is `/clear`). So is one that would move
   the session out of its worktree or hand it to something else (`/cd`, `/add-dir`,
-  `/remote-control`), named in the table even where Claude Code would refuse it itself: it
+  `/teleport`), named in the table even where Claude Code would refuse it itself: it
   can do `/add-dir` without a screen behind a switch. A refused command cannot wait in the
   queue either (`may_wait`). Anything else, and any name the table does not hold, is a
   message. That includes the commands that only open a screen in the terminal (`/vim`,
@@ -288,6 +291,27 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   such commands at once instead of queueing them (`takenBySwarmed`). A screen is the user's:
   nothing that hands a conversation on (forks, peers, the cloud, search) reads it. Of
   `mcp_status` only names and states are read, never the definitions, which hold secrets.
+- **A Claude Code session can be reached from claude.ai and the Claude app**
+  (`remote.rs`, Remote Control). Claude Code offers a host that runs it without its screen a
+  `remote_control` control request, as the Agent SDK's `enableRemoteControl` does, which
+  `agent/claude.rs` sends and whose answer and `bridge_state` reports it reads into
+  `AgentEvent::RemoteControl`. Swarmed handles no sign-in for it: Claude Code uses its own,
+  which has to be a claude.ai subscription, and the conversation is kept on Anthropic's
+  servers while it is on, which the panel that turns it on says.
+  - **What is typed there is the user's.** Claude Code says each message back as it takes it
+    in. One Swarmed did not send (`Live::sent`, the latest `SENT_KEPT`) nor tell, while
+    Remote Control is on in that run, is recorded as `UserMessage` with `remote`, which a
+    message typed here never has. Claude Code's own records of a command are not.
+  - **The wish outlives the agent.** The session's latest `RemoteControl` says whether it is
+    wanted (`RemoteState::wanted`). An agent started for a session that wants it turns it on
+    (`remote::resume`, from `launch`), attached to the same session on claude.ai
+    (`reattach_session_id`, kept by `keep_session_on_exit`) unless the latest report is a
+    failure. An agent that goes leaves it `Paused`; the first Swarmed to arrive starts the
+    agents of the sessions that want it (`remote_controls_resume`). Closing a session turns
+    it off. The core fills in the address and id on each report from the one before, since
+    Claude Code names them only when it is turned on, and drops a report that repeats the last.
+  - **Changes made there are not all heard here.** A permission mode changed on claude.ai is
+    not reported; the model is, after the turn. Views show as code there.
 - **A skill can be called by name, `/name`, on any agent** (`Paths::skill_called`, used by
   `send_text`). Claude Code answers to its own skills itself; for every other skill and agent
   Swarmed sends what the skill says with the rest of the message, and records the message as

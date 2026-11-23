@@ -146,6 +146,7 @@ function ItemView({ item, sessionId, latest }: ItemProps) {
         case "user":
             return (
                 <div className="said">
+                    {item.remote && <p className="said-from">Typed on claude.ai</p>}
                     <Said text={item.text} />
                     <FileChips files={item.files} />
                     <button
@@ -234,6 +235,8 @@ function ItemView({ item, sessionId, latest }: ItemProps) {
             return <TerminalOnly sessionId={sessionId} command={item.command} />;
         case "moved":
             return <Moved sessionId={sessionId} item={item} latest={latest} />;
+        case "remote":
+            return <RemoteLine item={item} />;
         case "terminal":
             return (
                 <details className="shared-terminal">
@@ -265,6 +268,30 @@ function ItemView({ item, sessionId, latest }: ItemProps) {
                 </p>
             );
     }
+}
+
+/** Remote Control turned on, with where the session is on claude.ai, or off, or failed. */
+function RemoteLine({ item }: { item: Extract<Item, { kind: "remote" }> }) {
+    const { url } = item;
+    if (item.state === "failed") {
+        const because = item.detail ? `: ${item.detail}` : ".";
+        return (
+            <p className="notice-line notice-warning" role="alert">
+                Remote Control could not be turned on{because}
+            </p>
+        );
+    }
+    if (item.state === "off" || url === null) {
+        return <p className="aside">Remote Control is off.</p>;
+    }
+    return (
+        <p className="aside remote-line">
+            Remote Control is on: carry on from the Claude app, or at{" "}
+            <button type="button" className="link-button" onClick={() => void api.openLink(url)}>
+                {url}
+            </button>
+        </p>
+    );
 }
 
 /**

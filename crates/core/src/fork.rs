@@ -53,7 +53,7 @@ fn transcript(events: &[AgentEvent]) -> String {
 /// What an event says in a conversation written out as text, under who said it.
 pub(crate) fn turn(event: &AgentEvent) -> Option<String> {
     match event {
-        AgentEvent::UserMessage { text } => Some(format!("User:\n{text}")),
+        AgentEvent::UserMessage { text, .. } => Some(format!("User:\n{text}")),
         AgentEvent::Text { text } => Some(format!("Assistant:\n{text}")),
         _ => None,
     }
@@ -172,6 +172,7 @@ mod tests {
     fn user(text: &str) -> AgentEvent {
         AgentEvent::UserMessage {
             text: text.to_string(),
+            remote: false,
         }
     }
 

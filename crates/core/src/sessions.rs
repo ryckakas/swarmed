@@ -33,7 +33,7 @@ use crate::toolserver::{
     SERVER_NAME, SESSION_ENV, SHOW_HTML_FOR_CLAUDE, SOCKET_ENV, TOOL_SERVER_ARG, VIEW_SPOOL_ENV,
     take_views,
 };
-use crate::{Core, git, lock, peers, publish, views};
+use crate::{Core, git, lock, peers, publish, remote, views};
 
 /// The kinds of things an agent leaves running that are sub-agents, as Claude Code names them.
 const SUB_AGENT_KINDS: [&str; 2] = ["local_agent", "remote_agent"];
@@ -51,6 +51,10 @@ const PRIVATE_DIR: &str = "run/agents";
 /// input asks it to; one that carries on regardless would write into a worktree that is
 /// being removed, or wait for ever on an answer nobody will give.
 const GRACE: Duration = Duration::from_secs(3);
+
+/// How many of the latest messages sent to an agent are kept, to tell them from messages it
+/// says back that were typed elsewhere.
+const SENT_KEPT: usize = 32;
 
 const TITLE_CHARS: usize = 60;
 /// How long a title the user typed may be.
@@ -135,6 +139,7 @@ impl SessionStatus {
             | AgentEvent::CommandAnswered { .. }
             | AgentEvent::TerminalOnly { .. }
             | AgentEvent::WorktreeMoved { .. }
+            | AgentEvent::RemoteControl { .. }
             | AgentEvent::Heard { .. }
             // A sub-agent in the foreground works inside its starter's turn, which is busy
             // already; one in the background works between turns, when the session is not.
@@ -551,7 +556,7 @@ impl Store {
             )?,
             // Whoever writes to a session has seen where it stood, and starts something new:
             // a mark was about what came before.
-            AgentEvent::UserMessage { text } => self.conn.execute(
+            AgentEvent::UserMessage { text, .. } => self.conn.execute(
                 "UPDATE sessions SET unread = 0, mark_colour = NULL, mark_label = '', \
                  title = CASE WHEN title = '' THEN ?2 ELSE title END \
                  WHERE id = ?1",
@@ -1261,6 +1266,7 @@ impl Core {
     /// Stops a session's agent and takes the session out of every list. Its history is kept.
     pub fn session_close(&self, id: i64) -> Result<()> {
         self.session(id)?;
+        self.remote_control_closing(id)?;
         self.session_stop(id);
         self.terminal_close(id);
         self.live.queues.clear(id);
@@ -1281,6 +1287,8 @@ impl Core {
             ending.discard();
             ending.kill();
         }
+        // What its agent would still say is dropped, the end of Remote Control with it.
+        self.live.remote_ends(id);
         self.terminal_close(id);
         self.live.queues.clear(id);
         // Views the agent showed and nobody has read yet. Gone already is as good as removed.
@@ -1314,6 +1322,7 @@ pub(crate) fn send_text(
     let earlier = fork::carried(&lock(store).events(id)?);
     let event = AgentEvent::UserMessage {
         text: text.to_string(),
+        remote: false,
     };
     live.note(store, id, event)?;
     let shared = terminals.take_unshared(id);
@@ -1355,6 +1364,7 @@ pub(crate) fn send_text(
         }
         None => message,
     };
+    live.sent(id, &message);
     commands
         .send(AgentCommand::UserMessage(message))
         .map_err(|_| Error::SessionNotRunning(id))
@@ -1557,6 +1567,13 @@ pub(crate) struct Live {
     /// The messages told to each session's agent in the middle of a turn and not yet heard:
     /// each is recorded where the agent says it took it in.
     told: Mutex<HashMap<i64, VecDeque<Told>>>,
+    /// The latest messages sent to each session's agent from here, as sent, which it says back
+    /// as it takes them in: one it says back that is none of these, and was not told, was
+    /// typed elsewhere.
+    sent: Mutex<HashMap<i64, VecDeque<String>>>,
+    /// The sessions whose agent has Remote Control on, or was asked to turn it on, in the run
+    /// it is in now.
+    remote: Mutex<HashSet<i64>>,
     runs: AtomicU64,
     bus: broadcast::Sender<SessionEvent>,
 }
@@ -1577,6 +1594,8 @@ impl Default for Live {
             background_agents: Mutex::default(),
             answering: Mutex::default(),
             told: Mutex::default(),
+            sent: Mutex::default(),
+            remote: Mutex::default(),
             runs: AtomicU64::new(0),
             bus: broadcast::Sender::new(EVENT_BUFFER),
         }
@@ -1611,6 +1630,45 @@ impl Live {
     fn never_heard(&self, id: i64) -> Vec<String> {
         let told = lock(&self.told).remove(&id).unwrap_or_default();
         told.into_iter().map(|message| message.typed).collect()
+    }
+
+    /// Notes a message sent to the session's agent from here, as it was sent. Only the latest
+    /// few are kept: Claude Code says each back as it starts on it, which is soon, and some,
+    /// such as commands, it never says back as they were sent.
+    fn sent(&self, id: i64, message: &str) {
+        let mut sent = lock(&self.sent);
+        let kept = sent.entry(id).or_default();
+        kept.push_back(message.to_string());
+        while kept.len() > SENT_KEPT {
+            kept.pop_front();
+        }
+    }
+
+    /// Whether `text` is a message sent to the session's agent from here that it had not said
+    /// back yet. It has now, and it is forgotten.
+    fn was_sent(&self, id: i64, text: &str) -> bool {
+        let mut sent = lock(&self.sent);
+        let Some(kept) = sent.get_mut(&id) else {
+            return false;
+        };
+        let at = kept.iter().position(|message| message == text);
+        at.and_then(|at| kept.remove(at)).is_some()
+    }
+
+    /// Notes that the session's agent has been asked to turn Remote Control on.
+    pub(crate) fn remote_begins(&self, id: i64) {
+        lock(&self.remote).insert(id);
+    }
+
+    /// Notes that the session's agent no longer has Remote Control on, and says whether it
+    /// had.
+    pub(crate) fn remote_ends(&self, id: i64) -> bool {
+        lock(&self.remote).remove(&id)
+    }
+
+    /// Whether the session's agent has Remote Control on in the run it is in now.
+    pub(crate) fn is_remote(&self, id: i64) -> bool {
+        lock(&self.remote).contains(&id)
     }
 
     /// Notes that `worktree` is at `now`, and says where it was before if that was elsewhere.
@@ -1980,6 +2038,9 @@ fn launch(shared: Shared, id: i64, how: Launch) -> Result<()> {
     }
     let handle = shared.backend.start(shared.spec.clone())?;
     live.background_gone(id);
+    // A new process has heard nothing yet and has nothing turned on.
+    lock(&live.sent).remove(&id);
+    live.remote_ends(id);
     // What a run this takes the place of was told and never heard: its own end is dropped.
     let unheard = live.never_heard(id);
     let number = live.runs.fetch_add(1, Ordering::Relaxed);
@@ -2003,6 +2064,7 @@ fn launch(shared: Shared, id: i64, how: Launch) -> Result<()> {
     if let Some(pid) = handle.pid {
         lock(&live.pids).insert(id, pid);
     }
+    remote::resume(&shared.store, &live, id);
     let reaper = Reaper {
         stopped,
         kill_at: None,
@@ -2108,14 +2170,27 @@ fn take(shared: &Shared, (id, run): (i64, u64), ending: &Ending, event: AgentEve
 /// never heard waits in the queue again, so that nothing the user wrote goes missing or is
 /// shown as said to an agent that did not get it.
 fn heard_as(shared: &Shared, id: i64, event: AgentEvent) -> Option<AgentEvent> {
+    let live = &shared.live;
     match event {
         AgentEvent::Heard { text } => {
-            let typed = shared.live.heard(id, &text)?;
-            Some(AgentEvent::UserMessage { text: typed })
+            if let Some(typed) = live.heard(id, &text) {
+                return Some(AgentEvent::UserMessage {
+                    text: typed,
+                    remote: false,
+                });
+            }
+            // Sent from here, and recorded then. What is neither came through Remote Control,
+            // typed on claude.ai or in the Claude app: the user's words, which nothing else
+            // records.
+            let afar = !live.was_sent(id, &text)
+                && live.is_remote(id)
+                && !remote::is_command_record(&text);
+            afar.then_some(AgentEvent::UserMessage { text, remote: true })
         }
         AgentEvent::Exited { .. } => {
-            let unheard = shared.live.never_heard(id);
-            queue::wait_again(&shared.store, &shared.live, id, &unheard);
+            let unheard = live.never_heard(id);
+            queue::wait_again(&shared.store, live, id, &unheard);
+            lock(&live.sent).remove(&id);
             Some(event)
         }
         _ => Some(event),
@@ -2124,10 +2199,11 @@ fn heard_as(shared: &Shared, id: i64, event: AgentEvent) -> Option<AgentEvent> {
 
 /// Stores and publishes an event of the session's agent, and does what follows from it.
 fn on_event(shared: &Shared, id: i64, event: AgentEvent) {
-    let Some(event) = heard_as(shared, id, event) else {
+    let (store, live) = (&shared.store, &shared.live);
+    let event = heard_as(shared, id, event);
+    let Some(event) = event.and_then(|event| remote::reported(store, live, id, event)) else {
         return;
     };
-    let (store, live) = (&shared.store, &shared.live);
     let turn_over = matches!(event, AgentEvent::TurnDone { .. });
     let gone = matches!(event, AgentEvent::Exited { .. });
     // A turn that ended well makes room for the next message the user left waiting, and so
@@ -2159,6 +2235,7 @@ fn on_event(shared: &Shared, id: i64, event: AgentEvent) {
     if gone {
         // An agent that went in the middle of a turn the user stopped never ends it.
         live.queues.pressing().remove(&id);
+        remote::paused(store, live, id);
     }
 }
 

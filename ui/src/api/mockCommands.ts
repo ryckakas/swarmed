@@ -23,6 +23,7 @@ export const MOCK_COMMANDS: SlashCommand[] = [
     { name: "model", kind: "setting", note: "" },
     { name: "effort", kind: "setting", note: "" },
     { name: "config", kind: "setting", note: "" },
+    { name: "remote-control", kind: "own", note: "" },
     { name: "rename", kind: "terminal", note: "A session is renamed by pressing its title." },
 ];
 

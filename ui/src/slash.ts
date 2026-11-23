@@ -54,6 +54,8 @@ export function kindLabel(command: SlashCommand | undefined): string | null {
             return "shown here";
         case "setting":
             return "asks here";
+        case "own":
+            return "done here";
         case "terminal":
             return command.note ? `not sent. ${command.note}` : "not sent";
         default:

@@ -89,6 +89,16 @@ export function CoinsIcon() {
     );
 }
 
+/** A phone with a signal beside it: a session reached from elsewhere, through Remote Control. */
+export function RemoteIcon() {
+    return (
+        <>
+            <rect x="3" y="2" width="6.5" height="12" rx="1.4" />
+            <path d="M5.4 11.6h1.7M11.6 5.6a3 3 0 0 1 0 4.8M13.4 4a5.4 5.4 0 0 1 0 8" />
+        </>
+    );
+}
+
 /** A cloud: work handed to an agent that runs in one. */
 export function CloudIcon() {
     return <path d="M4.5 12.5a3 3 0 0 1-.4-5.97 4 4 0 0 1 7.7-.9A3.4 3.4 0 0 1 11.5 12.5z" />;

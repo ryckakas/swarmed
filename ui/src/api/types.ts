@@ -568,8 +568,17 @@ export interface ContextCategory {
     kind: string;
 }
 
-/** What Swarmed does with a command when it is sent. */
-export type CommandKind = "prompt" | "screen" | "setting" | "terminal";
+/**
+ * What Swarmed does with a command when it is sent: send it on, show a screen, ask about a
+ * setting, do it itself with nothing to ask (`own`, such as Remote Control), or refuse it.
+ */
+export type CommandKind = "prompt" | "screen" | "setting" | "own" | "terminal";
+
+/**
+ * How Remote Control of a session stands: asked for, reachable from claude.ai, reconnecting,
+ * waiting for its agent to run again, turned off, or failed until it is turned on again.
+ */
+export type RemoteState = "starting" | "on" | "reconnecting" | "paused" | "off" | "failed";
 
 /** A command or skill a message can call by starting with `/`. */
 export interface SlashCommand {
@@ -606,7 +615,8 @@ export interface AskedQuestion {
 }
 
 export type AgentEvent =
-    | { type: "user_message"; text: string }
+    /** What the user wrote; `remote` when typed on claude.ai or in the Claude app. */
+    | { type: "user_message"; text: string; remote?: boolean }
     | {
           type: "init";
           agent_session_id: string;
@@ -668,6 +678,17 @@ export type AgentEvent =
     | { type: "permission_answered"; request_id: string; allowed: boolean }
     | { type: "permission_withdrawn"; request_id: string }
     | { type: "rate_limit"; status: string; resets_at: number | null; raw: unknown }
+    /**
+     * How Remote Control stands: whether the session can be reached from claude.ai and the
+     * Claude app, and where (`url`), with Claude Code's words for a failure or a reconnection.
+     */
+    | {
+          type: "remote_control";
+          state: RemoteState;
+          url: string | null;
+          remote_id: string | null;
+          detail: string | null;
+      }
     | {
           /** The account's extra usage this billing period, in minor units of `currency`. */
           type: "extra_usage";

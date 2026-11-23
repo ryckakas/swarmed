@@ -26,7 +26,7 @@ async fn core_with_session(fx: &common::Fixture) -> (Core, Session) {
 fn said(core: &Core, id: i64) -> Vec<String> {
     let events = core.session_events(id).expect("reads");
     let messages = events.into_iter().filter_map(|event| match event {
-        AgentEvent::UserMessage { text } => Some(text),
+        AgentEvent::UserMessage { text, .. } => Some(text),
         _ => None,
     });
     messages.collect()

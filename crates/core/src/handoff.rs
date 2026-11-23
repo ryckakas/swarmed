@@ -102,7 +102,10 @@ mod tests {
     use super::*;
 
     fn user(text: &str) -> AgentEvent {
-        AgentEvent::UserMessage { text: text.into() }
+        AgentEvent::UserMessage {
+            text: text.into(),
+            remote: false,
+        }
     }
 
     fn reply(text: &str) -> AgentEvent {
