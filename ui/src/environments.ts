@@ -62,6 +62,30 @@ export function portsFromText(text: string): Record<string, number> {
     return ports;
 }
 
+/** The largest stack limit the core can keep. */
+const MOST_STACKS = 0xffff_ffff;
+
+/** A stack limit the way it is typed: empty for the project's own. */
+export function stacksToText(limit: number | undefined): string {
+    return limit === undefined ? "" : String(limit);
+}
+
+/**
+ * The stack limit typed, or `undefined` when nothing is, which leaves the project's own. Anything
+ * but a whole number from 1 is an error.
+ */
+export function stacksFromText(text: string): number | undefined {
+    const typed = text.trim();
+    if (typed === "") {
+        return undefined;
+    }
+    const limit = Number(typed);
+    if (!Number.isInteger(limit) || limit < 1 || limit > MOST_STACKS) {
+        throw new Error(`"${typed}" is not a number of stacks: write a whole number from 1`);
+    }
+    return limit;
+}
+
 function unquoted(value: string): string {
     const quote = value[0];
     const quoted = value.length >= 2 && (quote === '"' || quote === "'") && value.endsWith(quote);

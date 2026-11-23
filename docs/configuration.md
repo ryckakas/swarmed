@@ -74,7 +74,7 @@ WEB_PORT = "{{port.web}}"
 | `base_branch` | `origin`'s default branch, else `origin/main` or `origin/master` | the ref new tasks branch from |
 | `ports` | none | named base ports |
 | `port_step` | `100` | how far apart two tasks' ports are |
-| `max_stacks` | `2` | how many of the project's stacks may run at once |
+| `max_stacks` | `5` | how many of the project's stacks may run at once |
 | `open_url` | the first local address `start` prints | what "Open in browser" opens |
 | `hooks` | none | `setup`, `start`, `stop` and `teardown` commands |
 | `env` | none | environment for the hooks and the task's agents |
@@ -87,7 +87,7 @@ Each hook runs with `sh -c` in the task's worktree, and an empty one is skipped.
    whose setup failed is kept, and setup can be run again. When `setup` succeeds and the
    environment has no snapshot yet, the task is kept as its snapshot.
 2. When `setup` succeeds, `start` is started and kept running, with its output in a log. Starting
-   one stack more than `max_stacks` is refused.
+   one stack more than `max_stacks` is refused: the task's environment's, if it sets one.
 3. Stopping a stack runs `stop`, then ends whatever `start` started, including what it started
    in process groups of their own.
 4. Removing a task stops its agents and its stack, runs `teardown`, ends whatever else still
@@ -130,7 +130,9 @@ port is `base + slot × port_step`, so with `web = 3000` the first task's is 310
 
 An environment is another way of setting a task up in the same project, such as with or without
 Docker. It can have its own hooks and `open_url`, which take the place of the project's, and
-ports and variables, which are added to the project's in place of any of the same name. A task
+ports and variables, which are added to the project's in place of any of the same name. Its own
+`max_stacks`, "Stacks at once" in the app, is how many of the project's stacks, in any
+environment, may be running for one of its tasks to start its own. A task
 is created in one environment, or none, and keeps it. An environment cannot be removed while a
 task still uses it.
 

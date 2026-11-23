@@ -120,8 +120,8 @@ impl Core {
         Ok(true)
     }
 
-    /// Refuses when as many of the project's stacks run as its `max_stacks` allows, counting
-    /// the ones an earlier Swarmed left behind.
+    /// Refuses when as many of the project's stacks run as `max_stacks` allows (the task's
+    /// environment's, or else the project's), counting the ones an earlier Swarmed left behind.
     fn room_for_a_stack(
         &self,
         project: &Project,

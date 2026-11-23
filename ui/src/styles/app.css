@@ -4507,9 +4507,36 @@ code {
     width: min(72ch, 100% - 2 * var(--space-6));
 }
 
-/* A repository's environments: their names to pick from, or the form for one. */
+/* A repository's environments: their names to pick from, or the form for one. Only what lies
+   between the heading and the buttons scrolls, so the buttons stay in view. */
 .confirm.environments {
     width: min(64ch, 100% - 2 * var(--space-6));
+    max-height: 86vh;
+}
+
+/* Open only: `display` set on the dialog itself would show it closed as well. */
+.confirm.environments[open] {
+    display: flex;
+    flex-direction: column;
+}
+
+.environments-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding-bottom: var(--space-3);
+}
+
+.environments-footer {
+    flex: none;
+    margin-top: 0;
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--line);
+}
+
+.environments-problem {
+    flex: none;
+    margin-bottom: var(--space-3);
 }
 
 .environment-list {
@@ -4578,6 +4605,10 @@ code {
 
 .environment-remove {
     margin-right: auto;
+}
+
+.environment-stacks {
+    width: 10ch;
 }
 
 .note-text {

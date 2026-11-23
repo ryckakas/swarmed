@@ -1,8 +1,9 @@
 //! Named environments of a project: different ways of setting a task up on this machine.
 //!
 //! An environment is a `setup` command, a `start` command for what is to keep running, `stop`
-//! and `teardown` commands, environment variables and the address of what it runs. Each is laid over the project's own configuration, so one says only what
-//! it does differently. A task is created in one of them, or in none, and keeps it.
+//! and `teardown` commands, environment variables, the address of what it runs and how many
+//! stacks may run at once. Each is laid over the project's own configuration, so one says only
+//! what it does differently. A task is created in one of them, or in none, and keeps it.
 //!
 //! They live in a file of their own beside the project's configuration, written from a front
 //! end. Their variables may hold credentials: the file is readable by the user alone, and the
@@ -50,6 +51,10 @@ pub struct Environment {
     /// Variables for the hooks and for the agents working in the task, on top of the
     /// project's. Values may use the same `{{variables}}` as the project's.
     pub env: BTreeMap<String, String>,
+    /// How many of the project's stacks may run for one of this environment's tasks to start
+    /// its own, in place of the project's `max_stacks`. `None` leaves the project's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_stacks: Option<u32>,
 }
 
 impl std::fmt::Debug for Environment {
@@ -63,6 +68,7 @@ impl std::fmt::Debug for Environment {
             .field("open_url", &self.open_url)
             .field("ports", &self.ports)
             .field("env", &self.env.keys().collect::<Vec<_>>())
+            .field("max_stacks", &self.max_stacks)
             .finish()
     }
 }
@@ -77,6 +83,9 @@ impl Environment {
         replace(&self.open_url, &mut config.open_url);
         config.ports.extend(self.ports.clone());
         config.env.extend(self.env.clone());
+        if let Some(limit) = self.max_stacks {
+            config.max_stacks = limit;
+        }
         config
     }
 }
@@ -172,6 +181,9 @@ impl Core {
         let invalid_port = |port: &&String| !is_port_name(port);
         if let Some(port) = environment.ports.keys().find(invalid_port) {
             return Err(Error::InvalidPortName(port.clone()));
+        }
+        if environment.max_stacks == Some(0) {
+            return Err(Error::NoRoomForAStack);
         }
         let project = self.project(project)?;
         let path = self.paths.project_environments(&project.name);
@@ -318,6 +330,32 @@ mod tests {
         assert_eq!(seen.open_url, "http://localhost:{{port.web}}");
         assert_eq!(seen.env["A"], "project");
         assert_eq!(seen.env["B"], "staging");
+        assert_eq!(seen.max_stacks, ProjectConfig::default().max_stacks);
+    }
+
+    #[test]
+    fn an_environments_stack_limit_takes_the_place_of_the_projects() {
+        let config = ProjectConfig {
+            max_stacks: 1,
+            ..ProjectConfig::default()
+        };
+        let roomy = Environment {
+            max_stacks: Some(3),
+            ..Environment::default()
+        };
+        assert_eq!(roomy.over(config).max_stacks, 3);
+    }
+
+    #[test]
+    fn an_environment_without_a_stack_limit_is_written_without_one() {
+        let plain = toml::to_string(&Environment::default()).expect("writes");
+        assert!(!plain.contains("max_stacks"), "{plain}");
+        let roomy = Environment {
+            max_stacks: Some(4),
+            ..Environment::default()
+        };
+        let written = toml::to_string(&roomy).expect("writes");
+        assert_eq!(toml::from_str::<Environment>(&written).ok(), Some(roomy));
     }
 
     #[test]
