@@ -1351,6 +1351,7 @@ fn the_ui_can_keep_an_environment_start_a_task_in_it_and_snapshot_what_its_setup
     let environment = json!({
         "setup": "echo .cache > .gitignore && echo built > .cache",
         "start": "", "stop": "", "teardown": "", "open_url": "", "ports": {}, "env": {},
+        "max_stacks": 3,
     });
     let save = json!({ "project": "demo", "name": "cached", "environment": environment });
     assert_eq!(app.ok("environment_save", save), json!(null));

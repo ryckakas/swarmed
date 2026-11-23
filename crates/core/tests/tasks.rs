@@ -1051,6 +1051,52 @@ async fn no_more_stacks_of_a_project_run_than_its_config_allows() {
 }
 
 #[tokio::test]
+async fn an_environments_stack_limit_counts_all_of_the_projects_stacks_for_its_own_tasks() {
+    let fx = fixture();
+    write_config(&fx, "max_stacks = 1\n[hooks]\nstart = \"sleep 300\"\n");
+    let core = core_with_project(&fx).await;
+    let roomy = Environment {
+        max_stacks: Some(2),
+        ..Environment::default()
+    };
+    core.environment_save("demo", "roomy", &roomy)
+        .expect("saves");
+    let in_roomy = || NewTaskOptions {
+        environment: EnvironmentChoice::Named("roomy".to_string()),
+        ..NewTaskOptions::default()
+    };
+    for name in ["one", "two", "three"] {
+        core.task_new("demo", name, in_roomy(), &hooks::discard)
+            .await
+            .expect("creates");
+    }
+    assert!(core.stack_start("demo", "two").expect("runs already"));
+    let third = core.stack_start("demo", "three");
+    assert!(
+        matches!(&third, Err(Error::TooManyStacks { limit: 2, .. })),
+        "{third:?}"
+    );
+    // A task set up the project's own way keeps the project's limit, and counts the others.
+    core.task_new("demo", "plain", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates");
+    let plain = core.stack_start("demo", "plain");
+    assert!(
+        matches!(&plain, Err(Error::TooManyStacks { limit: 1, .. })),
+        "{plain:?}"
+    );
+    let none = Environment {
+        max_stacks: Some(0),
+        ..Environment::default()
+    };
+    assert!(matches!(
+        core.environment_save("demo", "none", &none),
+        Err(Error::NoRoomForAStack)
+    ));
+    core.stacks_stop_all().await;
+}
+
+#[tokio::test]
 async fn a_stacks_log_is_read_on_from_where_it_was_left_and_its_end_is_seen() {
     let fx = fixture();
     write_config(

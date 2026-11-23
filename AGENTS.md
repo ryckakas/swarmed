@@ -120,8 +120,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   them as running and can stop them. Stopping asks the stack's process group, waits, then
   ends whatever was started from it and is still there: services often sit in groups of their
   own, where a signal to the stack's group does not reach them. When the process started is
-  asked of `ps` with `LC_ALL=C` and `TZ=UTC`, so it reads the same to every Swarmed. A project
-  runs no more stacks at once than its `max_stacks` (`start_stack` refuses the next).
+  asked of `ps` with `LC_ALL=C` and `TZ=UTC`, so it reads the same to every Swarmed. A stack is
+  refused (`start_stack`) while as many of the project's stacks run as `max_stacks` allows: the
+  task's environment's, if it sets one, else the project's.
 - **Two Swarmeds can run on one data directory** (`presence.rs`): the installed app beside a
   development build, or the app beside a command. Only the first to arrive, known by a lock on
   `run/first.lock`, settles sessions when it starts and ends stacks it did not start when it

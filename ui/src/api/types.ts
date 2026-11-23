@@ -223,6 +223,11 @@ export interface Environment {
     ports: Record<string, number>;
     /** Variables for the hooks and for the agents working in the task. */
     env: Record<string, string>;
+    /**
+     * How many of the project's stacks may run for one of this environment's tasks to start its
+     * own. Left out, the project's own `max_stacks`.
+     */
+    max_stacks?: number;
 }
 
 /** One file or folder in a folder of a task's worktree. */

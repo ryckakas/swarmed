@@ -8,6 +8,8 @@ import {
     OWN_SETUP,
     portsFromText,
     portsToText,
+    stacksFromText,
+    stacksToText,
 } from "../environments";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
@@ -39,7 +41,12 @@ interface Draft {
     variables: string;
     /** The ports, as lines of `name=3000`. */
     ports: string;
+    /** How many stacks may run at once, as typed; empty for the repository's own limit. */
+    maxStacks: string;
 }
+
+/** The form's id, so that the buttons below what scrolls can submit it. */
+const FORM_ID = "environment-form";
 
 const NEW: Draft = {
     editing: null,
@@ -51,6 +58,7 @@ const NEW: Draft = {
     openUrl: "",
     variables: "",
     ports: "",
+    maxStacks: "",
 };
 
 function draftOf(name: string, environment: Environment): Draft {
@@ -64,11 +72,13 @@ function draftOf(name: string, environment: Environment): Draft {
         openUrl: environment.open_url,
         variables: envToText(environment.env),
         ports: portsToText(environment.ports ?? {}),
+        maxStacks: stacksToText(environment.max_stacks),
     };
 }
 
-/** What is saved for a draft. Throws, naming the line, if a variable is not written as one. */
+/** What is saved for a draft. Throws, naming the line or value, if one is not written as it has to be. */
 function environmentOf(draft: Draft): Environment {
+    const maxStacks = stacksFromText(draft.maxStacks);
     return {
         ...EMPTY_ENVIRONMENT,
         setup: draft.setup.trim(),
@@ -78,6 +88,7 @@ function environmentOf(draft: Draft): Environment {
         open_url: draft.openUrl.trim(),
         ports: portsFromText(draft.ports),
         env: envFromText(draft.variables),
+        ...(maxStacks === undefined ? {} : { max_stacks: maxStacks }),
     };
 }
 
@@ -140,6 +151,8 @@ function Editor({ project }: { project: string }) {
     const makeDefault = (name: string | null) =>
         api.environmentSetDefault(project, name).then(read, failed);
     const names = Object.keys(environments);
+    // The name it is saved under, whatever the form's name field says by now.
+    const saved = draft?.editing ?? null;
 
     return (
         <dialog
@@ -151,41 +164,36 @@ function Editor({ project }: { project: string }) {
             <h2 id="environments-title">
                 {words.environments} of {project}
             </h2>
-            <p>
-                Different ways of setting a task up on this Mac: what runs when its worktree is
-                made, and the variables its hooks and agents get. A new task is set up in the
-                default one unless another is chosen when it is started. Whatever one leaves empty
-                is as the repository's own config has it.
-            </p>
-            {draft === null ? (
-                <Listing
-                    names={names}
-                    usual={usual}
-                    onDefault={(name) => void makeDefault(name)}
-                    onEdit={(name) => {
-                        const found = environments[name];
-                        setDraft(found ? draftOf(name, found) : NEW);
-                    }}
-                    onNew={() => setDraft(NEW)}
-                />
-            ) : (
-                <Form
-                    draft={draft}
-                    onChange={setDraft}
-                    onSave={() => void save(draft)}
-                    onRemove={draft.editing === null ? null : () => void remove(draft.name)}
-                    onCancel={() => setDraft(null)}
-                />
-            )}
-            {problem && <p className="note-problem">{problem}</p>}
-            {draft === null && <Snapshots project={project} environments={names} />}
-            {draft === null && (
-                <div className="confirm-actions">
-                    <button type="button" className="button button-primary" onClick={close}>
-                        Done
-                    </button>
-                </div>
-            )}
+            <div className="environments-body">
+                <p>
+                    Different ways of setting a task up on this Mac: what runs when its worktree is
+                    made, and the variables its hooks and agents get. A new task is set up in the
+                    default one unless another is chosen when it is started. Whatever one leaves
+                    empty is as the repository's own config has it.
+                </p>
+                {draft === null ? (
+                    <Listing
+                        names={names}
+                        usual={usual}
+                        onDefault={(name) => void makeDefault(name)}
+                        onEdit={(name) => {
+                            const found = environments[name];
+                            setDraft(found ? draftOf(name, found) : NEW);
+                        }}
+                        onNew={() => setDraft(NEW)}
+                    />
+                ) : (
+                    <Form draft={draft} onChange={setDraft} onSave={() => void save(draft)} />
+                )}
+                {draft === null && <Snapshots project={project} environments={names} />}
+            </div>
+            {problem && <p className="note-problem environments-problem">{problem}</p>}
+            <Footer
+                editing={draft !== null}
+                onDone={close}
+                onRemove={saved === null ? null : () => void remove(saved)}
+                onCancel={() => setDraft(null)}
+            />
         </dialog>
     );
 }
@@ -259,20 +267,56 @@ function DefaultPicker(props: {
     );
 }
 
-interface FormProps {
-    draft: Draft;
-    onChange(draft: Draft): void;
-    onSave(): void;
+interface FooterProps {
+    /** Whether the form for one environment is open, which the buttons are then for. */
+    editing: boolean;
+    onDone(): void;
     /** `null` for an environment that is not saved yet. */
     onRemove: (() => void) | null;
     onCancel(): void;
 }
 
-function Form({ draft, onChange, onSave, onRemove, onCancel }: FormProps) {
+/** The dialog's buttons, below what scrolls so that they are always in view. */
+function Footer({ editing, onDone, onRemove, onCancel }: FooterProps) {
+    const words = useWords();
+    if (!editing) {
+        return (
+            <div className="confirm-actions environments-footer">
+                <button type="button" className="button button-primary" onClick={onDone}>
+                    Done
+                </button>
+            </div>
+        );
+    }
+    return (
+        <div className="confirm-actions environments-footer">
+            {onRemove && (
+                <button type="button" className="button environment-remove" onClick={onRemove}>
+                    Remove
+                </button>
+            )}
+            <button type="button" className="button" onClick={onCancel}>
+                Cancel
+            </button>
+            <button type="submit" form={FORM_ID} className="button button-primary">
+                Save {words.environment.toLowerCase()}
+            </button>
+        </div>
+    );
+}
+
+interface FormProps {
+    draft: Draft;
+    onChange(draft: Draft): void;
+    onSave(): void;
+}
+
+function Form({ draft, onChange, onSave }: FormProps) {
     const words = useWords();
     const set = (change: Partial<Draft>) => onChange({ ...draft, ...change });
     return (
         <form
+            id={FORM_ID}
             className="environment-form"
             onSubmit={(event) => {
                 event.preventDefault();
@@ -305,6 +349,24 @@ function Form({ draft, onChange, onSave, onRemove, onCancel }: FormProps) {
                 value={draft.start}
                 onChange={(start) => set({ start })}
             />
+            <label>
+                <span className="settings-label">Stacks at once</span>
+                <span className="settings-hint">
+                    How many of the repository's stacks may be running when a {words.terms.task} in
+                    this {words.environment.toLowerCase()} starts its own; one more is refused until
+                    another is stopped. Left empty, the repository's own limit applies.
+                </span>
+                <input
+                    className="key-input mono environment-stacks"
+                    aria-label="Stacks at once"
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    step={1}
+                    value={draft.maxStacks}
+                    onChange={(event) => set({ maxStacks: event.target.value })}
+                />
+            </label>
             <Script
                 label="Ports"
                 hint="One name=number per line. Each task gets its own number for a port, so stacks can run side by side: write {{port.web}} in the commands, variables and address instead of the number."
@@ -348,19 +410,6 @@ function Form({ draft, onChange, onSave, onRemove, onCancel }: FormProps) {
                     onChange={(event) => set({ openUrl: event.target.value })}
                 />
             </label>
-            <div className="confirm-actions">
-                {onRemove && (
-                    <button type="button" className="button environment-remove" onClick={onRemove}>
-                        Remove
-                    </button>
-                )}
-                <button type="button" className="button" onClick={onCancel}>
-                    Cancel
-                </button>
-                <button type="submit" className="button button-primary">
-                    Save {words.environment.toLowerCase()}
-                </button>
-            </div>
         </form>
     );
 }

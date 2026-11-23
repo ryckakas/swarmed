@@ -23,9 +23,17 @@ notice adds its line under Unreleased.
   <project> --default <name>` sets it from the command line. The menu's entry for no
   environment is now called "Repository's own setup", since "Default setup" no longer meant
   the default.
+- **An environment can say how many stacks run at once.** "Stacks at once" in its form in the
+  Environments dialog is how many of the repository's stacks may be running for one of that
+  environment's tasks to start its own, in place of the repository's `max_stacks`. Left empty,
+  the repository's limit applies.
 
 ### Changed
 
+- **A new repository runs up to five stacks at once, up from two.** A repository added before
+  keeps the `max_stacks` its config file says.
+- **The Environments dialog keeps its buttons in view.** Only what lies between its heading and
+  its buttons scrolls, so Save and Done no longer scroll away under a long form.
 - **Swarmed takes an environment's snapshot itself.** Until now new tasks set up from nothing
   until a snapshot was taken by hand, which was easy to miss. Now the first task whose setup
   succeeds in an environment without a snapshot is kept as its snapshot, before its stack

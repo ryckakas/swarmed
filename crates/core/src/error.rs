@@ -94,14 +94,14 @@ pub enum Error {
         /// The exit status as the platform describes it.
         status: String,
     },
-    /// As many of the project's stacks run as its config allows.
+    /// As many of the project's stacks run as its config, or the task's environment, allows.
     #[error(
-        "`{project}` already has {limit} stack(s) running, which is its `max_stacks`: stop one, or raise the limit in the project's config"
+        "`{project}` already has {limit} stack(s) running, which is its `max_stacks`: stop one, or raise the limit in the task's environment or the project's config"
     )]
     TooManyStacks {
         /// The project whose limit is reached.
         project: String,
-        /// The limit, `max_stacks` in the project's config.
+        /// The limit: the environment's `max_stacks`, or else the project's.
         limit: u32,
     },
     /// The task holds work that removing it would destroy.
@@ -222,6 +222,9 @@ pub enum Error {
         "`{0}` cannot name a port: use lowercase letters, digits and underscores, starting with a letter"
     )]
     InvalidPortName(String),
+    /// An environment's stack limit would let none of its stacks start.
+    #[error("an environment's `max_stacks` must be at least 1; leave it out for the project's own")]
+    NoRoomForAStack,
     /// A terminal's configuration cannot be used as given. Says why.
     #[error("{0}")]
     TerminalConfig(String),

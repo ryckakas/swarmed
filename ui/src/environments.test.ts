@@ -8,6 +8,8 @@ import {
     OWN_SETUP,
     portsFromText,
     portsToText,
+    stacksFromText,
+    stacksToText,
     taskTooltip,
 } from "./environments";
 
@@ -38,6 +40,33 @@ describe("an environment's variables", () => {
     it("are shown again as they are kept", () => {
         expect(envToText({ A: "1", B: "two words" })).toBe("A=1\nB=two words");
         expect(envFromText(envToText({ A: "1", B: "x=y" }))).toEqual({ A: "1", B: "x=y" });
+    });
+});
+
+describe("an environment's stack limit", () => {
+    it("is a whole number typed, or nothing for the repository's own", () => {
+        expect(stacksFromText(" 3 ")).toBe(3);
+        expect(stacksFromText("")).toBeUndefined();
+        expect(stacksFromText("   ")).toBeUndefined();
+    });
+
+    it("lets at least one stack run", () => {
+        expect(stacksFromText("1")).toBe(1);
+        expect(() => stacksFromText("0")).toThrow('"0" is not a number of stacks');
+        expect(() => stacksFromText("-2")).toThrow("is not a number of stacks");
+    });
+
+    it("is refused when it is no whole number the core can keep", () => {
+        expect(() => stacksFromText("2.5")).toThrow("is not a number of stacks");
+        expect(() => stacksFromText("many")).toThrow("is not a number of stacks");
+        expect(stacksFromText("4294967295")).toBe(4294967295);
+        expect(() => stacksFromText("4294967296")).toThrow("is not a number of stacks");
+    });
+
+    it("is shown again as it is kept", () => {
+        expect(stacksToText(5)).toBe("5");
+        expect(stacksToText(undefined)).toBe("");
+        expect(stacksFromText(stacksToText(7))).toBe(7);
     });
 });
 
