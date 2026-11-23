@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { HOTKEYS, keyCaps, listedHotkeys, matchHotkey, stepThrough } from "./hotkeys";
+import {
+    HOTKEYS,
+    keyCaps,
+    listedHotkeys,
+    matchHotkey,
+    stepThrough,
+    writtenHotkey,
+} from "./hotkeys";
 
 const press = (key: string, held: string[] = []) => ({
     key,
@@ -56,6 +63,11 @@ describe("keyCaps", () => {
         expect(keyCaps("cmd+shift+w")).toEqual(["⌘", "⇧", "W"]);
         expect(keyCaps("ctrl+`")).toEqual(["⌃", "`"]);
         expect(keyCaps("cmd+enter")).toEqual(["⌘", "↩"]);
+    });
+
+    it("writes a shortcut of the table in one piece", () => {
+        expect(writtenHotkey("move-up")).toBe("⌘⌥↑");
+        expect(writtenHotkey("close-session")).toBe("⌘⇧W");
     });
 });
 

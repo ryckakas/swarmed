@@ -25,6 +25,14 @@ notice adds its line under Unreleased.
   kept on Anthropic's servers while it is on. `swarmed session remote-control <id>` does the
   same from the command line.
 
+### Changed
+
+- **Tasks, sessions and cloud tasks are dragged by a grip.** Point at one in the sidebar and
+  six dots show before it: drag those to move it among its own kind. Pressing anywhere else on
+  the row opens it as before, a click that slips no longer moves it, and dragging across it no
+  longer selects its text. The grip's tooltip names the shortcuts that still move the focused
+  row from the keyboard. A repository is still dragged by its name.
+
 ## [0.4.0] - 2026-11-23
 
 ### Added

@@ -4,7 +4,7 @@ import { api } from "../api";
 import type { CloudTask, Mark, Project, Session, Task } from "../api/types";
 import { cloudProvider, cloudTitle, cloudTone, cloudTooltip, isUnfinished } from "../cloud";
 import { taskTooltip } from "../environments";
-import { orderAttributes, orderGroup, starterHere } from "../ordering";
+import { gripTitle, orderAttributes, orderGroup, starterHere } from "../ordering";
 import { agentName, iconForAgent } from "../providerIcons";
 import { useStore } from "../store";
 import type { SubAgent } from "../subagents";
@@ -207,7 +207,8 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
     return (
         <div className="task" {...order}>
             <div className="row-head">
-                <h3 className="task-name" title={taskTooltip(task, words)} data-drag-handle>
+                <Grip />
+                <h3 className="task-name" title={taskTooltip(task, words)}>
                     <WorktreeIcon />
                     <span className="task-title">{task.name}</span>
                     {task.setup === "failed" && <span className="task-flag">setup failed</span>}
@@ -331,10 +332,10 @@ function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] })
                             orderGroup.cloud(project),
                         )}
                     >
+                        <Grip />
                         <button
                             type="button"
                             className="cloud-row"
-                            data-drag-handle
                             title={cloudTooltip(task)}
                             onClick={() => void api.cloudTaskOpen(task.id).catch(report)}
                         >
@@ -419,6 +420,27 @@ function NoteButton({
                 <path d="M6.5 7.5h4M6.5 10.5h4" />
             </svg>
         </button>
+    );
+}
+
+/**
+ * What a task, a session or a cloud task is dragged by: six dots in the indent before its row,
+ * shown while the row is pointed at or has the keyboard. The row itself is not a handle, so
+ * pressing it opens it and a click that slips moves nothing. It cannot take the keyboard; the
+ * shortcuts its title names move a row from there.
+ */
+function Grip() {
+    return (
+        <span className="row-grip" data-drag-handle title={gripTitle()} aria-hidden="true">
+            <svg className="grip-dots" viewBox="0 0 8 12" aria-hidden="true">
+                <circle cx="2" cy="2" r="1.2" />
+                <circle cx="6" cy="2" r="1.2" />
+                <circle cx="2" cy="6" r="1.2" />
+                <circle cx="6" cy="6" r="1.2" />
+                <circle cx="2" cy="10" r="1.2" />
+                <circle cx="6" cy="10" r="1.2" />
+            </svg>
+        </span>
     );
 }
 
@@ -546,10 +568,10 @@ function SessionRow({ session }: { session: Session }) {
             data-current={selected}
             data-unread={session.unread}
         >
+            <Grip />
             <button
                 type="button"
                 className="session-row"
-                data-drag-handle
                 // The row cuts a long title short; this shows all of it.
                 title={title}
                 aria-current={selected ? "true" : undefined}

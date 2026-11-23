@@ -5734,3 +5734,49 @@ kbd {
 [data-order][data-drop="after"] {
     box-shadow: inset 0 -2px 0 var(--focus);
 }
+
+/* What a task, a session or a cloud task is dragged by: six dots in the indent before its row,
+   so its name does not move when they show. Out of the way until the row is pointed at or
+   reached with the keyboard, and kept on the row being dragged. A repository is dragged by its
+   heading. */
+.task > .row-head,
+.session-line,
+.cloud-line {
+    position: relative;
+}
+
+.row-grip {
+    position: absolute;
+    top: 0;
+    right: 100%;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    padding: 0 3px;
+    color: var(--faint);
+    cursor: grab;
+    opacity: 0;
+}
+
+.grip-dots {
+    flex: none;
+    width: 8px;
+    height: 12px;
+    fill: currentColor;
+}
+
+.row-head:hover > .row-grip,
+.row-head:focus-within > .row-grip,
+.session-line:hover > .row-grip,
+.session-line:focus-within > .row-grip,
+.cloud-line:hover > .row-grip,
+.cloud-line:focus-within > .row-grip {
+    opacity: 1;
+}
+
+.row-grip:hover,
+[data-dragging] > :is(.row-head, .session-line) > .row-grip,
+.cloud-line[data-dragging] > .row-grip {
+    color: var(--text);
+    opacity: 1;
+}
