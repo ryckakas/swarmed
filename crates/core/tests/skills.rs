@@ -269,7 +269,8 @@ async fn a_skill_called_by_name_is_listed_and_sent_with_what_it_says() {
     let events = turn(&mut bus, session.id).await;
     // What is recorded is what was typed; what the agent got is the skill and the request.
     assert!(events.contains(&AgentEvent::UserMessage {
-        text: "/deploy to staging".to_string()
+        text: "/deploy to staging".to_string(),
+        remote: false,
     }));
     let got = events.iter().find_map(|event| match event {
         AgentEvent::Text { text } => Some(text.as_str()),

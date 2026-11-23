@@ -3764,11 +3764,13 @@ code {
 
 /* The coins in a Claude Code session's header, and the overview of the plan's usage they open
    under them, at the header's right edge. */
-.usage-wrap {
+.usage-wrap,
+.remote-wrap {
     position: relative;
 }
 
-.usage-overview {
+.usage-overview,
+.remote-panel {
     position: absolute;
     top: calc(100% + var(--space-1));
     right: 0;
@@ -3784,14 +3786,16 @@ code {
     font-size: var(--text-xs);
 }
 
-.usage-overview-title {
+.usage-overview-title,
+.remote-panel-title {
     display: grid;
     gap: 2px;
     font-size: var(--text-sm);
     font-weight: 650;
 }
 
-.usage-overview-title span {
+.usage-overview-title span,
+.remote-panel-title span {
     color: var(--muted);
     font-size: var(--text-xs);
     font-weight: 400;
@@ -3883,10 +3887,55 @@ code {
     fill: var(--clay);
 }
 
-.usage-overview-foot {
+.usage-overview-foot,
+.remote-panel-foot {
     display: flex;
     justify-content: flex-end;
+    gap: var(--space-2);
     margin-top: var(--space-3);
+}
+
+/* Remote Control: the phone in a Claude Code session's header goes green while the session can
+   be reached from claude.ai, and yellow while it is on its way there or back. */
+.remote-button[data-state="on"] {
+    color: var(--moss);
+}
+
+.remote-button:is([data-state="starting"], [data-state="reconnecting"], [data-state="paused"]) {
+    color: var(--pollen);
+}
+
+.remote-about {
+    margin-top: var(--space-2);
+    color: var(--muted);
+}
+
+.remote-url {
+    margin-top: var(--space-2);
+    overflow-wrap: anywhere;
+}
+
+.remote-error {
+    margin-top: var(--space-2);
+    color: var(--clay);
+}
+
+/* A message typed on claude.ai or in the Claude app says so over its words. */
+.said-from {
+    margin-bottom: var(--space-1);
+    color: var(--muted);
+    font-size: var(--text-xs);
+}
+
+.remote-line .link-button {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--sky);
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+    overflow-wrap: anywhere;
 }
 
 /* Suggestions for a message that starts with a slash; they open upwards, over the transcript. */

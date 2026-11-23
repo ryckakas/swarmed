@@ -20,7 +20,10 @@ async fn core_with_session(fx: &common::Fixture) -> (Core, i64) {
 }
 
 fn user_message(text: String) -> AgentEvent {
-    AgentEvent::UserMessage { text }
+    AgentEvent::UserMessage {
+        text,
+        remote: false,
+    }
 }
 
 #[tokio::test]

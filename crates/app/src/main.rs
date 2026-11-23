@@ -16,7 +16,7 @@ use std::borrow::Cow;
 use std::io::Write;
 use std::sync::Arc;
 
-use swarmed_core::agent::FakeBackend;
+use swarmed_core::agent::{Auth, FakeBackend};
 use swarmed_core::{
     Core, Paths, SessionEvent, TOOL_SERVER_ARG, TerminalOutput, VIEW_POLICY, serve_session_tools,
     serve_tools,
@@ -226,6 +226,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::claude_terminal_write, commands::claude_terminal_resize,
         commands::claude_terminal_close,
         commands::status_line, commands::session_usage_refresh, commands::session_rename, commands::session_close, commands::session_delete,
+        commands::session_remote_control,
         commands::sessions_search, commands::sessions_closed, commands::session_reopen,
         commands::session_fork, commands::session_set_agent,
         commands::update_state, commands::update_check, commands::update_restart,
@@ -256,6 +257,7 @@ fn main() {
     let listening = Arc::clone(&core);
     let leaving = Arc::clone(&core);
     let noticing = Arc::clone(&core);
+    let resuming = Arc::clone(&core);
     let bus = core.subscribe();
     let terminals = core.subscribe_terminals();
     let claude_terminals = core.subscribe_claude_terminals();
@@ -274,6 +276,11 @@ fn main() {
             // Where the sessions' own tool servers reach the core: to see, message and start
             // other sessions. If it cannot listen, those tools say so; nothing else depends on it.
             drop(tauri::async_runtime::spawn(serve_session_tools(listening)));
+            // Sessions that had Remote Control on can be reached from claude.ai again, without
+            // anyone writing to them here first. Only the first Swarmed on the data does this.
+            drop(tauri::async_runtime::spawn(async move {
+                resuming.remote_controls_resume(&Auth::default()).ok();
+            }));
             // New versions, looked for by themselves only if the user wants that.
             update::watch(app.handle().clone());
             // Asked once, by the system; from then on its settings hold the answer.

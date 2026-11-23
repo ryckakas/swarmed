@@ -418,6 +418,11 @@ export interface Api {
      * session's events, with nothing in the conversation. Only for a Claude Code session.
      */
     sessionUsageRefresh(id: number): Promise<void>;
+    /**
+     * Turns Remote Control of a Claude Code session on or off: whether it can be reached from
+     * claude.ai and the Claude app. How it goes arrives as the session's `remote_control` events.
+     */
+    sessionRemoteControl(id: number, on: boolean): Promise<void>;
     /** Gives the session a title of the user's choosing. Every front end hears of it as an event. */
     sessionRename(id: number, title: string): Promise<Session>;
     /** Puts a mark on a session; the colour `none` takes it off. */

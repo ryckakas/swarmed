@@ -1155,6 +1155,12 @@ pub(crate) async fn session_usage_refresh(core: CoreState<'_>, id: i64) -> Comma
     Ok(core.session_usage_refresh(id, Auth::default())?)
 }
 
+/// Turns Remote Control of a Claude Code session on or off; how it goes arrives as events.
+#[tauri::command(async)]
+pub(crate) fn session_remote_control(core: CoreState<'_>, id: i64, on: bool) -> Command<()> {
+    Ok(core.session_remote_control(id, on, Auth::default())?)
+}
+
 #[tauri::command]
 pub(crate) fn session_rename(core: CoreState<'_>, id: i64, title: String) -> Command<Session> {
     Ok(core.session_rename(id, &title)?)

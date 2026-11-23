@@ -12,6 +12,7 @@ import { NewTask } from "./NewTask";
 import { CLAUDE, useAgents } from "./options";
 import { Picker } from "./Picker";
 import { ProviderMark } from "./ProviderMark";
+import { RemoteButton } from "./RemoteButton";
 import { SessionTitle } from "./SessionTitle";
 import { StatusLine } from "./StatusLine";
 import { Egg, StatusMark, useStatusLabel } from "./StatusMark";
@@ -62,6 +63,14 @@ export function SessionPane() {
         <article className="session">
             <header className="session-head">
                 <div className="session-actions">
+                    {/* Only Claude Code can be reached from claude.ai. */}
+                    {session.agent === CLAUDE && (
+                        <RemoteButton
+                            key={`remote-${session.id}`}
+                            session={session}
+                            events={events ?? NO_EVENTS}
+                        />
+                    )}
                     {/* Only Claude Code reports the plan's usage. */}
                     {session.agent === CLAUDE && (
                         <UsageButton

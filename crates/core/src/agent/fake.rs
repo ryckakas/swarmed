@@ -7,8 +7,8 @@ use serde_json::json;
 use tokio::sync::mpsc;
 
 use super::{
-    AgentBackend, AgentCommand, AgentEvent, AgentHandle, BackgroundState, PLAN_TOOL, ScreenKind,
-    ScreenRow, ScreenSection, SessionSpec, Supervision, UsageLimit,
+    AgentBackend, AgentCommand, AgentEvent, AgentHandle, Auth, BackgroundState, PLAN_TOOL,
+    RemoteState, ScreenKind, ScreenRow, ScreenSection, SessionSpec, Supervision, UsageLimit,
 };
 use crate::error::Result;
 
@@ -25,7 +25,15 @@ use crate::error::Result;
 ///   then writes, reports its end, and the agent takes a turn of its own to read its report;
 ///   `background agent left` leaves it at work, with no end;
 /// - `background bash`: leaves a command running in the background and ends the turn;
+/// - `remote: <text>`: replies as to plain text; then, with Remote Control on, `<text>` comes
+///   as if typed on claude.ai, and is answered in a turn of its own;
+/// - `remote wavers`: replies as to plain text; then, with Remote Control on, reports the
+///   connection as Claude Code does, without saying where the session is: on once more,
+///   reconnecting, and on again;
 /// - in plan mode, anything: presents a plan and waits for it to be approved.
+///
+/// Like Claude Code, it says each message back as it takes it in, and turns Remote Control on
+/// unless it was given an API key, which Remote Control does not take.
 #[derive(Debug, Default)]
 pub struct FakeBackend {
     sessions: AtomicU64,
@@ -49,6 +57,7 @@ impl AgentBackend for FakeBackend {
             requests: 0,
             initialised: false,
             told: Vec::new(),
+            remote: false,
         };
         let script = tokio::spawn(script.run());
         Ok(AgentHandle {
@@ -79,6 +88,8 @@ struct Script {
     commands: mpsc::UnboundedReceiver<AgentCommand>,
     requests: u64,
     initialised: bool,
+    /// Whether Remote Control is on.
+    remote: bool,
 }
 
 impl Script {
@@ -164,13 +175,79 @@ impl Script {
                 self.emit(usage_limits());
                 return Next::Continue;
             }
+            AgentCommand::RemoteControl { on, reattach, .. } => {
+                self.remote_control(on, reattach);
+                return Next::Continue;
+            }
             _ => return Next::Continue,
         };
         if !self.initialised {
             self.initialised = true;
             self.emit(self.init());
         }
-        self.turn(&message).await
+        self.emit(AgentEvent::Heard {
+            text: message.clone(),
+        });
+        let next = self.turn(&message).await;
+        if next != Next::Continue || !self.remote {
+            return next;
+        }
+        if message == "remote wavers" {
+            self.wavers();
+        }
+        match message.strip_prefix("remote:") {
+            Some(typed) => self.typed_on_claude_ai(typed.trim()),
+            None => next,
+        }
+    }
+
+    /// The connection to claude.ai reported as Claude Code reports it after it is turned on,
+    /// by its state alone: on, which it was already, then lost and found again.
+    fn wavers(&self) {
+        let report = |state, detail: Option<&str>| AgentEvent::RemoteControl {
+            state,
+            url: None,
+            remote_id: None,
+            detail: detail.map(String::from),
+        };
+        self.emit(report(RemoteState::On, None));
+        self.emit(report(RemoteState::Reconnecting, Some("network")));
+        self.emit(report(RemoteState::On, None));
+    }
+
+    /// Turns Remote Control on, at the session on claude.ai it is to attach to again or at a
+    /// new one, or off, which is answered with nothing as Claude Code answers it.
+    fn remote_control(&mut self, on: bool, reattach: Option<String>) {
+        self.remote = on && !matches!(self.spec.auth, Auth::ApiKey(_));
+        if !on {
+            return;
+        }
+        if !self.remote {
+            self.emit(AgentEvent::RemoteControl {
+                state: RemoteState::Failed,
+                url: None,
+                remote_id: None,
+                detail: Some("Remote Control needs a claude.ai subscription".to_string()),
+            });
+            return;
+        }
+        let id = reattach.unwrap_or_else(|| format!("remote-{}", self.number));
+        self.emit(AgentEvent::RemoteControl {
+            state: RemoteState::On,
+            url: Some(format!("https://claude.ai/code/{id}")),
+            remote_id: Some(id),
+            detail: None,
+        });
+    }
+
+    /// A message typed on claude.ai, as Claude Code takes it in: said back, then answered.
+    fn typed_on_claude_ai(&self, typed: &str) -> Next {
+        self.emit(AgentEvent::Heard {
+            text: typed.to_string(),
+        });
+        self.text(format!("echo: {typed}"));
+        self.emit(done(false, None));
+        Next::Continue
     }
 
     fn init(&self) -> AgentEvent {

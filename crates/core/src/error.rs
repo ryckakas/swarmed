@@ -284,6 +284,9 @@ pub enum Error {
     /// Only Claude Code reports the account's usage.
     #[error("only Claude Code reports usage, and this session runs `{0}`")]
     UsageNotReported(String),
+    /// Only a Claude Code session can be reached from claude.ai.
+    #[error("only a Claude Code session has Remote Control, and this session runs `{0}`")]
+    NoRemoteControl(String),
     /// No cloud task has this id.
     #[error("cloud task {0} not found")]
     CloudTaskNotFound(i64),

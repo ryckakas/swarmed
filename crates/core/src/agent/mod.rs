@@ -341,6 +341,11 @@ pub enum AgentEvent {
     UserMessage {
         /// The message as typed.
         text: String,
+        /// Whether it was typed on claude.ai or in the Claude app, which reach the session
+        /// through Remote Control, rather than in Swarmed. Absent from what was recorded
+        /// before this, and from every message typed in Swarmed.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        remote: bool,
     },
     /// The agent process is up.
     Init {
@@ -640,10 +645,28 @@ pub enum AgentEvent {
     /// A message of the user's as the agent took it in, repeated by Claude Code when it starts
     /// on it: at the start of a turn, or in the middle of one for a message written while it
     /// worked. Never stored or published: for a message told mid-turn the core records
-    /// [`AgentEvent::UserMessage`] here, where it was heard, and it drops the rest.
+    /// [`AgentEvent::UserMessage`] here, where it was heard, and so it does for one Swarmed
+    /// never sent, which came through Remote Control; it drops the rest.
     Heard {
         /// The message as it was sent.
         text: String,
+    },
+    /// How Remote Control of the session stands: whether it can be reached from claude.ai and
+    /// the Claude app, and where. Claude Code reports it; the core records what it asked for
+    /// and what became of the agent, and fills in where the session is from what came before.
+    RemoteControl {
+        /// How it stands.
+        state: RemoteState,
+        /// Where the session is opened on claude.ai, while it can be.
+        #[serde(default)]
+        url: Option<String>,
+        /// Claude Code's id of the session on claude.ai, which it is attached to again when
+        /// the agent starts again, so that one session is not listed there twice.
+        #[serde(default)]
+        remote_id: Option<String>,
+        /// Why it failed or is reconnecting, in Claude Code's words.
+        #[serde(default)]
+        detail: Option<String>,
     },
     /// The task's worktree was found on another branch than before. Recorded by the core:
     /// when a tool answered or the turn ended, in the session whose agent was at work; or when
@@ -710,6 +733,48 @@ pub enum AgentCommand {
     /// [`AgentEvent::ExtraUsage`], and nothing in the conversation. An agent that reports no
     /// usage ignores this.
     AskUsage,
+    /// Turn Remote Control on or off: let the session be reached from claude.ai and the
+    /// Claude app, reported as [`AgentEvent::RemoteControl`]. An agent that has no such thing
+    /// ignores this.
+    RemoteControl {
+        /// Whether it is to be on.
+        on: bool,
+        /// What the session is called on claude.ai.
+        name: String,
+        /// The session on claude.ai to attach to again, from an earlier run; `None` for a new
+        /// one.
+        reattach: Option<String>,
+    },
+}
+
+/// How Remote Control of a session stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RemoteState {
+    /// Swarmed asked the agent to turn it on, and has no answer yet.
+    Starting,
+    /// The session can be reached from claude.ai and the Claude app.
+    On,
+    /// The agent lost its connection to claude.ai and is trying again.
+    Reconnecting,
+    /// The agent is not running. It is turned on again when the agent starts.
+    Paused,
+    /// The user turned it off.
+    Off,
+    /// It could not be turned on, or it ended for good: the user has to turn it on again.
+    Failed,
+}
+
+impl RemoteState {
+    /// Whether the user wants it on as it stands, so that it is turned on again when the
+    /// agent starts. A failure ends that: it would most likely fail again.
+    #[must_use]
+    pub fn wanted(self) -> bool {
+        matches!(
+            self,
+            Self::Starting | Self::On | Self::Reconnecting | Self::Paused
+        )
+    }
 }
 
 /// How far along something an agent left running is.

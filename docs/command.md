@@ -36,7 +36,7 @@ applies. `SWARMED_FAKE_AGENT=1` swaps in a scripted agent that spends no tokens.
 | --- | --- |
 | `project` | add, list, remove and move repositories; `project config` prints the path of a project's config file |
 | `task` | create, remove and move tasks, rerun `setup`, run the `start` command, see changes, commit, push, open a pull request |
-| `session` | run, continue, list, show, fork, rename, mark, move, close, reopen and delete sessions; change a session's model or supervision |
+| `session` | run, continue, list, show, fork, rename, mark, move, close, reopen and delete sessions; change a session's model or supervision; let a Claude Code session be reached from claude.ai (`remote-control`) |
 | `environment` | list a project's environments; choose the default one new tasks are set up in |
 | `snapshot` | keep the files git ignores in a set-up task, for new tasks to start from |
 | `agents`, `agent` | list the agents sessions can run on; install and configure the others |

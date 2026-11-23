@@ -14,6 +14,17 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Added
+
+- **Remote Control: carry on with a Claude Code session from your phone.** Press the phone at
+  the top right of a Claude Code session, or type `/rc`, and the session can be reached from
+  claude.ai and the Claude app. What you type there is answered in the same worktree and shows
+  in the conversation, marked "Typed on claude.ai". It stays on, at the same place on
+  claude.ai, when Claude Code or Swarmed starts again, until you turn it off or close the
+  session. It needs Claude Code signed in with a claude.ai subscription, and the conversation is
+  kept on Anthropic's servers while it is on. `swarmed session remote-control <id>` does the
+  same from the command line.
+
 ## [0.4.0] - 2026-11-23
 
 ### Added

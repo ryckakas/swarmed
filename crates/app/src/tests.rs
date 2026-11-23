@@ -175,6 +175,18 @@ impl App {
 /// and sending the next message took longer than two seconds under that load.
 const WAIT_LIMIT: Duration = Duration::from_secs(10);
 
+/// Turns Remote Control of session `id` on, as the session's header does, and off again.
+fn remote_control(app: &App, id: &Value) {
+    app.ok("session_remote_control", json!({ "id": id, "on": true }));
+    let on = |e: &Value| e["type"] == "remote_control" && e["state"] == "on";
+    let reached = wait_for(app, id, "Remote Control's address", on);
+    let url = reached["url"].as_str().unwrap_or_default();
+    assert!(url.starts_with("https://claude.ai/code/"), "{reached}");
+    app.ok("session_remote_control", json!({ "id": id, "on": false }));
+    let off = |e: &Value| e["type"] == "remote_control" && e["state"] == "off";
+    wait_for(app, id, "Remote Control off", off);
+}
+
 fn wait_for(app: &App, id: &Value, what: &str, wanted: impl Fn(&Value) -> bool) -> Value {
     let deadline = Instant::now() + WAIT_LIMIT;
     while Instant::now() < deadline {
@@ -370,6 +382,7 @@ fn the_ui_can_deny_interrupt_and_remove() {
     app.ok("session_usage_refresh", json!({ "id": id }));
     let usage = app.wait_for_event(id, "usage_limits");
     assert_eq!(usage["limits"][0]["kind"], "session");
+    remote_control(&app, id);
     let size = json!({ "id": id, "cols": 80, "rows": 24 });
     assert_eq!(
         app.ok("terminal_open", size.clone()),
