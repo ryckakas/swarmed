@@ -41,6 +41,13 @@ notice adds its line under Unreleased.
   once for the copy. **Take from…** and `swarmed snapshot save` still replace it, such as
   after a dependency update. Two snapshots of one environment are no longer built at once,
   whether by tasks set up side by side or by the app and the `swarmed` command.
+- **Starting from a snapshot, or taking one, takes seconds, and a new task says what it is
+  doing.** Each folder is now cloned whole at once instead of file by file: a `node_modules` of
+  275,000 files takes about 6 seconds instead of 48. Until now the new-task view said only
+  "Setting up…" while a task started from a snapshot or kept its environment's first one; now
+  it says which part is being put in place ("3 of 87, node_modules"), and the setup output
+  says how long the copy took. Where a folder cannot be cloned whole, such as on another file
+  system, it is copied as before.
 
 ### Fixed
 

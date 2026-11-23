@@ -14,6 +14,7 @@ mod asking;
 mod attach;
 mod background;
 mod changes;
+mod clone;
 mod cloud;
 mod commands;
 mod config;

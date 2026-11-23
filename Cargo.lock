@@ -3642,6 +3642,7 @@ version = "0.3.0"
 dependencies = [
  "pty-process",
  "rusqlite",
+ "rustix",
  "security-framework",
  "serde",
  "serde_ignored",

@@ -150,11 +150,14 @@ impl Core {
         // What an earlier task's setup produced, so that this one's has less to do. Not
         // having it is no reason to fail: setup then does all the work, as it always could.
         let seeded = self
-            .seed_from_snapshot(&project.name, environment, &worktree)
+            .seed_from_snapshot(&project.name, environment, &worktree, sink)
             .await;
         match seeded {
-            Ok(true) => sink("started from the snapshot of this environment"),
-            Ok(false) => {}
+            Ok(Some(took)) => sink(&format!(
+                "started from the snapshot of this environment (copied in {})",
+                crate::snapshots::seconds(took)
+            )),
+            Ok(None) => {}
             Err(error) => sink(&format!("the snapshot could not be used: {error}")),
         }
         self.run_setup(&project, &config, task, true, sink).await
