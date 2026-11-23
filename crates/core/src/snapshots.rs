@@ -15,6 +15,7 @@
 //! Ignored files include the likes of `.env`, so a snapshot may hold credentials: its folder
 //! is the user's alone, and what is in it is never logged.
 
+use std::collections::HashSet;
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -177,10 +178,25 @@ async fn ignored_in(worktree: &Path) -> Result<Vec<String>> {
     )
     .await?;
     let paths = nul_separated(&listed).map(|path| path.trim_end_matches('/'));
-    Ok(paths
-        .filter(|path| !path.is_empty())
-        .map(String::from)
-        .collect())
+    let paths: Vec<&str> = paths.filter(|path| !path.is_empty()).collect();
+    Ok(outermost(&paths))
+}
+
+/// `paths` without those inside another of them. For a rule like `/vendor/*` git names the
+/// folder and then everything in it as well. Copying both copies what is in it a second time,
+/// into the copy already made, where it nests or fails when a file stands in the way.
+fn outermost(paths: &[&str]) -> Vec<String> {
+    let all: HashSet<&str> = paths.iter().copied().collect();
+    // Each `/` in a path ends the name of a folder it is in.
+    let inside_another = |path: &str| {
+        path.match_indices('/')
+            .any(|(at, _)| all.contains(&path[..at]))
+    };
+    paths
+        .iter()
+        .filter(|path| !inside_another(path))
+        .map(|path| (*path).to_string())
+        .collect()
 }
 
 /// Copies `path` of `worktree` to the same place under `target`.
@@ -237,4 +253,31 @@ fn remove(folder: &Path) -> Result<()> {
 fn now() -> u64 {
     let since = SystemTime::now().duration_since(UNIX_EPOCH);
     since.map_or(0, |since| since.as_secs())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn what_lies_inside_another_entry_is_left_to_that_entry() {
+        // As git lists what a `/vendor/*` rule ignores: the folder, then what is in it.
+        let listed = [
+            "vendor",
+            "vendor/acme",
+            "vendor/autoload.php",
+            "vendor-bin",
+            "web/dist",
+            "web/dist/app.js",
+            "webroot",
+        ];
+        assert_eq!(
+            outermost(&listed),
+            ["vendor", "vendor-bin", "web/dist", "webroot"]
+        );
+        // A name that only starts like a folder's is not inside it.
+        assert_eq!(outermost(&["deps", "deps.lock"]), ["deps", "deps.lock"]);
+        // Inside is at any depth, not only directly in the folder.
+        assert_eq!(outermost(&["a", "a/b/c"]), ["a"]);
+    }
 }

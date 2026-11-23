@@ -46,6 +46,9 @@ ui/dist/index.html`.
 
 CI (`.github/workflows/ci.yml`) runs exactly these. Match them locally before pushing.
 
+Of `cargo deny check`, the advisories fail no run: one is published against crates already in the
+lockfile, whatever a pull request changed. The Dependencies job shows it in a step of its own.
+
 CI runs on GitHub's runners: the lint on Linux, and the tests on both macOS and Linux, so code
 that only one of them compiles is checked on each. A self-hosted runner would run a stranger's
 pull request on that machine, now that the repository is public.

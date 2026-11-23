@@ -48,7 +48,9 @@ export function TaskPanel({ width, onResize }: Props) {
                 aria-label={`${capitalized(words.terms.task)} ${home.task.name}`}
             >
                 <div className="drag-strip" data-tauri-drag-region />
-                <TaskHead project={home.project} task={home.task} />
+                {/* Each task its own, so what one is doing or was typed for it stays with it:
+                    a stack stopping, an open log, a commit message. */}
+                <TaskHead key={`head-${home.task.id}`} project={home.project} task={home.task} />
                 <Tabs key={home.task.id} project={home.project} task={home.task} />
             </aside>
         </>

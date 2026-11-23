@@ -144,6 +144,9 @@ function session(id: number, taskId: number, title: string, status: SessionStatu
     };
 }
 
+/** The sample tasks that have a stack, by id, and how it stands. */
+const SAMPLE_STACKS: Partial<Record<number, StackState>> = { 1: "running", 2: "stopped" };
+
 function task(id: number, projectId: number, name: string, sessions: Session[]): Task {
     return {
         id,
@@ -162,8 +165,8 @@ function task(id: number, projectId: number, name: string, sessions: Session[]):
         has_note: id === 1,
         closed: 0,
         environment: null,
-        // One sample task has a dev server to start and stop.
-        stack: id === 1 ? "running" : null,
+        // Two sample tasks have a dev server to start and stop, one of them running.
+        stack: SAMPLE_STACKS[id] ?? null,
     };
 }
 
@@ -725,8 +728,13 @@ function stackApi(projects: () => Project[]): Pick<Api, "stackStart" | "stackSto
     };
     return {
         stackStart: async (project, name) => set(project, name, "starting") !== null,
-        stackStop: async (project, name) => void set(project, name, "stopped"),
-        stackLog: async () => "Starting dev server…\nListening on http://localhost:3100\n",
+        // Its `stop` command takes a moment, as a real one does.
+        stackStop: async (project, name) => {
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+            set(project, name, "stopped");
+        },
+        stackLog: async (_project, name) =>
+            `Starting the dev server of ${name}…\nListening on http://localhost:3100\n`,
     };
 }
 

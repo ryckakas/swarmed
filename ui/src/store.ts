@@ -59,6 +59,9 @@ export type SettingsTab = (typeof SETTINGS_TABS)[number][0];
 /** What can be shown over the window, from the menu bar or a shortcut, and closed again. */
 export type Banner = "about" | "shortcuts";
 
+/** What is being done to a task's stack until it is done. */
+export type StackChange = "starting" | "stopping";
+
 interface State {
     projects: Project[];
     /** `loading` until the first read finished; an error message if it failed. */
@@ -94,6 +97,19 @@ interface State {
     events: Record<number, AgentEvent[]>;
     /** Per task id, a count that goes up whenever its agents may have changed files. */
     edits: Record<number, number>;
+    /**
+     * The stacks being started or stopped, by task id, until that is done. Kept per task, so
+     * that it shows on that task alone, and still does when it is opened again meanwhile.
+     */
+    stackChanges: Record<number, StackChange>;
+    /** Notes that the stack of task `taskId` is being started or stopped, or that it is done. */
+    noteStackChange(taskId: number, change: StackChange | null): void;
+    /**
+     * What each task's commit message box holds and has not committed, by the task's id. Only
+     * in memory, as the message box's drafts are.
+     */
+    commitDrafts: Record<number, string>;
+    editCommitDraft(taskId: number, message: string): void;
     /**
      * The sub-agents each session's agent has started and not yet seen done, as far as this
      * window has heard; which are at work is `working` in `subagents.ts`.
@@ -460,6 +476,20 @@ function without<T>(record: Record<number, T>, ids: number[]): Record<number, T>
     return kept;
 }
 
+/** `record` with `id` set to `value`, or without `id` for `null`. */
+function withEntry<T>(record: Record<number, T>, id: number, value: T | null): Record<number, T> {
+    return value === null ? without(record, [id]) : { ...record, [id]: value };
+}
+
+/** The commit drafts with task `taskId`'s set to `message`; an empty one is not kept. */
+function withCommitDraft(
+    drafts: Record<number, string>,
+    taskId: number,
+    message: string,
+): Record<number, string> {
+    return withEntry(drafts, taskId, message === "" ? null : message);
+}
+
 /**
  * Forgets everything kept of sessions `sessionIds` and tasks `taskIds`, which are gone: a
  * deleted session's conversation must not stay behind, to be read by mistake or to sit in
@@ -484,6 +514,8 @@ function forgotten(state: State, sessionIds: number[], taskIds: number[]): Parti
         subView: of(state.subView),
         terminalCommand: of(state.terminalCommand),
         edits: without(state.edits, taskIds),
+        stackChanges: without(state.stackChanges, taskIds),
+        commitDrafts: without(state.commitDrafts, taskIds),
         reviews: without(state.reviews, taskIds),
         pulls: without(state.pulls, taskIds),
     };
@@ -624,6 +656,12 @@ export const useStore = create<State>((set, get) => ({
     },
     closeSub: () => set({ subView: null }),
     edits: {},
+    stackChanges: {},
+    noteStackChange: (taskId, change) =>
+        set((state) => ({ stackChanges: withEntry(state.stackChanges, taskId, change) })),
+    commitDrafts: {},
+    editCommitDraft: (taskId, message) =>
+        set((state) => ({ commitDrafts: withCommitDraft(state.commitDrafts, taskId, message) })),
     turnBegan: {},
     backgroundHeard: 0,
     hookLine: null,

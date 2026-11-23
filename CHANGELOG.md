@@ -41,6 +41,18 @@ notice adds its line under Unreleased.
   cannot be read is at its default. Each is named with its file. A `skills.toml` that could not
   be read used to offer every hidden skill again without a word, and the next change wiped what
   it held. Now that is said, and the file is kept as `skills.toml.unreadable`.
+- **A snapshot can be taken where `.gitignore` ignores what is in a folder.** For a rule like
+  `/vendor/*`, git names the folder and then each thing in it, and the snapshot copied both: each
+  package a second time, into the copy already made. That nested the packages inside themselves,
+  and failed with "Not a directory" at one holding a file of its own name, as
+  `phpstan/phpstan` does. Each file is now copied once. A snapshot taken before this holds
+  those extra copies until it is taken again.
+- **What one task is doing no longer shows on another's panel.** Stopping or starting a stack
+  and then opening a session in another task showed that task's button as "Stopping…" or
+  "Starting…" too, with the first task's log, while its own stack was untouched. A commit
+  message typed for one task appeared in the next one's box as well. Each task's panel now
+  keeps its own: the stack's button says what is being done to that task's stack alone, also
+  when the task is opened again meanwhile, and each task keeps its own unsent commit message.
 
 ## [0.3.0] - 2026-11-22
 
