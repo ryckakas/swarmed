@@ -180,6 +180,7 @@ Set in the app's Settings, kept in `settings.toml`.
 | `updates` | `automatic` | how Swarmed updates itself: `automatic` looks at launch and every few hours, downloads a new version and installs it when you quit; `when_asked` fetches nothing until About opens and installs only when you ask |
 | `html_views` | `true` | agents may answer with HTML views |
 | `tool_calls` | `folded` | how agents' tool calls show in a conversation: `all`, each on its own line; `folded`, the calls that follow each other in one line that counts them and names the last; `hidden`, none, with a larger animation while the agent works. Permission requests, questions, plans and views always show |
+| `limit_warnings` | `frequent` | what a conversation says when Claude Code warns that a usage window is filling up: `frequent`, each warning, once for as long as the same window keeps warning; `rare`, only once a window is at least 75% used, once; `none`, no warnings. A limit reached and work that goes on with extra usage are always said, and the usage coins show the same whatever it is |
 | `rules` | none | rules every agent is given, in every session |
 | `status_items`, `status_command` | branch, changes, model, context, cost | the status line: built-in pieces, or a script whose first line is shown |
 | `theme`, `palette`, `style`, `layout`, `text_scale` | system, swarm, colony, classic, 100 | how the app looks |

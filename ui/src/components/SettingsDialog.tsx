@@ -1,6 +1,14 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import type { Settings, StatusItem, Style, Supervision, Theme, ToolCalls } from "../api/types";
+import type {
+    LimitWarnings,
+    Settings,
+    StatusItem,
+    Style,
+    Supervision,
+    Theme,
+    ToolCalls,
+} from "../api/types";
 import { LAYOUTS, PALETTES, STYLES } from "../appearance";
 import { movedItem, STATUS_ITEMS, statusItemName, withItem } from "../statusline";
 import { SETTINGS_TABS, type SettingsTab, useStore } from "../store";
@@ -14,6 +22,7 @@ import { CloseIcon, IconButton } from "./IconButton";
 import { McpSettings } from "./McpSettings";
 import {
     editorChoices,
+    LIMIT_WARNINGS,
     supervisionChoices,
     TEXT_SCALES,
     THEMES,
@@ -176,7 +185,12 @@ function Panel({ tab, settings }: { tab: SettingsTab; settings: Settings }) {
         case "keys":
             return <ApiKeys />;
         case "usage":
-            return <UsageSettings />;
+            return (
+                <>
+                    <UsageWarnings settings={settings} />
+                    <UsageSettings />
+                </>
+            );
         case "shortcuts":
             return <Shortcuts />;
         case "dictionary":
@@ -468,6 +482,32 @@ function Sessions({ settings }: { settings: Settings }) {
                     aria-label="Show HTML views from agents"
                     checked={settings.html_views}
                     onChange={(event) => void change(api, { html_views: event.target.checked })}
+                />
+            </Row>
+        </section>
+    );
+}
+
+/**
+ * How often a conversation says that Claude Code warns of a usage limit. With the usage
+ * figures, where someone looking for less of them would look.
+ */
+function UsageWarnings({ settings }: { settings: Settings }) {
+    const change = useStore((state) => state.changeSettings);
+    return (
+        <section className="settings-group" aria-label="Claude Code's usage limits">
+            <h3>Claude Code's usage limits</h3>
+            <Row
+                label="Usage warnings"
+                hint="When a conversation says that Claude Code warns of its 5-hour or weekly limit: at each warning, which it gives from about half; only from 75% used; or never. A limit reached, and work that goes on with extra usage, are always said, and the coins at the top of a session always show how much is used."
+            >
+                <Picker
+                    label="Usage warnings"
+                    value={settings.limit_warnings}
+                    onChange={(value) =>
+                        void change(api, { limit_warnings: value as LimitWarnings })
+                    }
+                    options={LIMIT_WARNINGS}
                 />
             </Row>
         </section>

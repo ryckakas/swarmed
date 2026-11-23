@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { LimitWarnings } from "./api/types";
 import {
     isoSeconds,
     type LimitWindow,
@@ -41,11 +42,11 @@ const weeklyWarning = report(
 
 describe("limitNotice", () => {
     it("says nothing while all is well", () => {
-        expect(limitNotice(report("allowed", {}), null, now)).toBeNull();
+        expect(limitNotice(report("allowed", {}), null, now, "frequent")).toBeNull();
     });
 
     it("says a warning is a warning, with how much is used and the day it resets", () => {
-        const text = limitNotice(weeklyWarning, null, now) ?? "";
+        const text = limitNotice(weeklyWarning, null, now, "frequent") ?? "";
         expect(text).toMatch(
             /^Claude Code warns that the weekly limit is getting closer: 29% used\./,
         );
@@ -59,12 +60,12 @@ describe("limitNotice", () => {
     });
 
     it("says a warning once, not again with every turn", () => {
-        expect(limitNotice(weeklyWarning, weeklyWarning, now)).toBeNull();
+        expect(limitNotice(weeklyWarning, weeklyWarning, now, "frequent")).toBeNull();
         // Once all was well again, a new warning is news.
-        expect(limitNotice(weeklyWarning, report("allowed", {}), now)).not.toBeNull();
+        expect(limitNotice(weeklyWarning, report("allowed", {}), now, "frequent")).not.toBeNull();
         // A warning about another window is too.
         const hourly = report("allowed_warning", { rateLimitType: "five_hour" });
-        expect(limitNotice(hourly, weeklyWarning, now)).toMatch(/the 5-hour limit/);
+        expect(limitNotice(hourly, weeklyWarning, now, "frequent")).toMatch(/the 5-hour limit/);
     });
 
     it("says every time a limit is reached, and which", () => {
@@ -74,9 +75,71 @@ describe("limitNotice", () => {
             new Date(2026, 10, 21, 17, 0),
         );
         const text = `Usage limit reached (5-hour). It resets ${resetWhen(seconds(new Date(2026, 10, 21, 17, 0)), now)}.`;
-        expect(limitNotice(reached, null, now)).toBe(text);
-        expect(limitNotice(reached, reached, now)).toBe(text);
-        expect(limitNotice(report("rejected", null), null, now)).toBe("Usage limit reached.");
+        expect(limitNotice(reached, null, now, "frequent")).toBe(text);
+        expect(limitNotice(reached, reached, now, "frequent")).toBe(text);
+        expect(limitNotice(report("rejected", null), null, now, "frequent")).toBe(
+            "Usage limit reached.",
+        );
+    });
+});
+
+describe("limitNotice, as often as the user wants usage warnings", () => {
+    const weekly = (used: number | null, window = "seven_day") =>
+        report("allowed_warning", {
+            rateLimitType: window,
+            ...(used === null ? {} : { utilization: used }),
+        });
+    // What a weekly window that fills up through a day of work reports, turn by turn.
+    const filling = [weekly(0.52), weekly(0.6), weekly(0.76), weekly(0.81), weekly(0.9)];
+    const said = (mode: LimitWarnings, reports: RateLimit[]) =>
+        reports.flatMap((event, at) => {
+            const text = limitNotice(event, reports[at - 1] ?? null, now, mode);
+            return text === null ? [] : [text];
+        });
+
+    it("says each warning once when frequent, as Swarmed always did", () => {
+        const text = said("frequent", filling);
+        expect(text).toHaveLength(1);
+        expect(text[0]).toMatch(/weekly limit is getting closer: 52% used/);
+        expect(said("frequent", [weekly(null)])).toHaveLength(1);
+    });
+
+    it("says nothing below 75% when rare, and once when the window passes it", () => {
+        const text = said("rare", filling);
+        expect(text).toHaveLength(1);
+        expect(text[0]).toMatch(/weekly limit is getting closer: 76% used/);
+        expect(said("rare", [weekly(0.29), weekly(0.74)])).toEqual([]);
+        expect(said("rare", [weekly(0.75)])).toHaveLength(1);
+        // A warning that does not say how full its window is says nothing.
+        expect(said("rare", [weekly(null)])).toEqual([]);
+        expect(said("rare", [weekly(null), weekly(0.8)])).toHaveLength(1);
+    });
+
+    it("says it again when rare for another window, or once all was well again", () => {
+        const hourly = weekly(0.8, "five_hour");
+        const both = said("rare", [weekly(0.8), hourly]);
+        expect(both).toHaveLength(2);
+        expect(both[1]).toMatch(/the 5-hour limit is getting closer: 80% used/);
+        const allowed = report("allowed", {});
+        expect(said("rare", [weekly(0.8), allowed, weekly(0.8)])).toHaveLength(2);
+    });
+
+    it("says no warning at all when none", () => {
+        expect(said("none", [...filling, weekly(null), weekly(0.8, "five_hour")])).toEqual([]);
+    });
+
+    it("says every time a limit is reached, and work going on billed, whatever the mode", () => {
+        const reached = report("rejected", { rateLimitType: "five_hour" });
+        const billed = report("rejected", { rateLimitType: "five_hour", isUsingOverage: true });
+        for (const mode of ["frequent", "rare", "none"] as const) {
+            expect(said(mode, [reached, reached])).toEqual([
+                "Usage limit reached (5-hour).",
+                "Usage limit reached (5-hour).",
+            ]);
+            expect(said(mode, [weekly(0.9), billed])).toContain(
+                "The 5-hour limit is reached: Claude Code goes on with extra usage, which is billed.",
+            );
+        }
     });
 });
 
@@ -135,16 +198,16 @@ describe("a limit reached while extra usage carries on", () => {
     });
 
     it("says the work goes on, billed, not that it stopped", () => {
-        const text = limitNotice(billed, null, now) ?? "";
+        const text = limitNotice(billed, null, now, "frequent") ?? "";
         expect(text).toBe(
             "The 5-hour limit is reached: Claude Code goes on with extra usage, which is billed.",
         );
     });
 
     it("says it once, not with every billed turn after it", () => {
-        expect(limitNotice(billed, billed, now)).toBeNull();
+        expect(limitNotice(billed, billed, now, "frequent")).toBeNull();
         // Back within the plan and over again: news once more.
-        expect(limitNotice(billed, report("allowed", {}), now)).not.toBeNull();
+        expect(limitNotice(billed, report("allowed", {}), now, "frequent")).not.toBeNull();
     });
 });
 

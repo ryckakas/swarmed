@@ -364,6 +364,12 @@ export type StatusItem =
  */
 export type ToolCalls = "all" | "folded" | "hidden";
 
+/**
+ * What a conversation says when Claude Code warns that a usage window fills up: each warning,
+ * only those from 75% used, or none. A limit reached, and work that goes on billed, always show.
+ */
+export type LimitWarnings = "frequent" | "rare" | "none";
+
 /** The user's own preferences. */
 export interface Settings {
     /** The command that opens a folder in the user's code editor. */
@@ -387,6 +393,8 @@ export interface Settings {
     html_views: boolean;
     /** How the agents' tool calls show in a conversation. */
     tool_calls: ToolCalls;
+    /** What a conversation says when Claude Code warns that a usage window fills up. */
+    limit_warnings: LimitWarnings;
     /** Whether the system notifies when a session needs you, finishes or fails out of sight. */
     notifications: boolean;
     /** The built-in pieces of the status line under the message box, in order. */

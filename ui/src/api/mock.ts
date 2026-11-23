@@ -52,7 +52,8 @@ import type {
 // Sample data and a scripted agent, for working on the UI in a browser where there is no Tauri
 // shell. The agent behaves like the core's FakeBackend: plain text is echoed, `run: <command>`
 // asks permission first, `ask` puts questions, `delegate` starts sub-agents, `show` answers
-// with an HTML view, and `slow` runs until interrupted.
+// with an HTML view, `warn <percent>` ends its turn with a usage warning for the weekly window
+// that full, and `slow` runs until interrupted.
 
 // `show` answers with this view: a chart in the app's colours, with buttons that redraw it.
 const SAMPLE_VIEW = `<style>
@@ -1639,10 +1640,29 @@ class MockAgent {
             this.showView(id, done);
         } else if (text.startsWith("switch ")) {
             this.switchWorktree(id, text.slice(7).trim(), done);
+        } else if (/^warn \d+$/.test(text)) {
+            this.warnOfLimit(id, Number(text.slice(5)), done);
         } else {
             return false;
         }
         return true;
+    }
+
+    /** Ends a turn as Claude Code does while a window fills up: its report warns of it. */
+    private warnOfLimit(id: number, percent: number, done: AgentEvent) {
+        this.later(id, { type: "text", text: `The weekly window is ${percent}% used.` }, "working");
+        this.later(id, done, "idle", 2);
+        const warning: AgentEvent = {
+            type: "rate_limit",
+            status: "allowed_warning",
+            resets_at: Math.round(Date.now() / 1000) + 6 * 86_400,
+            raw: {
+                status: "allowed_warning",
+                rateLimitType: "seven_day",
+                utilization: percent / 100,
+            },
+        };
+        this.later(id, warning, null, 3);
     }
 
     /** Answers in plain words, as an agent's ordinary reply. */
@@ -2339,6 +2359,7 @@ export function createMockApi(): Api {
         default_supervision: "auto",
         html_views: true,
         tool_calls: "folded",
+        limit_warnings: "frequent",
         notifications: true,
         rules: "",
         status_items: ["branch", "changes", "model", "context", "cost", "duration"],

@@ -1,9 +1,10 @@
 // What Claude Code reports about the user's usage limits, in words for the transcript. It
 // reports after every turn: `allowed`, `allowed_warning` while a window fills up, and another
 // status once a limit is reached. A warning is not a limit reached, and is said once, when it
-// starts, not again with every turn.
+// starts, not again with every turn. Which warnings are said at all is the user's setting
+// (`LimitWarnings`); a limit reached always is.
 
-import type { AgentEvent, UsageLimit } from "./api/types";
+import type { AgentEvent, LimitWarnings, UsageLimit } from "./api/types";
 
 /** One usage report of Claude Code's. */
 export type RateLimit = Extract<AgentEvent, { type: "rate_limit" }>;
@@ -57,18 +58,19 @@ export function resetWhen(seconds: number, now: Date): string {
 
 /**
  * What the transcript says about a usage report, or `null` for nothing: nothing while all is
- * well, a warning when one starts, and every time a limit is reached. `previous` is the report
- * before it in the conversation.
+ * well, a warning when one starts that `mode` says, and every time a limit is reached, whatever
+ * `mode` is. `previous` is the report before it in the conversation.
  */
 export function limitNotice(
     event: RateLimit,
     previous: RateLimit | null,
     now: Date,
+    mode: LimitWarnings,
 ): string | null {
     if (event.status === "allowed") {
         return null;
     }
-    const { window, used } = details(event);
+    const { window } = details(event);
     const resets = event.resets_at === null ? "" : ` It resets ${resetWhen(event.resets_at, now)}.`;
     if (onExtraUsage(event)) {
         return billedNotice(previous, window, resets);
@@ -76,9 +78,37 @@ export function limitNotice(
     if (event.status !== "allowed_warning") {
         return `Usage limit reached${window ? ` (${window})` : ""}.${resets}`;
     }
-    const warnedAlready =
-        previous?.status === "allowed_warning" && details(previous).window === window;
-    if (warnedAlready) {
+    return warningNotice(event, previous, mode, resets);
+}
+
+/**
+ * Whether `mode` says a report's warning: every one when frequent; when rare, only one that says
+ * its window is at least `LIMIT_WARNING` full, since Claude Code warns from about half; none
+ * when none.
+ */
+function says(event: RateLimit, mode: LimitWarnings): boolean {
+    if (event.status !== "allowed_warning" || mode === "none") {
+        return false;
+    }
+    const { used } = details(event);
+    return mode === "frequent" || (used !== null && used >= LIMIT_WARNING);
+}
+
+/**
+ * A warning that a window fills up, said once: not while the report before it was a warning of
+ * the same window that `mode` said too. A warning `mode` left unsaid was not news yet, so the
+ * one that passes the mark is.
+ */
+function warningNotice(
+    event: RateLimit,
+    previous: RateLimit | null,
+    mode: LimitWarnings,
+    resets: string,
+): string | null {
+    const { window, used } = details(event);
+    const saidAlready =
+        previous !== null && says(previous, mode) && details(previous).window === window;
+    if (!says(event, mode) || saidAlready) {
         return null;
     }
     const share = used === null ? "" : `: ${Math.round(used * 100)}% used`;

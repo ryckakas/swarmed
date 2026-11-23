@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentEvent, RemoteState } from "./api/types";
+import type { AgentEvent, LimitWarnings, RemoteState } from "./api/types";
 import {
     activity,
     fileName,
@@ -131,6 +131,36 @@ describe("toItems", () => {
                 text: "The agent stopped with exit code 1.\nno such model",
             },
         ]);
+    });
+
+    it("says Claude Code's usage warnings as the setting says, and a limit reached always", () => {
+        const warning = (utilization: number): AgentEvent => ({
+            type: "rate_limit",
+            status: "allowed_warning",
+            resets_at: null,
+            raw: { rateLimitType: "seven_day", utilization },
+        });
+        const reached: AgentEvent = {
+            type: "rate_limit",
+            status: "rejected",
+            resets_at: null,
+            raw: {},
+        };
+        const events = [warning(0.5), warning(0.8), reached];
+        const said = (mode: LimitWarnings) =>
+            toItems(events, wordsFor("plain"), mode).map((item) =>
+                item.kind === "notice" ? item.text : item.kind,
+            );
+        expect(said("frequent")).toEqual([
+            "Claude Code warns that the weekly limit is getting closer: 50% used. Nothing is limited yet.",
+            "Usage limit reached.",
+        ]);
+        expect(toItems(events).length).toBe(2);
+        expect(said("rare")).toEqual([
+            "Claude Code warns that the weekly limit is getting closer: 80% used. Nothing is limited yet.",
+            "Usage limit reached.",
+        ]);
+        expect(said("none")).toEqual(["Usage limit reached."]);
     });
 
     it("describes what a session loaded", () => {

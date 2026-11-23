@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import type { AgentInfo, Effort, SlashCommand, Supervision, Theme, ToolCalls } from "../api/types";
+import type {
+    AgentInfo,
+    Effort,
+    LimitWarnings,
+    SlashCommand,
+    Supervision,
+    Theme,
+    ToolCalls,
+} from "../api/types";
 import { useStore } from "../store";
 import { type Words, wordsFor } from "../wording";
 
@@ -197,6 +205,13 @@ export const TOOL_CALLS: [ToolCalls, string][] = [
     ["all", "All, each on its own line"],
     ["folded", "Folded, one line for the calls in a row"],
     ["hidden", "Hidden, with a larger animation while it works"],
+];
+
+/** How often a conversation can say that Claude Code warns of a usage limit. */
+export const LIMIT_WARNINGS: [LimitWarnings, string][] = [
+    ["frequent", "Frequent"],
+    ["rare", "Rare, from 75% used"],
+    ["none", "None"],
 ];
 
 /** Text sizes offered, in percent of the normal size. */

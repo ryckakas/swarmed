@@ -558,6 +558,16 @@ fn a_layout_with_a_key_the_app_does_not_know_is_drawn_and_says_so() {
 }
 
 #[test]
+fn the_ui_can_choose_how_often_usage_warnings_are_said() {
+    let app = app();
+    let mut settings = app.ok("settings", json!({}));
+    assert_eq!(settings["limit_warnings"], "frequent");
+    settings["limit_warnings"] = json!("none");
+    app.ok("set_settings", json!({ "settings": settings }));
+    assert_eq!(app.ok("settings", json!({}))["limit_warnings"], "none");
+}
+
+#[test]
 fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
@@ -573,7 +583,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
             "editor": "code", "terminal_app": "Terminal", "auto_title": true, "theme": "system", "palette": "swarm",
             "style": "colony", "layout": "classic",
             "text_scale": 100,
-            "html_views": true, "tool_calls": "folded", "notifications": true, "default_supervision": "auto",
+            "html_views": true, "tool_calls": "folded", "limit_warnings": "frequent", "notifications": true, "default_supervision": "auto",
             "status_items": ["branch", "changes", "model", "context", "cost"],
             "status_command": "", "rules": "", "updates": "automatic",
         })

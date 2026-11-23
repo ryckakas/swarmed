@@ -71,6 +71,20 @@ small yellow triangle, red once a limit is used up, and their label names the wi
 are yellow and red likewise. Like the card, the triangle follows the figures last heard, so it
 appears after the turn that passes 75%.
 
+The conversation also says when Claude Code warns that a window is filling up, which it can do
+from about half of it. **Usage warnings** in Settings, under Storage and activity, chooses how
+often:
+
+- **Frequent**, the default: each warning Claude Code gives, once for as long as the same
+  window keeps warning.
+- **Rare**: only once a window is at least 75% used, the same mark as the coins, and once.
+  A warning that does not say how full its window is says nothing.
+- **None**: no warnings in the conversation.
+
+Whatever you choose, the conversation says when a limit is reached and when Claude Code goes on
+with extra usage, which is billed, and the coins and the card show the same. An agent can change
+it for you with `configure`.
+
 ### Remote Control: carry on from your phone
 
 A Claude Code session can be reached from claude.ai and from the Claude app on your phone. Press
@@ -216,8 +230,8 @@ Claude Code may call `show_html` without asking; in Ask mode you are asked about
 agents decide for themselves which calls they ask about.
 
 `configure` makes some changes at once: saved prompts, actions that send a prompt, the status
-line's pieces, the looks, the terminal's settings, and removing an action, a prompt or the status
-line's script. Adding a rule, saving an environment, an action that runs a command, a status
+line's pieces, the looks, how often Claude Code's usage warnings are said, the terminal's
+settings, and removing an action, a prompt or the status line's script. Adding a rule, saving an environment, an action that runs a command, a status
 line script, or hiding tool calls it can only propose: the change is shown in the conversation and made when you
 accept it. API keys, MCP servers, sign-ins, supervision and notes are out of its reach, and it
 tells an agent the names of an environment's variables, never their values.

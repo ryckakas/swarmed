@@ -41,6 +41,8 @@ pub struct Settings {
     pub html_views: bool,
     /// How the agents' tool calls show in a conversation.
     pub tool_calls: ToolCalls,
+    /// What a conversation says when Claude Code warns that a usage window fills up.
+    pub limit_warnings: LimitWarnings,
     /// The built-in pieces of the status line under the message box, in order.
     pub status_items: Vec<StatusItem>,
     /// A command whose first line of output replaces the built-in pieces. Empty for none.
@@ -133,6 +135,24 @@ pub enum ToolCalls {
     Hidden,
 }
 
+/// What a conversation says when Claude Code warns that a usage window fills up.
+///
+/// A limit reached, and work that goes on with extra usage, are said whatever this is, and the
+/// usage coins show the same either way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LimitWarnings {
+    /// Each warning Claude Code gives, once for as long as the same window keeps warning. It
+    /// warns from about half a window.
+    #[default]
+    Frequent,
+    /// Only once a window is at least 75% used, when the usage coins warn too, and once for
+    /// as long as it stays there.
+    Rare,
+    /// None at all.
+    None,
+}
+
 /// How Swarmed gets its new versions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -164,6 +184,7 @@ impl Default for Settings {
             notifications: true,
             html_views: true,
             tool_calls: ToolCalls::Folded,
+            limit_warnings: LimitWarnings::Frequent,
             status_items: StatusItem::defaults(),
             status_command: String::new(),
             rules: String::new(),
@@ -292,6 +313,7 @@ mod tests {
             notifications: false,
             html_views: false,
             tool_calls: ToolCalls::Hidden,
+            limit_warnings: LimitWarnings::Rare,
             status_items: vec![StatusItem::Cost],
             status_command: "~/bin/status".to_string(),
             rules: "Keep answers short.\nNo em dashes.".to_string(),
@@ -336,6 +358,32 @@ mod tests {
             Settings::load(&path).expect("loads").tool_calls,
             ToolCalls::All
         );
+    }
+
+    #[test]
+    fn usage_warnings_are_frequent_unless_chosen_otherwise() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.toml");
+        // A file written before the setting existed says every warning, as Swarmed did then.
+        std::fs::write(&path, "theme = \"dark\"").expect("writes");
+        assert_eq!(
+            Settings::load(&path).expect("loads").limit_warnings,
+            LimitWarnings::Frequent
+        );
+        std::fs::write(&path, "limit_warnings = \"none\"").expect("writes");
+        assert_eq!(
+            Settings::load(&path).expect("loads").limit_warnings,
+            LimitWarnings::None
+        );
+        // A choice a newer Swarmed may have: this one says every warning, and names the value.
+        std::fs::write(&path, "limit_warnings = \"hourly\"\ntheme = \"dark\"").expect("writes");
+        let (settings, problems) = Settings::read(&path).expect("reads");
+        assert_eq!(
+            (settings.limit_warnings, settings.theme),
+            (LimitWarnings::Frequent, Theme::Dark)
+        );
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("`limit_warnings`"), "{problems:?}");
     }
 
     #[test]
