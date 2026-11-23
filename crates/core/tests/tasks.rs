@@ -1449,6 +1449,49 @@ async fn setting_up_again_keeps_a_task_only_if_it_was_never_set_up_well() {
 }
 
 #[tokio::test]
+async fn a_snapshot_is_put_in_place_part_by_part_saying_how_far_it_is() {
+    let fx = fixture();
+    // A folder git tracks, with one it ignores inside it, as in a monorepo's apps.
+    std::fs::create_dir_all(fx.repo.join("apps/web")).expect("test setup");
+    std::fs::write(fx.repo.join("apps/web/index.js"), "app\n").expect("writes");
+    std::fs::write(fx.repo.join(".gitignore"), "node_modules/\n.env\n").expect("writes");
+    git(&fx.repo, &["add", "."]);
+    git(&fx.repo, &["commit", "--quiet", "-m", "an app"]);
+    write_config(
+        &fx,
+        "[hooks]\nsetup = \"test -f .env || { mkdir -p node_modules/acme apps/web/node_modules/ui && echo lib > node_modules/acme/lib.js && echo ui > apps/web/node_modules/ui/ui.js && echo KEY={{task}} > .env; }\"\n",
+    );
+    let core = core_with_project(&fx).await;
+    let said = Mutex::new(Vec::<String>::new());
+    let note = |line: &str| said.lock().expect("not poisoned").push(line.to_string());
+    let new = |name: &'static str| core.task_new("demo", name, NewTaskOptions::default(), &note);
+    new("one").await.expect("creates");
+
+    // A file git has come to track since is what the next task gets, not the snapshot's.
+    std::fs::write(fx.repo.join(".env"), "KEY=tracked\n").expect("writes");
+    git(&fx.repo, &["add", "--force", ".env"]);
+    git(&fx.repo, &["commit", "--quiet", "-m", "track .env"]);
+    said.lock().expect("not poisoned").clear();
+    let two = new("two").await.expect("creates");
+
+    // Each missing folder is put there whole, and each step is said as it begins.
+    let lines = said.lock().expect("not poisoned").clone();
+    let step = |n: usize, path: &str| {
+        let line = format!("starting from the snapshot of this environment: {n} of 2, {path}");
+        lines.contains(&line)
+    };
+    assert!(step(1, "apps/web/node_modules"), "{lines:?}");
+    assert!(step(2, "node_modules"), "{lines:?}");
+    let done = "started from the snapshot of this environment (copied in ";
+    assert!(lines.iter().any(|line| line.starts_with(done)), "{lines:?}");
+    let read = |path: &str| std::fs::read_to_string(two.worktree_path.join(path)).expect("there");
+    assert_eq!(read("node_modules/acme/lib.js"), "lib\n");
+    assert_eq!(read("apps/web/node_modules/ui/ui.js"), "ui\n");
+    assert_eq!(read("apps/web/index.js"), "app\n");
+    assert_eq!(read(".env"), "KEY=tracked\n");
+}
+
+#[tokio::test]
 async fn a_snapshot_copies_once_what_a_rule_for_a_folders_contents_ignores() {
     let fx = fixture();
     // As Composer's folder is often ignored: what is in it, not the folder. Git then names the

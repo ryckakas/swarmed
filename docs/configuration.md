@@ -153,7 +153,9 @@ A snapshot keeps the files git ignores in one task whose setup went well, such a
 build output and `.env`. A new task of the same environment gets a copy before its `setup` runs,
 so setup has less to do. Nothing already in the worktree is overwritten. Where the data directory
 and the worktrees share an APFS volume, as they do by default, the copies are clones and take no
-extra space until changed.
+extra space until changed, and each folder is cloned whole at once, so even a large
+`node_modules` takes seconds. The setup output says which part is being copied, and how long
+it took.
 
 There is one per environment, and Swarmed takes it itself: the first task whose `setup` succeeds
 in an environment with no snapshot is kept as its snapshot, before the task's stack starts, so

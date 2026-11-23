@@ -7,10 +7,12 @@
 //! gets them put into its fresh worktree before its `setup` runs, which then has little left
 //! to do. Files git tracks are never part of a snapshot and never overwritten by one.
 //!
-//! The copies are made with `cp -c`, which on APFS clones files instead of copying them: a
-//! snapshot and the worktrees started from it share their blocks until one of them changes,
-//! so they take almost no room. What was built may hold the path of the worktree it was
-//! built in; `setup` still runs afterwards and is what puts that right.
+//! On APFS the copies are clones: a snapshot and the worktrees started from it share their
+//! blocks until one of them changes, so they take almost no room. Each folder is cloned whole
+//! in one call where it can be ([`clone_whole`]), else copied with `cp -c`, which clones one
+//! file at a time. Both say how far they are, since a large one takes a while. What was built
+//! may hold the path of the worktree it was built in; `setup` still runs afterwards and is
+//! what puts that right.
 //!
 //! Ignored files include the likes of `.env`, so a snapshot may hold credentials: its folder
 //! is the user's alone, and what is in it is never logged.
@@ -18,14 +20,15 @@
 use std::collections::HashSet;
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
 use crate::changes::nul_separated;
+use crate::clone::clone_whole;
 use crate::error::{Error, Result};
-use crate::hooks::OutputSink;
+use crate::hooks::{self, OutputSink};
 use crate::store::{Project, SetupStatus, Task};
 use crate::{Core, git, paths};
 
@@ -108,7 +111,7 @@ impl Core {
                 "a snapshot of this environment is being taken already; try again once it is kept",
             ));
         };
-        build(&folder, &task, &ignored).await
+        build(&folder, &task, &ignored, &hooks::discard).await
     }
 
     /// [`Core::snapshot_first`], saying how it went. Not keeping one costs the task nothing:
@@ -119,8 +122,12 @@ impl Core {
         task: &Task,
         sink: OutputSink<'_>,
     ) {
+        let began = Instant::now();
         match self.snapshot_first(project, task, sink).await {
-            Ok(Some(_)) => sink("kept: new tasks of this environment start from it"),
+            Ok(Some(_)) => sink(&format!(
+                "kept: new tasks of this environment start from it (copied in {})",
+                seconds(began.elapsed())
+            )),
             Ok(None) => {}
             Err(error) => sink(&format!("the snapshot could not be kept: {error}")),
         }
@@ -157,7 +164,7 @@ impl Core {
         sink(
             "keeping what setup produced as the snapshot of this environment, for its next tasks to start from",
         );
-        build(&folder, task, &ignored).await.map(Some)
+        build(&folder, task, &ignored, sink).await.map(Some)
     }
 
     /// Forgets every snapshot of a project, along with the project.
@@ -181,35 +188,119 @@ impl Core {
         remove(&folder)
     }
 
-    /// Puts the environment's snapshot into a fresh worktree, if there is one. Says whether
-    /// it did. Nothing that is already there is overwritten, so what git checked out stays.
+    /// Puts the environment's snapshot into a fresh worktree, if there is one, saying which
+    /// part it is at, and how long it took once done; `None` without a snapshot. Nothing that
+    /// is already there is overwritten, so what git checked out stays.
     pub(crate) async fn seed_from_snapshot(
         &self,
         project: &str,
         environment: Option<&str>,
         worktree: &Path,
-    ) -> Result<bool> {
+        sink: OutputSink<'_>,
+    ) -> Result<Option<Duration>> {
         let files = self.snapshot_folder(project, environment).join(FILES);
         if !files.is_dir() {
-            return Ok(false);
+            return Ok(None);
         }
-        // `/.` copies what is in the folder, not the folder; `-n` leaves what exists alone.
-        let mut from = files.into_os_string();
-        from.push("/.");
-        cp(Path::new(&from), worktree, true).await?;
-        Ok(true)
+        let began = Instant::now();
+        let missing = missing_from(&files, worktree)?;
+        for (at, path) in missing.iter().enumerate() {
+            let shown = path.display();
+            let of = missing.len();
+            sink(&format!(
+                "starting from the snapshot of this environment: {} of {of}, {shown}",
+                at + 1
+            ));
+            put(&files.join(path), &worktree.join(path), true).await?;
+        }
+        Ok(Some(began.elapsed()))
     }
 }
 
-/// Copies what git ignores in the task's worktree, `ignored`, as the snapshot in `folder`. It is
-/// built beside the old one and swapped in, so a copy that fails leaves the old one. Only while
-/// holding [`building_lock`] for `folder`.
-async fn build(folder: &Path, task: &Task, ignored: &[String]) -> Result<Snapshot> {
+/// A length of time as the setup output gives it: `7.2 s`.
+pub(crate) fn seconds(took: Duration) -> String {
+    format!("{:.1} s", took.as_secs_f64())
+}
+
+/// How the worktree stands where the snapshot has something.
+enum There {
+    /// Not there: it is put there whole.
+    Missing,
+    /// A folder in both, as one git tracks files in: what is in it is looked at in turn.
+    Folder,
+    /// There already, and left as it is.
+    Kept,
+}
+
+fn there(ours: &Path, theirs: &Path) -> There {
+    let Ok(theirs) = std::fs::symlink_metadata(theirs) else {
+        return There::Missing;
+    };
+    let ours_a_folder = std::fs::symlink_metadata(ours).is_ok_and(|ours| ours.is_dir());
+    if theirs.is_dir() && ours_a_folder {
+        There::Folder
+    } else {
+        There::Kept
+    }
+}
+
+/// What of the snapshot's `files` the worktree does not have yet, each named once at its top:
+/// a folder the worktree lacks is one entry, however much is in it, so that it can be cloned
+/// in one go. In order, so that how far it is can be said.
+fn missing_from(files: &Path, worktree: &Path) -> Result<Vec<PathBuf>> {
+    let mut missing = Vec::new();
+    let mut folders = vec![PathBuf::new()];
+    while let Some(folder) = folders.pop() {
+        let names =
+            std::fs::read_dir(files.join(&folder))?.map(|entry| entry.map(|e| e.file_name()));
+        for name in names {
+            let path = folder.join(name?);
+            match there(&files.join(&path), &worktree.join(&path)) {
+                There::Missing => missing.push(path),
+                There::Folder => folders.push(path),
+                There::Kept => (),
+            }
+        }
+    }
+    missing.sort();
+    Ok(missing)
+}
+
+/// Puts `from` at `to`, where nothing is yet: cloned whole where the file system can, else
+/// copied with `cp`, leaving what is at `to` alone if `keep_existing`.
+async fn put(from: &Path, to: &Path, keep_existing: bool) -> Result<()> {
+    if let Some(parent) = to.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let (source, target) = (from.to_path_buf(), to.to_path_buf());
+    // Off the async threads: a large folder takes seconds even as one clone.
+    let cloned = tokio::task::spawn_blocking(move || clone_whole(&source, &target)).await;
+    if cloned.unwrap_or(false) {
+        return Ok(());
+    }
+    cp(from, to, keep_existing).await
+}
+
+/// Copies what git ignores in the task's worktree, `ignored`, as the snapshot in `folder`,
+/// saying which part it is at. It is built beside the old one and swapped in, so a copy that
+/// fails leaves the old one. Only while holding [`building_lock`] for `folder`.
+async fn build(
+    folder: &Path,
+    task: &Task,
+    ignored: &[String],
+    sink: OutputSink<'_>,
+) -> Result<Snapshot> {
     let building = building_beside(folder);
     remove(&building)?;
-    private_dir(&building.join(FILES))?;
-    for path in ignored {
-        copy_into(&task.worktree_path, path, &building.join(FILES)).await?;
+    let files = building.join(FILES);
+    private_dir(&files)?;
+    for (at, path) in ignored.iter().enumerate() {
+        let of = ignored.len();
+        sink(&format!(
+            "keeping what setup produced as the snapshot of this environment: {} of {of}, {path}",
+            at + 1
+        ));
+        put(&task.worktree_path.join(path), &files.join(path), false).await?;
     }
     let snapshot = Snapshot {
         environment: task.environment.clone(),
@@ -301,15 +392,6 @@ fn outermost(paths: &[&str]) -> Vec<String> {
         .filter(|path| !inside_another(path))
         .map(|path| (*path).to_string())
         .collect()
-}
-
-/// Copies `path` of `worktree` to the same place under `target`.
-async fn copy_into(worktree: &Path, path: &str, target: &Path) -> Result<()> {
-    let to = target.join(path);
-    if let Some(parent) = to.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    cp(&worktree.join(path), &to, false).await
 }
 
 /// How `cp` is told to clone where the file system can: the Mac's with `-c`, GNU's with
