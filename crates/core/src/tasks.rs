@@ -196,6 +196,12 @@ impl Core {
             SetupStatus::Failed
         };
         self.store().task_set_setup(task.id, task.setup)?;
+        // The first task set up well in its environment is what the next ones start from: kept
+        // before its stack starts writing logs and caches beside what setup made. Not keeping
+        // it is said, and costs the task nothing.
+        if result.is_ok() {
+            self.keep_first_snapshot(project, &task, sink).await;
+        }
         // Set up, so what the task keeps running can be started. That failing does not make
         // the task unusable: it is said, and the stack can be started again later.
         let started = result

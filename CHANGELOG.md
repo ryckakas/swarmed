@@ -24,6 +24,16 @@ notice adds its line under Unreleased.
   environment is now called "Repository's own setup", since "Default setup" no longer meant
   the default.
 
+### Changed
+
+- **Swarmed takes an environment's snapshot itself.** Until now new tasks set up from nothing
+  until a snapshot was taken by hand, which was easy to miss. Now the first task whose setup
+  succeeds in an environment without a snapshot is kept as its snapshot, before its stack
+  starts, and the next tasks start from it. Its setup output says so, and that task waits
+  once for the copy. **Take from…** and `swarmed snapshot save` still replace it, such as
+  after a dependency update. Two snapshots of one environment are no longer built at once,
+  whether by tasks set up side by side or by the app and the `swarmed` command.
+
 ### Fixed
 
 - **A setting Swarmed cannot understand no longer stops it.** One key in `settings.toml` that

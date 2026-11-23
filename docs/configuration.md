@@ -84,7 +84,8 @@ WEB_PORT = "{{port.web}}"
 Each hook runs with `sh -c` in the task's worktree, and an empty one is skipped.
 
 1. A new task gets its branch and worktree, then its environment's snapshot, then `setup`. A task
-   whose setup failed is kept, and setup can be run again.
+   whose setup failed is kept, and setup can be run again. When `setup` succeeds and the
+   environment has no snapshot yet, the task is kept as its snapshot.
 2. When `setup` succeeds, `start` is started and kept running, with its output in a log. Starting
    one stack more than `max_stacks` is refused.
 3. Stopping a stack runs `stop`, then ends whatever `start` started, including what it started
@@ -152,7 +153,13 @@ so setup has less to do. Nothing already in the worktree is overwritten. Where t
 and the worktrees share an APFS volume, as they do by default, the copies are clones and take no
 extra space until changed.
 
-`swarmed snapshot save <project> <task>` takes one; there is one per environment.
+There is one per environment, and Swarmed takes it itself: the first task whose `setup` succeeds
+in an environment with no snapshot is kept as its snapshot, before the task's stack starts, so
+that its logs and caches are not in it. That copy runs once, and the task waits for it. The
+next tasks start from it. Once what setup makes has changed, such as after a dependency update,
+take it again from a task set up since, in the app's Environments dialog or with
+`swarmed snapshot save <project> <task>`; forgetting it has the next task set up well kept
+instead.
 
 ## Settings
 

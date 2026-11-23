@@ -1370,7 +1370,13 @@ fn the_ui_can_keep_an_environment_start_a_task_in_it_and_snapshot_what_its_setup
         (&task["environment"], &task["setup"]),
         (&json!("cached"), &json!("ok"))
     );
-    assert_eq!(app.ok("snapshots", project.clone()), json!([]));
+    // Set up well with no snapshot to start from, the task is kept as its environment's.
+    let first = app.ok("snapshots", project.clone());
+    assert_eq!(
+        (&first[0]["environment"], &first[0]["task"]),
+        (&json!("cached"), &json!("one"))
+    );
+    // Taken again by hand, it takes the first one's place.
     let taken = app.ok("snapshot_save", json!({ "project": "demo", "task": "one" }));
     assert_eq!(
         (&taken["environment"], &taken["task"], &taken["entries"]),
