@@ -451,6 +451,36 @@ describe("unsent messages", () => {
     });
 });
 
+describe("what a task's panel holds", () => {
+    beforeEach(() => useStore.setState({ stackChanges: {}, commitDrafts: {} }));
+
+    it("is each task's own: a stack stopping and a commit message stay with their task", () => {
+        const store = useStore.getState();
+        store.noteStackChange(1, "stopping");
+        store.editCommitDraft(1, "Fix the redirect loop");
+        store.editCommitDraft(2, "Export the VAT column");
+        const { stackChanges, commitDrafts } = useStore.getState();
+        expect(stackChanges).toEqual({ 1: "stopping" });
+        expect(commitDrafts).toEqual({ 1: "Fix the redirect loop", 2: "Export the VAT column" });
+
+        // Done, or emptied, it is forgotten.
+        store.noteStackChange(1, null);
+        store.editCommitDraft(2, "");
+        expect(useStore.getState().stackChanges).toEqual({});
+        expect(useStore.getState().commitDrafts).toEqual({ 1: "Fix the redirect loop" });
+    });
+
+    it("goes with a removed task", () => {
+        const store = useStore.getState();
+        store.noteStackChange(1, "starting");
+        store.editCommitDraft(1, "Fix the redirect loop");
+        store.editCommitDraft(2, "Export the VAT column");
+        store.forgetTasks([1]);
+        expect(useStore.getState().stackChanges).toEqual({});
+        expect(useStore.getState().commitDrafts).toEqual({ 2: "Export the VAT column" });
+    });
+});
+
 describe("configuration that is not understood whole", () => {
     it("is said in the window, and the settings that were understood are in use", async () => {
         const problem = "settings.toml: `coming_later` is not something this version knows.";

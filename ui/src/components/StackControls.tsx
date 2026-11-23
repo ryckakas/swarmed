@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { StackState, Task } from "../api/types";
-import { useStore } from "../store";
+import { type StackChange, useStore } from "../store";
 import { useWords } from "../useWords";
 
 /** How often a running stack is looked at again: whether it still runs, and what it printed. */
@@ -24,7 +24,7 @@ export function StackControls({ project, task }: { project: string; task: Task }
     const report = useStore((state) => state.report);
     const words = useWords();
     const refresh = useStore((state) => state.refresh);
-    const [busy, setBusy] = useState(false);
+    const change = useStore((state) => state.stackChanges[task.id]);
     const [log, setLog] = useState<string | null>(null);
     const running = task.stack !== null && task.stack !== "stopped";
 
@@ -47,15 +47,6 @@ export function StackControls({ project, task }: { project: string; task: Task }
     if (task.stack === null) {
         return null;
     }
-    const toggle = () => {
-        setBusy(true);
-        const done = running
-            ? api.stackStop(project, task.name)
-            : api.stackStart(project, task.name).then(() => undefined);
-        done.then(() => refresh(api))
-            .catch(report)
-            .finally(() => setBusy(false));
-    };
     const toggleLog = () => {
         if (log !== null) {
             return setLog(null);
@@ -68,8 +59,13 @@ export function StackControls({ project, task }: { project: string; task: Task }
             <p className="stack-state" data-state={task.stack} title={HINTS[task.stack]}>
                 {words.stack[task.stack]}
             </p>
-            <button type="button" className="button" disabled={busy} onClick={toggle}>
-                {stackAction(running, busy, words.stackStarting)}
+            <button
+                type="button"
+                className="button"
+                disabled={change !== undefined}
+                onClick={() => toggleStack(project, task, running)}
+            >
+                {stackAction(running, change, words.stackStarting)}
             </button>
             <button
                 type="button"
@@ -84,10 +80,29 @@ export function StackControls({ project, task }: { project: string; task: Task }
     );
 }
 
-/** What the button that starts or stops a stack says. */
-export function stackAction(running: boolean, busy: boolean, starting = "Starting…"): string {
-    if (busy) {
-        return running ? "Stopping…" : starting;
+/**
+ * Starts or stops the task's stack, then reads the tree again. Until that is done the store
+ * notes it for this task alone, whichever task is on screen meanwhile.
+ */
+function toggleStack(project: string, task: Task, running: boolean) {
+    const { noteStackChange, refresh, report } = useStore.getState();
+    noteStackChange(task.id, running ? "stopping" : "starting");
+    const done = running
+        ? api.stackStop(project, task.name)
+        : api.stackStart(project, task.name).then(() => undefined);
+    done.then(() => refresh(api))
+        .catch(report)
+        .finally(() => noteStackChange(task.id, null));
+}
+
+/** What the button that starts or stops a stack says, while that is being done too. */
+export function stackAction(
+    running: boolean,
+    change: StackChange | undefined,
+    starting = "Starting…",
+): string {
+    if (change !== undefined) {
+        return change === "stopping" ? "Stopping…" : starting;
     }
     return running ? "Stop" : "Start";
 }

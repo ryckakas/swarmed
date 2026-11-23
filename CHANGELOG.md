@@ -47,6 +47,12 @@ notice adds its line under Unreleased.
   and failed with "Not a directory" at one holding a file of its own name, as
   `phpstan/phpstan` does. Each file is now copied once. A snapshot taken before this holds
   those extra copies until it is taken again.
+- **What one task is doing no longer shows on another's panel.** Stopping or starting a stack
+  and then opening a session in another task showed that task's button as "Stopping…" or
+  "Starting…" too, with the first task's log, while its own stack was untouched. A commit
+  message typed for one task appeared in the next one's box as well. Each task's panel now
+  keeps its own: the stack's button says what is being done to that task's stack alone, also
+  when the task is opened again meanwhile, and each task keeps its own unsent commit message.
 
 ## [0.3.0] - 2026-11-22
 

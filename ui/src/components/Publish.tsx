@@ -83,6 +83,7 @@ export function Publish({ project, task }: Props) {
             <p className="publish-summary">{unpublishedSummary(state, words)}</p>
             {step === "commit" && (
                 <CommitForm
+                    taskId={task.id}
                     busy={busy}
                     write={() => api.taskCommitMessage(project, task.name, sessionId)}
                     onCommit={(message) => run(api.taskCommit(project, task.name, message))}
@@ -168,6 +169,8 @@ function Branches({ notice, state, task, busy, onSwitch }: BranchesProps) {
 }
 
 interface CommitFormProps {
+    /** The task whose message it holds: each task's stays its own. */
+    taskId: number;
     busy: boolean;
     /** Has a message written for what changed. */
     write(): Promise<string>;
@@ -179,10 +182,13 @@ function messageRows(message: string): number {
     return Math.min(8, Math.max(1, message.split("\n").length));
 }
 
-function CommitForm({ busy, write, onCommit }: CommitFormProps) {
+function CommitForm({ taskId, busy, write, onCommit }: CommitFormProps) {
     const report = useStore((state) => state.report);
     const words = useWords();
-    const [message, setMessage] = useState("");
+    const message = useStore((state) => state.commitDrafts[taskId] ?? "");
+    const editCommitDraft = useStore((state) => state.editCommitDraft);
+    // A message written while another task is open still lands in this task's box.
+    const setMessage = (text: string) => editCommitDraft(taskId, text);
     const [writing, setWriting] = useState(false);
     const commit = () => {
         if (busy || message.trim() === "") {
