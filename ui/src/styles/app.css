@@ -2850,7 +2850,8 @@ code {
     color: var(--faint);
 }
 
-.tool[open] summary::before {
+/* Only the element's own summary: an open run of folded calls holds calls that are closed. */
+.tool[open] > summary::before {
     content: "▾";
 }
 
@@ -2873,11 +2874,15 @@ code {
     font-size: var(--text-xs);
 }
 
-.tool-running .tool-state {
+/*
+ * A state is read from the call's own summary, since a run's state is not that of each call
+ * listed in it. A running run's count of failed calls keeps its own colour and does not pulse.
+ */
+.tool-running > summary > .tool-state:not(.tool-run-failed) {
     color: var(--moss);
 }
 
-.tool-running .tool-state::before {
+.tool-running > summary > .tool-state:not(.tool-run-failed)::before {
     content: "";
     display: inline-block;
     width: 6px;
@@ -2895,12 +2900,12 @@ code {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .tool-running .tool-state::before {
+    .tool-running > summary > .tool-state:not(.tool-run-failed)::before {
         animation: none;
     }
 }
 
-.tool-failed .tool-state {
+.tool-failed > summary > .tool-state {
     color: var(--clay);
 }
 

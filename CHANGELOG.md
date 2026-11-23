@@ -41,6 +41,12 @@ notice adds its line under Unreleased.
   layout and font. Every icon on a row is also centred in the square that lights up under the
   pointer, and the cloud on a repository or task is no longer drawn larger than its neighbours
   in the senior layout or a custom one that enlarges icons.
+- **The calls inside an opened run of folded tool calls show whether each is open.** With tool
+  calls folded, every call listed in an opened run had its arrow pointing down, open or not,
+  and it did not change when the call was pressed. Each call's arrow now points right while it
+  is closed and down while it is open. While the run is still at work, a call in it that failed
+  no longer pulses as if running, and the run's count of failed calls is red as it is once the
+  run is done.
 
 ## [0.4.0] - 2026-11-23
 
