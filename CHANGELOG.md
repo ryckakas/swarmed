@@ -14,6 +14,8 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-23
+
 ### Added
 
 - **A repository can have a default environment.** Choose it in the Environments dialog, and
@@ -48,6 +50,12 @@ notice adds its line under Unreleased.
   it says which part is being put in place ("3 of 87, node_modules"), and the setup output
   says how long the copy took. Where a folder cannot be cloned whole, such as on another file
   system, it is copied as before.
+- **`swarmed-core`: what code built against 0.3 has to change**, hence 0.4.0.
+  `NewTaskOptions::environment` is an `EnvironmentChoice` rather than an `Option<&str>`
+  (`Named` for one environment, `Own` for the repository's own setup, and `Default`, the
+  default, for the repository's default environment), so `NewTaskOptions` is no longer `Copy`. `Environment` has
+  a `max_stacks` field, and `Error` a `NoRoomForAStack` variant, so a struct literal of the
+  one or an exhaustive `match` on the other needs them.
 
 ### Fixed
 
@@ -438,7 +446,8 @@ through Homebrew or a browser.
 - **Installing:** an install script, a Homebrew cask that also puts `swarmed` on the PATH, and
   `cargo install swarmed` for the command alone.
 
-[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/ryckakas/swarmed/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ryckakas/swarmed/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/ryckakas/swarmed/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/ryckakas/swarmed/compare/v0.2.0...v0.2.1
