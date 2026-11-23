@@ -54,6 +54,15 @@ variants and fields are only ever added, never renamed, and schema changes are a
   build (`presence.rs`). The first to arrive holds a lock on `run/first.lock`, and only it
   settles the sessions an earlier run left busy, and stops on quitting the stacks it did not
   start.
+- **What another Swarmed writes reaches the window** (`elsewhere.rs`): the command line, or a
+  second app on the same data. The app looks every second. Another process's commit changes
+  SQLite's `data_version`; the sessions' new events are then published in order as if the app
+  had written them, the tree is read again when its rows changed or a stack started or
+  stopped, and a configuration file changed on disk has the configuration read again.
+- **A session's agent runs in one Swarmed at a time.** The one that starts it holds a lock on
+  `run/sessions/<id>.lock` until the agent has gone; the system lets go of it when that
+  process ends, however it ends. Another Swarmed refuses to start the session meanwhile, and a
+  message queued for it there goes once that run is over.
 
 ## HTML views
 

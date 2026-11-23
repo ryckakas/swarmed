@@ -7,6 +7,7 @@
 //! file, which the system lets go of when the process ends, however it ends.
 
 use std::fs::{File, TryLockError};
+use std::sync::atomic::Ordering;
 
 use crate::error::Result;
 use crate::{Core, lock};
@@ -17,6 +18,9 @@ impl Core {
     /// is running on the same data, whose sessions they may be. Says how many there were.
     /// Worktrees that removals moved aside and did not see deleted are deleted.
     pub fn arrive(&self) -> Result<usize> {
+        // A front end that stays shows notices, and says so in the locks on the sessions it
+        // runs, so that another Swarmed does not show them too.
+        self.live.shows_notices.store(true, Ordering::Relaxed);
         if self.keeps_house()? {
             self.finish_removals();
             self.sessions_settle()

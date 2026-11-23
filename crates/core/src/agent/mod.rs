@@ -448,10 +448,12 @@ pub enum AgentEvent {
         /// Whether the change was made.
         accepted: bool,
     },
-    /// Swarmed's configuration was changed from this session, so front ends read it again.
-    /// Published and never stored.
+    /// Swarmed's configuration was changed, so front ends read it again. Published and never
+    /// stored.
     ConfigChanged {
-        /// Which part: `prompt`, `action`, `rule`, `status_line`, `appearance`, `environment`.
+        /// Which part: `prompt`, `action`, `rule`, `status_line`, `appearance`, `environment`;
+        /// or `file` when one of its files changed on disk, by another Swarmed process or by
+        /// hand, which is published with session id 0.
         kind: String,
     },
     /// What happened in the session's terminal since the agent's last turn, which the agent was
@@ -479,6 +481,11 @@ pub enum AgentEvent {
         /// What was moved: `project`, `task`, `session` or `cloud_task`.
         kind: String,
     },
+    /// Another Swarmed process on the same data, such as the command line, changed
+    /// repositories, tasks or sessions, or started or stopped a stack, so front ends read the
+    /// tree again. It belongs to no session: published with session id 0, which no session
+    /// has, and never recorded.
+    TreeChanged,
     /// What a Claude Code session heard changed the account's usage, which every session
     /// shows. It belongs to no session: published with session id 0, which no session has,
     /// and never recorded. [`crate::Core::account_usage`] gives the same.

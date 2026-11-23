@@ -18,8 +18,8 @@ use std::sync::Arc;
 
 use swarmed_core::agent::{Auth, FakeBackend};
 use swarmed_core::{
-    Core, Paths, SessionEvent, TOOL_SERVER_ARG, TerminalOutput, VIEW_POLICY, serve_session_tools,
-    serve_tools,
+    Core, Paths, SessionEvent, TOOL_SERVER_ARG, TerminalOutput, VIEW_POLICY, follow_others,
+    serve_session_tools, serve_tools,
 };
 use tauri::http::header::{CONTENT_SECURITY_POLICY, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
 use tauri::http::{HeaderValue, Response, StatusCode};
@@ -260,6 +260,7 @@ fn main() {
     let leaving = Arc::clone(&core);
     let noticing = Arc::clone(&core);
     let resuming = Arc::clone(&core);
+    let following = Arc::clone(&core);
     let bus = core.subscribe();
     let terminals = core.subscribe_terminals();
     let claude_terminals = core.subscribe_claude_terminals();
@@ -278,6 +279,9 @@ fn main() {
             // Where the sessions' own tool servers reach the core: to see, message and start
             // other sessions. If it cannot listen, those tools say so; nothing else depends on it.
             drop(tauri::async_runtime::spawn(serve_session_tools(listening)));
+            // What the command line or another Swarmed on the same data writes reaches the
+            // window as if this core had written it, and is noticed within a second.
+            drop(tauri::async_runtime::spawn(follow_others(following)));
             // Sessions that had Remote Control on can be reached from claude.ai again, without
             // anyone writing to them here first. Only the first Swarmed on the data does this.
             drop(tauri::async_runtime::spawn(async move {

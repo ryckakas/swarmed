@@ -315,6 +315,13 @@ pub enum Error {
     /// The session's agent has not been started, or has exited.
     #[error("session {0} is not running")]
     SessionNotRunning(i64),
+    /// Another Swarmed on the same data, such as the app or a command line, runs the session's
+    /// agent: a second one would take the conversation over from it.
+    #[error(
+        "session {0} runs in another Swarmed: wait until its turn there is over, or send the \
+         message there"
+    )]
+    RunsElsewhere(i64),
     /// A stored or outgoing event could not be converted to or from JSON.
     #[error(transparent)]
     Json(#[from] serde_json::Error),

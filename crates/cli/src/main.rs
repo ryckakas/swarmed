@@ -2,6 +2,7 @@
 
 mod action;
 mod cleanup;
+mod events;
 mod layout;
 mod limits;
 mod session;
@@ -117,6 +118,9 @@ enum Command {
     /// Show or replace how the terminal looks and behaves: font, cursor, colours and more.
     #[command(subcommand)]
     Terminal(TerminalCommand),
+    /// Print what happens in every session as it happens, whichever Swarmed does it: the app,
+    /// another command or this one. Ctrl-C ends it.
+    Events,
     /// Find the sessions in which something was said, closed ones included.
     Search {
         /// The words to look for, as they were written.
@@ -479,6 +483,7 @@ async fn run(core: &Core, command: Command) -> Result<()> {
         Command::Layout(command) => layout::run(core, &command),
         Command::Terminal(command) => terminal::run(core, &command),
         Command::Search { query } => search(core, &query),
+        Command::Events => events::run(core).await,
     }
 }
 

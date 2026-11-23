@@ -37,6 +37,7 @@ import {
     withSession,
 } from "./tree";
 import { turnsBegan } from "./turns";
+import { unlessSame } from "./unchanged";
 
 /** The parts the settings are divided into, in the order their tabs are listed. */
 export const SETTINGS_TABS = [
@@ -329,6 +330,9 @@ const NEVER_STORED = new Set<AgentEvent["type"]>([
     "queue",
     "config_changed",
     "deleted",
+    "reordered",
+    "tree_changed",
+    "account_usage",
 ]);
 
 /**
@@ -934,17 +938,39 @@ const inView = typeof window === "undefined" ? null : window;
  * use.
  */
 function readConfiguration(api: Api) {
-    void reporting(async () => useStore.setState({ settings: await api.settings() }));
+    // What is the same as before is kept as it was: a file written anywhere has all of it read
+    // again, and a terminal is built anew for a configuration that only looks new.
     void reporting(async () => {
-        const problems = await api.configProblems();
-        if (problems.length > 0) {
-            useStore.getState().report(configProblemsSaid(problems));
-        }
+        const settings = await api.settings();
+        useStore.setState((state) => ({ settings: unlessSame(state.settings, settings) }));
     });
-    void reporting(async () => useStore.setState({ customLayout: await api.customLayout() }));
-    void reporting(async () => useStore.setState({ terminalConfig: await api.terminalConfig() }));
-    void reporting(async () => useStore.setState({ templates: await api.templates() }));
+    void reporting(async () => {
+        const said = configProblemsSaid(await api.configProblems());
+        const problems = said === configProblemsSaid([]) ? "" : said;
+        // The same problems are said once: dismissed, they stay so until they change.
+        if (problems !== "" && problems !== problemsSaid) {
+            useStore.getState().report(problems);
+        }
+        problemsSaid = problems;
+    });
+    void reporting(async () => {
+        const layout = await api.customLayout();
+        useStore.setState((state) => ({ customLayout: unlessSame(state.customLayout, layout) }));
+    });
+    void reporting(async () => {
+        const config = await api.terminalConfig();
+        useStore.setState((state) => ({
+            terminalConfig: unlessSame(state.terminalConfig, config),
+        }));
+    });
+    void reporting(async () => {
+        const templates = await api.templates();
+        useStore.setState((state) => ({ templates: unlessSame(state.templates, templates) }));
+    });
 }
+
+/** The problems with the configuration last said, so that reading it again does not repeat them. */
+let problemsSaid = "";
 
 /**
  * A session was deleted, from another window or by a session that started it: nothing of it is
@@ -974,28 +1000,25 @@ function heardOfClosing(event: SessionEvent) {
 }
 
 /**
- * Repositories, tasks, sessions or cloud tasks were put in another order, here or in another
- * window: the tree is read again. The event belongs to no session, so nothing else is done with
- * it. Whether the event was that.
+ * Something that belongs to no session, which comes with session id 0: repositories, tasks,
+ * sessions or cloud tasks put in another order, here or in another window, or changed by
+ * another Swarmed process such as the command line, and the tree is read again; the account's
+ * usage, which every session shows; or a configuration file changed on disk, and the
+ * configuration is read again. Nothing else is done with it. Whether the event was that.
  */
-function heardOfReordering(api: Api, event: SessionEvent): boolean {
-    if (event.event.type !== "reordered") {
+function heardApart(api: Api, event: SessionEvent): boolean {
+    if (event.session_id !== 0) {
         return false;
     }
-    void useStore.getState().refresh(api);
-    return true;
-}
-
-/**
- * A Claude Code session heard something that changed the account's usage, here or in another
- * window: every session shows it. The event belongs to no session, so nothing else is done with
- * it. Whether the event was that.
- */
-function heardOfUsage(event: SessionEvent): boolean {
-    if (event.event.type !== "account_usage") {
-        return false;
+    const heard = event.event;
+    if (heard.type === "reordered" || heard.type === "tree_changed") {
+        void useStore.getState().refresh(api);
+    } else if (heard.type === "account_usage") {
+        useStore.setState({ accountUsage: heard.usage });
+    } else if (heard.type === "config_changed") {
+        readConfiguration(api);
+        useStore.getState().noteActionsChanged();
     }
-    useStore.setState({ accountUsage: event.event.usage });
     return true;
 }
 
@@ -1025,7 +1048,7 @@ function readTreeIfChanged(api: Api, event: SessionEvent) {
     }
 }
 
-/** An agent changed Swarmed's configuration: what was read of it is out of date. */
+/** An agent changed Swarmed's configuration from a session: what was read of it is out of date. */
 function heardOfConfiguration(api: Api, event: SessionEvent) {
     if (event.event.type === "config_changed") {
         readConfiguration(api);
@@ -1047,6 +1070,7 @@ export function menuChosen(item: string) {
 export function connect(api: Api): () => void {
     const { refresh, apply } = useStore.getState();
     void refresh(api);
+    problemsSaid = "";
     readConfiguration(api);
     void reporting(async () => useStore.setState({ version: await api.version() }));
     void reporting(async () => useStore.setState({ update: await api.updateState() }));
@@ -1076,11 +1100,7 @@ export function connect(api: Api): () => void {
     inView?.addEventListener("focus", readIfSeen);
     const subscriptions = [
         api.onSessionEvent((event) => {
-            if (
-                heardOfReordering(api, event) ||
-                heardOfDeletion(api, event) ||
-                heardOfUsage(event)
-            ) {
+            if (heardApart(api, event) || heardOfDeletion(api, event)) {
                 return;
             }
             readTreeIfChanged(api, event);

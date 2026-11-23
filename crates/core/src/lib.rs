@@ -22,6 +22,7 @@ mod config;
 mod configure;
 mod costs;
 mod effort;
+mod elsewhere;
 mod environments;
 mod error;
 mod files;
@@ -93,6 +94,7 @@ pub use cloud::{CloudOrigin, CloudProvider, CloudTask, MAX_DELEGATED};
 pub use commands::{CommandKind, SlashCommand};
 pub use config::{Hooks, ProjectConfig};
 pub use costs::{Costs, DayCost, TaskCost};
+pub use elsewhere::follow_others;
 pub use environments::{Environment, EnvironmentChoice};
 pub use error::{Error, Result};
 pub use files::{FileEntry, FileListing};
@@ -168,6 +170,8 @@ pub struct Core {
     /// The names of tasks being created, by project id, from when each name is chosen until
     /// its task is written down, so that tasks created at once never pick the same name.
     names_claimed: Mutex<std::collections::HashSet<(i64, String)>>,
+    /// What this core knows of other Swarmed processes on the same data.
+    elsewhere: elsewhere::Elsewhere,
 }
 
 /// The store is only ever locked for one short query, never across an `.await`. A panic while
@@ -210,6 +214,7 @@ impl Core {
             tool_server: None,
             house: Mutex::new(None),
             names_claimed: Mutex::default(),
+            elsewhere: elsewhere::Elsewhere::default(),
         })
     }
 

@@ -1,10 +1,12 @@
 //! Persistence in a local SQLite file.
 
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, Row, ToSql, Transaction, params};
 use serde::Serialize;
 
+use crate::elsewhere::Written;
 use crate::error::{Error, Result};
 
 /// A registered git repository.
@@ -244,6 +246,9 @@ const TASK_SELECT: &str = "SELECT id, project_id, name, branch, base_ref, worktr
 #[derive(Debug)]
 pub(crate) struct Store {
     pub(crate) conn: Connection,
+    /// The events this process stored, for telling them from those another process stored.
+    /// Only ever borrowed for one short step: the store is behind a lock already.
+    pub(crate) written: RefCell<Written>,
 }
 
 impl Store {
@@ -255,7 +260,8 @@ impl Store {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         migrate(&mut conn)?;
-        Ok(Self { conn })
+        let written = RefCell::new(Written::from_now(&conn)?);
+        Ok(Self { conn, written })
     }
 
     pub(crate) fn project_insert(&self, name: &str, repo_path: &Path) -> Result<Project> {

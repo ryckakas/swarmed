@@ -1858,6 +1858,8 @@ class MockAgent {
             this.showView(id, done);
         } else if (text.startsWith("switch ")) {
             this.switchWorktree(id, text.slice(7).trim(), done);
+        } else if (text.startsWith("elsewhere:")) {
+            this.renamedElsewhere(id, text.slice(10).trim(), done);
         } else if (/^warn \d+( \d+)?$/.test(text)) {
             const [, percent, inSeconds] = text.split(" ");
             this.warnOfLimit(id, Number(percent), Number(inSeconds ?? 6 * 86_400), done);
@@ -1865,6 +1867,21 @@ class MockAgent {
             return false;
         }
         return true;
+    }
+
+    /**
+     * Renames the session once the turn is over, as another Swarmed process such as the command
+     * line would: the window hears no `renamed`, only that the tree changed, and reads it again.
+     */
+    private renamedElsewhere(id: number, title: string, done: AgentEvent) {
+        const said = `Another Swarmed will rename this session to "${title}".`;
+        this.later(id, { type: "text", text: said }, "working");
+        this.later(id, done, "idle");
+        setTimeout(() => {
+            const renamed = this.configure(id, {}) as Session;
+            renamed.title = title;
+            this.tell(0, { type: "tree_changed" }, null);
+        }, PACE * 4);
     }
 
     /**

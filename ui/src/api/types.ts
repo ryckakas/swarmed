@@ -756,7 +756,10 @@ export type AgentEvent =
     | { type: "config_proposed"; request_id: string; title: string; detail: string }
     /** The user answered a proposed change. */
     | { type: "config_answered"; request_id: string; accepted: boolean }
-    /** Swarmed's configuration was changed from a session: what was read of it is out of date. */
+    /**
+     * Swarmed's configuration was changed, from a session or, with session id 0 and the kind
+     * `file`, in one of its files on disk: what was read of it is out of date.
+     */
     | { type: "config_changed"; kind: string }
     /** The session got a mark, or lost the one it had when `colour` is `null`. */
     | { type: "marked"; colour: MarkColour | null; label: string }
@@ -769,6 +772,12 @@ export type AgentEvent =
      * session: it comes with session id 0, and the tree is read again.
      */
     | { type: "reordered"; kind: string }
+    /**
+     * Another Swarmed process on the same data, such as the command line, changed repositories,
+     * tasks or sessions, or started or stopped a stack. It belongs to no session: it comes with
+     * session id 0, and the tree is read again.
+     */
+    | { type: "tree_changed" }
     /**
      * What a Claude Code session heard changed the account's usage. It belongs to no session:
      * it comes with session id 0, and every session shows it.

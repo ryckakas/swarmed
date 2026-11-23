@@ -92,6 +92,15 @@ notice adds its line under Unreleased.
 
 ### Fixed
 
+- **The window shows what the `swarmed` command or a second Swarmed changes.** A session
+  renamed, marked, closed, reopened, deleted, moved or set from the command line, a task or
+  session made or removed there, and an action or setting written there or by hand, used to
+  show only after a restart, and a session the command ran never moved on screen. Now each
+  shows within about a second, and a session run elsewhere follows live, with its status,
+  unread state, conversation and notices. A session's agent runs in one place at a time:
+  sending to one that another Swarmed runs says so instead of starting a second agent on the
+  same conversation, and a message queued for it goes once that run is over. `swarmed events`
+  prints what happens in every session, whichever Swarmed does it.
 - **Every Claude Code session shows the same usage, and the newest.** The coins' warning, the
   usage limits and the extra usage were what each session heard after its own last turn, so
   one session warned while another did not, a new session showed nothing, a window that had

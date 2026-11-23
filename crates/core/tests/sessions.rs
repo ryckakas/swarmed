@@ -2086,6 +2086,7 @@ async fn a_worktree_moved_by_a_tool_is_noticed_and_one_moved_between_turns_is_to
         status: None,
         unread: None,
         event: moved,
+        elsewhere: false,
     };
     let notice = core.notice_for(&event).expect("reads").expect("a notice");
     assert!(notice.title.starts_with("Moved its worktree"), "{notice:?}");

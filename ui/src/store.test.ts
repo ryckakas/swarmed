@@ -497,6 +497,69 @@ describe("configuration that is not understood whole", () => {
     });
 });
 
+describe("what another Swarmed process writes", () => {
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    it("has the window read the tree again, and is kept in no transcript", async () => {
+        let heard: (event: SessionEvent) => void = () => {};
+        let refreshes = 0;
+        const base = createMockApi();
+        const api: Api = {
+            ...base,
+            overview: async () => {
+                refreshes += 1;
+                return base.overview();
+            },
+            onSessionEvent: async (listener) => {
+                heard = listener;
+                return () => {};
+            },
+        };
+        const disconnect = connect(api);
+        await settle();
+        const before = refreshes;
+        heard(published(0, { type: "tree_changed" }));
+        expect(refreshes).toBe(before + 1);
+        expect(useStore.getState().events[0]).toBeUndefined();
+        disconnect();
+    });
+
+    it("has the configuration read again, and keeps what did not change as it was", async () => {
+        let heard: (event: SessionEvent) => void = () => {};
+        let problems = ["settings.toml: `later` is not something this version knows."];
+        const base = createMockApi();
+        const api: Api = {
+            ...base,
+            configProblems: async () => problems,
+            onSessionEvent: async (listener) => {
+                heard = listener;
+                return () => {};
+            },
+        };
+        useStore.setState({ problem: null, settings: null, terminalConfig: null });
+        const disconnect = connect(api);
+        await settle();
+        const { settings, terminalConfig, actionsChanged } = useStore.getState();
+        expect(settings).not.toBeNull();
+        // Seen and put away: the same problems are not said again.
+        useStore.getState().dismissProblem();
+
+        heard(published(0, { type: "config_changed", kind: "file" }));
+        await settle();
+        expect(useStore.getState().settings).toBe(settings);
+        expect(useStore.getState().terminalConfig).toBe(terminalConfig);
+        expect(useStore.getState().actionsChanged).toBe(actionsChanged + 1);
+        expect(useStore.getState().problem).toBeNull();
+        expect(useStore.getState().events[0]).toBeUndefined();
+
+        problems = ["agents.toml: `soon` is not something this version knows."];
+        heard(published(0, { type: "config_changed", kind: "file" }));
+        await settle();
+        expect(useStore.getState().problem).toContain("`soon`");
+        disconnect();
+    });
+});
+
 describe("the account's usage", () => {
     const usage = (used: number): AccountUsage => ({
         windows: [

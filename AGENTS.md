@@ -130,8 +130,38 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   `run/first.lock`, settles sessions when it starts and ends stacks it did not start when it
   quits (`Core::arrive`, `Core::leave`). Any other ends only its own (`stacks_stop_started`),
   which is all the command line ever does.
+- **What another process writes reaches the window through its own core** (`elsewhere.rs`).
+  Each process publishes only on its own stream, so the app runs `follow_others`, which calls
+  `Core::notice_others` every second:
+  - **Events:** those above the highest id dealt with (`Written::mark`) are published in order
+    as `Live::note` would, flagged `SessionEvent::elsewhere`. Each event this process stored
+    is noted in `Store::keep` and left out, so nothing is published twice. The last event of
+    each session in a look, and an answer handed back, carry the status and unread state of
+    the session's row; the others, what `SessionStatus::after` makes of them.
+  - **The tree:** after another connection committed (`PRAGMA data_version`), the rows of
+    projects, tasks, sessions and cloud tasks are read again; if they changed, or a stack's
+    record under `run/stacks` did, `AgentEvent::TreeChanged` (session id 0, never stored) has
+    front ends read the tree again.
+  - **Configuration files:** a `.toml` or `.json` in the data directory or `projects/` that
+    changed on disk is published as `ConfigChanged` with the kind `file` on session id 0, and
+    a changed `agents.toml` is read again. Own writes count too: the UI keeps what it reads
+    again when it is the same (`unlessSame`), and says the same problems once.
+  - **Notices:** only the first Swarmed to arrive shows those of events from elsewhere, and
+    not while a Swarmed that shows its own runs the session (`shows_notices_of`).
+  The first look takes stock and publishes no tree or file change. `swarmed events` drives
+  the same from the command line.
+- **A session's agent runs in one process at a time** (`claim_run`). `launch` takes a lock on
+  `run/sessions/<id>.lock`, under the lock on the running sessions, and `Live::forget` lets go
+  of it there once no run of the session is left. The system lets go of it when the process
+  ends, so a crashed one blocks nothing. Another process refuses to start the session
+  (`Error::RunsElsewhere`), to interrupt it or to answer its requests; a message queued for it
+  there goes once the lock is free (`Elsewhere::waiting`). `sessions_settle` passes over the
+  sessions run elsewhere. The lock is unlocked before it is closed (`let_go_run`): a process
+  another thread forks meanwhile holds the file open until it execs, and closing alone would
+  leave it locked that long. A dropped `Core` lets go of its locks, as its process would.
 - **A session left busy by a Swarmed that ended mid-turn** is put right: the app settles all
-  of them when it starts (`Core::arrive`), and Stop on one records its turn as stopped.
+  of them when it starts (`Core::arrive`), and Stop on one records its turn as stopped. One
+  whose agent another Swarmed runs is not left over, and is left as it is.
   An agent that went with its Swarmed never reported its end, so `arrive` also records one
   (`background_settle`) for each session whose history has something left in the background
   and no end after it: a front end reading that history would take a sub-agent left there to
@@ -170,7 +200,7 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   window's Usage tab and `swarmed cleanup` drive it; the window measures usage again after.
 - **Running sessions live in the core** (`sessions.rs`). Front ends call `session_start`,
   `session_send` and the like by session id and read every session's events from one stream,
-  `Core::subscribe`. Events are stored before they are published, except the pieces of a reply
+  `Core::subscribe`, which also carries what other processes wrote (`elsewhere.rs`). Events are stored before they are published, except the pieces of a reply
   still being written (`TextDelta`), which are only published: the whole reply follows.
 - **The app crate holds no logic.** A command in `crates/app/src/commands.rs` calls one core
   function. If the UI needs something new, it is added to the core and tested there first.
@@ -373,9 +403,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **Check UI changes in a browser** with `pnpm dev`. The mock agent answers plain text, asks
   permission for `run: <command>`, answers `show …` with an HTML view, ends its turn with a
   weekly usage warning for `warn <percent>` (resetting in that many seconds with
-  `warn <percent> <seconds>`), runs until stopped for `slow`, and runs a
+  `warn <percent> <seconds>`), runs until stopped for `slow`, runs a
   command its turn waits on for `long: <command>`, until it is sent to the background or
-  stopped; one sample session has 2,000 messages for checking scroll speed. The README's
+  stopped, and renames the session as another Swarmed would for `elsewhere: <title>`, saying
+  only `tree_changed`; one sample session has 2,000 messages for checking scroll speed. The README's
   screenshot and GIF are of this sample data, never of anyone's real projects.
 - **MCP servers are one pool for every agent** (`mcp_pool.rs`). When a session starts, each
   agent's servers are read from its own configuration (`mcp.rs` and `mcp_plugins.rs` for

@@ -546,7 +546,7 @@ async fn decide(core: &Core, id: i64, typed: &mut Typed, request_id: &str) -> Re
 }
 
 /// The line an event is shown as, or `None` for events not worth a line.
-fn describe(event: &AgentEvent) -> Option<String> {
+pub(crate) fn describe(event: &AgentEvent) -> Option<String> {
     match event {
         AgentEvent::UserMessage { text, remote } => {
             let from = if *remote { "[claude.ai] " } else { "" };

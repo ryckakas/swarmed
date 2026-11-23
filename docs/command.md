@@ -5,6 +5,13 @@
 The command drives the same core as the app, on the same data, from a terminal or a script.
 `swarmed help <command>` has every argument; this page is the map.
 
+What it changes shows in a running app within about a second: a session renamed, marked,
+closed or started, a task made or removed, an action added, and the conversation of a session
+it runs, as it goes. A session's agent runs in one place at a time: one the app runs is refused
+here, and the other way round, until that run is over. A message queued in the app for a
+session the command runs goes once the command is done. `swarmed events` prints what happens in
+every session, whichever Swarmed does it.
+
 ## A first task
 
 ```sh
@@ -55,6 +62,7 @@ applies. `SWARMED_FAKE_AGENT=1` swaps in a scripted agent that spends no tokens.
 | `action` | manage the buttons of your own that send a prompt or run a command |
 | `cloud` | hand a prompt to a Codex cloud agent or a Claude Code cloud session and list what was handed over; move one among the others; print or apply a Codex task's changes |
 | `search` | find the sessions where something was said |
+| `events` | print what happens in every session as it happens, whichever Swarmed does it, until Ctrl-C |
 | `costs`, `analytics`, `usage` | what agents report their work cost, turns by day and model, what Swarmed takes up |
 | `limits` | your plan's usage limits and extra usage as Claude Code last reported them in any session, with how old each figure is; asks nothing |
 | `cleanup` | list or delete what removed tasks left behind, and snapshots: removed worktrees, branches of removed tasks, stale worktrees |
