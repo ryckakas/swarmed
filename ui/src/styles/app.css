@@ -1214,6 +1214,8 @@ code {
 
 .row-add {
     flex: none;
+    display: grid;
+    place-items: center;
     width: 22px;
     height: 22px;
     margin-right: var(--space-2);
@@ -1221,9 +1223,6 @@ code {
     border-radius: 4px;
     background: none;
     color: var(--faint);
-    font: inherit;
-    font-size: var(--text-md);
-    line-height: 1;
 }
 
 /* Followed by the row's remove button, which brings the gap to the edge. */
@@ -1251,7 +1250,16 @@ code {
     opacity: 0;
 }
 
-.row-note svg {
+/*
+ * Every button on a row draws its icon in one box and stroke, so they share a centre line. The
+ * browser's own padding is taken off: it leaves less room than the icon needs, and the icon then
+ * starts at the padding and sits right of its button's centre.
+ */
+:is(.row-add, .row-note, .row-close) {
+    padding: 0;
+}
+
+:is(.row-add, .row-note, .row-close) svg {
     width: 13px;
     height: 13px;
     fill: none;
@@ -1457,6 +1465,8 @@ code {
 
 .row-close {
     flex: none;
+    display: grid;
+    place-items: center;
     width: 22px;
     height: 22px;
     margin-right: var(--space-2);
@@ -1464,9 +1474,6 @@ code {
     border-radius: 4px;
     background: none;
     color: var(--faint);
-    font: inherit;
-    font-size: var(--text-md);
-    line-height: 1;
     /* Out of the way until its row is pointed at or reached with the keyboard. */
     opacity: 0;
 }

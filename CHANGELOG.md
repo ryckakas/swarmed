@@ -33,6 +33,15 @@ notice adds its line under Unreleased.
   longer selects its text. The grip's tooltip names the shortcuts that still move the focused
   row from the keyboard. A repository is still dragged by its name.
 
+### Fixed
+
+- **The sidebar's + and × line up with the icons beside them.** They were letters, which sat
+  where the font put them: off the centre line of the cloud, environments and note, and larger
+  and heavier. They are now drawn like those icons, at the same size and weight, in every
+  layout and font. Every icon on a row is also centred in the square that lights up under the
+  pointer, and the cloud on a repository or task is no longer drawn larger than its neighbours
+  in the senior layout or a custom one that enlarges icons.
+
 ## [0.4.0] - 2026-11-23
 
 ### Added

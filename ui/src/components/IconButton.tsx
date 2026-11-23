@@ -41,6 +41,16 @@ export function CloseIcon() {
     return <path d="M4 4l8 8M12 4l-8 8" />;
 }
 
+/** A plus: something new, added. */
+export function PlusIcon() {
+    return <path d="M8 3v10M3 8h10" />;
+}
+
+/** A plus over a minus: what was added and what was taken away. */
+export function PlusMinusIcon() {
+    return <path d="M8 2.5v7M4.5 6h7M4.5 13.5h7" />;
+}
+
 /** A cross in a circle: ending something, not just hiding it. */
 export function EndIcon() {
     return (

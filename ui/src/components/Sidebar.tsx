@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useEffect, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
 import { addProject, moveRow, newSession } from "../actions";
 import { api } from "../api";
 import type { CloudTask, Mark, Project, Session, Task } from "../api/types";
@@ -14,6 +14,7 @@ import { newVersion, updateLine } from "../updates";
 import { useWords } from "../useWords";
 import { withArticle, wordsFor } from "../wording";
 import { ForgetCloudDialog } from "./ForgetCloudDialog";
+import { CloseIcon, CloudIcon, PlusIcon, PlusMinusIcon } from "./IconButton";
 import { ProviderMark } from "./ProviderMark";
 import { PullBadge } from "./PullRequest";
 import { StatusMark } from "./StatusMark";
@@ -180,7 +181,9 @@ function ProjectGroup({ project }: { project: Project }) {
                     title={words.startTask}
                     onClick={() => startNew(project.name)}
                 >
-                    +
+                    <ButtonIcon>
+                        <PlusIcon />
+                    </ButtonIcon>
                 </button>
                 <RemoveButton project={project.name} task={null} />
             </div>
@@ -223,7 +226,9 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
                     title={words.newSession}
                     onClick={() => void newSession(project, task.name)}
                 >
-                    +
+                    <ButtonIcon>
+                        <PlusIcon />
+                    </ButtonIcon>
                 </button>
                 <RemoveButton project={project} task={task.name} />
             </div>
@@ -249,17 +254,20 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
     );
 }
 
-/** Opens the note on a repository or a task. It stays in view once there is something noted. */
-/** A cloud, drawn as one line. */
-function CloudIcon() {
+/** A cloud, drawn as one line: what kind of row a cloud task is. */
+function CloudRowIcon() {
     return (
         <svg className="row-icon" viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M4.5 12.5a3 3 0 0 1-.4-5.97 4 4 0 0 1 7.7-.9A3.4 3.4 0 0 1 11.5 12.5z" />
+            <CloudIcon />
         </svg>
     );
 }
 
-/** Opens the form that hands work to a cloud agent, from a repository or one of its tasks. */
+/**
+ * Opens the form that hands work to a cloud agent, from a repository or one of its tasks. Its
+ * cloud is a button's icon, not a row's: a layout enlarges the button, and a row's icon inside
+ * it would be enlarged a second time, larger than the icons beside it.
+ */
 function CloudButton({ project, task }: { project: string; task: string | null }) {
     const askToDelegate = useStore((state) => state.askToDelegate);
     const words = useStore((state) => wordsFor(state.settings?.style));
@@ -272,7 +280,9 @@ function CloudButton({ project, task }: { project: string; task: string | null }
             title={label}
             onClick={() => askToDelegate({ project, task })}
         >
-            <CloudIcon />
+            <ButtonIcon>
+                <CloudIcon />
+            </ButtonIcon>
         </button>
     );
 }
@@ -339,7 +349,7 @@ function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] })
                             title={cloudTooltip(task)}
                             onClick={() => void api.cloudTaskOpen(task.id).catch(report)}
                         >
-                            <CloudIcon />
+                            <CloudRowIcon />
                             <span className="session-title">{cloudTitle(task)}</span>
                             <span className="cloud-status">{task.status}</span>
                             <ProviderMark
@@ -355,7 +365,9 @@ function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] })
                                 title={`Show what it changed, and apply that to a local ${words.terms.task}`}
                                 onClick={() => showCloudDiff(task.id)}
                             >
-                                ±
+                                <ButtonIcon>
+                                    <PlusMinusIcon />
+                                </ButtonIcon>
                             </button>
                         )}
                         <button
@@ -365,7 +377,9 @@ function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] })
                             title={`${words.forgetCloud}. The task itself is not stopped.`}
                             onClick={() => setForgetting(task)}
                         >
-                            ×
+                            <ButtonIcon>
+                                <CloseIcon />
+                            </ButtonIcon>
                         </button>
                     </li>
                 ))}
@@ -395,6 +409,7 @@ function EnvironmentsButton({ project }: { project: string }) {
     );
 }
 
+/** Opens the note on a repository or a task. It stays in view once there is something noted. */
 function NoteButton({
     project,
     task,
@@ -420,6 +435,19 @@ function NoteButton({
                 <path d="M6.5 7.5h4M6.5 10.5h4" />
             </svg>
         </button>
+    );
+}
+
+/**
+ * The drawing on one of a row's buttons, in the same box and strokes as the others beside it.
+ * The add and remove buttons are drawn too: a text glyph sits where its font puts it, off their
+ * centre line, and changes size and weight with every font and layout.
+ */
+function ButtonIcon({ children }: { children: ReactNode }) {
+    return (
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+            {children}
+        </svg>
     );
 }
 
@@ -529,7 +557,9 @@ function ClosedSessions({ project, task, count }: ClosedProps) {
                         title={`${words.deleteSession} for good`}
                         onClick={() => askToDelete({ id: session.id, title: session.title })}
                     >
-                        ×
+                        <ButtonIcon>
+                            <CloseIcon />
+                        </ButtonIcon>
                     </button>
                 </div>
             ))}
@@ -551,7 +581,9 @@ function RemoveButton({ project, task }: { project: string; task: string | null 
             title={label}
             onClick={() => askToRemove({ project, task })}
         >
-            ×
+            <ButtonIcon>
+                <CloseIcon />
+            </ButtonIcon>
         </button>
     );
 }
@@ -602,7 +634,9 @@ function SessionRow({ session }: { session: Session }) {
                 title={`${words.archiveSession} or ${words.deleteSession.toLowerCase()}`}
                 onClick={() => askToClose(session.id)}
             >
-                ×
+                <ButtonIcon>
+                    <CloseIcon />
+                </ButtonIcon>
             </button>
         </div>
     );
