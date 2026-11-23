@@ -50,6 +50,12 @@ notice adds its line under Unreleased.
   it says which part is being put in place ("3 of 87, node_modules"), and the setup output
   says how long the copy took. Where a folder cannot be cloned whole, such as on another file
   system, it is copied as before.
+- **`swarmed-core`: what code built against 0.3 has to change**, hence 0.4.0.
+  `NewTaskOptions::environment` is an `EnvironmentChoice` rather than an `Option<&str>`
+  (`Named` for one environment, `Own` for the repository's own setup, and `Default`, the
+  default, for the repository's default environment), so `NewTaskOptions` is no longer `Copy`. `Environment` has
+  a `max_stacks` field, and `Error` a `NoRoomForAStack` variant, so a struct literal of the
+  one or an exhaustive `match` on the other needs them.
 
 ### Fixed
 
