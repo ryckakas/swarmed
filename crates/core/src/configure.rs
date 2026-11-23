@@ -14,7 +14,8 @@
 //!   permissions are.
 //! - **Not reachable at all**: API keys, MCP servers and their secrets, signing in, how much
 //!   an agent may do without asking, and notes. An agent must not widen what it may do, and
-//!   has no business with secrets.
+//!   has no business with secrets. Nor the branch prefix: the user sets it once, and it is not
+//!   worth a line in a description every agent is sent.
 //!
 //! The values of an environment's variables are never told to an agent, only their names.
 

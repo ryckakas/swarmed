@@ -568,6 +568,29 @@ fn the_ui_can_choose_how_often_usage_warnings_are_said() {
 }
 
 #[test]
+fn the_ui_can_set_a_branch_prefix_and_see_the_branch_it_gives() {
+    let app = app();
+    let shown = app.ok("branch_example", json!({ "prefix": "/jd/feat/" }));
+    assert_eq!(shown, "jd/feat/fix-login");
+    let refused = app.invoke("branch_example", json!({ "prefix": "a b" }));
+    let said = refused.expect_err("refused");
+    let reason = |said: &str| said.contains("'a b/fix-login' is not a valid branch name");
+    assert!(said.as_str().is_some_and(reason), "{said}");
+
+    let mut settings = app.ok("settings", json!({}));
+    settings["branch_prefix"] = json!("a..b");
+    let refused = app.invoke("set_settings", json!({ "settings": settings.clone() }));
+    assert!(refused.is_err(), "{refused:?}");
+    settings["branch_prefix"] = json!("jd/");
+    app.ok("set_settings", json!({ "settings": settings }));
+    assert_eq!(app.ok("settings", json!({}))["branch_prefix"], "jd");
+
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    assert_eq!(app.ok("task_new", task)["branch"], "jd/one");
+}
+
+#[test]
 fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
@@ -585,7 +608,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
             "text_scale": 100,
             "html_views": true, "tool_calls": "folded", "limit_warnings": "frequent", "notifications": true, "default_supervision": "auto",
             "status_items": ["branch", "changes", "model", "context", "cost"],
-            "status_command": "", "rules": "", "updates": "automatic",
+            "status_command": "", "rules": "", "updates": "automatic", "branch_prefix": "",
         })
     );
 

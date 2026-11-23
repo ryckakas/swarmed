@@ -47,6 +47,23 @@ pub(crate) fn head_now(worktree: &Path) -> Option<Head> {
         .then(|| Head((!branch.is_empty()).then_some(branch)))
 }
 
+/// Why git would not take `name` as a branch's name, by its own rules
+/// (`git check-ref-format --branch`), or `None` when it would. Asked without waiting on a
+/// runtime: it needs no repository, and settings are saved from threads that have none.
+pub(crate) fn branch_name_problem(name: &str) -> Result<Option<String>> {
+    let output = std::process::Command::new("git")
+        .args(["check-ref-format", "--branch", name])
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()?;
+    if output.status.success() {
+        return Ok(None);
+    }
+    let said = String::from_utf8_lossy(&output.stderr);
+    let said = said.trim();
+    let reason = said.strip_prefix("fatal: ").unwrap_or(said);
+    Ok(Some(reason.to_string()))
+}
+
 /// The branch a worktree is on, or none when it is on no branch (a detached `HEAD`).
 pub(crate) async fn current_branch(worktree: &Path) -> Result<Option<String>> {
     let branch = git(worktree, &["branch", "--show-current"]).await?;

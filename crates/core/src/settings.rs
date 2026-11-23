@@ -52,6 +52,10 @@ pub struct Settings {
     pub rules: String,
     /// How Swarmed gets its new versions.
     pub updates: UpdateMode,
+    /// What a new task's branch starts with, joined to the task's name by one `/`, in every
+    /// repository whose `branch_pattern` is the default. Kept without slashes at its ends; empty
+    /// for the user's login.
+    pub branch_prefix: String,
 }
 
 /// The longest the user's rules may be, in bytes: they travel with every session's
@@ -189,6 +193,7 @@ impl Default for Settings {
             status_command: String::new(),
             rules: String::new(),
             updates: UpdateMode::Automatic,
+            branch_prefix: String::new(),
         }
     }
 }
@@ -227,10 +232,12 @@ impl Settings {
         }
     }
 
-    /// The settings with every value brought into the range the app can show.
+    /// The settings with every value brought into the range the app can show, and the branch
+    /// prefix into the form it is kept in.
     fn within_limits(mut self) -> Self {
         let (smallest, largest) = TEXT_SCALE_RANGE;
         self.text_scale = self.text_scale.clamp(smallest, largest);
+        self.branch_prefix = crate::prefix::trimmed(&self.branch_prefix).to_string();
         self
     }
 
@@ -318,6 +325,7 @@ mod tests {
             status_command: "~/bin/status".to_string(),
             rules: "Keep answers short.\nNo em dashes.".to_string(),
             updates: UpdateMode::WhenAsked,
+            branch_prefix: "jd/feat".to_string(),
         };
         chosen.save(&path).expect("saves");
         assert_eq!(Settings::load(&path).expect("loads"), chosen);
@@ -413,6 +421,28 @@ mod tests {
         assert!(saved.contains("coming_later = \"yes\""), "{saved}");
         let (again, _) = Settings::read(&path).expect("reads again");
         assert_eq!((again.editor.as_str(), again.auto_title), ("zed", false));
+    }
+
+    #[test]
+    fn a_branch_prefix_is_kept_without_the_slashes_at_its_ends() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.toml");
+        // A file written before the setting existed has none: branches start with the login.
+        std::fs::write(&path, "theme = \"dark\"").expect("writes");
+        assert_eq!(Settings::load(&path).expect("loads").branch_prefix, "");
+        // Written by hand with slashes at its ends, it is read without them.
+        std::fs::write(&path, "branch_prefix = \" /jd/feat/ \"").expect("writes");
+        assert_eq!(
+            Settings::load(&path).expect("loads").branch_prefix,
+            "jd/feat"
+        );
+        let typed = Settings {
+            branch_prefix: "//team-a/".to_string(),
+            ..Settings::default()
+        };
+        typed.save(&path).expect("saves");
+        let saved = std::fs::read_to_string(&path).expect("reads back");
+        assert!(saved.contains("branch_prefix = \"team-a\""), "{saved}");
     }
 
     #[test]

@@ -421,6 +421,17 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   delete is kept and noted, since the task is gone by then. A remote branch is never touched.
   What a task's sessions left (waiting messages, unread views, private files) is deleted only
   once the removal has gone through (`sessions_forgotten`), never by one that was refused.
+- **A new task's branch starts with the user's branch prefix** (`prefix.rs`,
+  `Settings::branch_prefix`): the default `branch_pattern` is `{{prefix}}/{{task}}`, and
+  `{{prefix}}` is the prefix without the slashes at its ends, or the login (`{{user}}`) when
+  it is empty. It belongs to the pattern alone; hooks have `{{branch}}`. `set_settings` checks
+  a prefix that changed with git's own rules (`git check-ref-format --branch`, on
+  `<prefix>/fix-login`) and refuses it with git's reason; one already kept is not checked
+  again, so one written by hand cannot stop every other setting from being saved.
+  `branch_example` shows the branch a prefix gives, for the settings to preview. A repository
+  config whose pattern is `{{user}}/{{task}}`, which the template wrote before, is read as the
+  default; any other is the user's and wins. The template leaves the pattern out, since an
+  older Swarmed on the same data directory knows no `{{prefix}}`.
 - **A session is unread** (`Session::unread`) from when its agent ends a turn, or stops with an
   error, until a front end calls `session_mark_read` or the user writes to it. It is a flag
   beside the status, not a status: the UI shows it for idle sessions only, since busy, waiting
@@ -556,7 +567,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   rest). These outlive the session, so an agent that read something hostile could plant one;
   the change is shown in the conversation (`ConfigProposed`) and made when the user accepts it
   there (`Core::config_answer`), whatever the agent's own permission mode. Not reachable at
-  all: API keys, MCP servers, sign-ins, supervision, notes. Keep it one tool: every tool's
+  all: API keys, MCP servers, sign-ins, supervision, notes, the branch prefix (set once by the
+  user, and not worth a line in a description every agent is sent). Keep it one tool: every tool's
   description is sent to every agent in every session. A new setting goes into one of the three
   kinds on purpose; when unsure, propose. An environment's variable values are never told to
   an agent, only their names. An agent may set variables and ports, one by one; the proposal

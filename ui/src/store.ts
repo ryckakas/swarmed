@@ -153,6 +153,11 @@ interface State {
     terminalConfig: TerminalConfig | null;
     /** Has the core check `text` as the terminal's configuration and keep it; resolves to what is wrong with it, or to nothing. */
     saveTerminalConfig(api: Api, text: string): Promise<string | null>;
+    /**
+     * Has the core check `prefix` as the branch prefix and keep it. Resolves to what is wrong
+     * with it, or to nothing once it is kept, as the core wrote it down.
+     */
+    saveBranchPrefix(api: Api, prefix: string): Promise<string | null>;
     /** The user's custom layout, once read; drawn when the settings choose it. */
     customLayout: CustomLayout | null;
     /**
@@ -695,6 +700,16 @@ export const useStore = create<State>((set, get) => ({
         kept(
             () => api.terminalConfigSave(text),
             (terminalConfig) => set({ terminalConfig }),
+        ),
+    saveBranchPrefix: (api, prefix) =>
+        kept(
+            async () => {
+                const current = get().settings ?? (await api.settings());
+                await api.setSettings({ ...current, branch_prefix: prefix });
+                // Read back: the core keeps it without the slashes at its ends.
+                return api.settings();
+            },
+            (settings) => set({ settings }),
         ),
     customLayout: null,
     saveCustomLayout: (api, text) =>

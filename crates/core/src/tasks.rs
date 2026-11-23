@@ -16,7 +16,7 @@ use crate::paths::Paths;
 use crate::stacks::HOOK_LIMIT;
 use crate::store::{NewTask, Project, SetupStatus, Task};
 use crate::vars::{Vars, env_name};
-use crate::{Core, git, hooks, leftovers, lock, paths};
+use crate::{Core, git, hooks, leftovers, lock, paths, prefix};
 use crate::{Settings, open};
 
 /// Options for [`Core::task_new`].
@@ -106,10 +106,15 @@ impl Core {
         // A brand new repository has nothing to branch from until it has a commit.
         git::ensure_first_commit(repo).await?;
         let base = base_of(repo, &config).await?;
+        let pattern = BranchPattern {
+            project: &project,
+            pattern: &config.branch_pattern,
+            prefix: prefix::resolved(&self.settings()?.branch_prefix),
+        };
         // After the fetch, so that a branch just pushed from elsewhere counts too.
         // Claimed until the task is written down, which then takes the name.
         let claim = self
-            .name_for_task(&project, name, &config.branch_pattern, &options)
+            .name_for_task(&project, name, &pattern, &options)
             .await?;
         let name = &claim.name;
         let worktree = self.paths.worktree(&project.name, name);
@@ -118,7 +123,7 @@ impl Core {
         }
         let branch = match options.existing_branch {
             Some(branch) => branch.to_string(),
-            None => branch_vars(&project, name).render(&config.branch_pattern)?,
+            None => pattern.branch(name)?,
         };
         add_worktree(
             repo,
@@ -273,7 +278,7 @@ impl Core {
         &self,
         project: &Project,
         name: &str,
-        pattern: &str,
+        pattern: &BranchPattern<'_>,
         options: &NewTaskOptions<'_>,
     ) -> Result<NameClaim<'_>> {
         let tasks = self.store().tasks(project.id, options.free_name)?;
@@ -480,7 +485,16 @@ impl Core {
     }
 
     /// Replaces the user's preferences.
+    ///
+    /// A branch prefix other than the one kept is checked first, by git's rules for a
+    /// branch's name, and refused with git's reason. One kept already is not: one written by
+    /// hand that git refuses must not stop every other setting from being saved, and git says
+    /// why when a task is made with it.
     pub fn set_settings(&self, settings: &Settings) -> Result<()> {
+        let prefix = prefix::trimmed(&settings.branch_prefix);
+        if !prefix.is_empty() && prefix != self.settings()?.branch_prefix {
+            prefix::branch_example(prefix)?;
+        }
         settings.save(&self.paths.settings())
     }
 
@@ -598,13 +612,33 @@ fn forget_file(file: &Path) -> Result<()> {
     }
 }
 
-/// The variables known before the task exists, which is all a branch pattern may use.
+/// The variables known before the task exists, which a branch pattern may use, and which
+/// hooks have too.
 fn branch_vars(project: &Project, task: &str) -> Vars {
     let mut vars = Vars::default();
-    vars.set("user", user_name());
+    vars.set("user", prefix::login());
     vars.set("task", task);
     vars.set("project", project.name.as_str());
     vars
+}
+
+/// How a new task's name becomes its branch's: the repository's pattern, with the variables
+/// known before the task exists and `{{prefix}}`. The prefix is for the pattern alone: hooks
+/// have `{{branch}}`, which holds the prefix the task was made with.
+struct BranchPattern<'a> {
+    project: &'a Project,
+    pattern: &'a str,
+    /// What `{{prefix}}` stands for.
+    prefix: String,
+}
+
+impl BranchPattern<'_> {
+    /// The branch a new task called `task` gets.
+    fn branch(&self, task: &str) -> Result<String> {
+        let mut vars = branch_vars(self.project, task);
+        vars.set("prefix", self.prefix.as_str());
+        vars.render(self.pattern)
+    }
 }
 
 /// A new task's name, kept from other tasks being created until this is dropped.
@@ -631,7 +665,7 @@ struct TakenNames<'a> {
     /// Every branch here and on a remote, by its short name.
     branches: HashSet<String>,
     /// What a task's name becomes as a branch.
-    pattern: &'a str,
+    pattern: &'a BranchPattern<'a>,
     /// Whether the task checks out a branch that exists, rather than making one.
     existing_branch: bool,
     paths: &'a Paths,
@@ -654,7 +688,7 @@ impl TakenNames<'_> {
         if self.existing_branch {
             return Ok(None);
         }
-        let branch = branch_vars(self.project, name).render(self.pattern)?;
+        let branch = self.pattern.branch(name)?;
         Ok(self
             .branches
             .contains(&branch)
@@ -803,10 +837,4 @@ async fn ensure_clean(task: &Task) -> Result<()> {
         task: task.name.clone(),
         reason,
     })
-}
-
-fn user_name() -> String {
-    std::env::var("USER")
-        .or_else(|_| std::env::var("USERNAME"))
-        .unwrap_or_else(|_| "user".to_string())
 }

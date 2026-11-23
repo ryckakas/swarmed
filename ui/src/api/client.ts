@@ -260,7 +260,16 @@ export interface Api {
      * by its file. What was understood is in use.
      */
     configProblems(): Promise<string[]>;
+    /**
+     * Replaces the settings. A branch prefix other than the one kept is checked by git's rules
+     * first, and refused with git's reason.
+     */
     setSettings(settings: Settings): Promise<void>;
+    /**
+     * The branch a task called fix-login would get with `prefix` as the branch prefix: the
+     * login's when it is empty. Rejected with git's reason when git would not take it.
+     */
+    branchExample(prefix: string): Promise<string>;
     /** The installed app's version, such as `0.1.0`. */
     version(): Promise<string>;
     /** Where updating Swarmed stands. */

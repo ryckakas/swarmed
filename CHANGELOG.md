@@ -16,6 +16,14 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **A branch prefix of your own.** **Branch prefix** in Settings, under Sessions, is what every
+  new task's branch starts with, before a `/` and the task's name: `jd` gives `jd/fix-login`,
+  and `jd/feat` gives `jd/feat/fix-login`. Settings shows the branch it gives as you type, drops
+  slashes at its ends, and refuses a prefix git would not take in a branch's name, with git's
+  reason. Left empty, branches start with your login as before. It applies to every repository
+  that keeps the default `branch_pattern`, including the ones added before; a repository with a
+  pattern of its own keeps it, and can use `{{prefix}}` in it. `swarmed branch-prefix` shows or
+  sets it from the command line.
 - **Send a running command or sub-agent to the background, as Ctrl+B does in Claude Code.** A
   `Bash` or `Agent` call that a Claude Code session waits on has a **Send to background** button
   on its line. The call returns at once, the turn goes on, and the work runs on in the

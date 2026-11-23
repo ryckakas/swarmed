@@ -145,6 +145,7 @@ export const tauriApi: Api = {
     settings: () => invoke<Settings>("settings"),
     configProblems: () => invoke<string[]>("config_problems"),
     setSettings: (settings) => invoke("set_settings", { settings }),
+    branchExample: (prefix) => invoke<string>("branch_example", { prefix }),
     version: () => getVersion(),
     updateState: () => invoke<UpdateState>("update_state"),
     updateCheck: () => invoke<UpdateState>("update_check"),

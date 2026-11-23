@@ -250,7 +250,7 @@ agents decide for themselves which calls they ask about.
 line's pieces, the looks, how often Claude Code's usage warnings are said, the terminal's
 settings, and removing an action, a prompt or the status line's script. Adding a rule, saving an environment, an action that runs a command, a status
 line script, or hiding tool calls it can only propose: the change is shown in the conversation and made when you
-accept it. API keys, MCP servers, sign-ins, supervision and notes are out of its reach, and it
+accept it. API keys, MCP servers, sign-ins, supervision, notes and the branch prefix are out of its reach, and it
 tells an agent the names of an environment's variables, never their values.
 
 Every agent is also told that it works in its task's own worktree and is to keep the work on the

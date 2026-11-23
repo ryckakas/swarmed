@@ -56,6 +56,14 @@ pub enum Error {
         "a branch named {0} exists already: name the task differently, or start it from that branch"
     )]
     BranchExists(String),
+    /// A branch prefix git would not take at the start of a branch's name.
+    #[error("the branch prefix `{prefix}` cannot be used: {reason}")]
+    BranchPrefix {
+        /// The prefix, without the slashes at its ends.
+        prefix: String,
+        /// What git said of a branch named with it.
+        reason: String,
+    },
     /// A new task's worktree folder is there already.
     #[error("{} exists already: name the task differently", .0.display())]
     TaskFolderExists(PathBuf),

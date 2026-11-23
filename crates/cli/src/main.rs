@@ -128,6 +128,13 @@ enum Command {
         #[arg(value_enum)]
         state: Option<Switch>,
     },
+    /// Show the branch a task called fix-login would get, or set what new tasks' branches
+    /// start with. A repository whose config sets a `branch_pattern` of its own keeps it.
+    BranchPrefix {
+        /// The new prefix, such as `jd` or `team-a/feat`, joined to the task by one `/`; `""`
+        /// for your login, as without one.
+        prefix: Option<String>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -438,6 +445,7 @@ async fn run(core: &Core, command: Command) -> Result<()> {
         }
         Command::Editor { command } => editor(core, command),
         Command::AutoTitle { state } => auto_title(core, state),
+        Command::BranchPrefix { prefix } => branch_prefix(core, prefix),
         Command::Key(command) => key(core, command),
         Command::Note { project, task, set } => note(core, &project, task.as_deref(), set),
         Command::Environment {
@@ -559,6 +567,20 @@ fn editor(core: &Core, command: Option<String>) -> Result<()> {
         core.set_settings(&settings)?;
     }
     say(&core.settings()?.editor);
+    Ok(())
+}
+
+/// Sets the branch prefix if one is given, then prints the branch a task gets with it.
+fn branch_prefix(core: &Core, prefix: Option<String>) -> Result<()> {
+    if let Some(branch_prefix) = prefix {
+        let settings = Settings {
+            branch_prefix,
+            ..core.settings()?
+        };
+        core.set_settings(&settings)?;
+    }
+    let prefix = core.settings()?.branch_prefix;
+    say(&swarmed_core::branch_example(&prefix)?);
     Ok(())
 }
 

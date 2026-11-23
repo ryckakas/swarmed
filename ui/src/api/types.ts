@@ -405,6 +405,12 @@ export interface Settings {
     rules: string;
     /** How Swarmed gets its new versions. */
     updates: UpdateMode;
+    /**
+     * What a new task's branch starts with, joined to the task's name by one `/`, where the
+     * repository keeps the default pattern. Kept without slashes at its ends; empty for the
+     * user's login.
+     */
+    branch_prefix: string;
 }
 
 /**

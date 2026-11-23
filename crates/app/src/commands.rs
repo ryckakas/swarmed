@@ -717,6 +717,13 @@ pub(crate) fn set_settings(core: CoreState<'_>, settings: Settings) -> Command<(
     Ok(core.set_settings(&settings)?)
 }
 
+/// The branch a task called fix-login would get with `prefix` as the branch prefix, or git's
+/// reason against it. It asks git, so off the main thread.
+#[tauri::command(async)]
+pub(crate) fn branch_example(prefix: String) -> Command<String> {
+    Ok(swarmed_core::branch_example(&prefix)?)
+}
+
 /// Where updating Swarmed stands.
 #[tauri::command]
 pub(crate) fn update_state(updates: State<'_, Updates>) -> UpdateState {

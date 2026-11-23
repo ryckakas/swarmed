@@ -2386,6 +2386,135 @@ async fn tasks_named_alike_at_the_same_time_each_get_a_name_of_their_own() {
     );
 }
 
+/// Sets the branch prefix as the settings window does, with the other settings as they are.
+fn set_prefix(core: &Core, prefix: &str) -> swarmed_core::Result<()> {
+    let settings = Settings {
+        branch_prefix: prefix.to_string(),
+        ..core.settings()?
+    };
+    core.set_settings(&settings)
+}
+
+/// The user's login, which branches start with when there is no prefix.
+fn login() -> String {
+    let example = swarmed_core::branch_example("").expect("the login makes a branch");
+    let task = format!("/{}", swarmed_core::EXAMPLE_TASK);
+    example
+        .strip_suffix(&task)
+        .expect("ends in the task")
+        .to_string()
+}
+
+#[tokio::test]
+async fn a_new_tasks_branch_starts_with_the_branch_prefix_or_else_the_login() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    let new = |name: &'static str| {
+        core.task_new("demo", name, NewTaskOptions::default(), &hooks::discard)
+    };
+    // Empty, as before there was a prefix: the login.
+    let task = new("one").await.expect("creates");
+    assert_eq!(task.branch, format!("{}/one", login()));
+
+    // Typed with slashes at its ends, it is kept without them, and those inside stay.
+    set_prefix(&core, " /jd/feat/ ").expect("saves");
+    assert_eq!(core.settings().expect("reads").branch_prefix, "jd/feat");
+    assert_eq!(new("two").await.expect("creates").branch, "jd/feat/two");
+
+    // A made-up name steps past a branch that is taken, after the prefix; a name the user
+    // chose is refused, with the branch named.
+    set_prefix(&core, "jd").expect("saves");
+    git(&fx.repo, &["branch", "jd/fix"]);
+    let free = NewTaskOptions {
+        free_name: true,
+        ..NewTaskOptions::default()
+    };
+    let stepped = core
+        .task_new("demo", "fix", free, &hooks::discard)
+        .await
+        .expect("creates");
+    assert_eq!(
+        (stepped.name.as_str(), stepped.branch.as_str()),
+        ("fix-2", "jd/fix-2")
+    );
+    assert!(matches!(new("fix").await, Err(Error::BranchExists(branch)) if branch == "jd/fix"));
+
+    // A branch the user picks is used as it is.
+    let picked = NewTaskOptions {
+        existing_branch: Some("jd/fix"),
+        ..NewTaskOptions::default()
+    };
+    let task = core
+        .task_new("demo", "picked", picked, &hooks::discard)
+        .await
+        .expect("creates");
+    assert_eq!(task.branch, "jd/fix");
+}
+
+#[tokio::test]
+async fn a_repository_keeps_its_own_pattern_and_the_earlier_default_takes_the_prefix() {
+    let fx = fixture();
+    // What the template wrote into every config before there was a prefix.
+    write_config(&fx, "branch_pattern = \"{{user}}/{{task}}\"\n");
+    let core = core_with_project(&fx).await;
+    set_prefix(&core, "team-a").expect("saves");
+    let new = |name: &'static str| {
+        core.task_new("demo", name, NewTaskOptions::default(), &hooks::discard)
+    };
+    assert_eq!(new("one").await.expect("creates").branch, "team-a/one");
+
+    write_config(&fx, "branch_pattern = \"swarm/{{task}}\"\n");
+    assert_eq!(new("two").await.expect("creates").branch, "swarm/two");
+
+    // One of the user's own can use the prefix too.
+    write_config(&fx, "branch_pattern = \"{{prefix}}-{{user}}/{{task}}\"\n");
+    let task = new("three").await.expect("creates");
+    assert_eq!(task.branch, format!("team-a-{}/three", login()));
+}
+
+#[tokio::test]
+async fn a_branch_prefix_git_would_not_take_is_refused_with_its_reason() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    set_prefix(&core, "jd").expect("saves");
+    for refused in ["a b", "a..b", "x~", ".hidden", "jd.lock", "-x"] {
+        let result = set_prefix(&core, refused);
+        assert!(
+            matches!(
+                &result,
+                Err(Error::BranchPrefix { prefix, reason })
+                    if prefix == refused && reason.contains("not a valid branch name")
+            ),
+            "{refused:?}: {result:?}"
+        );
+    }
+    assert_eq!(core.settings().expect("reads").branch_prefix, "jd");
+
+    // Written by hand, one git refuses does not stop the other settings from being saved, and
+    // git says why when a task is made with it.
+    std::fs::write(fx.paths.settings(), "branch_prefix = \"a b\"\n").expect("writes");
+    let settings = Settings {
+        auto_title: false,
+        ..core.settings().expect("reads")
+    };
+    core.set_settings(&settings).expect("saves the rest");
+    let made = core
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await;
+    assert!(
+        matches!(&made, Err(Error::Git { stderr, .. }) if stderr.contains("not a valid branch name")),
+        "{made:?}"
+    );
+
+    // Emptied, branches start with the login again.
+    set_prefix(&core, "").expect("saves");
+    let task = core
+        .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates");
+    assert_eq!(task.branch, format!("{}/one", login()));
+}
+
 /// The names of the repositories, and of the first one's open tasks, as the sidebar lists them.
 fn listed(core: &Core) -> (Vec<String>, Vec<String>) {
     let overview = core.overview().expect("reads");

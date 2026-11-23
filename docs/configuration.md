@@ -70,7 +70,7 @@ WEB_PORT = "{{port.web}}"
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `branch_pattern` | `{{user}}/{{task}}` | a new task's branch; may use `user`, `task` and `project` |
+| `branch_pattern` | `{{prefix}}/{{task}}` | a new task's branch; may use `prefix`, `user`, `task` and `project`: see [A task's branch](#a-tasks-branch) |
 | `base_branch` | `origin`'s default branch, else `origin/main` or `origin/master` | the ref new tasks branch from |
 | `ports` | none | named base ports |
 | `port_step` | `100` | how far apart two tasks' ports are |
@@ -78,6 +78,20 @@ WEB_PORT = "{{port.web}}"
 | `open_url` | the first local address `start` prints | what "Open in browser" opens |
 | `hooks` | none | `setup`, `start`, `stop` and `teardown` commands |
 | `env` | none | environment for the hooks and the task's agents |
+
+### A task's branch
+
+A new task's branch is its branch prefix, a `/` and the task's name, such as `jd/fix-login`. Set
+the prefix under **Branch prefix** in Settings, Sessions, or with `swarmed branch-prefix jd`.
+Empty, it is your login (`{{user}}`), as it always was. Slashes at its ends are dropped and
+those inside stay: `jd/feat` gives `jd/feat/fix-login`. Settings shows the branch it gives as
+you type, and a prefix git would not take in a branch's name is refused with git's reason.
+
+The prefix is `{{prefix}}` in `branch_pattern`. A repository whose config sets a pattern of its
+own keeps it, and may use `{{prefix}}` there too. A config that says `{{user}}/{{task}}`, which
+Swarmed wrote into every new config before there was a prefix, is read as the default, so the
+prefix applies to it. A branch you name or pick when you start a task is used as it is, and a
+name Swarmed makes up steps on to `name-2` and so on after the prefix.
 
 ## Hooks and the stack
 
@@ -109,7 +123,7 @@ Quitting the app ends its stacks' processes without running `stop`. From the com
 
 Hooks, `env` values and `open_url` may use `{{project}}`, `{{task}}`, `{{user}}`, `{{branch}}`,
 `{{slot}}`, `{{worktree}}`, `{{repo}}` (the main checkout) and `{{port.<name>}}`. An unknown name
-is an error.
+is an error. `{{prefix}}` is for `branch_pattern` alone: a hook has the task's `{{branch}}`.
 
 In a hook, a value is always one word, whatever is in it: a path with a space needs no quotes,
 and a branch's name is never read as a command. The same values are exported to hooks as

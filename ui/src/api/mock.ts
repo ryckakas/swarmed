@@ -147,6 +147,26 @@ function session(id: number, taskId: number, title: string, status: SessionStatu
     };
 }
 
+/** A branch prefix as the core keeps it: without blank space or slashes at either end. */
+function keptPrefix(prefix: string): string {
+    return prefix.replace(/^[\s/]+|[\s/]+$/g, "");
+}
+
+/** Roughly what git refuses in a branch's name; the real check is git's, in the core. */
+const NOT_A_BRANCH = /[\s~^:?*[\\]|\.\.|\/\/|@\{|^[-.]|\/\.|\.lock(\/|$)|\.$/;
+
+/** The branch a new task gets in the sample: the prefix, or the sample's login, `you`. */
+function sampleBranch(prefix: string, name: string): string {
+    const start = keptPrefix(prefix) || "you";
+    const branch = `${start}/${name}`;
+    if (NOT_A_BRANCH.test(branch)) {
+        throw new Error(
+            `the branch prefix \`${start}\` cannot be used: '${branch}' is not a valid branch name`,
+        );
+    }
+    return branch;
+}
+
 /** The sample tasks that have a stack, by id, and how it stands. */
 const SAMPLE_STACKS: Partial<Record<number, StackState>> = { 1: "running", 2: "stopped" };
 
@@ -2469,6 +2489,7 @@ export function createMockApi(): Api {
         status_items: ["branch", "changes", "model", "context", "cost", "duration"],
         status_command: "",
         updates: "automatic",
+        branch_prefix: "",
     };
     return {
         overview: async () => structuredClone(agent.projects),
@@ -2549,7 +2570,7 @@ export function createMockApi(): Api {
             const environment = await environmentIn(environments, projectName, choice);
             const created = {
                 ...task(Date.now(), project.id, name, []),
-                ...(branch ? { branch } : {}),
+                branch: branch ?? sampleBranch(settings.branch_prefix, name),
                 environment,
             };
             project.tasks.push(created);
@@ -2602,8 +2623,9 @@ export function createMockApi(): Api {
         ...updateApi(),
         setBadge: async () => {},
         setSettings: async (changed) => {
-            settings = changed;
+            settings = { ...changed, branch_prefix: keptPrefix(changed.branch_prefix) };
         },
+        branchExample: async (prefix) => sampleBranch(prefix, "fix-login"),
         terminalConfig: async () => ({ ...terminalConfig }),
         terminalConfigSave: async (text) => {
             terminalConfig = JSON.parse(text) as TerminalConfig;

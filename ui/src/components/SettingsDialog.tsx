@@ -10,6 +10,7 @@ import type {
     ToolCalls,
 } from "../api/types";
 import { LAYOUTS, PALETTES, STYLES } from "../appearance";
+import { type PrefixCheck, prefixToSave, problemOf } from "../branchPrefix";
 import { movedItem, STATUS_ITEMS, statusItemName, withItem } from "../statusline";
 import { SETTINGS_TABS, type SettingsTab, useStore } from "../store";
 import { useWords } from "../useWords";
@@ -427,6 +428,7 @@ function Sessions({ settings }: { settings: Settings }) {
                     options={terminalAppChoices(settings.terminal_app)}
                 />
             </Row>
+            <BranchPrefix kept={settings.branch_prefix} />
             <Row
                 label="New sessions start in"
                 hint="Auto mode lets the agent decide which actions are safe. It can be changed per session under the message box."
@@ -485,6 +487,82 @@ function Sessions({ settings }: { settings: Settings }) {
                 />
             </Row>
         </section>
+    );
+}
+
+/**
+ * What new tasks' branches start with. The branch it gives is shown as it is typed, or why git
+ * would not take it; it is kept when the field is left or Enter is pressed.
+ */
+function BranchPrefix({ kept }: { kept: string }) {
+    const save = useStore((state) => state.saveBranchPrefix);
+    // What is typed and not kept yet; `null` shows what is kept.
+    const [typed, setTyped] = useState<string | null>(null);
+    const [check, setCheck] = useState<PrefixCheck | null>(null);
+    const shown = typed ?? kept;
+    useEffect(() => {
+        // Only the answer for what the field shows now: an earlier one may come later.
+        let current = true;
+        const heard = (said: PrefixCheck) => {
+            if (current) {
+                setCheck(said);
+            }
+        };
+        api.branchExample(shown).then(
+            (branch) => heard({ prefix: shown, branch }),
+            (error: unknown) => heard({ prefix: shown, problem: problemOf(error) }),
+        );
+        return () => {
+            current = false;
+        };
+    }, [shown]);
+    const keep = async () => {
+        const prefix = prefixToSave(typed, kept, check);
+        if (prefix === null) {
+            return;
+        }
+        const problem = await save(api, prefix);
+        if (problem === null) {
+            setTyped(null);
+        } else {
+            setCheck({ prefix, problem });
+        }
+    };
+    const refused = check !== null && "problem" in check;
+    return (
+        <Row
+            label="Branch prefix"
+            hint="What a new task's branch starts with, before a / and the task's name. Empty, it is your login. A repository whose config sets a branch_pattern of its own keeps it."
+        >
+            <div className="branch-prefix">
+                <input
+                    type="text"
+                    className="key-input branch-prefix-input"
+                    aria-label="Branch prefix"
+                    placeholder="Your login"
+                    spellCheck={false}
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    value={shown}
+                    onChange={(event) => setTyped(event.target.value)}
+                    onBlur={() => void keep()}
+                    onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                            void keep();
+                        }
+                    }}
+                />
+                <p className="branch-prefix-said" role="status" data-refused={refused}>
+                    {check !== null && "branch" in check ? (
+                        <>
+                            For example <code>{check.branch}</code>
+                        </>
+                    ) : (
+                        check?.problem
+                    )}
+                </p>
+            </div>
+        </Row>
     );
 }
 

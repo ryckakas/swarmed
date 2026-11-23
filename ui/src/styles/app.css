@@ -4964,6 +4964,32 @@ code {
     opacity: 0.3;
 }
 
+/* The branch prefix, with the branch it gives, or why git would not take it, under it. */
+.branch-prefix {
+    display: grid;
+    flex: none;
+    gap: var(--space-1);
+    width: 30ch;
+}
+
+.branch-prefix-input {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+}
+
+.settings .branch-prefix-said {
+    min-height: 1.5em;
+    margin: 0;
+    color: var(--faint);
+    font-size: var(--text-xs);
+    overflow-wrap: anywhere;
+    user-select: text;
+}
+
+.settings .branch-prefix-said[data-refused="true"] {
+    color: var(--clay);
+}
+
 /* The script has room of its own under its explanation, and can be dragged taller. */
 .settings-script {
     display: grid;
