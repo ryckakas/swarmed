@@ -3915,6 +3915,14 @@ code {
     color: var(--muted);
 }
 
+/* How old a window's figure is, when older than the rest: under its bar, so that its name and
+   when it resets keep the line above. */
+.usage-age {
+    grid-column: 1 / -1;
+    margin-top: 2px;
+    color: var(--muted);
+}
+
 .usage-window-meter {
     grid-column: 1 / -1;
 }

@@ -626,6 +626,48 @@ export interface UsageLimit {
     severity: string;
 }
 
+/** One of the plan's usage windows, as the newest report any Claude Code session heard gave it. */
+export interface UsageWindow {
+    /**
+     * What tells it apart, as Claude Code's report after a turn names it: `five_hour`,
+     * `seven_day`, `seven_day_overage_included`, or `seven_day_` and a model.
+     */
+    kind: string;
+    /** What it is called here, such as `5-hour` or `weekly Fable`. */
+    name: string;
+    /** How much of it is used, from 0 to 1. */
+    used: number;
+    /** When it resets, in seconds since 1970, if said. */
+    resets_at: number | null;
+    /** `allowed`, or Claude Code's word for how near it is or what stops the next request. */
+    status: string;
+    /** When Swarmed heard it, in seconds since 1970. */
+    heard_at: number;
+    /** Whether it came from an answer to asking, and not from a report after a turn. */
+    asked: boolean;
+}
+
+/** What extra usage stood at when Claude Code was last asked, in minor units of `currency`. */
+export interface ExtraUsageHeard {
+    enabled: boolean;
+    used: number;
+    limit: number | null;
+    currency: string;
+    decimals: number;
+    limit_reached: boolean;
+    /** When Swarmed heard it, in seconds since 1970. */
+    heard_at: number;
+}
+
+/** The account's usage as any Claude Code session last heard it, which every session shows. */
+export interface AccountUsage {
+    /** Every window heard of, each with its newest figure, by kind. */
+    windows: UsageWindow[];
+    extra: ExtraUsageHeard | null;
+    /** What the newest report after a turn said of extra usage paying for the turn. */
+    billed: { on: boolean; resets_at: number | null; heard_at: number } | null;
+}
+
 /** One part of what fills an agent's context window. */
 export interface ContextCategory {
     name: string;
@@ -727,6 +769,11 @@ export type AgentEvent =
      * session: it comes with session id 0, and the tree is read again.
      */
     | { type: "reordered"; kind: string }
+    /**
+     * What a Claude Code session heard changed the account's usage. It belongs to no session:
+     * it comes with session id 0, and every session shows it.
+     */
+    | { type: "account_usage"; usage: AccountUsage }
     /** What stands before this is a copy of what was said in the session forked from. */
     | { type: "forked"; from: number }
     /** HTML the agent showed through Swarmed's own tool, handed over by the tool itself. */

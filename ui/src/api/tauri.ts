@@ -5,6 +5,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Api } from "./client";
 import type {
+    AccountUsage,
     Action,
     AgentEvent,
     AgentInfo,
@@ -216,6 +217,7 @@ export const tauriApi: Api = {
     onClaudeTerminalOutput: (listener) =>
         listen<TerminalOutput>("claude-terminal-output", (event) => listener(event.payload)),
     statusLine: (id) => invoke<string | null>("status_line", { id }),
+    accountUsage: () => invoke<AccountUsage>("account_usage"),
     sessionUsageRefresh: (id) => invoke("session_usage_refresh", { id }),
     sessionRemoteControl: (id, on) => invoke("session_remote_control", { id, on }),
     sessionRename: (id, title) => invoke<Session>("session_rename", { id, title }),

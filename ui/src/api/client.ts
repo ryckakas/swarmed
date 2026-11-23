@@ -1,4 +1,5 @@
 import type {
+    AccountUsage,
     Action,
     AgentEvent,
     AgentInfo,
@@ -438,9 +439,15 @@ export interface Api {
      */
     statusLine(id: number): Promise<string | null>;
     /**
+     * The account's usage as any Claude Code session last heard it. Asks Claude Code nothing;
+     * changes arrive as `account_usage` events.
+     */
+    accountUsage(): Promise<AccountUsage>;
+    /**
      * Asks the session's Claude Code for the account's usage now, starting it if it is not
      * running. Returns once asked; the plan's limits and the extra usage arrive as the
-     * session's events, with nothing in the conversation. Only for a Claude Code session.
+     * session's events, with nothing in the conversation, and change the account's usage for
+     * every session. Only for a Claude Code session.
      */
     sessionUsageRefresh(id: number): Promise<void>;
     /**

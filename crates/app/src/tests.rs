@@ -175,6 +175,17 @@ impl App {
 /// and sending the next message took longer than two seconds under that load.
 const WAIT_LIMIT: Duration = Duration::from_secs(10);
 
+/// Asks session `id`'s agent for the account's usage, as the coins do: the answer is the
+/// session's, and what it says is the account's usage for every session.
+fn usage_asked(app: &App, id: &Value) {
+    app.ok("session_usage_refresh", json!({ "id": id }));
+    let usage = app.wait_for_event(id, "usage_limits");
+    assert_eq!(usage["limits"][0]["kind"], "session");
+    let account = app.ok("account_usage", json!({}));
+    assert_eq!(account["windows"][0]["kind"], "five_hour");
+    assert_eq!(account["windows"][0]["used"], 0.36);
+}
+
 /// Turns Remote Control of session `id` on, as the session's header does, and off again.
 fn remote_control(app: &App, id: &Value) {
     app.ok("session_remote_control", json!({ "id": id, "on": true }));
@@ -379,9 +390,7 @@ fn the_ui_can_deny_interrupt_and_remove() {
     let stopped = |e: &Value| e["type"] == "turn_done" && e["is_error"] == true;
     wait_for(&app, id, "the interrupted turn's end", stopped);
     assert_eq!(app.ok("status_line", json!({ "id": id })), json!(null));
-    app.ok("session_usage_refresh", json!({ "id": id }));
-    let usage = app.wait_for_event(id, "usage_limits");
-    assert_eq!(usage["limits"][0]["kind"], "session");
+    usage_asked(&app, id);
     remote_control(&app, id);
     let size = json!({ "id": id, "cols": 80, "rows": 24 });
     assert_eq!(

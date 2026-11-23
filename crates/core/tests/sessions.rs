@@ -9,8 +9,8 @@ use swarmed_core::agent::{
     AgentEvent, Auth, BackgroundState, Effort, FakeBackend, Namer, Naming, PLAN_TOOL, Supervision,
 };
 use swarmed_core::{
-    AgentInfo, Core, Error, Mark, MarkColour, NewTaskOptions, Session, SessionEvent,
-    SessionOptions, SessionSettings, SessionStatus, Settings, TerminalOutput, hooks,
+    AccountUsage, AgentInfo, Core, Error, Mark, MarkColour, NewTaskOptions, Session, SessionEvent,
+    SessionOptions, SessionSettings, SessionStatus, Settings, TerminalOutput, UsageWindow, hooks,
 };
 use tokio::sync::broadcast::Receiver;
 
@@ -383,6 +383,105 @@ async fn usage_asked_for_comes_from_the_sessions_agent_and_stays_out_of_the_conv
         "{refused:?}"
     );
     assert_eq!(core.running_sessions(), vec![session.id]);
+}
+
+/// Skips ahead to the next change of the account's usage, which belongs to no session.
+async fn account_usage(bus: &mut Receiver<SessionEvent>) -> AccountUsage {
+    loop {
+        let heard = next(bus).await;
+        if let AgentEvent::AccountUsage { usage } = heard.event {
+            assert_eq!(heard.session_id, 0, "published apart");
+            return usage;
+        }
+    }
+}
+
+/// Skips ahead to session `id`'s next report of usage after a turn.
+async fn usage_reported(bus: &mut Receiver<SessionEvent>, id: i64) {
+    loop {
+        let heard = next(bus).await;
+        if heard.session_id == id && matches!(heard.event, AgentEvent::RateLimit { .. }) {
+            return;
+        }
+    }
+}
+
+/// Each window of the account's usage: its kind and how full it is, in percent.
+fn shares(usage: &AccountUsage) -> Vec<(String, String)> {
+    let share = |window: &UsageWindow| (window.kind.clone(), format!("{:.0}", window.used * 100.0));
+    usage.windows.iter().map(share).collect()
+}
+
+fn share(kind: &str, percent: &str) -> (String, String) {
+    (kind.to_string(), percent.to_string())
+}
+
+#[tokio::test]
+async fn every_session_shows_the_newest_usage_any_heard_and_a_restart_reads_it_back() {
+    let fx = fixture();
+    let mut core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    assert_eq!(
+        core.account_usage().expect("reads"),
+        AccountUsage::default()
+    );
+
+    let first = started_session(&core);
+    core.session_send(first.id, "limit 50").expect("sends");
+    let reported = account_usage(&mut bus).await;
+    let half = [share("five_hour", "50"), share("seven_day", "50")];
+    assert_eq!(shares(&reported), half);
+    assert_eq!(core.account_usage().expect("reads"), reported);
+
+    // Another agent's report is another account's, if it is one at all.
+    let other = AgentInfo {
+        id: "other".into(),
+        name: "Other".into(),
+        models: vec![],
+        default_model: None,
+        hears_mid_turn: false,
+        sends_to_background: false,
+    };
+    core.add_agent(other, Arc::new(FakeBackend::default()));
+    let options = SessionOptions {
+        agent: Some("other".into()),
+        ..SessionOptions::default()
+    };
+    let elsewhere = core.session_new("demo", "one", &options).expect("creates");
+    core.session_start(elsewhere.id, Auth::Subscription)
+        .expect("starts");
+    core.session_send(elsewhere.id, "limit 90").expect("sends");
+    usage_reported(&mut bus, elsewhere.id).await;
+    assert_eq!(core.account_usage().expect("reads"), reported);
+
+    // A session that never ran asks, and its answer is every session's: the 5-hour window it
+    // gives is newer, and the weekly one it does not give stays as reported.
+    let second = core
+        .session_new("demo", "one", &SessionOptions::default())
+        .expect("creates");
+    core.session_usage_refresh(second.id, Auth::Subscription)
+        .expect("asks");
+    let asked = account_usage(&mut bus).await;
+    assert_eq!(
+        shares(&asked),
+        [share("five_hour", "36"), share("seven_day", "50")]
+    );
+    assert!(asked.windows[0].asked && !asked.windows[1].asked);
+    let recorded = core.session_events(first.id).expect("reads");
+    assert!(
+        !recorded
+            .iter()
+            .any(|event| matches!(event, AgentEvent::AccountUsage { .. })),
+        "never recorded"
+    );
+
+    // A Swarmed started again reads the same from what the sessions recorded.
+    let again =
+        Core::with_backend(fx.paths.clone(), Arc::new(FakeBackend::default())).expect("opens");
+    assert_eq!(
+        shares(&again.account_usage().expect("reads")),
+        shares(&asked)
+    );
 }
 
 /// Skips ahead to the next change of title.

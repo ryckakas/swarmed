@@ -5,7 +5,9 @@ import { PLAN_TOOL, withFiles } from "../transcript";
 import { titleFrom } from "../tree";
 import type { Api } from "./client";
 import { MOCK_COMMANDS, mockQuestions, mockSaid, mockScreen, mockScreenOnly } from "./mockCommands";
+import { heardUsage, sampleAccountUsage } from "./mockUsage";
 import type {
+    AccountUsage,
     Action,
     AgentEvent,
     AgentSetup,
@@ -54,7 +56,7 @@ import type {
 // shell. The agent behaves like the core's FakeBackend: plain text is echoed, `run: <command>`
 // asks permission first, `ask` puts questions, `delegate` starts sub-agents, `show` answers
 // with an HTML view, `warn <percent>` ends its turn with a usage warning for the weekly window
-// that full, `slow` runs until interrupted, and `long: <command>` runs a command the turn
+// that full (`warn <percent> <seconds>`: one that resets that soon), `slow` runs until interrupted, and `long: <command>` runs a command the turn
 // waits on until it is sent to the background or stopped.
 
 // `show` answers with this view: a chart in the app's colours, with buttons that redraw it.
@@ -1565,6 +1567,8 @@ class MockAgent {
     private readonly holds = new Map<number, number>();
     /** Sessions whose first message would have gone but was open for editing. */
     private readonly owed = new Set<number>();
+    /** The account's usage, as every Claude Code session's reports leave it. */
+    usage: AccountUsage = sampleAccountUsage();
     private nextId = 100;
 
     history(id: number): AgentEvent[] {
@@ -1589,10 +1593,23 @@ class MockAgent {
         this.history(sessionId).push(event);
         this.record(sessionId, event, status);
         this.tell(sessionId, event, status);
+        this.hearUsage(sessionId, event);
         // A turn that ended well makes room for the next waiting message, as in the core.
         if (event.type === "turn_done" && !event.is_error) {
             this.sendQueued(sessionId);
         }
+    }
+
+    /** Takes in a Claude Code session's usage report, and tells everyone, as the core does. */
+    private hearUsage(sessionId: number, event: AgentEvent) {
+        const usage = heardUsage(this.usage, event);
+        const sessions = this.tasks().flatMap((task) => task.sessions);
+        const agent = sessions.find((session) => session.id === sessionId)?.agent;
+        if (usage === null || agent !== "claude") {
+            return;
+        }
+        this.usage = usage;
+        this.tell(0, { type: "account_usage", usage }, null);
     }
 
     /**
@@ -1841,8 +1858,9 @@ class MockAgent {
             this.showView(id, done);
         } else if (text.startsWith("switch ")) {
             this.switchWorktree(id, text.slice(7).trim(), done);
-        } else if (/^warn \d+$/.test(text)) {
-            this.warnOfLimit(id, Number(text.slice(5)), done);
+        } else if (/^warn \d+( \d+)?$/.test(text)) {
+            const [, percent, inSeconds] = text.split(" ");
+            this.warnOfLimit(id, Number(percent), Number(inSeconds ?? 6 * 86_400), done);
         } else {
             return false;
         }
@@ -1926,18 +1944,24 @@ class MockAgent {
         return true;
     }
 
-    /** Ends a turn as Claude Code does while a window fills up: its report warns of it. */
-    private warnOfLimit(id: number, percent: number, done: AgentEvent) {
+    /**
+     * Ends a turn as Claude Code does while a window fills up: its report warns of it. The
+     * window resets `inSeconds` from now.
+     */
+    private warnOfLimit(id: number, percent: number, inSeconds: number, done: AgentEvent) {
         this.later(id, { type: "text", text: `The weekly window is ${percent}% used.` }, "working");
         this.later(id, done, "idle", 2);
+        const resetsAt = Math.round(Date.now() / 1000) + inSeconds;
+        const weekly = { status: "allowed_warning", utilization: percent / 100, resetsAt };
         const warning: AgentEvent = {
             type: "rate_limit",
             status: "allowed_warning",
-            resets_at: Math.round(Date.now() / 1000) + 6 * 86_400,
+            resets_at: resetsAt,
             raw: {
                 status: "allowed_warning",
                 rateLimitType: "seven_day",
                 utilization: percent / 100,
+                unifiedWindows: { seven_day: weekly },
             },
         };
         this.later(id, warning, null, 3);
@@ -2871,6 +2895,7 @@ export function createMockApi(): Api {
             return () => terminal.listeners.delete(listener);
         },
         statusLine: async (id) => scriptedStatus(settings.status_command, id),
+        accountUsage: async () => agent.usage,
         sessionUsageRefresh: async (id) => agent.refreshUsage(id),
         sessionRemoteControl: async (id, on) => agent.remoteControl(id, on),
         sessionRename: async (id, title) => agent.rename(id, title),

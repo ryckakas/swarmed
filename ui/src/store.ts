@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Api } from "./api/client";
 import type {
+    AccountUsage,
     AgentEvent,
     CustomLayout,
     NoteTarget,
@@ -128,6 +129,11 @@ interface State {
     turnBegan: Record<number, number>;
     /** Goes up each time an agent reports something it left running starting or ending. */
     backgroundHeard: number;
+    /**
+     * The account's usage as any Claude Code session last heard it, which every Claude Code
+     * session shows; `null` until it is read.
+     */
+    accountUsage: AccountUsage | null;
     /** The latest line a hook printed while a task is being set up or removed. */
     hookLine: string | null;
     /** The last thing that went wrong when acting on a session, shown until dismissed. */
@@ -678,6 +684,7 @@ export const useStore = create<State>((set, get) => ({
         set((state) => ({ commitDrafts: withCommitDraft(state.commitDrafts, taskId, message) })),
     turnBegan: {},
     backgroundHeard: 0,
+    accountUsage: null,
     hookLine: null,
     problem: null,
     settings: null,
@@ -980,6 +987,32 @@ function heardOfReordering(api: Api, event: SessionEvent): boolean {
 }
 
 /**
+ * A Claude Code session heard something that changed the account's usage, here or in another
+ * window: every session shows it. The event belongs to no session, so nothing else is done with
+ * it. Whether the event was that.
+ */
+function heardOfUsage(event: SessionEvent): boolean {
+    if (event.event.type !== "account_usage") {
+        return false;
+    }
+    useStore.setState({ accountUsage: event.event.usage });
+    return true;
+}
+
+/**
+ * Reads the account's usage, unless an event has said what it is meanwhile: what was read can
+ * be older than what that said.
+ */
+function readAccountUsage(api: Api) {
+    void reporting(async () => {
+        const usage = await api.accountUsage();
+        if (useStore.getState().accountUsage === null) {
+            useStore.setState({ accountUsage: usage });
+        }
+    });
+}
+
+/**
  * Reads the tree again for an event that changes what it holds: one from a session it does
  * not know, which an agent started, the closing of one by an agent or another window, or a
  * command such as `/model` having set something of a session's.
@@ -1017,10 +1050,12 @@ export function connect(api: Api): () => void {
     readConfiguration(api);
     void reporting(async () => useStore.setState({ version: await api.version() }));
     void reporting(async () => useStore.setState({ update: await api.updateState() }));
+    readAccountUsage(api);
     // After dropped events nothing on screen can be trusted: forget the transcripts and reload.
     const reload = () => {
         const { selectedSessionId, open } = useStore.getState();
-        useStore.setState({ events: {} });
+        useStore.setState({ events: {}, accountUsage: null });
+        readAccountUsage(api);
         void refresh(api);
         if (selectedSessionId !== null) {
             void open(api, selectedSessionId);
@@ -1041,7 +1076,11 @@ export function connect(api: Api): () => void {
     inView?.addEventListener("focus", readIfSeen);
     const subscriptions = [
         api.onSessionEvent((event) => {
-            if (heardOfReordering(api, event) || heardOfDeletion(api, event)) {
+            if (
+                heardOfReordering(api, event) ||
+                heardOfDeletion(api, event) ||
+                heardOfUsage(event)
+            ) {
                 return;
             }
             readTreeIfChanged(api, event);

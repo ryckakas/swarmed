@@ -372,7 +372,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   over: only what was said.
 - **Check UI changes in a browser** with `pnpm dev`. The mock agent answers plain text, asks
   permission for `run: <command>`, answers `show …` with an HTML view, ends its turn with a
-  weekly usage warning for `warn <percent>`, runs until stopped for `slow`, and runs a
+  weekly usage warning for `warn <percent>` (resetting in that many seconds with
+  `warn <percent> <seconds>`), runs until stopped for `slow`, and runs a
   command its turn waits on for `long: <command>`, until it is sent to the background or
   stopped; one sample session has 2,000 messages for checking scroll speed. The README's
   screenshot and GIF are of this sample data, never of anyone's real projects.
@@ -717,13 +718,29 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   in a session's header (`UsageButton`, `session_usage_refresh`, `AgentCommand::AskUsage`)
   or `/usage`. Every answer is read into `UsageLimits` (the plan's limits as `/usage` lists
   them) and `ExtraUsage` (what is spent beyond the plan this billing period, against the
-  monthly cap), so the context card shows what was heard last; `/usage` also shows its
-  screen. Claude Code reads them from claude.ai with its own sign-in. Only those figures are
-  read, a shape it does not know is no answer, and `skip_behaviors` spares the scan of a week
-  of local transcripts. The rest of the answer, the plan and what the account's sessions
-  cost, is not kept, passed on or logged. Nothing asks for usage on its own, on a timer or
-  when a figure is looked at, and `docs/coding-agents.md` says how fresh the figures are
-  because of that. It was the user's choice, so that looking costs nothing. Keep it so.
+  monthly cap); `/usage` also shows its screen. Claude Code reads them from claude.ai with
+  its own sign-in. Only those figures are read, a shape it does not know is no answer, and
+  `skip_behaviors` spares the scan of a week of local transcripts. The rest of the answer,
+  the plan and what the account's sessions cost, is not kept, passed on or logged. Nothing
+  asks for usage on its own, on a timer or when a figure is looked at, and
+  `docs/coding-agents.md` says how fresh the figures are because of that. It was the user's
+  choice, so that looking costs nothing. Keep it so. A UI timer that only draws again at a
+  window's reset time asks nothing, and is how a warning goes when its window resets.
+- **Usage is the account's, and every Claude Code session shows the same**
+  (`account_usage.rs`, `Core::account_usage`, `swarmed limits`). The core folds each
+  `RateLimit`, `UsageLimits` and `ExtraUsage` a Claude Code session records into one
+  `AccountUsage`: each window, by its kind (`session` is `five_hour`, `weekly_all` is
+  `seven_day`, one model's weekly limit is `seven_day_<model>`), keeps the newest figure any
+  report gave it, since the report after a turn leaves a model's limit out; an answer to
+  asking lists every limit, so one an earlier answer gave that it does not is dropped. It is
+  read lazily from the newest reports in the database, and published apart as
+  `AgentEvent::AccountUsage` on session id 0, never stored, whenever it changes. There is one
+  for all: `claude` cannot be redefined in `agents.toml` and runs on the user's own sign-in,
+  so every session reports one account, and another agent's reports are not taken in. The UI
+  keeps it in the store (`accountUsage`) and shows it only for Claude Code sessions; a window
+  past its `resets_at` counts as reset, at 0%, until a report says otherwise
+  (`accountWindows`), and `useAccountUsage` draws again at the next reset. Each figure says
+  how old it is.
 - **ACP agents with an effort of their own say what it stands at** when a conversation opens,
   which is recorded as `Applied` too. Before a session's agent has said, a front end shows
   what the agent's default last came to (`effort.rs`, `Core::effort_default`): the latest

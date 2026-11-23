@@ -44,32 +44,46 @@ Bedrock or Vertex.
 The card that opens over the context figure in the status line shows the following for a Claude
 Code session:
 
-- **Usage limits:** how much of each window (5-hour, weekly) is used, and when it resets.
+- **Usage limits:** how much of each window (5-hour, weekly, and a model's own weekly limit) is
+  used, and when it resets.
 - **Extra usage:** what is spent beyond your plan this month, against your monthly cap.
 - **Spent in this session:** what the session's own turns cost.
 
-Swarmed only learns these figures from what Claude Code says while it works for a session. It
-never asks for them on a timer or when the card opens. So they can be out of date:
+The usage limits and the extra usage are your account's, not a session's, so every Claude Code
+session shows the same: the newest figures any of them heard. A new session shows them before
+its first turn, and they are kept when Swarmed is opened again. Every Claude Code session runs
+on your own Claude Code sign-in, so they all report the same account.
 
-- The usage limits are as Claude Code reported them at the end of the session's last turn.
-- The extra usage is as it stood when Claude Code last started for the session, or last ran a
-  turn on extra usage. Claude Code starts with the session's first message after Swarmed opens,
-  or after the session was stopped. A session that has not done either since this was added
-  shows no extra usage.
-- Usage from other sessions, other devices or claude.ai shows up after the session's next turn.
+Swarmed only learns these figures from what Claude Code says while it works. It never asks for
+them on a timer or when the card opens. So each says how old it is ("As of 14:48"), and they can
+be out of date:
+
+- The 5-hour and weekly limits are as Claude Code reported them after the last turn of any
+  Claude Code session.
+- A model's own weekly limit, such as Fable's, is only given when Claude Code is asked. It
+  stays as it was then, through later turns, which do not report it, until it resets or
+  Claude Code is asked again.
+- A window whose reset time has passed is shown as reset, at 0%, until a report says how much
+  of the new window is used. The warning on the coins goes at that time, with nothing asked.
+- The extra usage is as it stood when Claude Code last started for a session, or last ran a
+  turn on extra usage. Claude Code starts with a session's first message after Swarmed opens,
+  or after the session was stopped.
+- Usage from other devices or claude.ai shows up after the next turn of any Claude Code session.
 
 For figures as they are now, press the coins at the top right of a Claude Code session. They
 open an overview of the same figures, with a larger bar for each, and ask the session's Claude
 Code for them as they open, starting it if it is not running; **Ask again** asks once more.
 Nothing is sent to the model, so it costs nothing, and nothing is added to the conversation.
 Typing `/usage` in the session asks the same and shows the answer in the conversation. Either
-way, what Claude Code answers is kept, so the card shows it too until a later turn reports
-newer figures. Other agents report no usage, so their sessions have no coins.
+way, what Claude Code answers is kept, and every session's card and coins show it. Other agents
+report no usage, so their sessions have no coins and their card shows only what they spent.
+`swarmed limits` prints the same figures, with how old each is, and asks nothing.
 
 Once a window is 75% used, which is when Claude Code itself starts to warn, the coins carry a
 small yellow triangle, red once a limit is used up, and their label names the window. The bars
 are yellow and red likewise. Like the card, the triangle follows the figures last heard, so it
-appears after the turn that passes 75%.
+appears after the turn that passes 75%, in every Claude Code session, and goes when the window
+resets.
 
 The conversation also says when Claude Code warns that a window is filling up, which it can do
 from about half of it. **Usage warnings** in Settings, under Storage and activity, chooses how

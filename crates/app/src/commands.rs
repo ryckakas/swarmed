@@ -12,9 +12,9 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
-    Action, AgentInfo, AgentSetup, ApiKeyInfo, BackgroundOutput, BackgroundTask, BranchChoices,
-    Cleaned, Cleanup, CleanupKind, CloudOrigin, CloudProvider, CloudTask, Core, Costs,
-    CustomLayout, Environment, EnvironmentChoice, FileChange, FileDiff, FileListing,
+    AccountUsage, Action, AgentInfo, AgentSetup, ApiKeyInfo, BackgroundOutput, BackgroundTask,
+    BranchChoices, Cleaned, Cleanup, CleanupKind, CloudOrigin, CloudProvider, CloudTask, Core,
+    Costs, CustomLayout, Environment, EnvironmentChoice, FileChange, FileDiff, FileListing,
     McpServerInput, McpServerView, NewTaskOptions, Project, ProjectOverview, Pull, PullDraft,
     QueuedMessage, RemoveOptions, SearchHit, Session, SessionOptions, SessionSettings, Settings,
     Skill, SlashCommand, Snapshot, Task, TaskNaming, Template, TerminalConfig, TerminalOpened,
@@ -1185,6 +1185,13 @@ pub(crate) fn claude_terminal_close(core: CoreState<'_>, id: i64) {
 #[tauri::command]
 pub(crate) async fn status_line(core: CoreState<'_>, id: i64) -> Command<Option<String>> {
     Ok(core.status_line(id).await?)
+}
+
+/// The account's usage as any Claude Code session last heard it. The sessions' records are
+/// read for it the first time.
+#[tauri::command(async)]
+pub(crate) fn account_usage(core: CoreState<'_>) -> Command<AccountUsage> {
+    Ok(core.account_usage()?)
 }
 
 /// Asks the session's Claude Code for the account's usage now; the answer arrives as events.

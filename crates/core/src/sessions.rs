@@ -12,6 +12,7 @@ use serde_json::Value;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::task::AbortHandle;
 
+use crate::account_usage::{AccountUsage, UsageHeard};
 use crate::agent::{
     AgentBackend, AgentCommand, AgentEvent, Auth, BackgroundState, Effort, Namer, PLAN_TOOL,
     SessionSpec, Supervision,
@@ -124,6 +125,7 @@ impl SessionStatus {
             | AgentEvent::Closed
             | AgentEvent::Deleted
             | AgentEvent::Reordered { .. }
+            | AgentEvent::AccountUsage { .. }
             | AgentEvent::Background { .. }
             | AgentEvent::View { .. }
             | AgentEvent::Queue { .. }
@@ -1528,6 +1530,7 @@ fn shown_only(event: &AgentEvent) -> bool {
             | AgentEvent::ConfigChanged { .. }
             | AgentEvent::Deleted
             | AgentEvent::Reordered { .. }
+            | AgentEvent::AccountUsage { .. }
     )
 }
 
@@ -1594,6 +1597,8 @@ pub(crate) struct Live {
     /// Who waits for each session's agent to answer whether work went to the background,
     /// first asked first.
     sending: Mutex<HashMap<i64, Vec<Sending>>>,
+    /// The account's usage as any Claude Code session last heard it.
+    pub(crate) usage: UsageHeard,
     runs: AtomicU64,
     bus: broadcast::Sender<SessionEvent>,
 }
@@ -1617,6 +1622,7 @@ impl Default for Live {
             sent: Mutex::default(),
             remote: Mutex::default(),
             sending: Mutex::default(),
+            usage: UsageHeard::default(),
             runs: AtomicU64::new(0),
             bus: broadcast::Sender::new(EVENT_BUFFER),
         }
@@ -1800,6 +1806,8 @@ impl Live {
         if !shown_only(&event) {
             lock(store).keep(session_id, &event).ok();
         }
+        // What it heard of the account's usage is as true as what the run in its place hears.
+        let usage = self.usage.hear(store, session_id, &event);
         // An error only means nobody is subscribed right now.
         self.bus
             .send(SessionEvent {
@@ -1809,6 +1817,7 @@ impl Live {
                 event,
             })
             .ok();
+        self.publish_usage(usage);
     }
 
     pub(crate) fn command(&self, id: i64, command: AgentCommand) -> Result<()> {
@@ -1847,7 +1856,15 @@ impl Live {
         self.bus.send(apart).ok();
     }
 
-    /// Stores an event, unless it is one that is only ever shown, then publishes it.
+    /// Tells every front end the account's usage, if it changed.
+    fn publish_usage(&self, usage: Option<AccountUsage>) {
+        if let Some(usage) = usage {
+            self.publish_apart(AgentEvent::AccountUsage { usage });
+        }
+    }
+
+    /// Stores an event, unless it is one that is only ever shown, then publishes it, and
+    /// after it the account's usage if the event changed that.
     pub(crate) fn note(
         &self,
         store: &Mutex<Store>,
@@ -1863,6 +1880,7 @@ impl Live {
         } else {
             lock(store).record(session_id, &event, status, unread)
         };
+        let usage = self.usage.hear(store, session_id, &event);
         // An error only means nobody is subscribed right now.
         self.bus
             .send(SessionEvent {
@@ -1872,6 +1890,7 @@ impl Live {
                 event,
             })
             .ok();
+        self.publish_usage(usage);
         stored
     }
 

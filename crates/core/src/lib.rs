@@ -76,6 +76,7 @@ mod views;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
 
+pub use account_usage::{AccountUsage, Billed, ExtraUsageHeard, UsageWindow};
 pub use actions::Action;
 use agent::{AgentBackend, ClaudeNamer, Namer};
 pub use agent_setup::{AgentSetup, openrouter_models};

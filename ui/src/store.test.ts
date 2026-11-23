@@ -3,7 +3,7 @@ import { newSession } from "./actions";
 import { api as moduleApi } from "./api";
 import type { Api } from "./api/client";
 import { createMockApi } from "./api/mock";
-import type { AgentEvent, SessionEvent } from "./api/types";
+import type { AccountUsage, AgentEvent, SessionEvent } from "./api/types";
 import {
     appendEvent,
     configProblemsSaid,
@@ -493,6 +493,75 @@ describe("configuration that is not understood whole", () => {
         expect(useStore.getState().problem).toBe(configProblemsSaid([problem]));
         expect(useStore.getState().problem).toContain("`coming_later`");
         expect(useStore.getState().settings).not.toBeNull();
+        disconnect();
+    });
+});
+
+describe("the account's usage", () => {
+    const usage = (used: number): AccountUsage => ({
+        windows: [
+            {
+                kind: "seven_day",
+                name: "weekly",
+                used,
+                resets_at: null,
+                status: "allowed",
+                heard_at: 100,
+                asked: false,
+            },
+        ],
+        extra: null,
+        billed: null,
+    });
+
+    it("is read once connected, and follows what any session hears, for every session", async () => {
+        let heard: (event: SessionEvent) => void = () => {};
+        let refreshes = 0;
+        const base = createMockApi();
+        const api: Api = {
+            ...base,
+            accountUsage: async () => usage(0.4),
+            overview: async () => {
+                refreshes += 1;
+                return base.overview();
+            },
+            onSessionEvent: async (listener) => {
+                heard = listener;
+                return () => {};
+            },
+        };
+        useStore.setState({ accountUsage: null });
+        const disconnect = connect(api);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(useStore.getState().accountUsage).toEqual(usage(0.4));
+        const before = refreshes;
+
+        heard(published(0, { type: "account_usage", usage: usage(0.88) }));
+        expect(useStore.getState().accountUsage).toEqual(usage(0.88));
+        // It belongs to no session: nothing is read again for it, and no transcript holds it.
+        expect(refreshes).toBe(before);
+        expect(useStore.getState().events[0]).toBeUndefined();
+        disconnect();
+    });
+
+    it("is not put back by a read that an event overtook", async () => {
+        let heard: (event: SessionEvent) => void = () => {};
+        let answer: (usage: AccountUsage) => void = () => {};
+        const api: Api = {
+            ...createMockApi(),
+            accountUsage: () => new Promise((resolve) => (answer = resolve)),
+            onSessionEvent: async (listener) => {
+                heard = listener;
+                return () => {};
+            },
+        };
+        useStore.setState({ accountUsage: null });
+        const disconnect = connect(api);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        heard(published(0, { type: "account_usage", usage: usage(0.88) }));
+        answer(usage(0.4));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(useStore.getState().accountUsage).toEqual(usage(0.88));
         disconnect();
     });
 });

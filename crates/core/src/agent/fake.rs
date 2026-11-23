@@ -21,6 +21,8 @@ use crate::error::Result;
 /// - `slow`: starts a turn that only ends when interrupted;
 /// - `fail`: ends the turn with an error;
 /// - `suggest: <text>`: replies as to plain text, then offers `<text>` as the next message;
+/// - `limit <percent>`: replies as to plain text, then reports, as Claude Code does after a
+///   turn, that the 5-hour and weekly windows are that full;
 /// - `background agent`: starts a sub-agent in the background and ends the turn; the sub-agent
 ///   then writes, reports its end, and the agent takes a turn of its own to read its report;
 ///   `background agent left` leaves it at work, with no end;
@@ -406,8 +408,25 @@ impl Script {
         if next == Next::Continue {
             self.emit(done(false, None));
             self.suggest(message);
+            self.report_usage(message);
         }
         next
+    }
+
+    /// Reports the windows as full as `limit <percent>` says, the way Claude Code reports
+    /// them after a turn.
+    fn report_usage(&self, message: &str) {
+        let percent = message.strip_prefix("limit ").map(str::trim);
+        let Some(used) = percent.and_then(|percent| percent.parse::<f64>().ok()) else {
+            return;
+        };
+        let window =
+            json!({ "status": "allowed", "utilization": used / 100.0, "resetsAt": 2_000_000_000 });
+        self.emit(AgentEvent::RateLimit {
+            status: "allowed".to_string(),
+            resets_at: Some(2_000_000_000),
+            raw: json!({ "unifiedWindows": { "five_hour": window, "seven_day": window } }),
+        });
     }
 
     /// Offers what follows `suggest:` as the user's next message.

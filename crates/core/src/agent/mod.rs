@@ -479,6 +479,13 @@ pub enum AgentEvent {
         /// What was moved: `project`, `task`, `session` or `cloud_task`.
         kind: String,
     },
+    /// What a Claude Code session heard changed the account's usage, which every session
+    /// shows. It belongs to no session: published with session id 0, which no session has,
+    /// and never recorded. [`crate::Core::account_usage`] gives the same.
+    AccountUsage {
+        /// The usage now.
+        usage: crate::AccountUsage,
+    },
     /// HTML the agent showed the user through Swarmed's own tool. Recorded by the core, which
     /// gets it from the tool and not from the shape of the agent's call.
     View {

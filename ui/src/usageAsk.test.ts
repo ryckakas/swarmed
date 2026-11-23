@@ -13,11 +13,11 @@ describe("askedLine", () => {
                 error: "Claude Code gave no usage figures: it gives them when signed in to a Claude plan",
             }),
         ).toBe(
-            "Claude Code gave no usage figures: it gives them when signed in to a Claude plan. These are from the session's last turn.",
+            "Claude Code gave no usage figures: it gives them when signed in to a Claude plan. These are the latest any session heard.",
         );
         // An error that ends its own sentence does not get a second full stop.
         expect(askedLine({ state: "failed", error: "No answer." })).toBe(
-            "No answer. These are from the session's last turn.",
+            "No answer. These are the latest any session heard.",
         );
     });
 });

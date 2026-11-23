@@ -3,6 +3,7 @@
 mod action;
 mod cleanup;
 mod layout;
+mod limits;
 mod session;
 mod terminal;
 
@@ -45,6 +46,9 @@ enum Command {
     Mcp,
     /// Show what Swarmed takes up on disk, and in memory and processor time right now.
     Usage,
+    /// Show the plan's usage limits and the extra usage as Claude Code last reported them in
+    /// any session, with how old each figure is. Nothing is asked: `/usage` in a session asks.
+    Limits,
     /// List what removed tasks left behind, and the snapshots, or delete them: removed
     /// worktrees not deleted yet, branches of removed tasks, stale worktrees and snapshots.
     /// Nothing of a current task, no remote branch and no repository's own checkout is listed.
@@ -441,6 +445,7 @@ async fn run(core: &Core, command: Command) -> Result<()> {
         Command::Agent(command) => agent(core, command).await,
         Command::Mcp => mcp(core),
         Command::Usage => usage(core).await,
+        Command::Limits => limits::run(core),
         Command::Cleanup(args) => cleanup::run(core, args).await,
         Command::Snapshot { command } => snapshot(core, command).await,
         Command::Costs => costs(core),
