@@ -137,7 +137,13 @@ jobs:
           tool: cargo-deny@0.20.2,cargo-shear@1.14.0
 
       - name: cargo deny
-        run: cargo deny check
+        run: cargo deny check bans licenses sources
+
+      # An advisory is published against crates already in the lockfile, so it fails every pull
+      # request at once, whatever that one changed. It is shown here and stops nothing.
+      - name: Advisories
+        continue-on-error: true
+        run: cargo deny check advisories
 
       - name: Unused dependencies
         run: cargo shear
