@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { newSession } from "./actions";
+import { api as moduleApi } from "./api";
 import type { Api } from "./api/client";
 import { createMockApi } from "./api/mock";
 import type { AgentEvent, SessionEvent } from "./api/types";
@@ -537,6 +539,60 @@ describe("opening a session", () => {
             .flatMap((task) => task.sessions)
             .find((session) => session.id === 5);
         expect(stored?.unread).toBe(false);
+    });
+});
+
+describe("a folded task", () => {
+    const stored = new Map<string, string>();
+    const remembered = () => stored.get("swarmed.folded-tasks");
+    beforeEach(() => {
+        stored.clear();
+        vi.stubGlobal("localStorage", {
+            getItem: (key: string) => stored.get(key) ?? null,
+            setItem: (key: string, value: string) => stored.set(key, value),
+        });
+        useStore.setState({ foldedTasks: [] });
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    it("folds and unfolds by id, and is remembered on this machine", () => {
+        useStore.getState().toggleTaskFolded(4);
+        useStore.getState().toggleTaskFolded(1);
+        expect(useStore.getState().foldedTasks).toEqual([4, 1]);
+        expect(remembered()).toBe("[4,1]");
+        useStore.getState().toggleTaskFolded(4);
+        expect(remembered()).toBe("[1]");
+    });
+
+    it("unfolds when one of its sessions is opened, from wherever that was", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        useStore.setState({ foldedTasks: [1, 4] });
+        await useStore.getState().open(api, 5);
+        expect(useStore.getState().foldedTasks).toEqual([1]);
+        expect(remembered()).toBe("[1]");
+    });
+
+    it("unfolds when a session is started in it", async () => {
+        await useStore.getState().refresh(moduleApi);
+        useStore.setState({ foldedTasks: [4] });
+        await newSession("bonsai-lint", "rust-support");
+        expect(useStore.getState().selectedSessionId).not.toBeNull();
+        expect(useStore.getState().foldedTasks).toEqual([]);
+    });
+
+    it("is forgotten with its task, removed here or anywhere else", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        useStore.setState({ foldedTasks: [1, 2, 4] });
+        useStore.getState().forgetTasks([4]);
+        expect(useStore.getState().foldedTasks).toEqual([1, 2]);
+
+        // Removed from another window or the command line: the tree read again lacks it.
+        await api.taskRemove("storefront", "fix-login-redirect", true);
+        await useStore.getState().refresh(api);
+        expect(useStore.getState().foldedTasks).toEqual([2]);
+        expect(remembered()).toBe("[2]");
     });
 });
 

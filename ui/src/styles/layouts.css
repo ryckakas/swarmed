@@ -138,9 +138,12 @@
 }
 
 :root[data-layout="senior"] .task-name {
+    font-size: var(--text-xs);
+}
+
+:root[data-layout="senior"] .task-toggle {
     gap: var(--space-2);
     padding-block: var(--space-2);
-    font-size: var(--text-xs);
 }
 
 :root[data-layout="senior"] .sessions {

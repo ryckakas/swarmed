@@ -199,6 +199,9 @@ export interface Words {
     noRepositories: string;
     showTasks: string;
     hideTasks: string;
+    /** The heading that folds a task's sessions, after what it says of the task's worktree. */
+    showSessions: string;
+    hideSessions: string;
     /** The cloud dialog's button that hands the work over, and while it does. */
     delegateButton: string;
     delegating: string;
@@ -370,6 +373,8 @@ const PLAIN: Words = {
     noRepositories: "No repositories yet.",
     showTasks: "Show this repository's tasks",
     hideTasks: "Hide its tasks",
+    showSessions: "Show this task's sessions",
+    hideSessions: "Hide its sessions",
     delegateButton: "Delegate",
     delegating: "Delegating…",
     waitingForYou: "Waiting for you",
@@ -520,6 +525,8 @@ const SWARM: Words = {
     waitingForYou: "Awaiting you",
     nothingWaits: "Nothing awaits you.",
     searchPlaceholder: "Search what was said, in any spawn",
+    showSessions: "Show this task's spawns",
+    hideSessions: "Hide its spawns",
     turns: "Molts",
     stackStarting: "Waking…",
 };
@@ -548,6 +555,8 @@ const COLONY: Words = {
     noRepositories: "No colonies yet.",
     showTasks: "Show this colony's broods",
     hideTasks: "Hide its broods",
+    showSessions: "Show this brood's spawns",
+    hideSessions: "Hide its spawns",
     delegateButton: "Send spores",
     delegating: "Sending spores…",
     terms: {

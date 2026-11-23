@@ -8,15 +8,19 @@ import {
     countWaiting,
     findSession,
     findSessionHome,
+    foldedSummary,
     nestedSessions,
     projectStatus,
     projectUnread,
+    stillFolded,
     taskNameForPrompt,
     taskNameFrom,
     taskStatus,
     titleFrom,
     toggledId,
+    unfoldedFor,
     uniqueTaskName,
+    withoutIds,
     withoutSession,
     withRead,
     withSession,
@@ -62,6 +66,49 @@ describe("a folded repository", () => {
     it("folds and unfolds by id", () => {
         expect(toggledId([1], 2)).toEqual([1, 2]);
         expect(toggledId([1, 2], 1)).toEqual([2]);
+    });
+});
+
+describe("a folded task", () => {
+    it("still says how many sessions are open, what the most urgent needs, and if one is unread", () => {
+        const [storefront, bonsai] = sampleProjects();
+        expect(storefront?.tasks.map(foldedSummary)).toEqual([
+            { count: 2, status: "waiting", unread: false },
+            { count: 1, status: "idle", unread: false },
+            { count: 0, status: null, unread: false },
+        ]);
+        expect(bonsai?.tasks.map(foldedSummary)).toEqual([
+            { count: 2, status: "errored", unread: true },
+        ]);
+    });
+
+    it("unfolds when one of its sessions is opened, and no other task does", () => {
+        const projects = sampleProjects();
+        const folded = [1, 4];
+        expect(unfoldedFor(folded, projects, 5)).toEqual([1]);
+        // A session of a task that is not folded, or one the tree does not hold yet.
+        expect(unfoldedFor(folded, projects, 3)).toBe(folded);
+        expect(unfoldedFor(folded, projects, 99)).toBe(folded);
+    });
+
+    it("is forgotten once its task is removed or archived", () => {
+        const projects = sampleProjects();
+        const folded = [1, 2, 4];
+        expect(stillFolded(folded, projects)).toBe(folded);
+        const archived = projects.map((project) => ({
+            ...project,
+            tasks: project.tasks.map((task) =>
+                task.id === 2 ? { ...task, archived: true } : task,
+            ),
+        }));
+        expect(stillFolded([...folded, 9], archived)).toEqual([1, 4]);
+    });
+
+    it("leaves a list as it was when none of its ids go", () => {
+        const ids = [1, 2];
+        expect(withoutIds(ids, [3])).toBe(ids);
+        expect(withoutIds(ids, [])).toBe(ids);
+        expect(withoutIds(ids, [2, 3])).toEqual([1]);
     });
 });
 

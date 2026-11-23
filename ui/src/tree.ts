@@ -202,9 +202,57 @@ export function projectStatus(project: Project): SessionStatus | null {
     return urgency.find((status) => sessions.some((s) => s.status === status)) ?? null;
 }
 
+/** Whether any session of a task holds an answer nobody has looked at. */
+export function taskUnread(task: Task): boolean {
+    return task.sessions.some((session) => session.unread);
+}
+
+/**
+ * What a folded task still shows of its sessions in its heading: how many are open, the one
+ * status that best describes them, and whether one holds an unread answer.
+ */
+export function foldedSummary(task: Task): {
+    count: number;
+    status: SessionStatus | null;
+    unread: boolean;
+} {
+    return { count: task.sessions.length, status: taskStatus(task), unread: taskUnread(task) };
+}
+
 /** `ids` with `id` added if it was missing, removed if it was there. */
 export function toggledId(ids: number[], id: number): number[] {
     return ids.includes(id) ? ids.filter((existing) => existing !== id) : [...ids, id];
+}
+
+/** `ids` without any of `gone`; the same list if it held none of them. */
+export function withoutIds(ids: number[], gone: number[]): number[] {
+    return ids.some((id) => gone.includes(id)) ? ids.filter((id) => !gone.includes(id)) : ids;
+}
+
+/**
+ * The folded tasks with the one that holds session `sessionId` unfolded, so the session
+ * opened has its row in view. The same list if that task was not folded, or is not known yet.
+ */
+export function unfoldedFor(folded: number[], projects: Project[], sessionId: number): number[] {
+    const taskId = taskIdOf(projects, sessionId);
+    return taskId === undefined ? folded : withoutIds(folded, [taskId]);
+}
+
+/**
+ * The folded tasks that are still listed: one removed or archived, here or anywhere else, is
+ * forgotten with its fold. The same list if all of them are.
+ */
+export function stillFolded(folded: number[], projects: Project[]): number[] {
+    const listed = new Set(
+        projects
+            .flatMap((project) => project.tasks)
+            .filter((task) => !task.archived)
+            .map((task) => task.id),
+    );
+    return withoutIds(
+        folded,
+        folded.filter((id) => !listed.has(id)),
+    );
 }
 
 /**

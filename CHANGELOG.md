@@ -24,6 +24,12 @@ notice adds its line under Unreleased.
   session. It needs Claude Code signed in with a claude.ai subscription, and the conversation is
   kept on Anthropic's servers while it is on. `swarmed session remote-control <id>` does the
   same from the command line.
+- **Fold a task in the sidebar.** Press a task's name, or Enter or Space on it, to put its
+  sessions and their sub-agents away and keep the other tasks in view, as a repository folds
+  its tasks. A folded task still shows how many sessions it has, what the most pressing of them
+  needs and whether one has an answer you have not read, and keeps its buttons. It unfolds by
+  itself when you open one of its sessions from anywhere else, or start a new one in it.
+  Swarmed remembers which tasks are folded until you unfold or remove them.
 
 ### Changed
 

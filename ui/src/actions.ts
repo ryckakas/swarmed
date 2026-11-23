@@ -60,8 +60,9 @@ export async function moveFocusedRow(by: number) {
     await moveRow(target, by);
     if (focused) {
         // Moving the row's element on the page takes the keyboard from it. It goes back to
-        // what had it, or else to the row's own button, the first it has: neither the grip it
-        // is dragged by nor a task's heading can take the keyboard.
+        // what had it, or else to the row's own button, the first it has: the name that folds
+        // a repository or a task, or a session's or cloud task's row. The grip it is dragged
+        // by cannot take the keyboard.
         requestAnimationFrame(() => {
             const own = rowOf(target)?.querySelector<HTMLElement>("button");
             (had instanceof HTMLElement && had.isConnected ? had : own)?.focus();

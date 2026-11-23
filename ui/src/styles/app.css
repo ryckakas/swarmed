@@ -1136,7 +1136,8 @@ code {
 
 /* Sidebar tree: three levels told apart at a glance. A repository is a section, with a rule
    above it and the largest, brightest name. A worktree is a labelled band, set in from the
-   repository's name. Its sessions hang off a guide line that starts under the worktree's icon. */
+   repository's name. Its sessions hang off a guide line that starts under the chevron that
+   folds them, as a tree's guides start under their parent's. */
 
 .project + .project {
     margin-top: var(--space-3);
@@ -1175,7 +1176,8 @@ code {
     white-space: nowrap;
 }
 
-.project-count {
+.project-count,
+.task-count {
     color: var(--faint);
     font-size: var(--text-xs);
     font-weight: 400;
@@ -1193,7 +1195,14 @@ code {
     transition: transform 120ms;
 }
 
-.project-toggle[aria-expanded="true"] .fold-chevron {
+/* In a task's name, as wide as a row's icon: the guide line of its sessions starts under
+   the chevron's middle. */
+.task-toggle .fold-chevron {
+    margin-inline: 2px;
+}
+
+.project-toggle[aria-expanded="true"] .fold-chevron,
+.task-toggle[aria-expanded="true"] .fold-chevron {
     transform: rotate(90deg);
 }
 
@@ -1306,17 +1315,27 @@ code {
 .task-name {
     flex: 1;
     min-width: 0;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: var(--space-1) var(--space-2);
     color: var(--text);
     font-family: var(--font-mono);
     font-size: var(--text-xs);
     font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
+}
+
+/* The task's name folds its sessions away and brings them back, as a repository's does its
+   tasks. */
+.task-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: var(--space-1) var(--space-2);
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
     white-space: nowrap;
+    overflow: hidden;
 }
 
 .task-flag {

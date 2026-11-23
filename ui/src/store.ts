@@ -26,8 +26,11 @@ import {
     findSession,
     findSessionHome,
     mayHaveEdited,
+    stillFolded,
     taskIdOf,
     toggledId,
+    unfoldedFor,
+    withoutIds,
     withoutSession,
     withRead,
     withSession,
@@ -160,6 +163,9 @@ interface State {
     /** The ids of the repositories whose tasks are folded away in the sidebar. */
     folded: number[];
     toggleFolded(projectId: number): void;
+    /** The ids of the tasks whose sessions are folded away in the sidebar. */
+    foldedTasks: number[];
+    toggleTaskFolded(taskId: number): void;
     /** Whether the status line under the message box is shown, or folded away. */
     statusOpen: boolean;
     toggleStatus(): void;
@@ -418,6 +424,7 @@ function countEdit(state: State, published: SessionEvent): Record<number, number
 const PANEL_OPEN = "swarmed.panel-open";
 const STATUS_OPEN = "swarmed.status-open";
 const FOLDED = "swarmed.folded-projects";
+const FOLDED_TASKS = "swarmed.folded-tasks";
 
 /** A list of ids remembered on this machine; empty if nothing usable is stored. */
 function readIds(key: string): number[] {
@@ -518,6 +525,7 @@ function forgotten(state: State, sessionIds: number[], taskIds: number[]): Parti
         commitDrafts: without(state.commitDrafts, taskIds),
         reviews: without(state.reviews, taskIds),
         pulls: without(state.pulls, taskIds),
+        foldedTasks: withoutIds(state.foldedTasks, taskIds),
     };
 }
 
@@ -563,6 +571,7 @@ function readAgain(state: State, projects: Project[]): Partial<State> {
         projects,
         load: "ready",
         newTaskDrafts: listedOnly(state.newTaskDrafts, projects),
+        foldedTasks: stillFolded(state.foldedTasks, projects),
         ...(gone ? leaving(state, [selected]) : {}),
     };
 }
@@ -699,6 +708,9 @@ export const useStore = create<State>((set, get) => ({
         writeStored(FOLDED, JSON.stringify(folded));
         set({ folded });
     },
+    foldedTasks: readIds(FOLDED_TASKS),
+    toggleTaskFolded: (taskId) =>
+        set((state) => ({ foldedTasks: toggledId(state.foldedTasks, taskId) })),
     statusOpen: readFlag(STATUS_OPEN, true),
     toggleStatus: () => {
         const statusOpen = !get().statusOpen;
@@ -808,7 +820,12 @@ export const useStore = create<State>((set, get) => ({
         }
     },
     open: async (api, sessionId) => {
-        set({ selectedSessionId: sessionId, subView: null });
+        // Opened from anywhere, its row is in view: a folded task unfolds to show it.
+        set((state) => ({
+            selectedSessionId: sessionId,
+            subView: null,
+            foldedTasks: unfoldedFor(state.foldedTasks, state.projects, sessionId),
+        }));
         get().markRead(api, sessionId);
         if (get().events[sessionId] || loading.has(sessionId)) {
             return;
@@ -877,6 +894,14 @@ export const useStore = create<State>((set, get) => ({
     report: (problem) => set({ problem: String(problem) }),
     dismissProblem: () => set({ problem: null }),
 }));
+
+// Folding, opening a session and a task going all change which tasks are folded. Whichever it
+// was, what is left is remembered on this machine from here.
+useStore.subscribe((state, before) => {
+    if (state.foldedTasks !== before.foldedTasks) {
+        writeStored(FOLDED_TASKS, JSON.stringify(state.foldedTasks));
+    }
+});
 
 /** The window the app is shown in. There is none where the store runs without one, as in tests. */
 const inView = typeof window === "undefined" ? null : window;
