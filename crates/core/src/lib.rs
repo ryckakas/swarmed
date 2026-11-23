@@ -14,6 +14,7 @@ mod asking;
 mod attach;
 mod background;
 mod changes;
+mod cleanup;
 mod clone;
 mod cloud;
 mod commands;
@@ -86,6 +87,7 @@ pub use background::{BackgroundOutput, BackgroundTask};
 pub use shellenv::learn_shell_path;
 
 pub use changes::{ChangeKind, FileChange, FileDiff};
+pub use cleanup::{Cleaned, Cleanup, CleanupItem, CleanupKind, NotCleaned};
 pub use cloud::{CloudOrigin, CloudProvider, CloudTask, MAX_DELEGATED};
 pub use commands::{CommandKind, SlashCommand};
 pub use config::{Hooks, ProjectConfig};

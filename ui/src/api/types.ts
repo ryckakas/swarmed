@@ -545,6 +545,40 @@ export interface Usage {
     sessions: ({ session_id: number; title: string } & ProcessUsage)[];
 }
 
+/**
+ * A kind of thing a clean-up deletes: removed tasks' worktrees not deleted yet, branches of
+ * removed tasks, stale worktrees, and snapshots.
+ */
+export type CleanupKind = "removed" | "branches" | "stale" | "snapshots";
+
+/** One thing a clean-up can delete, as the core lists it. */
+export interface CleanupItem {
+    /** What names it to `cleanupClean`: unique within its kind. */
+    key: string;
+    project: string;
+    /** What it is: a folder's path, a branch, or an environment. */
+    name: string;
+    /** The task it was, or for a snapshot the task it was taken from, where known. */
+    task: string | null;
+    /** Why it is there, or what deleting it would lose, in words. */
+    reason: string;
+    /** What it takes up on disk; `null` when it is not on disk or could not be measured. */
+    bytes: number | null;
+    /** Since when it is there, in seconds since 1970, where known. */
+    since: number | null;
+    /** Whether deleting it would lose work found nowhere else: then it goes only when ticked. */
+    at_risk: boolean;
+}
+
+/** What can be cleaned up, kind by kind. */
+export type Cleanup = Record<CleanupKind, CleanupItem[]>;
+
+/** What a clean-up did: the keys it deleted, and what it did not, with why. */
+export interface Cleaned {
+    deleted: string[];
+    kept: { key: string; name: string; reason: string }[];
+}
+
 /** An agent that can be set up from the settings, and how far along it is. */
 export interface AgentSetup {
     id: string;

@@ -1,6 +1,7 @@
 //! The `swarmed` command: a thin front end over `swarmed-core`.
 
 mod action;
+mod cleanup;
 mod layout;
 mod session;
 mod terminal;
@@ -44,6 +45,10 @@ enum Command {
     Mcp,
     /// Show what Swarmed takes up on disk, and in memory and processor time right now.
     Usage,
+    /// List what removed tasks left behind, and the snapshots, or delete them: removed
+    /// worktrees not deleted yet, branches of removed tasks, stale worktrees and snapshots.
+    /// Nothing of a current task, no remote branch and no repository's own checkout is listed.
+    Cleanup(cleanup::CleanupArgs),
     /// Keep what a task's setup produced, for new tasks of its environment to start from.
     Snapshot {
         #[command(subcommand)]
@@ -436,6 +441,7 @@ async fn run(core: &Core, command: Command) -> Result<()> {
         Command::Agent(command) => agent(core, command).await,
         Command::Mcp => mcp(core),
         Command::Usage => usage(core).await,
+        Command::Cleanup(args) => cleanup::run(core, args).await,
         Command::Snapshot { command } => snapshot(core, command).await,
         Command::Costs => costs(core),
         Command::Analytics => analytics(core),
@@ -891,7 +897,7 @@ fn mcp(core: &Core) -> Result<()> {
 }
 
 /// A size as people say it: 512 B, 3.4 MB, 1.2 GB.
-fn bytes(bytes: u64) -> String {
+pub(crate) fn bytes(bytes: u64) -> String {
     const UNITS: [&str; 4] = ["kB", "MB", "GB", "TB"];
     let mut unit = "B";
     #[allow(

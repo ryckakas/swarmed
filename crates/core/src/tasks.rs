@@ -141,6 +141,7 @@ impl Core {
             worktree_path: &worktree,
             slot: 0,
             environment,
+            branch_made: options.existing_branch.is_none(),
         };
         let task = match self.insert_in_free_slot(new) {
             Ok(task) => task,

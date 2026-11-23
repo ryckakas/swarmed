@@ -16,6 +16,14 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **Clean up what removed tasks leave behind.** Settings, under Storage and activity, lists
+  worktrees of removed tasks not deleted yet, branches kept when their tasks were removed,
+  stale worktrees no task owns, and snapshots, each with how many and their size. Each button
+  lists exactly what it deletes and asks first; a branch with commits found nowhere else, or a
+  folder with changes never committed, is listed apart and goes only if you tick it on its own.
+  Nothing of a current task, no branch on a remote and no repository's own checkout is ever
+  touched, and the figures above are measured again afterwards. `swarmed cleanup` does the same
+  from the command line.
 - **A branch prefix of your own.** **Branch prefix** in Settings, under Sessions, is what every
   new task's branch starts with, before a `/` and the task's name: `jd` gives `jd/fix-login`,
   and `jd/feat` gives `jd/feat/fix-login`. Settings shows the branch it gives as you type, drops

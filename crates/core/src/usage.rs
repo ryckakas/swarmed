@@ -129,7 +129,7 @@ async fn processes() -> Vec<Process> {
 }
 
 /// The size of everything under `path`, or `None` if it is not there or took too long.
-async fn folder_bytes(path: &Path) -> Option<u64> {
+pub(crate) async fn folder_bytes(path: &Path) -> Option<u64> {
     let measuring = Command::new("du").arg("-sk").arg(path).output();
     let output = tokio::time::timeout(SIZE_TIMEOUT, measuring)
         .await

@@ -151,6 +151,21 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   their files, each worktree with `du`, and memory and processor time with `ps`, summed over
   Swarmed's own process and everything started from it. An agent's share is the tree under the
   process its backend reported when it started.
+- **What removed tasks leave behind is cleaned up on request** (`cleanup.rs`): removed
+  worktrees not deleted yet (in `.removed`), the branches of removed tasks, stale worktrees
+  (folders in a project's place under the worktrees root that no task owns, and git's records
+  of worktrees whose folder is gone) and snapshots. `Core::cleanup` lists them, each with a
+  key; `cleanup_clean` deletes one kind, by keys or every item not at risk, after listing again,
+  so only what is still listed goes. Never listed: a current task's worktree or branch (its
+  own, the others its worktree was seen on, its base), a task being made (`names_claimed`),
+  anything a worktree of the repository has checked out, the repositories themselves and any
+  folder with a repository of its own, a remote branch, and a branch Swarmed did not make
+  (`tasks.branch_made`, written since; a task made before counts as its removal did: its
+  branch unless it started from it). An item that would lose work found nowhere else (commits
+  on neither the base nor a remote, uncommitted changes, commits on no branch, or one git could
+  not check) is `at_risk`: it goes only when named, and the UI lists it apart, unticked, to be
+  ticked one by one. A snapshot is forgotten through `snapshot_remove`, under its lock. The
+  window's Usage tab and `swarmed cleanup` drive it; the window measures usage again after.
 - **Running sessions live in the core** (`sessions.rs`). Front ends call `session_start`,
   `session_send` and the like by session id and read every session's events from one stream,
   `Core::subscribe`. Events are stored before they are published, except the pieces of a reply
@@ -498,7 +513,7 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   One build per environment at a time: `building_lock` holds a file lock beside the folder, so
   parallel first setups, and the app beside the `swarmed` command, do not build in one place.
   Forgetting a snapshot takes the same lock and is refused while one is built, which would
-  put it back.
+  put it back; with the lock, it also deletes what a build that was cut short left beside it.
 - **A repository's default environment is kept in the database** (`default_environment` on
   `projects`, `Core::environment_default`), not in its config or environments file: a
   Swarmed sharing the data directory that does not know the key would refuse the file, as
@@ -842,8 +857,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   open in a terminal, what keeps terminals open (tmux and the like) and the processes of an
   application from outside the worktree are left alone. The worktree is then
   moved into `.removed` beside it, which is instant, and deleted by an `rm` of its own;
-  `Core::arrive` deletes what one that was cut short left, and `usage.rs` counts what is
-  still there. A removal under way is kept in the UI's store (`removals`), so a dialog closed
+  `Core::arrive` deletes what one that was cut short left, `usage.rs` counts what is still
+  there, and a clean-up deletes it on request (`cleanup.rs`), making a folder some tool left
+  without write permission writable first. A removal under way is kept in the UI's store (`removals`), so a dialog closed
   and asked for again starts no second one. An environment that tasks use
   cannot be removed (`Error::EnvironmentInUse`).
 - **Opening things elsewhere** (`open.rs`) starts the user's editor (`settings.toml`, VS Code by

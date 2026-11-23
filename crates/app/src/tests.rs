@@ -1038,6 +1038,35 @@ fn the_ui_can_see_what_swarmed_takes_up() {
 }
 
 #[test]
+fn the_ui_can_clean_up_what_removed_tasks_left() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    app.ok(
+        "task_new",
+        json!({ "project": "demo", "name": "one", "branch": null }),
+    );
+    let task = json!({ "project": "demo", "name": "one", "force": true, "deleteBranch": false });
+    app.ok("task_remove", task);
+
+    let listed = app.ok("cleanup", json!({}));
+    let branches = listed["branches"].as_array().expect("a list");
+    assert_eq!(branches.len(), 1, "{listed}");
+    assert_eq!(
+        (&branches[0]["task"], &branches[0]["at_risk"]),
+        (&json!("one"), &json!(false))
+    );
+    assert_eq!(listed["stale"], json!([]));
+    assert_eq!(listed["snapshots"], json!([]));
+    let key = branches[0]["key"].clone();
+    let cleaned = app.ok(
+        "cleanup_clean",
+        json!({ "kind": "branches", "keys": [key] }),
+    );
+    assert_eq!(cleaned, json!({ "deleted": [key], "kept": [] }));
+    assert_eq!(app.ok("cleanup", json!({}))["branches"], json!([]));
+}
+
+#[test]
 fn the_ui_can_set_up_an_mcp_server_and_never_reads_its_secrets_back() {
     let app = app();
     assert_eq!(app.ok("mcp_servers", json!({})), json!([]));

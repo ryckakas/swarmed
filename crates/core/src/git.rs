@@ -254,6 +254,72 @@ pub(crate) async fn worktree_known(path: &Path) -> bool {
     real(path).is_some_and(|path| real(Path::new(top.trim())) == Some(path))
 }
 
+/// One worktree git keeps a record of, as `git worktree list` gives it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct WorktreeRecord {
+    /// Where git has it.
+    pub(crate) path: PathBuf,
+    /// The local branch checked out in it; `None` when it is on none.
+    pub(crate) branch: Option<String>,
+    /// Whether its folder is gone, so that `git worktree prune` would forget it.
+    pub(crate) prunable: bool,
+    /// Whether it is locked, which keeps git from forgetting it even when its folder is gone.
+    pub(crate) locked: bool,
+}
+
+/// Every worktree of the repository at `repo`, its own checkout first.
+pub(crate) async fn worktree_list(repo: &Path) -> Result<Vec<WorktreeRecord>> {
+    let listed = git(repo, &["worktree", "list", "--porcelain", "-z"]).await?;
+    Ok(worktree_records(&listed))
+}
+
+/// What `git worktree list --porcelain -z` printed, as records: each begins with its path,
+/// and every line of it is a field of its own, so that a path may hold anything.
+fn worktree_records(listed: &str) -> Vec<WorktreeRecord> {
+    let mut records: Vec<WorktreeRecord> = Vec::new();
+    for field in crate::changes::nul_separated(listed) {
+        if let Some(path) = field.strip_prefix("worktree ") {
+            records.push(WorktreeRecord {
+                path: PathBuf::from(path),
+                ..WorktreeRecord::default()
+            });
+            continue;
+        }
+        let Some(record) = records.last_mut() else {
+            continue;
+        };
+        let (name, _) = field.split_once(' ').unwrap_or((field, ""));
+        match name {
+            "branch" => {
+                let branch = field.trim_start_matches("branch ");
+                record.branch = branch.strip_prefix("refs/heads/").map(String::from);
+            }
+            "prunable" => record.prunable = true,
+            "locked" => record.locked = true,
+            _ => {}
+        }
+    }
+    records
+}
+
+/// How many commits of the worktree's `HEAD` are on no branch and no remote: what a worktree
+/// on no branch would take with it. None for one on a branch, which keeps its commits.
+pub(crate) async fn commits_on_no_branch(worktree: &Path) -> Result<u32> {
+    let count = git(
+        worktree,
+        &[
+            "rev-list",
+            "--count",
+            "HEAD",
+            "--not",
+            "--branches",
+            "--remotes",
+        ],
+    )
+    .await?;
+    Ok(count.trim().parse().unwrap_or(0))
+}
+
 /// Deletes a local branch, merged or not.
 pub(crate) async fn branch_delete(repo: &Path, branch: &str) -> Result<()> {
     git(repo, &["branch", "-D", branch]).await?;
@@ -319,4 +385,29 @@ pub(crate) async fn available_branches(repo: &Path) -> Result<Vec<String>> {
     branches.sort_unstable();
     branches.dedup();
     Ok(branches)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn worktree_records_are_read_field_by_field() {
+        let listed = "worktree /r\0HEAD abc\0branch refs/heads/main\0\0\
+                      worktree /w/a b\nc\0HEAD def\0detached\0\0\
+                      worktree /w/gone\0HEAD 123\0branch refs/heads/feature/x\0\
+                      prunable gitdir file points to non-existent location\0\0\
+                      worktree /w/away\0HEAD 456\0branch refs/heads/b\0locked\0prunable\0\0";
+        let records = worktree_records(listed);
+        let path = |at: usize| records[at].path.to_string_lossy().into_owned();
+        assert_eq!(records.len(), 4);
+        assert_eq!(records[0].branch.as_deref(), Some("main"));
+        // A path is taken whole, a line break in it included.
+        assert_eq!(path(1), "/w/a b\nc");
+        assert_eq!(records[1].branch, None);
+        assert!(!records[1].prunable);
+        assert_eq!(records[2].branch.as_deref(), Some("feature/x"));
+        assert!(records[2].prunable && !records[2].locked);
+        assert!(records[3].prunable && records[3].locked);
+    }
 }

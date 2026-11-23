@@ -186,7 +186,8 @@ fn with_state<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
 #[rustfmt::skip]
 fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
     with_state(builder, core).invoke_handler(tauri::generate_handler![
-        commands::agents, commands::usage, commands::costs, commands::analytics,
+        commands::agents, commands::usage, commands::cleanup, commands::cleanup_clean,
+        commands::costs, commands::analytics,
         commands::effort_default, commands::mcp_servers, commands::mcp_save,
         commands::mcp_remove, commands::agent_setups, commands::agent_install,
         commands::agent_configure, commands::agent_models_refresh, commands::openrouter_models,

@@ -227,6 +227,7 @@ export interface Words {
         worktree: string;
         worktrees: string;
         branch: string;
+        branches: string;
         baseBranch: string;
         /** A commit, and to commit; several, while it is done, and done. */
         commit: string;
@@ -390,6 +391,7 @@ const PLAIN: Words = {
         worktree: "worktree",
         worktrees: "worktrees",
         branch: "branch",
+        branches: "branches",
         baseBranch: "base branch",
         commit: "commit",
         commits: "commits",
@@ -567,6 +569,7 @@ const COLONY: Words = {
         worktree: "cell",
         worktrees: "cells",
         branch: "strain",
+        branches: "strains",
         baseBranch: "mother strain",
         commit: "seal",
         commits: "seals",

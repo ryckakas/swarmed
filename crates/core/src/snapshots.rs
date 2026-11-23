@@ -17,7 +17,7 @@
 //! Ignored files include the likes of `.env`, so a snapshot may hold credentials: its folder
 //! is the user's alone, and what is in it is never logged.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -57,6 +57,44 @@ pub struct Snapshot {
     pub entries: usize,
 }
 
+/// One environment's snapshot as it lies on disk.
+#[derive(Debug, Clone)]
+pub(crate) struct SnapshotFolders {
+    /// The environment; `None` for tasks without one.
+    pub(crate) environment: Option<String>,
+    /// The snapshot kept, if one is.
+    pub(crate) snapshot: Option<Snapshot>,
+    /// Its folders: the snapshot's, and the one a taking that was cut short left beside it.
+    pub(crate) folders: Vec<PathBuf>,
+}
+
+/// Puts a folder of the snapshots' with the environment it is of: its snapshot's, or what a
+/// taking of one that was cut short left, under a name of [`BUILDING`]'s.
+fn file_folder(found: &mut BTreeMap<Option<String>, SnapshotFolders>, name: String, path: PathBuf) {
+    let (own, unfinished) = match name.strip_prefix(BUILDING) {
+        Some(rest) => (rest.to_string(), true),
+        None => (name, false),
+    };
+    let environment = (own != NO_ENVIRONMENT).then_some(own);
+    let listed = found
+        .entry(environment.clone())
+        .or_insert_with(|| SnapshotFolders {
+            environment,
+            snapshot: None,
+            folders: vec![],
+        });
+    if !unfinished {
+        listed.snapshot = read_about(&path);
+    }
+    listed.folders.push(path);
+}
+
+/// What is known about the snapshot in `folder`, if a whole one is there.
+fn read_about(folder: &Path) -> Option<Snapshot> {
+    let text = std::fs::read_to_string(folder.join(ABOUT)).ok()?;
+    toml::from_str(&text).ok()
+}
+
 fn failed(what: impl Into<String>) -> Error {
     Error::Snapshot(what.into())
 }
@@ -77,12 +115,10 @@ impl Core {
         // One that was being built when Swarmed ended is no snapshot.
         let whole =
             |entry: &std::fs::DirEntry| !entry.file_name().to_string_lossy().starts_with(BUILDING);
-        let read = |entry: std::fs::DirEntry| {
-            let text = std::fs::read_to_string(entry.path().join(ABOUT)).ok()?;
-            toml::from_str::<Snapshot>(&text).ok()
-        };
         let entries = entries.flatten().filter(whole);
-        let mut snapshots: Vec<Snapshot> = entries.filter_map(read).collect();
+        let mut snapshots: Vec<Snapshot> = entries
+            .filter_map(|entry| read_about(&entry.path()))
+            .collect();
         snapshots.sort_by(|a, b| a.environment.cmp(&b.environment));
         Ok(snapshots)
     }
@@ -185,7 +221,30 @@ impl Core {
                 "a snapshot of this environment is being taken; forget it once it is kept",
             ));
         };
+        // What a taking that was cut short left goes too: with the lock free, nothing is
+        // building there, and the next taking would only delete it first.
+        remove(&building_beside(&folder))?;
         remove(&folder)
+    }
+
+    /// Each environment's snapshot of a project as it lies on disk, for a clean-up to list:
+    /// the one of tasks without an environment first. An environment is listed when it has a
+    /// snapshot, or only what a taking that was cut short left.
+    pub(crate) fn snapshot_folders(&self, project: &str) -> Vec<SnapshotFolders> {
+        let folder = self.paths.data_dir.join("snapshots").join(project);
+        let Ok(entries) = std::fs::read_dir(folder) else {
+            return vec![];
+        };
+        let mut found: BTreeMap<Option<String>, SnapshotFolders> = BTreeMap::new();
+        // The lock files lie beside the folders, and are not folders.
+        let folders = entries
+            .flatten()
+            .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()));
+        for entry in folders {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            file_folder(&mut found, name, entry.path());
+        }
+        found.into_values().collect()
     }
 
     /// Puts the environment's snapshot into a fresh worktree, if there is one, saying which

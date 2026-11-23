@@ -5,6 +5,7 @@ import { useStore } from "../store";
 import { formatBytes, formatCpu, formatUsd, totalBytes } from "../usage";
 import { useWords } from "../useWords";
 import { ActivityCharts } from "./ActivityCharts";
+import { CleanupSettings } from "./CleanupSettings";
 
 /** How many worktrees are listed before the rest are summed up in one line. */
 const LISTED = 8;
@@ -43,6 +44,7 @@ export function UsageSettings() {
                 </div>
                 {usage && <Figures usage={usage} />}
             </section>
+            <CleanupSettings onCleaned={measure} />
         </>
     );
 }

@@ -115,6 +115,16 @@ Each hook runs with `sh -c` in the task's worktree, and an empty one is skipped.
    nor a remote: then it is kept, and you are told. From the command line the branch stays
    unless you pass `--delete-branch`. A branch on a remote is never touched.
 
+What removals leave behind can be deleted in Settings, under Storage and activity, in **Clean
+up**: worktrees of removed tasks that were not deleted yet, or could not be; the branches
+Swarmed made for removed tasks and kept; stale worktrees, which are folders beside your tasks'
+worktrees that no task owns and git's records of worktrees whose folder is gone; and snapshots.
+Each kind's button lists exactly what it deletes and asks first. A branch with commits on
+neither its base nor a remote, or a folder with changes never committed, is listed apart and
+deleted only if you tick it on its own. Nothing of a current task, no branch on a remote, no
+branch Swarmed did not make and no repository's own checkout is ever listed. `swarmed cleanup`
+does the same from the command line.
+
 Quitting the app ends its stacks' processes without running `stop`. From the command line,
 `swarmed task new` and `swarmed task setup` end the stack again when they exit, and
 `swarmed task start` keeps one running in the foreground.
@@ -178,7 +188,8 @@ next tasks start from it. A task whose `setup` is run again is kept only if it h
 succeeded before: one that had has been worked in since. Once what setup makes has changed, such as after a dependency update,
 take it again from a task set up since, in the app's Environments dialog or with
 `swarmed snapshot save <project> <task>`; forgetting it has the next task set up well kept
-instead.
+instead. Settings' **Clean up** lists every repository's snapshots with their size and age, to
+forget them all at once.
 
 ## Settings
 

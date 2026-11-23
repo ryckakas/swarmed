@@ -13,6 +13,7 @@ import type {
     BackgroundState,
     BackgroundTask,
     Check,
+    Cleanup,
     CloudProvider,
     CloudTask,
     Costs,
@@ -284,6 +285,118 @@ function mcpApi(): Pick<Api, "mcpServers" | "mcpSave" | "mcpRemove"> {
             own = own.filter((server) => server.name !== name);
             return all();
         },
+    };
+}
+
+const NOW_SECONDS = Math.floor(Date.now() / 1000);
+const DAY = 86_400;
+
+/** What the sample projects' removed tasks left behind, and their snapshots. */
+const SAMPLE_CLEANUP: Cleanup = {
+    removed: [
+        {
+            key: "/w/storefront/.removed/old-checkout-3-1",
+            project: "storefront",
+            name: "/w/storefront/.removed/old-checkout-3-1",
+            task: "old-checkout",
+            reason: "its task was removed, and it was not deleted, or could not be",
+            bytes: 1_240_000_000,
+            since: NOW_SECONDS - 3 * DAY,
+            at_risk: false,
+        },
+    ],
+    branches: [
+        {
+            key: "storefront:ada/old-checkout",
+            project: "storefront",
+            name: "ada/old-checkout",
+            task: "old-checkout",
+            reason: "everything on it is also on origin/main or a remote",
+            bytes: null,
+            since: NOW_SECONDS - 3 * DAY,
+            at_risk: false,
+        },
+        {
+            key: "storefront:ada/stuck",
+            project: "storefront",
+            name: "ada/stuck",
+            task: "stuck",
+            reason: "everything on it is also on origin/main or a remote",
+            bytes: null,
+            since: NOW_SECONDS - 40 * DAY,
+            at_risk: false,
+        },
+        {
+            key: "storefront:ada/spike-search",
+            project: "storefront",
+            name: "ada/spike-search",
+            task: "spike-search",
+            reason: "2 commits on it are on neither origin/main nor a remote",
+            bytes: null,
+            since: NOW_SECONDS - 12 * DAY,
+            at_risk: true,
+        },
+    ],
+    stale: [
+        {
+            key: "/w/storefront/tmp-build",
+            project: "storefront",
+            name: "/w/storefront/tmp-build",
+            task: null,
+            reason: "no task owns this folder",
+            bytes: 12_400_000,
+            since: NOW_SECONDS - 9 * DAY,
+            at_risk: false,
+        },
+        {
+            key: "/w/storefront/gone",
+            project: "storefront",
+            name: "/w/storefront/gone",
+            task: null,
+            reason: "git still keeps a record of this worktree, whose folder is gone",
+            bytes: null,
+            since: null,
+            at_risk: false,
+        },
+    ],
+    snapshots: [
+        {
+            key: "storefront:",
+            project: "storefront",
+            name: "tasks without an environment",
+            task: "invoice-export",
+            reason: "new tasks start from it; without it, their setup does all the work again",
+            bytes: 640_000_000,
+            since: NOW_SECONDS - 20 * DAY,
+            at_risk: false,
+        },
+    ],
+};
+
+/**
+ * Clean-up of the sample data: what is deleted is gone from the list and from the usage
+ * figures. One branch is refused, as git refuses a branch it cannot lock.
+ */
+function cleanupApi(): Pick<Api, "cleanup" | "cleanupClean" | "usage"> {
+    const listed: Cleanup = structuredClone(SAMPLE_CLEANUP);
+    const refused = "storefront:ada/stuck";
+    return {
+        cleanup: async () => structuredClone(listed),
+        cleanupClean: async (kind, keys) => {
+            const named = listed[kind].filter((item) => keys.includes(item.key));
+            const kept = named.filter((item) => item.key === refused);
+            const deleted = named.filter((item) => item.key !== refused).map((item) => item.key);
+            listed[kind] = listed[kind].filter((item) => !deleted.includes(item.key));
+            const reason = "git would not delete it: cannot lock ref 'refs/heads/ada/stuck'";
+            return {
+                deleted,
+                kept: kept.map((item) => ({ key: item.key, name: item.name, reason })),
+            };
+        },
+        usage: async () => ({
+            ...SAMPLE_USAGE,
+            removed_bytes: listed.removed.reduce((sum, item) => sum + (item.bytes ?? 0), 0),
+        }),
     };
 }
 
@@ -2496,7 +2609,7 @@ export function createMockApi(): Api {
         ...mcpApi(),
         ...templatesApi(),
         ...actionsApi(),
-        usage: async () => SAMPLE_USAGE,
+        ...cleanupApi(),
         costs: async () => SAMPLE_COSTS,
         ...snapshotApi(() => agent.projects),
         ...orderApi(() => agent.projects),

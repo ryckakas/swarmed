@@ -7,6 +7,9 @@ import type {
     BackgroundOutput,
     BackgroundTask,
     BranchChoices,
+    Cleaned,
+    Cleanup,
+    CleanupKind,
     CloudProvider,
     CloudTask,
     Costs,
@@ -75,6 +78,13 @@ export interface Api {
     /** Drops a kept prompt; returns the rest. */
     templateRemove(name: string): Promise<Template[]>;
     usage(): Promise<Usage>;
+    /** What removed tasks left behind, and the snapshots, as can be cleaned up. */
+    cleanup(): Promise<Cleanup>;
+    /**
+     * Deletes the things of one kind named by their keys, after listing them again: only
+     * what is still listed goes. Returns what was deleted, and what was not with why.
+     */
+    cleanupClean(kind: CleanupKind, keys: string[]): Promise<Cleaned>;
     /** What the agents report their work has cost: by day and by task. */
     costs(): Promise<Costs>;
     /** The project's snapshots: what new tasks of each environment start from. */

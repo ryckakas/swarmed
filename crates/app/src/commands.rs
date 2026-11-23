@@ -13,11 +13,12 @@ use serde::{Deserialize, Serialize};
 use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
     Action, AgentInfo, AgentSetup, ApiKeyInfo, BackgroundOutput, BackgroundTask, BranchChoices,
-    CloudOrigin, CloudProvider, CloudTask, Core, Costs, CustomLayout, Environment,
-    EnvironmentChoice, FileChange, FileDiff, FileListing, McpServerInput, McpServerView,
-    NewTaskOptions, Project, ProjectOverview, Pull, PullDraft, QueuedMessage, RemoveOptions,
-    SearchHit, Session, SessionOptions, SessionSettings, Settings, Skill, SlashCommand, Snapshot,
-    Task, TaskNaming, Template, TerminalConfig, TerminalOpened, TurnStats, Unpublished, Usage,
+    Cleaned, Cleanup, CleanupKind, CloudOrigin, CloudProvider, CloudTask, Core, Costs,
+    CustomLayout, Environment, EnvironmentChoice, FileChange, FileDiff, FileListing,
+    McpServerInput, McpServerView, NewTaskOptions, Project, ProjectOverview, Pull, PullDraft,
+    QueuedMessage, RemoveOptions, SearchHit, Session, SessionOptions, SessionSettings, Settings,
+    Skill, SlashCommand, Snapshot, Task, TaskNaming, Template, TerminalConfig, TerminalOpened,
+    TurnStats, Unpublished, Usage,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -99,6 +100,23 @@ pub(crate) fn mcp_remove(core: CoreState<'_>, name: String) -> Command<Vec<McpSe
 #[tauri::command]
 pub(crate) async fn usage(core: CoreState<'_>) -> Command<Usage> {
     Ok(core.usage().await?)
+}
+
+/// What can be cleaned up: removed worktrees not deleted yet, branches of removed tasks, stale
+/// worktrees and snapshots. Async: it measures folders and asks git.
+#[tauri::command]
+pub(crate) async fn cleanup(core: CoreState<'_>) -> Command<Cleanup> {
+    Ok(core.cleanup().await?)
+}
+
+/// Deletes what the user ticked of one kind, named by the keys it was listed with.
+#[tauri::command]
+pub(crate) async fn cleanup_clean(
+    core: CoreState<'_>,
+    kind: CleanupKind,
+    keys: Vec<String>,
+) -> Command<Cleaned> {
+    Ok(core.cleanup_clean(kind, Some(&keys)).await?)
 }
 
 /// What the agents report their work has cost: today, this week, in all, by task and by day.
