@@ -31,13 +31,63 @@ jobs:
       - name: Install Rust
         run: rustup toolchain install --no-self-update
 
-      # Tauri links against the system web view, which Linux has to be given.
+      # Tauri links against the system web view, which Linux has to be given. The packages and
+      # everything they depend on come to some 70 MB, fetched from whichever Ubuntu mirror the
+      # runner is handed, which is at times so slow that it took twenty minutes instead of half
+      # a minute. So the downloaded packages are kept in the cache and apt installs them from
+      # there. The four steps are the same in every job that builds the app crate.
+      #
+      # Still asked of the mirror every time: it is small, and it is what says which versions
+      # are current, so a cached package is never installed in place of a newer one.
+      - name: Read the package lists
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -o Acquire::Retries=3
+
+      # What apt would download, by file name and checksum and not by address: the mirror
+      # differs from runner to runner, the packages do not. A new version of any of them gives
+      # a new key, so a cache is either everything that is needed or not used at all.
+      - name: Name what is to be installed
+        if: runner.os == 'Linux'
+        id: wanted
+        env:
+          PACKAGES: libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
+        run: |
+          mkdir -p "$HOME/apt-archives/partial"
+          read -r -a packages <<< "$PACKAGES"
+          wanted=$(sudo apt-get install --print-uris -qq -o Acquire::ForceHash=SHA256 \
+            "${packages[@]}" | awk '{ print $2, $4 }')
+          echo "key=$(sha256sum <<< "$wanted" | cut -c1-32)" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the packages
+        if: runner.os == 'Linux'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/apt-archives/*.deb
+          key: apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.wanted.outputs.key }}
+
+      # apt takes a package it finds among the archives by its name and size alone, and
+      # downloads only what is missing. So each cached package is first held to the checksum
+      # the signed lists give for it, and one that differs is dropped and fetched again: what
+      # is installed is what the mirror would have sent, whatever the cache held. What apt
+      # downloaded is left there to be cached, and handed to the runner's user, who has to
+      # read it for that.
       - name: Install Tauri's Linux dependencies
         if: runner.os == 'Linux'
+        env:
+          PACKAGES: libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libxdo-dev
+          read -r -a packages <<< "$PACKAGES"
+          sudo apt-get install --print-uris -qq -o Acquire::ForceHash=SHA256 "${packages[@]}" |
+            while read -r _ name _ sum; do
+              file="$HOME/apt-archives/$name"
+              if [ -f "$file" ] && ! sha256sum --check --status <<< "${sum#SHA256:}  $file"; then
+                echo "::warning::$name in the cache is not the package the lists name"
+                rm -f "$file"
+              fi
+            done
+          sudo apt-get install -y -o Acquire::Retries=3 \
+            -o Dir::Cache::Archives="$HOME/apt-archives" "${packages[@]}"
+          sudo chown -R "$(id -u)" "$HOME/apt-archives"
 
       # The app embeds ui/dist at compile time. The UI job builds the real one; the Rust jobs
       # only need the directory to exist.
@@ -218,13 +268,63 @@ jobs:
       - name: Install Rust
         run: rustup toolchain install --no-self-update
 
-      # Tauri links against the system web view, which Linux has to be given.
+      # Tauri links against the system web view, which Linux has to be given. The packages and
+      # everything they depend on come to some 70 MB, fetched from whichever Ubuntu mirror the
+      # runner is handed, which is at times so slow that it took twenty minutes instead of half
+      # a minute. So the downloaded packages are kept in the cache and apt installs them from
+      # there. The four steps are the same in every job that builds the app crate.
+      #
+      # Still asked of the mirror every time: it is small, and it is what says which versions
+      # are current, so a cached package is never installed in place of a newer one.
+      - name: Read the package lists
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -o Acquire::Retries=3
+
+      # What apt would download, by file name and checksum and not by address: the mirror
+      # differs from runner to runner, the packages do not. A new version of any of them gives
+      # a new key, so a cache is either everything that is needed or not used at all.
+      - name: Name what is to be installed
+        if: runner.os == 'Linux'
+        id: wanted
+        env:
+          PACKAGES: libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
+        run: |
+          mkdir -p "$HOME/apt-archives/partial"
+          read -r -a packages <<< "$PACKAGES"
+          wanted=$(sudo apt-get install --print-uris -qq -o Acquire::ForceHash=SHA256 \
+            "${packages[@]}" | awk '{ print $2, $4 }')
+          echo "key=$(sha256sum <<< "$wanted" | cut -c1-32)" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the packages
+        if: runner.os == 'Linux'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/apt-archives/*.deb
+          key: apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.wanted.outputs.key }}
+
+      # apt takes a package it finds among the archives by its name and size alone, and
+      # downloads only what is missing. So each cached package is first held to the checksum
+      # the signed lists give for it, and one that differs is dropped and fetched again: what
+      # is installed is what the mirror would have sent, whatever the cache held. What apt
+      # downloaded is left there to be cached, and handed to the runner's user, who has to
+      # read it for that.
       - name: Install Tauri's Linux dependencies
         if: runner.os == 'Linux'
+        env:
+          PACKAGES: libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libxdo-dev
+          read -r -a packages <<< "$PACKAGES"
+          sudo apt-get install --print-uris -qq -o Acquire::ForceHash=SHA256 "${packages[@]}" |
+            while read -r _ name _ sum; do
+              file="$HOME/apt-archives/$name"
+              if [ -f "$file" ] && ! sha256sum --check --status <<< "${sum#SHA256:}  $file"; then
+                echo "::warning::$name in the cache is not the package the lists name"
+                rm -f "$file"
+              fi
+            done
+          sudo apt-get install -y -o Acquire::Retries=3 \
+            -o Dir::Cache::Archives="$HOME/apt-archives" "${packages[@]}"
+          sudo chown -R "$(id -u)" "$HOME/apt-archives"
 
       # The app embeds ui/dist at compile time. The UI job builds the real one; the Rust jobs
       # only need the directory to exist.
