@@ -470,8 +470,8 @@ impl Core {
         if let Some(scale) = asked.choice("text_size")? {
             settings.text_scale = scale;
         }
-        // Done at once like the rest: it only changes what conversations say of usage, and a
-        // limit reached is said whatever it is.
+        // Done at once like the rest: it only changes which levels the usage notice says, and
+        // a limit that stops requests is said whatever it is.
         if let Some(warnings) = asked.choice::<LimitWarnings>("limit_warnings")? {
             settings.limit_warnings = warnings;
         }
@@ -740,8 +740,8 @@ fn appearance_of(settings: &Settings) -> String {
          ember, swarm); style {style} (plain, swarm, colony); layout {layout} (classic, senior, custom: \
          see kind layout); \
          text_size {} (80 to 150); tool_calls {tool_calls} (all, folded, hidden); \
-         limit_warnings {warnings} (frequent: each of Claude Code's usage warnings; rare: only \
-         from 75% used; none)",
+         limit_warnings {warnings} (which levels the usage notice at the top of the window says; \
+         frequent: from 50% used; rare: from 90% used; none: only requests stopped)",
         settings.text_scale
     )
 }

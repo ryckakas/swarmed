@@ -218,7 +218,7 @@ export const TOOL_CALLS: [ToolCalls, string][] = [
 /** How often a conversation can say that Claude Code warns of a usage limit. */
 export const LIMIT_WARNINGS: [LimitWarnings, string][] = [
     ["frequent", "Frequent"],
-    ["rare", "Rare, from 75% used"],
+    ["rare", "Rare, from 90% used"],
     ["none", "None"],
 ];
 

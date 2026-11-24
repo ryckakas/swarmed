@@ -87,19 +87,35 @@ are yellow and red likewise. Like the card, the triangle follows the figures las
 appears after the turn that passes 75%, in every Claude Code session, and goes when the window
 resets.
 
-The conversation also says when Claude Code warns that a window is filling up, which it can do
-from about half of it. **Usage warnings** in Settings, under Storage and activity, chooses how
-often:
+While a Claude Code session is on screen, a notice at the top of the window says how far the
+account's usage has come, with the window, how much of it is used and when it resets. It is
+worked out from the same figures as the coins, the newest any session heard, so it is the same
+in every session, and it shows one level, the highest any window has reached:
 
-- **Frequent**, the default: each warning Claude Code gives, once for as long as the same
-  window keeps warning.
-- **Rare**: only once a window is at least 75% used, the same mark as the coins, and once.
-  A warning that does not say how full its window is says nothing.
-- **None**: no warnings in the conversation.
+1. 50% of a window used;
+2. 75% used;
+3. 90% used;
+4. **billed**: a limit is reached and extra usage pays for the work, which goes on;
+5. **stopped**: a limit is reached and nothing pays, so Claude Code's requests are refused.
 
-Whatever you choose, the conversation says when a limit is reached and when Claude Code goes on
-with extra usage, which is billed, and the coins and the card show the same. An agent can change
-it for you with `configure`.
+Claude Code reports one window at a time, after each turn and often several times in one, so
+nothing is said per report: a report only raises or lowers the level. Dismiss the notice and it
+stays away in every session, and after Swarmed starts again, until a window reaches a higher
+level, or a window that has reset since climbs back to one. The dismissal is kept on this Mac.
+
+The conversation says nothing of usage, except where a limit stopped a turn with nothing to pay
+past it: that turn keeps one line, which says why the agent stopped. Conversations recorded
+before show no other usage lines either.
+
+**Usage warnings** in Settings, under Storage and activity, chooses which levels the notice
+says:
+
+- **Frequent**, the default: every level.
+- **Rare**: from 90% used: 90%, billed and stopped.
+- **None**: only stopped.
+
+The coins and the card show the same whatever you choose. An agent can change it for you with
+`configure`.
 
 ### Sending a command or sub-agent to the background
 
@@ -293,7 +309,7 @@ Claude Code may call `show_html` without asking; in Ask mode you are asked about
 agents decide for themselves which calls they ask about.
 
 `configure` makes some changes at once: saved prompts, actions that send a prompt, the status
-line's pieces, the looks, how often Claude Code's usage warnings are said, the terminal's
+line's pieces, the looks, which levels the usage notice says, the terminal's
 settings, and removing an action, a prompt or the status line's script. Adding a rule, saving an environment, an action that runs a command, a status
 line script, or hiding tool calls it can only propose: the change is shown in the conversation and made when you
 accept it. API keys, MCP servers, sign-ins, supervision, notes and the branch prefix are out of its reach, and it

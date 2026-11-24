@@ -48,10 +48,9 @@ interface Props {
 export function Transcript({ sessionId, events, working, sendsToBackground }: Props) {
     const words = useWords();
     const toolCalls = useStore((state) => state.settings?.tool_calls ?? "folded");
-    const warnings = useStore((state) => state.settings?.limit_warnings ?? "frequent");
     const items = useMemo(
-        () => shownTools(toItems(events, words, warnings), toolCalls),
-        [events, words, warnings, toolCalls],
+        () => shownTools(toItems(events, words), toolCalls),
+        [events, words, toolCalls],
     );
     const lastMove = useMemo(() => latestMove(items), [items]);
     const sendsFrom = working && sendsToBackground ? sessionId : null;

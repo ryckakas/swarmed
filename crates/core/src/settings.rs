@@ -41,7 +41,7 @@ pub struct Settings {
     pub html_views: bool,
     /// How the agents' tool calls show in a conversation.
     pub tool_calls: ToolCalls,
-    /// What a conversation says when Claude Code warns that a usage window fills up.
+    /// Which levels of the account's usage the notice at the top of the window says.
     pub limit_warnings: LimitWarnings,
     /// The built-in pieces of the status line under the message box, in order.
     pub status_items: Vec<StatusItem>,
@@ -139,21 +139,21 @@ pub enum ToolCalls {
     Hidden,
 }
 
-/// What a conversation says when Claude Code warns that a usage window fills up.
+/// Which levels of the account's usage the notice at the top of the window says.
 ///
-/// A limit reached, and work that goes on with extra usage, are said whatever this is, and the
-/// usage coins show the same either way.
+/// The levels are 50%, 75% and 90% of a window used, a limit reached with extra usage paying
+/// for the work, and a limit reached with nothing paying, so that requests are refused. The
+/// conversation says only a turn a limit refused, and the usage coins show the same whatever
+/// this is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LimitWarnings {
-    /// Each warning Claude Code gives, once for as long as the same window keeps warning. It
-    /// warns from about half a window.
+    /// Every level, from 50% of a window used.
     #[default]
     Frequent,
-    /// Only once a window is at least 75% used, when the usage coins warn too, and once for
-    /// as long as it stays there.
+    /// From 90% of a window used: 90%, billed and stopped.
     Rare,
-    /// None at all.
+    /// Only a limit that stops requests.
     None,
 }
 

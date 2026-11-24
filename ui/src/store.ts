@@ -18,6 +18,7 @@ import type {
 } from "./api/types";
 import type { CloudTarget } from "./cloud";
 import type { Comparison } from "./components/CompareDialog";
+import { type Dismissed, readDismissed } from "./rateLimit";
 import type { Browsing } from "./recall";
 import { type ReviewComment, withComment } from "./review";
 import { type Draft, NO_DRAFT, putBack, withDraft } from "./sending";
@@ -139,6 +140,12 @@ interface State {
     hookLine: string | null;
     /** The last thing that went wrong when acting on a session, shown until dismissed. */
     problem: string | null;
+    /**
+     * The usage notice as it was last dismissed, for the account and kept on this machine:
+     * it stays away in every session until a higher level, or until its window resets.
+     */
+    usageDismissed: Dismissed | null;
+    dismissUsage(dismissed: Dismissed): void;
     refresh(api: Api): Promise<void>;
     /** Selects a session and loads its transcript if it has not been opened yet. */
     open(api: Api, sessionId: number): Promise<void>;
@@ -440,6 +447,16 @@ const PANEL_OPEN = "swarmed.panel-open";
 const STATUS_OPEN = "swarmed.status-open";
 const FOLDED = "swarmed.folded-projects";
 const FOLDED_TASKS = "swarmed.folded-tasks";
+const USAGE_DISMISSED = "swarmed.usage-dismissed";
+
+/** The usage notice's dismissal as this machine kept it; `null` for none, or none readable. */
+function readUsageDismissed(): Dismissed | null {
+    try {
+        return readDismissed(JSON.parse(localStorage.getItem(USAGE_DISMISSED) ?? "null"));
+    } catch {
+        return null;
+    }
+}
 
 /** A list of ids remembered on this machine; empty if nothing usable is stored. */
 function readIds(key: string): number[] {
@@ -702,6 +719,11 @@ export const useStore = create<State>((set, get) => ({
     accountUsage: null,
     hookLine: null,
     problem: null,
+    usageDismissed: readUsageDismissed(),
+    dismissUsage: (dismissed) => {
+        writeStored(USAGE_DISMISSED, JSON.stringify(dismissed));
+        set({ usageDismissed: dismissed });
+    },
     settings: null,
     panelOpen: readFlag(PANEL_OPEN, true),
     togglePanel: () => {

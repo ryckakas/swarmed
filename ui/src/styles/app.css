@@ -2257,6 +2257,20 @@ code {
     user-select: text;
 }
 
+/* The account's usage notice: a warning, below the window's own problems. */
+.usage-notice {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    margin: 0 var(--space-6) var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-left: 2px solid var(--pollen);
+    background: color-mix(in srgb, var(--pollen) 12%, transparent);
+    user-select: text;
+}
+
 .session {
     flex: 1;
     display: flex;

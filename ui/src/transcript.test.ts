@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentEvent, LimitWarnings, RemoteState } from "./api/types";
+import type { AgentEvent, RemoteState } from "./api/types";
 import {
     activity,
     fileName,
@@ -134,34 +134,35 @@ describe("toItems", () => {
         ]);
     });
 
-    it("says Claude Code's usage warnings as the setting says, and a limit reached always", () => {
-        const warning = (utilization: number): AgentEvent => ({
+    it("says no usage report but a turn a limit refused, once, where it stopped", () => {
+        const report = (status: string, raw: Record<string, unknown>): AgentEvent => ({
             type: "rate_limit",
-            status: "allowed_warning",
+            status,
             resets_at: null,
-            raw: { rateLimitType: "seven_day", utilization },
+            raw,
         });
-        const reached: AgentEvent = {
-            type: "rate_limit",
-            status: "rejected",
-            resets_at: null,
-            raw: {},
-        };
-        const events = [warning(0.5), warning(0.8), reached];
-        const said = (mode: LimitWarnings) =>
-            toItems(events, wordsFor("plain"), mode).map((item) =>
-                item.kind === "notice" ? item.text : item.kind,
-            );
-        expect(said("frequent")).toEqual([
-            "Claude Code warns that the weekly limit is getting closer: 50% used. Nothing is limited yet.",
-            "Usage limit reached.",
+        // What session 95 heard on 24 Nov, two windows in turn, with every turn.
+        const warning = report("allowed_warning", {
+            rateLimitType: "seven_day",
+            utilization: 0.99,
+        });
+        const billed = report("rejected", {
+            rateLimitType: "seven_day_overage_included",
+            isUsingOverage: true,
+        });
+        const done: AgentEvent = { type: "turn_done", is_error: false, result: null, cost_usd: 1 };
+        expect(kinds([warning, billed, done, warning, billed, done])).toEqual(["turn", "turn"]);
+        // Refused, with nothing paying: the turn stops there, and says why, once.
+        const refused = report("rejected", { rateLimitType: "five_hour" });
+        const failed: AgentEvent = { type: "turn_done", is_error: true, result: null, cost_usd: 1 };
+        const said = toItems([warning, refused, refused, failed, refused]).map((item) =>
+            item.kind === "notice" ? item.text : item.kind,
+        );
+        expect(said).toEqual([
+            "Usage limit reached (5-hour).",
+            "turn",
+            "Usage limit reached (5-hour).",
         ]);
-        expect(toItems(events).length).toBe(2);
-        expect(said("rare")).toEqual([
-            "Claude Code warns that the weekly limit is getting closer: 80% used. Nothing is limited yet.",
-            "Usage limit reached.",
-        ]);
-        expect(said("none")).toEqual(["Usage limit reached."]);
     });
 
     it("describes what a session loaded", () => {

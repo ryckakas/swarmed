@@ -566,6 +566,14 @@ async fn decide(core: &Core, id: i64, typed: &mut Typed, request_id: &str) -> Re
     Ok(())
 }
 
+/// Whether a usage report says a limit refused the turn: reached, with no extra usage paying.
+fn refused(status: &str, raw: &Value) -> bool {
+    let set = |key: &str| raw.get(key).and_then(Value::as_bool) == Some(true);
+    !matches!(status, "allowed" | "allowed_warning")
+        && !set("isUsingOverage")
+        && !set("overageInUse")
+}
+
 /// The line an event is shown as, or `None` for events not worth a line.
 pub(crate) fn describe(event: &AgentEvent) -> Option<String> {
     match event {
@@ -632,9 +640,13 @@ pub(crate) fn describe(event: &AgentEvent) -> Option<String> {
                 summary(input)
             ))
         }
+        // Only a turn a limit refused, as in the window: a warning, or a limit extra usage
+        // pays past, is for `swarmed limits`, and Claude Code reports them with every turn.
         AgentEvent::RateLimit {
-            status, resets_at, ..
-        } if status != "allowed" => Some(format!(
+            status,
+            resets_at,
+            raw,
+        } if refused(status, raw) => Some(format!(
             "usage limit: {status}, resets at {}",
             resets_at.unwrap_or_default()
         )),
@@ -779,6 +791,20 @@ mod tests {
             raw: json!({}),
         };
         assert_eq!(describe(&allowed), None);
+        let report = |status: &str, raw: Value| AgentEvent::RateLimit {
+            status: status.into(),
+            resets_at: Some(1_795_813_200),
+            raw,
+        };
+        let warning = report("allowed_warning", json!({ "utilization": 0.99 }));
+        assert_eq!(describe(&warning), None);
+        let billed = report("rejected", json!({ "isUsingOverage": true }));
+        assert_eq!(describe(&billed), None);
+        let refused = report("rejected", json!({}));
+        assert_eq!(
+            describe(&refused).as_deref(),
+            Some("usage limit: rejected, resets at 1795813200")
+        );
     }
 
     #[test]

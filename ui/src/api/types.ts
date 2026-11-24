@@ -365,8 +365,8 @@ export type StatusItem =
 export type ToolCalls = "all" | "folded" | "hidden";
 
 /**
- * What a conversation says when Claude Code warns that a usage window fills up: each warning,
- * only those from 75% used, or none. A limit reached, and work that goes on billed, always show.
+ * Which levels of the account's usage the notice at the top of the window says: every one
+ * (50%, 75%, 90% used, billed, stopped), from 90% used, or only requests stopped.
  */
 export type LimitWarnings = "frequent" | "rare" | "none";
 
@@ -393,7 +393,7 @@ export interface Settings {
     html_views: boolean;
     /** How the agents' tool calls show in a conversation. */
     tool_calls: ToolCalls;
-    /** What a conversation says when Claude Code warns that a usage window fills up. */
+    /** Which levels of the account's usage the notice at the top of the window says. */
     limit_warnings: LimitWarnings;
     /** Whether the system notifies when a session needs you, finishes or fails out of sight. */
     notifications: boolean;

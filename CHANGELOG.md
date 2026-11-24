@@ -72,11 +72,16 @@ notice adds its line under Unreleased.
   you leave out looks as it does now, and the repository's name now grows with the text sizes
   like everything else. Colours that would be hard to read are refused with the reason. Ask an
   agent to change the layout, or edit it in Settings.
-- **Fewer usage warnings in the conversation, or none.** Claude Code warns that a usage window
-  is getting closer from about half of it, and every session said so. **Usage warnings** in
-  Settings, under Storage and activity, keeps each warning (Frequent, as before), says one only
-  once a window is at least 75% used (Rare), or says none. A limit reached, and work that goes
-  on with extra usage, are always said, and the usage coins show the same whatever you choose.
+- **One usage notice at the top of the window, in place of lines in the conversation.**
+  Claude Code reports each usage window in turn, several times a turn, and the conversation
+  repeated two lines with every turn once a limit was near. Now a notice at the top of the
+  window, while a Claude Code session is on screen, shows the highest level the account has
+  reached: 50%, 75% or 90% of a window used, a limit reached with extra usage paying, or a
+  limit that stops requests, with the window and when it resets. It is the same in every
+  session. Dismiss it and it stays away in all of them, and after a restart, until a higher
+  level is reached or its window resets and climbs back. The conversation keeps one line only
+  where a limit stopped a turn. **Usage warnings** in Settings, under Storage and activity,
+  picks the levels: every one (Frequent), from 90% (Rare), or only requests stopped (None).
   An agent can change it for you too.
 
 ### Changed

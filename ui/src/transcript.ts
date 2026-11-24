@@ -1,7 +1,7 @@
-import type { AgentEvent, LimitWarnings, ScreenSection, ToolCalls } from "./api/types";
+import type { AgentEvent, ScreenSection, ToolCalls } from "./api/types";
 import { shownHtml } from "./htmlview";
 import { QUESTION_TOOL, type Question, questionsOf } from "./questions";
-import { limitNotice, type RateLimit } from "./rateLimit";
+import { type RateLimit, refusalNotice } from "./rateLimit";
 import { type Words, wordsFor } from "./wording";
 
 // Turns a session's raw events into what the transcript shows. Pure, so it can be tested.
@@ -279,10 +279,8 @@ interface Draft {
     proposals: Map<string, Extract<Item, { kind: "proposal" }>>;
     /** What commands asked the user, by request id. */
     asked: Map<string, Extract<Item, { kind: "asked" }>>;
-    /** Claude Code's last usage report, so that a warning is said once. */
-    limit: RateLimit | null;
-    /** Which of Claude Code's usage warnings are said: the user's setting. */
-    warnings: LimitWarnings;
+    /** Whether the turn under way was said to be refused by a usage limit, so it is said once. */
+    refused: boolean;
     /** Where Remote Control was last shown to be on, so that it is said once until it ends. */
     remoteAt: string | null;
     /** The style's words, for what the items say of their own. */
@@ -291,13 +289,10 @@ interface Draft {
 
 /**
  * The transcript items for a session's events, in order. Tool results join their calls. Of
- * Claude Code's usage warnings, those `warnings` says are kept.
+ * Claude Code's usage reports, only a turn a limit refused is said: the rest are the usage
+ * notice's, at the top of the window.
  */
-export function toItems(
-    events: AgentEvent[],
-    words: Words = wordsFor("plain"),
-    warnings: LimitWarnings = "frequent",
-): Item[] {
+export function toItems(events: AgentEvent[], words: Words = wordsFor("plain")): Item[] {
     const draft: Draft = {
         items: [],
         tools: new Map(),
@@ -305,8 +300,7 @@ export function toItems(
         settled: new Set(),
         proposals: new Map(),
         asked: new Map(),
-        limit: null,
-        warnings,
+        refused: false,
         remoteAt: null,
         words,
     };
@@ -436,6 +430,7 @@ function add(draft: Draft, event: AgentEvent, key: number) {
             draft.settled.add(request);
         }
         draft.open.clear();
+        draft.refused = false;
     }
     switch (event.type) {
         case "tool_use":
@@ -542,10 +537,11 @@ function answerAsked(
     draft.items.push({ kind: "asked", key, requestId, command, questions: [], said });
 }
 
+/** A turn a usage limit refused keeps one line where it stopped, which says why. */
 function addLimit(draft: Draft, event: RateLimit, key: number) {
-    const text = limitNotice(event, draft.limit, new Date(), draft.warnings);
-    draft.limit = event;
-    if (text !== null) {
+    const text = refusalNotice(event, new Date());
+    if (text !== null && !draft.refused) {
+        draft.refused = true;
         draft.items.push({ kind: "notice", key, tone: "warning", text });
     }
 }
