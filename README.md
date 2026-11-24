@@ -49,8 +49,8 @@ once: each has its own worktree and ports, so they don't step on each other. A d
 - **Chats, with no repository.** New task starts a chat unless you pick a repository: for a
   question, a repository you have not added, or several agents' opinions on one thing. Each
   chat gets an empty folder of its own and is listed under General. A chat can read and message
-  the sessions in your repositories, and when it turns into work, it carries on in a new task of
-  a repository with the whole conversation.
+  the sessions in your repositories, which can answer it, and when it turns into work, it
+  carries on in a new task of a repository with the whole conversation.
 - **Made yours, by hand or by an agent.** Six palettes and a layout of your own sizes, fonts and
   colours; the terminal and the status line; buttons that send a prompt or run a command; saved
   prompts, rules for every agent, and environments for setting tasks up. Change them in the app,

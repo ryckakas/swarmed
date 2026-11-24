@@ -277,7 +277,7 @@ async fn sessions_of_another_project_are_out_of_reach() {
 }
 
 #[tokio::test]
-async fn a_chat_reaches_every_repository_and_each_can_answer_it() {
+async fn a_chat_reaches_every_repository_and_each_can_answer_but_not_read_it() {
     let fx = fixture();
     let core = core_with_task(&fx).await;
     let in_repository = new_session(&core);
@@ -298,12 +298,19 @@ async fn a_chat_reaches_every_repository_and_each_can_answer_it() {
     assert!(listed.contains("chat question"), "{listed}");
     core.peer_digest(chat.id, in_repository.id, None)
         .expect("reads a repository's session");
-    // And a session in a repository can answer the chat that wrote to it.
+    // A session in a repository can answer the chat that wrote to it.
+    let answered = core
+        .peer_message(in_repository.id, chat.id, "Here is what you asked for.")
+        .expect("writes to the chat");
+    assert_eq!(answered, Delivery::Sent);
+    // It can neither list nor read one: a chat may hold what it read of another repository.
     let back = core.peer_sessions(in_repository.id).expect("lists");
-    assert!(back.contains("chat question"), "{back}");
+    assert!(!back.contains("chat question"), "{back}");
     assert!(back.contains("task one"), "{back}");
-    core.peer_digest(in_repository.id, chat.id, None)
-        .expect("reads the chat");
+    let refusal = core
+        .peer_digest(in_repository.id, chat.id, None)
+        .expect_err("a chat is not read from a repository");
+    assert!(matches!(refusal, Error::Peers(_)), "{refusal}");
 }
 
 #[tokio::test]

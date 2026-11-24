@@ -18,7 +18,7 @@ import {
     variantLabel,
     variantNames,
 } from "../broadcast";
-import { newTaskPlace, newTaskSays, repositoryChoices } from "../chats";
+import { branchAsked, newTaskPlace, newTaskSays, repositoryChoices } from "../chats";
 import {
     environmentChoice,
     environmentOptions,
@@ -63,6 +63,14 @@ export function NewTask({ projects }: { projects: Project[] }) {
     const words = useStore((state) => wordsFor(state.settings?.style));
     const [chosen, setChosen] = useState<string | null>(null);
     const [branch, setBranch] = useState(NEW_BRANCH);
+    // The view stays when it is opened again, for another repository or for none: what was
+    // picked for the last one must not stand in the way of this one, nor its branch be sent.
+    const [openedFor, setOpenedFor] = useState(draftProject);
+    if (openedFor !== draftProject) {
+        setOpenedFor(draftProject);
+        setChosen(null);
+        setBranch(NEW_BRANCH);
+    }
     // The menu starts on the default from the settings and keeps what the user picks.
     const defaultSupervision = useStore((state) => state.settings?.default_supervision);
     const [pickedSupervision, setSupervision] = useState<Supervision | null>(null);
@@ -94,7 +102,8 @@ export function NewTask({ projects }: { projects: Project[] }) {
 
     // A removed task's name too, since its branch may still be there. The core has the last
     // word: it steps past branches here and on a remote, and the task it makes says its name.
-    const base = branch === NEW_BRANCH ? taskNameForPrompt(prompt) : taskNameFrom(branch);
+    const from = branchAsked(repository, branch, NEW_BRANCH);
+    const base = from === null ? taskNameForPrompt(prompt) : taskNameFrom(from);
     const name = uniqueTaskName(base || "task", taken);
     const canSend = prompt.trim() !== "" && creating === null;
 
@@ -107,14 +116,14 @@ export function NewTask({ projects }: { projects: Project[] }) {
         try {
             // A task on a new branch is named for what it is about; one on an existing branch
             // keeps that branch's name.
-            const naming = branch === NEW_BRANCH ? await named(home, prompt.trim()) : null;
+            const naming = from === null ? await named(home, prompt.trim()) : null;
             const chosen = naming ? uniqueTaskName(naming.name, taken) : name;
             setCreating(chosen);
             const start = {
                 project: home,
                 name: chosen,
                 title: naming?.title ?? null,
-                branch: branch === NEW_BRANCH ? null : branch,
+                branch: from,
                 environment: environmentChoice(environments.names, environment),
                 setup: setupFor(agentId, model, supervision, effort, fast),
                 prompt: expandPastes(prompt.trim()),

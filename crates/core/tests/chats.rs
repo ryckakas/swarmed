@@ -140,6 +140,33 @@ async fn what_only_a_repository_has_is_refused_for_a_chat() {
         core.task_unpublished(CHATS, "question").await.map(drop)
     ));
     assert!(no_repository(core.task_push(CHATS, "question").await));
+    assert!(no_repository(
+        core.task_diff(CHATS, "question", "a.txt").await.map(drop)
+    ));
+    assert!(no_repository(
+        core.task_switch(CHATS, "question", "main").await
+    ));
+    assert!(no_repository(
+        core.task_commit(CHATS, "question", "a message").await
+    ));
+    assert!(no_repository(
+        core.task_pull(CHATS, "question").await.map(drop)
+    ));
+    assert!(no_repository(
+        core.task_pull_draft(CHATS, "question").await.map(drop)
+    ));
+    assert!(no_repository(
+        core.snapshot_save(CHATS, "question").await.map(drop)
+    ));
+    assert!(no_repository(core.stack_start(CHATS, "question").map(drop)));
+    assert!(no_repository(
+        core.stack_stop(CHATS, "question", &hooks::discard).await
+    ));
+    assert!(no_repository(
+        core.task_setup(CHATS, "question", &hooks::discard)
+            .await
+            .map(drop)
+    ));
     let on_branch = NewTaskOptions {
         existing_branch: Some("main"),
         ..NewTaskOptions::default()
@@ -148,6 +175,30 @@ async fn what_only_a_repository_has_is_refused_for_a_chat() {
         .task_new(CHATS, "other", on_branch, &hooks::discard)
         .await;
     assert!(no_repository(refused.map(drop)));
+}
+
+#[tokio::test]
+async fn cleanup_keeps_a_chat_and_holds_back_a_stray_folder_that_holds_files() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    let made = chat(&core, "question").await;
+    let home = made.worktree_path.parent().expect("the chats' folder");
+    std::fs::create_dir(home.join("empty")).expect("test setup");
+    std::fs::create_dir(home.join("left")).expect("test setup");
+    std::fs::write(home.join("left/draft.md"), "kept?\n").expect("test setup");
+
+    let stale = core.cleanup().await.expect("lists").stale;
+    let at_risk = |name: &str| {
+        let folder = home.join(name).to_string_lossy().into_owned();
+        stale
+            .iter()
+            .find(|item| item.key == folder)
+            .map(|item| item.at_risk)
+    };
+    // The chat's own folder is no item; a stray one goes unasked only while it is empty.
+    assert_eq!(at_risk("question"), None);
+    assert_eq!(at_risk("empty"), Some(false));
+    assert_eq!(at_risk("left"), Some(true));
 }
 
 #[tokio::test]

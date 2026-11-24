@@ -295,7 +295,7 @@ impl Core {
         let mut items = vec![];
         for project in &projects {
             let area = self.paths.worktrees_root.join(&project.name);
-            items.extend(stale_folder_items(&project.name, stale_folders(&area, &keep)).await);
+            items.extend(stale_folder_items(project, stale_folders(&area, &keep)).await);
             // Chats' folders are no worktrees: git has no records of them.
             let records = match project.repo() {
                 Ok(repo) => gone_records(repo, &keep).await,
@@ -626,12 +626,30 @@ fn stale_folders(area: &Path, keep: &Kept) -> Vec<PathBuf> {
 }
 
 /// The folders no task owns, as items.
-async fn stale_folder_items(project: &str, folders: Vec<PathBuf>) -> Vec<Measured> {
+async fn stale_folder_items(project: &Project, folders: Vec<PathBuf>) -> Vec<Measured> {
     let mut items = Vec::with_capacity(folders.len());
     for folder in folders {
-        items.push(stale_folder_item(project, folder).await);
+        // A chat's folder is no worktree: what it holds is in no repository to look in.
+        let risk = if project.chats {
+            files_in(&folder)
+        } else {
+            work_in(&folder).await
+        };
+        items.push(stale_folder_item(&project.name, folder, risk));
     }
     items
+}
+
+/// Why deleting a chat's folder that no chat owns would lose something, if it would: it holds
+/// anything at all, or cannot be read to tell. An agent's files there exist nowhere else.
+fn files_in(folder: &Path) -> Option<String> {
+    match std::fs::read_dir(folder).map(|mut entries| entries.next().is_some()) {
+        Ok(false) => None,
+        Ok(true) => Some("it holds files that exist nowhere else".to_string()),
+        Err(error) => Some(format!(
+            "it could not be read to tell what it holds: {error}"
+        )),
+    }
 }
 
 /// The worktrees of the repository at `repo` whose folder is gone, which no current task owns.
@@ -667,8 +685,7 @@ fn is_there(path: &Path) -> bool {
 }
 
 /// A folder no task owns, with what deleting it would lose, if anything.
-async fn stale_folder_item(project: &str, folder: PathBuf) -> Measured {
-    let risk = work_in(&folder).await;
+fn stale_folder_item(project: &str, folder: PathBuf, risk: Option<String>) -> Measured {
     let item = CleanupItem {
         key: folder.to_string_lossy().into_owned(),
         project: project.to_string(),

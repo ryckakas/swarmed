@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { sampleProjects } from "./api/mock";
 import type { Project } from "./api/types";
 import {
+    branchAsked,
     CHATS,
     chatsOf,
+    inSidebarOrder,
     isChats,
     newTaskPlace,
     newTaskRepository,
@@ -46,6 +48,26 @@ describe("the chats and the repositories", () => {
         expect(chatsOf(noChats)).toBeUndefined();
         expect(isChats(CHATS)).toBe(true);
         expect(isChats("general")).toBe(false);
+    });
+
+    it("are listed with the chats first, wherever the core keeps them", () => {
+        // The sample keeps the chats last, as the core does a home made after a repository.
+        expect(projects.at(-1)?.chats).toBe(true);
+        expect(inSidebarOrder(projects).map((one) => one.name)).toEqual([
+            CHATS,
+            "storefront",
+            "bonsai-lint",
+            "fsum",
+        ]);
+        expect(inSidebarOrder(noChats)).toEqual(noChats);
+    });
+
+    it("ask for an existing branch only in a repository", () => {
+        const repository = noChats[0] ?? null;
+        expect(branchAsked(repository, "main", "new")).toBe("main");
+        expect(branchAsked(repository, "new", "new")).toBeNull();
+        // One picked for a repository before is not sent for a chat.
+        expect(branchAsked(null, "main", "new")).toBeNull();
     });
 
     it("show the chats under the style's heading, and a repository by its name", () => {

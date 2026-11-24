@@ -298,8 +298,8 @@ Every session gets an MCP server named `swarmed`, with these tools:
 | Tool | What it does |
 | --- | --- |
 | `show_html` | shows HTML in the conversation, in a sandboxed frame |
-| `list_sessions`, `read_session` | see and read the other open sessions of the same project and the chats; from a chat, every open session |
-| `send_message` | write to another session; queued if it is busy |
+| `list_sessions`, `read_session` | see and read the other open sessions of the same project; from a chat, every open session |
+| `send_message` | write to another session it can read, or to a chat, so that one a chat wrote to can answer it; queued if it is busy |
 | `spawn_session`, `close_session` | start a session in the same task, up to six, and close the idle ones it started |
 | `delegate_to_cloud` | hand work to a Codex cloud agent or a Claude Code cloud session |
 | `use_skill` | read a skill Swarmed offers |

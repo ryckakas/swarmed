@@ -21,6 +21,24 @@ export function repositoriesOf(projects: Project[]): Project[] {
     return projects.filter((project) => !project.chats);
 }
 
+/** The projects in the order the sidebar draws them: the chats first, then the repositories. */
+export function inSidebarOrder(projects: Project[]): Project[] {
+    const chats = chatsOf(projects);
+    return chats ? [chats, ...repositoriesOf(projects)] : repositoriesOf(projects);
+}
+
+/**
+ * The existing branch a new task is asked to start on, or `null` for a new one. A chat has
+ * no branch, whatever was picked for a repository before: the core refuses one for it.
+ */
+export function branchAsked(
+    repository: Project | null,
+    branch: string,
+    newBranch: string,
+): string | null {
+    return repository && branch !== newBranch ? branch : null;
+}
+
 /** Whether `project`, by name, is where the chats are kept. */
 export function isChats(project: string): boolean {
     return project === CHATS;

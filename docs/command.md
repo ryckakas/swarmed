@@ -28,7 +28,8 @@ swarmed task rm shop fix-login                        # teardown hook, worktree 
 ```
 
 `task rm` refuses while the worktree has uncommitted changes or unpushed commits, or is one git
-no longer knows; `--force` removes it anyway.
+no longer knows; `--force` removes it anyway. A failing `teardown` does not stop it: what it had
+to pass over is printed.
 
 A chat, a session with no repository, is a task of the project `.chats`, which no repository can
 be called. It has an empty folder of its own and no branch; the chats appear in `project list`
@@ -40,7 +41,7 @@ swarmed task new .chats monads                        # a folder of its own, no 
 swarmed session run .chats monads "What is a monad, in plain words?"
 swarmed task new shop monads                          # when it turns into work
 swarmed session fork 14 --into shop monads            # the whole conversation, in that task
-``` A failing `teardown` does not stop it: what it had to pass over is printed.
+```
 
 `swarmed cleanup` lists what removed tasks left behind, and the snapshots, one to a line: its
 kind, size, key, task and why it is there. `swarmed cleanup branches --delete` deletes every

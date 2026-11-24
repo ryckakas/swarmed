@@ -422,4 +422,22 @@ mod tests {
         assert!(records[2].prunable && !records[2].locked);
         assert!(records[3].prunable && records[3].locked);
     }
+
+    #[test]
+    fn a_folder_inside_a_repository_is_on_no_branch_of_its_own() {
+        let home = tempfile::tempdir().expect("test setup");
+        let made = std::process::Command::new("git")
+            .arg("-C")
+            .arg(home.path())
+            .args(["init", "--quiet", "--initial-branch", "main"])
+            .status()
+            .expect("git runs");
+        assert!(made.success());
+        let chat = home.path().join("swarmed/.chats/question");
+        std::fs::create_dir_all(&chat).expect("test setup");
+
+        // The repository's own top level is on its branch; a folder in it answers nothing.
+        assert_eq!(head_now(home.path()), Some(Head(Some("main".to_string()))));
+        assert_eq!(head_now(&chat), None);
+    }
 }

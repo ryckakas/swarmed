@@ -24,10 +24,10 @@ notice adds its line under Unreleased.
   own, to compare their answers. Each chat has an empty folder of its own under
   `~/swarmed/.chats` and is listed under General, above the repositories; a repository called
   `general` is a repository like any other. A chat's agent can read and message the sessions in
-  every repository, and they can answer it. When a chat turns into work, Carry on in a
-  repository starts a task there with the whole conversation, and the chat stays as it was. On
-  the command line a chat is a task of `.chats`, and `swarmed session fork --into` carries one
-  on.
+  every repository, and they can answer it, without reading the chat themselves. When a chat
+  turns into work, Carry on in a repository starts a task there with the whole conversation,
+  and the chat stays as it was. On the command line a chat is a task of `.chats`, and
+  `swarmed session fork --into` carries one on.
 
 ## [0.4.1] - 2026-11-24
 

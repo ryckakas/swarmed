@@ -73,6 +73,9 @@ function CarryOnDialog({ session, chat, onClose }: Props & { onClose(): void }) 
             onClose();
         } catch (error) {
             setProblem(String(error).replace(/^Error: /, ""));
+            // A task whose setup failed still exists: it has to show, or trying again would
+            // make a second one unseen beside it.
+            await useStore.getState().refresh(api);
             setBusy(false);
         }
     };

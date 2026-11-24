@@ -94,8 +94,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   - **Removal** (`chat_remove`) takes the folder, and without `force` refuses one that holds
     anything (`TaskNotClean`), since an agent's files there exist nowhere else.
   - **Reach.** From a chat, `list_sessions` and the other peer tools reach every open
-    session; a repository's sessions reach their own and the chats, so one a chat wrote to can
-    answer it.
+    session. A repository's sessions list and read their own, and can write to a chat, so one
+    a chat wrote to can answer it. They cannot list or read one (`Access`): a chat may hold
+    what it read of another repository.
   - **Carrying on in a repository** is a task there and `session_fork_into`: the whole
     conversation, the same agent and title; the chat stays.
   - **In the UI** New task starts on No repository; a repository's plus preselects it. The chats
@@ -742,8 +743,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   a socket in the system's temporary folder (`Paths::tools_socket`; short, since a socket's
   path is limited), which a front end serves with `serve_session_tools`. A message arrives as
   a message in the other conversation, queued if that session is busy. Only open sessions of
-  the caller's own project can be read or written to (`peer_in_reach`): a closed one would
-  be started out of sight. A spawned session runs
+  the caller's own project can be read or written to (`peer_in_reach`), and from a chat those
+  of every project (see the chats above): a closed one would be started out of sight. A spawned session runs
   in its parent's task with its settings, cannot spawn itself, and a session can have
   `MAX_SPAWNED` open. The tools are not on the allow list: in ask mode the user is asked.
   A session can close only sessions it started, and only idle ones (`peer_close`).

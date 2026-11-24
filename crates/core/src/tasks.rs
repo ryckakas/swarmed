@@ -196,7 +196,7 @@ impl Core {
         name: &str,
         sink: OutputSink<'_>,
     ) -> Result<Task> {
-        let (project, task) = self.task(project, name)?;
+        let (project, task) = self.repo_task(project, name)?;
         let config = self.config_in(&project.name, task.environment.as_deref())?;
         // A task set up well before has been lived in since: its stack's logs and caches lie
         // beside what setup made, so it is not what new tasks should start from.

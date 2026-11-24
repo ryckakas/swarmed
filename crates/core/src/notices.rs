@@ -104,6 +104,8 @@ impl Core {
             None => None,
         };
         let place = match (project, task) {
+            // The chats' home has a name only Swarmed uses, which no window shows.
+            (Some(project), Some(task)) if project.chats => task.name,
             (Some(project), Some(task)) => format!("{} / {}", project.name, task.name),
             _ => String::new(),
         };

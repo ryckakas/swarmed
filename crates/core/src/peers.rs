@@ -93,9 +93,12 @@ fn is_busy(session: &Session) -> bool {
     )
 }
 
-/// Which sessions a session can reach: those of its own repository and the chats, or from a
-/// chat every one, since a chat is often about work in a repository. A session a chat wrote
-/// to can answer it.
+/// Which sessions a session can reach: those of its own repository, or from a chat every one,
+/// since a chat is often about work in a repository.
+///
+/// A repository's session can write to a chat, so that one a chat wrote to can answer it, and
+/// can neither list nor read one: a chat may hold what it read of another repository, and
+/// would hand that on to every repository otherwise.
 #[derive(Debug, Clone, Copy)]
 enum Reach {
     Project {
@@ -107,14 +110,35 @@ enum Reach {
 }
 
 impl Reach {
-    fn covers(self, task: &Task) -> bool {
+    /// Whether a session of `task` is listed and can be read.
+    fn reads(self, task: &Task) -> bool {
         match self {
-            Self::Project { project, chats } => {
-                task.project_id == project || Some(task.project_id) == chats
-            }
+            Self::Project { project, .. } => task.project_id == project,
             Self::All => true,
         }
     }
+
+    /// Whether a session of `task` can be written to: what can be read, and the chats.
+    fn writes(self, task: &Task) -> bool {
+        match self {
+            Self::Project { chats, .. } => self.reads(task) || Some(task.project_id) == chats,
+            Self::All => true,
+        }
+    }
+
+    fn covers(self, task: &Task, what: Access) -> bool {
+        match what {
+            Access::Read => self.reads(task),
+            Access::Write => self.writes(task),
+        }
+    }
+}
+
+/// What a session wants of another.
+#[derive(Debug, Clone, Copy)]
+enum Access {
+    Read,
+    Write,
 }
 
 /// Where a session works, as another session is told of it: its chat, or its task, with the
@@ -185,8 +209,8 @@ impl Core {
         })
     }
 
-    /// The open sessions `from` can reach, one line each, for an agent to read: those of the
-    /// project it works in and the chats, or from a chat, every one.
+    /// The open sessions `from` can read, one line each, for an agent to read: those of the
+    /// project it works in, or from a chat, every one.
     pub fn peer_sessions(&self, from: i64) -> Result<String> {
         let own = self.session(from)?;
         let reach = self.reach_of(&own)?;
@@ -194,7 +218,7 @@ impl Core {
             let store = self.store();
             (store.projects()?, store.tasks_all()?, store.sessions_all()?)
         };
-        let in_reach = |task: &&Task| reach.covers(task) && !task.archived;
+        let in_reach = |task: &&Task| reach.reads(task) && !task.archived;
         let line = |session: &Session| {
             let task = tasks.iter().find(|task| task.id == session.task_id);
             task.filter(in_reach)
@@ -206,17 +230,18 @@ impl Core {
     }
 
     /// Session `id` as session `from` may reach it: an open session in a task of the project
-    /// `from` works in or in a chat, or from a chat any open session, which is what
-    /// [`Core::peer_sessions`] lists. Anything else is refused in the same words, so that
-    /// asking tells an agent nothing about what it may not see.
-    fn peer_in_reach(&self, from: i64, id: i64) -> Result<Session> {
+    /// `from` works in, or from a chat any open session, which is what
+    /// [`Core::peer_sessions`] lists; to write to, an open chat as well. Anything else is
+    /// refused in the same words, so that asking tells an agent nothing about what it may not
+    /// see.
+    fn peer_in_reach(&self, from: i64, id: i64, what: Access) -> Result<Session> {
         let own = self.session(from)?;
         let reach = self.reach_of(&own)?;
         let found = || {
             let other = self.session(id).ok()?;
             let task = self.task_of(&other).ok()?;
             let closed = self.store().session_is_closed(id).ok()?;
-            let listed = reach.covers(&task) && !task.archived && !closed;
+            let listed = reach.covers(&task, what) && !task.archived && !closed;
             listed.then_some(other)
         };
         found().ok_or_else(|| {
@@ -231,10 +256,10 @@ impl Core {
     /// first, for session `from` to read. Tool calls and their output are left out: they are
     /// the session's workings, and would drown what it concluded.
     ///
-    /// Only an open session `from` can reach can be read: of its own project or a chat, or
-    /// any from a chat.
+    /// Only an open session `from` can reach can be read: of its own project, or any from a
+    /// chat. A repository's session cannot read a chat, which may hold another repository's.
     pub fn peer_digest(&self, from: i64, id: i64, messages: Option<usize>) -> Result<String> {
-        self.peer_in_reach(from, id)?;
+        self.peer_in_reach(from, id, Access::Read)?;
         let events = self.session_events(id)?;
         let said: Vec<String> = events.iter().filter_map(spoken).collect();
         let wanted = messages.unwrap_or(DIGEST_MESSAGES).max(1);
@@ -249,7 +274,8 @@ impl Core {
     /// conversation, marked with who sent it: now if `to` is idle, starting its agent if need
     /// be, else when its turn ends.
     ///
-    /// Only an open session `from` can reach can be written to, as it can be read. A closed one
+    /// Only an open session `from` can reach can be written to: one it can read, or a chat, so
+    /// that a session a chat wrote to can answer it. A closed one
     /// stays closed: a message must not start an agent where no list shows it, nor bring back
     /// sessions that were closed to make room under [`MAX_SPAWNED`].
     pub fn peer_message(&self, from: i64, to: i64, text: &str) -> Result<Delivery> {
@@ -257,7 +283,7 @@ impl Core {
         if from == to {
             return Err(refused("a session cannot send a message to itself"));
         }
-        let receiver = self.peer_in_reach(from, to)?;
+        let receiver = self.peer_in_reach(from, to, Access::Write)?;
         if text.trim().is_empty() {
             return Err(Error::EmptyMessage);
         }
