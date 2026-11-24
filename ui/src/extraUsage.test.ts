@@ -1,68 +1,61 @@
 import { describe, expect, it } from "vitest";
-import type { AgentEvent } from "./api/types";
-import {
-    type ExtraUsage,
-    latestExtraUsage,
-    money,
-    onExtraUsageNow,
-    spentShare,
-} from "./extraUsage";
+import type { AccountUsage, UsageWindow } from "./api/types";
+import { type ExtraUsage, money, onExtraUsageNow, spentShare } from "./extraUsage";
 
 // What Claude Code answered for the account behind this change: euros, a cap of 400.
 const extra = (used: number, limit: number | null = 40_000): ExtraUsage => ({
-    type: "extra_usage",
     enabled: true,
     used,
     limit,
     currency: "EUR",
     decimals: 2,
     limit_reached: false,
+    heard_at: 0,
 });
-const report = (raw: unknown): AgentEvent => ({
-    type: "rate_limit",
-    status: "rejected",
+
+const now = 10_000;
+/** A turn report heard at `at` that said whether the turn was billed, of a window resetting at `resets`. */
+const billed = (on: boolean, at: number, resets: number | null = null): AccountUsage["billed"] => ({
+    on,
+    resets_at: resets,
+    heard_at: at,
+});
+/** The 5-hour window as Claude Code gave it when asked at `at`. */
+const asked = (used: number, at: number): UsageWindow => ({
+    kind: "five_hour",
+    name: "5-hour",
+    used,
     resets_at: null,
-    raw,
+    status: "allowed",
+    heard_at: at,
+    asked: true,
+});
+const usage = (turn: AccountUsage["billed"], ...windows: UsageWindow[]): AccountUsage => ({
+    windows,
+    extra: null,
+    billed: turn,
 });
 
 describe("extra usage", () => {
-    it("takes the latest figures in the session", () => {
-        expect(latestExtraUsage([extra(100), { type: "text", text: "hi" }, extra(3871)])).toEqual(
-            extra(3871),
-        );
-        expect(latestExtraUsage([])).toBeNull();
-    });
-
-    it("says from the latest usage report whether the turn ran on it", () => {
-        expect(onExtraUsageNow([report({ isUsingOverage: true })])).toBe(true);
-        expect(onExtraUsageNow([report({ overageInUse: true })])).toBe(true);
-        expect(onExtraUsageNow([report({ isUsingOverage: true }), report({})])).toBe(false);
-        expect(onExtraUsageNow([])).toBe(false);
+    it("says from the latest report after a turn whether turns run on it", () => {
+        expect(onExtraUsageNow(usage(billed(true, 100)), now)).toBe(true);
+        expect(onExtraUsageNow(usage(billed(false, 100)), now)).toBe(false);
+        expect(onExtraUsageNow(usage(null), now)).toBe(false);
+        expect(onExtraUsageNow(null, now)).toBe(false);
     });
 
     it("goes by the limits asked for after the report, until the next turn reports again", () => {
-        const limits = (percent: number): AgentEvent => ({
-            type: "usage_limits",
-            limits: [
-                { kind: "session", model: null, percent, resets_at: null, severity: "normal" },
-                {
-                    kind: "weekly_all",
-                    model: null,
-                    percent: 40,
-                    resets_at: null,
-                    severity: "normal",
-                },
-            ],
-        });
-        const billed = report({ isUsingOverage: true });
         // The window has reset since: the coins asked, and nothing is used up any more.
-        expect(onExtraUsageNow([billed, limits(3)])).toBe(false);
+        expect(onExtraUsageNow(usage(billed(true, 100), asked(0.03, 200)), now)).toBe(false);
         // Still used up when asked: the turns are still billed.
-        expect(onExtraUsageNow([billed, limits(100)])).toBe(true);
+        expect(onExtraUsageNow(usage(billed(true, 100), asked(1, 200)), now)).toBe(true);
         // Limits asked for before the report say nothing about it.
-        expect(onExtraUsageNow([limits(3), billed])).toBe(true);
-        // A turn that reports billed again, after the asking, is billed.
-        expect(onExtraUsageNow([billed, limits(3), billed])).toBe(true);
+        expect(onExtraUsageNow(usage(billed(true, 300), asked(0.03, 200)), now)).toBe(true);
+    });
+
+    it("ends when the limit it paid past resets, with nothing heard since", () => {
+        expect(onExtraUsageNow(usage(billed(true, 100, now + 60)), now)).toBe(true);
+        expect(onExtraUsageNow(usage(billed(true, 100, now - 60)), now)).toBe(false);
     });
 
     it("writes minor units as money, with the cap's share", () => {

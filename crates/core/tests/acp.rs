@@ -39,6 +39,7 @@ async fn core_with(fx: &common::Fixture, backend: AcpBackend) -> Core {
         models: vec![],
         default_model: None,
         hears_mid_turn: false,
+        sends_to_background: false,
     };
     core.add_agent(info, Arc::new(backend));
     core.project_add(&fx.repo, None).await.expect("test setup");
@@ -881,6 +882,7 @@ async fn a_running_session_goes_back_to_the_default_as_it_stands_now() {
         models: vec![NOW.into()],
         default_model: Some(NOW.into()),
         hears_mid_turn: false,
+        sends_to_background: false,
     };
     let agent = AcpBackend {
         default_model: Some(NOW.into()),
@@ -1048,6 +1050,7 @@ async fn an_agent_with_servers_of_its_own_is_given_only_the_ones_it_lacks() {
         models: vec![],
         default_model: None,
         hears_mid_turn: false,
+        sends_to_background: false,
     };
     core.add_agent(codex, Arc::new(scripted_agent(&[])));
     let mut bus = core.subscribe();
@@ -1183,4 +1186,309 @@ async fn an_acp_agent_is_not_told_a_message_in_the_middle_of_its_turn() {
     );
     // It still waits, to be sent when the turn ends or sent now.
     assert_eq!(core.session_queue(id).expect("reads"), queue);
+    // Nor can it send work a call waits on to the background: the core does not ask it.
+    let sent = core.session_send_to_background(id, None).await;
+    assert!(
+        matches!(&sent, Err(Error::NoSendingToBackground(agent)) if agent == AGENT),
+        "{sent:?}"
+    );
+}
+
+/// The session a sub-agent announced as the protocol has it runs under, in the scripted agent.
+const CHILD: &str = "acp-1:subagent:T1";
+
+/// What a sub-agent filed under call `parent` said and did, in order.
+fn filed_under<'a>(events: &'a [AgentEvent], parent: &str) -> Vec<&'a AgentEvent> {
+    let under = |event: &'a AgentEvent| match event {
+        AgentEvent::Sub {
+            parent: call,
+            event,
+        } if call == parent => Some(&**event),
+        _ => None,
+    };
+    events.iter().filter_map(under).collect()
+}
+
+/// The words the session's agent itself said, apart from any sub-agent's.
+fn own_words(events: &[AgentEvent]) -> Vec<&str> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            AgentEvent::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The reports of work in the background, by state and task.
+fn reports(events: &[AgentEvent]) -> Vec<(swarmed_core::agent::BackgroundState, &str)> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            AgentEvent::Background { state, task_id, .. } => Some((*state, task_id.as_str())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// One session's events up to the end of a turn, as `turn` gives them, and whether that end
+/// made the session unread.
+async fn turn_and_unread(
+    bus: &mut Receiver<SessionEvent>,
+    id: i64,
+) -> (Vec<AgentEvent>, Option<bool>) {
+    let mut events = vec![];
+    loop {
+        let published = next(bus).await;
+        let piece = matches!(published.event, AgentEvent::TextDelta { .. });
+        if published.session_id != id || piece {
+            continue;
+        }
+        let done = matches!(published.event, AgentEvent::TurnDone { .. });
+        events.push(published.event);
+        if done {
+            return (events, published.unread);
+        }
+    }
+}
+
+/// One session's stored events up to a permission request, and the request.
+async fn until_asked(bus: &mut Receiver<SessionEvent>, id: i64) -> (Vec<AgentEvent>, AgentEvent) {
+    let mut events = vec![];
+    loop {
+        let published = next(bus).await;
+        let piece = matches!(published.event, AgentEvent::TextDelta { .. });
+        if published.session_id != id || piece {
+            continue;
+        }
+        if matches!(published.event, AgentEvent::PermissionRequest { .. }) {
+            return (events, published.event);
+        }
+        events.push(published.event);
+    }
+}
+
+#[tokio::test]
+async fn a_sub_agent_the_protocol_announces_is_kept_apart_and_asks_through_its_starter() {
+    use swarmed_core::agent::BackgroundState::{Completed, Running};
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+
+    core.session_send(id, "spawn").expect("sends");
+    let (mut events, asked) = until_asked(&mut bus, id).await;
+    let AgentEvent::PermissionRequest {
+        request_id: request,
+        tool_name,
+        description,
+        ..
+    } = asked
+    else {
+        unreachable!("until_asked ends on a request");
+    };
+    // Its request is answered here, and says whose it is.
+    assert_eq!(tool_name, "Terminal");
+    assert_eq!(
+        description.as_deref(),
+        Some("Asked by the sub-agent Explorer 1")
+    );
+    core.session_allow(id, &request).expect("sends");
+    events.extend(turn(&mut bus, id).await);
+
+    // It is shown by a call made up for it, as a front end knows a sub-agent's start.
+    let started = events.iter().find_map(|event| match event {
+        AgentEvent::ToolUse { id, name, input } if name == "Agent" => Some((id, input)),
+        _ => None,
+    });
+    let (call, input) = started.expect("a call shows it");
+    assert_eq!(call, CHILD);
+    assert_eq!(
+        input,
+        &json!({ "description": "Explorer 1", "subagent_type": "explorer", "prompt": "Find the README." })
+    );
+    // What it says and does stays out of the conversation, under that call.
+    assert_eq!(
+        own_words(&events),
+        ["I will ask a helper.", "The helper is done."]
+    );
+    let its_own = filed_under(&events, CHILD);
+    assert!(its_own.contains(&&text("Looking.")), "{its_own:?}");
+    assert!(its_own.contains(&&text("Found it: demo.")), "{its_own:?}");
+    assert!(
+        its_own.iter().any(
+            |event| matches!(event, AgentEvent::ToolResult { content, .. } if content == "demo")
+        ),
+        "{its_own:?}"
+    );
+    // It is at work in the background from its start to its end, and hands back what it said.
+    assert_eq!(reports(&events), [(Running, CHILD), (Completed, CHILD)]);
+    // What it used is not the agent's own.
+    assert!(events.contains(&AgentEvent::ContextUsage {
+        used: 1,
+        max: 2,
+        categories: vec![]
+    }));
+    let listed = core.task_background("demo", "one").expect("lists");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(
+        (
+            listed[0].kind.as_str(),
+            listed[0].state,
+            listed[0].summary.as_deref(),
+            listed[0].tool_use_id.as_deref(),
+        ),
+        (
+            "local_agent",
+            Completed,
+            Some("Found it: demo."),
+            Some(CHILD)
+        )
+    );
+    assert!(listed[0].stoppable);
+}
+
+#[tokio::test]
+async fn a_sub_agent_the_protocol_announces_can_be_stopped_on_its_own() {
+    use swarmed_core::agent::BackgroundState::{Running, Stopped};
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+
+    core.session_send(id, "spawn slow").expect("sends");
+    while !matches!(
+        next(&mut bus).await.event,
+        AgentEvent::Background { state: Running, .. }
+    ) {}
+    core.session_stop_background(id, CHILD).expect("asks");
+    let rest = turn(&mut bus, id).await;
+    assert_eq!(reports(&rest), [(Stopped, CHILD)]);
+    // Its starter's turn goes on: only the sub-agent was stopped.
+    let said = own_words(&rest);
+    assert!(
+        said.iter()
+            .any(|words| words.ends_with("The helper was stopped.")),
+        "{rest:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_opencode_sub_agent_hangs_from_its_call_and_holds_the_answer_back_until_done() {
+    use swarmed_core::agent::BackgroundState::{Completed, Running};
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+
+    core.session_send(id, "delegate").expect("sends");
+    let (asked, unread) = turn_and_unread(&mut bus, id).await;
+    // The call that started it is the one a front end knows a sub-agent's start by.
+    let call = asked.iter().find_map(|event| match event {
+        AgentEvent::ToolUse { id, name, input } if id == "call_sub" => Some((name, input)),
+        _ => None,
+    });
+    let (name, input) = call.expect("its call is shown");
+    assert_eq!(name, "Agent");
+    assert_eq!(input["subagent_type"], "explore");
+    assert_eq!(input["description"], "Find auth code");
+    assert_eq!(reports(&asked), [(Running, "call_sub")]);
+    assert_eq!(own_words(&asked), ["It works on it."]);
+    let its_own = filed_under(&asked, "call_sub");
+    assert!(its_own.contains(&&text("Reading.")), "{its_own:?}");
+    // OpenCode titles its calls with its title first, which its own conversation needs not.
+    assert!(
+        its_own
+            .iter()
+            .any(|event| matches!(event, AgentEvent::ToolUse { name, .. } if name == "read")),
+        "{its_own:?}"
+    );
+    // It works on past the turn, which hands nothing back yet.
+    assert_ne!(unread, Some(true));
+    let listed = core.task_background("demo", "one").expect("lists");
+    assert!(!listed[0].stoppable, "OpenCode has no way to stop one");
+
+    // Done, it hands back what it said last, and the agent takes that up by itself.
+    let (own, unread) = turn_and_unread(&mut bus, id).await;
+    assert_eq!(reports(&own), [(Completed, "call_sub")]);
+    assert!(own.iter().any(|event| matches!(
+        event,
+        AgentEvent::Background { summary: Some(said), .. } if said == "Found it in auth.rs."
+    )));
+    assert_eq!(own_words(&own), ["The helper found it."]);
+    assert_eq!(unread, Some(true));
+}
+
+#[tokio::test]
+async fn what_an_opencode_sub_agent_does_on_the_agents_own_stream_stays_its_own() {
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+
+    core.session_send(id, "inline").expect("sends");
+    let events = turn(&mut bus, id).await;
+    assert_eq!(own_words(&events), ["Asked."]);
+    let its_own = filed_under(&events, "call_in");
+    assert_eq!(its_own.first(), Some(&&text("Counting.")), "{its_own:?}");
+    assert!(
+        its_own
+            .iter()
+            .any(|event| matches!(event, AgentEvent::ToolUse { name, .. } if name == "wc")),
+        "{its_own:?}"
+    );
+    // Nothing says when such a one ends, so it is not reported at work.
+    assert!(reports(&events).is_empty(), "{events:?}");
+}
+
+#[tokio::test]
+async fn an_opencode_shell_left_running_is_listed_until_the_agent_wakes_and_cannot_be_stopped() {
+    use swarmed_core::agent::BackgroundState::{Completed, Running};
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[("FAKE_ACP_SHELL_ENDS", "1")])).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+
+    core.session_send(id, "shell").expect("sends");
+    let asked = turn(&mut bus, id).await;
+    assert_eq!(reports(&asked), [(Running, "sh_X")]);
+    let listed = core.task_background("demo", "one").expect("lists");
+    assert_eq!(
+        (
+            listed[0].description.as_str(),
+            listed[0].kind.as_str(),
+            listed[0].tool_use_id.as_deref()
+        ),
+        ("pnpm dev", "local_bash", Some("call_sh"))
+    );
+    assert!(!listed[0].stoppable);
+    let refused = core.session_stop_background(id, "sh_X");
+    assert!(
+        matches!(&refused, Err(Error::Unstoppable(task)) if task == "sh_X"),
+        "{refused:?}"
+    );
+
+    // What wakes it is the shell's end, which is all that can be told of it.
+    let own = turn(&mut bus, id).await;
+    assert_eq!(reports(&own), [(Completed, "sh_X")]);
+    assert_eq!(own_words(&own), ["The dev server stopped."]);
+}
+
+#[tokio::test]
+async fn what_a_command_printed_beside_its_call_is_its_result() {
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+
+    core.session_send(id, "printed").expect("sends");
+    let events = turn(&mut bus, id).await;
+    assert!(
+        events.contains(&AgentEvent::ToolResult {
+            tool_use_id: "call_ls".into(),
+            content: "README.md\nsrc\n".into(),
+            is_error: false,
+        }),
+        "{events:?}"
+    );
 }

@@ -456,6 +456,11 @@ code {
     font-weight: 400;
 }
 
+/* Merged in the lilac of its badge in the sidebar. */
+.pull-number[data-state="merged"] {
+    color: var(--lilac);
+}
+
 .pull-summary {
     color: var(--muted);
     font-size: var(--text-sm);
@@ -1136,7 +1141,12 @@ code {
 
 /* Sidebar tree: three levels told apart at a glance. A repository is a section, with a rule
    above it and the largest, brightest name. A worktree is a labelled band, set in from the
-   repository's name. Its sessions hang off a guide line that starts under the worktree's icon. */
+   repository's name. Its sessions hang off a guide line that starts under the chevron that
+   folds them, as a tree's guides start under their parent's.
+
+   Each level's text and rows read --sidebar-<level>-size, -weight, -colour and -background,
+   which only a custom layout sets (customLayout.ts). Unset, each falls back to what classic
+   and senior draw, so a level is set apart from the rest of the app only when it is set. */
 
 .project + .project {
     margin-top: var(--space-3);
@@ -1147,9 +1157,10 @@ code {
 .project-name {
     flex: 1;
     min-width: 0;
-    color: var(--bright);
-    font-size: 0.875rem;
-    font-weight: 700;
+    color: var(--sidebar-repository-colour, var(--bright));
+    /* Halfway between the app's text and what stands out a little: 14px in classic. */
+    font-size: var(--sidebar-repository-size, calc((var(--text-sm) + var(--text-md)) / 2));
+    font-weight: var(--sidebar-repository-weight, 700);
     letter-spacing: 0.01em;
 }
 
@@ -1175,7 +1186,8 @@ code {
     white-space: nowrap;
 }
 
-.project-count {
+.project-count,
+.task-count {
     color: var(--faint);
     font-size: var(--text-xs);
     font-weight: 400;
@@ -1193,7 +1205,14 @@ code {
     transition: transform 120ms;
 }
 
-.project-toggle[aria-expanded="true"] .fold-chevron {
+/* In a task's name, as wide as a row's icon: the guide line of its sessions starts under
+   the chevron's middle. */
+.task-toggle .fold-chevron {
+    margin-inline: 2px;
+}
+
+.project-toggle[aria-expanded="true"] .fold-chevron,
+.task-toggle[aria-expanded="true"] .fold-chevron {
     transform: rotate(90deg);
 }
 
@@ -1306,17 +1325,27 @@ code {
 .task-name {
     flex: 1;
     min-width: 0;
+    color: var(--sidebar-task-colour, var(--text));
+    font-family: var(--font-mono);
+    font-size: var(--sidebar-task-size, var(--text-xs));
+    font-weight: var(--sidebar-task-weight, 600);
+}
+
+/* The task's name folds its sessions away and brings them back, as a repository's does its
+   tasks. */
+.task-toggle {
     display: flex;
     align-items: center;
     gap: 6px;
+    width: 100%;
     padding: var(--space-1) var(--space-2);
-    color: var(--text);
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
     white-space: nowrap;
+    overflow: hidden;
 }
 
 .task-flag {
@@ -1349,8 +1378,14 @@ code {
     color: var(--clay);
 }
 
-/* Merged or closed: done with, whatever its checks said. */
-.pull-badge[data-state="merged"],
+/*
+ * Merged or closed: done with, whatever its checks said. Merged is lilac, as GitHub draws it in
+ * purple, so that it cannot be taken for a draft, which is grey until its checks say otherwise.
+ */
+.pull-badge[data-state="merged"] {
+    color: var(--lilac);
+}
+
 .pull-badge[data-state="closed"] {
     color: var(--faint);
     border-style: dashed;
@@ -1422,31 +1457,39 @@ code {
     color: var(--moss);
 }
 
-/* A session's line: the row that opens it, and a close button that shows on approach. */
+/* A session's line: the row that opens it, and a close button that shows on approach. A
+   colour the layout gives sessions is theirs whatever they are doing; one that waits on you,
+   or has an answer you have not read, is still drawn at least as heavy as the signal needs. */
 .session-line {
     display: flex;
     align-items: center;
     /* The bar that turns pollen when a session needs you; transparent holds its place. */
     border-left: 2px solid transparent;
-    color: var(--text);
+    background: var(--sidebar-session-background, none);
+    color: var(--sidebar-session-colour, var(--text));
+    font-size: var(--sidebar-session-size, var(--text-sm));
+    font-weight: var(--sidebar-session-weight, 400);
 }
 
+/* A background the layout gives sessions was checked against their colour alone, so a row
+   that is pointed at, open or waiting keeps to that pair (customLayout.ts) and does not go
+   over to the palette's own, on which the layout's colour might not be readable. */
 .session-line:hover {
-    background: color-mix(in srgb, var(--raised) 55%, transparent);
+    background: var(--sidebar-session-pointed, color-mix(in srgb, var(--raised) 55%, transparent));
 }
 
 .session-line[data-current="true"] {
-    background: var(--raised);
+    background: var(--sidebar-session-open, var(--raised));
 }
 
 .session-line.status-idle {
-    color: var(--muted);
+    color: var(--sidebar-session-colour, var(--muted));
 }
 
 .session-line.status-waiting {
     border-left-color: var(--pollen);
-    background: var(--pollen-wash);
-    font-weight: 600;
+    background: var(--sidebar-session-open, var(--pollen-wash));
+    font-weight: max(600, var(--sidebar-session-weight, 400));
 }
 
 .session-row {
@@ -1694,11 +1737,16 @@ code {
     stroke: var(--text);
 }
 
+/* A repository's row: on the sidebar itself, unless a custom layout gives it a background. */
+.project > .row-head {
+    background: var(--sidebar-repository-background, none);
+}
+
 /* The worktree's band: marked off from the rows around it, and quieter than a repository. */
 .task > .row-head {
     margin: 0 6px 0 22px;
     border-radius: 5px;
-    background: color-mix(in srgb, var(--raised) 55%, transparent);
+    background: var(--sidebar-task-background, color-mix(in srgb, var(--raised) 55%, transparent));
 }
 
 .task > .row-head .row-close {
@@ -1730,10 +1778,11 @@ code {
     gap: var(--space-2);
     padding: 3px var(--space-2) 3px 9px;
     border: 0;
-    background: none;
-    color: var(--muted);
+    background: var(--sidebar-sub-agent-background, none);
+    color: var(--sidebar-sub-agent-colour, var(--muted));
     font: inherit;
-    font-size: var(--text-sm);
+    font-size: var(--sidebar-sub-agent-size, var(--text-sm));
+    font-weight: var(--sidebar-sub-agent-weight, 400);
     text-align: left;
     cursor: pointer;
 }
@@ -1834,8 +1883,8 @@ code {
 }
 
 .session-line[data-unread="true"] .session-title {
-    color: var(--bright);
-    font-weight: 650;
+    color: var(--sidebar-session-unread, var(--bright));
+    font-weight: max(650, var(--sidebar-session-weight, 400));
 }
 
 .sidebar-empty {
@@ -2875,6 +2924,50 @@ code {
 }
 
 /*
+ * Sending the work a running call waits on to the background, and what is said where it did
+ * not go: at the right of the call's line, before its state, and as quiet as the state.
+ */
+.tool-send-background,
+.tool-note {
+    flex: none;
+    margin-left: auto;
+    font-family: var(--font-ui);
+    font-size: var(--text-xs);
+}
+
+.tool-send-background {
+    padding: 0 var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+}
+
+.tool-send-background:hover:not(:disabled) {
+    color: var(--text);
+}
+
+.tool-send-background:disabled {
+    cursor: default;
+    opacity: 0.7;
+}
+
+/* What the agent said can be long: it gives way to the call's state, and its title has it all. */
+.tool-note {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--faint);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+:is(.tool-send-background, .tool-note) + .tool-state {
+    margin-left: 0;
+}
+
+/*
  * A state is read from the call's own summary, since a run's state is not that of each call
  * listed in it. A running run's count of failed calls keeps its own colour and does not pulse.
  */
@@ -3825,6 +3918,14 @@ code {
     color: var(--muted);
 }
 
+/* How old a window's figure is, when older than the rest: under its bar, so that its name and
+   when it resets keep the line above. */
+.usage-age {
+    grid-column: 1 / -1;
+    margin-top: 2px;
+    color: var(--muted);
+}
+
 .usage-window-meter {
     grid-column: 1 / -1;
 }
@@ -4346,55 +4447,161 @@ code {
     border-radius: 28px;
 }
 
-/* A question that has to be answered before anything else. */
+/*
+ * Every dialog (Dialog.tsx): a head with its title and the ×, a body that alone scrolls, and a
+ * footer with the buttons, which stays put. Its height follows what it holds up to a limit,
+ * past which the body scrolls. Spacing, radius and colours come from the tokens, so every
+ * layout and palette draws it.
+ */
 
-.confirm {
-    width: min(44ch, 100% - 2 * var(--space-6));
-    padding: var(--space-4) var(--space-6);
+.dialog {
+    width: min(72ch, 100% - 2 * var(--space-6));
+    max-height: min(86vh, 100% - 2 * var(--space-6));
+    padding: 0;
     border: 1px solid var(--line);
-    border-radius: 12px;
+    border-radius: var(--space-3);
     background: var(--raised);
     color: var(--text);
     box-shadow: 0 16px 48px rgb(0 0 0 / 0.35);
+    overflow: hidden;
 }
 
-.confirm::backdrop {
+/* Open only: `display` set on the dialog itself would show it closed as well. */
+.dialog[open] {
+    display: flex;
+    flex-direction: column;
+}
+
+.dialog::backdrop {
     background: rgb(0 0 0 / 0.35);
 }
 
-.confirm h2 {
-    font-size: var(--text-md);
-    font-weight: 650;
+/* Widths by what a dialog holds: a question, a form or a list, the settings, two side by side. */
+.dialog[data-size="small"] {
+    width: min(44ch, 100% - 2 * var(--space-6));
 }
 
-.confirm p {
+.dialog[data-size="large"] {
+    width: min(112ch, 100% - 2 * var(--space-6));
+}
+
+.dialog[data-size="wide"] {
+    width: min(150ch, 100% - 2 * var(--space-6));
+}
+
+/* One height whatever it shows, so that switching what that is does not make it jump. */
+.dialog[data-fixed] {
+    height: min(720px, 100% - 2 * var(--space-6));
+}
+
+.dialog-head {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4) var(--space-3) var(--space-6);
+    border-bottom: 1px solid var(--line);
+}
+
+.dialog-title {
+    min-width: 0;
+    font-size: var(--text-md);
+    font-weight: 650;
+    overflow-wrap: anywhere;
+}
+
+.dialog-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--space-4) var(--space-6);
+}
+
+/* Panes that scroll on their own, as the settings' tabs and panel do, fill it edge to edge. */
+.dialog-body[data-panes] {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+}
+
+.dialog p {
     margin-top: var(--space-2);
     color: var(--muted);
 }
 
-.confirm .confirm-what {
+.dialog-body > :first-child {
+    margin-top: 0;
+}
+
+/* What a question is about, on one line under it. */
+.dialog .dialog-subject {
     color: var(--text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.confirm-actions {
+.dialog .note-problem {
+    color: var(--clay);
+}
+
+/* What went wrong, between the body and the buttons, where scrolling cannot hide it. */
+.dialog .dialog-problem {
+    flex: none;
+    max-height: 25vh;
+    margin: 0;
+    padding: var(--space-2) var(--space-6);
+    overflow-y: auto;
+    border-top: 1px solid var(--line);
+    color: var(--clay);
+    user-select: text;
+}
+
+.dialog-foot {
+    flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-6);
+    border-top: 1px solid var(--line);
+}
+
+/* A disabled fieldset disables the buttons in it; drawn, it is only the row they stand in. */
+.dialog-actions,
+.dialog-aside {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.dialog-aside {
+    margin-right: auto;
+}
+
+/* The buttons at the end of a form inside a page of the settings. */
+.form-actions {
     display: flex;
     justify-content: flex-end;
     gap: var(--space-2);
     margin-top: var(--space-4);
 }
 
-/* Everything that waits for the user: the same dialog, around a list to choose from. */
-.confirm.inbox {
-    width: min(60ch, 100% - 2 * var(--space-6));
-    max-height: 70vh;
-    overflow-y: auto;
+/* Everything that waits for the user: a list to choose from, by what each waits for. */
+.inbox-group + .inbox-group {
+    margin-top: var(--space-4);
 }
 
 .inbox-group h3 {
-    margin: var(--space-4) 0 var(--space-1);
+    margin: 0 0 var(--space-1);
     color: var(--faint);
     font-size: var(--text-xs);
     font-weight: 600;
@@ -4476,12 +4683,6 @@ code {
 }
 
 /* Two tasks side by side: a head for each, then a row per file, opening into both diffs. */
-.confirm.compare {
-    width: min(150ch, 100% - 2 * var(--space-6));
-    max-height: 86vh;
-    overflow-y: auto;
-}
-
 .compare-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -4560,44 +4761,6 @@ code {
 .variant-chip:hover {
     border-color: var(--clay);
     color: var(--clay);
-}
-
-/* A note: the same dialog, around a page to write on. */
-
-.confirm.note {
-    width: min(72ch, 100% - 2 * var(--space-6));
-}
-
-/* A repository's environments: their names to pick from, or the form for one. Only what lies
-   between the heading and the buttons scrolls, so the buttons stay in view. */
-.confirm.environments {
-    width: min(64ch, 100% - 2 * var(--space-6));
-    max-height: 86vh;
-}
-
-/* Open only: `display` set on the dialog itself would show it closed as well. */
-.confirm.environments[open] {
-    display: flex;
-    flex-direction: column;
-}
-
-.environments-body {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow-y: auto;
-    padding-bottom: var(--space-3);
-}
-
-.environments-footer {
-    flex: none;
-    margin-top: 0;
-    padding-top: var(--space-3);
-    border-top: 1px solid var(--line);
-}
-
-.environments-problem {
-    flex: none;
-    margin-bottom: var(--space-3);
 }
 
 .environment-list {
@@ -4688,44 +4851,7 @@ code {
     resize: vertical;
 }
 
-.confirm .note-problem {
-    color: var(--clay);
-}
-
-/* Settings: the same dialog as a question, with rows of choices. */
-
-.settings {
-    width: min(112ch, 100% - 2 * var(--space-6));
-    /* One height for every tab, so the dialog does not jump as they are switched. */
-    height: min(720px, 100% - 2 * var(--space-6));
-    padding: 0;
-    overflow: hidden;
-}
-
-/* A column of its own: a head and a foot that stay put, tabs and their panel in between. */
-.settings[open] {
-    display: flex;
-    flex-direction: column;
-}
-
-.settings-head,
-.settings-foot {
-    flex: none;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: var(--space-3) var(--space-6);
-}
-
-.settings-head {
-    border-bottom: 1px solid var(--line);
-}
-
-.settings-foot {
-    justify-content: flex-end;
-    border-top: 1px solid var(--line);
-}
-
+/* Settings: tabs down the left and the panel of the one chosen, each scrolling on its own. */
 .settings-main {
     flex: 1;
     min-height: 0;
@@ -4883,6 +5009,32 @@ code {
 
 .status-piece-move:disabled {
     opacity: 0.3;
+}
+
+/* The branch prefix, with the branch it gives, or why git would not take it, under it. */
+.branch-prefix {
+    display: grid;
+    flex: none;
+    gap: var(--space-1);
+    width: 30ch;
+}
+
+.branch-prefix-input {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+}
+
+.settings .branch-prefix-said {
+    min-height: 1.5em;
+    margin: 0;
+    color: var(--faint);
+    font-size: var(--text-xs);
+    overflow-wrap: anywhere;
+    user-select: text;
+}
+
+.settings .branch-prefix-said[data-refused="true"] {
+    color: var(--clay);
 }
 
 /* The script has room of its own under its explanation, and can be dragged taller. */
@@ -5247,6 +5399,62 @@ kbd {
     font-variant-numeric: tabular-nums;
 }
 
+/* Clean up: each kind's figures with the button that asks to delete them. */
+.cleanup-row {
+    align-items: center;
+}
+
+.cleanup-row dd {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+/* The question before a clean-up: the list of what goes, and apart, what would lose work. */
+.cleanup-items {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.cleanup-item {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    padding: var(--space-1) 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent);
+}
+
+.cleanup-what {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.cleanup-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cleanup-detail {
+    color: var(--faint);
+    font-size: var(--text-xs);
+}
+
+.cleanup-risk h3 {
+    margin: var(--space-4) 0 0;
+    padding: 0;
+    border: none;
+    color: var(--clay);
+    font-size: var(--text-xs);
+    font-weight: 600;
+}
+
+.cleanup-risk p {
+    margin-top: var(--space-1);
+}
+
 /* What the sessions did, drawn. The series colours are a set checked for colour-blind
    separation against these surfaces, in a dark and a light step each; they are not the app's
    own accents, which sit too close to one another to tell series apart. */
@@ -5566,39 +5774,7 @@ kbd {
     margin-top: var(--space-2);
 }
 
-/* The About view and the keyboard shortcuts, over the window. */
-.banner {
-    width: min(72ch, 100% - 2 * var(--space-6));
-    max-height: min(80vh, 760px);
-    padding: 0;
-}
-
-.banner[open] {
-    display: flex;
-    flex-direction: column;
-}
-
-.banner-about {
-    width: min(50ch, 100% - 2 * var(--space-6));
-}
-
-.banner-head {
-    flex: none;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: var(--space-3) var(--space-3) 0 var(--space-6);
-}
-
-.banner-about .banner-head {
-    justify-content: flex-end;
-}
-
-.banner-body {
-    overflow: auto;
-    padding: 0 var(--space-6) var(--space-6);
-}
-
+/* The About view, over the window. */
 .about {
     display: grid;
     grid-template-columns: auto 1fr;

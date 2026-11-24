@@ -18,8 +18,8 @@ use std::sync::Arc;
 
 use swarmed_core::agent::{Auth, FakeBackend};
 use swarmed_core::{
-    Core, Paths, SessionEvent, TOOL_SERVER_ARG, TerminalOutput, VIEW_POLICY, serve_session_tools,
-    serve_tools,
+    Core, Paths, SessionEvent, TOOL_SERVER_ARG, TerminalOutput, VIEW_POLICY, follow_others,
+    serve_session_tools, serve_tools,
 };
 use tauri::http::header::{CONTENT_SECURITY_POLICY, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
 use tauri::http::{HeaderValue, Response, StatusCode};
@@ -186,7 +186,8 @@ fn with_state<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
 #[rustfmt::skip]
 fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
     with_state(builder, core).invoke_handler(tauri::generate_handler![
-        commands::agents, commands::usage, commands::costs, commands::analytics,
+        commands::agents, commands::usage, commands::cleanup, commands::cleanup_clean,
+        commands::costs, commands::analytics,
         commands::effort_default, commands::mcp_servers, commands::mcp_save,
         commands::mcp_remove, commands::agent_setups, commands::agent_install,
         commands::agent_configure, commands::agent_models_refresh, commands::openrouter_models,
@@ -212,20 +213,21 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::task_diff, commands::note, commands::set_note, commands::api_keys,
         commands::set_api_key, commands::delete_api_key, commands::settings,
         commands::config_problems,
-        commands::set_settings, commands::custom_layout, commands::custom_layout_save, commands::terminal_config, commands::terminal_config_save, commands::session_new, commands::session_events,
+        commands::set_settings, commands::branch_example, commands::custom_layout, commands::custom_layout_save, commands::terminal_config, commands::terminal_config_save, commands::session_new, commands::session_events,
         commands::session_send, commands::session_mark_read, commands::session_queue,
         commands::session_enqueue, commands::session_queue_edit, commands::session_queue_hold,
         commands::session_queue_let_go, commands::session_send_queued,
         commands::session_send_now, commands::session_message_now, commands::session_tell_now,
         commands::session_allow, commands::session_answer, commands::session_command_answer, commands::session_deny, commands::session_interrupt,
-        commands::session_stop_background, commands::task_background,
+        commands::session_stop_background, commands::session_send_to_background,
+        commands::task_background,
         commands::session_background_output,
         commands::session_configure, commands::slash_commands, commands::badge_set,
         commands::view_put, commands::view_open, commands::terminal_open,
         commands::terminal_write, commands::terminal_resize, commands::claude_terminal_open,
         commands::claude_terminal_write, commands::claude_terminal_resize,
         commands::claude_terminal_close,
-        commands::status_line, commands::session_usage_refresh, commands::session_rename, commands::session_close, commands::session_delete,
+        commands::status_line, commands::account_usage, commands::session_usage_refresh, commands::session_rename, commands::session_close, commands::session_delete,
         commands::session_remote_control,
         commands::sessions_search, commands::sessions_closed, commands::session_reopen,
         commands::session_fork, commands::session_set_agent,
@@ -258,6 +260,7 @@ fn main() {
     let leaving = Arc::clone(&core);
     let noticing = Arc::clone(&core);
     let resuming = Arc::clone(&core);
+    let following = Arc::clone(&core);
     let bus = core.subscribe();
     let terminals = core.subscribe_terminals();
     let claude_terminals = core.subscribe_claude_terminals();
@@ -276,6 +279,9 @@ fn main() {
             // Where the sessions' own tool servers reach the core: to see, message and start
             // other sessions. If it cannot listen, those tools say so; nothing else depends on it.
             drop(tauri::async_runtime::spawn(serve_session_tools(listening)));
+            // What the command line or another Swarmed on the same data writes reaches the
+            // window as if this core had written it, and is noticed within a second.
+            drop(tauri::async_runtime::spawn(follow_others(following)));
             // Sessions that had Remote Control on can be reached from claude.ai again, without
             // anyone writing to them here first. Only the first Swarmed on the data does this.
             drop(tauri::async_runtime::spawn(async move {

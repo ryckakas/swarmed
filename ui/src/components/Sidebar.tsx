@@ -9,7 +9,14 @@ import { agentName, iconForAgent } from "../providerIcons";
 import { useStore } from "../store";
 import type { SubAgent } from "../subagents";
 import { listedUnder } from "../subagents";
-import { countUnread, countWaiting, nestedSessions, projectStatus, projectUnread } from "../tree";
+import {
+    countUnread,
+    countWaiting,
+    foldedSummary,
+    nestedSessions,
+    projectStatus,
+    projectUnread,
+} from "../tree";
 import { newVersion, updateLine } from "../updates";
 import { useWords } from "../useWords";
 import { withArticle, wordsFor } from "../wording";
@@ -162,9 +169,7 @@ function ProjectGroup({ project }: { project: Project }) {
                         title={folded ? words.showTasks : words.hideTasks}
                         onClick={() => toggleFolded(project.id)}
                     >
-                        <svg className="fold-chevron" viewBox="0 0 10 10" aria-hidden="true">
-                            <path d="M3.5 1.5 7 5 3.5 8.5" />
-                        </svg>
+                        <FoldChevron />
                         <RepositoryIcon />
                         <span className="project-title">{project.name}</span>
                         {status && <StatusMark status={status} unread={projectUnread(project)} />}
@@ -197,25 +202,16 @@ function ProjectGroup({ project }: { project: Project }) {
 
 function TaskGroup({ project, task }: { project: string; task: Task }) {
     const words = useStore((state) => wordsFor(state.settings?.style));
+    const folded = useStore((state) => state.foldedTasks.includes(task.id));
     const order = orderAttributes(
         { kind: "task", project, task: task.name },
         orderGroup.tasks(project),
     );
-    // A session is moved among those its starter started, or among the task's others.
-    const sessionOrder = (session: Session) =>
-        orderAttributes(
-            { kind: "session", id: session.id },
-            orderGroup.sessions(task.id, starterHere(task.sessions, session)),
-        );
     return (
         <div className="task" {...order}>
             <div className="row-head">
                 <Grip />
-                <h3 className="task-name" title={taskTooltip(task, words)}>
-                    <WorktreeIcon />
-                    <span className="task-title">{task.name}</span>
-                    {task.setup === "failed" && <span className="task-flag">setup failed</span>}
-                </h3>
+                <TaskHeading task={task} folded={folded} />
                 <PullBadge project={project} task={task} />
                 <CloudButton project={project} task={task.name} />
                 <NoteButton project={project} task={task.name} has={task.has_note} />
@@ -232,6 +228,52 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
                 </button>
                 <RemoveButton project={project} task={task.name} />
             </div>
+            {!folded && <TaskSessions project={project} task={task} />}
+        </div>
+    );
+}
+
+/**
+ * A task's name, which folds its sessions away and brings them back, as a repository's name
+ * does its tasks. Folded, it still says how many sessions are open, what the most urgent of
+ * them needs and whether one holds an unread answer, as a folded repository does.
+ */
+function TaskHeading({ task, folded }: { task: Task; folded: boolean }) {
+    const words = useStore((state) => wordsFor(state.settings?.style));
+    const toggleTaskFolded = useStore((state) => state.toggleTaskFolded);
+    const summary = folded ? foldedSummary(task) : null;
+    const fold = folded ? words.showSessions : words.hideSessions;
+    return (
+        <h3 className="task-name">
+            <button
+                type="button"
+                className="task-toggle"
+                aria-expanded={!folded}
+                title={`${taskTooltip(task, words)}. ${fold}`}
+                onClick={() => toggleTaskFolded(task.id)}
+            >
+                <FoldChevron />
+                <WorktreeIcon />
+                <span className="task-title">{task.name}</span>
+                {task.setup === "failed" && <span className="task-flag">setup failed</span>}
+                {summary?.status && <StatusMark status={summary.status} unread={summary.unread} />}
+                {summary && <span className="task-count">{summary.count}</span>}
+            </button>
+        </h3>
+    );
+}
+
+/** A task's open sessions, the sub-agents at work under them, and the line to its closed ones. */
+function TaskSessions({ project, task }: { project: string; task: Task }) {
+    const words = useWords();
+    // A session is moved among those its starter started, or among the task's others.
+    const sessionOrder = (session: Session) =>
+        orderAttributes(
+            { kind: "session", id: session.id },
+            orderGroup.sessions(task.id, starterHere(task.sessions, session)),
+        );
+    return (
+        <>
             {task.sessions.length === 0 && <p className="hint">{words.noSessions}</p>}
             <ul className="sessions">
                 {nestedSessions(task.sessions).map(({ session, nested }) => (
@@ -250,7 +292,7 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
             {task.closed > 0 && (
                 <ClosedSessions project={project} task={task.name} count={task.closed} />
             )}
-        </div>
+        </>
     );
 }
 
@@ -469,6 +511,15 @@ function Grip() {
                 <circle cx="6" cy="10" r="1.2" />
             </svg>
         </span>
+    );
+}
+
+/** What a repository's or a task's name shows of whether it is folded: it turns down when open. */
+function FoldChevron() {
+    return (
+        <svg className="fold-chevron" viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M3.5 1.5 7 5 3.5 8.5" />
+        </svg>
     );
 }
 

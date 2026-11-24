@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import type { AgentInfo, Effort, SlashCommand, Supervision, Theme, ToolCalls } from "../api/types";
+import type {
+    AgentInfo,
+    Effort,
+    LimitWarnings,
+    SlashCommand,
+    Supervision,
+    Theme,
+    ToolCalls,
+} from "../api/types";
 import { useStore } from "../store";
 import { type Words, wordsFor } from "../wording";
 
@@ -132,6 +140,14 @@ export function useHearsMidTurn(id: string): boolean {
 }
 
 /**
+ * Whether agent `id` can send work a call waits on to the background; `false` until the
+ * agents are read.
+ */
+export function useSendsToBackground(id: string): boolean {
+    return useAgents().some((agent) => agent.id === id && agent.sends_to_background);
+}
+
+/**
  * What an agent's default effort came to the last time a session left it to the agent, on
  * `model` or, for `null`, on the agent's default model. `null` until that is known.
  */
@@ -197,6 +213,13 @@ export const TOOL_CALLS: [ToolCalls, string][] = [
     ["all", "All, each on its own line"],
     ["folded", "Folded, one line for the calls in a row"],
     ["hidden", "Hidden, with a larger animation while it works"],
+];
+
+/** How often a conversation can say that Claude Code warns of a usage limit. */
+export const LIMIT_WARNINGS: [LimitWarnings, string][] = [
+    ["frequent", "Frequent"],
+    ["rare", "Rare, from 75% used"],
+    ["none", "None"],
 ];
 
 /** Text sizes offered, in percent of the normal size. */

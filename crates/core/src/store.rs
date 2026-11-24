@@ -1,10 +1,12 @@
 //! Persistence in a local SQLite file.
 
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, Row, ToSql, Transaction, params};
 use serde::Serialize;
 
+use crate::elsewhere::Written;
 use crate::error::{Error, Result};
 
 /// A registered git repository.
@@ -83,6 +85,21 @@ pub(crate) struct NewTask<'a> {
     pub(crate) worktree_path: &'a Path,
     pub(crate) slot: u32,
     pub(crate) environment: Option<&'a str>,
+    /// Whether the branch was made for the task, rather than checked out as it was.
+    pub(crate) branch_made: bool,
+}
+
+/// A removed task's branch, as the task left it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RemovedBranch {
+    /// The removed task's name.
+    pub(crate) task: String,
+    pub(crate) branch: String,
+    pub(crate) base_ref: String,
+    /// Whether the branch was made for the task; `None` for a task made before that was kept.
+    pub(crate) made: Option<bool>,
+    /// When the task was removed, in seconds since 1970.
+    pub(crate) removed_at: Option<u64>,
 }
 
 /// One entry per schema change, applied in order and never edited afterwards.
@@ -210,6 +227,12 @@ const MIGRATIONS: &[&str] = &[
     "
     ALTER TABLE projects ADD COLUMN default_environment TEXT;
 ",
+    // Whether a task's branch was made for it, rather than one that was there and was
+    // checked out: a clean-up deletes only branches Swarmed made. Not known for tasks made
+    // before this.
+    "
+    ALTER TABLE tasks ADD COLUMN branch_made INTEGER;
+",
 ];
 
 /// Stands in [`MIGRATIONS`] for the one change SQL in a transaction cannot make: every
@@ -223,6 +246,9 @@ const TASK_SELECT: &str = "SELECT id, project_id, name, branch, base_ref, worktr
 #[derive(Debug)]
 pub(crate) struct Store {
     pub(crate) conn: Connection,
+    /// The events this process stored, for telling them from those another process stored.
+    /// Only ever borrowed for one short step: the store is behind a lock already.
+    pub(crate) written: RefCell<Written>,
 }
 
 impl Store {
@@ -234,7 +260,8 @@ impl Store {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         migrate(&mut conn)?;
-        Ok(Self { conn })
+        let written = RefCell::new(Written::from_now(&conn)?);
+        Ok(Self { conn, written })
     }
 
     pub(crate) fn project_insert(&self, name: &str, repo_path: &Path) -> Result<Project> {
@@ -312,8 +339,8 @@ impl Store {
         self.conn.execute(
             // At the end of its repository's tasks.
             "INSERT INTO tasks (project_id, name, branch, base_ref, worktree_path, slot, environment,
-                                position)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7,
+                                branch_made, position)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
                      (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks WHERE project_id = ?1))",
             params![
                 new.project_id,
@@ -322,7 +349,8 @@ impl Store {
                 new.base_ref,
                 new.worktree_path.to_string_lossy(),
                 new.slot,
-                new.environment
+                new.environment,
+                new.branch_made
             ],
         )?;
         Ok(Task {
@@ -417,6 +445,27 @@ impl Store {
             params![task_id, status.as_str()],
         )?;
         Ok(())
+    }
+
+    /// The branches of the project's removed tasks, the latest removed first.
+    pub(crate) fn removed_branches(&self, project_id: i64) -> Result<Vec<RemovedBranch>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT name, branch, base_ref, branch_made, CAST(strftime('%s', archived_at) AS INTEGER)
+             FROM tasks WHERE project_id = ?1 AND archived_at IS NOT NULL
+             ORDER BY archived_at DESC, id DESC",
+        )?;
+        let rows = stmt.query_map(params![project_id], |row| {
+            Ok(RemovedBranch {
+                task: row.get(0)?,
+                branch: row.get(1)?,
+                base_ref: row.get(2)?,
+                made: row.get(3)?,
+                removed_at: row
+                    .get::<_, Option<i64>>(4)?
+                    .and_then(|seconds| u64::try_from(seconds).ok()),
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     pub(crate) fn task_archive(&self, task_id: i64) -> Result<()> {

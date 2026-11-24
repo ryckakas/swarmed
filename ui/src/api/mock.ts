@@ -5,7 +5,9 @@ import { PLAN_TOOL, withFiles } from "../transcript";
 import { titleFrom } from "../tree";
 import type { Api } from "./client";
 import { MOCK_COMMANDS, mockQuestions, mockSaid, mockScreen, mockScreenOnly } from "./mockCommands";
+import { heardUsage, sampleAccountUsage } from "./mockUsage";
 import type {
+    AccountUsage,
     Action,
     AgentEvent,
     AgentSetup,
@@ -13,6 +15,8 @@ import type {
     BackgroundState,
     BackgroundTask,
     Check,
+    Cleanup,
+    CleanupItem,
     CloudProvider,
     CloudTask,
     Costs,
@@ -52,7 +56,9 @@ import type {
 // Sample data and a scripted agent, for working on the UI in a browser where there is no Tauri
 // shell. The agent behaves like the core's FakeBackend: plain text is echoed, `run: <command>`
 // asks permission first, `ask` puts questions, `delegate` starts sub-agents, `show` answers
-// with an HTML view, and `slow` runs until interrupted.
+// with an HTML view, `warn <percent>` ends its turn with a usage warning for the weekly window
+// that full (`warn <percent> <seconds>`: one that resets that soon), `slow` runs until interrupted, and `long: <command>` runs a command the turn
+// waits on until it is sent to the background or stopped.
 
 // `show` answers with this view: a chart in the app's colours, with buttons that redraw it.
 const SAMPLE_VIEW = `<style>
@@ -145,6 +151,26 @@ function session(id: number, taskId: number, title: string, status: SessionStatu
     };
 }
 
+/** A branch prefix as the core keeps it: without blank space or slashes at either end. */
+function keptPrefix(prefix: string): string {
+    return prefix.replace(/^[\s/]+|[\s/]+$/g, "");
+}
+
+/** Roughly what git refuses in a branch's name; the real check is git's, in the core. */
+const NOT_A_BRANCH = /[\s~^:?*[\\]|\.\.|\/\/|@\{|^[-.]|\/\.|\.lock(\/|$)|\.$/;
+
+/** The branch a new task gets in the sample: the prefix, or the sample's login, `you`. */
+function sampleBranch(prefix: string, name: string): string {
+    const start = keptPrefix(prefix) || "you";
+    const branch = `${start}/${name}`;
+    if (NOT_A_BRANCH.test(branch)) {
+        throw new Error(
+            `the branch prefix \`${start}\` cannot be used: '${branch}' is not a valid branch name`,
+        );
+    }
+    return branch;
+}
+
 /** The sample tasks that have a stack, by id, and how it stands. */
 const SAMPLE_STACKS: Partial<Record<number, StackState>> = { 1: "running", 2: "stopped" };
 
@@ -204,6 +230,12 @@ function removeApi(projects: () => Project[]): Pick<Api, "projectRemove" | "task
             if (name === "invoice-export" && !force) {
                 throw new Error("task `invoice-export` has uncommitted changes");
             }
+            // Another has a session whose agent another Swarmed runs, which nothing gets past.
+            if (name === "shop-142") {
+                throw new Error(
+                    "session 6 runs in another Swarmed: do this there, or once it is stopped there or that Swarmed has quit",
+                );
+            }
             const tasks = projects().find((project) => project.name === projectName)?.tasks ?? [];
             const at = tasks.findIndex((task) => task.name === name);
             tasks.splice(at, at === -1 ? 0 : 1);
@@ -262,6 +294,120 @@ function mcpApi(): Pick<Api, "mcpServers" | "mcpSave" | "mcpRemove"> {
             own = own.filter((server) => server.name !== name);
             return all();
         },
+    };
+}
+
+const NOW_SECONDS = Math.floor(Date.now() / 1000);
+const DAY = 86_400;
+
+/** What the sample projects' removed tasks left behind, and their snapshots. */
+const SAMPLE_CLEANUP: Cleanup = {
+    removed: [
+        {
+            key: "/w/storefront/.removed/old-checkout-3-1",
+            project: "storefront",
+            name: "/w/storefront/.removed/old-checkout-3-1",
+            task: "old-checkout",
+            reason: "its task was removed, and it was not deleted, or could not be",
+            bytes: 1_240_000_000,
+            since: NOW_SECONDS - 3 * DAY,
+            at_risk: false,
+        },
+    ],
+    branches: [
+        {
+            key: "storefront:ada/old-checkout",
+            project: "storefront",
+            name: "ada/old-checkout",
+            task: "old-checkout",
+            reason: "everything on it is also on origin/main or a remote",
+            bytes: null,
+            since: NOW_SECONDS - 3 * DAY,
+            at_risk: false,
+        },
+        {
+            key: "storefront:ada/stuck",
+            project: "storefront",
+            name: "ada/stuck",
+            task: "stuck",
+            reason: "everything on it is also on origin/main or a remote",
+            bytes: null,
+            since: NOW_SECONDS - 40 * DAY,
+            at_risk: false,
+        },
+        {
+            key: "storefront:ada/spike-search",
+            project: "storefront",
+            name: "ada/spike-search",
+            task: "spike-search",
+            reason: "2 commits on it are on neither origin/main nor a remote",
+            bytes: null,
+            since: NOW_SECONDS - 12 * DAY,
+            at_risk: true,
+        },
+    ],
+    stale: [
+        {
+            key: "/w/storefront/tmp-build",
+            project: "storefront",
+            name: "/w/storefront/tmp-build",
+            task: null,
+            reason: "no task owns this folder",
+            bytes: 12_400_000,
+            since: NOW_SECONDS - 9 * DAY,
+            at_risk: false,
+        },
+        {
+            key: "/w/storefront/gone",
+            project: "storefront",
+            name: "/w/storefront/gone",
+            task: null,
+            reason: "git still keeps a record of this worktree, whose folder is gone",
+            bytes: null,
+            since: null,
+            at_risk: false,
+        },
+    ],
+    snapshots: [
+        {
+            key: "storefront:",
+            project: "storefront",
+            name: "tasks without an environment",
+            task: "invoice-export",
+            reason: "new tasks start from it; without it, their setup does all the work again",
+            bytes: 640_000_000,
+            since: NOW_SECONDS - 20 * DAY,
+            at_risk: false,
+        },
+    ],
+};
+
+/**
+ * Clean-up of the sample data: what is deleted is gone from the list and from the usage
+ * figures. One branch is refused, as git refuses a branch it cannot lock.
+ */
+function cleanupApi(): Pick<Api, "cleanup" | "cleanupClean" | "usage"> {
+    const listed: Cleanup = structuredClone(SAMPLE_CLEANUP);
+    const refused = "storefront:ada/stuck";
+    return {
+        cleanup: async () => structuredClone(listed),
+        cleanupClean: async (kind, keys, atRisk) => {
+            // As the core: what loses work and was not shown so is not deleted.
+            const agreed = (item: CleanupItem) => !item.at_risk || atRisk.includes(item.key);
+            const named = listed[kind].filter((item) => keys.includes(item.key) && agreed(item));
+            const kept = named.filter((item) => item.key === refused);
+            const deleted = named.filter((item) => item.key !== refused).map((item) => item.key);
+            listed[kind] = listed[kind].filter((item) => !deleted.includes(item.key));
+            const reason = "git would not delete it: cannot lock ref 'refs/heads/ada/stuck'";
+            return {
+                deleted,
+                kept: kept.map((item) => ({ key: item.key, name: item.name, reason })),
+            };
+        },
+        usage: async () => ({
+            ...SAMPLE_USAGE,
+            removed_bytes: listed.removed.reduce((sum, item) => sum + (item.bytes ?? 0), 0),
+        }),
     };
 }
 
@@ -651,9 +797,14 @@ function sampleOutput(taskId: string): string | null {
     return `${lines.join("\n")}\n`;
 }
 
-function backgroundApi(): Pick<
+function backgroundApi(
+    agent: MockAgent,
+): Pick<
     Api,
-    "taskBackground" | "sessionStopBackground" | "sessionBackgroundOutput"
+    | "taskBackground"
+    | "sessionStopBackground"
+    | "sessionBackgroundOutput"
+    | "sessionSendToBackground"
 > {
     const tasks: BackgroundTask[] = [
         {
@@ -666,6 +817,20 @@ function backgroundApi(): Pick<
             summary: null,
             tool_use_id: null,
             output: true,
+            stoppable: true,
+        },
+        {
+            // As OpenCode leaves one: nothing says when it ends, and nothing stops it.
+            session_id: 2,
+            session_title: "Write a regression test for the loop",
+            task_id: "sh_7",
+            description: "pnpm dev --port 3200",
+            kind: "local_bash",
+            state: "running",
+            summary: null,
+            tool_use_id: null,
+            output: false,
+            stoppable: false,
         },
         {
             session_id: 1,
@@ -677,6 +842,7 @@ function backgroundApi(): Pick<
             summary: 'Background command "Run the whole test suite" completed (exit code 0)',
             tool_use_id: null,
             output: true,
+            stoppable: true,
         },
         {
             session_id: 2,
@@ -688,11 +854,17 @@ function backgroundApi(): Pick<
             summary: "The agent stopped with an error",
             tool_use_id: null,
             output: false,
+            stoppable: true,
         },
     ];
+    const all = () => [...agent.sentToBackground.map((sent) => sent.listed), ...tasks];
     return {
-        taskBackground: async (_project, name) =>
-            name === "fix-login-redirect" ? tasks.map((task) => ({ ...task })) : [],
+        taskBackground: async (_project, name) => {
+            const sent = agent.sentToBackground.filter((one) => one.task === name);
+            const sample = name === "fix-login-redirect" ? tasks : [];
+            return [...sent.map((one) => one.listed), ...sample].map((task) => ({ ...task }));
+        },
+        sessionSendToBackground: async (id, toolUseId) => agent.sendToBackground(id, toolUseId),
         sessionBackgroundOutput: async (_id, taskId, from) => {
             const text = sampleOutput(taskId);
             if (text === null) {
@@ -703,7 +875,12 @@ function backgroundApi(): Pick<
             return { text: text.slice(start), start, end: text.length };
         },
         sessionStopBackground: async (id, taskId) => {
-            const task = tasks.find((one) => one.session_id === id && one.task_id === taskId);
+            const task = all().find((one) => one.session_id === id && one.task_id === taskId);
+            if (task && !task.stoppable) {
+                throw new Error(
+                    `\`${taskId}\` cannot be stopped from Swarmed: its agent offers no way to stop it`,
+                );
+            }
             if (task) {
                 task.state = "stopped";
             }
@@ -1061,15 +1238,15 @@ const switchedTo = new Map([["shop-142", "you/shop-150"]]);
 const alsoOn = new Map([["shop-142", ["you/shop-150"]]]);
 
 /**
- * One sample task has work to commit, another a branch waiting for a pull request, and a
- * third has its worktree on a branch that is not its own.
+ * One sample task has work to commit, another a branch waiting for a pull request, a third has
+ * its worktree on a branch that is not its own, and a fourth has everything pushed and merged.
  */
 async function sampleUnpublished(name: string, own: string): Promise<Unpublished> {
     const branch = switchedTo.get(name) ?? own;
     return {
         changed: name === "fix-login-redirect" ? 4 : 0,
         unpushed: branch === own ? 0 : 2,
-        pushed_before: name === "invoice-export",
+        pushed_before: name === "invoice-export" || name === "rust-support",
         branch,
         branches: [own, ...(alsoOn.get(name) ?? [])],
         rebasing: false,
@@ -1089,11 +1266,41 @@ async function sampleOpenedPull(): Promise<Pull> {
     return pull;
 }
 
-/** One sample task has a pull request with a failed check; the others have none. */
+/**
+ * Three sample tasks have a pull request: one open with a failed check, one merged, and one a
+ * draft with no checks yet, which is grey beside the merged one's lilac. The others have none.
+ */
 async function samplePull(_project: string, name: string): Promise<Pull | null> {
-    if (name !== "fix-login-redirect") {
-        return null;
-    }
+    const pull = SAMPLE_PULLS[name];
+    return pull ? pull() : null;
+}
+
+const SAMPLE_PULLS: Record<string, () => Pull> = {
+    "fix-login-redirect": openPull,
+    "rust-support": () => ({
+        number: 87,
+        title: "Lint Rust files",
+        url: "https://github.com/example/bonsai-lint/pull/87",
+        state: "merged",
+        draft: false,
+        review: "approved",
+        checks: [
+            { name: "Lint", workflow: "CI", outcome: "passed", url: null },
+            { name: "Test", workflow: "CI", outcome: "passed", url: null },
+        ],
+    }),
+    "shop-142": () => ({
+        number: 415,
+        title: "Show the shop's opening hours",
+        url: "https://github.com/example/storefront/pull/415",
+        state: "open",
+        draft: true,
+        review: null,
+        checks: [],
+    }),
+};
+
+function openPull(): Pull {
     return {
         number: 412,
         title: "Fix the redirect loop after login",
@@ -1361,10 +1568,16 @@ class MockAgent {
         (allowed: boolean, answers?: Record<string, string>) => void
     >();
     private readonly interrupts = new Map<number, () => void>();
+    /** The command each session's turn waits on, while `long:` runs one. */
+    private readonly waitedOn = new Map<number, { call: string; command: string }>();
+    /** What was sent to the background, by the task it belongs to, as its list shows it. */
+    readonly sentToBackground: { task: string; listed: BackgroundTask }[] = [];
     /** The waiting message each session has open for editing. */
     private readonly holds = new Map<number, number>();
     /** Sessions whose first message would have gone but was open for editing. */
     private readonly owed = new Set<number>();
+    /** The account's usage, as every Claude Code session's reports leave it. */
+    usage: AccountUsage = sampleAccountUsage();
     private nextId = 100;
 
     history(id: number): AgentEvent[] {
@@ -1389,10 +1602,23 @@ class MockAgent {
         this.history(sessionId).push(event);
         this.record(sessionId, event, status);
         this.tell(sessionId, event, status);
+        this.hearUsage(sessionId, event);
         // A turn that ended well makes room for the next waiting message, as in the core.
         if (event.type === "turn_done" && !event.is_error) {
             this.sendQueued(sessionId);
         }
+    }
+
+    /** Takes in a Claude Code session's usage report, and tells everyone, as the core does. */
+    private hearUsage(sessionId: number, event: AgentEvent) {
+        const usage = heardUsage(this.usage, event);
+        const sessions = this.tasks().flatMap((task) => task.sessions);
+        const agent = sessions.find((session) => session.id === sessionId)?.agent;
+        if (usage === null || agent !== "claude") {
+            return;
+        }
+        this.usage = usage;
+        this.tell(0, { type: "account_usage", usage }, null);
     }
 
     /**
@@ -1635,14 +1861,136 @@ class MockAgent {
             this.askQuestions(id, text === "ask one", done);
         } else if (text.startsWith("run:")) {
             this.askPermission(id, text.slice(4).trim(), done);
+        } else if (text.startsWith("long:")) {
+            this.runLong(id, text.slice(5).trim());
         } else if (text.startsWith("show")) {
             this.showView(id, done);
         } else if (text.startsWith("switch ")) {
             this.switchWorktree(id, text.slice(7).trim(), done);
+        } else if (text.startsWith("elsewhere:")) {
+            this.renamedElsewhere(id, text.slice(10).trim(), done);
+        } else if (/^warn \d+( \d+)?$/.test(text)) {
+            const [, percent, inSeconds] = text.split(" ");
+            this.warnOfLimit(id, Number(percent), Number(inSeconds ?? 6 * 86_400), done);
         } else {
             return false;
         }
         return true;
+    }
+
+    /**
+     * Renames the session once the turn is over, as another Swarmed process such as the command
+     * line would: the window hears no `renamed`, only that the tree changed, and reads it again.
+     */
+    private renamedElsewhere(id: number, title: string, done: AgentEvent) {
+        const said = `Another Swarmed will rename this session to "${title}".`;
+        this.later(id, { type: "text", text: said }, "working");
+        this.later(id, done, "idle");
+        setTimeout(() => {
+            const renamed = this.configure(id, {}) as Session;
+            renamed.title = title;
+            this.tell(0, { type: "tree_changed" }, null);
+        }, PACE * 4);
+    }
+
+    /**
+     * Runs a command the turn waits on, as a build or a dev server keeps it waiting, until it
+     * is sent to the background or the turn is stopped.
+     */
+    private runLong(id: number, command: string) {
+        const call = `long-${this.nextId++}`;
+        const input = { command, description: `Run ${command}` };
+        this.later(id, { type: "tool_use", id: call, name: "Bash", input }, "working");
+        this.waitedOn.set(id, { call, command });
+        this.interrupts.set(id, () => {
+            this.waitedOn.delete(id);
+            const stopped = "Interrupted by the user";
+            const result: AgentEvent = {
+                type: "tool_result",
+                tool_use_id: call,
+                content: stopped,
+                is_error: true,
+            };
+            this.publish(id, result, "working");
+            this.publish(id, mockTurnEnd(true), "idle");
+        });
+    }
+
+    /**
+     * Sends the command a `long:` turn waits on to the background, as Claude Code does: the
+     * call returns, the turn goes on and ends, and the command runs on. Whether it went.
+     */
+    sendToBackground(id: number, toolUseId: string | null): boolean {
+        const waited = this.waitedOn.get(id);
+        if (!waited || (toolUseId !== null && toolUseId !== waited.call)) {
+            return false;
+        }
+        this.waitedOn.delete(id);
+        this.interrupts.delete(id);
+        const { call, command } = waited;
+        const taskId = `bg-${call}`;
+        const output = `/private/tmp/claude-501/tasks/${taskId}.output`;
+        const description = `Run ${command}`;
+        const moved: AgentEvent = {
+            type: "background",
+            task_id: taskId,
+            description,
+            kind: "local_bash",
+            state: "running",
+            summary: null,
+            tool_use_id: call,
+            output_file: output,
+            moved: true,
+        };
+        this.publish(id, moved, "working");
+        const content = `Command was manually backgrounded by user with ID: ${taskId}. Output is being written to: ${output}.`;
+        const result: AgentEvent = {
+            type: "tool_result",
+            tool_use_id: call,
+            content,
+            is_error: false,
+        };
+        this.publish(id, result, "working");
+        this.later(id, { type: "text", text: `${command} goes on in the background.` }, "working");
+        this.later(id, mockTurnEnd(false), "idle", 2);
+        const task = this.tasks().find((one) => one.sessions.some((session) => session.id === id));
+        const listed: BackgroundTask = {
+            session_id: id,
+            session_title: this.configure(id, {}).title,
+            task_id: taskId,
+            description,
+            kind: "local_bash",
+            state: "running",
+            summary: null,
+            tool_use_id: call,
+            output: false,
+            stoppable: true,
+        };
+        this.sentToBackground.push({ task: task?.name ?? "", listed });
+        return true;
+    }
+
+    /**
+     * Ends a turn as Claude Code does while a window fills up: its report warns of it. The
+     * window resets `inSeconds` from now.
+     */
+    private warnOfLimit(id: number, percent: number, inSeconds: number, done: AgentEvent) {
+        this.later(id, { type: "text", text: `The weekly window is ${percent}% used.` }, "working");
+        this.later(id, done, "idle", 2);
+        const resetsAt = Math.round(Date.now() / 1000) + inSeconds;
+        const weekly = { status: "allowed_warning", utilization: percent / 100, resetsAt };
+        const warning: AgentEvent = {
+            type: "rate_limit",
+            status: "allowed_warning",
+            resets_at: resetsAt,
+            raw: {
+                status: "allowed_warning",
+                rateLimitType: "seven_day",
+                utilization: percent / 100,
+                unifiedWindows: { seven_day: weekly },
+            },
+        };
+        this.later(id, warning, null, 3);
     }
 
     /** Answers in plain words, as an agent's ordinary reply. */
@@ -2082,6 +2430,17 @@ class MockAgent {
     }
 }
 
+/** The end of a sample turn: stopped, or ended well. */
+function mockTurnEnd(stopped: boolean): AgentEvent {
+    return {
+        type: "turn_done",
+        is_error: stopped,
+        result: stopped ? "interrupted" : null,
+        cost_usd: 0.0123,
+        duration_ms: 72_000,
+    };
+}
+
 /** Closing sessions, listing the closed ones of a task, and reopening one. */
 /** The sample sessions whose title holds the words: the sample conversations are not kept. */
 function sampleSearch(projects: Project[], query: string): SearchHit[] {
@@ -2339,18 +2698,20 @@ export function createMockApi(): Api {
         default_supervision: "auto",
         html_views: true,
         tool_calls: "folded",
+        limit_warnings: "frequent",
         notifications: true,
         rules: "",
         status_items: ["branch", "changes", "model", "context", "cost", "duration"],
         status_command: "",
         updates: "automatic",
+        branch_prefix: "",
     };
     return {
         overview: async () => structuredClone(agent.projects),
         ...mcpApi(),
         ...templatesApi(),
         ...actionsApi(),
-        usage: async () => SAMPLE_USAGE,
+        ...cleanupApi(),
         costs: async () => SAMPLE_COSTS,
         ...snapshotApi(() => agent.projects),
         ...orderApi(() => agent.projects),
@@ -2364,6 +2725,7 @@ export function createMockApi(): Api {
                 models: ["opus", "sonnet", "haiku", "fable"],
                 default_model: null,
                 hears_mid_turn: true,
+                sends_to_background: true,
             },
             {
                 id: "opencode",
@@ -2371,6 +2733,7 @@ export function createMockApi(): Api {
                 models: ["openrouter/openai/gpt-5.6", "openrouter/google/gemini-3-pro"],
                 default_model: "openrouter/openai/gpt-5.6",
                 hears_mid_turn: false,
+                sends_to_background: false,
             },
         ],
         // A browser gives no paths, so the sample hands out two that look real.
@@ -2422,7 +2785,7 @@ export function createMockApi(): Api {
             const environment = await environmentIn(environments, projectName, choice);
             const created = {
                 ...task(Date.now(), project.id, name, []),
-                ...(branch ? { branch } : {}),
+                branch: branch ?? sampleBranch(settings.branch_prefix, name),
                 environment,
             };
             project.tasks.push(created);
@@ -2475,8 +2838,9 @@ export function createMockApi(): Api {
         ...updateApi(),
         setBadge: async () => {},
         setSettings: async (changed) => {
-            settings = changed;
+            settings = { ...changed, branch_prefix: keptPrefix(changed.branch_prefix) };
         },
+        branchExample: async (prefix) => sampleBranch(prefix, "fix-login"),
         terminalConfig: async () => ({ ...terminalConfig }),
         terminalConfigSave: async (text) => {
             terminalConfig = JSON.parse(text) as TerminalConfig;
@@ -2528,7 +2892,7 @@ export function createMockApi(): Api {
         sessionInterrupt: async (id) => {
             agent.interrupt(id);
         },
-        ...backgroundApi(),
+        ...backgroundApi(agent),
         slashCommands: async () => MOCK_COMMANDS,
         sessionCommandAnswer: async (id, requestId, answers) =>
             agent.answerCommand(id, requestId, answers),
@@ -2557,6 +2921,7 @@ export function createMockApi(): Api {
             return () => terminal.listeners.delete(listener);
         },
         statusLine: async (id) => scriptedStatus(settings.status_command, id),
+        accountUsage: async () => agent.usage,
         sessionUsageRefresh: async (id) => agent.refreshUsage(id),
         sessionRemoteControl: async (id, on) => agent.remoteControl(id, on),
         sessionRename: async (id, title) => agent.rename(id, title),

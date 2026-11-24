@@ -1,7 +1,9 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { newSession } from "./actions";
+import { api as moduleApi } from "./api";
 import type { Api } from "./api/client";
 import { createMockApi } from "./api/mock";
-import type { AgentEvent, SessionEvent } from "./api/types";
+import type { AccountUsage, AgentEvent, SessionEvent } from "./api/types";
 import {
     appendEvent,
     configProblemsSaid,
@@ -495,6 +497,138 @@ describe("configuration that is not understood whole", () => {
     });
 });
 
+describe("what another Swarmed process writes", () => {
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    it("has the window read the tree again, and is kept in no transcript", async () => {
+        let heard: (event: SessionEvent) => void = () => {};
+        let refreshes = 0;
+        const base = createMockApi();
+        const api: Api = {
+            ...base,
+            overview: async () => {
+                refreshes += 1;
+                return base.overview();
+            },
+            onSessionEvent: async (listener) => {
+                heard = listener;
+                return () => {};
+            },
+        };
+        const disconnect = connect(api);
+        await settle();
+        const before = refreshes;
+        heard(published(0, { type: "tree_changed" }));
+        expect(refreshes).toBe(before + 1);
+        expect(useStore.getState().events[0]).toBeUndefined();
+        disconnect();
+    });
+
+    it("has the configuration read again, and keeps what did not change as it was", async () => {
+        let heard: (event: SessionEvent) => void = () => {};
+        let problems = ["settings.toml: `later` is not something this version knows."];
+        const base = createMockApi();
+        const api: Api = {
+            ...base,
+            configProblems: async () => problems,
+            onSessionEvent: async (listener) => {
+                heard = listener;
+                return () => {};
+            },
+        };
+        useStore.setState({ problem: null, settings: null, terminalConfig: null });
+        const disconnect = connect(api);
+        await settle();
+        const { settings, terminalConfig, actionsChanged } = useStore.getState();
+        expect(settings).not.toBeNull();
+        // Seen and put away: the same problems are not said again.
+        useStore.getState().dismissProblem();
+
+        heard(published(0, { type: "config_changed", kind: "file" }));
+        await settle();
+        expect(useStore.getState().settings).toBe(settings);
+        expect(useStore.getState().terminalConfig).toBe(terminalConfig);
+        expect(useStore.getState().actionsChanged).toBe(actionsChanged + 1);
+        expect(useStore.getState().problem).toBeNull();
+        expect(useStore.getState().events[0]).toBeUndefined();
+
+        problems = ["agents.toml: `soon` is not something this version knows."];
+        heard(published(0, { type: "config_changed", kind: "file" }));
+        await settle();
+        expect(useStore.getState().problem).toContain("`soon`");
+        disconnect();
+    });
+});
+
+describe("the account's usage", () => {
+    const usage = (used: number): AccountUsage => ({
+        windows: [
+            {
+                kind: "seven_day",
+                name: "weekly",
+                used,
+                resets_at: null,
+                status: "allowed",
+                heard_at: 100,
+                asked: false,
+            },
+        ],
+        extra: null,
+        billed: null,
+    });
+
+    it("is read once connected, and follows what any session hears, for every session", async () => {
+        let heard: (event: SessionEvent) => void = () => {};
+        let refreshes = 0;
+        const base = createMockApi();
+        const api: Api = {
+            ...base,
+            accountUsage: async () => usage(0.4),
+            overview: async () => {
+                refreshes += 1;
+                return base.overview();
+            },
+            onSessionEvent: async (listener) => {
+                heard = listener;
+                return () => {};
+            },
+        };
+        useStore.setState({ accountUsage: null });
+        const disconnect = connect(api);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(useStore.getState().accountUsage).toEqual(usage(0.4));
+        const before = refreshes;
+
+        heard(published(0, { type: "account_usage", usage: usage(0.88) }));
+        expect(useStore.getState().accountUsage).toEqual(usage(0.88));
+        // It belongs to no session: nothing is read again for it, and no transcript holds it.
+        expect(refreshes).toBe(before);
+        expect(useStore.getState().events[0]).toBeUndefined();
+        disconnect();
+    });
+
+    it("is not put back by a read that an event overtook", async () => {
+        let heard: (event: SessionEvent) => void = () => {};
+        let answer: (usage: AccountUsage) => void = () => {};
+        const api: Api = {
+            ...createMockApi(),
+            accountUsage: () => new Promise((resolve) => (answer = resolve)),
+            onSessionEvent: async (listener) => {
+                heard = listener;
+                return () => {};
+            },
+        };
+        useStore.setState({ accountUsage: null });
+        const disconnect = connect(api);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        heard(published(0, { type: "account_usage", usage: usage(0.88) }));
+        answer(usage(0.4));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(useStore.getState().accountUsage).toEqual(usage(0.88));
+        disconnect();
+    });
+});
+
 describe("the queue of waiting messages", () => {
     it("is kept beside the transcript and follows the core's events", () => {
         useStore.setState({ events: { 1: [text("a")] }, queues: {} });
@@ -537,6 +671,70 @@ describe("opening a session", () => {
             .flatMap((task) => task.sessions)
             .find((session) => session.id === 5);
         expect(stored?.unread).toBe(false);
+    });
+});
+
+describe("a folded task", () => {
+    const stored = new Map<string, string>();
+    const remembered = () => stored.get("swarmed.folded-tasks");
+    beforeEach(() => {
+        stored.clear();
+        vi.stubGlobal("localStorage", {
+            getItem: (key: string) => stored.get(key) ?? null,
+            setItem: (key: string, value: string) => stored.set(key, value),
+        });
+        useStore.setState({ foldedTasks: [] });
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    it("folds and unfolds by id, and is remembered on this machine", () => {
+        useStore.getState().toggleTaskFolded(4);
+        useStore.getState().toggleTaskFolded(1);
+        expect(useStore.getState().foldedTasks).toEqual([4, 1]);
+        expect(remembered()).toBe("[4,1]");
+        useStore.getState().toggleTaskFolded(4);
+        expect(remembered()).toBe("[1]");
+    });
+
+    it("unfolds when one of its sessions is opened, from wherever that was", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        useStore.setState({ foldedTasks: [1, 4] });
+        await useStore.getState().open(api, 5);
+        expect(useStore.getState().foldedTasks).toEqual([1]);
+        expect(remembered()).toBe("[1]");
+    });
+
+    it("stays folded over the session on screen when that one is only read again", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        await useStore.getState().open(api, 5);
+        // Folded by the user with its session open, then read again after events were missed.
+        useStore.setState({ foldedTasks: [4] });
+        await useStore.getState().open(api, 5);
+        expect(useStore.getState().foldedTasks).toEqual([4]);
+    });
+
+    it("unfolds when a session is started in it", async () => {
+        await useStore.getState().refresh(moduleApi);
+        useStore.setState({ foldedTasks: [4] });
+        await newSession("bonsai-lint", "rust-support");
+        expect(useStore.getState().selectedSessionId).not.toBeNull();
+        expect(useStore.getState().foldedTasks).toEqual([]);
+    });
+
+    it("is forgotten with its task, removed here or anywhere else", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        useStore.setState({ foldedTasks: [1, 2, 4] });
+        useStore.getState().forgetTasks([4]);
+        expect(useStore.getState().foldedTasks).toEqual([1, 2]);
+
+        // Removed from another window or the command line: the tree read again lacks it.
+        await api.taskRemove("storefront", "fix-login-redirect", true);
+        await useStore.getState().refresh(api);
+        expect(useStore.getState().foldedTasks).toEqual([2]);
+        expect(remembered()).toBe("[2]");
     });
 });
 

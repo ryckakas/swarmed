@@ -97,6 +97,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   something it left running ends. `acp.rs` treats that as a turn of the agent's own: it ends
   when the agent has said something and reports its usage, or has been silent for `QUIET`,
   and a stop from the user ends it at once, since the agent has nothing to answer one with.
+  A sub-agent's run that starts or ends after the turn, or a request it makes then, counts
+  the same, so that the session is told it is done.
 - **What Swarmed cannot understand in its configuration costs only itself** (`lenient.rs`,
   #300). Two Swarmeds of different versions can share one data directory, and one key the
   older does not know must not stop it.
@@ -128,8 +130,49 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   `run/first.lock`, settles sessions when it starts and ends stacks it did not start when it
   quits (`Core::arrive`, `Core::leave`). Any other ends only its own (`stacks_stop_started`),
   which is all the command line ever does.
+- **What another process writes reaches the window through its own core** (`elsewhere.rs`).
+  Each process publishes only on its own stream, so the app runs `follow_others`, which calls
+  `Core::notice_others` every second:
+  - **Events:** those above the highest id dealt with (`Written::mark`) are published in order
+    as `Live::note` would, flagged `SessionEvent::elsewhere`. Each event this process stored
+    is noted in `Store::keep` and left out, so nothing is published twice. The last event of
+    each session in a look, and an answer handed back, carry the status and unread state of
+    the session's row; the others, what `SessionStatus::after` makes of them.
+  - **The tree:** after another connection committed (`PRAGMA data_version`), the rows of
+    projects, tasks, sessions and cloud tasks are read again; if they changed, or a stack's
+    record under `run/stacks` did, `AgentEvent::TreeChanged` (session id 0, never stored) has
+    front ends read the tree again.
+  - **Configuration files:** a `.toml` or `.json` in the data directory or `projects/` that
+    changed on disk is published as `ConfigChanged` with the kind `file` on session id 0, and
+    a changed `agents.toml` is read again. Own writes count too: the UI keeps what it reads
+    again when it is the same (`unlessSame`), and says the same problems once.
+  - **A history read** (`session_events`) passes on what is above the mark first, under the
+    same lock as a look (`Elsewhere::passing`), and reads only up to it (`events_upto`):
+    everything it returns has been published, so a front end that reads it and adds what it
+    hears shows nothing twice. A look that fails still publishes the events it read.
+  - **Notices:** only the first Swarmed to arrive shows those of events from elsewhere, and
+    not while a Swarmed that shows its own runs the session (`shows_notices_of`). An app that
+    arrived second takes the house at its next look once the first has quit
+    (`house_if_free`), and from then on also stops every stack when it quits. It settles
+    then what the first left busy, as `arrive` would have (`sessions_settle`, which passes
+    over what runs here or elsewhere): the first, opened again, finds the house kept and
+    settles nothing.
+  The first look takes stock and publishes no tree or file change. `swarmed events` drives
+  the same from the command line.
+- **A session's agent runs in one process at a time** (`claim_run`). `launch` takes a lock on
+  `run/sessions/<id>.lock`, under the lock on the running sessions, and `Live::forget` lets go
+  of it there once no run of the session is left. The system lets go of it when the process
+  ends, so a crashed one blocks nothing. Another process refuses to start the session
+  (`Error::RunsElsewhere`), to interrupt, close or delete it, to answer its requests, and to
+  remove its task or repository, even by force; a message queued for it there goes once the
+  lock is free (`Elsewhere::waiting`). The lock file is deleted with its session only while
+  no other process holds it (`forget_run_lock`). `sessions_settle` passes over the
+  sessions run elsewhere. The lock is unlocked before it is closed (`let_go_run`): a process
+  another thread forks meanwhile holds the file open until it execs, and closing alone would
+  leave it locked that long. A dropped `Core` lets go of its locks, as its process would.
 - **A session left busy by a Swarmed that ended mid-turn** is put right: the app settles all
-  of them when it starts (`Core::arrive`), and Stop on one records its turn as stopped.
+  of them when it starts (`Core::arrive`), and Stop on one records its turn as stopped. One
+  whose agent another Swarmed runs is not left over, and is left as it is.
   An agent that went with its Swarmed never reported its end, so `arrive` also records one
   (`background_settle`) for each session whose history has something left in the background
   and no end after it: a front end reading that history would take a sub-agent left there to
@@ -151,9 +194,29 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   their files, each worktree with `du`, and memory and processor time with `ps`, summed over
   Swarmed's own process and everything started from it. An agent's share is the tree under the
   process its backend reported when it started.
+- **What removed tasks leave behind is cleaned up on request** (`cleanup.rs`): removed
+  worktrees not deleted yet (in `.removed`), the branches of removed tasks, stale worktrees
+  (folders in a project's place under the worktrees root that no task owns, and git's records
+  of worktrees whose folder is gone) and snapshots. `Core::cleanup` lists them, each with a
+  key; `cleanup_clean` deletes one kind, by keys or every item not at risk, after listing again,
+  so only what is still listed goes. A record is listed only while nothing is at its path:
+  git calls one prunable when the folder's `.git` file is missing, which a folder made again
+  in its place also is, and no folder is ever deleted for an item listed as a record. A
+  front end that showed a list says which keys it showed as at risk (`shown_at_risk`): one at
+  risk now and not shown so is kept, since the list may be old. A repository that cannot be
+  asked lists no branches and stops no other kind. Never listed: a current task's worktree or branch (its
+  own, the others its worktree was seen on, its base), a task being made (`names_claimed`),
+  anything a worktree of the repository has checked out, the repositories themselves and any
+  folder with a repository of its own, a remote branch, and a branch Swarmed did not make
+  (`tasks.branch_made`, written since; a task made before counts as its removal did: its
+  branch unless it started from it). An item that would lose work found nowhere else (commits
+  on neither the base nor a remote, uncommitted changes, commits on no branch, or one git could
+  not check) is `at_risk`: it goes only when named, and the UI lists it apart, unticked, to be
+  ticked one by one. A snapshot is forgotten through `snapshot_remove`, under its lock. The
+  window's Usage tab and `swarmed cleanup` drive it; the window measures usage again after.
 - **Running sessions live in the core** (`sessions.rs`). Front ends call `session_start`,
   `session_send` and the like by session id and read every session's events from one stream,
-  `Core::subscribe`. Events are stored before they are published, except the pieces of a reply
+  `Core::subscribe`, which also carries what other processes wrote (`elsewhere.rs`). Events are stored before they are published, except the pieces of a reply
   still being written (`TextDelta`), which are only published: the whole reply follows.
 - **The app crate holds no logic.** A command in `crates/app/src/commands.rs` calls one core
   function. If the UI needs something new, it is added to the core and tested there first.
@@ -185,6 +248,15 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **Keyboard shortcuts are one table** (`ui/src/hotkeys.ts`), matched in `useHotkeys.ts` and
   listed in Settings from the same table. A new action gets its shortcut there, not a key
   handler of its own. Combinations macOS or the window already use are not taken.
+- **Every dialog is built with `Dialog`** (`ui/src/components/Dialog.tsx`), the one file with a
+  `<dialog>` element, which `dialogs.test.ts` holds it to. It opens modal and gives the same
+  three parts: a head with the title and ×, a body that alone scrolls, and a footer with the
+  way out first and the main button last. Width is a size by name (`small`, `medium`, `large`,
+  `wide`); spacing, radius and colours come from the tokens, so every layout applies. A click
+  beside one closes it only when the dialog says nothing would be lost (`closeOnBackdrop`), and
+  `busy` disables its actions but never the way out. Those two decisions and where the
+  keyboard starts are pure functions (`ui/src/dialogs.ts`), tested there. A dialog opened from another keeps Esc to
+  itself. A new dialog takes these props, not a frame or a class of its own.
 - **A layout is a setting apart from palette and style** (`Settings::layout`, `data-layout` on
   the root). Classic is what `app.css` draws; `layouts.css` holds only what senior changes:
   the text and spacing tokens, quiet colours mixed from the palette's own, and fixed-size icons
@@ -197,6 +269,15 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   of range, a colour is not `#rrggbb`, or text would not stand out from the backgrounds given;
   a new field gets a range there, a line in `layout_schema`, and a line in the UI's
   `customLayout.ts`, which writes only values of a form it knows into the stylesheet it builds.
+  A key it does not know is refused on saving (`parse`) and only left out on reading
+  (`CustomLayout::read`, through `serde_ignored`, colour names included), where
+  `config_problems` names it: a newer Swarmed's key must not cost an older one the layout.
+  The sidebar's levels (`sidebar`: repository, task, session, sub-agent) are drawn from
+  `--sidebar-<level>-size`, `-weight`, `-colour` and `-background`, which only the custom
+  stylesheet sets; each rule's fallback is what classic and senior draw, so keep it so.
+  The core checks a level's colour against its own background only, so a session row that
+  is pointed at, open, waiting or unread keeps to that pair (`sessionStates` in
+  `customLayout.ts`: the background tinted with the colour) and never takes the palette's.
   Agents save it whole through `configure`'s `layout` kind, at once: it cannot hide or move
   anything, and it has to stay that way for that to be safe.
 - **The terminal is xterm.js, drawn from the palette and the user's `terminal.json`**
@@ -340,8 +421,14 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   plans. The first session is untouched. What the first agent read or did is not carried
   over: only what was said.
 - **Check UI changes in a browser** with `pnpm dev`. The mock agent answers plain text, asks
-  permission for `run: <command>`, answers `show …` with an HTML view, and runs until stopped
-  for `slow`; one sample session has 2,000 messages for checking scroll speed. The README's
+  permission for `run: <command>`, answers `show …` with an HTML view, ends its turn with a
+  weekly usage warning for `warn <percent>` (resetting in that many seconds with
+  `warn <percent> <seconds>`), runs until stopped for `slow`, runs a
+  command its turn waits on for `long: <command>`, until it is sent to the background or
+  stopped, and renames the session as another Swarmed would for `elsewhere: <title>`, saying
+  only `tree_changed`; one sample session has 2,000 messages for checking scroll speed.
+  Removing the sample task `invoice-export` is refused over unsaved work, and `shop-142` over
+  a session another Swarmed runs. The README's
   screenshot and GIF are of this sample data, never of anyone's real projects.
 - **MCP servers are one pool for every agent** (`mcp_pool.rs`). When a session starts, each
   agent's servers are read from its own configuration (`mcp.rs` and `mcp_plugins.rs` for
@@ -381,9 +468,28 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   default now) gets its call's result at once and works on past the turn: its
   `AgentEvent::Background` report names the call (`tool_use_id`), which keeps it at work,
   listed under the session even while it is idle, until the report of its end or the
-  agent's exit, in whichever order the result and the report came. Its answer is that end
+  agent's exit, in whichever order the result and the report came. One sent there while its
+  call waited on it is reported the same way when it moves. Its answer is that end
   report's summary, and its row in the Background list opens it. Nothing in the store or the database knows of sub-agents. Conversations
   recorded before this have a sub-agent's words among the agent's own.
+- **ACP agents' sub-agents are shown as Claude Code's are** (`agent/acp/children.rs`). A
+  sub-agent there is a session of its own, which `acp.rs` asks for at `initialize`: the
+  protocol's unstable `subagents` (Codex sends `subagent_update` on the session, then the
+  child's updates and permission requests under the child's `sessionId`) and OpenCode's
+  `_meta["opencode/child-session-updates"]` (`opencode/session/child_update` notifications;
+  without it, a child's updates come on the session's own stream marked with
+  `_meta["opencode/child-session"]`). Whatever a child sends is `Sub` under the call that
+  shows its run, never the agent's own: its words, its tool calls, and its usage, which is
+  not the session's. Each run is reported as `local_agent` work in the background, from the
+  agent's word that it runs to its word that it is idle or done, so the UI follows it as it
+  does a Claude Code sub-agent in the background, and its last words are its answer. OpenCode's
+  `subagent` (earlier `task`) call is that run's call, shown as `Agent` with its `agent` as
+  `subagent_type`; Codex hides its call, so one is made up (`Agent`, the child's session id,
+  then `~2` and on for later runs) and returns at once. A run Codex says started is shown
+  once what it was asked is known (`session_message`), or once it does something. A child's
+  permission request is the session's own, with `description` naming the child. Stopping one
+  cancels its session (Codex); OpenCode has no way, so its runs are `unstoppable`. Antigravity
+  reports nothing of the kind, so its sub-agents are plain tool calls.
 - **A session's title** starts as the first line of its first message. A `Namer` (`ClaudeNamer`:
   one call to Claude Code's smallest model, with none of the user's settings, tools, MCP
   servers, skills or commands) then suggests a better one, unless `auto_title` is off or the
@@ -412,6 +518,17 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   delete is kept and noted, since the task is gone by then. A remote branch is never touched.
   What a task's sessions left (waiting messages, unread views, private files) is deleted only
   once the removal has gone through (`sessions_forgotten`), never by one that was refused.
+- **A new task's branch starts with the user's branch prefix** (`prefix.rs`,
+  `Settings::branch_prefix`): the default `branch_pattern` is `{{prefix}}/{{task}}`, and
+  `{{prefix}}` is the prefix without the slashes at its ends, or the login (`{{user}}`) when
+  it is empty. It belongs to the pattern alone; hooks have `{{branch}}`. `set_settings` checks
+  a prefix that changed with git's own rules (`git check-ref-format --branch`, on
+  `<prefix>/fix-login`) and refuses it with git's reason; one already kept is not checked
+  again, so one written by hand cannot stop every other setting from being saved.
+  `branch_example` shows the branch a prefix gives, for the settings to preview. A repository
+  config whose pattern is `{{user}}/{{task}}`, which the template wrote before, is read as the
+  default; any other is the user's and wins. The template leaves the pattern out, since an
+  older Swarmed on the same data directory knows no `{{prefix}}`.
 - **A session is unread** (`Session::unread`) from when its agent ends a turn, or stops with an
   error, until a front end calls `session_mark_read` or the user writes to it. It is a flag
   beside the status, not a status: the UI shows it for idle sessions only, since busy, waiting
@@ -434,7 +551,41 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **What agents leave running** (`background.rs`) is read back from the sessions' histories:
   Claude Code reports a `task_started` and a `task_notification` for each background command
   or agent, which become `AgentEvent::Background`. Stopping one is the `stop_task` control
-  request. What ran under an agent that is no longer running is listed as stopped. A stack's
+  request. What ran under an agent that is no longer running is listed as stopped, and so is
+  what an earlier run of the agent left once that run's `Exited` is recorded: the agent
+  started again knows nothing of it.
+  - **OpenCode's shells** (`agent/acp/shells.rs`): a call that ends with
+    `rawOutput.metadata.status: "running"` and a `shellID` left one running, reported as
+    `local_bash`. Nothing over ACP tells its end, so every shell reported running is taken to
+    have ended when the agent next takes something up by itself (what a shell's end wakes it
+    for), or when it goes. Like Claude Code's, a command left running holds nothing up.
+  - **What cannot be stopped is marked** (`unstoppable` on the report, `stoppable` on
+    `BackgroundTask`): `session_stop_background` refuses it (`Error::Unstoppable`) and the
+    Background list offers no Stop. Reading output stays Claude Code's: ACP agents name no file.
+  - **Codex's work left running is not followed.** codex-acp reports it only to a client that
+    declares JetBrains' AIR, which changes the shape of everything else it sends; it is not
+    declared. ACP v2's `state_update.background` and `terminal/cancel` are the way, once
+    codex-acp sends them to a client like Swarmed.
+- **What a command printed beside its call is its result** (`agent/acp/printed.rs`). Codex
+  streams a command's output in `_meta.terminal_output_delta` and ends the call with no
+  content; the pieces are kept by call (the latest 64 KB) and stand in for content that is
+  missing, before `rawOutput`.
+- **Work a call waits on is not work left running** (`claude.rs`, `Pending`). Claude Code
+  reports a `Bash` command or sub-agent its call waits on with `task_started` and
+  `is_backgrounded: false`; `claude.rs` keeps that report to itself, says nothing of its end
+  there, and tells it as `Background` (with `moved`) only when a `task_updated` moves it to
+  the background. Such work can be sent there, as Ctrl+B does in Claude Code's terminal, by
+  `session_send_to_background` (the `background_tasks` control request, with the call's
+  `tool_use_id` or for every call): the call returns, the turn goes on, and the work is
+  listed until it ends. Claude Code's answer arrives as `AgentEvent::SentToBackground`, which
+  the core hands to whoever asked (`Live::await_sent`) and neither stores nor publishes; only
+  Claude Code can (`AgentInfo::sends_to_background`), and the core refuses for the others.
+  The transcript offers it on a running `Bash`, `Agent` or `Task` call of such an agent while
+  it works (`mayGoToBackground`), each call listed in an opened run of folded calls
+  included, and says quietly when it did not go; `bg` typed during
+  `swarmed session send` does the same for every call. The command line reads what is typed
+  on a thread of its own (`Typed`), never with Tokio's stdin: a read of a terminal cannot be
+  given up, and the runtime would wait for it before the command could end. A stack's
   `start` command is spawned with `std::process`, never Tokio's: window commands that are not
   `async` run on a thread without a runtime, where a Tokio spawn aborts the app.
 - **What a background command printed can be read** (`session_background_output`), from the
@@ -465,7 +616,7 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   One build per environment at a time: `building_lock` holds a file lock beside the folder, so
   parallel first setups, and the app beside the `swarmed` command, do not build in one place.
   Forgetting a snapshot takes the same lock and is refused while one is built, which would
-  put it back.
+  put it back; with the lock, it also deletes what a build that was cut short left beside it.
 - **A repository's default environment is kept in the database** (`default_environment` on
   `projects`, `Core::environment_default`), not in its config or environments file: a
   Swarmed sharing the data directory that does not know the key would refuse the file, as
@@ -528,12 +679,14 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   built-in button for one person's workflow: that is what an action is for.
 - **Agents change Swarmed's own configuration through one tool, `configure`** (`configure.rs`),
   in three kinds. Done at once: prompts, actions that send a prompt, the status line's pieces,
-  appearance. Only proposed: rules, environments, an action's command, the status line's
+  appearance (with `limit_warnings`, which of Claude Code's usage warnings a conversation
+  says: a limit reached is said whatever it is). Only proposed: rules, environments, an action's command, the status line's
   script, hiding tool calls (`tool_calls` to `hidden`; all and folded are appearance like the
   rest). These outlive the session, so an agent that read something hostile could plant one;
   the change is shown in the conversation (`ConfigProposed`) and made when the user accepts it
   there (`Core::config_answer`), whatever the agent's own permission mode. Not reachable at
-  all: API keys, MCP servers, sign-ins, supervision, notes. Keep it one tool: every tool's
+  all: API keys, MCP servers, sign-ins, supervision, notes, the branch prefix (set once by the
+  user, and not worth a line in a description every agent is sent). Keep it one tool: every tool's
   description is sent to every agent in every session. A new setting goes into one of the three
   kinds on purpose; when unsure, propose. An environment's variable values are never told to
   an agent, only their names. An agent may set variables and ports, one by one; the proposal
@@ -623,13 +776,31 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   in a session's header (`UsageButton`, `session_usage_refresh`, `AgentCommand::AskUsage`)
   or `/usage`. Every answer is read into `UsageLimits` (the plan's limits as `/usage` lists
   them) and `ExtraUsage` (what is spent beyond the plan this billing period, against the
-  monthly cap), so the context card shows what was heard last; `/usage` also shows its
-  screen. Claude Code reads them from claude.ai with its own sign-in. Only those figures are
-  read, a shape it does not know is no answer, and `skip_behaviors` spares the scan of a week
-  of local transcripts. The rest of the answer, the plan and what the account's sessions
-  cost, is not kept, passed on or logged. Nothing asks for usage on its own, on a timer or
-  when a figure is looked at, and `docs/coding-agents.md` says how fresh the figures are
-  because of that. It was the user's choice, so that looking costs nothing. Keep it so.
+  monthly cap); `/usage` also shows its screen. Claude Code reads them from claude.ai with
+  its own sign-in. Only those figures are read, a shape it does not know is no answer, and
+  `skip_behaviors` spares the scan of a week of local transcripts. The rest of the answer,
+  the plan and what the account's sessions cost, is not kept, passed on or logged. Nothing
+  asks for usage on its own, on a timer or when a figure is looked at, and
+  `docs/coding-agents.md` says how fresh the figures are because of that. It was the user's
+  choice, so that looking costs nothing. Keep it so. A UI timer that only draws again at a
+  window's reset time asks nothing, and is how a warning goes when its window resets.
+- **Usage is the account's, and every Claude Code session shows the same**
+  (`account_usage.rs`, `Core::account_usage`, `swarmed limits`). The core folds each
+  `RateLimit`, `UsageLimits` and `ExtraUsage` a Claude Code session records into one
+  `AccountUsage`: each window, by its kind (`session` is `five_hour`, `weekly_all` is
+  `seven_day`, one model's weekly limit is `seven_day_<model>`), keeps the newest figure any
+  report gave it, since the report after a turn leaves a model's limit out; an answer to
+  asking lists every limit, so one an earlier answer gave that it does not is dropped. It is
+  read lazily from the newest reports in the database, and published apart as
+  `AgentEvent::AccountUsage` on session id 0, never stored, whenever it changes. There is one
+  for all: `claude` cannot be redefined in `agents.toml` and runs on the user's own sign-in,
+  so every session reports one account, and another agent's reports are not taken in. The UI
+  keeps it in the store (`accountUsage`) and shows it only for Claude Code sessions; a window
+  past its `resets_at` counts as reset, at 0%, until a report says otherwise
+  (`accountWindows`), and `useAccountUsage` draws again at the next reset. Each figure says
+  how old it is.
+  Reports are folded by agent, not by sign-in: a session the command line runs with
+  `--auth inherit` on another account's sign-in is taken as the same account.
 - **ACP agents with an effort of their own say what it stands at** when a conversation opens,
   which is recorded as `Applied` too. Before a session's agent has said, a front end shows
   what the agent's default last came to (`effort.rs`, `Core::effort_default`): the latest
@@ -797,7 +968,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   notes, its snapshots, environments and own actions. Its config file stays. The repository is not touched. Removing a task stops its sessions first. In the UI
   both ask first, and offer to go ahead regardless only after a refusal over unsaved work.
 - **Only unsaved work stops a task's removal** (`task_remove`): changes not committed, commits
-  not pushed, or a worktree git no longer knows, whose work cannot be checked. The stack is
+  not pushed, or a worktree git no longer knows, whose work cannot be checked. And, whatever
+  `force` says, a session of it whose agent another Swarmed runs (`Error::RunsElsewhere`): the
+  dialog offers no "Remove anyway" for that (`anywayHelps`). The stack is
   always stopped. A `stop` or `teardown` that fails, or outlasts `HOOK_LIMIT` and is then
   killed with what it started (`hooks::run_within`), a broken
   configuration, and a process that outlives being killed are passed over and returned as
@@ -807,8 +980,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   open in a terminal, what keeps terminals open (tmux and the like) and the processes of an
   application from outside the worktree are left alone. The worktree is then
   moved into `.removed` beside it, which is instant, and deleted by an `rm` of its own;
-  `Core::arrive` deletes what one that was cut short left, and `usage.rs` counts what is
-  still there. A removal under way is kept in the UI's store (`removals`), so a dialog closed
+  `Core::arrive` deletes what one that was cut short left, `usage.rs` counts what is still
+  there, and a clean-up deletes it on request (`cleanup.rs`), making a folder some tool left
+  without write permission writable first. A removal under way is kept in the UI's store (`removals`), so a dialog closed
   and asked for again starts no second one. An environment that tasks use
   cannot be removed (`Error::EnvironmentInUse`).
 - **Opening things elsewhere** (`open.rs`) starts the user's editor (`settings.toml`, VS Code by

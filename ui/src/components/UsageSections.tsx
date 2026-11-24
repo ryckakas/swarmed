@@ -1,22 +1,22 @@
 import type { CSSProperties } from "react";
 import type { AgentEvent } from "../api/types";
+import { type ExtraUsage, money, onExtraUsageNow, spentShare } from "../extraUsage";
 import {
-    type ExtraUsage,
-    latestExtraUsage,
-    money,
-    onExtraUsageNow,
-    spentShare,
-} from "../extraUsage";
-import {
+    accountWindows,
+    asOf,
     type LimitLevel,
     type LimitWindow,
     limitLevel,
-    limitWindows,
-    resetWhen,
+    newestHeard,
+    type WindowNotes,
+    windowNote,
+    windowNotes,
 } from "../rateLimit";
 import { type SpendBasis, sessionSpend, spendBasis } from "../spend";
+import { useAccountUsage } from "../useAccountUsage";
 import { useWords } from "../useWords";
 import type { Words } from "../wording";
+import { CLAUDE } from "./options";
 
 /**
  * How usage is drawn: in the context card, the figures with a thin bar under each; in the
@@ -24,31 +24,61 @@ import type { Words } from "../wording";
  */
 export type UsageLook = "card" | "overview";
 
-/** The plan's usage limits, the extra usage and what the session spent, those there are. */
-export function UsageSections({ events, look }: { events: AgentEvent[]; look: UsageLook }) {
+/**
+ * The plan's usage limits and the extra usage, those there are, and what the session spent.
+ * The first two are the account's, as any Claude Code session last heard them, and shown only
+ * for a session on `agent` Claude Code: no other agent reports them, and its account is
+ * another.
+ */
+export function UsageSections({
+    agent,
+    events,
+    look,
+}: {
+    agent: string;
+    events: AgentEvent[];
+    look: UsageLook;
+}) {
+    const account = useAccountUsage();
+    const usage = agent === CLAUDE ? account.usage : null;
     return (
         <>
-            <Limits windows={limitWindows(events)} look={look} />
-            <Extra usage={latestExtraUsage(events)} inUse={onExtraUsageNow(events)} look={look} />
+            <Limits windows={accountWindows(usage, account.now)} look={look} />
+            <Extra
+                usage={usage?.extra ?? null}
+                inUse={onExtraUsageNow(usage, account.now)}
+                look={look}
+            />
             <Spend spent={sessionSpend(events)} basis={spendBasis(events)} />
         </>
     );
 }
 
-/** Claude Code's usage windows: how much of each is used, and when it resets. */
+/**
+ * Claude Code's usage windows: how much of each is used, when it resets, and how old the
+ * figures are. One heard before the newest says its own age.
+ */
 function Limits({ windows, look }: { windows: LimitWindow[]; look: UsageLook }) {
     const words = useWords();
-    if (windows.length === 0) {
+    const newest = newestHeard(windows);
+    if (newest === null) {
         return null;
     }
     const now = new Date();
     const Window = look === "card" ? CardWindow : OverviewWindow;
     return (
         <section className="context-section" aria-label={words.usageLimits}>
-            <p className="context-title">{words.usageLimits}</p>
+            <p className="context-title">
+                {words.usageLimits}
+                <span>{capitalized(asOf(newest, now))}</span>
+            </p>
             <dl className="context-limits">
                 {windows.map((window) => (
-                    <Window key={window.name} window={window} now={now} />
+                    <Window
+                        key={window.name}
+                        window={window}
+                        notes={windowNotes(window, newest, now)}
+                    />
                 ))}
             </dl>
         </section>
@@ -56,8 +86,9 @@ function Limits({ windows, look }: { windows: LimitWindow[]; look: UsageLook }) 
 }
 
 /** A window in the context card: its name and share, a thin bar, and when it resets. */
-function CardWindow({ window, now }: { window: LimitWindow; now: Date }) {
+function CardWindow({ window, notes }: { window: LimitWindow; notes: WindowNotes }) {
     const percent = Math.round(window.used * 100);
+    const note = windowNote(notes);
     return (
         <div className="context-limit" data-level={limitLevel(window)}>
             <dt>{capitalized(window.name)}</dt>
@@ -68,25 +99,25 @@ function CardWindow({ window, now }: { window: LimitWindow; now: Date }) {
                     style={{ width: `${Math.min(percent, 100)}%` }}
                 />
             </dd>
-            {window.resetsAt !== null && (
-                <dd className="context-reset">Resets {resetWhen(window.resetsAt, now)}</dd>
-            )}
+            {note && <dd className="context-reset">{note}</dd>}
         </div>
     );
 }
 
-/** A window in the overview: its name and when it resets, over a bar with its share inside. */
-function OverviewWindow({ window, now }: { window: LimitWindow; now: Date }) {
+/**
+ * A window in the overview: its name and when it resets, over a bar with its share inside, and
+ * under it how old its figure is, if older than the rest.
+ */
+function OverviewWindow({ window, notes }: { window: LimitWindow; notes: WindowNotes }) {
     const percent = Math.round(window.used * 100);
     return (
         <div className="usage-window">
             <dt>{capitalized(window.name)}</dt>
-            {window.resetsAt !== null && (
-                <dd className="usage-reset">Resets {resetWhen(window.resetsAt, now)}</dd>
-            )}
+            {notes.resets && <dd className="usage-reset">{notes.resets}</dd>}
             <dd className="usage-window-meter">
                 <Meter share={window.used} level={limitLevel(window)} label={`${percent}%`} />
             </dd>
+            {notes.age && <dd className="usage-age">{notes.age}</dd>}
         </div>
     );
 }
@@ -126,8 +157,8 @@ function Meter({
 }
 
 /**
- * The account's extra usage this billing period: what is spent against the monthly cap, and
- * whether this session's turns run on it, billed. Only Claude Code reports it.
+ * The account's extra usage this billing period: what is spent against the monthly cap, how
+ * old that figure is, and whether turns run on it now, billed. Only Claude Code reports it.
  */
 function Extra({
     usage,
@@ -149,6 +180,7 @@ function Extra({
             <p className="context-title">
                 {words.extraUsage}
                 {usage && <span>{spentThisMonth(usage)}</span>}
+                {usage && <span>{capitalized(asOf(usage.heard_at, new Date()))}</span>}
             </p>
             {share != null && look === "card" && (
                 <div className="context-bar context-bar-extra">
@@ -189,7 +221,7 @@ function extraNote(
         return { text: "The cap is reached: extra usage pays for nothing more.", tone: "warning" };
     }
     if (inUse) {
-        return { text: "This session runs on it now: its turns are billed.", tone: "warning" };
+        return { text: "Turns run on it now: they are billed.", tone: "warning" };
     }
     if (usage && !usage.enabled) {
         return { text: "Off: requests stop at the plan's limits.", tone: "plain" };

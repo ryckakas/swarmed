@@ -120,7 +120,7 @@
 }
 
 :root[data-layout="senior"] .project-name {
-    font-size: var(--text-md);
+    font-size: var(--sidebar-repository-size, var(--text-md));
 }
 
 :root[data-layout="senior"] .project-toggle {
@@ -137,10 +137,9 @@
     border-radius: 8px;
 }
 
-:root[data-layout="senior"] .task-name {
+:root[data-layout="senior"] .task-toggle {
     gap: var(--space-2);
     padding-block: var(--space-2);
-    font-size: var(--text-xs);
 }
 
 :root[data-layout="senior"] .sessions {

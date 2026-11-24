@@ -38,16 +38,23 @@ interface Props {
     events: AgentEvent[];
     /** Whether the agent is busy on a turn; the transcript then ends with what it is doing. */
     working: boolean;
+    /**
+     * Whether the session's agent can send the work a call waits on to the background, which
+     * its calls then offer while it works.
+     */
+    sendsToBackground: boolean;
 }
 
-export function Transcript({ sessionId, events, working }: Props) {
+export function Transcript({ sessionId, events, working, sendsToBackground }: Props) {
     const words = useWords();
     const toolCalls = useStore((state) => state.settings?.tool_calls ?? "folded");
+    const warnings = useStore((state) => state.settings?.limit_warnings ?? "frequent");
     const items = useMemo(
-        () => shownTools(toItems(events, words), toolCalls),
-        [events, words, toolCalls],
+        () => shownTools(toItems(events, words, warnings), toolCalls),
+        [events, words, warnings, toolCalls],
     );
     const lastMove = useMemo(() => latestMove(items), [items]);
+    const sendsFrom = working && sendsToBackground ? sessionId : null;
     const scroller = useRef<HTMLDivElement>(null);
     // Each session gets its own Transcript (keyed by the caller), so this starts out true.
     const following = useRef(true);
@@ -93,6 +100,7 @@ export function Transcript({ sessionId, events, working }: Props) {
                             item={item}
                             sessionId={sessionId}
                             latest={item.key === lastMove}
+                            sendsFrom={sendsFrom}
                         />
                     </li>
                 ))}
@@ -138,9 +146,11 @@ interface ItemProps {
     sessionId: number;
     /** Whether this is the conversation's latest move of the worktree. */
     latest: boolean;
+    /** The session whose calls' work can be sent to the background now; `null` for none. */
+    sendsFrom: number | null;
 }
 
-function ItemView({ item, sessionId, latest }: ItemProps) {
+function ItemView({ item, sessionId, latest, sendsFrom }: ItemProps) {
     const words = useWords();
     switch (item.kind) {
         case "user":
@@ -162,9 +172,18 @@ function ItemView({ item, sessionId, latest }: ItemProps) {
         case "text":
             return <Markdown text={item.text} streaming={item.streaming} />;
         case "tool":
-            return <ToolCall name={item.name} input={item.input} result={item.result} />;
+            return (
+                <ToolCall
+                    id={item.id}
+                    name={item.name}
+                    input={item.input}
+                    result={item.result}
+                    moved={item.moved}
+                    sendsFrom={sendsFrom}
+                />
+            );
         case "tools":
-            return <ToolRun calls={item.calls} />;
+            return <ToolRun calls={item.calls} sendsFrom={sendsFrom} />;
         case "permission":
             return (
                 <PermissionPrompt

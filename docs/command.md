@@ -5,6 +5,14 @@
 The command drives the same core as the app, on the same data, from a terminal or a script.
 `swarmed help <command>` has every argument; this page is the map.
 
+What it changes shows in a running app within about a second: a session renamed, marked,
+closed or started, a task made or removed, an action added, and the conversation of a session
+it runs, as it goes. A session's agent runs in one place at a time: one the app runs is refused
+here, and the other way round, until it is stopped there or that Swarmed quits. So is closing or
+deleting it, and removing its task or repository. A message queued in the app for a
+session the command runs goes once the command is done. `swarmed events` prints what happens in
+every session, whichever Swarmed does it.
+
 ## A first task
 
 ```sh
@@ -22,9 +30,17 @@ swarmed task rm shop fix-login                        # teardown hook, worktree 
 `task rm` refuses while the worktree has uncommitted changes or unpushed commits, or is one git
 no longer knows; `--force` removes it anyway. A failing `teardown` does not stop it: what it had to pass over is printed.
 
+`swarmed cleanup` lists what removed tasks left behind, and the snapshots, one to a line: its
+kind, size, key, task and why it is there. `swarmed cleanup branches --delete` deletes every
+branch of a removed task that loses no work; one marked `at risk` goes only when its key is
+given, as in `swarmed cleanup branches --delete shop:jd/spike`. The kinds are `removed`,
+`branches`, `stale` and `snapshots`.
+
 `session run` and `session send` print the conversation as it happens and ask on the terminal
-when the agent wants permission (`[y/N]`). Ctrl-C stops the turn, not the session. They exit
-non-zero when the turn is stopped or fails, so a script can tell.
+when the agent wants permission (`[y/N]`). Ctrl-C stops the turn, not the session. Typing `bg`
+and Enter sends a command or sub-agent that Claude Code waits on to the background, as Ctrl+B
+does in its own terminal: the turn goes on, and `task background` lists it while it runs. They
+exit non-zero when the turn is stopped or fails, so a script can tell.
 
 A session runs on Claude Code unless `--agent` names another (`swarmed agents` lists them).
 `--ask`, `--auto` and `--plan` choose how it is supervised; without one, the settings' default
@@ -47,8 +63,11 @@ applies. `SWARMED_FAKE_AGENT=1` swaps in a scripted agent that spends no tokens.
 | `action` | manage the buttons of your own that send a prompt or run a command |
 | `cloud` | hand a prompt to a Codex cloud agent or a Claude Code cloud session and list what was handed over; move one among the others; print or apply a Codex task's changes |
 | `search` | find the sessions where something was said |
+| `events` | print what happens in every session as it happens, whichever Swarmed does it, until Ctrl-C |
 | `costs`, `analytics`, `usage` | what agents report their work cost, turns by day and model, what Swarmed takes up |
-| `editor`, `auto-title`, `layout`, `terminal` | settings: the editor, naming sessions by a model, the custom layout, the terminal |
+| `limits` | your plan's usage limits and extra usage as Claude Code last reported them in any session, with how old each figure is; asks nothing |
+| `cleanup` | list or delete what removed tasks left behind, and snapshots: removed worktrees, branches of removed tasks, stale worktrees |
+| `editor`, `auto-title`, `branch-prefix`, `layout`, `terminal` | settings: the editor, naming sessions by a model, what new tasks' branches start with, the custom layout, the terminal |
 
 Commands that take a secret or a long text, `key set`, `note --set` and `rules --set`, read it
 from standard input, so it stays out of the shell's history.

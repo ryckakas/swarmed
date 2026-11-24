@@ -5,7 +5,7 @@
 // This file still writes only what it knows the form of, so that nothing else can reach the
 // page by way of a layout.
 
-import type { CustomLayout, Layout, LayoutColours, Settings } from "./api/types";
+import type { CustomLayout, Layout, LayoutColours, Settings, SidebarLevelName } from "./api/types";
 
 /** The layout whose stylesheet rules apply: for a custom layout, the one it starts from. */
 export function drawnLayout(
@@ -34,6 +34,14 @@ const MONO_FONTS = '"Atkinson Hyperlegible Mono Variable", ui-monospace, monospa
 
 const HEX = /^#[0-9a-f]{6}$/i;
 const FONT_NAME = /^[\p{L}\p{N} ._-]{1,60}$/u;
+
+/** The sidebar's levels by the core's names, each with the name its tokens have in app.css. */
+const LEVELS: [SidebarLevelName, string][] = [
+    ["repository", "repository"],
+    ["task", "task"],
+    ["session", "session"],
+    ["sub_agent", "sub-agent"],
+];
 
 /** A size in pixels as the rem it is at the normal text size, so the text size setting scales it. */
 function rem(pixels: number): string {
@@ -64,7 +72,7 @@ function measures(custom: CustomLayout): string[] {
     if (numbered(custom.icons)) {
         lines.push(`--icon-zoom: ${custom.icons / 100}`, `--button-zoom: ${custom.icons / 100}`);
     }
-    lines.push(...heights(custom), ...fonts(custom));
+    lines.push(...heights(custom), ...fonts(custom), ...levelMeasures(custom));
     return lines;
 }
 
@@ -93,11 +101,69 @@ function fonts(custom: CustomLayout): string[] {
     return lines;
 }
 
+/** The declarations for the size and weight of each level of the sidebar that sets them. */
+function levelMeasures(custom: CustomLayout): string[] {
+    const lines: string[] = [];
+    for (const [name, token] of LEVELS) {
+        const level = custom.sidebar?.[name];
+        const size = level?.size;
+        const weight = level?.weight;
+        if (numbered(size)) {
+            lines.push(`--sidebar-${token}-size: ${rem(size)}`);
+        }
+        if (numbered(weight) && Number.isInteger(weight)) {
+            lines.push(`--sidebar-${token}-weight: ${weight}`);
+        }
+    }
+    return lines;
+}
+
 /** The declarations for the colours of one form of the app. */
 function colours(given: LayoutColours | undefined): string[] {
     return Object.entries(given ?? {})
         .filter(([name, value]) => /^[a-z]+$/.test(name) && HEX.test(value))
         .map(([name, value]) => `--${name}: ${value}`);
+}
+
+function hex(value: unknown): value is string {
+    return typeof value === "string" && HEX.test(value);
+}
+
+/** The declarations for the colours of the sidebar's levels in one form of the app. */
+function levelColours(custom: CustomLayout, form: "dark" | "light"): string[] {
+    const lines: string[] = [];
+    for (const [name, token] of LEVELS) {
+        const given = custom.sidebar?.[name]?.[form];
+        for (const part of ["colour", "background"] as const) {
+            const value = given?.[part];
+            if (hex(value)) {
+                lines.push(`--sidebar-${token}-${part}: ${value}`);
+            }
+        }
+        if (name === "session") {
+            lines.push(...sessionStates(given?.colour, given?.background));
+        }
+    }
+    return lines;
+}
+
+/**
+ * What a session's row is drawn on while it is pointed at, open or waiting, and what its
+ * title is drawn in while unread, for a layout that gives sessions a background of their own.
+ * The core checked the colour against that background alone, so these stay with the pair: the
+ * background tinted a little with the colour, never the palette's own, which nothing checked
+ * the colour against.
+ */
+function sessionStates(colour: unknown, background: unknown): string[] {
+    if (!(hex(colour) && hex(background))) {
+        return [];
+    }
+    const tinted = (share: number) => `color-mix(in srgb, ${colour} ${share}%, ${background})`;
+    return [
+        `--sidebar-session-pointed: ${tinted(6)}`,
+        `--sidebar-session-open: ${tinted(12)}`,
+        `--sidebar-session-unread: ${colour}`,
+    ];
 }
 
 function rule(selector: string, lines: string[]): string {
@@ -111,8 +177,8 @@ function rule(selector: string, lines: string[]): string {
  */
 export function layoutCss(custom: CustomLayout): string {
     const body = ":root[data-custom] body";
-    const dark = colours(custom.dark);
-    const light = colours(custom.light);
+    const dark = [...colours(custom.dark), ...levelColours(custom, "dark")];
+    const light = [...colours(custom.light), ...levelColours(custom, "light")];
     return [
         rule(body, measures(custom)),
         rule(':root[data-custom][data-theme="dark"] body', dark),

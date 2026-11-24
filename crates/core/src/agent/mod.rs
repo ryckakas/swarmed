@@ -448,10 +448,12 @@ pub enum AgentEvent {
         /// Whether the change was made.
         accepted: bool,
     },
-    /// Swarmed's configuration was changed from this session, so front ends read it again.
-    /// Published and never stored.
+    /// Swarmed's configuration was changed, so front ends read it again. Published and never
+    /// stored.
     ConfigChanged {
-        /// Which part: `prompt`, `action`, `rule`, `status_line`, `appearance`, `environment`.
+        /// Which part: `prompt`, `action`, `rule`, `status_line`, `appearance`, `environment`;
+        /// or `file` when one of its files changed on disk, by another Swarmed process or by
+        /// hand, which is published with session id 0.
         kind: String,
     },
     /// What happened in the session's terminal since the agent's last turn, which the agent was
@@ -478,6 +480,18 @@ pub enum AgentEvent {
     Reordered {
         /// What was moved: `project`, `task`, `session` or `cloud_task`.
         kind: String,
+    },
+    /// Another Swarmed process on the same data, such as the command line, changed
+    /// repositories, tasks or sessions, or started or stopped a stack, so front ends read the
+    /// tree again. It belongs to no session: published with session id 0, which no session
+    /// has, and never recorded.
+    TreeChanged,
+    /// What a Claude Code session heard changed the account's usage, which every session
+    /// shows. It belongs to no session: published with session id 0, which no session has,
+    /// and never recorded. [`crate::Core::account_usage`] gives the same.
+    AccountUsage {
+        /// The usage now.
+        usage: crate::AccountUsage,
     },
     /// HTML the agent showed the user through Swarmed's own tool. Recorded by the core, which
     /// gets it from the tool and not from the shape of the agent's call.
@@ -589,6 +603,16 @@ pub enum AgentEvent {
         /// what was recorded before this.
         #[serde(default)]
         output_file: Option<String>,
+        /// Whether it ran in the foreground first, its call waiting on it, and was then moved
+        /// to the background: by the user, or by the agent itself. Absent from what started
+        /// in the background, and from what was recorded before this.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        moved: bool,
+        /// Whether the agent offers no way to stop it, so that it runs until it ends by itself
+        /// or the agent goes, such as a shell OpenCode left running. Absent from what can be
+        /// stopped, and from what was recorded before this.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        unstoppable: bool,
     },
     /// The session was forked from another: what stands before this is a copy of what was
     /// said there. Recorded by the core, not produced by a backend.
@@ -650,6 +674,18 @@ pub enum AgentEvent {
     Heard {
         /// The message as it was sent.
         text: String,
+    },
+    /// The agent's answer to [`AgentCommand::SendToBackground`]. Never stored or published:
+    /// the core hands it to whoever asked, and the move itself is reported as
+    /// [`AgentEvent::Background`].
+    SentToBackground {
+        /// The call that was to go, or `None` for every call that waited.
+        tool_use_id: Option<String>,
+        /// Whether it went. A call that had ended, or was in the background already, did not;
+        /// asked for every call, whether the agent took the request.
+        moved: bool,
+        /// Why the agent would not, in words for the user; `None` unless it refused.
+        refused: Option<String>,
     },
     /// How Remote Control of the session stands: whether it can be reached from claude.ai and
     /// the Claude app, and where. Claude Code reports it; the core records what it asked for
@@ -725,6 +761,14 @@ pub enum AgentCommand {
     StopBackground {
         /// The [`AgentEvent::Background`] task to stop.
         task_id: String,
+    },
+    /// Move a command or sub-agent that a tool call waits on to the background, as Ctrl+B does
+    /// in Claude Code's terminal: the call returns at once, the turn goes on, and the work runs
+    /// on. Answered with [`AgentEvent::SentToBackground`], by an agent that cannot with a
+    /// refusal.
+    SendToBackground {
+        /// The call whose work is to go; `None` sends every one the agent waits on.
+        tool_use_id: Option<String>,
     },
     /// Report one of the agent's own screens, as an [`AgentEvent::Screen`]. An agent that has
     /// no such screens ignores this.

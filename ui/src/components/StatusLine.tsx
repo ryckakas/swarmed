@@ -118,7 +118,9 @@ function BuiltIn({ project, task, session, events }: Props) {
                     ),
                 )}
             </p>
-            {detail !== null && usage && <ContextCard usage={usage} events={events} at={detail} />}
+            {detail !== null && usage && (
+                <ContextCard usage={usage} agent={session.agent} events={events} at={detail} />
+            )}
         </>
     );
 }
@@ -156,10 +158,12 @@ function Runs({ part }: { part: StatusPart }) {
  */
 function ContextCard({
     usage,
+    agent,
     events,
     at,
 }: {
     usage: ContextUsage;
+    agent: string;
     events: AgentEvent[];
     at: number;
 }) {
@@ -190,7 +194,7 @@ function ContextCard({
                     </div>
                 ))}
             </dl>
-            <UsageSections events={events} look="card" />
+            <UsageSections agent={agent} events={events} look="card" />
         </div>
     );
 }

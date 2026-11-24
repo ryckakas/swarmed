@@ -42,9 +42,10 @@
     --focus: #8fb4ff;
 
     /*
-     * Reading colours, for what the agent writes: quieter than the status colours and never
-     * used for state. Sky for links and keywords, lilac for names and headings, teal for code
-     * and types, bright for what the prose stresses.
+     * Reading colours, for what the agent writes: quieter than the status colours and not used
+     * for state. Sky for links and keywords, lilac for names and headings, teal for code and
+     * types, bright for what the prose stresses. The one exception is a merged pull request,
+     * which is lilac because GitHub draws it in purple and that is what people read at a glance.
      */
     --sky: #8fb4ff;
     /* An answer nobody has looked at yet: done, and so the green of what went well. */

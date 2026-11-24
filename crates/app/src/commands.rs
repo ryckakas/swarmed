@@ -12,12 +12,13 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
-    Action, AgentInfo, AgentSetup, ApiKeyInfo, BackgroundOutput, BackgroundTask, BranchChoices,
-    CloudOrigin, CloudProvider, CloudTask, Core, Costs, CustomLayout, Environment,
-    EnvironmentChoice, FileChange, FileDiff, FileListing, McpServerInput, McpServerView,
-    NewTaskOptions, Project, ProjectOverview, Pull, PullDraft, QueuedMessage, RemoveOptions,
-    SearchHit, Session, SessionOptions, SessionSettings, Settings, Skill, SlashCommand, Snapshot,
-    Task, TaskNaming, Template, TerminalConfig, TerminalOpened, TurnStats, Unpublished, Usage,
+    AccountUsage, Action, AgentInfo, AgentSetup, ApiKeyInfo, BackgroundOutput, BackgroundTask,
+    BranchChoices, Cleaned, Cleanup, CleanupKind, CloudOrigin, CloudProvider, CloudTask, Core,
+    Costs, CustomLayout, Environment, EnvironmentChoice, FileChange, FileDiff, FileListing,
+    McpServerInput, McpServerView, NewTaskOptions, Project, ProjectOverview, Pull, PullDraft,
+    QueuedMessage, RemoveOptions, SearchHit, Session, SessionOptions, SessionSettings, Settings,
+    Skill, SlashCommand, Snapshot, Task, TaskNaming, Template, TerminalConfig, TerminalOpened,
+    TurnStats, Unpublished, Usage,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -99,6 +100,27 @@ pub(crate) fn mcp_remove(core: CoreState<'_>, name: String) -> Command<Vec<McpSe
 #[tauri::command]
 pub(crate) async fn usage(core: CoreState<'_>) -> Command<Usage> {
     Ok(core.usage().await?)
+}
+
+/// What can be cleaned up: removed worktrees not deleted yet, branches of removed tasks, stale
+/// worktrees and snapshots. Async: it measures folders and asks git.
+#[tauri::command]
+pub(crate) async fn cleanup(core: CoreState<'_>) -> Command<Cleanup> {
+    Ok(core.cleanup().await?)
+}
+
+/// Deletes what the user ticked of one kind, named by the keys it was listed with. `at_risk`
+/// names those the window showed as losing work, so that one which became so since is kept.
+#[tauri::command]
+pub(crate) async fn cleanup_clean(
+    core: CoreState<'_>,
+    kind: CleanupKind,
+    keys: Vec<String>,
+    at_risk: Vec<String>,
+) -> Command<Cleaned> {
+    Ok(core
+        .cleanup_clean(kind, Some(&keys), Some(&at_risk))
+        .await?)
 }
 
 /// What the agents report their work has cost: today, this week, in all, by task and by day.
@@ -717,6 +739,13 @@ pub(crate) fn set_settings(core: CoreState<'_>, settings: Settings) -> Command<(
     Ok(core.set_settings(&settings)?)
 }
 
+/// The branch a task called fix-login would get with `prefix` as the branch prefix, or git's
+/// reason against it. It asks git, so off the main thread.
+#[tauri::command(async)]
+pub(crate) fn branch_example(prefix: String) -> Command<String> {
+    Ok(swarmed_core::branch_example(&prefix)?)
+}
+
 /// Where updating Swarmed stands.
 #[tauri::command]
 pub(crate) fn update_state(updates: State<'_, Updates>) -> UpdateState {
@@ -1036,6 +1065,19 @@ pub(crate) fn session_background_output(
     Ok(core.session_background_output(id, &task_id, from)?)
 }
 
+/// Asks a session's agent to send the work a call waits on, or every call's, to the
+/// background, and says whether it went.
+#[tauri::command]
+pub(crate) async fn session_send_to_background(
+    core: CoreState<'_>,
+    id: i64,
+    tool_use_id: Option<String>,
+) -> Command<bool> {
+    Ok(core
+        .session_send_to_background(id, tool_use_id.as_deref())
+        .await?)
+}
+
 /// Asks a session's agent to stop something it left running.
 #[tauri::command]
 pub(crate) fn session_stop_background(
@@ -1147,6 +1189,13 @@ pub(crate) fn claude_terminal_close(core: CoreState<'_>, id: i64) {
 #[tauri::command]
 pub(crate) async fn status_line(core: CoreState<'_>, id: i64) -> Command<Option<String>> {
     Ok(core.status_line(id).await?)
+}
+
+/// The account's usage as any Claude Code session last heard it. The sessions' records are
+/// read for it the first time.
+#[tauri::command(async)]
+pub(crate) fn account_usage(core: CoreState<'_>) -> Command<AccountUsage> {
+    Ok(core.account_usage()?)
 }
 
 /// Asks the session's Claude Code for the account's usage now; the answer arrives as events.

@@ -56,6 +56,14 @@ pub enum Error {
         "a branch named {0} exists already: name the task differently, or start it from that branch"
     )]
     BranchExists(String),
+    /// A branch prefix git would not take at the start of a branch's name.
+    #[error("the branch prefix `{prefix}` cannot be used: {reason}")]
+    BranchPrefix {
+        /// The prefix, without the slashes at its ends.
+        prefix: String,
+        /// What git said of a branch named with it.
+        reason: String,
+    },
     /// A new task's worktree folder is there already.
     #[error("{} exists already: name the task differently", .0.display())]
     TaskFolderExists(PathBuf),
@@ -217,6 +225,17 @@ pub enum Error {
         "{0} takes no message in the middle of its turn: send it now instead, which stops the turn"
     )]
     HearsNoMessageMidTurn(String),
+    /// Something an agent left running was to be stopped, and the agent offers no way to stop
+    /// it: it runs until it ends by itself or the agent goes.
+    #[error("`{0}` cannot be stopped from Swarmed: its agent offers no way to stop it")]
+    Unstoppable(String),
+    /// Work a call waits on was to be sent to the background, which only Claude Code can do.
+    #[error("only Claude Code can send work to the background, and this session runs `{0}`")]
+    NoSendingToBackground(String),
+    /// The agent would not send work to the background, or did not say whether it did. Says
+    /// why, in words for the user.
+    #[error("not sent to the background: {0}")]
+    NotSentToBackground(String),
     /// A port's name is not one a hook could use.
     #[error(
         "`{0}` cannot name a port: use lowercase letters, digits and underscores, starting with a letter"
@@ -296,6 +315,14 @@ pub enum Error {
     /// The session's agent has not been started, or has exited.
     #[error("session {0} is not running")]
     SessionNotRunning(i64),
+    /// Another Swarmed on the same data, such as the app or a command line, runs the session's
+    /// agent until it is stopped there or that Swarmed quits: a second one would take the
+    /// conversation over from it.
+    #[error(
+        "session {0} runs in another Swarmed: do this there, or once it is stopped there or \
+         that Swarmed has quit"
+    )]
+    RunsElsewhere(i64),
     /// A stored or outgoing event could not be converted to or from JSON.
     #[error(transparent)]
     Json(#[from] serde_json::Error),

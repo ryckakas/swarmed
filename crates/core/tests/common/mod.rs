@@ -19,6 +19,22 @@ pub struct Fixture {
     pub paths: Paths,
 }
 
+/// An executable file at `path` holding `contents`, put there by a child process. A file this
+/// process held open for writing would be inherited by a process another test starts at that
+/// moment, and running it would then fail on Linux with "Text file busy".
+pub fn executable(path: &Path, contents: &str) {
+    let source = path.with_extension("source");
+    std::fs::write(&source, contents).expect("test setup");
+    let status = Command::new("install")
+        .args(["-m", "755"])
+        .arg(&source)
+        .arg(path)
+        .status()
+        .expect("test setup");
+    assert!(status.success(), "install {} failed", path.display());
+    std::fs::remove_file(&source).expect("test setup");
+}
+
 pub fn git(dir: &Path, args: &[&str]) {
     let status = Command::new("git")
         .arg("-C")

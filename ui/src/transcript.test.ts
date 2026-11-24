@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { AgentEvent, RemoteState } from "./api/types";
+import type { AgentEvent, LimitWarnings, RemoteState } from "./api/types";
 import {
     activity,
     fileName,
     latestMove,
+    mayGoToBackground,
     messageNumber,
     movedSaid,
     planOf,
@@ -131,6 +132,36 @@ describe("toItems", () => {
                 text: "The agent stopped with exit code 1.\nno such model",
             },
         ]);
+    });
+
+    it("says Claude Code's usage warnings as the setting says, and a limit reached always", () => {
+        const warning = (utilization: number): AgentEvent => ({
+            type: "rate_limit",
+            status: "allowed_warning",
+            resets_at: null,
+            raw: { rateLimitType: "seven_day", utilization },
+        });
+        const reached: AgentEvent = {
+            type: "rate_limit",
+            status: "rejected",
+            resets_at: null,
+            raw: {},
+        };
+        const events = [warning(0.5), warning(0.8), reached];
+        const said = (mode: LimitWarnings) =>
+            toItems(events, wordsFor("plain"), mode).map((item) =>
+                item.kind === "notice" ? item.text : item.kind,
+            );
+        expect(said("frequent")).toEqual([
+            "Claude Code warns that the weekly limit is getting closer: 50% used. Nothing is limited yet.",
+            "Usage limit reached.",
+        ]);
+        expect(toItems(events).length).toBe(2);
+        expect(said("rare")).toEqual([
+            "Claude Code warns that the weekly limit is getting closer: 80% used. Nothing is limited yet.",
+            "Usage limit reached.",
+        ]);
+        expect(said("none")).toEqual(["Usage limit reached."]);
     });
 
     it("describes what a session loaded", () => {
@@ -341,9 +372,11 @@ describe("messageNumber", () => {
 describe("sameToolCall", () => {
     const input = { command: "ls" };
     const done = (content: string, isError = false) => ({
+        id: "t1",
         name: "Bash",
         input,
         result: { content, isError },
+        moved: false,
     });
 
     it("takes two results that hold the same for one, though they are two objects", () => {
@@ -356,7 +389,7 @@ describe("sameToolCall", () => {
     });
 
     it("tells apart a call that ended, ended otherwise, or has other arguments", () => {
-        const running = { name: "Bash", input, result: null };
+        const running = { id: "t1", name: "Bash", input, result: null, moved: false };
         expect(sameToolCall(running, running)).toBe(true);
         expect(sameToolCall(running, done("a.txt"))).toBe(false);
         expect(sameToolCall(done("a.txt"), done("b.txt"))).toBe(false);
@@ -365,6 +398,60 @@ describe("sameToolCall", () => {
             false,
         );
         expect(sameToolCall(done("a.txt"), { ...done("a.txt"), name: "Read" })).toBe(false);
+    });
+
+    it("tells apart another call, and one whose work was moved to the background since", () => {
+        expect(sameToolCall(done("a.txt"), { ...done("a.txt"), id: "t2" })).toBe(false);
+        expect(sameToolCall(done("a.txt"), { ...done("a.txt"), moved: true })).toBe(false);
+    });
+});
+
+describe("work sent to the background", () => {
+    const moved = (id: string, call: string, wasMoved: boolean): AgentEvent => ({
+        type: "background",
+        task_id: id,
+        description: "",
+        kind: "local_bash",
+        state: "running",
+        summary: null,
+        tool_use_id: call,
+        output_file: null,
+        ...(wasMoved ? { moved: true } : {}),
+    });
+
+    it("marks the call whose work was moved there, and no other", () => {
+        const events = [
+            toolUse("t1", "npm run build"),
+            toolUse("t2", "npm run dev"),
+            moved("b1", "t1", true),
+            toolResult("t1", "Command was manually backgrounded by user with ID: b1."),
+            // One that started there was never waited on: nothing was moved.
+            moved("b2", "t2", false),
+        ];
+        const calls = toItems(events).flatMap((item) => (item.kind === "tool" ? [item] : []));
+        expect(calls.map((call) => [call.id, call.moved])).toEqual([
+            ["t1", true],
+            ["t2", false],
+        ]);
+    });
+
+    it("is offered for a command or sub-agent a call still waits on", () => {
+        const call = (name: string, input: unknown, ended = false) => ({
+            id: "t1",
+            name,
+            input,
+            result: ended ? { content: "", isError: false } : null,
+            moved: false,
+        });
+        expect(mayGoToBackground(call("Bash", { command: "npm test" }))).toBe(true);
+        expect(mayGoToBackground(call("Agent", { prompt: "Look" }))).toBe(true);
+        expect(mayGoToBackground(call("Task", { prompt: "Look" }))).toBe(true);
+        // Ended, started in the background, or no work of that kind: nothing to send.
+        expect(mayGoToBackground(call("Bash", { command: "ls" }, true))).toBe(false);
+        const there = { command: "npm run dev", run_in_background: true };
+        expect(mayGoToBackground(call("Bash", there))).toBe(false);
+        expect(mayGoToBackground(call("Read", { file_path: "a.txt" }))).toBe(false);
+        expect(mayGoToBackground(call("Bash", null))).toBe(true);
     });
 });
 

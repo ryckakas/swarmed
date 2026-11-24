@@ -316,6 +316,7 @@ impl Core {
             return Err(Error::EmptyMessage);
         }
         self.live.queues.push(id, text);
+        self.queued_for(id);
         self.queue_changed(id)
     }
 

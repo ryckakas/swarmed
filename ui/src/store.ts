@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Api } from "./api/client";
 import type {
+    AccountUsage,
     AgentEvent,
     CustomLayout,
     NoteTarget,
@@ -26,13 +27,17 @@ import {
     findSession,
     findSessionHome,
     mayHaveEdited,
+    stillFolded,
     taskIdOf,
     toggledId,
+    unfoldedFor,
+    withoutIds,
     withoutSession,
     withRead,
     withSession,
 } from "./tree";
 import { turnsBegan } from "./turns";
+import { unlessSame } from "./unchanged";
 
 /** The parts the settings are divided into, in the order their tabs are listed. */
 export const SETTINGS_TABS = [
@@ -125,6 +130,11 @@ interface State {
     turnBegan: Record<number, number>;
     /** Goes up each time an agent reports something it left running starting or ending. */
     backgroundHeard: number;
+    /**
+     * The account's usage as any Claude Code session last heard it, which every Claude Code
+     * session shows; `null` until it is read.
+     */
+    accountUsage: AccountUsage | null;
     /** The latest line a hook printed while a task is being set up or removed. */
     hookLine: string | null;
     /** The last thing that went wrong when acting on a session, shown until dismissed. */
@@ -150,6 +160,11 @@ interface State {
     terminalConfig: TerminalConfig | null;
     /** Has the core check `text` as the terminal's configuration and keep it; resolves to what is wrong with it, or to nothing. */
     saveTerminalConfig(api: Api, text: string): Promise<string | null>;
+    /**
+     * Has the core check `prefix` as the branch prefix and keep it. Resolves to what is wrong
+     * with it, or to nothing once it is kept, as the core wrote it down.
+     */
+    saveBranchPrefix(api: Api, prefix: string): Promise<string | null>;
     /** The user's custom layout, once read; drawn when the settings choose it. */
     customLayout: CustomLayout | null;
     /**
@@ -160,6 +175,9 @@ interface State {
     /** The ids of the repositories whose tasks are folded away in the sidebar. */
     folded: number[];
     toggleFolded(projectId: number): void;
+    /** The ids of the tasks whose sessions are folded away in the sidebar. */
+    foldedTasks: number[];
+    toggleTaskFolded(taskId: number): void;
     /** Whether the status line under the message box is shown, or folded away. */
     statusOpen: boolean;
     toggleStatus(): void;
@@ -312,6 +330,9 @@ const NEVER_STORED = new Set<AgentEvent["type"]>([
     "queue",
     "config_changed",
     "deleted",
+    "reordered",
+    "tree_changed",
+    "account_usage",
 ]);
 
 /**
@@ -418,6 +439,7 @@ function countEdit(state: State, published: SessionEvent): Record<number, number
 const PANEL_OPEN = "swarmed.panel-open";
 const STATUS_OPEN = "swarmed.status-open";
 const FOLDED = "swarmed.folded-projects";
+const FOLDED_TASKS = "swarmed.folded-tasks";
 
 /** A list of ids remembered on this machine; empty if nothing usable is stored. */
 function readIds(key: string): number[] {
@@ -518,6 +540,7 @@ function forgotten(state: State, sessionIds: number[], taskIds: number[]): Parti
         commitDrafts: without(state.commitDrafts, taskIds),
         reviews: without(state.reviews, taskIds),
         pulls: without(state.pulls, taskIds),
+        foldedTasks: withoutIds(state.foldedTasks, taskIds),
     };
 }
 
@@ -563,6 +586,7 @@ function readAgain(state: State, projects: Project[]): Partial<State> {
         projects,
         load: "ready",
         newTaskDrafts: listedOnly(state.newTaskDrafts, projects),
+        foldedTasks: stillFolded(state.foldedTasks, projects),
         ...(gone ? leaving(state, [selected]) : {}),
     };
 }
@@ -628,6 +652,17 @@ function taken(waiting: State["terminalCommand"], sessionId: number, forget: () 
     return waiting.text;
 }
 
+/**
+ * The folded tasks once session `sessionId` is opened: its task unfolds to show its row. Not
+ * for the session already on screen, which is only read again, after events were missed say:
+ * its task is folded because the user folded it.
+ */
+function foldedOnOpening(state: State, sessionId: number): number[] {
+    return state.selectedSessionId === sessionId
+        ? state.foldedTasks
+        : unfoldedFor(state.foldedTasks, state.projects, sessionId);
+}
+
 export const useStore = create<State>((set, get) => ({
     projects: [],
     load: "loading",
@@ -664,6 +699,7 @@ export const useStore = create<State>((set, get) => ({
         set((state) => ({ commitDrafts: withCommitDraft(state.commitDrafts, taskId, message) })),
     turnBegan: {},
     backgroundHeard: 0,
+    accountUsage: null,
     hookLine: null,
     problem: null,
     settings: null,
@@ -687,6 +723,16 @@ export const useStore = create<State>((set, get) => ({
             () => api.terminalConfigSave(text),
             (terminalConfig) => set({ terminalConfig }),
         ),
+    saveBranchPrefix: (api, prefix) =>
+        kept(
+            async () => {
+                const current = get().settings ?? (await api.settings());
+                await api.setSettings({ ...current, branch_prefix: prefix });
+                // Read back: the core keeps it without the slashes at its ends.
+                return api.settings();
+            },
+            (settings) => set({ settings }),
+        ),
     customLayout: null,
     saveCustomLayout: (api, text) =>
         kept(
@@ -699,6 +745,9 @@ export const useStore = create<State>((set, get) => ({
         writeStored(FOLDED, JSON.stringify(folded));
         set({ folded });
     },
+    foldedTasks: readIds(FOLDED_TASKS),
+    toggleTaskFolded: (taskId) =>
+        set((state) => ({ foldedTasks: toggledId(state.foldedTasks, taskId) })),
     statusOpen: readFlag(STATUS_OPEN, true),
     toggleStatus: () => {
         const statusOpen = !get().statusOpen;
@@ -808,7 +857,12 @@ export const useStore = create<State>((set, get) => ({
         }
     },
     open: async (api, sessionId) => {
-        set({ selectedSessionId: sessionId, subView: null });
+        // Opened from anywhere, its row is in view: a folded task unfolds to show it.
+        set((state) => ({
+            selectedSessionId: sessionId,
+            subView: null,
+            foldedTasks: foldedOnOpening(state, sessionId),
+        }));
         get().markRead(api, sessionId);
         if (get().events[sessionId] || loading.has(sessionId)) {
             return;
@@ -878,6 +932,14 @@ export const useStore = create<State>((set, get) => ({
     dismissProblem: () => set({ problem: null }),
 }));
 
+// Folding, opening a session and a task going all change which tasks are folded. Whichever it
+// was, what is left is remembered on this machine from here.
+useStore.subscribe((state, before) => {
+    if (state.foldedTasks !== before.foldedTasks) {
+        writeStored(FOLDED_TASKS, JSON.stringify(state.foldedTasks));
+    }
+});
+
 /** The window the app is shown in. There is none where the store runs without one, as in tests. */
 const inView = typeof window === "undefined" ? null : window;
 
@@ -887,17 +949,39 @@ const inView = typeof window === "undefined" ? null : window;
  * use.
  */
 function readConfiguration(api: Api) {
-    void reporting(async () => useStore.setState({ settings: await api.settings() }));
+    // What is the same as before is kept as it was: a file written anywhere has all of it read
+    // again, and a terminal is built anew for a configuration that only looks new.
     void reporting(async () => {
-        const problems = await api.configProblems();
-        if (problems.length > 0) {
-            useStore.getState().report(configProblemsSaid(problems));
-        }
+        const settings = await api.settings();
+        useStore.setState((state) => ({ settings: unlessSame(state.settings, settings) }));
     });
-    void reporting(async () => useStore.setState({ customLayout: await api.customLayout() }));
-    void reporting(async () => useStore.setState({ terminalConfig: await api.terminalConfig() }));
-    void reporting(async () => useStore.setState({ templates: await api.templates() }));
+    void reporting(async () => {
+        const said = configProblemsSaid(await api.configProblems());
+        const problems = said === configProblemsSaid([]) ? "" : said;
+        // The same problems are said once: dismissed, they stay so until they change.
+        if (problems !== "" && problems !== problemsSaid) {
+            useStore.getState().report(problems);
+        }
+        problemsSaid = problems;
+    });
+    void reporting(async () => {
+        const layout = await api.customLayout();
+        useStore.setState((state) => ({ customLayout: unlessSame(state.customLayout, layout) }));
+    });
+    void reporting(async () => {
+        const config = await api.terminalConfig();
+        useStore.setState((state) => ({
+            terminalConfig: unlessSame(state.terminalConfig, config),
+        }));
+    });
+    void reporting(async () => {
+        const templates = await api.templates();
+        useStore.setState((state) => ({ templates: unlessSame(state.templates, templates) }));
+    });
 }
+
+/** The problems with the configuration last said, so that reading it again does not repeat them. */
+let problemsSaid = "";
 
 /**
  * A session was deleted, from another window or by a session that started it: nothing of it is
@@ -927,16 +1011,39 @@ function heardOfClosing(event: SessionEvent) {
 }
 
 /**
- * Repositories, tasks, sessions or cloud tasks were put in another order, here or in another
- * window: the tree is read again. The event belongs to no session, so nothing else is done with
- * it. Whether the event was that.
+ * Something that belongs to no session, which comes with session id 0: repositories, tasks,
+ * sessions or cloud tasks put in another order, here or in another window, or changed by
+ * another Swarmed process such as the command line, and the tree is read again; the account's
+ * usage, which every session shows; or a configuration file changed on disk, and the
+ * configuration is read again. Nothing else is done with it. Whether the event was that.
  */
-function heardOfReordering(api: Api, event: SessionEvent): boolean {
-    if (event.event.type !== "reordered") {
+function heardApart(api: Api, event: SessionEvent): boolean {
+    if (event.session_id !== 0) {
         return false;
     }
-    void useStore.getState().refresh(api);
+    const heard = event.event;
+    if (heard.type === "reordered" || heard.type === "tree_changed") {
+        void useStore.getState().refresh(api);
+    } else if (heard.type === "account_usage") {
+        useStore.setState({ accountUsage: heard.usage });
+    } else if (heard.type === "config_changed") {
+        readConfiguration(api);
+        useStore.getState().noteActionsChanged();
+    }
     return true;
+}
+
+/**
+ * Reads the account's usage, unless an event has said what it is meanwhile: what was read can
+ * be older than what that said.
+ */
+function readAccountUsage(api: Api) {
+    void reporting(async () => {
+        const usage = await api.accountUsage();
+        if (useStore.getState().accountUsage === null) {
+            useStore.setState({ accountUsage: usage });
+        }
+    });
 }
 
 /**
@@ -952,7 +1059,7 @@ function readTreeIfChanged(api: Api, event: SessionEvent) {
     }
 }
 
-/** An agent changed Swarmed's configuration: what was read of it is out of date. */
+/** An agent changed Swarmed's configuration from a session: what was read of it is out of date. */
 function heardOfConfiguration(api: Api, event: SessionEvent) {
     if (event.event.type === "config_changed") {
         readConfiguration(api);
@@ -974,13 +1081,16 @@ export function menuChosen(item: string) {
 export function connect(api: Api): () => void {
     const { refresh, apply } = useStore.getState();
     void refresh(api);
+    problemsSaid = "";
     readConfiguration(api);
     void reporting(async () => useStore.setState({ version: await api.version() }));
     void reporting(async () => useStore.setState({ update: await api.updateState() }));
+    readAccountUsage(api);
     // After dropped events nothing on screen can be trusted: forget the transcripts and reload.
     const reload = () => {
         const { selectedSessionId, open } = useStore.getState();
-        useStore.setState({ events: {} });
+        useStore.setState({ events: {}, accountUsage: null });
+        readAccountUsage(api);
         void refresh(api);
         if (selectedSessionId !== null) {
             void open(api, selectedSessionId);
@@ -1001,7 +1111,7 @@ export function connect(api: Api): () => void {
     inView?.addEventListener("focus", readIfSeen);
     const subscriptions = [
         api.onSessionEvent((event) => {
-            if (heardOfReordering(api, event) || heardOfDeletion(api, event)) {
+            if (heardApart(api, event) || heardOfDeletion(api, event)) {
                 return;
             }
             readTreeIfChanged(api, event);

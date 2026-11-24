@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import type { BackgroundTask } from "../api/types";
+import { stopOffered } from "../background";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
 
@@ -77,6 +78,7 @@ function Row({ task, onChanged }: { task: BackgroundTask; onChanged(): void }) {
     const openSub = useStore((state) => state.openSub);
     // A sub-agent tied to the call that started it can be followed in its own conversation.
     const call = task.kind === "local_agent" ? task.tool_use_id : null;
+    const offered = stopOffered(task);
     const [stopping, setStopping] = useState(false);
     const [showing, setShowing] = useState(false);
     const stop = () => {
@@ -133,7 +135,10 @@ function Row({ task, onChanged }: { task: BackgroundTask; onChanged(): void }) {
                     <BackgroundOutput task={task} />
                 </Suspense>
             )}
-            {task.state === "running" && (
+            {offered === "cannot" && (
+                <p className="background-summary">{words.backgroundUnstoppable}</p>
+            )}
+            {offered === "button" && (
                 <button
                     type="button"
                     className="button background-stop"

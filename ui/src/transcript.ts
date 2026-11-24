@@ -1,4 +1,4 @@
-import type { AgentEvent, ScreenSection, ToolCalls } from "./api/types";
+import type { AgentEvent, LimitWarnings, ScreenSection, ToolCalls } from "./api/types";
 import { shownHtml } from "./htmlview";
 import { QUESTION_TOOL, type Question, questionsOf } from "./questions";
 import { limitNotice, type RateLimit } from "./rateLimit";
@@ -101,9 +101,13 @@ export interface ToolResult {
 export type ToolItem = {
     kind: "tool";
     key: number;
+    /** The agent's id for the call. */
+    id: string;
     name: string;
     input: unknown;
     result: ToolResult | null;
+    /** Whether the work it waited on was moved to the background, where it goes on. */
+    moved: boolean;
 };
 
 /** The line that opens the list of attached files in a message, as the core writes it. */
@@ -277,14 +281,23 @@ interface Draft {
     asked: Map<string, Extract<Item, { kind: "asked" }>>;
     /** Claude Code's last usage report, so that a warning is said once. */
     limit: RateLimit | null;
+    /** Which of Claude Code's usage warnings are said: the user's setting. */
+    warnings: LimitWarnings;
     /** Where Remote Control was last shown to be on, so that it is said once until it ends. */
     remoteAt: string | null;
     /** The style's words, for what the items say of their own. */
     words: Words;
 }
 
-/** The transcript items for a session's events, in order. Tool results join their calls. */
-export function toItems(events: AgentEvent[], words: Words = wordsFor("plain")): Item[] {
+/**
+ * The transcript items for a session's events, in order. Tool results join their calls. Of
+ * Claude Code's usage warnings, those `warnings` says are kept.
+ */
+export function toItems(
+    events: AgentEvent[],
+    words: Words = wordsFor("plain"),
+    warnings: LimitWarnings = "frequent",
+): Item[] {
     const draft: Draft = {
         items: [],
         tools: new Map(),
@@ -293,6 +306,7 @@ export function toItems(events: AgentEvent[], words: Words = wordsFor("plain")):
         proposals: new Map(),
         asked: new Map(),
         limit: null,
+        warnings,
         remoteAt: null,
         words,
     };
@@ -374,11 +388,30 @@ export function toolRunSummary(calls: [ToolItem, ...ToolItem[]]): ToolRunSummary
     };
 }
 
-/** What of a tool call is drawn: its name, its arguments and how it ended. */
+/** What of a tool call is drawn: its name, its arguments, how it ended and where it went on. */
 export interface ToolShown {
+    id: string;
     name: string;
     input: unknown;
     result: ToolResult | null;
+    moved: boolean;
+}
+
+/** The tools whose call waits on work that can go to the background: a command, a sub-agent. */
+const GOES_TO_BACKGROUND = ["Bash", "Agent", "Task"];
+
+/**
+ * Whether the work a call waits on could be sent to the background now: a command or a
+ * sub-agent that runs in the foreground and has not ended. One the agent started in the
+ * background is there already. Whether the agent can, and is at work, is the caller's to know.
+ */
+export function mayGoToBackground(call: ToolShown): boolean {
+    const input = (call.input ?? {}) as Record<string, unknown>;
+    return (
+        call.result === null &&
+        GOES_TO_BACKGROUND.includes(call.name) &&
+        input.run_in_background !== true
+    );
 }
 
 /**
@@ -388,8 +421,10 @@ export interface ToolShown {
  */
 export function sameToolCall(a: ToolShown, b: ToolShown): boolean {
     return (
+        a.id === b.id &&
         a.name === b.name &&
         a.input === b.input &&
+        a.moved === b.moved &&
         a.result?.content === b.result?.content &&
         a.result?.isError === b.result?.isError
     );
@@ -425,6 +460,8 @@ function add(draft: Draft, event: AgentEvent, key: number) {
             return addLimit(draft, event, key);
         case "remote_control":
             return addRemote(draft, event, key);
+        case "background":
+            return markMoved(draft.tools.get(event.tool_use_id ?? ""), event);
         default:
             return addSingle(draft, event, key);
     }
@@ -506,7 +543,7 @@ function answerAsked(
 }
 
 function addLimit(draft: Draft, event: RateLimit, key: number) {
-    const text = limitNotice(event, draft.limit, new Date());
+    const text = limitNotice(event, draft.limit, new Date(), draft.warnings);
     draft.limit = event;
     if (text !== null) {
         draft.items.push({ kind: "notice", key, tone: "warning", text });
@@ -521,9 +558,17 @@ function addSingle(draft: Draft, event: AgentEvent, key: number) {
 }
 
 function addTool(draft: Draft, event: Extract<AgentEvent, { type: "tool_use" }>, key: number) {
-    const tool: Item = { kind: "tool", key, name: event.name, input: event.input, result: null };
-    draft.tools.set(event.id, tool);
+    const { id, name, input } = event;
+    const tool: Item = { kind: "tool", key, id, name, input, result: null, moved: false };
+    draft.tools.set(id, tool);
     draft.items.push(tool);
+}
+
+/** Marks the call whose work a report says was moved to the background. */
+function markMoved(tool: ToolItem | undefined, event: Extract<AgentEvent, { type: "background" }>) {
+    if (tool && event.moved === true) {
+        tool.moved = true;
+    }
 }
 
 function attachResult(

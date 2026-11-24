@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useState } from "react";
 import { sendOrQueue } from "../actions";
 import { api } from "../api";
 import type { CloudProvider } from "../api/types";
@@ -14,6 +14,7 @@ import {
 import { useStore } from "../store";
 import { useWords } from "../useWords";
 import type { Words } from "../wording";
+import { Dialog } from "./Dialog";
 
 /** Hands a piece of work to a cloud agent: from a repository, a task, or a session of one. */
 export function CloudDialog() {
@@ -84,7 +85,6 @@ async function handOver(
 function Delegate({ target }: { target: CloudTarget }) {
     const words = useWords();
     const close = () => useStore.getState().askToDelegate(null);
-    const dialog = useRef<HTMLDialogElement>(null);
     const fromSession = target.session !== undefined;
     const [prompt, setPrompt] = useState("");
     const [provider, setProvider] = useState<CloudProvider>("codex");
@@ -95,10 +95,6 @@ function Delegate({ target }: { target: CloudTarget }) {
     const [problem, setProblem] = useState<string | null>(null);
     const unseen = useUnseen(target);
     const ready = !sending && (telling !== "written" || prompt.trim() !== "");
-
-    useEffect(() => {
-        dialog.current?.showModal();
-    }, []);
 
     const send = async () => {
         if (!ready) {
@@ -122,10 +118,25 @@ function Delegate({ target }: { target: CloudTarget }) {
     };
 
     return (
-        <dialog ref={dialog} className="confirm note" aria-labelledby="cloud-title" onClose={close}>
-            <h2 id="cloud-title">
-                {words.delegate} from {target.task ?? target.project}
-            </h2>
+        <Dialog
+            title={`${words.delegate} from ${target.task ?? target.project}`}
+            size="medium"
+            onClose={close}
+            dismiss="Cancel"
+            problem={problem}
+            busy={sending}
+            actions={
+                <button
+                    type="button"
+                    className="button button-primary"
+                    disabled={!ready}
+                    title="⌘ Enter"
+                    onClick={() => void send()}
+                >
+                    {sendLabel(telling, sending, words)}
+                </button>
+            }
+        >
             <p>
                 An agent starts on this in the cloud at once, on the repository as it is on GitHub.
                 It does not see what is only on this Mac. It needs neither Swarmed nor this Mac to
@@ -161,23 +172,10 @@ function Delegate({ target }: { target: CloudTarget }) {
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 onKeyDown={onKeyDown}
+                // What is to be done is what the form is for: the keyboard starts there.
+                data-dialog-start
             />
-            {problem && <p className="note-problem">{problem}</p>}
-            <div className="confirm-actions">
-                <button type="button" className="button" onClick={close}>
-                    Cancel
-                </button>
-                <button
-                    type="button"
-                    className="button button-primary"
-                    disabled={!ready}
-                    title="⌘ Enter"
-                    onClick={() => void send()}
-                >
-                    {sendLabel(telling, sending, words)}
-                </button>
-            </div>
-        </dialog>
+        </Dialog>
     );
 }
 

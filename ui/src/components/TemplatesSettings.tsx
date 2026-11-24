@@ -126,7 +126,7 @@ function TemplateForm({ draft, onChange, onSave, onRemove, onCancel }: FormProps
                     onChange={(event) => onChange({ ...draft, text: event.target.value })}
                 />
             </label>
-            <div className="confirm-actions">
+            <div className="form-actions">
                 {onRemove && (
                     <button type="button" className="button environment-remove" onClick={onRemove}>
                         Remove

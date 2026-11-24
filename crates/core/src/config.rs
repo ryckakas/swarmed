@@ -11,7 +11,8 @@ use crate::lenient::{self, Problems};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct ProjectConfig {
-    /// Branch name for a new task. Variables: `user`, `task`, `project`.
+    /// Branch name for a new task. Variables: `prefix` (the branch prefix of the settings, or
+    /// the user's login when it is empty), `user`, `task`, `project`.
     pub branch_pattern: String,
     /// Ref new tasks branch from. Empty means the remote's default branch.
     pub base_branch: String,
@@ -47,10 +48,17 @@ pub struct Hooks {
     pub teardown: String,
 }
 
+/// The branch pattern of a repository that sets none of its own.
+pub(crate) const DEFAULT_BRANCH_PATTERN: &str = "{{prefix}}/{{task}}";
+
+/// The default branch pattern before there was a branch prefix, which the template wrote into
+/// every new config. Found in one, it was Swarmed's choice and not the user's.
+const EARLIER_DEFAULT_PATTERN: &str = "{{user}}/{{task}}";
+
 impl Default for ProjectConfig {
     fn default() -> Self {
         Self {
-            branch_pattern: "{{user}}/{{task}}".to_string(),
+            branch_pattern: DEFAULT_BRANCH_PATTERN.to_string(),
             base_branch: String::new(),
             max_stacks: 5,
             port_step: 100,
@@ -62,18 +70,21 @@ impl Default for ProjectConfig {
     }
 }
 
+// The branch pattern is only a comment, so that each Swarmed goes by its own default: an older
+// one sharing the data directory knows no `{{prefix}}`, and could not make a task with it.
 const TEMPLATE: &str = r#"# Swarmed project config. This file is local to this machine.
 #
 # Variables usable in branch_pattern, hooks and env values:
 #   {{project}} {{task}} {{user}} {{branch}} {{slot}} {{worktree}} {{repo}} {{port.<name>}}
-# open_url may use them too.
+# open_url may use them too. branch_pattern may also use {{prefix}}: the branch prefix in
+# Swarmed's settings, or your login ({{user}}) when that is empty.
 # Hooks run with `sh -c` in the task's worktree. The same values are also exported as
 # SWARMED_PROJECT, SWARMED_TASK, SWARMED_SLOT, SWARMED_WORKTREE, SWARMED_REPO, SWARMED_BRANCH
 # and SWARMED_PORT_<NAME>.
 # In a hook a value is always one word, whatever is in it: a path with a space needs no
 # quotes around it, and a branch's name is never read as a command.
 
-branch_pattern = "{{user}}/{{task}}"
+# branch_pattern = "{{prefix}}/{{task}}"   # default: the branch prefix, a slash, the task
 # base_branch = "origin/main"   # default: the remote's default branch
 max_stacks = 5
 port_step = 100                 # task port = base + slot * port_step
@@ -120,6 +131,11 @@ impl ProjectConfig {
             ),
         })?;
         let (mut config, mut problems) = lenient::fields::<Self>(table);
+        // Swarmed's own earlier default, not a pattern the user chose: the branch prefix
+        // applies to it as to a config that sets none.
+        if config.branch_pattern == EARLIER_DEFAULT_PATTERN {
+            config.branch_pattern = DEFAULT_BRANCH_PATTERN.to_string();
+        }
         if config.port_step == 0 {
             config.port_step = Self::default().port_step;
             problems.push("`port_step` must be at least 1, so it is at its default.".to_string());
@@ -191,6 +207,29 @@ mod tests {
             ProjectConfig::read(&path),
             Err(Error::Config { .. })
         ));
+    }
+
+    #[test]
+    fn the_earlier_default_pattern_is_read_as_the_default_and_ones_own_is_kept() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("demo.toml");
+        let pattern = |text: &str| {
+            std::fs::write(&path, text).expect("writes");
+            ProjectConfig::load(&path).expect("reads").branch_pattern
+        };
+        // What the template wrote before there was a prefix.
+        assert_eq!(
+            pattern("branch_pattern = \"{{user}}/{{task}}\"\n"),
+            DEFAULT_BRANCH_PATTERN
+        );
+        assert_eq!(pattern("max_stacks = 3\n"), DEFAULT_BRANCH_PATTERN);
+        for own in [
+            "{{user}}-{{task}}",
+            "swarm/{{task}}",
+            "{{prefix}}/{{project}}/{{task}}",
+        ] {
+            assert_eq!(pattern(&format!("branch_pattern = \"{own}\"\n")), own);
+        }
     }
 
     #[test]

@@ -2,7 +2,6 @@
 
 mod common;
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use common::{core_with_project, fixture, git, turn};
@@ -31,11 +30,7 @@ esac
 async fn core_with_codex(fx: &common::Fixture) -> Core {
     let tools = fx.paths.data_dir.join("tools");
     std::fs::create_dir_all(&tools).expect("dir");
-    let codex = tools.join("codex");
-    std::fs::write(&codex, CODEX).expect("writes");
-    let mut permissions = std::fs::metadata(&codex).expect("exists").permissions();
-    permissions.set_mode(0o755);
-    std::fs::set_permissions(&codex, permissions).expect("sets");
+    common::executable(&tools.join("codex"), CODEX);
     let mut core = core_with_project(fx).await;
     core.set_tool_dirs(vec![tools]);
     core
@@ -179,10 +174,7 @@ async fn a_session_delegates_only_so_much() {
 /// Puts a stand-in `claude` that runs `script` beside the stand-in `codex`.
 fn claude_that(fx: &common::Fixture, script: &str) {
     let claude = fx.paths.data_dir.join("tools").join("claude");
-    std::fs::write(&claude, format!("#!/bin/sh\n{script}\n")).expect("writes");
-    let mut permissions = std::fs::metadata(&claude).expect("exists").permissions();
-    permissions.set_mode(0o755);
-    std::fs::set_permissions(&claude, permissions).expect("sets");
+    common::executable(&claude, &format!("#!/bin/sh\n{script}\n"));
 }
 
 #[tokio::test]

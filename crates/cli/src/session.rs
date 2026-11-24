@@ -1,5 +1,6 @@
 //! The `swarmed session` commands: run a turn in the terminal and read back history.
 
+use std::collections::VecDeque;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
@@ -10,9 +11,9 @@ use swarmed_core::agent::{
     ScreenSection, Supervision,
 };
 use swarmed_core::{Core, Session, SessionEvent, SessionOptions, SessionSettings};
-use tokio::io::{AsyncBufReadExt, BufReader, Lines, Stdin};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use crate::say;
 
@@ -351,24 +352,83 @@ fn ending(event: &AgentEvent) -> Option<Result<()>> {
     }
 }
 
+/// What, typed on its own line while a turn runs, sends the work the agent waits on to the
+/// background.
+const TO_BACKGROUND: &str = "bg";
+
+/// The lines typed on the terminal while a turn runs. [`TO_BACKGROUND`] is acted on as it is
+/// typed; any other line answers the next question, as it did when nothing was read until a
+/// question came.
+///
+/// Stdin is read on a thread of its own, never by tokio: a read of a terminal cannot be given
+/// up, and tokio waits for one it started before the program may end. The command would then
+/// stay, its turn over, until Enter was pressed. A thread left reading ends with the program.
+struct Typed {
+    lines: UnboundedReceiver<std::io::Result<String>>,
+    /// Lines typed before a question came, first typed first.
+    ahead: VecDeque<String>,
+    /// Whether stdin may still have more: a closed one would be read for ever.
+    open: bool,
+}
+
+impl Typed {
+    fn new() -> Self {
+        let (typed, lines) = unbounded_channel();
+        // Not waited for: it ends when stdin does, when nobody listens, or with the program.
+        drop(std::thread::spawn(move || pass_on_stdin(&typed)));
+        Self {
+            lines,
+            ahead: VecDeque::new(),
+            open: true,
+        }
+    }
+
+    /// The next line read from stdin; `None` once it is closed.
+    async fn read(&mut self) -> Result<Option<String>> {
+        Ok(self.lines.recv().await.transpose()?)
+    }
+
+    /// The next line typed, those typed ahead first; `None` once stdin is closed.
+    async fn next(&mut self) -> Result<Option<String>> {
+        if let Some(line) = self.ahead.pop_front() {
+            return Ok(Some(line));
+        }
+        if !self.open {
+            return Ok(None);
+        }
+        let line = self.read().await?;
+        self.open = line.is_some();
+        Ok(line)
+    }
+}
+
+/// Hands each line of stdin to `typed`, until stdin ends or nobody is left to hear.
+fn pass_on_stdin(typed: &UnboundedSender<std::io::Result<String>>) {
+    for line in std::io::stdin().lines() {
+        if typed.send(line).is_err() {
+            return;
+        }
+    }
+}
+
 /// Sends `prompt`, with `files` listed under it, and shows the session's events until the
-/// turn ends. Permission requests are answered from stdin; Ctrl-C interrupts the turn instead
-/// of killing the session.
+/// turn ends. Permission requests are answered from stdin, and `bg` there sends what the agent
+/// waits on to the background; Ctrl-C interrupts the turn instead of killing the session.
 async fn run_turn(core: &Core, id: i64, prompt: &str, files: &[PathBuf], auth: Auth) -> Result<()> {
     let mut bus = core.subscribe();
     core.session_message(id, prompt, files, auth)?;
-    let mut answers = BufReader::new(tokio::io::stdin()).lines();
+    let mut typed = Typed::new();
     // The user's own message is the first event published; it is on screen already. A
     // command Swarmed answers itself is no message, and what comes first is its answer.
     let mut first = true;
-    while let Some(event) = next_or_interrupt(core, &mut bus, id).await? {
+    while let Some(event) = next_or_interrupt(core, &mut bus, id, &mut typed).await? {
         let own = first && matches!(event, AgentEvent::UserMessage { .. });
         first = false;
         if let Some(line) = describe(&event).filter(|_| !own) {
             say(&line);
         }
         if let AgentEvent::PermissionRequest { request_id, .. } = &event {
-            decide(core, id, &mut answers, request_id).await?;
+            decide(core, id, &mut typed, request_id).await?;
         }
         // The line above has said how it went; the error only carries it to the exit code.
         if let Some(ended) = ending(&event) {
@@ -379,11 +439,13 @@ async fn run_turn(core: &Core, id: i64, prompt: &str, files: &[PathBuf], auth: A
 }
 
 /// The session's next event, or `None` if the event stream ended. Ctrl-C interrupts the turn
-/// and keeps waiting.
+/// and keeps waiting, and so does [`TO_BACKGROUND`], which sends what the agent waits on to
+/// the background.
 async fn next_or_interrupt(
     core: &Core,
     bus: &mut Receiver<SessionEvent>,
     id: i64,
+    typed: &mut Typed,
 ) -> Result<Option<AgentEvent>> {
     loop {
         tokio::select! {
@@ -394,7 +456,21 @@ async fn next_or_interrupt(
                 Err(RecvError::Closed) => return Ok(None),
             },
             _ = tokio::signal::ctrl_c() => core.session_interrupt(id)?,
+            line = typed.read(), if typed.open => match line? {
+                Some(line) if line.trim() == TO_BACKGROUND => to_background(core, id).await,
+                Some(line) => typed.ahead.push_back(line),
+                None => typed.open = false,
+            },
         }
+    }
+}
+
+/// Sends what the session's agent waits on to the background, as Ctrl+B does in Claude Code's
+/// own terminal, and says what came of it.
+async fn to_background(core: &Core, id: i64) {
+    match core.session_send_to_background(id, None).await {
+        Ok(_) => say("↳ anything the agent waited on now goes on in the background"),
+        Err(error) => say(&format!("↳ {error}")),
     }
 }
 
@@ -480,13 +556,8 @@ fn remote_line(state: RemoteState, url: Option<&str>, detail: Option<&str>) -> O
 }
 
 /// Reads one line; anything but `y` or `yes` refuses, and so does a closed stdin.
-async fn decide(
-    core: &Core,
-    id: i64,
-    answers: &mut Lines<BufReader<Stdin>>,
-    request_id: &str,
-) -> Result<()> {
-    let answer = answers.next_line().await?.unwrap_or_default();
+async fn decide(core: &Core, id: i64, typed: &mut Typed, request_id: &str) -> Result<()> {
+    let answer = typed.next().await?.unwrap_or_default();
     if matches!(answer.trim(), "y" | "yes") {
         core.session_allow(id, request_id)?;
     } else {
@@ -496,7 +567,7 @@ async fn decide(
 }
 
 /// The line an event is shown as, or `None` for events not worth a line.
-fn describe(event: &AgentEvent) -> Option<String> {
+pub(crate) fn describe(event: &AgentEvent) -> Option<String> {
     match event {
         AgentEvent::UserMessage { text, remote } => {
             let from = if *remote { "[claude.ai] " } else { "" };
@@ -546,9 +617,21 @@ fn describe(event: &AgentEvent) -> Option<String> {
                 .unwrap_or_default();
             Some(format!("{}\n? approve this plan [y/N]", plan.trim_end()))
         }
+        // A sub-agent's request names the sub-agent; another agent's says what it is for.
         AgentEvent::PermissionRequest {
-            tool_name, input, ..
-        } => Some(format!("? allow {tool_name}: {} [y/N]", summary(input))),
+            tool_name,
+            input,
+            description,
+            ..
+        } => {
+            let why = description
+                .as_deref()
+                .map_or_else(String::new, |why| format!(" ({why})"));
+            Some(format!(
+                "? allow {tool_name}: {}{why} [y/N]",
+                summary(input)
+            ))
+        }
         AgentEvent::RateLimit {
             status, resets_at, ..
         } if status != "allowed" => Some(format!(
@@ -665,6 +748,20 @@ mod tests {
                 .chars()
                 .count(),
             SUMMARY_CHARS
+        );
+    }
+
+    #[test]
+    fn a_request_says_who_asks_when_it_is_a_sub_agent() {
+        let asked = AgentEvent::PermissionRequest {
+            request_id: "1".into(),
+            tool_name: "Terminal".into(),
+            input: json!({ "command": "cat README.md" }),
+            description: Some("Asked by the sub-agent Explorer 1".into()),
+        };
+        assert_eq!(
+            describe(&asked).as_deref(),
+            Some("? allow Terminal: cat README.md (Asked by the sub-agent Explorer 1) [y/N]")
         );
     }
 
