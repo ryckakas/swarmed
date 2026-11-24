@@ -457,6 +457,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   command its turn waits on for `long: <command>`, until it is sent to the background or
   stopped, and renames the session as another Swarmed would for `elsewhere: <title>`, saying
   only `tree_changed`; one sample session has 2,000 messages for checking scroll speed.
+  The pull request of `fix-login-redirect` has a check running that fails 15 seconds after the
+  window opens, as the core's follower would say it (`pull_read`, `pull_changed`).
   Removing the sample task `invoice-export` is refused over unsaved work, and `shop-142` over
   a session another Swarmed runs. A new task's setup is quick in storefront, takes half a
   minute in bonsai-lint, and in fsum is killed the first time and succeeds when run again
@@ -950,7 +952,7 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   (`Error::HearsNoMessageMidTurn`); between turns it is sent as any message.
 - **What is worth interrupting the user for is decided in the core** (`notices.rs`): a session
   that asks for a decision, finishes a turn, fails, or moves its task's worktree to another
-  branch. A front end shows it only while the user
+  branch, and a task's pull request that changed (`PullChanged`, named by task and number). A front end shows it only while the user
   looks elsewhere; the app does so as a macOS notification (`crates/app/src/notify.rs`) and
   counts what waits on its icon. A notice names the tool and the agent's own summary, never the
   tool's arguments, which may hold anything.
@@ -995,7 +997,7 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   the merge base with the task's base ref, uncommitted and untracked files included. The view is
   read-only. The UI reads again when one of the task's agents finishes a tool call or a turn.
 - **A task's pull request and checks are asked of the user's own `gh`** (`pulls.rs`), in the
-  task's worktree, on demand. Swarmed holds no GitHub token. No `gh`, no pull request, or a
+  task's worktree. Swarmed holds no GitHub token. No `gh`, no pull request, or a
   repository that is not on GitHub all mean the same: the task has none, which is not an error.
   `gh pr view` reports every check run on the head commit, runs a newer one replaced included,
   so only each check's latest run is kept (`latest`, by workflow and job name), as GitHub's own
@@ -1003,6 +1005,31 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   finished, or when it was cancelled. What `gh pr view` prints has no event, so a job run for
   both `push` and `pull_request` on one commit, under way at the same time, shows twice:
   folded into one, a run that passed would hide one that failed.
+- **The core follows the pull requests of tasks, and says what changed once** (`following.rs`,
+  #366). The window never asks `gh` on a timer: badges and the panel show `pulls` in the store,
+  filled from the tree (`TaskOverview::pull`) and from `AgentEvent::PullRead` (session id 0,
+  never stored); opening the task panel asks once (`task_pull`).
+  - **One list per repository per round** (`follow_pulls`, `Core::pulls_follow`), by the
+    Swarmed that keeps house only: `gh pr list --author @me`, matched to tasks by the branch
+    their worktree is on. A followed one off the list (merged, closed, someone else's) is read
+    on its own; reviews and comments only when `updatedAt` moved. Paced by `RUNNING`, `OPEN`
+    and `QUIET`; a repository with nothing open is listed at the first round and when a turn
+    ends or a worktree moves in one of its tasks (`wake_on_turns`). A failing `gh` backs off.
+  - **The last reading is kept with the task** (`tasks.pull`, JSON of `Seen`, fields only
+    added) and compared with by the pure `step`: the first reading of a pull request takes
+    stock and says nothing. A reading replaces only the one it was compared with
+    (`task_pull_swap`), so two processes say a change once. Every way of reading
+    (`task_pull`, `task_pull_look`, the follower) goes through `pull_take_in`.
+  - **What changed is `AgentEvent::PullChanged`** with a `PullChange`, recorded in the open
+    session the user wrote to last, else the latest (`session_for_news`), and worded by
+    `notice_for`. A review or comment is told by who, never what: the bodies are never read
+    into anything, and the user's own (their `gh api user` login, or `viewerDidAuthor`) are
+    not news.
+  - **Stops** once merged or closed (kept, so the badge says so), for a removed task, and when
+    the worktree is on another branch (the reading is let go). On no branch it is left as is.
+  - **Send the failure to the agent** (`task_pull_failure`) builds a message with the tail of
+    each failed Actions job's log (`gh run view --log-failed`) in tags marked as output, which
+    the UI puts into the message box (`draftFailure`). Nothing reaches an agent unasked.
 - **A task's work leaves its worktree only when asked** (`publish.rs`): commit everything, push
   the branch, open a pull request, each a step of its own behind a button. Commits are made by
   the user's git as them, the pull request by their `gh`; nothing is added to either.

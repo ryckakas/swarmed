@@ -239,6 +239,34 @@ take it again from a task set up since, in the app's Environments dialog or with
 instead. Settings' **Clean up** lists every repository's snapshots with their size and age, to
 forget them all at once.
 
+## Pull requests
+
+Swarmed asks GitHub through your own `gh`, signed in as you; it holds no token of its own. While
+the app runs, it follows the pull requests of your tasks and says what changed: checks that
+failed, all checks passing, a review or a comment from someone else (who, never what they
+wrote), a branch that conflicts with its base, a merge and a close. Each is one line in the
+conversation of the task you wrote to last, and a notification while you look elsewhere.
+Your own reviews and comments are not news to you. Where checks failed, **Send the failure to
+the agent** puts their names and the last 150 lines of each failed job's log
+(`gh run view --log-failed`) into the message box, for you to read and send.
+
+What it asks, and how often:
+
+| | |
+| --- | --- |
+| Each repository with a pull request open | `gh pr list --state open --author @me` once a round: every 20 seconds while checks run, every 90 seconds otherwise, every 5 minutes once nothing moved for 30 minutes |
+| A pull request whose `updatedAt` moved | its reviews and comments, once (`gh pr view --json reviews,comments`); who wrote them is kept, never what |
+| One you followed that left the list | read on its own: merged, closed, or opened by someone else |
+| A repository none of whose tasks has one open | listed when the app starts, and when a turn ends or a worktree moves in one of its tasks; otherwise not at all |
+| When `gh` fails, a rate limit included | asked again after 30 seconds, then twice as long each time, up to 10 minutes |
+| Your GitHub login | once, so that your own reviews are not news to you (`gh api user`) |
+
+Only the first Swarmed to arrive on the data directory asks; a second one shows what the first
+read. Opening a task's panel asks once for its pull request, and `swarmed task pull --follow`
+follows one task's from the terminal. A pull request is matched to a task by the branch its
+worktree is on; following stops once it is merged or closed, when its task is removed, and
+when the worktree leaves the branch.
+
 ## Settings
 
 Set in the app's Settings, kept in `settings.toml`.
@@ -250,7 +278,7 @@ Set in the app's Settings, kept in `settings.toml`.
 | `default_supervision` | `auto` | how new sessions are supervised: `ask`, `auto` or `plan`; `bypass`, which allows everything, is not offered in Settings |
 | `auto_title` | `true` | a model names each new session after its first message |
 | `branch_prefix` | empty | what a new task's branch starts with, before `/` and the task's name; empty is your login. See [A task's branch](#a-tasks-branch) |
-| `notifications` | `true` | notify when a session needs you, finishes, fails or moves its worktree to another branch |
+| `notifications` | `true` | notify when a session needs you, finishes, fails or moves its worktree to another branch, and when a task's pull request changed (see [Pull requests](#pull-requests)) |
 | `updates` | `automatic` | how Swarmed updates itself: `automatic` looks at launch and every few hours, downloads a new version and installs it when you quit; `when_asked` fetches nothing until About opens and installs only when you ask |
 | `html_views` | `true` | agents may answer with HTML views |
 | `tool_calls` | `folded` | how agents' tool calls show in a conversation: `all`, each on its own line; `folded`, the calls that follow each other in one line that counts them and names the last; `hidden`, none, with a larger animation while the agent works. Permission requests, questions, plans and views always show |

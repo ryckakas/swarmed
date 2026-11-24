@@ -147,6 +147,8 @@ impl SessionStatus {
             | AgentEvent::CommandAnswered { .. }
             | AgentEvent::TerminalOnly { .. }
             | AgentEvent::WorktreeMoved { .. }
+            | AgentEvent::PullChanged { .. }
+            | AgentEvent::PullRead { .. }
             | AgentEvent::RemoteControl { .. }
             | AgentEvent::Heard { .. }
             | AgentEvent::SentToBackground { .. }

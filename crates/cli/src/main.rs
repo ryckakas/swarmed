@@ -5,6 +5,7 @@ mod cleanup;
 mod events;
 mod layout;
 mod limits;
+mod pull;
 mod session;
 mod setup;
 mod terminal;
@@ -324,7 +325,7 @@ enum TaskCommand {
         delete_branch: bool,
     },
     /// Show the pull request of the task's branch and how its checks stand.
-    Pull { project: String, name: String },
+    Pull(pull::PullArgs),
     /// Move a task among the project's other open tasks, as the app lists them: a pinned one
     /// among the pinned.
     Move {
@@ -743,23 +744,6 @@ async fn open_pull(
     text.body = body.unwrap_or(text.body);
     let opened = core.task_pull_create(project, name, &text, draft).await?;
     say(&format!("opened #{} {}", opened.number, opened.url));
-    Ok(())
-}
-
-/// Prints a task's pull request and its checks.
-async fn pull(core: &Core, project: &str, name: &str) -> Result<()> {
-    let Some(pull) = core.task_pull(project, name).await? else {
-        say("no pull request");
-        return Ok(());
-    };
-    let draft = if pull.draft { ", draft" } else { "" };
-    say(&format!(
-        "#{} {:?}{draft}  {}\n{}",
-        pull.number, pull.state, pull.title, pull.url
-    ));
-    for check in &pull.checks {
-        say(&format!("{:?}\t{}", check.outcome, check.name));
-    }
     Ok(())
 }
 
@@ -1238,7 +1222,7 @@ async fn task(core: &Arc<Core>, command: TaskCommand) -> Result<()> {
             }
             say(&format!("removed task `{name}`"));
         }
-        TaskCommand::Pull { project, name } => pull(core, &project, &name).await?,
+        TaskCommand::Pull(args) => pull::run(core, &args).await?,
         TaskCommand::Background { project, name } => background(core, &project, &name)?,
         TaskCommand::Commit {
             project,

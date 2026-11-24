@@ -275,6 +275,11 @@ export interface Api {
     ): Promise<Pull>;
     /** The pull request of a task's branch with its checks; `null` if it has none. */
     taskPull(project: string, name: string): Promise<Pull | null>;
+    /**
+     * A message about a task's failed checks, with the last lines of their logs, for the user to
+     * read and send to an agent. Refused when none failed.
+     */
+    taskPullFailure(project: string, name: string): Promise<string>;
     /** Opens a task's pull request in the browser, or the details of its check `check`. */
     taskPullOpen(project: string, name: string, check: string | null): Promise<void>;
     taskChanges(project: string, name: string): Promise<FileChange[]>;

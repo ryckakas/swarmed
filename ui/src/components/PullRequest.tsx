@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { sendOrQueue } from "../actions";
 import { api } from "../api";
 import type { Check, Pull, Task } from "../api/types";
 import {
@@ -7,21 +6,23 @@ import {
     checkCounts,
     checksSummary,
     failedChecks,
-    fixPrompt,
     listedChecks,
     pullState,
     pullTone,
     pullTooltip,
 } from "../pulls";
 import { useStore } from "../store";
-import { usePull } from "../usePull";
+import { usePull, useReadPullOnce } from "../usePull";
 import { useWords } from "../useWords";
 import { capitalized } from "../wording";
 
-/** A task's pull request in the sidebar: its number, coloured by how its checks stand. */
+/**
+ * A task's pull request in the sidebar: its number, coloured by how its checks stand. What it
+ * shows is what the core last read; the core follows it.
+ */
 export function PullBadge({ project, task }: { project: string; task: Task }) {
     const words = useWords();
-    const pull = usePull(project, task);
+    const pull = usePull(task);
     const report = useStore((state) => state.report);
     if (!pull) {
         return null;
@@ -50,11 +51,13 @@ const OUTCOMES: Record<Check["outcome"], string> = {
 
 /**
  * A task's pull request in the task panel: where it stands, each of its checks, and a way to
- * hand the failed ones to the session on screen.
+ * put the failed ones into the message box of the session on screen. Opening the panel asks
+ * for it once.
  */
 export function PullSection({ project, task }: { project: string; task: Task }) {
     const words = useWords();
-    const pull = usePull(project, task);
+    useReadPullOnce(project, task);
+    const pull = usePull(task);
     const report = useStore((state) => state.report);
     const sessionId = useStore((state) => state.selectedSessionId);
     if (!pull) {
@@ -62,7 +65,9 @@ export function PullSection({ project, task }: { project: string; task: Task }) 
     }
     const open = (check: string | null) =>
         api.taskPullOpen(project, task.name, check).catch(report);
-    const summary = `${checksSummary(pull)}${pull.review ? `, ${pull.review.replaceAll("_", " ")}` : ""}`;
+    const review = pull.review ? `, ${pull.review.replaceAll("_", " ")}` : "";
+    const conflicts = pull.conflicts ? ", conflicts with its base" : "";
+    const summary = `${checksSummary(pull)}${review}${conflicts}`;
     return (
         <section className="pull" aria-label={capitalized(words.terms.pullRequest)}>
             <button type="button" className="pull-title" onClick={() => void open(null)}>
@@ -73,16 +78,45 @@ export function PullSection({ project, task }: { project: string; task: Task }) 
             </button>
             <Checks pull={pull} summary={summary} onOpen={(name) => void open(name)} />
             {failedChecks(pull).length > 0 && sessionId !== null && (
-                <button
-                    type="button"
-                    className="button"
-                    title="Sends the failed checks to the session on screen, as a message"
-                    onClick={() => sendOrQueue(sessionId, fixPrompt(pull)).catch(report)}
-                >
-                    Ask this session to fix them
-                </button>
+                <SendFailure project={project} task={task.name} sessionId={sessionId} />
             )}
         </section>
+    );
+}
+
+/**
+ * Puts the failed checks of a task's pull request, with the last lines of their logs, into a
+ * session's message box, for the user to read and send. Nothing reaches the agent unasked.
+ */
+export function SendFailure(props: { project: string; task: string; sessionId: number }) {
+    const { project, task, sessionId } = props;
+    const words = useWords();
+    const report = useStore((state) => state.report);
+    const draftFailure = useStore((state) => state.draftFailure);
+    const [state, setState] = useState<"ready" | "reading" | "done">("ready");
+    const put = () => {
+        setState("reading");
+        draftFailure(api, project, task, sessionId)
+            .then(() => setState("done"))
+            .catch((error: unknown) => {
+                report(error);
+                setState("ready");
+            });
+    };
+    return (
+        <button
+            type="button"
+            className="button"
+            disabled={state === "reading"}
+            title={`Puts the failed checks and the last lines of their logs into the message box, to read before sending to the ${words.terms.agent}`}
+            onClick={put}
+        >
+            {state === "reading"
+                ? "Reading the logs…"
+                : state === "done"
+                  ? "In the message box"
+                  : `Send the failure to the ${words.terms.agent}`}
+        </button>
     );
 }
 

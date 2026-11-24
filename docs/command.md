@@ -24,6 +24,7 @@ swarmed task commit shop fix-login -m "Fix the login form's error message"
 swarmed task push shop fix-login
 swarmed task switch shop fix-login                    # back to its own branch, or to one named
 swarmed task pr shop fix-login                        # through your own gh
+swarmed task pull shop fix-login --follow             # its checks, reviews and merge as they come
 swarmed task rm shop fix-login                        # teardown hook, worktree removed
 ```
 
@@ -70,7 +71,7 @@ applies. `SWARMED_FAKE_AGENT=1` swaps in a scripted agent that spends no tokens.
 | Command | What it does |
 | --- | --- |
 | `project` | add, list, remove, move and pin repositories; `project config` prints the path of a project's config file |
-| `task` | create, remove, move and pin tasks, rerun `setup`, run the `start` command, see changes, commit, push, open a pull request |
+| `task` | create, remove, move and pin tasks, rerun `setup`, run the `start` command, see changes, commit, push, open a pull request and follow it (`task pull --follow`) |
 | `session` | run, continue, list, show, fork, rename, mark, move, pin, close, reopen and delete sessions; change a session's model or supervision; let a Claude Code session be reached from claude.ai (`remote-control`); let one a usage limit stopped go on by itself when the limit resets (`continue-at-reset`, which the app sends) |
 | `environment` | list a project's environments; choose the default one new tasks are set up in |
 | `snapshot` | keep the files git ignores in a set-up task, for new tasks to start from |

@@ -638,6 +638,10 @@ fn the_ui_can_commit_a_tasks_work_and_is_told_what_cannot_be_published() {
         .invoke("task_pull_open", opening)
         .expect_err("nothing to open");
     assert_eq!(refused, json!("`one` has no pull request"));
+    let failure = app
+        .invoke("task_pull_failure", target.clone())
+        .expect_err("no checks to send");
+    assert_eq!(failure, json!("`one` has no pull request"));
     // The file written above is not committed yet; committing it leaves one commit to push.
     assert_eq!(
         app.ok("task_unpublished", target.clone()),

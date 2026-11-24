@@ -33,6 +33,7 @@ mod elsewhere;
 mod environments;
 mod error;
 mod files;
+mod following;
 mod fork;
 mod git;
 mod handoff;
@@ -110,6 +111,10 @@ pub use elsewhere::follow_others;
 pub use environments::{Environment, EnvironmentChoice};
 pub use error::{Error, Result};
 pub use files::{FileEntry, FileListing};
+pub use following::{
+    FIRST_BACKOFF, MAX_BACKOFF, OPEN, PullChange, QUIET, QUIET_AFTER, RUNNING, follow_pulls,
+    pull_wait,
+};
 pub use handoff::MAX_HANDED;
 pub use hooks::OutputSink;
 pub use layouts::{
@@ -189,6 +194,8 @@ pub struct Core {
     setups: Arc<setups::Setups>,
     /// What this core knows of other Swarmed processes on the same data.
     elsewhere: elsewhere::Elsewhere,
+    /// How the pull requests of tasks are followed (`following.rs`).
+    following: following::Following,
 }
 
 /// The store is only ever locked for one short query, never across an `.await`. A panic while
@@ -233,6 +240,7 @@ impl Core {
             names_claimed: Mutex::default(),
             setups: Arc::default(),
             elsewhere: elsewhere::Elsewhere::default(),
+            following: following::Following::default(),
         })
     }
 

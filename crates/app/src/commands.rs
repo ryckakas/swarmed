@@ -816,6 +816,17 @@ pub(crate) async fn task_pull(
     Ok(core.task_pull(&project, &name).await?)
 }
 
+/// A message about a task's failed checks, with the tail of their logs, for the user to read
+/// and send to an agent.
+#[tauri::command]
+pub(crate) async fn task_pull_failure(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+) -> Command<String> {
+    Ok(core.task_pull_failure(&project, &name).await?)
+}
+
 /// Opens a task's pull request in the browser, or the details of one of its checks.
 #[tauri::command]
 pub(crate) async fn task_pull_open(

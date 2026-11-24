@@ -1,7 +1,7 @@
 // What a task's pull request and its checks come to, for the sidebar and the task panel.
 // Pure, so it can be tested.
 
-import type { Check, Pull } from "./api/types";
+import type { Check, Project, Pull, PullChange } from "./api/types";
 import { capitalized, type Words, wordsFor } from "./wording";
 
 /** How a pull request's checks stand as a whole. */
@@ -57,23 +57,58 @@ export function failedChecks(pull: Pull): Check[] {
     return pull.checks.filter((check) => check.outcome === "failed");
 }
 
-/** What to tell an agent so that it looks into the failed checks. Nothing if none failed. */
-export function fixPrompt(pull: Pull): string {
-    const failed = failedChecks(pull);
-    if (failed.length === 0) {
-        return "";
-    }
-    const lines = failed.map((check) => `- ${check.name}${check.url ? `: ${check.url}` : ""}`);
-    return [
-        `These checks failed on pull request #${pull.number} (${pull.url}):`,
-        ...lines,
-        "Find out why they fail (`gh run view --log-failed` shows a run's log), fix the cause in this worktree, and tell me what you changed. Do not push.",
-    ].join("\n");
+/**
+ * Each task's pull request as the core last read it, by the task's id, from the tree. The core
+ * follows them; the window only shows what it read.
+ */
+export function pullsOf(projects: Project[]): Record<number, Pull | null> {
+    const entries = projects.flatMap((project) =>
+        project.tasks.map((task): [number, Pull | null] => [task.id, task.pull ?? null]),
+    );
+    return Object.fromEntries(entries);
 }
 
-/** How long to wait before asking again, in milliseconds: sooner while checks are running. */
-export function pullPollMs(pull: Pull | null | undefined): number {
-    return pull && pull.state === "open" && pullTone(pull) === "running" ? 20_000 : 90_000;
+/** Names joined as one says them: "alice", "alice and bob", "alice, bob and carol". */
+function namesSaid(names: string[]): string {
+    const last = names.at(-1) ?? "someone";
+    return names.length < 2 ? last : `${names.slice(0, -1).join(", ")} and ${last}`;
+}
+
+/**
+ * What changed on a pull request, as one line of the transcript: which checks, or who. Never
+ * what a review or comment says, which the core does not keep.
+ */
+export function pullChangeSaid(
+    number: number,
+    change: PullChange,
+    words: Words = wordsFor("plain"),
+): string {
+    const pull = `${words.terms.pullRequest} #${number}`;
+    switch (change.kind) {
+        case "checks_failed":
+            return `${change.checks.length === 1 ? "A check" : "Checks"} failed on ${pull}: ${change.checks.join(", ")}`;
+        case "checks_passed":
+            return `All checks passed on ${pull}`;
+        case "changes_requested":
+            return `${namesSaid(change.by)} asked for changes on ${pull}`;
+        case "approved":
+            return `${namesSaid(change.by)} approved ${pull}`;
+        case "reviewed":
+            return `${namesSaid(change.by)} reviewed ${pull}`;
+        case "commented":
+            return `${namesSaid(change.by)} commented on ${pull}`;
+        case "conflicts":
+            return `${capitalized(pull)} conflicts with its base`;
+        case "merged":
+            return `${capitalized(pull)} was merged`;
+        case "closed":
+            return `${capitalized(pull)} was closed`;
+    }
+}
+
+/** What the message box holds once `message` is put in after what was typed, if anything. */
+export function withMessage(typed: string, message: string): string {
+    return typed.trim() === "" ? message : `${typed.trimEnd()}\n\n${message}`;
 }
 
 /** The order checks are listed in: what needs looking at first. */

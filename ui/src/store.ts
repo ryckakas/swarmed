@@ -21,6 +21,7 @@ import { CHATS } from "./chats";
 import type { CloudTarget } from "./cloud";
 import type { Comparison } from "./components/CompareDialog";
 import { forgetImages } from "./keptImages";
+import { pullsOf, withMessage } from "./pulls";
 import { type Dismissed, readDismissed } from "./rateLimit";
 import type { Browsing } from "./recall";
 import { type ReviewComment, withComment } from "./review";
@@ -313,10 +314,19 @@ interface State {
     comment(taskId: number, comment: ReviewComment): void;
     /** Drops a task's comments: they were sent, or are not wanted. */
     clearReview(taskId: number): void;
-    /** Each task's pull request by the task's id, as last heard; `null` for none. */
+    /**
+     * Each task's pull request by the task's id, as the core last read it: from the tree, and
+     * from each reading it publishes since. `null` for none.
+     */
     pulls: Record<number, Pull | null>;
     /** Asks again for a task's pull request. Not hearing back changes nothing. */
     loadPull(api: Api, project: string, task: string, taskId: number): Promise<void>;
+    /**
+     * Puts a message about a task's failed checks, with the last lines of their logs, into
+     * session `sessionId`'s message box after what is typed there, for the user to read and
+     * send. Nothing is sent.
+     */
+    draftFailure(api: Api, project: string, task: string, sessionId: number): Promise<void>;
     /** A task's worktree was put on another branch: whatever reads its files reads again. */
     worktreeMoved(taskId: number): void;
     /** The cloud task whose changes are being looked at, by Swarmed's id for it. */
@@ -387,6 +397,7 @@ const NEVER_STORED = new Set<AgentEvent["type"]>([
     "tree_changed",
     "account_usage",
     "setup",
+    "pull_read",
 ]);
 
 /**
@@ -659,6 +670,7 @@ function readAgain(state: State, projects: Project[]): Partial<State> {
     return {
         projects,
         load: "ready",
+        pulls: pullsOf(projects),
         newTaskDrafts: listedOnly(state.newTaskDrafts, projects),
         foldedTasks: stillFolded(state.foldedTasks, projects),
         ...(gone ? leaving(state, [selected]) : {}),
@@ -939,6 +951,14 @@ export const useStore = create<State>((set, get) => ({
             set((state) => ({ pulls: { ...state.pulls, [taskId]: pull } }));
         }
     },
+    draftFailure: async (api, project, task, sessionId) => {
+        const message = await api.taskPullFailure(project, task);
+        set((state) => {
+            const typed = state.drafts[sessionId]?.text ?? "";
+            const text = withMessage(typed, message);
+            return { drafts: withDraft(state.drafts, sessionId, { text }) };
+        });
+    },
     worktreeMoved: (taskId) =>
         set((state) => ({ edits: { ...state.edits, [taskId]: (state.edits[taskId] ?? 0) + 1 } })),
     cloudDiffOf: null,
@@ -1138,6 +1158,9 @@ function heardApart(api: Api, event: SessionEvent): boolean {
         void useStore.getState().refresh(api);
     } else if (heard.type === "account_usage") {
         useStore.setState({ accountUsage: heard.usage });
+    } else if (heard.type === "pull_read") {
+        const { task_id, pull } = heard;
+        useStore.setState((state) => ({ pulls: { ...state.pulls, [task_id]: pull } }));
     } else if (heard.type === "setup") {
         heardOfSetup(api, heard.progress);
     } else if (heard.type === "config_changed") {

@@ -736,6 +736,27 @@ pub enum AgentEvent {
         /// rather than seen in the middle of a turn.
         between_turns: bool,
     },
+    /// The task's pull request changed in a way worth telling: checks failed or all passed,
+    /// someone else reviewed or commented, its branch conflicts, or it was merged or closed.
+    /// Recorded by the core, which follows the pull requests of tasks (`following.rs`), in the
+    /// session of the task the user wrote to last, or with none its latest.
+    PullChanged {
+        /// The pull request's number.
+        number: u64,
+        /// Where it is.
+        url: String,
+        /// What changed.
+        change: crate::PullChange,
+    },
+    /// The pull request of a task's branch as just read, when it differs from the reading
+    /// before. It belongs to no session: published with session id 0, which no session has,
+    /// and never recorded. [`crate::Core::overview`] gives the same.
+    PullRead {
+        /// The task.
+        task_id: i64,
+        /// Its pull request; `None` for none any more.
+        pull: Option<crate::Pull>,
+    },
     /// Something this version does not understand; kept so nothing is lost silently.
     Other {
         /// The message as received.

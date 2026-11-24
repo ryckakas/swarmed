@@ -81,6 +81,8 @@ export interface Task {
     stack: StackState | null;
     /** Whether the user pinned it above its repository's tasks that are not. */
     pinned: boolean;
+    /** The pull request of the branch its worktree is on, as the core last read it; `null` for none. */
+    pull: Pull | null;
 }
 
 /**
@@ -284,7 +286,21 @@ export interface Pull {
     /** What its reviewers decided, such as `approved`; `null` if no review is asked for. */
     review: string | null;
     checks: Check[];
+    /** Whether its branch conflicts with its base, as GitHub last worked it out. */
+    conflicts: boolean;
 }
+
+/** What changed on a task's pull request: who reviewed or commented, never what they wrote. */
+export type PullChange =
+    | { kind: "checks_failed"; checks: string[] }
+    | { kind: "checks_passed" }
+    | { kind: "changes_requested"; by: string[] }
+    | { kind: "approved"; by: string[] }
+    | { kind: "reviewed"; by: string[] }
+    | { kind: "commented"; by: string[] }
+    | { kind: "conflicts" }
+    | { kind: "merged" }
+    | { kind: "closed" };
 
 /**
  * Which environment a new task is set up in: the project's default one (or its own setup when
@@ -1000,6 +1016,10 @@ export type AgentEvent =
      * message.
      */
     | { type: "worktree_moved"; from: string | null; to: string | null; between_turns: boolean }
+    /** The task's pull request changed in a way worth telling, recorded in one of its sessions. */
+    | { type: "pull_changed"; number: number; url: string; change: PullChange }
+    /** A task's pull request as just read; with session id 0, never stored. */
+    | { type: "pull_read"; task_id: number; pull: Pull | null }
     /**
      * Something a sub-agent said or did. `parent` is the tool call that started it, which
      * tells one sub-agent from another.

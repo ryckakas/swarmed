@@ -1,21 +1,20 @@
 import { useEffect } from "react";
 import { api } from "./api";
 import type { Pull, Task } from "./api/types";
-import { pullPollMs } from "./pulls";
 import { useStore } from "./store";
 
 /**
- * A task's pull request, asked for now and again from time to time: sooner while its checks
- * run. Everything that shows the same task shares the one answer.
+ * A task's pull request as the core last read it. The core follows it and says when it
+ * changes; nothing here asks GitHub on a timer. Everything that shows the same task shares it.
  */
-export function usePull(project: string, { id, name }: Task): Pull | null {
-    const pull = useStore((state) => state.pulls[id]);
+export function usePull({ id }: Pick<Task, "id">): Pull | null {
+    return useStore((state) => state.pulls[id] ?? null);
+}
+
+/** Asks for a task's pull request once, when what shows it opens: the task panel. */
+export function useReadPullOnce(project: string, { id, name }: Pick<Task, "id" | "name">) {
     const loadPull = useStore((state) => state.loadPull);
-    const wait = pullPollMs(pull);
     useEffect(() => {
         void loadPull(api, project, name, id);
-        const timer = setInterval(() => void loadPull(api, project, name, id), wait);
-        return () => clearInterval(timer);
-    }, [project, id, name, wait, loadPull]);
-    return pull ?? null;
+    }, [project, id, name, loadPull]);
 }

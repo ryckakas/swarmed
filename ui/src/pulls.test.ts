@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest";
-import type { Check, Pull } from "./api/types";
+import type { Check, Project, Pull } from "./api/types";
 import {
     checkCounts,
     checksSummary,
-    fixPrompt,
     listedChecks,
-    pullPollMs,
+    pullChangeSaid,
     pullState,
+    pullsOf,
     pullTone,
     pullTooltip,
+    withMessage,
 } from "./pulls";
 
 const check = (name: string, outcome: Check["outcome"], url: string | null = null): Check => ({
@@ -25,6 +26,7 @@ const pull = (checks: Check[], more: Partial<Pull> = {}): Pull => ({
     draft: false,
     review: null,
     checks,
+    conflicts: false,
     ...more,
 });
 
@@ -66,31 +68,41 @@ describe("pullState and pullTooltip", () => {
     });
 });
 
-describe("fixPrompt", () => {
-    it("names the failed checks with where to read about them", () => {
-        const checks = [
-            check("Test", "failed", "https://ci/1"),
-            check("Lint", "failed"),
-            check("Docs", "passed"),
-        ];
-        const prompt = fixPrompt(pull(checks));
-        expect(prompt).toContain("pull request #12");
-        expect(prompt).toContain("- Test: https://ci/1");
-        expect(prompt).toContain("- Lint\n");
-        expect(prompt).not.toContain("Docs");
-        expect(prompt).toContain("Do not push");
-    });
-
-    it("is nothing when nothing failed", () => {
-        expect(fixPrompt(pull([check("Docs", "passed")]))).toBe("");
+describe("pullsOf", () => {
+    it("takes each task's pull request from the tree, none as null", () => {
+        const open = pull([]);
+        const task = (id: number, taskPull: Pull | null) => ({ id, pull: taskPull });
+        const projects = [
+            { tasks: [task(1, open), task(2, null)] },
+            { tasks: [task(3, null)] },
+        ] as unknown as Project[];
+        expect(pullsOf(projects)).toEqual({ 1: open, 2: null, 3: null });
     });
 });
 
-describe("pullPollMs", () => {
-    it("asks sooner while checks run on an open pull request", () => {
-        const running = pull([check("a", "running")]);
-        expect(pullPollMs(running)).toBeLessThan(pullPollMs(pull([check("a", "passed")])));
-        expect(pullPollMs({ ...running, state: "merged" })).toBe(pullPollMs(null));
+describe("pullChangeSaid", () => {
+    it("says which checks failed, and who reviewed, in one line", () => {
+        expect(pullChangeSaid(12, { kind: "checks_failed", checks: ["Test"] })).toBe(
+            "A check failed on pull request #12: Test",
+        );
+        expect(pullChangeSaid(12, { kind: "checks_failed", checks: ["Test", "Lint"] })).toBe(
+            "Checks failed on pull request #12: Test, Lint",
+        );
+        expect(pullChangeSaid(12, { kind: "commented", by: ["alice", "bob", "carol"] })).toBe(
+            "alice, bob and carol commented on pull request #12",
+        );
+        expect(pullChangeSaid(12, { kind: "changes_requested", by: ["alice"] })).toBe(
+            "alice asked for changes on pull request #12",
+        );
+        expect(pullChangeSaid(12, { kind: "merged" })).toBe("Pull request #12 was merged");
+    });
+});
+
+describe("withMessage", () => {
+    it("puts the message after what was typed, or alone", () => {
+        expect(withMessage("", "Fix it")).toBe("Fix it");
+        expect(withMessage("  \n", "Fix it")).toBe("Fix it");
+        expect(withMessage("Also this\n", "Fix it")).toBe("Also this\n\nFix it");
     });
 });
 

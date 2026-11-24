@@ -272,6 +272,12 @@ const MIGRATIONS: &[&str] = &[
     "
     ALTER TABLE sessions ADD COLUMN continue_at INTEGER;
 ",
+    // The pull request of a task's branch as Swarmed last read it, as JSON: what the window
+    // shows, and what the next reading is compared with to tell what changed. Kept, so that
+    // a change while no Swarmed ran is told once, at the next start (`following.rs`).
+    "
+    ALTER TABLE tasks ADD COLUMN pull TEXT;
+",
 ];
 
 /// Stands in [`MIGRATIONS`] for the one change SQL in a transaction cannot make: every

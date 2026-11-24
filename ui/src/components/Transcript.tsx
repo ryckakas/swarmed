@@ -3,6 +3,7 @@ import { forkFromMessage } from "../actions";
 import { api } from "../api";
 import type { AgentEvent } from "../api/types";
 import { type MessagePart, messageParts } from "../pastes";
+import { failedChecks, pullChangeSaid } from "../pulls";
 import { resetWhen } from "../rateLimit";
 import { screenHtml } from "../screens";
 import { useStore } from "../store";
@@ -11,6 +12,7 @@ import {
     continueOffer,
     type Item,
     type LimitItem,
+    latestFailure,
     latestLimit,
     latestMove,
     movedSaid,
@@ -33,6 +35,7 @@ import { FileChips } from "./FileChips";
 import { HtmlView } from "./HtmlView";
 import { Markdown } from "./Markdown";
 import { PermissionPrompt } from "./PermissionPrompt";
+import { SendFailure } from "./PullRequest";
 import { QuestionPrompt } from "./QuestionPrompt";
 import { QuoteButton } from "./QuoteButton";
 import { Spawning, Swarming } from "./Spawning";
@@ -67,6 +70,7 @@ export function Transcript(props: Props) {
         [events, words, turnEnds, toolCalls],
     );
     const lastMove = useMemo(() => latestMove(items), [items]);
+    const lastFailure = useMemo(() => latestFailure(items), [items]);
     const lastLimit = useMemo(() => latestLimit(items), [items]);
     const sendsFrom = working && sendsToBackground ? sessionId : null;
     const scroller = useRef<HTMLDivElement>(null);
@@ -92,7 +96,7 @@ export function Transcript(props: Props) {
                             <ItemView
                                 item={item}
                                 sessionId={sessionId}
-                                latest={item.key === lastMove || item.key === lastLimit}
+                                latest={[lastMove, lastLimit, lastFailure].includes(item.key)}
                                 sendsFrom={sendsFrom}
                             />
                         </li>
@@ -285,6 +289,8 @@ function ItemView({ item, sessionId, latest, sendsFrom }: ItemProps) {
             return <TerminalOnly sessionId={sessionId} command={item.command} />;
         case "moved":
             return <Moved sessionId={sessionId} item={item} latest={latest} />;
+        case "pull":
+            return <PullLine sessionId={sessionId} item={item} latest={latest} />;
         case "remote":
             return <RemoteLine item={item} />;
         case "terminal":
@@ -477,6 +483,39 @@ function Moved(props: {
                 </button>
             )}
             {state === "done" && <p className="asked">Back on {back}.</p>}
+        </div>
+    );
+}
+
+/**
+ * Says what changed on the task's pull request, in one line. The latest line that says checks
+ * failed offers to put the failure into the message box, while checks of it still fail.
+ */
+function PullLine(props: {
+    sessionId: number;
+    item: Extract<Item, { kind: "pull" }>;
+    latest: boolean;
+}) {
+    const { sessionId, item, latest } = props;
+    const words = useWords();
+    const projects = useStore((state) => state.projects);
+    const session = findSession(projects, sessionId);
+    const home = session && findSessionHome(projects, session);
+    const pull = useStore((state) => (home ? (state.pulls[home.task.id] ?? null) : null));
+    const failing = pull !== null && pull.number === item.number && failedChecks(pull).length > 0;
+    const offered = latest && item.change.kind === "checks_failed" && failing && home;
+    return (
+        <div className="pull-changed">
+            <p className="asked" data-change={item.change.kind}>
+                {pullChangeSaid(item.number, item.change, words)}
+            </p>
+            {offered && (
+                <SendFailure
+                    project={home.project.name}
+                    task={home.task.name}
+                    sessionId={sessionId}
+                />
+            )}
         </div>
     );
 }

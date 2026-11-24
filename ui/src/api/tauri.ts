@@ -143,6 +143,7 @@ export const tauriApi: Api = {
     taskPullCreate: (project, name, draft, asDraft) =>
         invoke<Pull>("task_pull_create", { project, name, draft, asDraft }),
     taskPull: (project, name) => invoke<Pull | null>("task_pull", { project, name }),
+    taskPullFailure: (project, name) => invoke<string>("task_pull_failure", { project, name }),
     taskPullOpen: (project, name, check) =>
         invoke<void>("task_pull_open", { project, name, check }),
     taskChanges: (project, name) => invoke<FileChange[]>("task_changes", { project, name }),

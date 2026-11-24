@@ -15,6 +15,25 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Added
+
+- **Swarmed follows your tasks' pull requests and tells you what changed.** Checks that failed,
+  all checks passing, a review or a comment from someone else (who, never what they wrote), a
+  branch that conflicts with its base, a merge and a close each show as one line in the
+  conversation of the task you wrote to last, and as a notification while you look elsewhere.
+  What changed while Swarmed was closed is said at the next start, once. Where checks failed,
+  **Send the failure to the agent** puts them, with the last lines of each failed job's log,
+  into the message box for you to read and send. `swarmed task pull --follow` prints each change
+  in the terminal. Configuration's [Pull requests](docs/configuration.md#pull-requests) says what
+  Swarmed asks GitHub and how often.
+
+### Changed
+
+- **Pull request badges no longer ask GitHub each on a timer.** One list of open pull requests
+  per repository serves every badge and panel, asked only by the first Swarmed on the data
+  directory, sooner while checks run and less often once nothing moves; a repository without a
+  pull request open is not asked at all.
+
 ## [0.4.3] - 2026-11-24
 
 ### Added

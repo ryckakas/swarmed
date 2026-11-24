@@ -1,11 +1,13 @@
 //! What is worth telling the user about while they look elsewhere: a session that needs a
-//! decision, has finished, has failed, or moved its task's worktree to another branch.
+//! decision, has finished, has failed, or moved its task's worktree to another branch; and a
+//! task's pull request whose checks failed or passed, that someone reviewed or commented on,
+//! that conflicts with its base, or that was merged or closed.
 
 use serde::Serialize;
 
 use crate::agent::AgentEvent;
 use crate::sessions::{SessionEvent, SessionStatus};
-use crate::{Core, Result};
+use crate::{Core, PullChange, Result};
 
 /// The longest a notice's detail may be, in characters: it is read at a glance.
 const MAX_DETAIL: usize = 140;
@@ -60,7 +62,25 @@ fn wording(event: &SessionEvent, spawned: bool) -> Option<(&'static str, String)
             let on = to.as_deref().unwrap_or("no branch");
             Some(("Moved its worktree", format!("Now on {on}")))
         }
+        AgentEvent::PullChanged { change, .. } => Some(pull_wording(change)),
         _ => None,
+    }
+}
+
+/// What changed on a pull request, and a line of detail: which checks, or who. Never what a
+/// review or comment says, which anyone who can comment on the repository writes.
+fn pull_wording(change: &PullChange) -> (&'static str, String) {
+    let by = |who: &[String]| format!("By {}", who.join(", "));
+    match change {
+        PullChange::ChecksFailed { checks } => ("Checks failed", checks.join(", ")),
+        PullChange::ChecksPassed => ("Checks passed", String::new()),
+        PullChange::ChangesRequested { by: who } => ("Changes requested", by(who)),
+        PullChange::Approved { by: who } => ("Approved", by(who)),
+        PullChange::Reviewed { by: who } => ("Reviewed", by(who)),
+        PullChange::Commented { by: who } => ("New comment", by(who)),
+        PullChange::Conflicts => ("Conflicts with its base", String::new()),
+        PullChange::Merged => ("Merged", String::new()),
+        PullChange::Closed => ("Closed", String::new()),
     }
 }
 
@@ -86,6 +106,7 @@ impl Core {
                 | AgentEvent::TurnDone { .. }
                 | AgentEvent::Exited { .. }
                 | AgentEvent::WorktreeMoved { .. }
+                | AgentEvent::PullChanged { .. }
         );
         if !candidate || !self.settings()?.notifications {
             return Ok(None);
@@ -99,6 +120,7 @@ impl Core {
             return Ok(None);
         };
         let task = self.store().task_by_id(session.task_id)?;
+        let task_name = task.as_ref().map(|task| task.name.clone());
         let project = match &task {
             Some(task) => self.store().project_by_id(task.project_id)?,
             None => None,
@@ -109,10 +131,17 @@ impl Core {
             (Some(project), Some(task)) => format!("{} / {}", project.name, task.name),
             _ => String::new(),
         };
-        let name = if session.title.is_empty() {
-            "New session"
-        } else {
-            &session.title
+        // A pull request is the task's, whichever session it is recorded in.
+        let pull = match (&event.event, &task_name) {
+            (AgentEvent::PullChanged { number, .. }, Some(task)) => {
+                Some(format!("{task} #{number}"))
+            }
+            _ => None,
+        };
+        let name = match &pull {
+            Some(pull) => pull.as_str(),
+            None if session.title.is_empty() => "New session",
+            None => &session.title,
         };
         let detail = glance(&detail);
         let body = [place, detail]
@@ -208,6 +237,33 @@ mod tests {
             text: "hello".to_string(),
         };
         assert_eq!(wording(&event(None, text), false), None);
+    }
+
+    #[test]
+    fn a_pull_request_names_who_and_which_checks() {
+        let changed = |change| {
+            let event = AgentEvent::PullChanged {
+                number: 142,
+                url: "https://github.com/o/r/pull/142".to_string(),
+                change,
+            };
+            wording(&event_of(event), false)
+        };
+        let checks = vec!["Test".to_string(), "Lint".to_string()];
+        assert_eq!(
+            changed(PullChange::ChecksFailed { checks }),
+            Some(("Checks failed", "Test, Lint".to_string()))
+        );
+        let by = vec!["alice".to_string()];
+        assert_eq!(
+            changed(PullChange::Commented { by }),
+            Some(("New comment", "By alice".to_string()))
+        );
+        assert_eq!(changed(PullChange::Merged), Some(("Merged", String::new())));
+    }
+
+    fn event_of(event: AgentEvent) -> SessionEvent {
+        self::event(None, event)
     }
 
     #[test]
