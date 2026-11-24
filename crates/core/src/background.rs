@@ -1,7 +1,8 @@
 //! What a task's agents left running behind their turns.
 //!
 //! An agent can put a command in the background and carry on, or end its turn with it still
-//! running. It says when such a thing starts and when it ends; this reads those two reports
+//! running, and Claude Code can be asked to move a command or sub-agent a call waits on there.
+//! It says when such a thing starts or moves there and when it ends; this reads those reports
 //! back out of the sessions' histories, so a front end can list them and stop the ones that
 //! run. What a command prints can be read too, from the file Claude Code writes it to: only a
 //! file the session's own agent named, and only from Claude Code's temporary folder. It can
@@ -11,6 +12,7 @@ use std::fs::File;
 use std::io::{ErrorKind, Read, Seek, SeekFrom};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use rusqlite::params;
 use serde::Serialize;
@@ -42,6 +44,9 @@ pub struct BackgroundTask {
     pub tool_use_id: Option<String>,
     /// Whether what it printed can be read, with [`Core::session_background_output`].
     pub output: bool,
+    /// Whether it can be stopped, with [`Core::session_stop_background`]. Not what an agent
+    /// offers no way to stop, such as a shell OpenCode left running.
+    pub stoppable: bool,
 }
 
 impl BackgroundTask {
@@ -58,6 +63,7 @@ impl BackgroundTask {
         }
         self.tool_use_id = self.tool_use_id.take().or(later.tool_use_id);
         self.output |= later.output;
+        self.stoppable &= later.stoppable;
     }
 }
 
@@ -66,6 +72,10 @@ type Reported = (i64, String, AgentEvent);
 
 /// How much of what a command printed is read at once: its latest part, when there is more.
 const OUTPUT_LIMIT: u64 = 256 * 1024;
+
+/// How long an agent has to say whether work went to the background. Claude Code answers at
+/// once, in the middle of a turn too.
+const SENDING_WAIT: Duration = Duration::from_secs(10);
 
 /// What a command an agent left running printed, or the part of it read this time.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -114,11 +124,56 @@ impl Core {
         read_output(&file, from).map(Some)
     }
 
+    /// Asks session `id`'s agent to send the command or sub-agent that call `tool_use_id`
+    /// waits on to the background, as Ctrl+B does in Claude Code's terminal: the call returns
+    /// at once, the turn goes on, and the work is listed with what the agent left running
+    /// until it ends. `None` sends every one a call waits on. Says whether it went: work that
+    /// had ended, or was in the background already, did not. Refused for an agent that cannot
+    /// (only Claude Code can), for one that is not running, and with the agent's own words
+    /// when it would not.
+    pub async fn session_send_to_background(
+        &self,
+        id: i64,
+        tool_use_id: Option<&str>,
+    ) -> Result<bool> {
+        let agent = self.session(id)?.agent;
+        if !self.agents_now().sends_to_background(&agent) {
+            return Err(Error::NoSendingToBackground(agent));
+        }
+        if tool_use_id.is_some_and(|call| call.trim().is_empty()) {
+            let blank = "a call is named by its id, and none was given";
+            return Err(Error::NotSentToBackground(blank.to_string()));
+        }
+        let call = tool_use_id.map(String::from);
+        // Waited for before it is asked: the answer can come before this would be done.
+        let answered = self.live.await_sent(id, call.clone());
+        let asked = self
+            .live
+            .command(id, AgentCommand::SendToBackground { tool_use_id: call });
+        if let Err(error) = asked {
+            self.live.sending_ends_unless_running(id);
+            return Err(error);
+        }
+        match tokio::time::timeout(SENDING_WAIT, answered).await {
+            Ok(Ok((moved, None))) => Ok(moved),
+            Ok(Ok((_, Some(refused)))) => Err(Error::NotSentToBackground(refused)),
+            // The agent went without answering.
+            Ok(Err(_)) => Err(Error::SessionNotRunning(id)),
+            Err(_) => Err(Error::NotSentToBackground(
+                "the agent did not answer".to_string(),
+            )),
+        }
+    }
+
     /// Asks the session's agent to stop something it left running. Refused if the agent is
-    /// not running: what it started went with it.
+    /// not running, since what it started went with it, and for what the agent offers no way
+    /// to stop.
     pub fn session_stop_background(&self, id: i64, task_id: &str) -> Result<()> {
         if task_id.trim().is_empty() {
             return Err(Error::InvalidName(task_id.to_string()));
+        }
+        if self.store().unstoppable(id, task_id)? {
+            return Err(Error::Unstoppable(task_id.to_string()));
         }
         let task_id = task_id.to_string();
         self.live
@@ -127,36 +182,59 @@ impl Core {
 }
 
 impl Store {
-    /// Where session `session`'s agent last said what `task_id` prints is written.
-    fn output_file(&self, session: i64, task_id: &str) -> Result<Option<String>> {
+    /// What session `session`'s agent reported of `task_id`, oldest first.
+    fn reports_of(&self, session: i64, task_id: &str) -> Result<Vec<AgentEvent>> {
         let mut statement = self.conn.prepare(
             "SELECT event FROM session_events
              WHERE session_id = ?1 AND event LIKE '{\"type\":\"background\"%'
              ORDER BY id",
         )?;
         let rows = statement.query_map(params![session], |row| row.get::<_, String>(0))?;
-        let named = |event: AgentEvent| match event {
-            AgentEvent::Background {
-                task_id: id,
-                output_file,
-                ..
-            } if id == task_id => output_file,
-            _ => None,
-        };
+        let about = |event: &AgentEvent| matches!(event, AgentEvent::Background { task_id: id, .. } if id == task_id);
         let events = rows.filter_map(std::result::Result::ok);
         Ok(events
-            .filter_map(|text| named(event_from_json(&text)))
-            .last())
+            .map(|text| event_from_json(&text))
+            .filter(about)
+            .collect())
     }
 
-    /// What the task's open sessions said of the things they left running, oldest first.
+    /// Where session `session`'s agent last said what `task_id` prints is written.
+    fn output_file(&self, session: i64, task_id: &str) -> Result<Option<String>> {
+        let named = |event: AgentEvent| match event {
+            AgentEvent::Background { output_file, .. } => output_file,
+            _ => None,
+        };
+        Ok(self
+            .reports_of(session, task_id)?
+            .into_iter()
+            .filter_map(named)
+            .next_back())
+    }
+
+    /// Whether session `session`'s agent said it offers no way to stop `task_id`.
+    fn unstoppable(&self, session: i64, task_id: &str) -> Result<bool> {
+        let unstoppable = |event: &AgentEvent| {
+            matches!(
+                event,
+                AgentEvent::Background {
+                    unstoppable: true,
+                    ..
+                }
+            )
+        };
+        Ok(self.reports_of(session, task_id)?.iter().any(unstoppable))
+    }
+
+    /// What the task's open sessions said of the things they left running, oldest first, with
+    /// the ends of their agents among it: what an agent left running went with it.
     fn background_reports(&self, task: i64) -> Result<Vec<Reported>> {
-        // The event's type is the first thing in its JSON, which keeps this a prefix match.
+        // The event's type is the first thing in its JSON, which keeps these prefix matches.
         let mut statement = self.conn.prepare(
             "SELECT s.id, s.title, e.event FROM session_events e
              JOIN sessions s ON s.id = e.session_id
              WHERE s.task_id = ?1 AND s.closed_at IS NULL
-               AND e.event LIKE '{\"type\":\"background\"%'
+               AND (e.event LIKE '{\"type\":\"background\"%'
+                    OR e.event LIKE '{\"type\":\"exited\"%')
              ORDER BY e.id",
         )?;
         let rows = statement.query_map(params![task], |row| {
@@ -177,6 +255,8 @@ fn task_of(session_id: i64, session_title: String, event: AgentEvent) -> Option<
         summary,
         tool_use_id,
         output_file,
+        unstoppable,
+        ..
     } = event
     else {
         return None;
@@ -191,14 +271,21 @@ fn task_of(session_id: i64, session_title: String, event: AgentEvent) -> Option<
         summary,
         tool_use_id,
         output: output_file.is_some(),
+        stoppable: !unstoppable,
     })
 }
 
 /// Folds the reports into one entry per thing, by the last word on each. What a session's
-/// agent left running does not outlive that agent, so it is stopped if the agent is gone.
+/// agent left running does not outlive that agent, so it is stopped if the agent is gone, and
+/// where the agent's end is among the reports: an agent started again for the session knows
+/// nothing of what the one before it left, and would otherwise make it count as running again.
 fn listed(reported: Vec<Reported>, alive: &[i64]) -> Vec<BackgroundTask> {
     let mut tasks: Vec<BackgroundTask> = Vec::new();
     for (session_id, session_title, event) in reported {
+        if matches!(event, AgentEvent::Exited { .. }) {
+            stop_running(&mut tasks, |task| task.session_id == session_id);
+            continue;
+        }
         let Some(new) = task_of(session_id, session_title, event) else {
             continue;
         };
@@ -213,16 +300,21 @@ fn listed(reported: Vec<Reported>, alive: &[i64]) -> Vec<BackgroundTask> {
         task.heard(new);
         tasks.push(task);
     }
-    for task in &mut tasks {
-        let orphaned = task.state == BackgroundState::Running && !alive.contains(&task.session_id);
-        if orphaned {
-            task.state = BackgroundState::Stopped;
-        }
-    }
+    stop_running(&mut tasks, |task| !alive.contains(&task.session_id));
     // Running first; within each, the newest word first.
     tasks.reverse();
     tasks.sort_by_key(|task| task.state != BackgroundState::Running);
     tasks
+}
+
+/// Counts as stopped every running entry that `gone` says went with its agent.
+fn stop_running(tasks: &mut [BackgroundTask], gone: impl Fn(&BackgroundTask) -> bool) {
+    let running = tasks
+        .iter_mut()
+        .filter(|task| task.state == BackgroundState::Running);
+    for task in running.filter(|task| gone(task)) {
+        task.state = BackgroundState::Stopped;
+    }
 }
 
 /// The file `named`, links followed, if it is one output is read from: a regular `.output`
@@ -302,6 +394,8 @@ mod tests {
             // Only the start names the call here: the end leaves it out.
             tool_use_id: started.then(|| format!("call-{id}")),
             output_file: (!started).then(|| format!("/tmp/{id}.output")),
+            moved: false,
+            unstoppable: false,
         };
         (session, format!("session {session}"), event)
     }
@@ -420,6 +514,32 @@ mod tests {
             [
                 ("a", BackgroundState::Running),
                 ("a", BackgroundState::Stopped)
+            ]
+        );
+    }
+
+    #[test]
+    fn what_an_earlier_run_of_the_agent_left_is_stopped_though_the_agent_runs_again() {
+        let exited = AgentEvent::Exited {
+            code: None,
+            stderr: String::new(),
+        };
+        let reported = vec![
+            report(1, "a", BackgroundState::Running),
+            report(2, "other", BackgroundState::Running),
+            (1, "session 1".to_string(), exited),
+            // What the agent started again for the session leaves running is its own.
+            report(1, "b", BackgroundState::Running),
+        ];
+        let listed = listed(reported, &[1, 2]);
+        let mut tasks = states(&listed);
+        tasks.sort_unstable_by_key(|(id, _)| *id);
+        assert_eq!(
+            tasks,
+            [
+                ("a", BackgroundState::Stopped),
+                ("b", BackgroundState::Running),
+                ("other", BackgroundState::Running),
             ]
         );
     }

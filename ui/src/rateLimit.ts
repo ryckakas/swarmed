@@ -1,9 +1,10 @@
 // What Claude Code reports about the user's usage limits, in words for the transcript. It
 // reports after every turn: `allowed`, `allowed_warning` while a window fills up, and another
 // status once a limit is reached. A warning is not a limit reached, and is said once, when it
-// starts, not again with every turn.
+// starts, not again with every turn. Which warnings are said at all is the user's setting
+// (`LimitWarnings`); a limit reached always is.
 
-import type { AgentEvent, UsageLimit } from "./api/types";
+import type { AccountUsage, AgentEvent, LimitWarnings } from "./api/types";
 
 /** One usage report of Claude Code's. */
 export type RateLimit = Extract<AgentEvent, { type: "rate_limit" }>;
@@ -27,7 +28,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** Whether a report says extra usage pays for the turn: the plan's limit is reached, and the work goes on, billed. */
-export function onExtraUsage(event: RateLimit): boolean {
+function onExtraUsage(event: RateLimit): boolean {
     const raw = isRecord(event.raw) ? event.raw : {};
     return raw.isUsingOverage === true || raw.overageInUse === true;
 }
@@ -57,18 +58,19 @@ export function resetWhen(seconds: number, now: Date): string {
 
 /**
  * What the transcript says about a usage report, or `null` for nothing: nothing while all is
- * well, a warning when one starts, and every time a limit is reached. `previous` is the report
- * before it in the conversation.
+ * well, a warning when one starts that `mode` says, and every time a limit is reached, whatever
+ * `mode` is. `previous` is the report before it in the conversation.
  */
 export function limitNotice(
     event: RateLimit,
     previous: RateLimit | null,
     now: Date,
+    mode: LimitWarnings,
 ): string | null {
     if (event.status === "allowed") {
         return null;
     }
-    const { window, used } = details(event);
+    const { window } = details(event);
     const resets = event.resets_at === null ? "" : ` It resets ${resetWhen(event.resets_at, now)}.`;
     if (onExtraUsage(event)) {
         return billedNotice(previous, window, resets);
@@ -76,9 +78,37 @@ export function limitNotice(
     if (event.status !== "allowed_warning") {
         return `Usage limit reached${window ? ` (${window})` : ""}.${resets}`;
     }
-    const warnedAlready =
-        previous?.status === "allowed_warning" && details(previous).window === window;
-    if (warnedAlready) {
+    return warningNotice(event, previous, mode, resets);
+}
+
+/**
+ * Whether `mode` says a report's warning: every one when frequent; when rare, only one that says
+ * its window is at least `LIMIT_WARNING` full, since Claude Code warns from about half; none
+ * when none.
+ */
+function says(event: RateLimit, mode: LimitWarnings): boolean {
+    if (event.status !== "allowed_warning" || mode === "none") {
+        return false;
+    }
+    const { used } = details(event);
+    return mode === "frequent" || (used !== null && used >= LIMIT_WARNING);
+}
+
+/**
+ * A warning that a window fills up, said once: not while the report before it was a warning of
+ * the same window that `mode` said too. A warning `mode` left unsaid was not news yet, so the
+ * one that passes the mark is.
+ */
+function warningNotice(
+    event: RateLimit,
+    previous: RateLimit | null,
+    mode: LimitWarnings,
+    resets: string,
+): string | null {
+    const { window, used } = details(event);
+    const saidAlready =
+        previous !== null && says(previous, mode) && details(previous).window === window;
+    if (!says(event, mode) || saidAlready) {
         return null;
     }
     const share = used === null ? "" : `: ${Math.round(used * 100)}% used`;
@@ -103,7 +133,7 @@ function billedNotice(
     return `${which} is reached: Claude Code goes on with extra usage, which is billed.${resets}`;
 }
 
-/** One of Claude Code's usage windows, as its last report gave it. */
+/** One of the account's usage windows, as it stands now. */
 export interface LimitWindow {
     /** What the window is called here, such as "5-hour" or "weekly". */
     name: string;
@@ -113,6 +143,12 @@ export interface LimitWindow {
     resetsAt: number | null;
     /** `allowed`, or what stops the next request. */
     status: string;
+    /** When its figure was heard, in seconds since 1970. */
+    heardAt: number;
+    /** Whether its figure came from asking Claude Code, and not from a report after a turn. */
+    asked: boolean;
+    /** Whether it has reset since its figure was heard: it counts as empty until a report says otherwise. */
+    reset: boolean;
 }
 
 /** Claude Code warns once a window is this full, and so does Swarmed. */
@@ -156,79 +192,94 @@ export function warningLine(window: LimitWindow): string {
 }
 
 /**
- * Every usage window, from whichever came last: the report after a turn, or the limits Claude
- * Code gave when asked for them. In the order Claude Code lists them. Only Claude Code reports
- * them: the Agent Client Protocol has no message for an account's limits.
+ * The account's usage windows as they stand at `now`, in seconds since 1970: each as the newest
+ * report any Claude Code session heard gave it, except that one past its reset counts as reset,
+ * at 0%, until a report says otherwise. In the core's order, the 5-hour window first. Only
+ * Claude Code reports them: the Agent Client Protocol has no message for an account's limits.
  */
-export function limitWindows(events: AgentEvent[]): LimitWindow[] {
-    for (let at = events.length - 1; at >= 0; at--) {
-        const windows = windowsOf(events[at]);
-        if (windows.length > 0) {
-            return windows;
-        }
-    }
-    return [];
+export function accountWindows(usage: AccountUsage | null, now: number): LimitWindow[] {
+    return (usage?.windows ?? []).map((window) => {
+        const reset = window.resets_at !== null && window.resets_at <= now;
+        return {
+            name: window.name,
+            used: reset ? 0 : window.used,
+            resetsAt: window.resets_at,
+            status: reset ? "allowed" : window.status,
+            heardAt: window.heard_at,
+            asked: window.asked,
+            reset,
+        };
+    });
 }
 
-function windowsOf(event: AgentEvent | undefined): LimitWindow[] {
-    if (event?.type === "usage_limits") {
-        return event.limits.map(askedWindow);
+/** The longest a timer is set for: browsers take a longer one for none at all. */
+const LONGEST_WAIT_MS = 2 ** 31 - 1;
+
+/** How long after a reset what is shown changes, so that the reset has surely passed by then. */
+const AFTER_RESET_MS = 1000;
+
+/**
+ * How long until the next window, or the limit extra usage paid past, resets, in milliseconds
+ * from `now` (seconds since 1970): the time to look again, with nothing asked of Claude Code.
+ * `null` when nothing is to reset.
+ */
+export function untilNextReset(usage: AccountUsage | null, now: number): number | null {
+    const times = [
+        ...(usage?.windows ?? []).map((window) => window.resets_at),
+        usage?.billed?.resets_at ?? null,
+    ].filter((at): at is number => at !== null && at > now);
+    if (times.length === 0) {
+        return null;
     }
-    return event?.type === "rate_limit" ? reportedWindows(event) : [];
+    return Math.min((Math.min(...times) - now) * 1000 + AFTER_RESET_MS, LONGEST_WAIT_MS);
 }
 
-/** What Claude Code's `/usage` calls its limits, and what they are called here. */
-const LIMIT_KINDS: Record<string, string> = {
-    session: "5-hour",
-    weekly_all: "weekly",
-};
+/** How old a figure is, heard at `seconds`: the time alone if that is today, else the day too. */
+export function asOf(seconds: number, now: Date): string {
+    const at = new Date(seconds * 1000);
+    const time = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    if (at.toDateString() === now.toDateString()) {
+        return `as of ${time}`;
+    }
+    const day = at.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
+    return `as of ${day}, ${time}`;
+}
 
-/** A limit from Claude Code's answer, as a window: one model's weekly limit is named after it. */
-function askedWindow(limit: UsageLimit): LimitWindow {
-    // A weekly limit with no model named is not the weekly limit on everything: it keeps
-    // its own name, so that no two windows are called the same.
-    const scoped = limit.kind === "weekly_scoped" && limit.model !== null;
-    const kind = scoped ? "weekly" : (LIMIT_KINDS[limit.kind] ?? limit.kind.replaceAll("_", " "));
+/** A figure is older than the newest one heard if it was heard this long before it. */
+const OLDER_BY = 60;
+
+/** When the newest of `windows` was heard, in seconds since 1970; `null` for none. */
+export function newestHeard(windows: LimitWindow[]): number | null {
+    return windows.reduce<number | null>(
+        (newest, window) => (newest === null || window.heardAt > newest ? window.heardAt : newest),
+        null,
+    );
+}
+
+/** Whether a window's figure is older than the newest heard, and says its own age. */
+function heardBefore(window: LimitWindow, newest: number | null): boolean {
+    return newest !== null && window.heardAt < newest - OLDER_BY;
+}
+
+/** What is said of a window beside its figure, each `null` for nothing to say. */
+export interface WindowNotes {
+    /** When it resets, or that it has reset since its figure was heard. */
+    resets: string | null;
+    /** How old its figure is, if that is older than the newest heard. */
+    age: string | null;
+}
+
+/** What is said of a window, whose figures are older than the newest heard (`newest`). */
+export function windowNotes(window: LimitWindow, newest: number | null, now: Date): WindowNotes {
+    const when = window.resetsAt === null ? null : resetWhen(window.resetsAt, now);
     return {
-        name: limit.model ? `${kind} ${limit.model}` : kind,
-        used: limit.percent / 100,
-        resetsAt: isoSeconds(limit.resets_at),
-        status: limit.severity === "normal" ? "allowed" : limit.severity,
+        resets: when === null ? null : `${window.reset ? "Reset" : "Resets"} ${when}`,
+        age: heardBefore(window, newest) ? `Heard ${resetWhen(window.heardAt, now)}` : null,
     };
 }
 
-/**
- * An ISO 8601 time as seconds since 1970; `null` for none, or one that cannot be read. Claude
- * Code gives microseconds, which are cut to milliseconds first: not every engine reads more.
- */
-export function isoSeconds(text: string | null): number | null {
-    if (text === null) {
-        return null;
-    }
-    const ms = Date.parse(text.replace(/(\.\d{3})\d+/, "$1"));
-    return Number.isNaN(ms) ? null : ms / 1000;
-}
-
-/** The windows a report after a turn lists. */
-function reportedWindows(report: RateLimit): LimitWindow[] {
-    if (!isRecord(report.raw)) {
-        return [];
-    }
-    const windows = report.raw.unifiedWindows;
-    if (!isRecord(windows)) {
-        return [];
-    }
-    return Object.entries(windows).flatMap(([type, window]): LimitWindow[] => {
-        if (!isRecord(window) || typeof window.utilization !== "number") {
-            return [];
-        }
-        return [
-            {
-                name: windowName(type),
-                used: window.utilization,
-                resetsAt: typeof window.resetsAt === "number" ? window.resetsAt : null,
-                status: typeof window.status === "string" ? window.status : "allowed",
-            },
-        ];
-    });
+/** A window's notes in one line, as the narrow context card shows them; `null` for none. */
+export function windowNote(notes: WindowNotes): string | null {
+    const parts = [notes.resets, notes.age].filter((part) => part !== null);
+    return parts.length === 0 ? null : parts.join(" · ");
 }

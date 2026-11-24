@@ -1,5 +1,6 @@
 import type { Api } from "./api/client";
 import type { Session } from "./api/types";
+import { writtenHotkey } from "./hotkeys";
 
 /**
  * A row of the sidebar the user can move among its siblings: a repository, a task among its
@@ -20,6 +21,13 @@ export const orderGroup = {
     sessions: (task: number, starter: number | null) => `sessions:${task}:${starter ?? "top"}`,
     cloud: (project: string) => `cloud:${project}`,
 };
+
+/** What the grip a row is dragged by says under the pointer, with the keys that move a row too. */
+export function gripTitle(): string {
+    const up = writtenHotkey("move-up");
+    const down = writtenHotkey("move-down");
+    return `Drag to move. ${up} and ${down} move the focused row, or the open session.`;
+}
 
 /** The attributes that make an element a row that moves, and say among which siblings. */
 export function orderAttributes(target: OrderTarget, group: string) {

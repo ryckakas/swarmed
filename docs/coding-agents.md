@@ -44,32 +44,79 @@ Bedrock or Vertex.
 The card that opens over the context figure in the status line shows the following for a Claude
 Code session:
 
-- **Usage limits:** how much of each window (5-hour, weekly) is used, and when it resets.
+- **Usage limits:** how much of each window (5-hour, weekly, and a model's own weekly limit) is
+  used, and when it resets.
 - **Extra usage:** what is spent beyond your plan this month, against your monthly cap.
 - **Spent in this session:** what the session's own turns cost.
 
-Swarmed only learns these figures from what Claude Code says while it works for a session. It
-never asks for them on a timer or when the card opens. So they can be out of date:
+The usage limits and the extra usage are your account's, not a session's, so every Claude Code
+session shows the same: the newest figures any of them heard. A new session shows them before
+its first turn, and they are kept when Swarmed is opened again. Every Claude Code session runs
+on your own Claude Code sign-in, so they all report the same account. The one exception is a
+session you run from the command line with `--auth inherit` in a shell set up for another
+account: Swarmed cannot tell, and its figures show under every session too.
 
-- The usage limits are as Claude Code reported them at the end of the session's last turn.
-- The extra usage is as it stood when Claude Code last started for the session, or last ran a
-  turn on extra usage. Claude Code starts with the session's first message after Swarmed opens,
-  or after the session was stopped. A session that has not done either since this was added
-  shows no extra usage.
-- Usage from other sessions, other devices or claude.ai shows up after the session's next turn.
+Swarmed only learns these figures from what Claude Code says while it works. It never asks for
+them on a timer or when the card opens. So each says how old it is ("As of 14:48"), and they can
+be out of date:
+
+- The 5-hour and weekly limits are as Claude Code reported them after the last turn of any
+  Claude Code session.
+- A model's own weekly limit, such as Fable's, is only given when Claude Code is asked. It
+  stays as it was then, through later turns, which do not report it, until it resets or
+  Claude Code is asked again.
+- A window whose reset time has passed is shown as reset, at 0%, until a report says how much
+  of the new window is used. The warning on the coins goes at that time, with nothing asked.
+- The extra usage is as it stood when Claude Code last started for a session, or last ran a
+  turn on extra usage. Claude Code starts with a session's first message after Swarmed opens,
+  or after the session was stopped.
+- Usage from other devices or claude.ai shows up after the next turn of any Claude Code session.
 
 For figures as they are now, press the coins at the top right of a Claude Code session. They
 open an overview of the same figures, with a larger bar for each, and ask the session's Claude
 Code for them as they open, starting it if it is not running; **Ask again** asks once more.
 Nothing is sent to the model, so it costs nothing, and nothing is added to the conversation.
 Typing `/usage` in the session asks the same and shows the answer in the conversation. Either
-way, what Claude Code answers is kept, so the card shows it too until a later turn reports
-newer figures. Other agents report no usage, so their sessions have no coins.
+way, what Claude Code answers is kept, and every session's card and coins show it. Other agents
+report no usage, so their sessions have no coins and their card shows only what they spent.
+`swarmed limits` prints the same figures, with how old each is, and asks nothing.
 
 Once a window is 75% used, which is when Claude Code itself starts to warn, the coins carry a
 small yellow triangle, red once a limit is used up, and their label names the window. The bars
 are yellow and red likewise. Like the card, the triangle follows the figures last heard, so it
-appears after the turn that passes 75%.
+appears after the turn that passes 75%, in every Claude Code session, and goes when the window
+resets.
+
+The conversation also says when Claude Code warns that a window is filling up, which it can do
+from about half of it. **Usage warnings** in Settings, under Storage and activity, chooses how
+often:
+
+- **Frequent**, the default: each warning Claude Code gives, once for as long as the same
+  window keeps warning.
+- **Rare**: only once a window is at least 75% used, the same mark as the coins, and once.
+  A warning that does not say how full its window is says nothing.
+- **None**: no warnings in the conversation.
+
+Whatever you choose, the conversation says when a limit is reached and when Claude Code goes on
+with extra usage, which is billed, and the coins and the card show the same. An agent can change
+it for you with `configure`.
+
+### Sending a command or sub-agent to the background
+
+In Claude Code's own terminal, Ctrl+B moves a long command, or a sub-agent, that the turn waits
+on into the background. In Swarmed, a running `Bash` or `Agent` call of a Claude Code session has
+a **Send to background** button on its line while the session works. The call returns at once,
+the turn goes on, and the command or sub-agent runs on: the call's line then says "moved to the
+background", and the task panel's Background list shows it, with a way to stop it, until it ends.
+A sub-agent sent there keeps the session's answer back until it is done, as one Claude Code
+started in the background does.
+
+If it had already ended, or was in the background already, nothing breaks: the line says it was
+not sent. So does a Claude Code that refuses, such as one started with
+`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`, or a version too old for it, which is then to be
+updated. Work that a call waits on is not listed in the Background list until it moves there.
+Other agents have no such thing, and their calls have no button. From the command line, type
+`bg` and Enter while `swarmed session run` or `session send` shows a turn.
 
 ### Remote Control: carry on from your phone
 
@@ -134,6 +181,36 @@ in Auto, so it runs unsupervised there: use Ask for it. Permission requests and 
 answered in the conversation. Approving a plan moves the
 session to the default supervision from the settings, or to Ask if that default is Plan itself.
 Models and effort are chosen per session, and can change mid-session.
+
+## Sub-agents and work left running
+
+Agents can start sub-agents for parts of their work, and leave commands running past a turn.
+Swarmed lists a sub-agent under its session while it works: press it to read what it says and
+does, apart from the conversation. The task panel's Background list shows the sub-agents and
+commands left running, with a Stop button where the agent has a way to stop them.
+
+| Agent | Sub-agents | Commands left running |
+| --- | --- | --- |
+| Claude Code | listed, opened, stopped | listed, stopped, output readable |
+| Codex | listed, opened, stopped | not shown |
+| OpenCode | listed, opened; cannot be stopped from Swarmed | listed; cannot be stopped from Swarmed |
+| Antigravity | not shown apart | not shown |
+
+- **Codex** does not show the call that starts a sub-agent, so Swarmed shows one for it,
+  named after the sub-agent, with what it was asked. A sub-agent that Codex sets to work
+  again is shown again. Codex reports commands left running only to JetBrains' own client,
+  in a form that changes everything else it sends, so Swarmed does not ask for it.
+- **OpenCode** offers no way to stop one sub-agent or one shell. It does not say when a shell
+  ends either: a shell is shown running until OpenCode next takes something up by itself,
+  which is what a shell's end wakes it for, or until it stops. With several shells running,
+  all of them are then shown as ended.
+- **Antigravity** reports neither in a form Swarmed can read: its sub-agents and long commands
+  are tool calls in the conversation like any other.
+
+A sub-agent's permission requests are answered in its session's conversation, which names the
+sub-agent asking. While a sub-agent works on after its session's turn, the session waits to
+tell you it is done until the sub-agent is too. A command left running does not hold it back:
+a dev server may never end. Reading what a command printed is Claude Code's alone.
 
 ## MCP servers: one pool
 
@@ -216,10 +293,10 @@ Claude Code may call `show_html` without asking; in Ask mode you are asked about
 agents decide for themselves which calls they ask about.
 
 `configure` makes some changes at once: saved prompts, actions that send a prompt, the status
-line's pieces, the looks, the terminal's settings, and removing an action, a prompt or the status
-line's script. Adding a rule, saving an environment, an action that runs a command, a status
+line's pieces, the looks, how often Claude Code's usage warnings are said, the terminal's
+settings, and removing an action, a prompt or the status line's script. Adding a rule, saving an environment, an action that runs a command, a status
 line script, or hiding tool calls it can only propose: the change is shown in the conversation and made when you
-accept it. API keys, MCP servers, sign-ins, supervision and notes are out of its reach, and it
+accept it. API keys, MCP servers, sign-ins, supervision, notes and the branch prefix are out of its reach, and it
 tells an agent the names of an environment's variables, never their values.
 
 Every agent is also told that it works in its task's own worktree and is to keep the work on the

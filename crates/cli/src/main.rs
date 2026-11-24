@@ -1,7 +1,10 @@
 //! The `swarmed` command: a thin front end over `swarmed-core`.
 
 mod action;
+mod cleanup;
+mod events;
 mod layout;
+mod limits;
 mod session;
 mod terminal;
 
@@ -44,6 +47,13 @@ enum Command {
     Mcp,
     /// Show what Swarmed takes up on disk, and in memory and processor time right now.
     Usage,
+    /// Show the plan's usage limits and the extra usage as Claude Code last reported them in
+    /// any session, with how old each figure is. Nothing is asked: `/usage` in a session asks.
+    Limits,
+    /// List what removed tasks left behind, and the snapshots, or delete them: removed
+    /// worktrees not deleted yet, branches of removed tasks, stale worktrees and snapshots.
+    /// Nothing of a current task, no remote branch and no repository's own checkout is listed.
+    Cleanup(cleanup::CleanupArgs),
     /// Keep what a task's setup produced, for new tasks of its environment to start from.
     Snapshot {
         #[command(subcommand)]
@@ -108,6 +118,9 @@ enum Command {
     /// Show or replace how the terminal looks and behaves: font, cursor, colours and more.
     #[command(subcommand)]
     Terminal(TerminalCommand),
+    /// Print what happens in every session as it happens, whichever Swarmed does it: the app,
+    /// another command or this one. Ctrl-C ends it.
+    Events,
     /// Find the sessions in which something was said, closed ones included.
     Search {
         /// The words to look for, as they were written.
@@ -127,6 +140,13 @@ enum Command {
     AutoTitle {
         #[arg(value_enum)]
         state: Option<Switch>,
+    },
+    /// Show the branch a task called fix-login would get, or set what new tasks' branches
+    /// start with. A repository whose config sets a `branch_pattern` of its own keeps it.
+    BranchPrefix {
+        /// The new prefix, such as `jd` or `team-a/feat`, joined to the task by one `/`; `""`
+        /// for your login, as without one.
+        prefix: Option<String>,
     },
 }
 
@@ -429,6 +449,8 @@ async fn run(core: &Core, command: Command) -> Result<()> {
         Command::Agent(command) => agent(core, command).await,
         Command::Mcp => mcp(core),
         Command::Usage => usage(core).await,
+        Command::Limits => limits::run(core),
+        Command::Cleanup(args) => cleanup::run(core, args).await,
         Command::Snapshot { command } => snapshot(core, command).await,
         Command::Costs => costs(core),
         Command::Analytics => analytics(core),
@@ -438,6 +460,7 @@ async fn run(core: &Core, command: Command) -> Result<()> {
         }
         Command::Editor { command } => editor(core, command),
         Command::AutoTitle { state } => auto_title(core, state),
+        Command::BranchPrefix { prefix } => branch_prefix(core, prefix),
         Command::Key(command) => key(core, command),
         Command::Note { project, task, set } => note(core, &project, task.as_deref(), set),
         Command::Environment {
@@ -460,6 +483,7 @@ async fn run(core: &Core, command: Command) -> Result<()> {
         Command::Layout(command) => layout::run(core, &command),
         Command::Terminal(command) => terminal::run(core, &command),
         Command::Search { query } => search(core, &query),
+        Command::Events => events::run(core).await,
     }
 }
 
@@ -559,6 +583,20 @@ fn editor(core: &Core, command: Option<String>) -> Result<()> {
         core.set_settings(&settings)?;
     }
     say(&core.settings()?.editor);
+    Ok(())
+}
+
+/// Sets the branch prefix if one is given, then prints the branch a task gets with it.
+fn branch_prefix(core: &Core, prefix: Option<String>) -> Result<()> {
+    if let Some(branch_prefix) = prefix {
+        let settings = Settings {
+            branch_prefix,
+            ..core.settings()?
+        };
+        core.set_settings(&settings)?;
+    }
+    let prefix = core.settings()?.branch_prefix;
+    say(&swarmed_core::branch_example(&prefix)?);
     Ok(())
 }
 
@@ -869,7 +907,7 @@ fn mcp(core: &Core) -> Result<()> {
 }
 
 /// A size as people say it: 512 B, 3.4 MB, 1.2 GB.
-fn bytes(bytes: u64) -> String {
+pub(crate) fn bytes(bytes: u64) -> String {
     const UNITS: [&str; 4] = ["kB", "MB", "GB", "TB"];
     let mut unit = "B";
     #[allow(

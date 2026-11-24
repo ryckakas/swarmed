@@ -1,9 +1,10 @@
-import { type KeyboardEvent, useEffect, useRef } from "react";
+import type { KeyboardEvent } from "react";
 import { api } from "../api";
 import { INBOX_KINDS, type InboxItem, type InboxKind, inbox } from "../inbox";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
 import { wordsFor } from "../wording";
+import { Dialog } from "./Dialog";
 import { StatusMark } from "./StatusMark";
 
 /** Up and down move between the rows, as in a list. */
@@ -29,30 +30,19 @@ export function InboxDialog() {
     const open = useStore((state) => state.inboxOpen);
     const showInbox = useStore((state) => state.showInbox);
     const projects = useStore((state) => state.projects);
-    const dialog = useRef<HTMLDialogElement>(null);
-
-    // A modal <dialog> keeps the keyboard inside it and closes on Esc by itself.
-    useEffect(() => {
-        if (open && !dialog.current?.open) {
-            dialog.current?.showModal();
-        }
-    }, [open]);
 
     if (!open) {
         return null;
     }
     const items = inbox(projects);
     return (
-        <dialog
-            ref={dialog}
-            className="confirm inbox"
-            aria-labelledby="inbox-title"
+        <Dialog
+            title={words.waitingForYou}
+            size="medium"
+            closeOnBackdrop={true}
             onClose={() => showInbox(false)}
             onKeyDown={moveFocus}
-            // A click on the backdrop, outside the list, puts it away.
-            onClick={(event) => event.target === dialog.current && showInbox(false)}
         >
-            <h2 id="inbox-title">{words.waitingForYou}</h2>
             {items.length === 0 && <p>{words.nothingWaits}</p>}
             {INBOX_KINDS.map((kind) => (
                 <InboxGroup
@@ -61,7 +51,7 @@ export function InboxDialog() {
                     items={items.filter((item) => item.kind === kind)}
                 />
             ))}
-        </dialog>
+        </Dialog>
     );
 }
 
@@ -86,6 +76,8 @@ function InboxGroup({ kind, items }: { kind: InboxKind; items: InboxItem[] }) {
                     type="button"
                     className="inbox-row"
                     onClick={() => go(session.id)}
+                    // The keyboard starts on the first row, where the arrows move from.
+                    data-dialog-start
                 >
                     <StatusMark status={session.status} unread={session.unread} />
                     <span className="inbox-title">{session.title || words.untitled}</span>

@@ -14,7 +14,8 @@
 //!   permissions are.
 //! - **Not reachable at all**: API keys, MCP servers and their secrets, signing in, how much
 //!   an agent may do without asking, and notes. An agent must not widen what it may do, and
-//!   has no business with secrets.
+//!   has no business with secrets. Nor the branch prefix: the user sets it once, and it is not
+//!   worth a line in a description every agent is sent.
 //!
 //! The values of an environment's variables are never told to an agent, only their names.
 
@@ -30,7 +31,7 @@ use crate::agent::AgentEvent;
 use crate::environments::Environment;
 use crate::error::Error;
 use crate::layouts::layout_schema;
-use crate::settings::{Layout, MAX_RULES_BYTES, Settings, ToolCalls};
+use crate::settings::{Layout, LimitWarnings, MAX_RULES_BYTES, Settings, ToolCalls};
 use crate::store::Project;
 use crate::termconfig::terminal_schema;
 use crate::{Core, Result, lock};
@@ -469,6 +470,11 @@ impl Core {
         if let Some(scale) = asked.choice("text_size")? {
             settings.text_scale = scale;
         }
+        // Done at once like the rest: it only changes what conversations say of usage, and a
+        // limit reached is said whatever it is.
+        if let Some(warnings) = asked.choice::<LimitWarnings>("limit_warnings")? {
+            settings.limit_warnings = warnings;
+        }
         let tool_calls: Option<ToolCalls> = asked.choice("tool_calls")?;
         // Hiding what agents do is the one part of the looks the user has to agree to: an
         // agent could hide its own calls with it, in every session from then on.
@@ -728,11 +734,14 @@ fn appearance_of(settings: &Settings) -> String {
     let style = word(serde_json::to_value(settings.style).unwrap_or_default());
     let layout = word(serde_json::to_value(settings.layout).unwrap_or_default());
     let tool_calls = word(serde_json::to_value(settings.tool_calls).unwrap_or_default());
+    let warnings = word(serde_json::to_value(settings.limit_warnings).unwrap_or_default());
     format!(
         "theme {theme} (system, dark, light); palette {palette} (dusk, graphite, forest, plum, \
          ember, swarm); style {style} (plain, swarm, colony); layout {layout} (classic, senior, custom: \
          see kind layout); \
-         text_size {} (80 to 150); tool_calls {tool_calls} (all, folded, hidden)",
+         text_size {} (80 to 150); tool_calls {tool_calls} (all, folded, hidden); \
+         limit_warnings {warnings} (frequent: each of Claude Code's usage warnings; rare: only \
+         from 75% used; none)",
         settings.text_scale
     )
 }

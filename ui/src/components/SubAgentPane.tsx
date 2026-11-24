@@ -63,6 +63,8 @@ export function SubAgentPane({ session, crumbs, id, events }: Props) {
                     sessionId={session.id}
                     events={own}
                     working={working}
+                    // Read-only: what a sub-agent does is its own agent's to send on.
+                    sendsToBackground={false}
                 />
             )}
             {answer !== null && (

@@ -1,14 +1,19 @@
 import { describe, expect, it } from "vitest";
+import type { AccountUsage, LimitWarnings, UsageWindow } from "./api/types";
 import {
-    isoSeconds,
+    accountWindows,
+    asOf,
     type LimitWindow,
     limitLevel,
     limitNotice,
     limitWarning,
-    limitWindows,
+    newestHeard,
     type RateLimit,
     resetWhen,
+    untilNextReset,
     warningLine,
+    windowNote,
+    windowNotes,
 } from "./rateLimit";
 
 // Noon on a Saturday, in the time zone the tests run in.
@@ -41,11 +46,11 @@ const weeklyWarning = report(
 
 describe("limitNotice", () => {
     it("says nothing while all is well", () => {
-        expect(limitNotice(report("allowed", {}), null, now)).toBeNull();
+        expect(limitNotice(report("allowed", {}), null, now, "frequent")).toBeNull();
     });
 
     it("says a warning is a warning, with how much is used and the day it resets", () => {
-        const text = limitNotice(weeklyWarning, null, now) ?? "";
+        const text = limitNotice(weeklyWarning, null, now, "frequent") ?? "";
         expect(text).toMatch(
             /^Claude Code warns that the weekly limit is getting closer: 29% used\./,
         );
@@ -59,12 +64,12 @@ describe("limitNotice", () => {
     });
 
     it("says a warning once, not again with every turn", () => {
-        expect(limitNotice(weeklyWarning, weeklyWarning, now)).toBeNull();
+        expect(limitNotice(weeklyWarning, weeklyWarning, now, "frequent")).toBeNull();
         // Once all was well again, a new warning is news.
-        expect(limitNotice(weeklyWarning, report("allowed", {}), now)).not.toBeNull();
+        expect(limitNotice(weeklyWarning, report("allowed", {}), now, "frequent")).not.toBeNull();
         // A warning about another window is too.
         const hourly = report("allowed_warning", { rateLimitType: "five_hour" });
-        expect(limitNotice(hourly, weeklyWarning, now)).toMatch(/the 5-hour limit/);
+        expect(limitNotice(hourly, weeklyWarning, now, "frequent")).toMatch(/the 5-hour limit/);
     });
 
     it("says every time a limit is reached, and which", () => {
@@ -74,9 +79,71 @@ describe("limitNotice", () => {
             new Date(2026, 10, 21, 17, 0),
         );
         const text = `Usage limit reached (5-hour). It resets ${resetWhen(seconds(new Date(2026, 10, 21, 17, 0)), now)}.`;
-        expect(limitNotice(reached, null, now)).toBe(text);
-        expect(limitNotice(reached, reached, now)).toBe(text);
-        expect(limitNotice(report("rejected", null), null, now)).toBe("Usage limit reached.");
+        expect(limitNotice(reached, null, now, "frequent")).toBe(text);
+        expect(limitNotice(reached, reached, now, "frequent")).toBe(text);
+        expect(limitNotice(report("rejected", null), null, now, "frequent")).toBe(
+            "Usage limit reached.",
+        );
+    });
+});
+
+describe("limitNotice, as often as the user wants usage warnings", () => {
+    const weekly = (used: number | null, window = "seven_day") =>
+        report("allowed_warning", {
+            rateLimitType: window,
+            ...(used === null ? {} : { utilization: used }),
+        });
+    // What a weekly window that fills up through a day of work reports, turn by turn.
+    const filling = [weekly(0.52), weekly(0.6), weekly(0.76), weekly(0.81), weekly(0.9)];
+    const said = (mode: LimitWarnings, reports: RateLimit[]) =>
+        reports.flatMap((event, at) => {
+            const text = limitNotice(event, reports[at - 1] ?? null, now, mode);
+            return text === null ? [] : [text];
+        });
+
+    it("says each warning once when frequent, as Swarmed always did", () => {
+        const text = said("frequent", filling);
+        expect(text).toHaveLength(1);
+        expect(text[0]).toMatch(/weekly limit is getting closer: 52% used/);
+        expect(said("frequent", [weekly(null)])).toHaveLength(1);
+    });
+
+    it("says nothing below 75% when rare, and once when the window passes it", () => {
+        const text = said("rare", filling);
+        expect(text).toHaveLength(1);
+        expect(text[0]).toMatch(/weekly limit is getting closer: 76% used/);
+        expect(said("rare", [weekly(0.29), weekly(0.74)])).toEqual([]);
+        expect(said("rare", [weekly(0.75)])).toHaveLength(1);
+        // A warning that does not say how full its window is says nothing.
+        expect(said("rare", [weekly(null)])).toEqual([]);
+        expect(said("rare", [weekly(null), weekly(0.8)])).toHaveLength(1);
+    });
+
+    it("says it again when rare for another window, or once all was well again", () => {
+        const hourly = weekly(0.8, "five_hour");
+        const both = said("rare", [weekly(0.8), hourly]);
+        expect(both).toHaveLength(2);
+        expect(both[1]).toMatch(/the 5-hour limit is getting closer: 80% used/);
+        const allowed = report("allowed", {});
+        expect(said("rare", [weekly(0.8), allowed, weekly(0.8)])).toHaveLength(2);
+    });
+
+    it("says no warning at all when none", () => {
+        expect(said("none", [...filling, weekly(null), weekly(0.8, "five_hour")])).toEqual([]);
+    });
+
+    it("says every time a limit is reached, and work going on billed, whatever the mode", () => {
+        const reached = report("rejected", { rateLimitType: "five_hour" });
+        const billed = report("rejected", { rateLimitType: "five_hour", isUsingOverage: true });
+        for (const mode of ["frequent", "rare", "none"] as const) {
+            expect(said(mode, [reached, reached])).toEqual([
+                "Usage limit reached (5-hour).",
+                "Usage limit reached (5-hour).",
+            ]);
+            expect(said(mode, [weekly(0.9), billed])).toContain(
+                "The 5-hour limit is reached: Claude Code goes on with extra usage, which is billed.",
+            );
+        }
     });
 });
 
@@ -87,40 +154,6 @@ describe("resetWhen", () => {
         expect(today).not.toContain(" on ");
         const later = resetWhen(seconds(new Date(2026, 10, 27, 22, 0)), now);
         expect(later).toMatch(/^on .*27.* at /);
-    });
-});
-
-describe("limitWindows", () => {
-    it("lists every window of the latest report, named, in Claude Code's order", () => {
-        const earlier = report("allowed", {
-            unifiedWindows: { five_hour: { status: "allowed", utilization: 0.1 } },
-        });
-        const latest = report("allowed_warning", {
-            unifiedWindows: {
-                five_hour: { status: "allowed", utilization: 0.31, resetsAt: 100 },
-                seven_day: { status: "allowed", utilization: 0.29, resetsAt: 200 },
-                seven_day_overage_included: { status: "allowed", utilization: 0.44 },
-                seven_day_new_kind: { status: "rejected", utilization: 1 },
-                broken: { status: "allowed" },
-            },
-        });
-        expect(limitWindows([earlier, { type: "text", text: "hi" }, latest])).toEqual([
-            { name: "5-hour", used: 0.31, resetsAt: 100, status: "allowed" },
-            { name: "weekly", used: 0.29, resetsAt: 200, status: "allowed" },
-            {
-                name: "weekly, extra usage included",
-                used: 0.44,
-                resetsAt: null,
-                status: "allowed",
-            },
-            { name: "seven day new kind", used: 1, resetsAt: null, status: "rejected" },
-        ]);
-    });
-
-    it("is empty without a report that lists windows, as from every agent but Claude Code", () => {
-        expect(limitWindows([])).toEqual([]);
-        expect(limitWindows([report("allowed", null)])).toEqual([]);
-        expect(limitWindows([report("allowed", { unifiedWindows: "?" })])).toEqual([]);
     });
 });
 
@@ -135,94 +168,115 @@ describe("a limit reached while extra usage carries on", () => {
     });
 
     it("says the work goes on, billed, not that it stopped", () => {
-        const text = limitNotice(billed, null, now) ?? "";
+        const text = limitNotice(billed, null, now, "frequent") ?? "";
         expect(text).toBe(
             "The 5-hour limit is reached: Claude Code goes on with extra usage, which is billed.",
         );
     });
 
     it("says it once, not with every billed turn after it", () => {
-        expect(limitNotice(billed, billed, now)).toBeNull();
+        expect(limitNotice(billed, billed, now, "frequent")).toBeNull();
         // Back within the plan and over again: news once more.
-        expect(limitNotice(billed, report("allowed", {}), now)).not.toBeNull();
+        expect(limitNotice(billed, report("allowed", {}), now, "frequent")).not.toBeNull();
     });
 });
 
-describe("limits Claude Code gave when asked", () => {
-    const asked = {
-        type: "usage_limits" as const,
-        limits: [
-            {
-                kind: "session",
-                model: null,
-                percent: 36,
-                resets_at: "2026-11-21T19:59:59.723480+00:00",
-                severity: "normal",
-            },
-            { kind: "weekly_all", model: null, percent: 30, resets_at: null, severity: "normal" },
-            {
-                kind: "weekly_scoped",
-                model: "Fable",
-                percent: 92,
-                resets_at: null,
-                severity: "warning",
-            },
-            { kind: "monthly_new", model: null, percent: 5, resets_at: null, severity: "normal" },
-        ],
-    };
-    const reported = report("allowed", {
-        unifiedWindows: { five_hour: { status: "allowed", utilization: 0.1 } },
+describe("the account's windows", () => {
+    // Heard at 11:00 after a turn, and asked for at 10:00, Fable's limit with it.
+    const heard = seconds(new Date(2026, 10, 21, 11, 0));
+    const asked = seconds(new Date(2026, 10, 21, 10, 0));
+    const window = (
+        kind: string,
+        used: number,
+        resetsAt: number | null,
+        at = heard,
+    ): UsageWindow => ({
+        kind,
+        name: kind === "seven_day_fable" ? "weekly Fable" : kind,
+        used,
+        resets_at: resetsAt,
+        status: used >= 1 ? "critical" : "allowed",
+        heard_at: at,
+        asked: at === asked,
+    });
+    const usage = (...windows: UsageWindow[]): AccountUsage => ({
+        windows,
+        extra: null,
+        billed: null,
+    });
+    const inAnHour = seconds(new Date(2026, 10, 21, 13, 0));
+    const anHourAgo = seconds(new Date(2026, 10, 21, 11, 0));
+
+    it("stand as heard until they reset", () => {
+        const fable = window("seven_day_fable", 1, inAnHour, asked);
+        const [shown] = accountWindows(usage(fable), seconds(now));
+        expect(shown).toEqual({
+            name: "weekly Fable",
+            used: 1,
+            resetsAt: inAnHour,
+            status: "critical",
+            heardAt: asked,
+            asked: true,
+            reset: false,
+        });
+        expect(limitWarning(accountWindows(usage(fable), seconds(now)))?.name).toBe("weekly Fable");
     });
 
-    it("are named as the reports name them, one model's after it", () => {
-        expect(limitWindows([asked])).toEqual([
-            {
-                name: "5-hour",
-                used: 0.36,
-                resetsAt: Date.UTC(2026, 10, 21, 19, 59, 59, 723) / 1000,
-                status: "allowed",
-            },
-            { name: "weekly", used: 0.3, resetsAt: null, status: "allowed" },
-            { name: "weekly Fable", used: 0.92, resetsAt: null, status: "warning" },
-            { name: "monthly new", used: 0.05, resetsAt: null, status: "allowed" },
-        ]);
+    it("count as reset, empty, once their reset time has passed, with nothing heard since", () => {
+        const fiveHour = window("five_hour", 0.9, anHourAgo);
+        const [shown] = accountWindows(usage(fiveHour), seconds(now));
+        expect(shown).toMatchObject({ used: 0, status: "allowed", reset: true });
+        expect(limitWarning(accountWindows(usage(fiveHour), seconds(now)))).toBeNull();
+        // The same window just before its reset still warns.
+        const before = accountWindows(usage(fiveHour), anHourAgo - 1);
+        expect(limitWarning(before)?.used).toBe(0.9);
     });
 
-    it("keep a weekly limit on something unnamed apart from the weekly limit", () => {
-        const both = {
-            type: "usage_limits" as const,
-            limits: ["weekly_all", "weekly_scoped"].map((kind) => ({
-                kind,
-                model: null,
-                percent: 30,
-                resets_at: null,
-                severity: "normal",
-            })),
-        };
-        expect(limitWindows([both]).map((window) => window.name)).toEqual([
-            "weekly",
-            "weekly scoped",
-        ]);
+    it("are none before anything is heard, or for another agent's session", () => {
+        expect(accountWindows(null, seconds(now))).toEqual([]);
+        expect(accountWindows(usage(), seconds(now))).toEqual([]);
     });
 
-    it("stand until a later report, which stands until they are asked for again", () => {
-        expect(limitWindows([reported, asked])[0]?.used).toBe(0.36);
-        expect(limitWindows([asked, reported])[0]?.used).toBe(0.1);
-        // A report that lists no windows does not hide the ones asked for.
-        expect(limitWindows([asked, report("allowed", null)])[0]?.used).toBe(0.36);
-    });
-});
-
-describe("isoSeconds", () => {
-    it("reads Claude Code's times, microseconds and all, and nothing else", () => {
-        expect(isoSeconds("2026-11-27T20:59:59+00:00")).toBe(
-            Date.UTC(2026, 10, 27, 20, 59, 59) / 1000,
+    it("are looked at again when the next of them resets, and not before", () => {
+        const both = usage(
+            window("five_hour", 0.9, inAnHour),
+            window("seven_day", 0.5, inAnHour + 86_400),
+            window("gone", 0.5, anHourAgo),
+            window("unsaid", 0.5, null),
         );
-        expect(isoSeconds("2026-11-27T20:59:59.723508+00:00")).toBe(
-            Date.UTC(2026, 10, 27, 20, 59, 59, 723) / 1000,
-        );
-        expect(isoSeconds(null)).toBeNull();
-        expect(isoSeconds("soon")).toBeNull();
+        expect(untilNextReset(both, seconds(now))).toBe(3600 * 1000 + 1000);
+        expect(untilNextReset(usage(window("gone", 0.5, anHourAgo)), seconds(now))).toBeNull();
+        expect(untilNextReset(null, seconds(now))).toBeNull();
+        // The limit extra usage paid past counts too, and a wait too long for a timer is cut.
+        const billed = { on: true, resets_at: seconds(now) + 60, heard_at: heard };
+        expect(untilNextReset({ ...usage(), billed }, seconds(now))).toBe(61_000);
+        const far = usage(window("seven_day", 0.5, seconds(now) + 60 * 86_400));
+        expect(untilNextReset(far, seconds(now))).toBe(2 ** 31 - 1);
+    });
+
+    it("say when they reset, and how old a figure older than the newest is", () => {
+        const fable = window("seven_day_fable", 1, inAnHour, asked);
+        const fiveHour = window("five_hour", 0.3, anHourAgo);
+        const shown = accountWindows(usage(fable, fiveHour), seconds(now));
+        const newest = newestHeard(shown);
+        expect(newest).toBe(heard);
+        const [fableShown, fiveHourShown] = shown;
+        const fableNotes = fableShown && windowNotes(fableShown, newest, now);
+        expect(fableNotes?.resets).toMatch(/^Resets at /);
+        expect(fableNotes?.age).toBe(`Heard ${resetWhen(asked, now)}`);
+        expect(fableNotes && windowNote(fableNotes)).toMatch(/^Resets at .+ · Heard at .+/);
+        const fiveHourNotes = fiveHourShown && windowNotes(fiveHourShown, newest, now);
+        expect(fiveHourNotes).toEqual({ resets: expect.stringMatching(/^Reset at /), age: null });
+        const unsaid = accountWindows(usage(window("five_hour", 0.3, null)), seconds(now));
+        const none = unsaid[0] && windowNotes(unsaid[0], heard, now);
+        expect(none && windowNote(none)).toBeNull();
+        expect(newestHeard([])).toBeNull();
+    });
+
+    it("say how old a figure is: the time today, the day as well before", () => {
+        expect(asOf(heard, now)).toMatch(/^as of \S/);
+        expect(asOf(heard, now)).not.toContain(",");
+        expect(asOf(seconds(new Date(2026, 10, 19, 9, 0)), now)).toMatch(/^as of .*19.*, \S/);
     });
 });
 
@@ -232,6 +286,9 @@ describe("warning of a limit", () => {
         used,
         resetsAt: null,
         status,
+        heardAt: 0,
+        asked: false,
+        reset: false,
     });
 
     it("starts at 75% as Claude Code's does, by how full a window is and not by its report", () => {

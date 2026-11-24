@@ -41,6 +41,8 @@ pub struct Settings {
     pub html_views: bool,
     /// How the agents' tool calls show in a conversation.
     pub tool_calls: ToolCalls,
+    /// What a conversation says when Claude Code warns that a usage window fills up.
+    pub limit_warnings: LimitWarnings,
     /// The built-in pieces of the status line under the message box, in order.
     pub status_items: Vec<StatusItem>,
     /// A command whose first line of output replaces the built-in pieces. Empty for none.
@@ -50,6 +52,10 @@ pub struct Settings {
     pub rules: String,
     /// How Swarmed gets its new versions.
     pub updates: UpdateMode,
+    /// What a new task's branch starts with, joined to the task's name by one `/`, in every
+    /// repository whose `branch_pattern` is the default. Kept without slashes at its ends; empty
+    /// for the user's login.
+    pub branch_prefix: String,
 }
 
 /// The longest the user's rules may be, in bytes: they travel with every session's
@@ -133,6 +139,24 @@ pub enum ToolCalls {
     Hidden,
 }
 
+/// What a conversation says when Claude Code warns that a usage window fills up.
+///
+/// A limit reached, and work that goes on with extra usage, are said whatever this is, and the
+/// usage coins show the same either way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LimitWarnings {
+    /// Each warning Claude Code gives, once for as long as the same window keeps warning. It
+    /// warns from about half a window.
+    #[default]
+    Frequent,
+    /// Only once a window is at least 75% used, when the usage coins warn too, and once for
+    /// as long as it stays there.
+    Rare,
+    /// None at all.
+    None,
+}
+
 /// How Swarmed gets its new versions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -164,10 +188,12 @@ impl Default for Settings {
             notifications: true,
             html_views: true,
             tool_calls: ToolCalls::Folded,
+            limit_warnings: LimitWarnings::Frequent,
             status_items: StatusItem::defaults(),
             status_command: String::new(),
             rules: String::new(),
             updates: UpdateMode::Automatic,
+            branch_prefix: String::new(),
         }
     }
 }
@@ -206,10 +232,12 @@ impl Settings {
         }
     }
 
-    /// The settings with every value brought into the range the app can show.
+    /// The settings with every value brought into the range the app can show, and the branch
+    /// prefix into the form it is kept in.
     fn within_limits(mut self) -> Self {
         let (smallest, largest) = TEXT_SCALE_RANGE;
         self.text_scale = self.text_scale.clamp(smallest, largest);
+        self.branch_prefix = crate::prefix::trimmed(&self.branch_prefix).to_string();
         self
     }
 
@@ -292,10 +320,12 @@ mod tests {
             notifications: false,
             html_views: false,
             tool_calls: ToolCalls::Hidden,
+            limit_warnings: LimitWarnings::Rare,
             status_items: vec![StatusItem::Cost],
             status_command: "~/bin/status".to_string(),
             rules: "Keep answers short.\nNo em dashes.".to_string(),
             updates: UpdateMode::WhenAsked,
+            branch_prefix: "jd/feat".to_string(),
         };
         chosen.save(&path).expect("saves");
         assert_eq!(Settings::load(&path).expect("loads"), chosen);
@@ -339,6 +369,32 @@ mod tests {
     }
 
     #[test]
+    fn usage_warnings_are_frequent_unless_chosen_otherwise() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.toml");
+        // A file written before the setting existed says every warning, as Swarmed did then.
+        std::fs::write(&path, "theme = \"dark\"").expect("writes");
+        assert_eq!(
+            Settings::load(&path).expect("loads").limit_warnings,
+            LimitWarnings::Frequent
+        );
+        std::fs::write(&path, "limit_warnings = \"none\"").expect("writes");
+        assert_eq!(
+            Settings::load(&path).expect("loads").limit_warnings,
+            LimitWarnings::None
+        );
+        // A choice a newer Swarmed may have: this one says every warning, and names the value.
+        std::fs::write(&path, "limit_warnings = \"hourly\"\ntheme = \"dark\"").expect("writes");
+        let (settings, problems) = Settings::read(&path).expect("reads");
+        assert_eq!(
+            (settings.limit_warnings, settings.theme),
+            (LimitWarnings::Frequent, Theme::Dark)
+        );
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("`limit_warnings`"), "{problems:?}");
+    }
+
+    #[test]
     fn a_key_this_version_does_not_know_is_named_and_costs_nothing_else() {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = dir.path().join("settings.toml");
@@ -365,6 +421,28 @@ mod tests {
         assert!(saved.contains("coming_later = \"yes\""), "{saved}");
         let (again, _) = Settings::read(&path).expect("reads again");
         assert_eq!((again.editor.as_str(), again.auto_title), ("zed", false));
+    }
+
+    #[test]
+    fn a_branch_prefix_is_kept_without_the_slashes_at_its_ends() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.toml");
+        // A file written before the setting existed has none: branches start with the login.
+        std::fs::write(&path, "theme = \"dark\"").expect("writes");
+        assert_eq!(Settings::load(&path).expect("loads").branch_prefix, "");
+        // Written by hand with slashes at its ends, it is read without them.
+        std::fs::write(&path, "branch_prefix = \" /jd/feat/ \"").expect("writes");
+        assert_eq!(
+            Settings::load(&path).expect("loads").branch_prefix,
+            "jd/feat"
+        );
+        let typed = Settings {
+            branch_prefix: "//team-a/".to_string(),
+            ..Settings::default()
+        };
+        typed.save(&path).expect("saves");
+        let saved = std::fs::read_to_string(&path).expect("reads back");
+        assert!(saved.contains("branch_prefix = \"team-a\""), "{saved}");
     }
 
     #[test]

@@ -4,9 +4,15 @@
 //! the app beside a command. To the second, a session that counts as busy and a stack it did
 //! not start are the first one's work, not leftovers. So only the first to arrive settles
 //! sessions when it starts and ends stacks it finds when it quits. It is known by a lock on a
-//! file, which the system lets go of when the process ends, however it ends.
+//! file, which the system lets go of when the process ends, however it ends. An app that
+//! arrived second takes the lock once it is free (`Core::notice_others`): from then on it ends
+//! every stack when it quits, and shows the notices of what other processes run. It also
+//! settles then what the first one left busy, as arriving first would have: the first one,
+//! opened again, finds its place taken and settles nothing. The sessions whose agent runs, here
+//! or in another Swarmed, are passed over.
 
 use std::fs::{File, TryLockError};
+use std::sync::atomic::Ordering;
 
 use crate::error::Result;
 use crate::{Core, lock};
@@ -17,6 +23,9 @@ impl Core {
     /// is running on the same data, whose sessions they may be. Says how many there were.
     /// Worktrees that removals moved aside and did not see deleted are deleted.
     pub fn arrive(&self) -> Result<usize> {
+        // A front end that stays shows notices, and says so in the locks on the sessions it
+        // runs, so that another Swarmed does not show them too.
+        self.live.shows_notices.store(true, Ordering::Relaxed);
         if self.keeps_house()? {
             self.finish_removals();
             self.sessions_settle()
@@ -37,7 +46,7 @@ impl Core {
     }
 
     /// Whether this is the Swarmed that arrived first, taking that place if nobody has it.
-    fn keeps_house(&self) -> Result<bool> {
+    pub(crate) fn keeps_house(&self) -> Result<bool> {
         let mut house = lock(&self.house);
         if house.is_some() {
             return Ok(true);

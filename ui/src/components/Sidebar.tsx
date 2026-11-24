@@ -1,19 +1,27 @@
-import { type KeyboardEvent, useEffect, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
 import { addProject, moveRow, newSession } from "../actions";
 import { api } from "../api";
 import type { CloudTask, Mark, Project, Session, Task } from "../api/types";
 import { cloudProvider, cloudTitle, cloudTone, cloudTooltip, isUnfinished } from "../cloud";
 import { taskTooltip } from "../environments";
-import { orderAttributes, orderGroup, starterHere } from "../ordering";
+import { gripTitle, orderAttributes, orderGroup, starterHere } from "../ordering";
 import { agentName, iconForAgent } from "../providerIcons";
 import { useStore } from "../store";
 import type { SubAgent } from "../subagents";
 import { listedUnder } from "../subagents";
-import { countUnread, countWaiting, nestedSessions, projectStatus, projectUnread } from "../tree";
+import {
+    countUnread,
+    countWaiting,
+    foldedSummary,
+    nestedSessions,
+    projectStatus,
+    projectUnread,
+} from "../tree";
 import { newVersion, updateLine } from "../updates";
 import { useWords } from "../useWords";
 import { withArticle, wordsFor } from "../wording";
 import { ForgetCloudDialog } from "./ForgetCloudDialog";
+import { CloseIcon, CloudIcon, PlusIcon, PlusMinusIcon } from "./IconButton";
 import { ProviderMark } from "./ProviderMark";
 import { PullBadge } from "./PullRequest";
 import { StatusMark } from "./StatusMark";
@@ -161,9 +169,7 @@ function ProjectGroup({ project }: { project: Project }) {
                         title={folded ? words.showTasks : words.hideTasks}
                         onClick={() => toggleFolded(project.id)}
                     >
-                        <svg className="fold-chevron" viewBox="0 0 10 10" aria-hidden="true">
-                            <path d="M3.5 1.5 7 5 3.5 8.5" />
-                        </svg>
+                        <FoldChevron />
                         <RepositoryIcon />
                         <span className="project-title">{project.name}</span>
                         {status && <StatusMark status={status} unread={projectUnread(project)} />}
@@ -180,7 +186,9 @@ function ProjectGroup({ project }: { project: Project }) {
                     title={words.startTask}
                     onClick={() => startNew(project.name)}
                 >
-                    +
+                    <ButtonIcon>
+                        <PlusIcon />
+                    </ButtonIcon>
                 </button>
                 <RemoveButton project={project.name} task={null} />
             </div>
@@ -194,24 +202,16 @@ function ProjectGroup({ project }: { project: Project }) {
 
 function TaskGroup({ project, task }: { project: string; task: Task }) {
     const words = useStore((state) => wordsFor(state.settings?.style));
+    const folded = useStore((state) => state.foldedTasks.includes(task.id));
     const order = orderAttributes(
         { kind: "task", project, task: task.name },
         orderGroup.tasks(project),
     );
-    // A session is moved among those its starter started, or among the task's others.
-    const sessionOrder = (session: Session) =>
-        orderAttributes(
-            { kind: "session", id: session.id },
-            orderGroup.sessions(task.id, starterHere(task.sessions, session)),
-        );
     return (
         <div className="task" {...order}>
             <div className="row-head">
-                <h3 className="task-name" title={taskTooltip(task, words)} data-drag-handle>
-                    <WorktreeIcon />
-                    <span className="task-title">{task.name}</span>
-                    {task.setup === "failed" && <span className="task-flag">setup failed</span>}
-                </h3>
+                <Grip />
+                <TaskHeading task={task} folded={folded} />
                 <PullBadge project={project} task={task} />
                 <CloudButton project={project} task={task.name} />
                 <NoteButton project={project} task={task.name} has={task.has_note} />
@@ -222,10 +222,58 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
                     title={words.newSession}
                     onClick={() => void newSession(project, task.name)}
                 >
-                    +
+                    <ButtonIcon>
+                        <PlusIcon />
+                    </ButtonIcon>
                 </button>
                 <RemoveButton project={project} task={task.name} />
             </div>
+            {!folded && <TaskSessions project={project} task={task} />}
+        </div>
+    );
+}
+
+/**
+ * A task's name, which folds its sessions away and brings them back, as a repository's name
+ * does its tasks. Folded, it still says how many sessions are open, what the most urgent of
+ * them needs and whether one holds an unread answer, as a folded repository does.
+ */
+function TaskHeading({ task, folded }: { task: Task; folded: boolean }) {
+    const words = useStore((state) => wordsFor(state.settings?.style));
+    const toggleTaskFolded = useStore((state) => state.toggleTaskFolded);
+    const summary = folded ? foldedSummary(task) : null;
+    const fold = folded ? words.showSessions : words.hideSessions;
+    return (
+        <h3 className="task-name">
+            <button
+                type="button"
+                className="task-toggle"
+                aria-expanded={!folded}
+                title={`${taskTooltip(task, words)}. ${fold}`}
+                onClick={() => toggleTaskFolded(task.id)}
+            >
+                <FoldChevron />
+                <WorktreeIcon />
+                <span className="task-title">{task.name}</span>
+                {task.setup === "failed" && <span className="task-flag">setup failed</span>}
+                {summary?.status && <StatusMark status={summary.status} unread={summary.unread} />}
+                {summary && <span className="task-count">{summary.count}</span>}
+            </button>
+        </h3>
+    );
+}
+
+/** A task's open sessions, the sub-agents at work under them, and the line to its closed ones. */
+function TaskSessions({ project, task }: { project: string; task: Task }) {
+    const words = useWords();
+    // A session is moved among those its starter started, or among the task's others.
+    const sessionOrder = (session: Session) =>
+        orderAttributes(
+            { kind: "session", id: session.id },
+            orderGroup.sessions(task.id, starterHere(task.sessions, session)),
+        );
+    return (
+        <>
             {task.sessions.length === 0 && <p className="hint">{words.noSessions}</p>}
             <ul className="sessions">
                 {nestedSessions(task.sessions).map(({ session, nested }) => (
@@ -244,21 +292,24 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
             {task.closed > 0 && (
                 <ClosedSessions project={project} task={task.name} count={task.closed} />
             )}
-        </div>
+        </>
     );
 }
 
-/** Opens the note on a repository or a task. It stays in view once there is something noted. */
-/** A cloud, drawn as one line. */
-function CloudIcon() {
+/** A cloud, drawn as one line: what kind of row a cloud task is. */
+function CloudRowIcon() {
     return (
         <svg className="row-icon" viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M4.5 12.5a3 3 0 0 1-.4-5.97 4 4 0 0 1 7.7-.9A3.4 3.4 0 0 1 11.5 12.5z" />
+            <CloudIcon />
         </svg>
     );
 }
 
-/** Opens the form that hands work to a cloud agent, from a repository or one of its tasks. */
+/**
+ * Opens the form that hands work to a cloud agent, from a repository or one of its tasks. Its
+ * cloud is a button's icon, not a row's: a layout enlarges the button, and a row's icon inside
+ * it would be enlarged a second time, larger than the icons beside it.
+ */
 function CloudButton({ project, task }: { project: string; task: string | null }) {
     const askToDelegate = useStore((state) => state.askToDelegate);
     const words = useStore((state) => wordsFor(state.settings?.style));
@@ -271,7 +322,9 @@ function CloudButton({ project, task }: { project: string; task: string | null }
             title={label}
             onClick={() => askToDelegate({ project, task })}
         >
-            <CloudIcon />
+            <ButtonIcon>
+                <CloudIcon />
+            </ButtonIcon>
         </button>
     );
 }
@@ -331,14 +384,14 @@ function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] })
                             orderGroup.cloud(project),
                         )}
                     >
+                        <Grip />
                         <button
                             type="button"
                             className="cloud-row"
-                            data-drag-handle
                             title={cloudTooltip(task)}
                             onClick={() => void api.cloudTaskOpen(task.id).catch(report)}
                         >
-                            <CloudIcon />
+                            <CloudRowIcon />
                             <span className="session-title">{cloudTitle(task)}</span>
                             <span className="cloud-status">{task.status}</span>
                             <ProviderMark
@@ -354,7 +407,9 @@ function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] })
                                 title={`Show what it changed, and apply that to a local ${words.terms.task}`}
                                 onClick={() => showCloudDiff(task.id)}
                             >
-                                ±
+                                <ButtonIcon>
+                                    <PlusMinusIcon />
+                                </ButtonIcon>
                             </button>
                         )}
                         <button
@@ -364,7 +419,9 @@ function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] })
                             title={`${words.forgetCloud}. The task itself is not stopped.`}
                             onClick={() => setForgetting(task)}
                         >
-                            ×
+                            <ButtonIcon>
+                                <CloseIcon />
+                            </ButtonIcon>
                         </button>
                     </li>
                 ))}
@@ -394,6 +451,7 @@ function EnvironmentsButton({ project }: { project: string }) {
     );
 }
 
+/** Opens the note on a repository or a task. It stays in view once there is something noted. */
 function NoteButton({
     project,
     task,
@@ -419,6 +477,49 @@ function NoteButton({
                 <path d="M6.5 7.5h4M6.5 10.5h4" />
             </svg>
         </button>
+    );
+}
+
+/**
+ * The drawing on one of a row's buttons, in the same box and strokes as the others beside it.
+ * The add and remove buttons are drawn too: a text glyph sits where its font puts it, off their
+ * centre line, and changes size and weight with every font and layout.
+ */
+function ButtonIcon({ children }: { children: ReactNode }) {
+    return (
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+            {children}
+        </svg>
+    );
+}
+
+/**
+ * What a task, a session or a cloud task is dragged by: six dots in the indent before its row,
+ * shown while the row is pointed at or has the keyboard. The row itself is not a handle, so
+ * pressing it opens it and a click that slips moves nothing. It cannot take the keyboard; the
+ * shortcuts its title names move a row from there.
+ */
+function Grip() {
+    return (
+        <span className="row-grip" data-drag-handle title={gripTitle()} aria-hidden="true">
+            <svg className="grip-dots" viewBox="0 0 8 12" aria-hidden="true">
+                <circle cx="2" cy="2" r="1.2" />
+                <circle cx="6" cy="2" r="1.2" />
+                <circle cx="2" cy="6" r="1.2" />
+                <circle cx="6" cy="6" r="1.2" />
+                <circle cx="2" cy="10" r="1.2" />
+                <circle cx="6" cy="10" r="1.2" />
+            </svg>
+        </span>
+    );
+}
+
+/** What a repository's or a task's name shows of whether it is folded: it turns down when open. */
+function FoldChevron() {
+    return (
+        <svg className="fold-chevron" viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M3.5 1.5 7 5 3.5 8.5" />
+        </svg>
     );
 }
 
@@ -507,7 +608,9 @@ function ClosedSessions({ project, task, count }: ClosedProps) {
                         title={`${words.deleteSession} for good`}
                         onClick={() => askToDelete({ id: session.id, title: session.title })}
                     >
-                        ×
+                        <ButtonIcon>
+                            <CloseIcon />
+                        </ButtonIcon>
                     </button>
                 </div>
             ))}
@@ -529,7 +632,9 @@ function RemoveButton({ project, task }: { project: string; task: string | null 
             title={label}
             onClick={() => askToRemove({ project, task })}
         >
-            ×
+            <ButtonIcon>
+                <CloseIcon />
+            </ButtonIcon>
         </button>
     );
 }
@@ -546,10 +651,10 @@ function SessionRow({ session }: { session: Session }) {
             data-current={selected}
             data-unread={session.unread}
         >
+            <Grip />
             <button
                 type="button"
                 className="session-row"
-                data-drag-handle
                 // The row cuts a long title short; this shows all of it.
                 title={title}
                 aria-current={selected ? "true" : undefined}
@@ -580,7 +685,9 @@ function SessionRow({ session }: { session: Session }) {
                 title={`${words.archiveSession} or ${words.deleteSession.toLowerCase()}`}
                 onClick={() => askToClose(session.id)}
             >
-                ×
+                <ButtonIcon>
+                    <CloseIcon />
+                </ButtonIcon>
             </button>
         </div>
     );

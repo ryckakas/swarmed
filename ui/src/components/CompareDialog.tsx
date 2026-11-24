@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import type { FileChange, FileDiff } from "../api/types";
 import { type ComparedFile, compared, totals } from "../broadcast";
 import { parseDiff } from "../diff";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
+import { Dialog } from "./Dialog";
 
 /** Two tasks of one repository, to set side by side. */
 export interface Comparison {
@@ -37,32 +38,21 @@ function useTaskChanges(project: string, task: string): FileChange[] | string | 
 export function CompareDialog() {
     const comparing = useStore((state) => state.comparing);
     const compare = useStore((state) => state.compare);
-    const dialog = useRef<HTMLDialogElement>(null);
-
-    // A modal <dialog> keeps the keyboard inside it and closes on Esc by itself.
-    useEffect(() => {
-        if (comparing && !dialog.current?.open) {
-            dialog.current?.showModal();
-        }
-    }, [comparing]);
 
     if (!comparing) {
         return null;
     }
+    // Only a file opened to its diffs is lost by a click beside it, and it opens again.
     return (
-        <dialog
-            ref={dialog}
-            className="confirm compare"
-            aria-label={`Compare ${comparing.left} with ${comparing.right}`}
+        <Dialog
+            title={`Compare ${comparing.left} with ${comparing.right}`}
+            size="wide"
+            closeOnBackdrop={true}
             onClose={() => compare(null)}
+            dismiss="Done"
         >
             <Compared comparing={comparing} />
-            <div className="confirm-actions">
-                <button type="button" className="button" onClick={() => compare(null)}>
-                    Done
-                </button>
-            </div>
-        </dialog>
+        </Dialog>
     );
 }
 

@@ -90,6 +90,10 @@ impl Core {
         if !candidate || !self.settings()?.notifications {
             return Ok(None);
         }
+        // Stored by another Swarmed, which may show it itself.
+        if event.elsewhere && !self.shows_notices_of(event.session_id) {
+            return Ok(None);
+        }
         let session = self.session(event.session_id)?;
         let Some((heading, detail)) = wording(event, session.spawned_by.is_some()) else {
             return Ok(None);
@@ -136,6 +140,7 @@ mod tests {
             status,
             unread,
             event,
+            elsewhere: false,
         }
     }
 

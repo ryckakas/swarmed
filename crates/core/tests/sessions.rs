@@ -6,11 +6,11 @@ use common::{AskedNamer, core_with_project, fixture, git, next, turn};
 use std::sync::Arc;
 
 use swarmed_core::agent::{
-    AgentEvent, Auth, Effort, FakeBackend, Namer, Naming, PLAN_TOOL, Supervision,
+    AgentEvent, Auth, BackgroundState, Effort, FakeBackend, Namer, Naming, PLAN_TOOL, Supervision,
 };
 use swarmed_core::{
-    AgentInfo, Core, Error, Mark, MarkColour, NewTaskOptions, Session, SessionEvent,
-    SessionOptions, SessionSettings, SessionStatus, Settings, TerminalOutput, hooks,
+    AccountUsage, AgentInfo, Core, Error, Mark, MarkColour, NewTaskOptions, Session, SessionEvent,
+    SessionOptions, SessionSettings, SessionStatus, Settings, TerminalOutput, UsageWindow, hooks,
 };
 use tokio::sync::broadcast::Receiver;
 
@@ -369,6 +369,7 @@ async fn usage_asked_for_comes_from_the_sessions_agent_and_stays_out_of_the_conv
         models: vec![],
         default_model: None,
         hears_mid_turn: false,
+        sends_to_background: false,
     };
     core.add_agent(other, Arc::new(FakeBackend::default()));
     let options = SessionOptions {
@@ -382,6 +383,105 @@ async fn usage_asked_for_comes_from_the_sessions_agent_and_stays_out_of_the_conv
         "{refused:?}"
     );
     assert_eq!(core.running_sessions(), vec![session.id]);
+}
+
+/// Skips ahead to the next change of the account's usage, which belongs to no session.
+async fn account_usage(bus: &mut Receiver<SessionEvent>) -> AccountUsage {
+    loop {
+        let heard = next(bus).await;
+        if let AgentEvent::AccountUsage { usage } = heard.event {
+            assert_eq!(heard.session_id, 0, "published apart");
+            return usage;
+        }
+    }
+}
+
+/// Skips ahead to session `id`'s next report of usage after a turn.
+async fn usage_reported(bus: &mut Receiver<SessionEvent>, id: i64) {
+    loop {
+        let heard = next(bus).await;
+        if heard.session_id == id && matches!(heard.event, AgentEvent::RateLimit { .. }) {
+            return;
+        }
+    }
+}
+
+/// Each window of the account's usage: its kind and how full it is, in percent.
+fn shares(usage: &AccountUsage) -> Vec<(String, String)> {
+    let share = |window: &UsageWindow| (window.kind.clone(), format!("{:.0}", window.used * 100.0));
+    usage.windows.iter().map(share).collect()
+}
+
+fn share(kind: &str, percent: &str) -> (String, String) {
+    (kind.to_string(), percent.to_string())
+}
+
+#[tokio::test]
+async fn every_session_shows_the_newest_usage_any_heard_and_a_restart_reads_it_back() {
+    let fx = fixture();
+    let mut core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    assert_eq!(
+        core.account_usage().expect("reads"),
+        AccountUsage::default()
+    );
+
+    let first = started_session(&core);
+    core.session_send(first.id, "limit 50").expect("sends");
+    let reported = account_usage(&mut bus).await;
+    let half = [share("five_hour", "50"), share("seven_day", "50")];
+    assert_eq!(shares(&reported), half);
+    assert_eq!(core.account_usage().expect("reads"), reported);
+
+    // Another agent's report is another account's, if it is one at all.
+    let other = AgentInfo {
+        id: "other".into(),
+        name: "Other".into(),
+        models: vec![],
+        default_model: None,
+        hears_mid_turn: false,
+        sends_to_background: false,
+    };
+    core.add_agent(other, Arc::new(FakeBackend::default()));
+    let options = SessionOptions {
+        agent: Some("other".into()),
+        ..SessionOptions::default()
+    };
+    let elsewhere = core.session_new("demo", "one", &options).expect("creates");
+    core.session_start(elsewhere.id, Auth::Subscription)
+        .expect("starts");
+    core.session_send(elsewhere.id, "limit 90").expect("sends");
+    usage_reported(&mut bus, elsewhere.id).await;
+    assert_eq!(core.account_usage().expect("reads"), reported);
+
+    // A session that never ran asks, and its answer is every session's: the 5-hour window it
+    // gives is newer, and the weekly one it does not give stays as reported.
+    let second = core
+        .session_new("demo", "one", &SessionOptions::default())
+        .expect("creates");
+    core.session_usage_refresh(second.id, Auth::Subscription)
+        .expect("asks");
+    let asked = account_usage(&mut bus).await;
+    assert_eq!(
+        shares(&asked),
+        [share("five_hour", "36"), share("seven_day", "50")]
+    );
+    assert!(asked.windows[0].asked && !asked.windows[1].asked);
+    let recorded = core.session_events(first.id).expect("reads");
+    assert!(
+        !recorded
+            .iter()
+            .any(|event| matches!(event, AgentEvent::AccountUsage { .. })),
+        "never recorded"
+    );
+
+    // A Swarmed started again reads the same from what the sessions recorded.
+    let again =
+        Core::with_backend(fx.paths.clone(), Arc::new(FakeBackend::default())).expect("opens");
+    assert_eq!(
+        shares(&again.account_usage().expect("reads")),
+        shares(&asked)
+    );
 }
 
 /// Skips ahead to the next change of title.
@@ -1986,6 +2086,7 @@ async fn a_worktree_moved_by_a_tool_is_noticed_and_one_moved_between_turns_is_to
         status: None,
         unread: None,
         event: moved,
+        elsewhere: false,
     };
     let notice = core.notice_for(&event).expect("reads").expect("a notice");
     assert!(notice.title.starts_with("Moved its worktree"), "{notice:?}");
@@ -2301,6 +2402,128 @@ async fn a_swarmed_that_starts_records_the_end_of_what_was_left_in_the_backgroun
     // Once: the end is there now.
     later.arrive().expect("arrives");
     assert_eq!(ends(&later), 1);
+}
+
+/// Skips ahead to the session's call of tool `id`.
+async fn called(bus: &mut Receiver<SessionEvent>, session: i64, call: &str) {
+    loop {
+        let published = next(bus).await;
+        let called = matches!(&published.event, AgentEvent::ToolUse { id, .. } if id == call);
+        if published.session_id == session && called {
+            return;
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_command_a_call_waits_on_goes_to_the_background_and_the_turn_goes_on() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    core.session_send(session.id, "foreground bash")
+        .expect("sends");
+    called(&mut bus, session.id, "tool-fg-bash").await;
+    // Waited on, it is no work left running.
+    let listed = core.task_background("demo", "one").expect("lists");
+    assert!(listed.is_empty(), "{listed:?}");
+
+    let sent = core.session_send_to_background(session.id, Some("tool-fg-bash"));
+    assert!(sent.await.expect("answered"), "it went");
+    // The turn goes on and ends, and the command does not hold back its answer.
+    let events = until_turns(&mut bus, session.id, 1).await;
+    let ends = turn_ends(&events);
+    assert_eq!(ends[0].status, Some(SessionStatus::Idle));
+    assert_eq!(ends[0].unread, Some(true));
+    let listed = core.task_background("demo", "one").expect("lists");
+    let moved = listed.iter().find(|task| task.task_id == "bg-fg-bash");
+    let moved = moved.expect("listed once it moved");
+    assert_eq!(moved.state, BackgroundState::Running);
+    assert_eq!(moved.tool_use_id.as_deref(), Some("tool-fg-bash"));
+    assert!(moved.output);
+
+    // Asked again, it is in the background already: it does not go, and nothing breaks.
+    let again = core.session_send_to_background(session.id, Some("tool-fg-bash"));
+    assert!(!again.await.expect("answered"));
+    // The answers are the asker's alone: neither kept nor published.
+    let stored = core.session_events(session.id).expect("reads");
+    let answer = |event: &AgentEvent| matches!(event, AgentEvent::SentToBackground { .. });
+    assert!(!stored.iter().any(answer));
+    assert!(!events.iter().any(|published| answer(&published.event)));
+}
+
+#[tokio::test]
+async fn a_sub_agent_sent_to_the_background_mid_turn_holds_back_what_it_hands_back() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+
+    core.session_send(session.id, "foreground agent")
+        .expect("sends");
+    called(&mut bus, session.id, "tool-fg-agent").await;
+    // Every call is sent, as Ctrl+B sends them.
+    let sent = core.session_send_to_background(session.id, None).await;
+    assert!(sent.expect("answered"));
+    let events = until_turns(&mut bus, session.id, 2).await;
+    let ends = turn_ends(&events);
+    // The turn that sent it there ends to wait, as one that started it there does.
+    assert_eq!(ends[0].status, Some(SessionStatus::Idle));
+    assert_eq!(ends[0].unread, None);
+    assert_eq!(core.notice_for(ends[0]).expect("reads"), None);
+    // Its report, read in a turn of the agent's own, hands something back.
+    assert_eq!(ends[1].unread, Some(true));
+    let listed = core.task_background("demo", "one").expect("lists");
+    let ended = listed.iter().find(|task| task.task_id == "bg-fg-agent");
+    let ended = ended.expect("listed once it moved");
+    assert_eq!(ended.state, BackgroundState::Completed);
+    assert_eq!(ended.kind, "local_agent");
+}
+
+#[tokio::test]
+async fn only_a_running_claude_code_is_asked_to_send_work_to_the_background() {
+    let fx = fixture();
+    let mut core = core_with_task(&fx).await;
+    let session = core
+        .session_new("demo", "one", &SessionOptions::default())
+        .expect("creates");
+    let idle = core.session_send_to_background(session.id, Some("toolu_1"));
+    assert!(
+        matches!(idle.await, Err(Error::SessionNotRunning(_))),
+        "nothing runs to ask"
+    );
+    core.session_start(session.id, Auth::Subscription)
+        .expect("starts");
+    // Between turns no call waits: a call's work does not go, and every call's is taken.
+    let one = core.session_send_to_background(session.id, Some("toolu_1"));
+    assert!(!one.await.expect("answered"));
+    let every = core.session_send_to_background(session.id, None);
+    assert!(every.await.expect("answered"));
+    let blank = core.session_send_to_background(session.id, Some(" "));
+    assert!(matches!(blank.await, Err(Error::NotSentToBackground(_))));
+
+    let other = AgentInfo {
+        id: "other".into(),
+        name: "Other".into(),
+        models: vec![],
+        default_model: None,
+        hears_mid_turn: false,
+        sends_to_background: false,
+    };
+    core.add_agent(other, Arc::new(FakeBackend::default()));
+    let options = SessionOptions {
+        agent: Some("other".into()),
+        ..SessionOptions::default()
+    };
+    let elsewhere = core.session_new("demo", "one", &options).expect("creates");
+    core.session_start(elsewhere.id, Auth::Subscription)
+        .expect("starts");
+    let refused = core.session_send_to_background(elsewhere.id, None).await;
+    assert!(
+        matches!(&refused, Err(Error::NoSendingToBackground(agent)) if agent == "other"),
+        "{refused:?}"
+    );
 }
 
 #[tokio::test]

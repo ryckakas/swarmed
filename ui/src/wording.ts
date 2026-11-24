@@ -136,9 +136,8 @@ export interface Words {
         /** The setting that has Swarmed update by itself. */
         automatic: string;
     };
-    /** The user's preferences: the button and window, the window's close button, and a pointer to it. */
+    /** The user's preferences: the button and window, and a pointer to it. */
     settings: string;
-    closeSettings: string;
     installInSettings: string;
     /** The list of keyboard shortcuts. */
     shortcuts: string;
@@ -192,6 +191,8 @@ export interface Words {
     /** Something left running by a sub-agent, and the button to the session that started it. */
     backgroundAgent: string;
     backgroundOwner: string;
+    /** In place of the stop button, for what its agent offers no way to stop. */
+    backgroundUnstoppable: string;
     /** A sub-agent's pane: before it has said anything, and over what it answered. */
     subAgentSilent: string;
     subAgentAnswer: string;
@@ -199,6 +200,9 @@ export interface Words {
     noRepositories: string;
     showTasks: string;
     hideTasks: string;
+    /** The heading that folds a task's sessions, after what it says of the task's worktree. */
+    showSessions: string;
+    hideSessions: string;
     /** The cloud dialog's button that hands the work over, and while it does. */
     delegateButton: string;
     delegating: string;
@@ -224,6 +228,7 @@ export interface Words {
         worktree: string;
         worktrees: string;
         branch: string;
+        branches: string;
         baseBranch: string;
         /** A commit, and to commit; several, while it is done, and done. */
         commit: string;
@@ -330,7 +335,6 @@ const PLAIN: Words = {
         automatic: "Update automatically",
     },
     settings: "Settings",
-    closeSettings: "Close settings",
     installInSettings: "Install it in Settings",
     shortcuts: "Keyboard shortcuts",
     addAction: "Add an action",
@@ -365,11 +369,14 @@ const PLAIN: Words = {
     noFiles: "Nothing here yet.",
     backgroundAgent: "Agent",
     backgroundOwner: "Show the session that started it",
+    backgroundUnstoppable: "Its agent offers no way to stop it from here.",
     subAgentSilent: "Nothing heard from it yet.",
     subAgentAnswer: "What it handed back",
     noRepositories: "No repositories yet.",
     showTasks: "Show this repository's tasks",
     hideTasks: "Hide its tasks",
+    showSessions: "Show this task's sessions",
+    hideSessions: "Hide its sessions",
     delegateButton: "Delegate",
     delegating: "Delegating…",
     waitingForYou: "Waiting for you",
@@ -385,6 +392,7 @@ const PLAIN: Words = {
         worktree: "worktree",
         worktrees: "worktrees",
         branch: "branch",
+        branches: "branches",
         baseBranch: "base branch",
         commit: "commit",
         commits: "commits",
@@ -485,7 +493,6 @@ const SWARM: Words = {
         automatic: "Evolve automatically",
     },
     settings: "Evolution Chamber",
-    closeSettings: "Close the Evolution Chamber",
     installInSettings: "Install it in the Evolution Chamber",
     shortcuts: "Reflexes",
     addAction: "Add an instinct",
@@ -515,11 +522,14 @@ const SWARM: Words = {
     noFiles: "These tunnels are empty.",
     backgroundAgent: "Hatchling",
     backgroundOwner: "Show the spawn that sent it out",
+    backgroundUnstoppable: "Its spawn cannot call this drone back.",
     subAgentSilent: "No word from the hatchling yet.",
     subAgentAnswer: "What it brought back",
     waitingForYou: "Awaiting you",
     nothingWaits: "Nothing awaits you.",
     searchPlaceholder: "Search what was said, in any spawn",
+    showSessions: "Show this task's spawns",
+    hideSessions: "Hide its spawns",
     turns: "Molts",
     stackStarting: "Waking…",
 };
@@ -548,6 +558,8 @@ const COLONY: Words = {
     noRepositories: "No colonies yet.",
     showTasks: "Show this colony's broods",
     hideTasks: "Hide its broods",
+    showSessions: "Show this brood's spawns",
+    hideSessions: "Hide its spawns",
     delegateButton: "Send spores",
     delegating: "Sending spores…",
     terms: {
@@ -558,6 +570,7 @@ const COLONY: Words = {
         worktree: "cell",
         worktrees: "cells",
         branch: "strain",
+        branches: "strains",
         baseBranch: "mother strain",
         commit: "seal",
         commits: "seals",

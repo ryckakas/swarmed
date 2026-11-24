@@ -1,6 +1,7 @@
 //! Agent sessions: creating them, running them, and keeping what they said.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -12,6 +13,7 @@ use serde_json::Value;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::task::AbortHandle;
 
+use crate::account_usage::{AccountUsage, UsageHeard};
 use crate::agent::{
     AgentBackend, AgentCommand, AgentEvent, Auth, BackgroundState, Effort, Namer, PLAN_TOOL,
     SessionSpec, Supervision,
@@ -33,7 +35,7 @@ use crate::toolserver::{
     SERVER_NAME, SESSION_ENV, SHOW_HTML_FOR_CLAUDE, SOCKET_ENV, TOOL_SERVER_ARG, VIEW_SPOOL_ENV,
     take_views,
 };
-use crate::{Core, git, lock, peers, publish, remote, views};
+use crate::{Core, elsewhere, git, lock, peers, publish, remote, views};
 
 /// The kinds of things an agent leaves running that are sub-agents, as Claude Code names them.
 const SUB_AGENT_KINDS: [&str; 2] = ["local_agent", "remote_agent"];
@@ -97,7 +99,7 @@ impl SessionStatus {
 
     /// The status an event leads to, or `None` if it changes nothing. `waiting` says whether a
     /// permission request is still open once the event has happened.
-    fn after(event: &AgentEvent, waiting: bool) -> Option<Self> {
+    pub(crate) fn after(event: &AgentEvent, waiting: bool) -> Option<Self> {
         match event {
             AgentEvent::UserMessage { .. } => Some(Self::Working),
             AgentEvent::Text { .. }
@@ -124,6 +126,8 @@ impl SessionStatus {
             | AgentEvent::Closed
             | AgentEvent::Deleted
             | AgentEvent::Reordered { .. }
+            | AgentEvent::TreeChanged
+            | AgentEvent::AccountUsage { .. }
             | AgentEvent::Background { .. }
             | AgentEvent::View { .. }
             | AgentEvent::Queue { .. }
@@ -141,6 +145,7 @@ impl SessionStatus {
             | AgentEvent::WorktreeMoved { .. }
             | AgentEvent::RemoteControl { .. }
             | AgentEvent::Heard { .. }
+            | AgentEvent::SentToBackground { .. }
             // A sub-agent in the foreground works inside its starter's turn, which is busy
             // already; one in the background works between turns, when the session is not.
             | AgentEvent::Sub { .. }
@@ -158,7 +163,7 @@ impl SessionStatus {
 }
 
 /// Applies an event to a session's open permission requests.
-fn track(open: &mut HashSet<String>, event: &AgentEvent) {
+pub(crate) fn track(open: &mut HashSet<String>, event: &AgentEvent) {
     match event {
         AgentEvent::PermissionRequest { request_id, .. } => {
             open.insert(request_id.clone());
@@ -327,7 +332,7 @@ impl Store {
     }
 
     /// The ids of every session of a task, the closed ones too.
-    fn session_ids(&self, task_id: i64) -> Result<Vec<i64>> {
+    pub(crate) fn session_ids(&self, task_id: i64) -> Result<Vec<i64>> {
         let mut stmt = self
             .conn
             .prepare("SELECT id FROM sessions WHERE task_id = ?1 ORDER BY id")?;
@@ -392,20 +397,30 @@ impl Store {
         Ok(())
     }
 
-    /// Puts every session that counts as busy back to idle, and says how many there were.
-    fn sessions_settle(&self) -> Result<usize> {
-        let settled = self.conn.execute(
-            "UPDATE sessions SET status = 'idle' WHERE status IN ('working', 'waiting')",
-            params![],
-        )?;
+    /// Puts every session that counts as busy back to idle, but those in `except`, and says
+    /// how many there were.
+    fn sessions_settle(&self, except: &[i64]) -> Result<usize> {
+        let mut statement = self
+            .conn
+            .prepare("SELECT id FROM sessions WHERE status IN ('working', 'waiting')")?;
+        let busy = statement.query_map(params![], |row| row.get::<_, i64>(0))?;
+        let busy = busy.collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut settled = 0;
+        for id in busy.into_iter().filter(|id| !except.contains(id)) {
+            settled += self.conn.execute(
+                "UPDATE sessions SET status = 'idle' WHERE id = ?1",
+                params![id],
+            )?;
+        }
         Ok(settled)
     }
 
     /// Records the end of the agent of every session whose history has a report of something
     /// left in the background and no end after it: nothing outlives the agent, and one that
     /// went with its Swarmed never said so. Without it, a front end that reads the history
-    /// takes a sub-agent left there to be at work for good.
-    fn background_settle(&self) -> Result<()> {
+    /// takes a sub-agent left there to be at work for good. The sessions in `except` are
+    /// passed over: their agent runs elsewhere, and what it left is still at work.
+    fn background_settle(&self, except: &[i64]) -> Result<()> {
         // The event's type is the first thing in its JSON, which keeps these prefix matches.
         let mut statement = self.conn.prepare(
             "SELECT DISTINCT e.session_id FROM session_events e
@@ -421,7 +436,7 @@ impl Store {
             code: None,
             stderr: String::new(),
         };
-        for session in sessions {
+        for session in sessions.into_iter().filter(|id| !except.contains(id)) {
             self.keep(session, &ended)?;
         }
         Ok(())
@@ -529,6 +544,8 @@ impl Store {
             "INSERT INTO session_events (session_id, event) VALUES (?1, ?2)",
             params![session_id, serde_json::to_string(event)?],
         )?;
+        // Published here: it is not to be published again as another process's.
+        self.wrote(self.conn.last_insert_rowid());
         Ok(())
     }
 
@@ -636,7 +653,7 @@ impl Store {
 
 /// Whether `event` is the agent handing the conversation back: a turn that ended, or an agent
 /// that stopped with an error. Until the user looks, the session is unread.
-fn leaves_something_to_read(event: &AgentEvent) -> bool {
+pub(crate) fn leaves_something_to_read(event: &AgentEvent) -> bool {
     match event {
         AgentEvent::TurnDone { .. } => true,
         AgentEvent::Exited { code, .. } => !matches!(code, None | Some(0)),
@@ -763,9 +780,13 @@ impl Core {
     }
 
     /// Everything a session has said and been told, oldest first.
+    ///
+    /// What other Swarmed processes stored is published first ([`Core::notice_others`]), and
+    /// what is stored after that is left out: a front end that reads this and then adds the
+    /// events it hears shows each once.
     pub fn session_events(&self, id: i64) -> Result<Vec<AgentEvent>> {
         self.store().session_by_id(id)?;
-        self.store().events(id)
+        self.events_noticed(id)
     }
 
     /// The commands and skills a message to this session can call by starting with `/`.
@@ -822,7 +843,9 @@ impl Core {
 
     /// Starts the agent for a session, continuing its conversation if it has one. Does
     /// nothing if it is already running. A closed session is refused: it has to be reopened
-    /// first, so that no agent is at work where no list shows it.
+    /// first, so that no agent is at work where no list shows it. So is one whose agent another
+    /// Swarmed on the same data runs ([`Error::RunsElsewhere`]): a second agent would take the
+    /// conversation over from it.
     ///
     /// Every event is stored before it is published, so history survives a front end that
     /// stops listening. Must be called from within a tokio runtime.
@@ -834,6 +857,11 @@ impl Core {
         // Most calls find the agent running, and then nothing needs working out.
         if self.live.is_running(id) {
             return Ok(());
+        }
+        // Asked before the agent's start is worked out, which takes a while; `launch` asks
+        // again, and has the last word.
+        if self.runs_elsewhere(id) {
+            return Err(Error::RunsElsewhere(id));
         }
         let task = self
             .store()
@@ -1052,7 +1080,10 @@ impl Core {
 
     /// Records the decision, so every front end sees it at once, then passes it to the agent.
     fn decide(&self, id: i64, allowed: bool, command: AgentCommand) -> Result<()> {
-        let commands = self.live.sender(id)?;
+        let commands = self
+            .live
+            .sender(id)
+            .map_err(|error| self.or_elsewhere(id, error))?;
         let (AgentCommand::Allow { request_id }
         | AgentCommand::Answer { request_id, .. }
         | AgentCommand::Deny { request_id, .. }) = &command
@@ -1133,8 +1164,14 @@ impl Core {
     ///
     /// A session that counts as busy though no agent runs for it, which a Swarmed that ended
     /// in the middle of a turn leaves behind, is put right instead: its turn is recorded as
-    /// stopped, and its queue left as it is.
+    /// stopped, and its queue left as it is. One whose agent another Swarmed runs is refused
+    /// ([`Error::RunsElsewhere`]).
     pub fn session_interrupt(&self, id: i64) -> Result<()> {
+        // Busy with no agent here is not left over when another Swarmed runs it: its turn is
+        // under way there, and only that one can stop it.
+        if !self.live.is_running(id) && self.runs_elsewhere(id) {
+            return Err(Error::RunsElsewhere(id));
+        }
         let busy = || {
             self.session(id)
                 .is_ok_and(|session| is_busy_status(session.status))
@@ -1164,10 +1201,15 @@ impl Core {
     /// started, when no agent runs yet and whatever says otherwise is left from a Swarmed that
     /// ended in the middle of a turn. Says how many there were. What their agents left in the
     /// background went with them, which is recorded as the end those agents never reported.
+    ///
+    /// A session whose agent runs, in another Swarmed or in this one, is as busy as it says
+    /// and is passed over.
     pub fn sessions_settle(&self) -> Result<usize> {
+        let mut running = self.sessions_run_elsewhere();
+        running.extend(lock(&self.live.runs_held).keys());
         let store = self.store();
-        store.background_settle()?;
-        store.sessions_settle()
+        store.background_settle(&running)?;
+        store.sessions_settle(&running)
     }
 
     /// Stops a session's agent. Its history stays, and [`Core::session_start`] continues it.
@@ -1187,6 +1229,7 @@ impl Core {
     fn forget_session_files(&self, id: i64) {
         std::fs::remove_dir_all(self.paths.view_spool(id)).ok();
         std::fs::remove_dir_all(self.private_dir(id)).ok();
+        self.forget_run_lock(id);
     }
 
     /// Stops the agents of every session of a task, closed ones still on their way out
@@ -1268,8 +1311,11 @@ impl Core {
     }
 
     /// Stops a session's agent and takes the session out of every list. Its history is kept.
+    /// Refused while another Swarmed runs its agent ([`Error::RunsElsewhere`]), which would work
+    /// on where no list shows it.
     pub fn session_close(&self, id: i64) -> Result<()> {
         self.session(id)?;
+        self.none_run_elsewhere(&[id])?;
         self.remote_control_closing(id)?;
         self.session_stop(id);
         self.terminal_close(id);
@@ -1280,9 +1326,11 @@ impl Core {
 
     /// Deletes a session for good, open or closed: its agent is stopped, and its conversation
     /// and what Swarmed kept for it are gone. The task's files and branch are not touched, and
-    /// neither is what the agent keeps of the conversation in its own folders.
+    /// neither is what the agent keeps of the conversation in its own folders. Refused while
+    /// another Swarmed runs its agent ([`Error::RunsElsewhere`]), which only it can stop.
     pub fn session_delete(&self, id: i64) -> Result<()> {
         self.session(id)?;
+        self.none_run_elsewhere(&[id])?;
         self.session_stop(id);
         // Its conversation is going, so the agent is not given time to finish anything: it
         // is killed, and whatever it still says meanwhile is dropped. That holds for an
@@ -1301,6 +1349,7 @@ impl Core {
             _ => {}
         }
         std::fs::remove_dir_all(self.private_dir(id)).ok();
+        self.forget_run_lock(id);
         self.store().session_delete(id)?;
         // Only told, not recorded: there is no session left to record it in.
         self.live.note(&self.store, id, AgentEvent::Deleted)
@@ -1455,6 +1504,10 @@ pub struct SessionEvent {
     pub unread: Option<bool>,
     /// What happened.
     pub event: AgentEvent,
+    /// Whether another Swarmed process on the same data stored the event, and this one only
+    /// passes it on ([`Core::notice_others`]). Front ends are not sent it.
+    #[serde(skip)]
+    pub elsewhere: bool,
 }
 
 /// One run of a session's agent, for as long as it counts as running.
@@ -1527,7 +1580,21 @@ fn shown_only(event: &AgentEvent) -> bool {
             | AgentEvent::ConfigChanged { .. }
             | AgentEvent::Deleted
             | AgentEvent::Reordered { .. }
+            | AgentEvent::TreeChanged
+            | AgentEvent::AccountUsage { .. }
     )
+}
+
+/// What an agent answered to sending work to the background: whether it went, and why not if
+/// the agent refused.
+pub(crate) type Sent = (bool, Option<String>);
+
+/// Someone waiting for an agent to answer whether work went to the background.
+#[derive(Debug)]
+struct Sending {
+    /// The call whose work was to go; `None` for every call.
+    call: Option<String>,
+    answer: oneshot::Sender<Sent>,
 }
 
 /// A message told to an agent in the middle of its turn.
@@ -1578,6 +1645,17 @@ pub(crate) struct Live {
     /// The sessions whose agent has Remote Control on, or was asked to turn it on, in the run
     /// it is in now.
     remote: Mutex<HashSet<i64>>,
+    /// Who waits for each session's agent to answer whether work went to the background,
+    /// first asked first.
+    sending: Mutex<HashMap<i64, Vec<Sending>>>,
+    /// The account's usage as any Claude Code session last heard it.
+    pub(crate) usage: UsageHeard,
+    /// The lock on each session whose agent runs in this process, held until the agent has
+    /// gone, so that no other Swarmed starts it meanwhile (`elsewhere.rs`).
+    pub(crate) runs_held: Mutex<HashMap<i64, File>>,
+    /// Whether this process is a front end that stays and shows notices, as the app is: said
+    /// in the locks it holds, so that another does not show the same ones.
+    pub(crate) shows_notices: AtomicBool,
     runs: AtomicU64,
     bus: broadcast::Sender<SessionEvent>,
 }
@@ -1600,6 +1678,10 @@ impl Default for Live {
             told: Mutex::default(),
             sent: Mutex::default(),
             remote: Mutex::default(),
+            sending: Mutex::default(),
+            usage: UsageHeard::default(),
+            runs_held: Mutex::default(),
+            shows_notices: AtomicBool::new(false),
             runs: AtomicU64::new(0),
             bus: broadcast::Sender::new(EVENT_BUFFER),
         }
@@ -1660,6 +1742,39 @@ impl Live {
             .iter()
             .position(|message| message.trim() == text.trim());
         at.and_then(|at| kept.remove(at)).is_some()
+    }
+
+    /// Notes that someone waits for session `id`'s agent to answer whether the work of `call`,
+    /// or of every call, went to the background, and is where the answer arrives.
+    pub(crate) fn await_sent(&self, id: i64, call: Option<String>) -> oneshot::Receiver<Sent> {
+        let (answer, answered) = oneshot::channel();
+        let waiting = Sending { call, answer };
+        lock(&self.sending).entry(id).or_default().push(waiting);
+        answered
+    }
+
+    /// Hands the agent's answer about `call` to whoever asked about it first and still waits.
+    /// One who gave up waiting is passed over.
+    fn answer_sent(&self, id: i64, call: Option<&str>, answer: &Sent) {
+        let mut sending = lock(&self.sending);
+        let Some(waiting) = sending.get_mut(&id) else {
+            return;
+        };
+        let mut given = false;
+        while !given && let Some(at) = waiting.iter().position(|one| one.call.as_deref() == call) {
+            given = waiting.remove(at).answer.send(answer.clone()).is_ok();
+        }
+        if waiting.is_empty() {
+            sending.remove(&id);
+        }
+    }
+
+    /// Forgets who waits for session `id`'s agent to answer about the background, unless it
+    /// runs: an agent that is not running answers nobody, and they hear so at once.
+    pub(crate) fn sending_ends_unless_running(&self, id: i64) {
+        if !self.is_running(id) {
+            lock(&self.sending).remove(&id);
+        }
     }
 
     /// Notes that the session's agent has been asked to turn Remote Control on.
@@ -1750,6 +1865,8 @@ impl Live {
         if !shown_only(&event) {
             lock(store).keep(session_id, &event).ok();
         }
+        // What it heard of the account's usage is as true as what the run in its place hears.
+        let usage = self.usage.hear(store, session_id, &event);
         // An error only means nobody is subscribed right now.
         self.bus
             .send(SessionEvent {
@@ -1757,8 +1874,10 @@ impl Live {
                 status: None,
                 unread: None,
                 event,
+                elsewhere: false,
             })
             .ok();
+        self.publish_usage(usage);
     }
 
     pub(crate) fn command(&self, id: i64, command: AgentCommand) -> Result<()> {
@@ -1792,12 +1911,21 @@ impl Live {
             status: None,
             unread: None,
             event,
+            elsewhere: false,
         };
         // An error only means nobody is subscribed right now.
         self.bus.send(apart).ok();
     }
 
-    /// Stores an event, unless it is one that is only ever shown, then publishes it.
+    /// Tells every front end the account's usage, if it changed.
+    fn publish_usage(&self, usage: Option<AccountUsage>) {
+        if let Some(usage) = usage {
+            self.publish_apart(AgentEvent::AccountUsage { usage });
+        }
+    }
+
+    /// Stores an event, unless it is one that is only ever shown, then publishes it, and
+    /// after it the account's usage if the event changed that.
     pub(crate) fn note(
         &self,
         store: &Mutex<Store>,
@@ -1813,6 +1941,7 @@ impl Live {
         } else {
             lock(store).record(session_id, &event, status, unread)
         };
+        let usage = self.usage.hear(store, session_id, &event);
         // An error only means nobody is subscribed right now.
         self.bus
             .send(SessionEvent {
@@ -1820,9 +1949,22 @@ impl Live {
                 status,
                 unread,
                 event,
+                elsewhere: false,
             })
             .ok();
+        self.publish_usage(usage);
         stored
+    }
+
+    /// Publishes an event another Swarmed process stored, as [`Live::note`] would have here,
+    /// and after it the account's usage if the event changed that.
+    pub(crate) fn pass_on(&self, store: &Mutex<Store>, published: SessionEvent) {
+        let usage = self
+            .usage
+            .hear(store, published.session_id, &published.event);
+        // An error only means nobody is subscribed right now.
+        self.bus.send(published).ok();
+        self.publish_usage(usage);
     }
 
     /// Keeps which sub-agents each session's agent has at work in the background, from its
@@ -1946,6 +2088,13 @@ impl Live {
         if commands.get(&id).is_some_and(|live| live.number == run) {
             commands.remove(&id);
         }
+        // Let go of under the same lock as a start takes it under, so that a start meanwhile
+        // never finds it taken and then loses it.
+        if !commands.contains_key(&id) {
+            elsewhere::let_go_run(&mut lock(&self.runs_held), id);
+        }
+        drop(commands);
+        self.sending_ends_unless_running(id);
     }
 }
 
@@ -2032,14 +2181,26 @@ fn launch(shared: Shared, id: i64, how: Launch) -> Result<()> {
     // Held from the check to the insert, so two callers cannot start the same session twice.
     // Only the start itself happens under it: what it needs was worked out before.
     let mut running = live.commands();
+    if how == Launch::UnlessRunning && running.contains_key(&id) {
+        return Ok(());
+    }
+    // Taken under the lock on the running sessions, which is where `forget` lets go of it.
+    // Refused while another Swarmed runs the session's agent: two agents on one conversation
+    // would each go on from where they think it stands.
+    elsewhere::claim_run(&live, &shared.paths, id)?;
     if how == Launch::UnlessRunning {
-        if running.contains_key(&id) {
-            return Ok(());
-        }
         // Whatever an earlier run left behind belongs to a conversation that has moved on.
         std::fs::remove_dir_all(&shared.spool).ok();
     }
-    let handle = shared.backend.start(shared.spec.clone())?;
+    let handle = match shared.backend.start(shared.spec.clone()) {
+        Ok(handle) => handle,
+        Err(error) => {
+            if !running.contains_key(&id) {
+                elsewhere::let_go_run(&mut lock(&live.runs_held), id);
+            }
+            return Err(error);
+        }
+    };
     live.background_gone(id);
     // A new process has heard nothing yet and has nothing turned on.
     lock(&live.sent).remove(&id);
@@ -2171,8 +2332,20 @@ fn dropped_when_late(event: &AgentEvent) -> bool {
     )
 }
 
-/// Deals with one event of run number `run` of session `id`, by how that run stands now.
+/// Deals with one event of run number `run` of session `id`, by how that run stands now. An
+/// answer to sending work to the background goes to whoever asked, whichever run gave it, and
+/// nowhere else: the move itself is reported apart.
 fn take(shared: &Shared, (id, run): (i64, u64), ending: &Ending, event: AgentEvent) {
+    if let AgentEvent::SentToBackground {
+        tool_use_id,
+        moved,
+        refused,
+    } = event
+    {
+        let answer = (moved, refused);
+        shared.live.answer_sent(id, tool_use_id.as_deref(), &answer);
+        return;
+    }
     match shared.live.standing(id, run, ending) {
         Standing::Current => on_event(shared, id, event),
         Standing::Replaced => shared.live.note_late(&shared.store, id, event),

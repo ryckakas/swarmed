@@ -1,8 +1,9 @@
-import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useState } from "react";
 import { api } from "../api";
 import type { SearchHit } from "../api/types";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
+import { Dialog } from "./Dialog";
 
 /** How long typing has to pause before the search is run, in milliseconds. */
 const PAUSE_MS = 180;
@@ -57,16 +58,8 @@ export function SearchDialog() {
     const openSession = useStore((state) => state.open);
     const refresh = useStore((state) => state.refresh);
     const report = useStore((state) => state.report);
-    const dialog = useRef<HTMLDialogElement>(null);
     const [query, setQuery] = useState("");
     const hits = useSearch(open ? query : "");
-
-    // A modal <dialog> keeps the keyboard inside it and closes on Esc by itself.
-    useEffect(() => {
-        if (open && !dialog.current?.open) {
-            dialog.current?.showModal();
-        }
-    }, [open]);
 
     if (!open) {
         return null;
@@ -80,10 +73,11 @@ export function SearchDialog() {
         ready.then(() => openSession(api, hit.session_id)).catch(report);
     };
     return (
-        <dialog
-            ref={dialog}
-            className="confirm inbox search"
-            aria-label="Search conversations"
+        // What was typed is kept for the next time it opens, so a click beside it loses nothing.
+        <Dialog
+            title="Search conversations"
+            size="medium"
+            closeOnBackdrop={true}
             onClose={() => showSearch(false)}
             onKeyDown={moveFocus}
         >
@@ -117,6 +111,6 @@ export function SearchDialog() {
                     </span>
                 </button>
             ))}
-        </dialog>
+        </Dialog>
     );
 }

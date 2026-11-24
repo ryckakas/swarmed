@@ -1,4 +1,5 @@
 import type {
+    AccountUsage,
     Action,
     AgentEvent,
     AgentInfo,
@@ -7,6 +8,9 @@ import type {
     BackgroundOutput,
     BackgroundTask,
     BranchChoices,
+    Cleaned,
+    Cleanup,
+    CleanupKind,
     CloudProvider,
     CloudTask,
     Costs,
@@ -75,6 +79,15 @@ export interface Api {
     /** Drops a kept prompt; returns the rest. */
     templateRemove(name: string): Promise<Template[]>;
     usage(): Promise<Usage>;
+    /** What removed tasks left behind, and the snapshots, as can be cleaned up. */
+    cleanup(): Promise<Cleanup>;
+    /**
+     * Deletes the things of one kind named by their keys, after listing them again: only
+     * what is still listed goes. Returns what was deleted, and what was not with why.
+     * `atRisk` names those of the keys that were shown as losing work: one that loses work
+     * now and was not shown so is kept, since the list the user read may be old.
+     */
+    cleanupClean(kind: CleanupKind, keys: string[], atRisk: string[]): Promise<Cleaned>;
     /** What the agents report their work has cost: by day and by task. */
     costs(): Promise<Costs>;
     /** The project's snapshots: what new tasks of each environment start from. */
@@ -260,7 +273,16 @@ export interface Api {
      * by its file. What was understood is in use.
      */
     configProblems(): Promise<string[]>;
+    /**
+     * Replaces the settings. A branch prefix other than the one kept is checked by git's rules
+     * first, and refused with git's reason.
+     */
     setSettings(settings: Settings): Promise<void>;
+    /**
+     * The branch a task called fix-login would get with `prefix` as the branch prefix: the
+     * login's when it is empty. Rejected with git's reason when git would not take it.
+     */
+    branchExample(prefix: string): Promise<string>;
     /** The installed app's version, such as `0.1.0`. */
     version(): Promise<string>;
     /** Where updating Swarmed stands. */
@@ -341,6 +363,12 @@ export interface Api {
     /** Asks a session's agent to stop something it left running. */
     sessionStopBackground(id: number, taskId: string): Promise<void>;
     /**
+     * Asks a session's agent to send the command or sub-agent that call `toolUseId` waits on
+     * to the background, or with `null` every one a call waits on: the call returns and the
+     * turn goes on. `false` when it did not go: it had ended, or was there already.
+     */
+    sessionSendToBackground(id: number, toolUseId: string | null): Promise<boolean>;
+    /**
      * What a command a session's agent left running printed: from `from` on, or its latest
      * part; `null` once the file is gone.
      */
@@ -413,9 +441,15 @@ export interface Api {
      */
     statusLine(id: number): Promise<string | null>;
     /**
+     * The account's usage as any Claude Code session last heard it. Asks Claude Code nothing;
+     * changes arrive as `account_usage` events.
+     */
+    accountUsage(): Promise<AccountUsage>;
+    /**
      * Asks the session's Claude Code for the account's usage now, starting it if it is not
      * running. Returns once asked; the plan's limits and the extra usage arrive as the
-     * session's events, with nothing in the conversation. Only for a Claude Code session.
+     * session's events, with nothing in the conversation, and change the account's usage for
+     * every session. Only for a Claude Code session.
      */
     sessionUsageRefresh(id: number): Promise<void>;
     /**

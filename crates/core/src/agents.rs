@@ -35,6 +35,9 @@ pub struct AgentInfo {
     /// step, without stopping it: Claude Code's way. Any other takes a message only between
     /// turns, so one written meanwhile waits, or stops the turn to be sent.
     pub hears_mid_turn: bool,
+    /// Whether a command or sub-agent that a tool call waits on can be sent to the background,
+    /// so that the call returns and the turn goes on: Claude Code's Ctrl+B.
+    pub sends_to_background: bool,
 }
 
 /// One entry of `agents.toml`: an ACP agent and how to start it. A key it does not know is
@@ -130,6 +133,7 @@ fn claude_info() -> AgentInfo {
         models,
         default_model: None,
         hears_mid_turn: true,
+        sends_to_background: true,
     }
 }
 
@@ -184,8 +188,10 @@ impl Agents {
             name,
             models: entry.models.clone(),
             default_model: default_model.clone(),
-            // The protocol has no way to add to a turn under way.
+            // The protocol has no way to add to a turn under way, nor to let a call return
+            // while its work goes on.
             hears_mid_turn: false,
+            sends_to_background: false,
         };
         let program = PathBuf::from(&entry.command);
         let backend = AcpBackend {
@@ -221,6 +227,13 @@ impl Agents {
         self.0
             .get(id)
             .is_some_and(|agent| agent.info.hears_mid_turn)
+    }
+
+    /// Whether agent `id` can send work a call waits on to the background: see [`AgentInfo`].
+    pub(crate) fn sends_to_background(&self, id: &str) -> bool {
+        self.0
+            .get(id)
+            .is_some_and(|agent| agent.info.sends_to_background)
     }
 
     pub(crate) fn infos(&self) -> Vec<AgentInfo> {

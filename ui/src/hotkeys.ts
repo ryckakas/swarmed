@@ -229,6 +229,12 @@ export function keyCaps(keys: string): string[] {
     return keys.split("+").map((key) => SYMBOLS[key] ?? key.toUpperCase());
 }
 
+/** A shortcut of the table written in one piece, as the shortcuts list shows it: "⌘⌥↑". */
+export function writtenHotkey(id: HotkeyId): string {
+    const hotkey = HOTKEYS.find((each) => each.id === id);
+    return hotkey ? keyCaps(hotkey.keys).join("") : "";
+}
+
 /** The id one step from `current` in `ids`, wrapping round; the first if `current` is not there. */
 export function stepThrough(ids: number[], current: number | null, step: number): number | null {
     if (ids.length === 0) {

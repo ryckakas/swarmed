@@ -5,6 +5,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Api } from "./client";
 import type {
+    AccountUsage,
     Action,
     AgentEvent,
     AgentInfo,
@@ -12,6 +13,8 @@ import type {
     ApiKeyInfo,
     BackgroundOutput,
     BranchChoices,
+    Cleaned,
+    Cleanup,
     CloudTask,
     Costs,
     Environment,
@@ -54,6 +57,8 @@ export const tauriApi: Api = {
     templateSave: (name, text) => invoke<Template[]>("template_save", { name, text }),
     templateRemove: (name) => invoke<Template[]>("template_remove", { name }),
     usage: () => invoke<Usage>("usage"),
+    cleanup: () => invoke<Cleanup>("cleanup"),
+    cleanupClean: (kind, keys, atRisk) => invoke<Cleaned>("cleanup_clean", { kind, keys, atRisk }),
     costs: () => invoke<Costs>("costs"),
     snapshots: (project) => invoke("snapshots", { project }),
     snapshotSave: (project, task) => invoke("snapshot_save", { project, task }),
@@ -145,6 +150,7 @@ export const tauriApi: Api = {
     settings: () => invoke<Settings>("settings"),
     configProblems: () => invoke<string[]>("config_problems"),
     setSettings: (settings) => invoke("set_settings", { settings }),
+    branchExample: (prefix) => invoke<string>("branch_example", { prefix }),
     version: () => getVersion(),
     updateState: () => invoke<UpdateState>("update_state"),
     updateCheck: () => invoke<UpdateState>("update_check"),
@@ -184,6 +190,8 @@ export const tauriApi: Api = {
     sessionInterrupt: (id) => invoke("session_interrupt", { id }),
     taskBackground: (project, name) => invoke("task_background", { project, name }),
     sessionStopBackground: (id, taskId) => invoke("session_stop_background", { id, taskId }),
+    sessionSendToBackground: (id, toolUseId) =>
+        invoke<boolean>("session_send_to_background", { id, toolUseId }),
     sessionBackgroundOutput: (id, taskId, from) =>
         invoke<BackgroundOutput | null>("session_background_output", { id, taskId, from }),
     slashCommands: (id) => invoke<SlashCommand[]>("slash_commands", { id }),
@@ -209,6 +217,7 @@ export const tauriApi: Api = {
     onClaudeTerminalOutput: (listener) =>
         listen<TerminalOutput>("claude-terminal-output", (event) => listener(event.payload)),
     statusLine: (id) => invoke<string | null>("status_line", { id }),
+    accountUsage: () => invoke<AccountUsage>("account_usage"),
     sessionUsageRefresh: (id) => invoke("session_usage_refresh", { id }),
     sessionRemoteControl: (id, on) => invoke("session_remote_control", { id, on }),
     sessionRename: (id, title) => invoke<Session>("session_rename", { id, title }),

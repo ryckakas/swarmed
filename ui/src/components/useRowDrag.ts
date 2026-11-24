@@ -126,16 +126,20 @@ function track(drag: Drag, onMove: (target: OrderTarget, by: number) => void) {
 }
 
 /**
- * Lets the rows of the sidebar be dragged among their siblings, from their handles: a press
- * that moves the pointer a little starts it, a line shows where the row would go, and letting
- * go there moves it. Only the gaps among its siblings take it; Escape puts it back. Pointer
- * events, not the browser's drag and drop, which the window uses for dropping files to attach.
+ * Lets the rows of the sidebar be dragged among their siblings, from their handles: a
+ * repository's heading, and the grip of a task, a session or a cloud task. A press that moves
+ * the pointer a little starts it, a line shows where the row would go, and letting go there
+ * moves it. Only the gaps among its siblings take it; Escape puts it back. Pointer events, not
+ * the browser's drag and drop, which the window uses for dropping files to attach.
  */
 export function useRowDrag(onMove: (target: OrderTarget, by: number) => void) {
     return useCallback(
         (event: ReactPointerEvent<HTMLElement>) => {
             const drag = dragFrom(event);
             if (drag) {
+                // A press on a handle may become a drag, never a selection: WebKit begins one
+                // before the pointer has gone far enough for the drag to turn selecting off.
+                event.preventDefault();
                 track(drag, onMove);
             }
         },

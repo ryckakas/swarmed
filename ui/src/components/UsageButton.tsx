@@ -1,16 +1,18 @@
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { AgentEvent, Session } from "../api/types";
-import { limitLevel, limitWarning, limitWindows, warningLine } from "../rateLimit";
+import { accountWindows, limitLevel, limitWarning, warningLine } from "../rateLimit";
 import { type Asked, askedLine, NO_FIGURES, usageFigures } from "../usageAsk";
+import { useAccountUsage } from "../useAccountUsage";
 import { useWords } from "../useWords";
 import { CoinsIcon } from "./IconButton";
 import { UsageSections } from "./UsageSections";
 
 /**
  * The coins in a Claude Code session's header: they open an overview of the plan's usage and
- * ask Claude Code for it as they do. Until then, and between askings, the figures are what
- * Claude Code last said while it worked for the session.
+ * ask the session's Claude Code for it as they do. Until then, and between askings, the
+ * figures are the account's as any Claude Code session last heard them, the same in every
+ * session.
  */
 export function UsageButton({ session, events }: { session: Session; events: AgentEvent[] }) {
     const words = useWords();
@@ -25,8 +27,9 @@ export function UsageButton({ session, events }: { session: Session; events: Age
         }
         setOpen(!open);
     };
-    // Past the warning, the coins say so before they are opened.
-    const warning = limitWarning(limitWindows(events));
+    // Past the warning, the coins say so before they are opened, until the window resets.
+    const { usage, now } = useAccountUsage();
+    const warning = limitWarning(accountWindows(usage, now));
     const about = `${words.usage}: your plan's limits and ${words.extraUsage.toLowerCase()}, asked of Claude Code as it opens.`;
     const label = warning ? `${about} ${warningLine(warning)}` : about;
     return (
@@ -60,7 +63,7 @@ export function UsageButton({ session, events }: { session: Session; events: Age
                         {words.usage}
                         <span>{askedLine(asked ?? { state: "asking" })}</span>
                     </p>
-                    <UsageSections events={events} look="overview" />
+                    <UsageSections agent={session.agent} events={events} look="overview" />
                     <div className="usage-overview-foot">
                         <button
                             type="button"

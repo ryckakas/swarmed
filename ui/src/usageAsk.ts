@@ -1,6 +1,6 @@
 // Asking Claude Code for the account's usage, from the overview a session's coins button
 // opens. Nothing asks on its own: opening the overview asks, and so does its button. Between
-// those, the figures are what Claude Code last said while it worked for the session.
+// those, the figures are the account's as any Claude Code session last heard them.
 
 import type { AgentEvent } from "./api/types";
 
@@ -30,6 +30,6 @@ export function askedLine(asked: Asked): string {
             return `As Claude Code gave them at ${time}.`;
         }
         case "failed":
-            return `${asked.error.replace(/\.$/, "")}. These are from the session's last turn.`;
+            return `${asked.error.replace(/\.$/, "")}. These are the latest any session heard.`;
     }
 }

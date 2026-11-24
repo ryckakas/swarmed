@@ -175,6 +175,17 @@ impl App {
 /// and sending the next message took longer than two seconds under that load.
 const WAIT_LIMIT: Duration = Duration::from_secs(10);
 
+/// Asks session `id`'s agent for the account's usage, as the coins do: the answer is the
+/// session's, and what it says is the account's usage for every session.
+fn usage_asked(app: &App, id: &Value) {
+    app.ok("session_usage_refresh", json!({ "id": id }));
+    let usage = app.wait_for_event(id, "usage_limits");
+    assert_eq!(usage["limits"][0]["kind"], "session");
+    let account = app.ok("account_usage", json!({}));
+    assert_eq!(account["windows"][0]["kind"], "five_hour");
+    assert_eq!(account["windows"][0]["used"], 0.36);
+}
+
 /// Turns Remote Control of session `id` on, as the session's header does, and off again.
 fn remote_control(app: &App, id: &Value) {
     app.ok("session_remote_control", json!({ "id": id, "on": true }));
@@ -379,9 +390,7 @@ fn the_ui_can_deny_interrupt_and_remove() {
     let stopped = |e: &Value| e["type"] == "turn_done" && e["is_error"] == true;
     wait_for(&app, id, "the interrupted turn's end", stopped);
     assert_eq!(app.ok("status_line", json!({ "id": id })), json!(null));
-    app.ok("session_usage_refresh", json!({ "id": id }));
-    let usage = app.wait_for_event(id, "usage_limits");
-    assert_eq!(usage["limits"][0]["kind"], "session");
+    usage_asked(&app, id);
     remote_control(&app, id);
     let size = json!({ "id": id, "cols": 80, "rows": 24 });
     assert_eq!(
@@ -527,6 +536,70 @@ fn a_settings_file_with_a_key_the_app_does_not_know_still_opens_and_says_so() {
 }
 
 #[test]
+fn a_layout_with_a_key_the_app_does_not_know_is_drawn_and_says_so() {
+    let app = app();
+    std::fs::create_dir_all(app.data_dir()).expect("data dir");
+    let written = r#"{ "icons": 120, "sidebar": { "task": { "size": 12, "italic": true } } }"#;
+    std::fs::write(app.data_dir().join("layout.json"), written).expect("writes");
+    let kept = json!({ "base": "classic", "text": {}, "icons": 120,
+        "sidebar": { "task": { "size": 12 } } });
+    assert_eq!(app.ok("custom_layout", json!({})), kept);
+    let problems = app.ok("config_problems", json!({}));
+    let said = problems[0].as_str().expect("one problem, in words");
+    assert!(
+        said.starts_with("layout.json: `sidebar.task.italic`"),
+        "{said}"
+    );
+    // Saved, a layout is held to what this version knows.
+    let refused = app.invoke("custom_layout_save", json!({ "text": written }));
+    let said = refused.expect_err("refused");
+    assert!(
+        said.as_str().is_some_and(|said| said.contains("italic")),
+        "{said}"
+    );
+    let level =
+        json!({ "text": "{ \"sidebar\": { \"session\": { \"size\": 15, \"weight\": 600 } } }" });
+    let saved = app.ok("custom_layout_save", level);
+    assert_eq!(
+        saved["sidebar"]["session"],
+        json!({ "size": 15, "weight": 600 })
+    );
+}
+
+#[test]
+fn the_ui_can_choose_how_often_usage_warnings_are_said() {
+    let app = app();
+    let mut settings = app.ok("settings", json!({}));
+    assert_eq!(settings["limit_warnings"], "frequent");
+    settings["limit_warnings"] = json!("none");
+    app.ok("set_settings", json!({ "settings": settings }));
+    assert_eq!(app.ok("settings", json!({}))["limit_warnings"], "none");
+}
+
+#[test]
+fn the_ui_can_set_a_branch_prefix_and_see_the_branch_it_gives() {
+    let app = app();
+    let shown = app.ok("branch_example", json!({ "prefix": "/jd/feat/" }));
+    assert_eq!(shown, "jd/feat/fix-login");
+    let refused = app.invoke("branch_example", json!({ "prefix": "a b" }));
+    let said = refused.expect_err("refused");
+    let reason = |said: &str| said.contains("'a b/fix-login' is not a valid branch name");
+    assert!(said.as_str().is_some_and(reason), "{said}");
+
+    let mut settings = app.ok("settings", json!({}));
+    settings["branch_prefix"] = json!("a..b");
+    let refused = app.invoke("set_settings", json!({ "settings": settings.clone() }));
+    assert!(refused.is_err(), "{refused:?}");
+    settings["branch_prefix"] = json!("jd/");
+    app.ok("set_settings", json!({ "settings": settings }));
+    assert_eq!(app.ok("settings", json!({}))["branch_prefix"], "jd");
+
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    assert_eq!(app.ok("task_new", task)["branch"], "jd/one");
+}
+
+#[test]
 fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
@@ -542,9 +615,9 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
             "editor": "code", "terminal_app": "Terminal", "auto_title": true, "theme": "system", "palette": "swarm",
             "style": "colony", "layout": "classic",
             "text_scale": 100,
-            "html_views": true, "tool_calls": "folded", "notifications": true, "default_supervision": "auto",
+            "html_views": true, "tool_calls": "folded", "limit_warnings": "frequent", "notifications": true, "default_supervision": "auto",
             "status_items": ["branch", "changes", "model", "context", "cost"],
-            "status_command": "", "rules": "", "updates": "automatic",
+            "status_command": "", "rules": "", "updates": "automatic", "branch_prefix": "",
         })
     );
 
@@ -615,6 +688,8 @@ fn the_ui_can_list_what_was_left_running_and_cannot_stop_what_no_agent_runs() {
     assert_eq!(app.invoke("task_background", target), Ok(json!([])));
     let stop = json!({ "id": 999, "taskId": "b1" });
     assert!(app.invoke("session_stop_background", stop).is_err());
+    let send = json!({ "id": 999, "toolUseId": "toolu_1" });
+    assert!(app.invoke("session_send_to_background", send).is_err());
     // Output is read only of what a session's own agent named: nothing here did.
     let output = json!({ "id": 999, "taskId": "b1", "from": null });
     assert!(app.invoke("session_background_output", output).is_err());
@@ -797,6 +872,23 @@ fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
         json!({ "id": id, "requestId": request["request_id"] }),
     );
     app.wait_for_text(id, "heard: a hint");
+
+    // A command a call waits on can be sent to the background, and the turn goes on.
+    app.ok(
+        "session_send",
+        json!({ "id": id, "text": "foreground bash" }),
+    );
+    wait_for(&app, id, "the call", |e| {
+        e["type"] == "tool_use" && e["id"] == "tool-fg-bash"
+    });
+    let sent = json!({ "id": id, "toolUseId": "tool-fg-bash" });
+    assert_eq!(app.ok("session_send_to_background", sent), json!(true));
+    app.wait_for_text(id, "It goes on in the background.");
+    // With no call waiting, a call's work does not go; asked for every call, it is taken.
+    let gone = json!({ "id": id, "toolUseId": "tool-fg-bash" });
+    assert_eq!(app.ok("session_send_to_background", gone), json!(false));
+    let every = json!({ "id": id, "toolUseId": null });
+    assert_eq!(app.ok("session_send_to_background", every), json!(true));
 }
 
 #[test]
@@ -952,6 +1044,35 @@ fn the_ui_can_see_what_swarmed_takes_up() {
     // The process running this test is the app, and it is using some memory.
     assert!(positive(&usage["running"]["memory_bytes"]), "{usage}");
     assert_eq!(usage["sessions"], json!([]));
+}
+
+#[test]
+fn the_ui_can_clean_up_what_removed_tasks_left() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    app.ok(
+        "task_new",
+        json!({ "project": "demo", "name": "one", "branch": null }),
+    );
+    let task = json!({ "project": "demo", "name": "one", "force": true, "deleteBranch": false });
+    app.ok("task_remove", task);
+
+    let listed = app.ok("cleanup", json!({}));
+    let branches = listed["branches"].as_array().expect("a list");
+    assert_eq!(branches.len(), 1, "{listed}");
+    assert_eq!(
+        (&branches[0]["task"], &branches[0]["at_risk"]),
+        (&json!("one"), &json!(false))
+    );
+    assert_eq!(listed["stale"], json!([]));
+    assert_eq!(listed["snapshots"], json!([]));
+    let key = branches[0]["key"].clone();
+    let cleaned = app.ok(
+        "cleanup_clean",
+        json!({ "kind": "branches", "keys": [key], "atRisk": [] }),
+    );
+    assert_eq!(cleaned, json!({ "deleted": [key], "kept": [] }));
+    assert_eq!(app.ok("cleanup", json!({}))["branches"], json!([]));
 }
 
 #[test]

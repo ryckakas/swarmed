@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { Environment } from "../api/types";
 import {
@@ -14,6 +14,7 @@ import {
 import { useStore } from "../store";
 import { useWords } from "../useWords";
 import { capitalized, withArticle } from "../wording";
+import { Dialog } from "./Dialog";
 import { Picker } from "./Picker";
 import { Snapshots } from "./Snapshots";
 
@@ -111,7 +112,6 @@ async function saveDraft(project: string, draft: Draft, usual: string | null) {
 function Editor({ project }: { project: string }) {
     const words = useWords();
     const close = () => useStore.getState().askForEnvironments(null);
-    const dialog = useRef<HTMLDialogElement>(null);
     const [environments, setEnvironments] = useState<Record<string, Environment>>({});
     // The one new tasks are set up in unless another is chosen.
     const [usual, setUsual] = useState<string | null>(null);
@@ -129,7 +129,6 @@ function Editor({ project }: { project: string }) {
 
     // biome-ignore lint/correctness/useExhaustiveDependencies: read once, when the dialog opens
     useEffect(() => {
-        dialog.current?.showModal();
         void read();
     }, []);
 
@@ -154,47 +153,49 @@ function Editor({ project }: { project: string }) {
     // The name it is saved under, whatever the form's name field says by now.
     const saved = draft?.editing ?? null;
 
+    const editing = draft !== null;
+    // Over the form, the footer's buttons are the form's own, and what was typed would be lost
+    // by a click beside the dialog: only Esc and the × close it then.
     return (
-        <dialog
-            ref={dialog}
-            className="confirm environments"
-            aria-labelledby="environments-title"
+        <Dialog
+            title={`${words.environments} of ${project}`}
+            size="medium"
+            closeOnBackdrop={!editing}
             onClose={close}
+            problem={problem}
+            dismiss={editing ? null : "Done"}
+            aside={
+                editing &&
+                saved !== null && (
+                    <button type="button" className="button" onClick={() => void remove(saved)}>
+                        Remove
+                    </button>
+                )
+            }
+            actions={editing && <FormButtons onCancel={() => setDraft(null)} />}
         >
-            <h2 id="environments-title">
-                {words.environments} of {project}
-            </h2>
-            <div className="environments-body">
-                <p>
-                    Different ways of setting a task up on this Mac: what runs when its worktree is
-                    made, and the variables its hooks and agents get. A new task is set up in the
-                    default one unless another is chosen when it is started. Whatever one leaves
-                    empty is as the repository's own config has it.
-                </p>
-                {draft === null ? (
-                    <Listing
-                        names={names}
-                        usual={usual}
-                        onDefault={(name) => void makeDefault(name)}
-                        onEdit={(name) => {
-                            const found = environments[name];
-                            setDraft(found ? draftOf(name, found) : NEW);
-                        }}
-                        onNew={() => setDraft(NEW)}
-                    />
-                ) : (
-                    <Form draft={draft} onChange={setDraft} onSave={() => void save(draft)} />
-                )}
-                {draft === null && <Snapshots project={project} environments={names} />}
-            </div>
-            {problem && <p className="note-problem environments-problem">{problem}</p>}
-            <Footer
-                editing={draft !== null}
-                onDone={close}
-                onRemove={saved === null ? null : () => void remove(saved)}
-                onCancel={() => setDraft(null)}
-            />
-        </dialog>
+            <p>
+                Different ways of setting a task up on this Mac: what runs when its worktree is
+                made, and the variables its hooks and agents get. A new task is set up in the
+                default one unless another is chosen when it is started. Whatever one leaves empty
+                is as the repository's own config has it.
+            </p>
+            {draft === null ? (
+                <Listing
+                    names={names}
+                    usual={usual}
+                    onDefault={(name) => void makeDefault(name)}
+                    onEdit={(name) => {
+                        const found = environments[name];
+                        setDraft(found ? draftOf(name, found) : NEW);
+                    }}
+                    onNew={() => setDraft(NEW)}
+                />
+            ) : (
+                <Form draft={draft} onChange={setDraft} onSave={() => void save(draft)} />
+            )}
+            {draft === null && <Snapshots project={project} environments={names} />}
+        </Dialog>
     );
 }
 
@@ -217,17 +218,19 @@ function Listing(props: ListingProps) {
                         None yet. Tasks are set up the way the repository's own config says.
                     </p>
                 )}
+                {/* The keyboard starts on the first of these: an environment, or adding one. */}
                 {props.names.map((name) => (
                     <button
                         key={name}
                         type="button"
                         className="environment-name mono"
                         onClick={() => props.onEdit(name)}
+                        data-dialog-start
                     >
                         {name}
                     </button>
                 ))}
-                <button type="button" className="button" onClick={props.onNew}>
+                <button type="button" className="button" onClick={props.onNew} data-dialog-start>
                     Add {withArticle(words.environment)}
                 </button>
             </div>
@@ -267,41 +270,18 @@ function DefaultPicker(props: {
     );
 }
 
-interface FooterProps {
-    /** Whether the form for one environment is open, which the buttons are then for. */
-    editing: boolean;
-    onDone(): void;
-    /** `null` for an environment that is not saved yet. */
-    onRemove: (() => void) | null;
-    onCancel(): void;
-}
-
-/** The dialog's buttons, below what scrolls so that they are always in view. */
-function Footer({ editing, onDone, onRemove, onCancel }: FooterProps) {
+/** The form's own buttons, in the dialog's footer, so that they stay in view. */
+function FormButtons({ onCancel }: { onCancel(): void }) {
     const words = useWords();
-    if (!editing) {
-        return (
-            <div className="confirm-actions environments-footer">
-                <button type="button" className="button button-primary" onClick={onDone}>
-                    Done
-                </button>
-            </div>
-        );
-    }
     return (
-        <div className="confirm-actions environments-footer">
-            {onRemove && (
-                <button type="button" className="button environment-remove" onClick={onRemove}>
-                    Remove
-                </button>
-            )}
+        <>
             <button type="button" className="button" onClick={onCancel}>
                 Cancel
             </button>
             <button type="submit" form={FORM_ID} className="button button-primary">
                 Save {words.environment.toLowerCase()}
             </button>
-        </div>
+        </>
     );
 }
 

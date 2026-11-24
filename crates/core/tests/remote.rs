@@ -252,6 +252,7 @@ async fn closing_a_session_turns_it_off_and_other_agents_have_none() {
         models: vec![],
         default_model: None,
         hears_mid_turn: false,
+        sends_to_background: false,
     };
     core.add_agent(other, Arc::new(FakeBackend::default()));
     let options = SessionOptions {

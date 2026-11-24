@@ -3,6 +3,7 @@ import type { Session } from "./api/types";
 import {
     dropGap,
     dropMove,
+    gripTitle,
     movedAmong,
     orderAttributes,
     orderGroup,
@@ -58,6 +59,12 @@ describe("moving a row among its siblings", () => {
         expect(targetOf(element(attributes))).toEqual(target);
         expect(targetOf(element({}))).toBeNull();
         expect(targetOf(element({ "data-order": "{not json" }))).toBeNull();
+    });
+
+    it("names the keys that move a row on the grip it is dragged by", () => {
+        expect(gripTitle()).toBe(
+            "Drag to move. ⌘⌥↑ and ⌘⌥↓ move the focused row, or the open session.",
+        );
     });
 
     it("groups a started session under its starter only while the starter is listed", () => {

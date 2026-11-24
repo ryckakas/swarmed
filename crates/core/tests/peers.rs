@@ -7,8 +7,8 @@ use std::sync::Arc;
 use common::{core_with_project, fixture, next, turn};
 use swarmed_core::agent::{AgentEvent, Auth};
 use swarmed_core::{
-    Core, Delivery, Environment, Error, Layout, MAX_SPAWNED, NewTaskOptions, Palette, Session,
-    SessionEvent, SessionOptions, ToolCalls, hooks, serve_session_tools,
+    Core, Delivery, Environment, Error, Layout, LimitWarnings, MAX_SPAWNED, NewTaskOptions,
+    Palette, Session, SessionEvent, SessionOptions, ToolCalls, hooks, serve_session_tools,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
@@ -348,6 +348,31 @@ async fn proposed(bus: &mut Receiver<SessionEvent>) -> (String, String, String) 
             return (request_id, title, detail);
         }
     }
+}
+
+#[tokio::test]
+async fn an_agent_changes_how_often_usage_warnings_are_said_at_once() {
+    let fx = fixture();
+    let core = Arc::new(core_with_task(&fx).await);
+    let session = new_session(&core);
+    drop(tokio::spawn(serve_session_tools(Arc::clone(&core))));
+    let socket = core.paths().tools_socket();
+    listening(&socket).await;
+
+    // Fewer warnings is not proposed: a limit reached is said whatever the setting is.
+    let rare = serde_json::json!({ "kind": "appearance", "op": "save", "limit_warnings": "Rare" });
+    let (ok, said) = configure(&socket, session.id, rare).await;
+    assert!(ok, "{said}");
+    assert!(said.contains("limit_warnings rare"), "{said}");
+    let chosen = || core.settings().expect("reads").limit_warnings;
+    assert_eq!(chosen(), LimitWarnings::Rare);
+
+    let unknown =
+        serde_json::json!({ "kind": "appearance", "op": "save", "limit_warnings": "hourly" });
+    let (ok, said) = configure(&socket, session.id, unknown).await;
+    assert!(!ok, "{said}");
+    assert!(said.contains("`limit_warnings`"), "{said}");
+    assert_eq!(chosen(), LimitWarnings::Rare);
 }
 
 #[tokio::test]

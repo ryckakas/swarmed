@@ -16,6 +16,42 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **`swarmed events` prints what happens in every session as it happens**, whichever Swarmed
+  does it: the app, another command or this one. Ctrl-C ends it.
+- **`swarmed limits` prints your account's usage limits and extra usage** as Claude Code last
+  reported them in any session, with how old each figure is. Nothing is asked for it.
+- **Codex and OpenCode sub-agents show as Claude Code's do.** While one works it is listed
+  under its session; press it to read what it says and does, apart from the conversation, and
+  the Background list shows it until it is done, with what it handed back. Its permission
+  requests are answered in the session, which names the sub-agent asking. A Codex sub-agent
+  can be stopped there; OpenCode has no way to stop one. Shells OpenCode leaves running are in
+  the Background list too, without a Stop button, since OpenCode cannot stop one shell, and
+  shown running until OpenCode next takes something up by itself, since it does not say when
+  a shell ends. `docs/coding-agents.md` lists what each agent shows; Antigravity reports
+  neither.
+- **Clean up what removed tasks leave behind.** Settings, under Storage and activity, lists
+  worktrees of removed tasks not deleted yet, branches kept when their tasks were removed,
+  stale worktrees no task owns, and snapshots, each with how many and their size. Each button
+  lists exactly what it deletes and asks first; a branch with commits found nowhere else, or a
+  folder with changes never committed, is listed apart and goes only if you tick it on its own.
+  Nothing of a current task, no branch on a remote and no repository's own checkout is ever
+  touched, and the figures above are measured again afterwards. `swarmed cleanup` does the same
+  from the command line.
+- **A branch prefix of your own.** **Branch prefix** in Settings, under Sessions, is what every
+  new task's branch starts with, before a `/` and the task's name: `jd` gives `jd/fix-login`,
+  and `jd/feat` gives `jd/feat/fix-login`. Settings shows the branch it gives as you type, drops
+  slashes at its ends, and refuses a prefix git would not take in a branch's name, with git's
+  reason. Left empty, branches start with your login as before. It applies to every repository
+  that keeps the default `branch_pattern`, including the ones added before; a repository with a
+  pattern of its own keeps it, and can use `{{prefix}}` in it. `swarmed branch-prefix` shows or
+  sets it from the command line.
+- **Send a running command or sub-agent to the background, as Ctrl+B does in Claude Code.** A
+  `Bash` or `Agent` call that a Claude Code session waits on has a **Send to background** button
+  on its line. The call returns at once, the turn goes on, and the work runs on in the
+  Background list until it ends; the call's line says it moved. If it had ended already, or
+  Claude Code would not, the line says so quietly. `bg` typed while `swarmed session send` runs
+  a turn does the same.
+
 - **Remote Control: carry on with a Claude Code session from your phone.** Press the phone at
   the top right of a Claude Code session, or type `/rc`, and the session can be reached from
   claude.ai and the Claude app. What you type there is answered in the same worktree and shows
@@ -24,6 +60,89 @@ notice adds its line under Unreleased.
   session. It needs Claude Code signed in with a claude.ai subscription, and the conversation is
   kept on Anthropic's servers while it is on. `swarmed session remote-control <id>` does the
   same from the command line.
+- **Fold a task in the sidebar.** Press a task's name, or Enter or Space on it, to put its
+  sessions and their sub-agents away and keep the other tasks in view, as a repository folds
+  its tasks. A folded task still shows how many sessions it has, what the most pressing of them
+  needs and whether one has an answer you have not read, and keeps its buttons. It unfolds by
+  itself when you open one of its sessions from anywhere else, or start a new one in it.
+  Swarmed remembers which tasks are folded until you unfold or remove them.
+- **Set the sidebar's levels apart in a custom layout.** A `sidebar` section in `layout.json`
+  gives repositories, tasks, sessions and sub-agents each their own text size, weight, and
+  colour and background in dark and in light, without changing the rest of the window. A level
+  you leave out looks as it does now, and the repository's name now grows with the text sizes
+  like everything else. Colours that would be hard to read are refused with the reason. Ask an
+  agent to change the layout, or edit it in Settings.
+- **Fewer usage warnings in the conversation, or none.** Claude Code warns that a usage window
+  is getting closer from about half of it, and every session said so. **Usage warnings** in
+  Settings, under Storage and activity, keeps each warning (Frequent, as before), says one only
+  once a window is at least 75% used (Rare), or says none. A limit reached, and work that goes
+  on with extra usage, are always said, and the usage coins show the same whatever you choose.
+  An agent can change it for you too.
+
+### Changed
+
+- **Tasks, sessions and cloud tasks are dragged by a grip.** Point at one in the sidebar and
+  six dots show before it: drag those to move it among its own kind. Pressing anywhere else on
+  the row opens it as before, a click that slips no longer moves it, and dragging across it no
+  longer selects its text. The grip's tooltip names the shortcuts that still move the focused
+  row from the keyboard. A repository is still dragged by its name.
+- **Every dialog has the same head, body and buttons.** Its title and a × are at the top, its
+  buttons at the bottom, and only what lies between them scrolls, so a long diff, form or list
+  never takes the buttons out of view. Esc, the × and Close or Cancel close any of them, and so
+  does a click beside one where nothing would be lost: never with something typed or ticked in
+  it, nor while it is at work. The keyboard starts on the first field or the main button; a
+  question whose answer cannot be undone starts on keeping things as they are. The inbox,
+  search, About and the keyboard shortcuts now have a Close button too.
+
+### Fixed
+
+- **The window shows what the `swarmed` command or a second Swarmed changes.** A session
+  renamed, marked, closed, reopened, deleted, moved or set from the command line, a task or
+  session made or removed there, and an action or setting written there or by hand, used to
+  show only after a restart, and a session the command ran never moved on screen. Now each
+  shows within about a second, and a session run elsewhere follows live, with its status,
+  unread state, conversation and notices. A session's agent runs in one place at a time:
+  sending to one that another Swarmed runs says so instead of starting a second agent on the
+  same conversation, and so does closing or deleting it, or removing its task, while it runs
+  there. A message queued for it goes once that run is over.
+- **Every Claude Code session shows the same usage, and the newest.** The coins' warning, the
+  usage limits and the extra usage were what each session heard after its own last turn, so
+  one session warned while another did not, a new session showed nothing, a window that had
+  reset still showed as used, and a model's own weekly limit, such as Fable's, was dropped by
+  the next turn's report. They are now your account's, as any Claude Code session last heard
+  them: a new session shows them before its first turn, a model's limit stays until it resets
+  or is asked again, a window past its reset time shows as reset and its warning goes then,
+  and each figure says how old it is. Nothing more is asked of Claude Code for it.
+- **A Codex command's output shows under its call.** Codex sends what a command prints beside
+  the call, and its calls ended with nothing to show.
+- **An OpenCode sub-agent's words no longer join the agent's reply.** What a sub-agent said
+  during the turn that started it was taken for the agent's own, and its tool calls were shown
+  in the conversation.
+- **What a Claude Code turn waits on is no longer listed as left running.** Claude Code reports
+  a command or sub-agent its call waits on as it starts, and Swarmed took each such report for
+  work left in the background: it showed in the Background list, and a sub-agent could keep
+  the session's answer back. It is now listed only once it moves to the background.
+- **A custom layout with a key Swarmed does not know is still drawn.** One key a newer Swarmed
+  wrote into `layout.json` made an older one beside it refuse the whole layout. The key is now
+  left out and named with the other configuration problems, and the rest of the layout is drawn.
+  Saving a layout with a key Swarmed does not know is still refused, so a misspelt one is caught.
+- **The sidebar's + and × line up with the icons beside them.** They were letters, which sat
+  where the font put them: off the centre line of the cloud, environments and note, and larger
+  and heavier. They are now drawn like those icons, at the same size and weight, in every
+  layout and font. Every icon on a row is also centred in the square that lights up under the
+  pointer, and the cloud on a repository or task is no longer drawn larger than its neighbours
+  in the senior layout or a custom one that enlarges icons.
+- **The calls inside an opened run of folded tool calls show whether each is open.** With tool
+  calls folded, every call listed in an opened run had its arrow pointing down, open or not,
+  and it did not change when the call was pressed. Each call's arrow now points right while it
+  is closed and down while it is open. While the run is still at work, a call in it that failed
+  no longer pulses as if running, and the run's count of failed calls is red as it is once the
+  run is done.
+- **A merged pull request no longer looks like a draft.** Its number in the sidebar was drawn
+  faint, as a draft with no checks is, and on a badge that small the two looked the same. A
+  merged pull request is now lilac, as GitHub draws it in purple, in the sidebar and in the
+  task panel, in every palette, light and dark. A draft stays grey until its checks say
+  otherwise, and a closed one stays faint with a dashed border.
 
 ## [0.4.0] - 2026-11-23
 

@@ -14,6 +14,7 @@ mod asking;
 mod attach;
 mod background;
 mod changes;
+mod cleanup;
 mod clone;
 mod cloud;
 mod commands;
@@ -21,6 +22,7 @@ mod config;
 mod configure;
 mod costs;
 mod effort;
+mod elsewhere;
 mod environments;
 mod error;
 mod files;
@@ -46,6 +48,7 @@ mod order;
 mod overview;
 mod paths;
 mod peers;
+mod prefix;
 mod presence;
 mod publish;
 mod pulls;
@@ -74,6 +77,7 @@ mod views;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
 
+pub use account_usage::{AccountUsage, Billed, ExtraUsageHeard, UsageWindow};
 pub use actions::Action;
 use agent::{AgentBackend, ClaudeNamer, Namer};
 pub use agent_setup::{AgentSetup, openrouter_models};
@@ -85,16 +89,21 @@ pub use background::{BackgroundOutput, BackgroundTask};
 pub use shellenv::learn_shell_path;
 
 pub use changes::{ChangeKind, FileChange, FileDiff};
+pub use cleanup::{Cleaned, Cleanup, CleanupItem, CleanupKind, NotCleaned};
 pub use cloud::{CloudOrigin, CloudProvider, CloudTask, MAX_DELEGATED};
 pub use commands::{CommandKind, SlashCommand};
 pub use config::{Hooks, ProjectConfig};
 pub use costs::{Costs, DayCost, TaskCost};
+pub use elsewhere::follow_others;
 pub use environments::{Environment, EnvironmentChoice};
 pub use error::{Error, Result};
 pub use files::{FileEntry, FileListing};
 pub use handoff::MAX_HANDED;
 pub use hooks::OutputSink;
-pub use layouts::{Colour, Colours, CustomLayout, LayoutBase, TextSizes, layout_schema};
+pub use layouts::{
+    Colour, Colours, CustomLayout, LayoutBase, LevelColours, SidebarLevel, SidebarLevels,
+    TextSizes, layout_schema,
+};
 pub use marks::{MAX_MARK_LABEL_CHARS, Mark, MarkColour};
 pub use mcp_own::{McpServerInput, McpServerView};
 pub use naming::TaskNaming;
@@ -103,6 +112,7 @@ pub use open::open_link;
 pub use overview::{ProjectOverview, TaskOverview};
 pub use paths::Paths;
 pub use peers::{Delivery, MAX_SPAWNED, serve_session_tools};
+pub use prefix::{EXAMPLE_TASK, branch_example};
 pub use publish::{PullDraft, Unpublished};
 pub use pulls::{Check, CheckOutcome, Pull, PullState};
 pub use queue::QueuedMessage;
@@ -113,7 +123,7 @@ use sessions::Live;
 pub use sessions::{
     EVENT_BUFFER, Session, SessionEvent, SessionOptions, SessionSettings, SessionStatus,
 };
-pub use settings::{Layout, Palette, Settings, Style, Theme, ToolCalls, UpdateMode};
+pub use settings::{Layout, LimitWarnings, Palette, Settings, Style, Theme, ToolCalls, UpdateMode};
 pub use skills::Skill;
 pub use snapshots::Snapshot;
 pub use stacks::StackState;
@@ -160,6 +170,8 @@ pub struct Core {
     /// The names of tasks being created, by project id, from when each name is chosen until
     /// its task is written down, so that tasks created at once never pick the same name.
     names_claimed: Mutex<std::collections::HashSet<(i64, String)>>,
+    /// What this core knows of other Swarmed processes on the same data.
+    elsewhere: elsewhere::Elsewhere,
 }
 
 /// The store is only ever locked for one short query, never across an `.await`. A panic while
@@ -202,6 +214,7 @@ impl Core {
             tool_server: None,
             house: Mutex::new(None),
             names_claimed: Mutex::default(),
+            elsewhere: elsewhere::Elsewhere::default(),
         })
     }
 

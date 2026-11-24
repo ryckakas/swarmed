@@ -46,7 +46,7 @@ One key Swarmed cannot understand never stops it, whether it is misspelt or writ
 | `projects/<project>.toml` | left out | that key is at its default | an error: the project's tasks cannot be set up, started or removed with their hooks, which there is no telling |
 | `projects/<project>.environments.toml` | left out of that environment | that environment is left out | an error for tasks in its environments |
 
-`templates.toml`, the actions, `layout.json` and `terminal.json` affect only their own part: the saved prompts, the action buttons, the custom layout and the terminal.
+`templates.toml`, the actions, `layout.json` and `terminal.json` affect only their own part: the saved prompts, the action buttons, the custom layout and the terminal. A key `layout.json` does not know is left out and named like the others above; see [The custom layout](#the-custom-layout).
 
 ## A project's configuration
 
@@ -70,7 +70,7 @@ WEB_PORT = "{{port.web}}"
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `branch_pattern` | `{{user}}/{{task}}` | a new task's branch; may use `user`, `task` and `project` |
+| `branch_pattern` | `{{prefix}}/{{task}}` | a new task's branch; may use `prefix`, `user`, `task` and `project`: see [A task's branch](#a-tasks-branch) |
 | `base_branch` | `origin`'s default branch, else `origin/main` or `origin/master` | the ref new tasks branch from |
 | `ports` | none | named base ports |
 | `port_step` | `100` | how far apart two tasks' ports are |
@@ -78,6 +78,20 @@ WEB_PORT = "{{port.web}}"
 | `open_url` | the first local address `start` prints | what "Open in browser" opens |
 | `hooks` | none | `setup`, `start`, `stop` and `teardown` commands |
 | `env` | none | environment for the hooks and the task's agents |
+
+### A task's branch
+
+A new task's branch is its branch prefix, a `/` and the task's name, such as `jd/fix-login`. Set
+the prefix under **Branch prefix** in Settings, Sessions, or with `swarmed branch-prefix jd`.
+Empty, it is your login (`{{user}}`), as it always was. Slashes at its ends are dropped and
+those inside stay: `jd/feat` gives `jd/feat/fix-login`. Settings shows the branch it gives as
+you type, and a prefix git would not take in a branch's name is refused with git's reason.
+
+The prefix is `{{prefix}}` in `branch_pattern`. A repository whose config sets a pattern of its
+own keeps it, and may use `{{prefix}}` there too. A config that says `{{user}}/{{task}}`, which
+Swarmed wrote into every new config before there was a prefix, is read as the default, so the
+prefix applies to it. A branch you name or pick when you start a task is used as it is, and a
+name Swarmed makes up steps on to `name-2` and so on after the prefix.
 
 ## Hooks and the stack
 
@@ -101,6 +115,23 @@ Each hook runs with `sh -c` in the task's worktree, and an empty one is skipped.
    nor a remote: then it is kept, and you are told. From the command line the branch stays
    unless you pass `--delete-branch`. A branch on a remote is never touched.
 
+What removals leave behind can be deleted in Settings, under Storage and activity, in **Clean
+up**: worktrees of removed tasks that were not deleted yet, or could not be; the branches
+Swarmed made for removed tasks and kept; stale worktrees, which are folders beside your tasks'
+worktrees that no task owns and git's records of worktrees whose folder is gone; and snapshots.
+Each kind's button lists exactly what it deletes and asks first. A branch with commits on
+neither its base nor a remote, or a folder with changes never committed, is listed apart and
+deleted only if you tick it on its own. Nothing of a current task, no branch on a remote, no
+branch Swarmed did not make and no repository's own checkout is ever listed. `swarmed cleanup`
+does the same from the command line.
+
+A folder beside your tasks' worktrees that is no git worktree, with no `.git` in it, counts
+as safe to delete and is ticked: that place is Swarmed's, and what is left there is usually
+what a removed task's services wrote after it. Do not keep folders of your own there. A record
+of a worktree is listed only while nothing is at its path, and only the record is forgotten:
+a folder made there again is never deleted. What became at risk after the list was read, a
+branch that gained commits say, is kept and named with why.
+
 Quitting the app ends its stacks' processes without running `stop`. From the command line,
 `swarmed task new` and `swarmed task setup` end the stack again when they exit, and
 `swarmed task start` keeps one running in the foreground.
@@ -109,7 +140,7 @@ Quitting the app ends its stacks' processes without running `stop`. From the com
 
 Hooks, `env` values and `open_url` may use `{{project}}`, `{{task}}`, `{{user}}`, `{{branch}}`,
 `{{slot}}`, `{{worktree}}`, `{{repo}}` (the main checkout) and `{{port.<name>}}`. An unknown name
-is an error.
+is an error. `{{prefix}}` is for `branch_pattern` alone: a hook has the task's `{{branch}}`.
 
 In a hook, a value is always one word, whatever is in it: a path with a space needs no quotes,
 and a branch's name is never read as a command. The same values are exported to hooks as
@@ -164,7 +195,8 @@ next tasks start from it. A task whose `setup` is run again is kept only if it h
 succeeded before: one that had has been worked in since. Once what setup makes has changed, such as after a dependency update,
 take it again from a task set up since, in the app's Environments dialog or with
 `swarmed snapshot save <project> <task>`; forgetting it has the next task set up well kept
-instead.
+instead. Settings' **Clean up** lists every repository's snapshots with their size and age, to
+forget them all at once.
 
 ## Settings
 
@@ -176,15 +208,40 @@ Set in the app's Settings, kept in `settings.toml`.
 | `terminal_app` | `Terminal` | the application "Open in Terminal" uses |
 | `default_supervision` | `auto` | how new sessions are supervised: `ask`, `auto` or `plan`; `bypass`, which allows everything, is not offered in Settings |
 | `auto_title` | `true` | a model names each new session after its first message |
+| `branch_prefix` | empty | what a new task's branch starts with, before `/` and the task's name; empty is your login. See [A task's branch](#a-tasks-branch) |
 | `notifications` | `true` | notify when a session needs you, finishes, fails or moves its worktree to another branch |
 | `updates` | `automatic` | how Swarmed updates itself: `automatic` looks at launch and every few hours, downloads a new version and installs it when you quit; `when_asked` fetches nothing until About opens and installs only when you ask |
 | `html_views` | `true` | agents may answer with HTML views |
 | `tool_calls` | `folded` | how agents' tool calls show in a conversation: `all`, each on its own line; `folded`, the calls that follow each other in one line that counts them and names the last; `hidden`, none, with a larger animation while the agent works. Permission requests, questions, plans and views always show |
+| `limit_warnings` | `frequent` | what a conversation says when Claude Code warns that a usage window is filling up: `frequent`, each warning, once for as long as the same window keeps warning; `rare`, only once a window is at least 75% used, once; `none`, no warnings. A limit reached and work that goes on with extra usage are always said, and the usage coins show the same whatever it is |
 | `rules` | none | rules every agent is given, in every session |
 | `status_items`, `status_command` | branch, changes, model, context, cost | the status line: built-in pieces, or a script whose first line is shown |
 | `theme`, `palette`, `style`, `layout`, `text_scale` | system, swarm, colony, classic, 100 | how the app looks |
 
 A key Swarmed does not know stays in `settings.toml` when the settings are saved, so an older Swarmed beside a newer one does not erase that one's choices. What else happens to what it cannot understand is in [What Swarmed cannot understand](#what-swarmed-cannot-understand).
+
+### The custom layout
+
+`layout.json` holds the custom layout, which Settings shows as JSON and an agent can write for you. It starts from classic or senior (`base`) and changes only how things look: the five text sizes, line height, spacing, icons, the heights of rows and controls, the two fonts, the palette's colours in dark and in light, and the sidebar's levels. `swarmed layout schema` prints every field with its range.
+
+`sidebar` sets the four levels of the sidebar apart from each other and from the rest of the app: `repository`, `task`, `session` and `sub_agent`. Each can take a text `size` in pixels (9 to 40), a `weight` from 400 to 700, and for `dark` and `light` a `colour` for its text and a `background` for its rows:
+
+```json
+{
+  "base": "classic",
+  "sidebar": {
+    "repository": { "size": 16 },
+    "session": { "size": 14, "weight": 500,
+      "dark": { "colour": "#e8e4f0", "background": "#24202c" } }
+  }
+}
+```
+
+A level you leave out is drawn as its base draws it, and the repository's name grows and shrinks with the text sizes like the rest. A session's colour is used whatever the session is doing; one that waits on you or has an answer you have not read is still drawn heavier. Where a session is selected, pointed at or waits on you, its row keeps the background that says so.
+
+Swarmed refuses a layout it could not draw readably, with the reason, and keeps the one before. Text has to stand out from its background by 4.5 to 1 (3 to 1 for sub-agents, which are drawn quieter). A level that gives a colour has to give its background too, or its form a `panel`, which the sidebar is; one that gives a background has to give its colour. The palette's own colours are only known to the window, so nothing could be checked against them.
+
+A key the layout does not know, misspelt or written by a newer Swarmed, is left out when `layout.json` is read and named with the other problems, and the rest of the layout is drawn. Saving a layout with one is refused, so a misspelt key is caught when you save it.
 
 ## Environment variables
 

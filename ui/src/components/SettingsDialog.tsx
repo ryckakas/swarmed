@@ -1,7 +1,16 @@
-import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
 import { api } from "../api";
-import type { Settings, StatusItem, Style, Supervision, Theme, ToolCalls } from "../api/types";
+import type {
+    LimitWarnings,
+    Settings,
+    StatusItem,
+    Style,
+    Supervision,
+    Theme,
+    ToolCalls,
+} from "../api/types";
 import { LAYOUTS, PALETTES, STYLES } from "../appearance";
+import { type PrefixCheck, prefixToSave, problemOf } from "../branchPrefix";
 import { movedItem, STATUS_ITEMS, statusItemName, withItem } from "../statusline";
 import { SETTINGS_TABS, type SettingsTab, useStore } from "../store";
 import { useWords } from "../useWords";
@@ -10,10 +19,11 @@ import { About, lookForUpdate } from "./About";
 import { ActionsSettings } from "./ActionsSettings";
 import { AgentsSettings } from "./AgentsSettings";
 import { ApiKeys } from "./ApiKeys";
-import { CloseIcon, IconButton } from "./IconButton";
+import { Dialog } from "./Dialog";
 import { McpSettings } from "./McpSettings";
 import {
     editorChoices,
+    LIMIT_WARNINGS,
     supervisionChoices,
     TEXT_SCALES,
     THEMES,
@@ -34,31 +44,22 @@ export function SettingsDialog() {
     const settings = useStore((state) => state.settings);
     const showSettings = useStore((state) => state.showSettings);
     const tab = useStore((state) => state.settingsTab);
-    const dialog = useRef<HTMLDialogElement>(null);
-    const shown = open && settings !== null;
 
-    useEffect(() => {
-        if (shown && !dialog.current?.open) {
-            dialog.current?.showModal();
-        }
-    }, [shown]);
-
-    if (!(shown && settings)) {
+    if (!(open && settings)) {
         return null;
     }
+    // A field such as a key is saved by its own button, so a click beside it could lose what
+    // was typed: Esc, the × and Done close it.
     return (
-        <dialog
-            ref={dialog}
-            className="confirm settings"
-            aria-labelledby="settings-title"
+        <Dialog
+            title={words.settings}
+            size="large"
+            fixedHeight={true}
+            panes={true}
+            className="settings"
             onClose={() => showSettings(false)}
+            dismiss="Done"
         >
-            <header className="settings-head">
-                <h2 id="settings-title">{words.settings}</h2>
-                <IconButton label={words.closeSettings} onClick={() => showSettings(false)}>
-                    <CloseIcon />
-                </IconButton>
-            </header>
             <div className="settings-main">
                 <Tabs tab={tab} />
                 {/* Only this part scrolls: the title, the tabs and the way out stay put. */}
@@ -71,16 +72,7 @@ export function SettingsDialog() {
                     <Panel tab={tab} settings={settings} />
                 </div>
             </div>
-            <footer className="settings-foot">
-                <button
-                    type="button"
-                    className="button button-primary"
-                    onClick={() => showSettings(false)}
-                >
-                    Done
-                </button>
-            </footer>
-        </dialog>
+        </Dialog>
     );
 }
 
@@ -122,6 +114,8 @@ function Tabs({ tab }: { tab: SettingsTab }) {
                     aria-controls="settings-panel"
                     // Only the chosen tab is a Tab stop; the arrows reach the others.
                     tabIndex={id === tab ? 0 : -1}
+                    // The keyboard starts on the chosen tab, where the arrows move from.
+                    data-dialog-start={id === tab || undefined}
                     onClick={() => showSettings(true, id)}
                 >
                     {tabLabel(id, label, words)}
@@ -176,7 +170,12 @@ function Panel({ tab, settings }: { tab: SettingsTab; settings: Settings }) {
         case "keys":
             return <ApiKeys />;
         case "usage":
-            return <UsageSettings />;
+            return (
+                <>
+                    <UsageWarnings settings={settings} />
+                    <UsageSettings />
+                </>
+            );
         case "shortcuts":
             return <Shortcuts />;
         case "dictionary":
@@ -275,8 +274,10 @@ function Appearance({ settings }: { settings: Settings }) {
 const LAYOUT_FIELDS =
     "base (classic or senior), text { xs, sm, md, lg, xl } in pixels, line_height, spacing and icons in percent, " +
     "row_height and control_height in pixels, font, mono_font, and dark and light colours such as dusk, panel, " +
-    "raised, line, text, muted, faint, bright, focus, sky, pollen, moss, busy, clay. Leave out what should stay " +
-    "as it is. An agent can write it for you: ask one to change the layout.";
+    "raised, line, text, muted, faint, bright, focus, sky, pollen, moss, busy, clay. The sidebar's levels " +
+    "(sidebar { repository, task, session, sub_agent }) each take a size in pixels, a weight from 400 to 700, " +
+    "and dark and light { colour, background }. Leave out what should stay as it is. An agent can write it for " +
+    "you: ask one to change the layout.";
 
 /** The custom layout as the JSON it is. The core checks it on saving and says what is wrong. */
 function LayoutEditor() {
@@ -411,6 +412,7 @@ function Sessions({ settings }: { settings: Settings }) {
                     options={terminalAppChoices(settings.terminal_app)}
                 />
             </Row>
+            <BranchPrefix kept={settings.branch_prefix} />
             <Row
                 label="New sessions start in"
                 hint="Auto mode lets the agent decide which actions are safe. It can be changed per session under the message box."
@@ -466,6 +468,108 @@ function Sessions({ settings }: { settings: Settings }) {
                     aria-label="Show HTML views from agents"
                     checked={settings.html_views}
                     onChange={(event) => void change(api, { html_views: event.target.checked })}
+                />
+            </Row>
+        </section>
+    );
+}
+
+/**
+ * What new tasks' branches start with. The branch it gives is shown as it is typed, or why git
+ * would not take it; it is kept when the field is left or Enter is pressed.
+ */
+function BranchPrefix({ kept }: { kept: string }) {
+    const save = useStore((state) => state.saveBranchPrefix);
+    // What is typed and not kept yet; `null` shows what is kept.
+    const [typed, setTyped] = useState<string | null>(null);
+    const [check, setCheck] = useState<PrefixCheck | null>(null);
+    const shown = typed ?? kept;
+    useEffect(() => {
+        // Only the answer for what the field shows now: an earlier one may come later.
+        let current = true;
+        const heard = (said: PrefixCheck) => {
+            if (current) {
+                setCheck(said);
+            }
+        };
+        api.branchExample(shown).then(
+            (branch) => heard({ prefix: shown, branch }),
+            (error: unknown) => heard({ prefix: shown, problem: problemOf(error) }),
+        );
+        return () => {
+            current = false;
+        };
+    }, [shown]);
+    const keep = async () => {
+        const prefix = prefixToSave(typed, kept, check);
+        if (prefix === null) {
+            return;
+        }
+        const problem = await save(api, prefix);
+        if (problem === null) {
+            setTyped(null);
+        } else {
+            setCheck({ prefix, problem });
+        }
+    };
+    const refused = check !== null && "problem" in check;
+    return (
+        <Row
+            label="Branch prefix"
+            hint="What a new task's branch starts with, before a / and the task's name. Empty, it is your login. A repository whose config sets a branch_pattern of its own keeps it."
+        >
+            <div className="branch-prefix">
+                <input
+                    type="text"
+                    className="key-input branch-prefix-input"
+                    aria-label="Branch prefix"
+                    placeholder="Your login"
+                    spellCheck={false}
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    value={shown}
+                    onChange={(event) => setTyped(event.target.value)}
+                    onBlur={() => void keep()}
+                    onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                            void keep();
+                        }
+                    }}
+                />
+                <p className="branch-prefix-said" role="status" data-refused={refused}>
+                    {check !== null && "branch" in check ? (
+                        <>
+                            For example <code>{check.branch}</code>
+                        </>
+                    ) : (
+                        check?.problem
+                    )}
+                </p>
+            </div>
+        </Row>
+    );
+}
+
+/**
+ * How often a conversation says that Claude Code warns of a usage limit. With the usage
+ * figures, where someone looking for less of them would look.
+ */
+function UsageWarnings({ settings }: { settings: Settings }) {
+    const change = useStore((state) => state.changeSettings);
+    return (
+        <section className="settings-group" aria-label="Claude Code's usage limits">
+            <h3>Claude Code's usage limits</h3>
+            <Row
+                label="Usage warnings"
+                hint="When a conversation says that Claude Code warns of its 5-hour or weekly limit: at each warning, which it gives from about half; only from 75% used; or never. A limit reached, and work that goes on with extra usage, are always said, and the coins at the top of a session always show how much is used."
+            >
+                <Picker
+                    label="Usage warnings"
+                    value={settings.limit_warnings}
+                    onChange={(value) =>
+                        void change(api, { limit_warnings: value as LimitWarnings })
+                    }
+                    options={LIMIT_WARNINGS}
                 />
             </Row>
         </section>

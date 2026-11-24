@@ -286,6 +286,23 @@ export type Layout = "classic" | "senior" | "custom";
 /** Colours of one form of the app, by the stylesheet's names for them, each `#rrggbb`. */
 export type LayoutColours = Record<string, string>;
 
+/** The levels of the sidebar a custom layout can set apart, by the core's names for them. */
+export type SidebarLevelName = "repository" | "task" | "session" | "sub_agent";
+
+/** A sidebar level's text colour and the background of its rows in one form, each `#rrggbb`. */
+export interface LevelColours {
+    colour?: string;
+    background?: string;
+}
+
+/** How one level of the sidebar is drawn: its text size in pixels, its weight and colours. */
+export interface SidebarLevel {
+    size?: number;
+    weight?: number;
+    dark?: LevelColours;
+    light?: LevelColours;
+}
+
 /**
  * A layout of the user's own, as the core checked it: whatever it leaves out is drawn as in
  * the layout it starts from. Sizes are in pixels, the rest in percent of the classic layout's.
@@ -300,6 +317,7 @@ export interface CustomLayout {
     control_height?: number;
     font?: string;
     mono_font?: string;
+    sidebar?: Partial<Record<SidebarLevelName, SidebarLevel>>;
     dark?: LayoutColours;
     light?: LayoutColours;
 }
@@ -346,6 +364,12 @@ export type StatusItem =
  */
 export type ToolCalls = "all" | "folded" | "hidden";
 
+/**
+ * What a conversation says when Claude Code warns that a usage window fills up: each warning,
+ * only those from 75% used, or none. A limit reached, and work that goes on billed, always show.
+ */
+export type LimitWarnings = "frequent" | "rare" | "none";
+
 /** The user's own preferences. */
 export interface Settings {
     /** The command that opens a folder in the user's code editor. */
@@ -369,6 +393,8 @@ export interface Settings {
     html_views: boolean;
     /** How the agents' tool calls show in a conversation. */
     tool_calls: ToolCalls;
+    /** What a conversation says when Claude Code warns that a usage window fills up. */
+    limit_warnings: LimitWarnings;
     /** Whether the system notifies when a session needs you, finishes or fails out of sight. */
     notifications: boolean;
     /** The built-in pieces of the status line under the message box, in order. */
@@ -379,6 +405,12 @@ export interface Settings {
     rules: string;
     /** How Swarmed gets its new versions. */
     updates: UpdateMode;
+    /**
+     * What a new task's branch starts with, joined to the task's name by one `/`, where the
+     * repository keeps the default pattern. Kept without slashes at its ends; empty for the
+     * user's login.
+     */
+    branch_prefix: string;
 }
 
 /**
@@ -513,6 +545,40 @@ export interface Usage {
     sessions: ({ session_id: number; title: string } & ProcessUsage)[];
 }
 
+/**
+ * A kind of thing a clean-up deletes: removed tasks' worktrees not deleted yet, branches of
+ * removed tasks, stale worktrees, and snapshots.
+ */
+export type CleanupKind = "removed" | "branches" | "stale" | "snapshots";
+
+/** One thing a clean-up can delete, as the core lists it. */
+export interface CleanupItem {
+    /** What names it to `cleanupClean`: unique within its kind. */
+    key: string;
+    project: string;
+    /** What it is: a folder's path, a branch, or an environment. */
+    name: string;
+    /** The task it was, or for a snapshot the task it was taken from, where known. */
+    task: string | null;
+    /** Why it is there, or what deleting it would lose, in words. */
+    reason: string;
+    /** What it takes up on disk; `null` when it is not on disk or could not be measured. */
+    bytes: number | null;
+    /** Since when it is there, in seconds since 1970, where known. */
+    since: number | null;
+    /** Whether deleting it would lose work found nowhere else: then it goes only when ticked. */
+    at_risk: boolean;
+}
+
+/** What can be cleaned up, kind by kind. */
+export type Cleanup = Record<CleanupKind, CleanupItem[]>;
+
+/** What a clean-up did: the keys it deleted, and what it did not, with why. */
+export interface Cleaned {
+    deleted: string[];
+    kept: { key: string; name: string; reason: string }[];
+}
+
 /** An agent that can be set up from the settings, and how far along it is. */
 export interface AgentSetup {
     id: string;
@@ -558,6 +624,48 @@ export interface UsageLimit {
     resets_at: string | null;
     /** `normal`, or Claude Code's word for nearer. */
     severity: string;
+}
+
+/** One of the plan's usage windows, as the newest report any Claude Code session heard gave it. */
+export interface UsageWindow {
+    /**
+     * What tells it apart, as Claude Code's report after a turn names it: `five_hour`,
+     * `seven_day`, `seven_day_overage_included`, or `seven_day_` and a model.
+     */
+    kind: string;
+    /** What it is called here, such as `5-hour` or `weekly Fable`. */
+    name: string;
+    /** How much of it is used, from 0 to 1. */
+    used: number;
+    /** When it resets, in seconds since 1970, if said. */
+    resets_at: number | null;
+    /** `allowed`, or Claude Code's word for how near it is or what stops the next request. */
+    status: string;
+    /** When Swarmed heard it, in seconds since 1970. */
+    heard_at: number;
+    /** Whether it came from an answer to asking, and not from a report after a turn. */
+    asked: boolean;
+}
+
+/** What extra usage stood at when Claude Code was last asked, in minor units of `currency`. */
+export interface ExtraUsageHeard {
+    enabled: boolean;
+    used: number;
+    limit: number | null;
+    currency: string;
+    decimals: number;
+    limit_reached: boolean;
+    /** When Swarmed heard it, in seconds since 1970. */
+    heard_at: number;
+}
+
+/** The account's usage as any Claude Code session last heard it, which every session shows. */
+export interface AccountUsage {
+    /** Every window heard of, each with its newest figure, by kind. */
+    windows: UsageWindow[];
+    extra: ExtraUsageHeard | null;
+    /** What the newest report after a turn said of extra usage paying for the turn. */
+    billed: { on: boolean; resets_at: number | null; heard_at: number } | null;
 }
 
 /** One part of what fills an agent's context window. */
@@ -648,7 +756,10 @@ export type AgentEvent =
     | { type: "config_proposed"; request_id: string; title: string; detail: string }
     /** The user answered a proposed change. */
     | { type: "config_answered"; request_id: string; accepted: boolean }
-    /** Swarmed's configuration was changed from a session: what was read of it is out of date. */
+    /**
+     * Swarmed's configuration was changed, from a session or, with session id 0 and the kind
+     * `file`, in one of its files on disk: what was read of it is out of date.
+     */
     | { type: "config_changed"; kind: string }
     /** The session got a mark, or lost the one it had when `colour` is `null`. */
     | { type: "marked"; colour: MarkColour | null; label: string }
@@ -661,6 +772,17 @@ export type AgentEvent =
      * session: it comes with session id 0, and the tree is read again.
      */
     | { type: "reordered"; kind: string }
+    /**
+     * Another Swarmed process on the same data, such as the command line, changed repositories,
+     * tasks or sessions, or started or stopped a stack. It belongs to no session: it comes with
+     * session id 0, and the tree is read again.
+     */
+    | { type: "tree_changed" }
+    /**
+     * What a Claude Code session heard changed the account's usage. It belongs to no session:
+     * it comes with session id 0, and every session shows it.
+     */
+    | { type: "account_usage"; usage: AccountUsage }
     /** What stands before this is a copy of what was said in the session forked from. */
     | { type: "forked"; from: number }
     /** HTML the agent showed through Swarmed's own tool, handed over by the tool itself. */
@@ -724,6 +846,16 @@ export type AgentEvent =
           tool_use_id: string | null;
           /** Where a command's output is written, if the agent said. */
           output_file: string | null;
+          /**
+           * Set when it ran in the foreground first, its call waiting on it, and was then moved
+           * to the background. Absent otherwise.
+           */
+          moved?: boolean;
+          /**
+           * Set when the agent offers no way to stop it, such as a shell OpenCode left running.
+           * Absent otherwise. The Background list reads `BackgroundTask.stoppable` instead.
+           */
+          unstoppable?: boolean;
       }
     /** One of the agent's own screens, such as `/usage`, with the contents the agent gave. */
     | { type: "screen"; command: string; title: string; note: string; sections: ScreenSection[] }
@@ -768,6 +900,8 @@ export interface BackgroundTask {
     tool_use_id: string | null;
     /** Whether what it printed can be read, with `sessionBackgroundOutput`. */
     output: boolean;
+    /** Whether it can be stopped: not what its agent offers no way to stop, such as an OpenCode shell. */
+    stoppable: boolean;
 }
 
 /** What a command an agent left running printed, or the part of it read this time. */
@@ -847,6 +981,11 @@ export interface AgentInfo {
      * next step, without stopping it: Claude Code's way.
      */
     hears_mid_turn: boolean;
+    /**
+     * Whether a command or sub-agent that a tool call waits on can be sent to the background,
+     * so that the call returns and the turn goes on: Claude Code's Ctrl+B.
+     */
+    sends_to_background: boolean;
 }
 
 /** How a new session should run. */

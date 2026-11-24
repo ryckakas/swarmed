@@ -143,4 +143,23 @@ describe("a sub-agent in the background", () => {
         const ended = [...events, report("a", "completed", "Found two things.")];
         expect(answerOfSubAgent(ended, "a")).toBe("Found two things.");
     });
+
+    it("can be one that worked in the foreground first and was sent there", () => {
+        const waited = [start("a", "review"), said("a", "Reading.")];
+        const moved: AgentEvent = {
+            type: "background",
+            task_id: "task-a",
+            description: "review",
+            kind: "local_agent",
+            state: "running",
+            summary: null,
+            tool_use_id: "a",
+            output_file: null,
+            moved: true,
+        };
+        // Its call returns as it moves, and the turn goes on and ends: it works on.
+        const events = [...waited, moved, result("a", "Sent to the background."), done];
+        expect(listedUnder(subAgentsIn(events), "idle").map((one) => one.id)).toEqual(["a"]);
+        expect(atWorkIn([...events, report("a", "completed", "Found it.")])).toEqual([]);
+    });
 });
