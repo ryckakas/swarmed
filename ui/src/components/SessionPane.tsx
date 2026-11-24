@@ -17,6 +17,7 @@ import { Picker } from "./Picker";
 import { ProviderMark } from "./ProviderMark";
 import { RemoteButton } from "./RemoteButton";
 import { SessionTitle } from "./SessionTitle";
+import { SetupPanel } from "./SetupPanel";
 import { StatusLine } from "./StatusLine";
 import { Egg, StatusMark, useStatusLabel } from "./StatusMark";
 import { SubAgentPane } from "./SubAgentPane";
@@ -121,6 +122,7 @@ export function SessionPane() {
                     <CloneTo session={session} />
                 </div>
             </header>
+            <SetupPanel project={home.project.name} task={home.task} />
             {events === undefined && <p className="aside loading">{words.loadingConversation}</p>}
             {events?.length === 0 && <Facts session={session} task={home.task} />}
             {events !== undefined && events.length > 0 && (

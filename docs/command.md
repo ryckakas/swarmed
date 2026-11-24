@@ -31,6 +31,12 @@ swarmed task rm shop fix-login                        # teardown hook, worktree 
 no longer knows; `--force` removes it anyway. A failing `teardown` does not stop it: what it had
 to pass over is printed.
 
+`task new --prompt "…"` starts the task's first session with it, as the app does: the session
+is made at once, the prompt waits while `setup` runs, and goes once it succeeds, after which the
+turn is shown as `session run` shows it (`--agent` and `--model` choose the session's). A setup
+that fails leaves the prompt waiting: `task setup` runs setup again and then sends it,
+`task start-anyway` sends it now, and `task setup-log` prints what the last setup printed.
+
 A chat, a session with no repository, is a task of the project `.chats`, which no repository can
 be called. It has an empty folder of its own and no branch; the chats appear in `project list`
 once the first is made. `task rm` refuses while its folder holds anything, unless `--force`.

@@ -163,7 +163,7 @@ async fn what_only_a_repository_has_is_refused_for_a_chat() {
         core.stack_stop(CHATS, "question", &hooks::discard).await
     ));
     assert!(no_repository(
-        core.task_setup(CHATS, "question", &hooks::discard)
+        core.task_setup(CHATS, "question", None, &hooks::discard)
             .await
             .map(drop)
     ));

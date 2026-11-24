@@ -452,7 +452,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   stopped, and renames the session as another Swarmed would for `elsewhere: <title>`, saying
   only `tree_changed`; one sample session has 2,000 messages for checking scroll speed.
   Removing the sample task `invoice-export` is refused over unsaved work, and `shop-142` over
-  a session another Swarmed runs. The README's
+  a session another Swarmed runs. A new task's setup is quick in storefront, takes half a
+  minute in bonsai-lint, and in fsum is killed the first time and succeeds when run again
+  (`mockSetups.ts`). The README's
   screenshot and GIF are of this sample data, never of anyone's real projects.
 - **MCP servers are one pool for every agent** (`mcp_pool.rs`). When a session starts, each
   agent's servers are read from its own configuration (`mcp.rs` and `mcp_plugins.rs` for
@@ -1036,6 +1038,31 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   stop that came after the hook had ended leaves the hook's own end standing
   (`Setup::interrupted`). The setups are this process's own: a removal from another Swarmed
   finds the hook among what runs in the worktree, as before.
+- **A setup says how it goes, and the user can act on it** (`setups.rs`, #359). On the
+  registry above:
+  - **Progress is published, never stored:** `Setup::say` writes each line to
+    `run/setups/<task>.log` (0600, begun anew by each setup, deleted with the task) and keeps it
+    for the next report; a reporter task publishes `AgentEvent::Setup` on session id 0 every
+    `REPORT_EVERY`, and a step change (`SetupStep`) or the end (`SetupEnd`, the failure in words
+    from `failure_said`) at once. Each report says where in the log its output lies (`from`,
+    `to`), and `task_setup_log` reads only what was published for a setup under way, so the UI
+    puts the log and the reports together without twice (`readFrom`, `heard` in `setup.ts`).
+  - **Who sets it up is a lock** (`run/setups/<task>.lock`, held while it runs): the overview's
+    `setting_up` says `here`, `elsewhere`, or `interrupted` for a `pending` task nobody holds.
+  - **`max_setups`** (config or environment, 0 or unset: none) holds a setup at `Waiting` until
+    fewer of the project's hooks run here (`setup_place`, woken by `places`). Counted in this
+    process only.
+  - **The user stops one** with `task_setup_stop` (`SetupStop::User`, the task left `failed`).
+- **A task started from a prompt has its session before its setup** (`starting.rs`,
+  `Core::task_start`, which takes `&Arc<Self>` and spawns the setup). The session is made when
+  the task is written down, its prompt queued (`keep_for_setup`) and kept in
+  `sessions.setup_prompt` until it goes, so a restart loses nothing (`queue_kept_again` puts it
+  back on reading the queue). While the task is set up its sessions' queues send nothing by
+  themselves (`held_for_setup`, `send_next_by_itself`); a setup that finishes well with an
+  `Auth` sends them (`send_waiting`); one that does not leaves them, for `task_setup` with an
+  `Auth` or `task_start_anyway`. The UI queues what is typed in such a session (`standing`).
+  The new-task view only names the task and shows fetching and making the worktree
+  (`creating` in the store, by repository); the session's `SetupPanel` shows the rest.
 - **Opening things elsewhere** (`open.rs`) starts the user's editor (`settings.toml`, VS Code by
   default) or the browser and never waits for them.
 - **A hook's command takes each value as one word** (`Vars::render_for_shell`): a value with

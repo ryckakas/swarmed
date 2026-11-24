@@ -30,10 +30,12 @@ import type {
     Session,
     SessionEvent,
     Settings,
+    SetupLog,
     Skill,
     SlashCommand,
     Task,
     TaskNaming,
+    TaskStarted,
     Template,
     TerminalOpened,
     TerminalOutput,
@@ -95,6 +97,12 @@ export const tauriApi: Api = {
         invoke<TaskNaming | null>("task_name_for", { project, prompt }),
     taskNew: (project, name, branch, environment) =>
         invoke<Task>("task_new", { project, name, branch, environment }),
+    taskStart: (project, name, { setup: { agent, ...how }, ...start }) =>
+        invoke<TaskStarted>("task_start", { project, name, start: { ...start, agent, how } }),
+    taskSetup: (project, name) => invoke<Task>("task_setup", { project, name }),
+    taskSetupStop: (project, name) => invoke<void>("task_setup_stop", { project, name }),
+    taskStartAnyway: (project, name) => invoke<number[]>("task_start_anyway", { project, name }),
+    taskSetupLog: (project, name) => invoke<SetupLog>("task_setup_log", { project, name }),
     cloudDelegate: (project, prompt, task, provider) =>
         invoke<CloudTask>("cloud_delegate", { project, prompt, task, provider }),
     cloudDelegateConversation: (id, instruction, provider) =>

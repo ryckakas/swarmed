@@ -116,6 +116,12 @@ pub enum Error {
     /// The task's `setup` runs already.
     #[error("the setup of `{0}` is running already")]
     SetupRunning(String),
+    /// The task's `setup` runs in another Swarmed process, which alone can stop it.
+    #[error("the setup of `{0}` runs in another Swarmed, which alone can stop it")]
+    SetupRunsElsewhere(String),
+    /// None of the task's sessions keeps a message waiting for its setup.
+    #[error("nothing of `{0}`'s sessions waits for its setup")]
+    NothingWaitsForSetup(String),
     /// As many of the project's stacks run as its config, or the task's environment, allows.
     #[error(
         "`{project}` already has {limit} stack(s) running, which is its `max_stacks`: stop one, or raise the limit in the task's environment or the project's config"

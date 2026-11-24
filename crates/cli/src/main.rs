@@ -6,6 +6,7 @@ mod events;
 mod layout;
 mod limits;
 mod session;
+mod setup;
 mod terminal;
 
 use std::io::Write;
@@ -274,6 +275,17 @@ enum TaskCommand {
         /// Set the task up the project's own way, whatever its default environment.
         #[arg(long)]
         no_environment: bool,
+        /// Start the task's first session with this prompt: the session is made at once, the
+        /// prompt waits for the setup, and goes once it finished well.
+        #[arg(long)]
+        prompt: Option<String>,
+        /// The agent the first session runs on, by its id from `swarmed agents`; defaults to
+        /// Claude Code.
+        #[arg(long, requires = "prompt")]
+        agent: Option<String>,
+        /// The model the first session runs on; defaults to the agent's own default.
+        #[arg(long, requires = "prompt")]
+        model: Option<String>,
     },
     /// Suggest a name for a task that starts with PROMPT, as the app names new tasks.
     Name { project: String, prompt: String },
@@ -284,8 +296,14 @@ enum TaskCommand {
         #[arg(long)]
         all: bool,
     },
-    /// Run the `setup` hook again.
+    /// Run the `setup` hook again. What a session of the task waits to send until it is set
+    /// up goes once it finished well.
     Setup { project: String, name: String },
+    /// Send what a session of the task waits to send until it is set up now, in the worktree
+    /// as it is: for a setup that failed, was stopped or was cut short.
+    StartAnyway { project: String, name: String },
+    /// Print what the task's last setup printed, and how it ended.
+    SetupLog { project: String, name: String },
     /// Run the task's `start` command in the foreground until it ends or is interrupted, the
     /// way the app keeps it running in the background.
     Start { project: String, name: String },
@@ -388,12 +406,12 @@ pub(crate) fn say(line: &str) {
 
 /// Writes a line to stderr, apart from what a command prints: a note on the side, which must
 /// not get into what is piped on. A closed stderr is no reason to fail either.
-fn aside(line: &str) {
+pub(crate) fn aside(line: &str) {
     writeln!(std::io::stderr().lock(), "{line}").ok();
 }
 
 /// Shows hook output, indented so it reads apart from Swarmed's own lines.
-fn hook_line(line: &str) {
+pub(crate) fn hook_line(line: &str) {
     say(&format!("  | {line}"));
 }
 
@@ -440,7 +458,7 @@ async fn main() -> Result<()> {
     done
 }
 
-async fn run(core: &Core, command: Command) -> Result<()> {
+async fn run(core: &Arc<Core>, command: Command) -> Result<()> {
     match command {
         Command::Project(command) => project(core, command).await,
         Command::Task(command) => task(core, command).await,
@@ -754,7 +772,7 @@ fn background(core: &Core, project: &str, name: &str) -> Result<()> {
 /// Waits for what sets a task up. Ctrl-C stops the setup with everything it started, as
 /// quitting the app does, and it then ends as stopped; a second Ctrl-C stops waiting for that.
 /// The setup runs in a process group of its own, which Ctrl-C does not reach by itself.
-async fn setting_up<T>(
+pub(crate) async fn setting_up<T>(
     core: &Core,
     making: impl Future<Output = swarmed_core::Result<T>>,
 ) -> Result<T> {
@@ -808,7 +826,7 @@ async fn stack(core: &Core, project: &str, name: &str) -> Result<()> {
 
 /// What is said of a task just created. Its environment is named, since a task that names none
 /// may still have been set up in the project's default. A chat has no branch to name.
-fn created(task: &Task) -> String {
+pub(crate) fn created(task: &Task) -> String {
     if task.branch.is_empty() {
         return format!(
             "created chat `{}` at {}",
@@ -1102,15 +1120,49 @@ async fn sent_or_switched(core: &Core, command: TaskCommand) -> Result<Option<Ta
     Ok(None)
 }
 
-/// Does a command that `written` or `sent_or_switched` knows, and hands any other back.
+/// Does a command that `written`, `sent_or_switched` or `set_up` knows, and hands any other
+/// back.
 async fn done_first(core: &Core, command: TaskCommand) -> Result<Option<TaskCommand>> {
-    match written(core, command).await? {
-        Some(command) => sent_or_switched(core, command).await,
+    let Some(command) = written(core, command).await? else {
+        return Ok(None);
+    };
+    match sent_or_switched(core, command).await? {
+        Some(command) => set_up(core, command).await,
         None => Ok(None),
     }
 }
 
-async fn task(core: &Core, command: TaskCommand) -> Result<()> {
+/// Does a command about a task's setup, and hands any other back.
+async fn set_up(core: &Core, command: TaskCommand) -> Result<Option<TaskCommand>> {
+    match command {
+        TaskCommand::Setup { project, name } => setup::again(core, &project, &name).await?,
+        TaskCommand::StartAnyway { project, name } => {
+            setup::anyway(core, &project, &name).await?;
+        }
+        TaskCommand::SetupLog { project, name } => setup::log(core, &project, &name)?,
+        other => return Ok(Some(other)),
+    }
+    Ok(None)
+}
+
+/// Makes a task and sets it up; with a prompt, its first session too, whose turn is shown
+/// once the setup finished well.
+async fn new_task(
+    core: &Arc<Core>,
+    (project, name): (&str, &str),
+    options: NewTaskOptions<'_>,
+    prompted: Option<setup::Prompted>,
+) -> Result<()> {
+    if let Some(prompted) = prompted {
+        return setup::start(core, (project, name), options, prompted).await;
+    }
+    let making = core.task_new(project, name, options, &hook_line);
+    let task = setting_up(core, making).await?;
+    say(&created(&task));
+    Ok(())
+}
+
+async fn task(core: &Arc<Core>, command: TaskCommand) -> Result<()> {
     let Some(command) = done_first(core, command).await? else {
         return Ok(());
     };
@@ -1128,6 +1180,9 @@ async fn task(core: &Core, command: TaskCommand) -> Result<()> {
             branch,
             environment,
             no_environment,
+            prompt,
+            agent,
+            model,
         } => {
             // The name is the user's own: one that is taken is refused, not changed.
             let options = NewTaskOptions {
@@ -1135,18 +1190,13 @@ async fn task(core: &Core, command: TaskCommand) -> Result<()> {
                 environment: environment_choice(environment, no_environment),
                 free_name: false,
             };
-            let making = core.task_new(&project, &name, options, &hook_line);
-            let task = setting_up(core, making).await?;
-            say(&created(&task));
+            let prompted = prompt.map(|prompt| setup::Prompted::new(prompt, agent, model));
+            new_task(core, (&project, &name), options, prompted).await?;
         }
         TaskCommand::List { project, all } => {
             core.tasks(&project, all)?
                 .iter()
                 .for_each(|task| say(&task_row(task)));
-        }
-        TaskCommand::Setup { project, name } => {
-            setting_up(core, core.task_setup(&project, &name, &hook_line)).await?;
-            say(&format!("setup finished for `{name}`"));
         }
         TaskCommand::Start { project, name } => stack(core, &project, &name).await?,
         TaskCommand::Rm {
@@ -1179,7 +1229,10 @@ async fn task(core: &Core, command: TaskCommand) -> Result<()> {
         | TaskCommand::PrMessage { .. }
         | TaskCommand::Push { .. }
         | TaskCommand::Switch { .. }
-        | TaskCommand::Move { .. } => {}
+        | TaskCommand::Move { .. }
+        | TaskCommand::Setup { .. }
+        | TaskCommand::StartAnyway { .. }
+        | TaskCommand::SetupLog { .. } => {}
         TaskCommand::Pr {
             project,
             name,

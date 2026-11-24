@@ -29,7 +29,7 @@ import { expandPastes, forgetPastes } from "../pastes";
 import { removedWhileSetUp } from "../removal";
 import { NO_DRAFT } from "../sending";
 import { sentOn } from "../slash";
-import { useStore } from "../store";
+import { hookKey, useStore } from "../store";
 import { taskNameForPrompt, taskNameFrom, uniqueTaskName } from "../tree";
 import { useWords } from "../useWords";
 import type { Words } from "../wording";
@@ -60,7 +60,6 @@ const NEW_BRANCH = "";
  */
 export function NewTask({ projects }: { projects: Project[] }) {
     const draftProject = useStore((state) => state.draftProject);
-    const hookLine = useStore((state) => state.hookLine);
     const words = useStore((state) => wordsFor(state.settings?.style));
     const [chosen, setChosen] = useState<string | null>(null);
     const [branch, setBranch] = useState(NEW_BRANCH);
@@ -85,11 +84,12 @@ export function NewTask({ projects }: { projects: Project[] }) {
     const agents = useAgents();
     // A task starts with a message to its agent: a screen or a setting has no session yet.
     const commands = sentOn(useSlashCommands(null));
-    const [creating, setCreating] = useState<string | null>(null);
 
     // The sidebar's plus on a repository preselects it; otherwise the last choice, or none,
     // for a chat.
     const { repository, home, taken } = newTaskPlace(projects, chosen, draftProject);
+    const { creating, hookLine } = useCreating(home);
+    const noteCreating = useStore((state) => state.noteCreating);
     const says = newTaskSays(words, repository);
     // What was typed for this repository and not sent, apart from every other repository's.
     const { text: prompt, files } = useStore((state) => state.newTaskDrafts[home] ?? NO_DRAFT);
@@ -112,14 +112,14 @@ export function NewTask({ projects }: { projects: Project[] }) {
         if (!canSend) {
             return;
         }
-        setCreating(NAMING);
-        useStore.setState({ hookLine: null });
+        noteCreating(home, NAMING);
         try {
             // A task on a new branch is named for what it is about; one on an existing branch
             // keeps that branch's name.
             const naming = from === null ? await named(home, prompt.trim()) : null;
             const chosen = naming ? uniqueTaskName(naming.name, taken) : name;
-            setCreating(chosen);
+            useStore.getState().forgetHookLine(hookKey(home, chosen));
+            noteCreating(home, chosen);
             const start = {
                 project: home,
                 name: chosen,
@@ -131,15 +131,16 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 files,
             };
             await startTask(start, true);
-            // It is a task now; a creation that failed would have left it to try again.
+            // It is a task now, with the prompt waiting in its session; one that could not be
+            // made leaves the prompt here to try again.
             editNewTaskDraft(start.project, NO_DRAFT);
+            noteCreating(home, null);
             await startVariants(start, variants, taken, { supervision, effort });
             forgetPastes(prompt);
         } catch (error) {
-            // A task whose setup failed still exists; reload so it shows up in the sidebar.
             reportStartFailed(error);
             await useStore.getState().refresh(api);
-            setCreating(null);
+            noteCreating(home, null);
         }
     };
 
@@ -248,6 +249,19 @@ function RepositoryPickers(props: RepositoryPickersProps) {
     );
 }
 
+/**
+ * The task the new-task view of repository `home` is making, if any, and what making it said
+ * last. Kept in the store, by repository: going elsewhere while a task is made and coming back
+ * finds it still being made.
+ */
+function useCreating(home: string): { creating: string | null; hookLine: string | null } {
+    const creating = useStore((state) => state.creating[home]);
+    const hookLine = useStore((state) =>
+        creating === undefined ? undefined : state.hookLines[hookKey(home, creating)],
+    );
+    return { creating: creating ?? null, hookLine: hookLine ?? null };
+}
+
 /** Stands for the task's name while it is still being thought of. */
 const NAMING = "";
 
@@ -288,9 +302,9 @@ interface Start {
 
 /**
  * Sends the same prompt to every other agent chosen, each from the same base in a task of
- * its own, or each in a chat of its own. One that cannot be started is reported; the others
- * carry on. An existing branch can only be checked out once, so there the variants are left
- * out.
+ * its own, or each in a chat of its own: each set up beside the others, and shown in the
+ * sidebar as it is. One that cannot be started is reported; the others carry on. An existing
+ * branch can only be checked out once, so there the variants are left out.
  */
 async function startVariants(
     start: Start,
@@ -322,21 +336,22 @@ function reportStartFailed(error: unknown) {
     }
 }
 
-/** Creates the task and its first session, sends the prompt, and opens it if asked to. */
+/**
+ * Starts the task and its first session, which the core makes at once with the prompt waiting
+ * for the task's setup, and opens it if asked to: the session shows the setup as it goes, and
+ * the prompt goes once it is done. The core may have stepped past a name that is taken, to
+ * `name-2` and so on.
+ */
 async function startTask(start: Start, show: boolean) {
     const { project, name, title, setup, prompt, files } = start;
     const { refresh, open } = useStore.getState();
-    // The core may have stepped past a name that is taken, to `name-2` and so on.
-    const task = await api.taskNew(project, name, start.branch, start.environment);
-    const session = await api.sessionNew(project, task.name, setup);
-    if (title) {
-        await api.sessionRename(session.id, title);
-    }
+    const environment = start.environment;
+    const begun = { branch: start.branch, environment, setup, title, prompt, files };
+    const { session } = await api.taskStart(project, name, begun);
+    await refresh(api);
     if (show) {
-        await refresh(api);
         await open(api, session.id);
     }
-    await api.sessionSend(session.id, prompt, files);
 }
 
 interface VariantsProps {

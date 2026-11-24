@@ -15,10 +15,10 @@ use swarmed_core::{
     AccountUsage, Action, AgentInfo, AgentSetup, ApiKeyInfo, BackgroundOutput, BackgroundTask,
     BranchChoices, Cleaned, Cleanup, CleanupKind, CloudOrigin, CloudProvider, CloudTask, Core,
     Costs, CustomLayout, Environment, EnvironmentChoice, FileChange, FileDiff, FileListing,
-    McpServerInput, McpServerView, NewTaskOptions, Project, ProjectOverview, Pull, PullDraft,
-    QueuedMessage, RemoveOptions, SearchHit, Session, SessionOptions, SessionSettings, Settings,
-    Skill, SlashCommand, Snapshot, Task, TaskNaming, Template, TerminalConfig, TerminalOpened,
-    TurnStats, Unpublished, Usage,
+    FirstSession, McpServerInput, McpServerView, NewTaskOptions, Project, ProjectOverview, Pull,
+    PullDraft, QueuedMessage, RemoveOptions, SearchHit, Session, SessionOptions, SessionSettings,
+    Settings, SetupLog, Skill, SlashCommand, Snapshot, Task, TaskNaming, TaskStarted, Template,
+    TerminalConfig, TerminalOpened, TurnStats, Unpublished, Usage, hooks,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -223,6 +223,103 @@ pub(crate) async fn task_new<R: Runtime>(
     };
     let sink = hook_sink(&app, &project, &name);
     Ok(core.task_new(&project, &name, options, &sink).await?)
+}
+
+/// How a task is started from a prompt, as the new-task view asks for it.
+#[derive(Debug, Deserialize)]
+pub(crate) struct Start {
+    /// An existing branch to check out instead of making one.
+    branch: Option<String>,
+    environment: Option<EnvironmentChoice>,
+    /// The first session's agent; `None` is Claude Code.
+    agent: Option<String>,
+    how: Running,
+    /// The first session's title, if a model named the task.
+    title: Option<String>,
+    prompt: String,
+    #[serde(default)]
+    files: Vec<PathBuf>,
+}
+
+/// Starts a task from a prompt: the task and its first session are made and returned while
+/// the task is set up, with the prompt waiting for the setup, which sends it once it finishes
+/// well. The setup goes on by itself, told as `setup` events.
+#[tauri::command]
+pub(crate) async fn task_start<R: Runtime>(
+    app: AppHandle<R>,
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+    start: Start,
+) -> Command<TaskStarted> {
+    // A name that is taken gives way to the first free one, as with `task_new`.
+    let options = NewTaskOptions {
+        existing_branch: start.branch.as_deref(),
+        environment: start.environment.unwrap_or_default(),
+        free_name: true,
+    };
+    let first = FirstSession {
+        options: SessionOptions {
+            agent: start.agent,
+            title: start.title,
+            model: start.how.model,
+            supervision: start.how.supervision,
+            effort: start.how.effort,
+            fast: start.how.fast,
+        },
+        prompt: start.prompt,
+        files: start.files,
+    };
+    let sink = hook_sink(&app, &project, &name);
+    let starting = core
+        .inner()
+        .task_start(&project, &name, options, first, Auth::default(), &sink);
+    // The setup goes on without anybody waiting for it.
+    let (started, _going) = starting.await?;
+    Ok(started)
+}
+
+/// Runs a task's `setup` again; once it finishes well, what its sessions wait to send goes.
+/// How it goes is told as `setup` events.
+#[tauri::command]
+pub(crate) async fn task_setup(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+) -> Command<Task> {
+    let setting = core.task_setup(&project, &name, Some(Auth::default()), &hooks::discard);
+    Ok(setting.await?)
+}
+
+/// Stops a task's setup, which leaves the task to be set up again.
+#[tauri::command]
+pub(crate) async fn task_setup_stop(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+) -> Command<()> {
+    Ok(core.task_setup_stop(&project, &name).await?)
+}
+
+/// Sends what a task's sessions wait to send until it is set up now, in the worktree as it is.
+/// Async so that it runs on the runtime the core spawns the agents' tasks on.
+#[tauri::command]
+pub(crate) async fn task_start_anyway(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+) -> Command<Vec<i64>> {
+    Ok(core.task_start_anyway(&project, &name, &Auth::default())?)
+}
+
+/// What a task's last setup printed, and how it ended.
+#[tauri::command(async)]
+pub(crate) fn task_setup_log(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+) -> Command<SetupLog> {
+    Ok(core.task_setup_log(&project, &name)?)
 }
 
 #[tauri::command]

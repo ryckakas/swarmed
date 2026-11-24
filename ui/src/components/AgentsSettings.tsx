@@ -2,7 +2,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { api } from "../api";
 import type { AgentSetup } from "../api/types";
 import { iconForAgent } from "../providerIcons";
-import { useStore } from "../store";
+import { hookKey, useStore } from "../store";
 import { useWords } from "../useWords";
 import { capitalized, withArticle } from "../wording";
 import { ProviderMark } from "./ProviderMark";
@@ -68,12 +68,15 @@ function AgentRow({ setup, onChange }: { setup: AgentSetup; onChange(setup: Agen
     // Asked before anything is installed: the command is shown and has to be agreed to.
     const [asking, setAsking] = useState(false);
     const [installing, setInstalling] = useState(false);
-    const printed = useStore((state) => state.hookLine);
+    // An installer's output comes as a hook's does, under no repository and the agent's id.
+    const printedFor = hookKey("", setup.id);
+    const printed = useStore((state) => state.hookLines[printedFor] ?? null);
+    const forgetHookLine = useStore((state) => state.forgetHookLine);
 
     const install = () => {
         setAsking(false);
         setInstalling(true);
-        useStore.setState({ hookLine: null });
+        forgetHookLine(printedFor);
         api.agentInstall(setup.id)
             .then(onChange)
             .catch(report)

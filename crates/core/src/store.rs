@@ -86,6 +86,9 @@ pub struct Task {
     pub slot: u32,
     /// Whether the `setup` hook has run.
     pub setup: SetupStatus,
+    /// Why the task's last setup did not finish well, in words: what it failed of, or what
+    /// stopped it. `None` once one finished well, and before any ended.
+    pub setup_reason: Option<String>,
     /// Whether the task was removed. Archived tasks keep their record but have no worktree.
     pub archived: bool,
     /// The project's environment the task was created in, if it was created in one.
@@ -248,6 +251,12 @@ const MIGRATIONS: &[&str] = &[
     "
     ALTER TABLE tasks ADD COLUMN branch_made INTEGER;
 ",
+    // Why a task's last setup did not finish well, in words; and the message a session was
+    // made with that waits for its task's setup. Kept, so that quitting loses neither.
+    "
+    ALTER TABLE tasks ADD COLUMN setup_reason TEXT;
+    ALTER TABLE sessions ADD COLUMN setup_prompt TEXT;
+",
 ];
 
 /// Stands in [`MIGRATIONS`] for the one change SQL in a transaction cannot make: every
@@ -256,7 +265,8 @@ const MIGRATIONS: &[&str] = &[
 const AUTOINCREMENT_IDS: &str = "-- every table's id becomes AUTOINCREMENT";
 
 const TASK_SELECT: &str = "SELECT id, project_id, name, branch, base_ref, worktree_path, slot, \
-                           setup_status, archived_at IS NOT NULL, environment FROM tasks";
+                           setup_status, archived_at IS NOT NULL, environment, setup_reason \
+                           FROM tasks";
 
 #[derive(Debug)]
 pub(crate) struct Store {
@@ -378,6 +388,7 @@ impl Store {
             worktree_path: new.worktree_path.to_path_buf(),
             slot: new.slot,
             setup: SetupStatus::Pending,
+            setup_reason: None,
             archived: false,
             environment: new.environment.map(String::from),
         })
@@ -456,9 +467,19 @@ impl Store {
     }
 
     pub(crate) fn task_set_setup(&self, task_id: i64, status: SetupStatus) -> Result<()> {
+        self.task_set_setup_said(task_id, status, None)
+    }
+
+    /// Notes how the task's setup came out, and why, in words, if it did not finish well.
+    pub(crate) fn task_set_setup_said(
+        &self,
+        task_id: i64,
+        status: SetupStatus,
+        reason: Option<&str>,
+    ) -> Result<()> {
         self.conn.execute(
-            "UPDATE tasks SET setup_status = ?2 WHERE id = ?1",
-            params![task_id, status.as_str()],
+            "UPDATE tasks SET setup_status = ?2, setup_reason = ?3 WHERE id = ?1",
+            params![task_id, status.as_str(), reason],
         )?;
         Ok(())
     }
@@ -515,6 +536,7 @@ fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
         setup: SetupStatus::parse(&row.get::<_, String>(7)?),
         archived: row.get(8)?,
         environment: row.get(9)?,
+        setup_reason: row.get(10)?,
     })
 }
 

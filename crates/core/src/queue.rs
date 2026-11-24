@@ -11,6 +11,12 @@
 //! sends nothing by itself: a send that would have gone is owed, and goes once the hold is let
 //! go, with whatever text the edit left. An edit box renews its hold; one that went away with
 //! its window lets it lapse, and the owed send goes then.
+//!
+//! The first session of a task started from a prompt is made before the task is set up, with
+//! the prompt waiting in its queue. While a task is set up, its sessions' queues send nothing
+//! by themselves; the setup sends them when it finishes well. That message is also kept in the
+//! database until it goes (`setup_prompt`), and is put back in the queue after a restart: the
+//! queue itself lives in memory.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -69,6 +75,12 @@ pub(crate) struct Queues {
     /// moment it ends. Also held while a turn's end is dealt with and while a message is sent
     /// from the queue at once, so that the two cannot both send one.
     pressing: Mutex<HashSet<i64>>,
+    /// The sessions of each task being set up here, by the task: their queues send nothing by
+    /// themselves until the setup is over.
+    setting_up: Mutex<HashMap<i64, Vec<i64>>>,
+    /// The waiting message of each session that it was made with and waits for its task's
+    /// setup, by its id: kept in the database until it goes.
+    kept: Mutex<HashMap<i64, u64>>,
     ids: AtomicU64,
 }
 
@@ -212,6 +224,57 @@ impl Queues {
         lock(&self.waiting).remove(&session);
         lock(&self.holds).remove(&session);
         lock(&self.owed).remove(&session);
+        lock(&self.kept).remove(&session);
+    }
+
+    /// Holds the queues of `sessions`, those of `task`, while the task is set up.
+    pub(crate) fn hold_for_setup(&self, task: i64, sessions: &[i64]) {
+        lock(&self.setting_up).insert(task, sessions.to_vec());
+    }
+
+    /// Lets go of the queues of `task`'s sessions: its setup is over.
+    pub(crate) fn release_for_setup(&self, task: i64) {
+        lock(&self.setting_up).remove(&task);
+    }
+
+    /// Whether the session's queue waits for its task's setup.
+    pub(crate) fn held_for_setup(&self, session: i64) -> bool {
+        let setting_up = lock(&self.setting_up);
+        setting_up
+            .values()
+            .any(|sessions| sessions.contains(&session))
+    }
+
+    /// The sessions of `task` whose queues wait for its setup.
+    pub(crate) fn held_of(&self, task: i64) -> Vec<i64> {
+        lock(&self.setting_up)
+            .get(&task)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Adds `session` to those of `task` whose queues wait for its setup.
+    fn hold_too(&self, task: i64, session: i64) {
+        lock(&self.setting_up)
+            .entry(task)
+            .or_default()
+            .push(session);
+    }
+
+    /// Notes that message `id` was taken out of the session's queue: `true` if it was the one
+    /// kept for its task's setup, which is no longer kept.
+    fn unkeep(&self, session: i64, id: u64) -> bool {
+        let mut kept = lock(&self.kept);
+        if kept.get(&session) == Some(&id) {
+            kept.remove(&session);
+            return true;
+        }
+        false
+    }
+
+    /// The id of the message the session keeps for its task's setup, if it is in the queue.
+    fn kept_of(&self, session: i64) -> Option<u64> {
+        lock(&self.kept).get(&session).copied()
     }
 }
 
@@ -263,9 +326,21 @@ pub(crate) fn send_next(outbox: &Outbox, session: i64) -> Result<()> {
     let sent = send_text(store, live, with, session, &message.text);
     if sent.is_err() {
         live.queues.put_back(session, message);
+    } else if live.queues.unkeep(session, message.id) {
+        // An error only means the session is gone, and what it kept with it.
+        lock(store).session_keep_setup_prompt(session, None).ok();
     }
     publish(store, live, session)?;
     sent
+}
+
+/// Sends the session's first waiting message, as a turn's end does: not while its task is
+/// set up, which sends it once it is over.
+pub(crate) fn send_next_by_itself(outbox: &Outbox, session: i64) -> Result<()> {
+    if outbox.live.queues.held_for_setup(session) {
+        return Ok(());
+    }
+    send_next(outbox, session)
 }
 
 /// Looks again every [`LOOK_AGAIN`] whether the edit that holds back an owed send is over, for
@@ -298,14 +373,55 @@ fn send_owed(outbox: &Outbox, session: i64) -> Result<()> {
     if busy {
         return Ok(());
     }
-    send_next(outbox, session)
+    send_next_by_itself(outbox, session)
 }
 
 impl Core {
-    /// The messages waiting for the session's agent, in the order they will be sent.
+    /// The messages waiting for the session's agent, in the order they will be sent. The
+    /// message the session was made with and keeps for its task's setup is among them, also
+    /// after a restart.
     pub fn session_queue(&self, id: i64) -> Result<Vec<QueuedMessage>> {
         self.session(id)?;
+        self.queue_kept_again(id)?;
         Ok(self.live.queues.list(id))
+    }
+
+    /// Puts `text`, the message a new session is made with, in its queue to wait for its
+    /// task's setup, and keeps it in the database until it goes.
+    pub(crate) fn keep_for_setup(&self, task: i64, id: i64, text: &str) -> Result<()> {
+        self.store().session_keep_setup_prompt(id, Some(text))?;
+        let message = self.live.queues.message(text);
+        lock(&self.live.queues.kept).insert(id, message.id);
+        lock(&self.live.queues.waiting)
+            .entry(id)
+            .or_default()
+            .push(message);
+        self.live.queues.hold_too(task, id);
+        publish(&self.store, &self.live, id)
+    }
+
+    /// Puts the message the session keeps for its task's setup back first in its queue, where
+    /// a restart or closing the session took it out. Not while another Swarmed sets the task
+    /// up: the message waits in that one's queue.
+    pub(crate) fn queue_kept_again(&self, id: i64) -> Result<()> {
+        if self.live.queues.kept_of(id).is_some() {
+            return Ok(());
+        }
+        let Some(text) = self.store().session_setup_prompt(id)? else {
+            return Ok(());
+        };
+        let session = self.session(id)?;
+        let task = self.store().task_by_id(session.task_id)?;
+        if task.is_some_and(|task| self.setup_runs_elsewhere(&task)) {
+            return Ok(());
+        }
+        let message = self.live.queues.message(&text);
+        lock(&self.live.queues.kept).insert(id, message.id);
+        lock(&self.live.queues.waiting)
+            .entry(id)
+            .or_default()
+            .insert(0, message);
+        publish(&self.store, &self.live, id)
     }
 
     /// Adds a message to the end of the session's queue and returns the queue. A command
@@ -334,11 +450,25 @@ impl Core {
         let edited = self.may_wait(id, text);
         if edited.is_ok() {
             self.live.queues.edit(id, message, text);
+            self.kept_edited(id, message, text)?;
         }
         self.live.queues.let_go(id, message);
         send_owed(&self.outbox(), id).ok();
         edited?;
         self.queue_changed(id)
+    }
+
+    /// Keeps the database in step with an edit of the message the session keeps for its
+    /// task's setup: its new text, or nothing once it was taken out.
+    fn kept_edited(&self, id: i64, message: u64, text: &str) -> Result<()> {
+        if self.live.queues.kept_of(id) != Some(message) {
+            return Ok(());
+        }
+        if text.trim().is_empty() {
+            self.live.queues.unkeep(id, message);
+            return self.store().session_keep_setup_prompt(id, None);
+        }
+        self.store().session_keep_setup_prompt(id, Some(text))
     }
 
     /// Holds a waiting message while the user edits it, or renews the hold. While the first
@@ -451,9 +581,12 @@ impl Core {
             sent: called.unwrap_or_else(|| taken.text.clone()),
             typed: taken.text.clone(),
         };
+        let kept = self.live.queues.kept_of(id) == Some(taken.id);
         let told = self.live.tell(id, message);
         if told.is_err() {
             self.live.queues.put_back(id, taken);
+        } else if kept && self.live.queues.unkeep(id, taken.id) {
+            self.store().session_keep_setup_prompt(id, None)?;
         }
         publish(&self.store, &self.live, id)?;
         told
@@ -487,6 +620,7 @@ impl Core {
     /// running: a queue can be left standing by an agent that has since been stopped. Must be
     /// called from within a tokio runtime.
     pub fn session_resume_queue(&self, id: i64, auth: Auth) -> Result<()> {
+        self.queue_kept_again(id)?;
         self.session_start(id, auth)?;
         self.session_send_queued(id)
     }

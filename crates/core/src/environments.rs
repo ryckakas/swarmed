@@ -55,6 +55,11 @@ pub struct Environment {
     /// its own, in place of the project's `max_stacks`. `None` leaves the project's.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_stacks: Option<u32>,
+    /// How many of the project's tasks may run their `setup` at once for one of this
+    /// environment's tasks to run its own, in place of the project's `max_setups`; 0 is no
+    /// limit. `None` leaves the project's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_setups: Option<u32>,
 }
 
 impl std::fmt::Debug for Environment {
@@ -69,6 +74,7 @@ impl std::fmt::Debug for Environment {
             .field("ports", &self.ports)
             .field("env", &self.env.keys().collect::<Vec<_>>())
             .field("max_stacks", &self.max_stacks)
+            .field("max_setups", &self.max_setups)
             .finish()
     }
 }
@@ -85,6 +91,9 @@ impl Environment {
         config.env.extend(self.env.clone());
         if let Some(limit) = self.max_stacks {
             config.max_stacks = limit;
+        }
+        if let Some(limit) = self.max_setups {
+            config.max_setups = limit;
         }
         config
     }
@@ -344,6 +353,22 @@ mod tests {
             ..Environment::default()
         };
         assert_eq!(roomy.over(config).max_stacks, 3);
+    }
+
+    #[test]
+    fn an_environments_setup_limit_takes_the_place_of_the_projects_even_as_no_limit() {
+        let config = ProjectConfig {
+            max_setups: 2,
+            ..ProjectConfig::default()
+        };
+        assert_eq!(Environment::default().over(config.clone()).max_setups, 2);
+        let unlimited = Environment {
+            max_setups: Some(0),
+            ..Environment::default()
+        };
+        assert_eq!(unlimited.over(config).max_setups, 0);
+        let plain = toml::to_string(&Environment::default()).expect("writes");
+        assert!(!plain.contains("max_setups"), "{plain}");
     }
 
     #[test]

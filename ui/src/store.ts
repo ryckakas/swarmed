@@ -12,6 +12,7 @@ import type {
     SessionEvent,
     SessionSettings,
     Settings,
+    SetupProgress,
     Template,
     TerminalConfig,
     UpdateState,
@@ -24,6 +25,7 @@ import type { Browsing } from "./recall";
 import { type ReviewComment, withComment } from "./review";
 import { type ScrollSpot, withoutScrolls } from "./scrollSpot";
 import { type Draft, NO_DRAFT, putBack, withDraft } from "./sending";
+import { heard, readFrom, type SetupSeen } from "./setup";
 import { atWork, type SubAgent, subAgentsIn } from "./subagents";
 import {
     applySessionEvent,
@@ -145,8 +147,33 @@ interface State {
      * session shows; `null` until it is read.
      */
     accountUsage: AccountUsage | null;
-    /** The latest line a hook printed while a task is being set up or removed. */
-    hookLine: string | null;
+    /**
+     * The latest line a hook or an installer printed, by what it was printed for
+     * (`hookKey`): a task being made or removed, or an agent being installed. Kept apart, so
+     * that two at once do not share one line.
+     */
+    hookLines: Record<string, string>;
+    /** Forgets the line kept under `key`, for something that starts printing anew. */
+    forgetHookLine(key: string): void;
+    /**
+     * What each task's setup printed and where it stands, by the task's id, as this window
+     * heard it and read it from the setup's log. Kept here, so that opening another session and
+     * coming back loses nothing.
+     */
+    setups: Record<number, SetupSeen>;
+    /** Reads the end of a task's setup log into `setups`; `began` names the run under way, if any. */
+    readSetupLog(
+        api: Api,
+        target: { project: string; task: string; taskId: number },
+        began: number | null,
+    ): Promise<void>;
+    /**
+     * The task each repository's new-task view is making, by the repository's name, until it is
+     * written down and its first session opened: `NAMING` while a model names it.
+     */
+    creating: Record<string, string>;
+    /** Notes the task a repository's new-task view is making, or with `null` that it is made. */
+    noteCreating(project: string, name: string | null): void;
     /** The last thing that went wrong when acting on a session, shown until dismissed. */
     problem: string | null;
     /**
@@ -349,6 +376,7 @@ const NEVER_STORED = new Set<AgentEvent["type"]>([
     "reordered",
     "tree_changed",
     "account_usage",
+    "setup",
 ]);
 
 /**
@@ -513,7 +541,7 @@ async function reporting(action: () => Promise<void>) {
 }
 
 /** `record` without the entries of `ids`; the same object if it had none of them. */
-function without<T>(record: Record<number, T>, ids: number[]): Record<number, T> {
+function without<K extends string | number, T>(record: Record<K, T>, ids: K[]): Record<K, T> {
     if (!ids.some((id) => id in record)) {
         return record;
     }
@@ -525,7 +553,11 @@ function without<T>(record: Record<number, T>, ids: number[]): Record<number, T>
 }
 
 /** `record` with `id` set to `value`, or without `id` for `null`. */
-function withEntry<T>(record: Record<number, T>, id: number, value: T | null): Record<number, T> {
+function withEntry<K extends string | number, T>(
+    record: Record<K, T>,
+    id: K,
+    value: T | null,
+): Record<K, T> {
     return value === null ? without(record, [id]) : { ...record, [id]: value };
 }
 
@@ -564,6 +596,7 @@ function forgotten(state: State, sessionIds: number[], taskIds: number[]): Parti
         terminalCommand: of(state.terminalCommand),
         edits: without(state.edits, taskIds),
         stackChanges: without(state.stackChanges, taskIds),
+        setups: without(state.setups, taskIds),
         commitDrafts: without(state.commitDrafts, taskIds),
         reviews: without(state.reviews, taskIds),
         pulls: without(state.pulls, taskIds),
@@ -746,7 +779,13 @@ export const useStore = create<State>((set, get) => ({
     turnBegan: {},
     backgroundHeard: 0,
     accountUsage: null,
-    hookLine: null,
+    hookLines: {},
+    forgetHookLine: (key) => set((state) => ({ hookLines: without(state.hookLines, [key]) })),
+    setups: {},
+    readSetupLog: (api, target, began) => readSetupLogOf(api, target, began),
+    creating: {},
+    noteCreating: (project, name) =>
+        set((state) => ({ creating: withEntry(state.creating, project, name) })),
     problem: null,
     usageDismissed: readUsageDismissed(),
     dismissUsage: (dismissed) => {
@@ -1077,11 +1116,46 @@ function heardApart(api: Api, event: SessionEvent): boolean {
         void useStore.getState().refresh(api);
     } else if (heard.type === "account_usage") {
         useStore.setState({ accountUsage: heard.usage });
+    } else if (heard.type === "setup") {
+        heardOfSetup(api, heard.progress);
     } else if (heard.type === "config_changed") {
         readConfiguration(api);
         useStore.getState().noteActionsChanged();
     }
     return true;
+}
+
+/** Reads the end of a task's setup log into the store. Not reading it costs nothing. */
+async function readSetupLogOf(
+    api: Api,
+    { project, task, taskId }: { project: string; task: string; taskId: number },
+    began: number | null,
+) {
+    try {
+        const log = await api.taskSetupLog(project, task);
+        useStore.setState((state) => ({
+            setups: { ...state.setups, [taskId]: readFrom(state.setups[taskId], log, began) },
+        }));
+    } catch {
+        // What it printed shows once it is heard of again.
+    }
+}
+
+/**
+ * Keeps what a task's setup said of itself. When a run begins, and once it has ended, the tree
+ * is read again: the task is being set up, or is set up now or failed, and its first message
+ * may have gone.
+ */
+function heardOfSetup(api: Api, progress: SetupProgress) {
+    const before = useStore.getState().setups[progress.task_id];
+    useStore.setState((state) => ({
+        setups: { ...state.setups, [progress.task_id]: heard(before, progress) },
+    }));
+    // A run the tree does not know of yet, such as one asked for from the panel.
+    const begun = before?.began !== progress.began;
+    if (begun || progress.ended !== null) {
+        void useStore.getState().refresh(api);
+    }
 }
 
 /**
@@ -1126,6 +1200,14 @@ export function menuChosen(item: string) {
     } else if (item === "settings") {
         showSettings(true);
     }
+}
+
+/**
+ * What a hook's or an installer's output is kept under: the repository and the task it was
+ * printed for, or for an agent being installed, no repository and the agent's id.
+ */
+export function hookKey(project: string, task: string): string {
+    return `${project}/${task}`;
 }
 
 /** Loads the tree and keeps it in step with the sessions. Returns what stops that again. */
@@ -1180,7 +1262,14 @@ export function connect(api: Api): () => void {
         }),
         api.onNoticeOpened((sessionId) => void useStore.getState().open(api, sessionId)),
         api.onEventsLagged(() => reload()),
-        api.onHookOutput((output) => useStore.setState({ hookLine: output.line })),
+        api.onHookOutput((output) =>
+            useStore.setState((state) => ({
+                hookLines: {
+                    ...state.hookLines,
+                    [hookKey(output.project, output.task)]: output.line,
+                },
+            })),
+        ),
         api.onUpdateState((update) => useStore.setState({ update })),
         api.onMenu(menuChosen),
     ];

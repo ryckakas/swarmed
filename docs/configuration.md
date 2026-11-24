@@ -76,6 +76,7 @@ WEB_PORT = "{{port.web}}"
 | `ports` | none | named base ports |
 | `port_step` | `100` | how far apart two tasks' ports are |
 | `max_stacks` | `5` | how many of the project's stacks may run at once |
+| `max_setups` | no limit | how many of the project's tasks may run `setup` at once; the others wait |
 | `open_url` | the first local address `start` prints | what "Open in browser" opens |
 | `hooks` | none | `setup`, `start`, `stop` and `teardown` commands |
 | `env` | none | environment for the hooks and the task's agents |
@@ -100,7 +101,10 @@ Each hook runs with `sh -c` in the task's worktree, and an empty one is skipped.
 
 1. A new task gets its branch and worktree, then its environment's snapshot, then `setup`. A task
    whose setup failed is kept, and setup can be run again. When `setup` succeeds and the
-   environment has no snapshot yet, the task is kept as its snapshot.
+   environment has no snapshot yet, the task is kept as its snapshot. Started from the
+   new-task view, the task's first session is there at once, with your prompt waiting in its
+   queue until setup succeeds; what you type meanwhile waits behind it. See [While a task is
+   set up](#while-a-task-is-set-up).
 2. When `setup` succeeds, `start` is started and kept running, with its output in a log. Starting
    one stack more than `max_stacks` is refused: the task's environment's, if it sets one.
 3. Stopping a stack runs `stop`, then ends whatever `start` started, including what it started
@@ -138,7 +142,37 @@ branch that gained commits say, is kept and named with why.
 Quitting the app ends its stacks' processes without running `stop`, and stops a `setup` under
 way, which leaves its task as not set up, to run setup again. From the command line,
 `swarmed task new` and `swarmed task setup` end the stack again when they exit, and Ctrl-C
-stops their setup the same way; `swarmed task start` keeps a stack running in the foreground.
+stops their setup the same way, which leaves a prompt waiting; `swarmed task start` keeps a stack running in the foreground.
+
+## While a task is set up
+
+The sidebar shows a task being set up with how long it has run and the last line `setup`
+printed. Its session shows the step it is at (the snapshot put in place, waiting for a place,
+`setup`, the snapshot kept, the stack started), what `setup` prints, and a button to stop it,
+which leaves the task as not set up. That stays as it was when you open another session and come
+back.
+
+What a setup prints is kept in `run/setups/<task id>.log` in the data directory, readable by you
+alone, since a hook may print secrets. Each setup begins it anew, and removing the task deletes
+it. `swarmed task setup-log <project> <task>` prints it.
+
+A setup that does not succeed is said in words: what it exited with, or, for one ended by a
+signal, that something outside it ended it. Signal 9 (SIGKILL) is usually the system ending
+programs for memory, or another Swarmed removing the task. When Swarmed stopped it itself,
+because you stopped it, removed the task or quit, it says so. The session then offers **Run
+setup again**, which sends your prompt once setup succeeds; **Start anyway**, which sends it
+now, in the worktree as it is; **Show log**; and **Remove task**. The prompt stays in the queue,
+and in the database, so quitting meanwhile does not lose it. From the command line, `swarmed
+task setup` runs setup again and `swarmed task start-anyway` sends what waits.
+
+`max_setups` limits how many of a project's tasks run `setup` at once in one Swarmed, to spare
+memory when several heavy setups would run side by side: the others wait for a place and say
+so. An environment may set its own, "Setups at once" in the app; 0 is no limit.
+
+A task whose setup another Swarmed on the same data runs, the command line say, shows as being
+set up there, with its log read every two seconds. One whose Swarmed quit or crashed before its
+setup ended shows as interrupted, to set up again or start anyway: a lock beside the log
+(`run/setups/<task id>.lock`), held while a setup runs, tells the two apart.
 
 ## Variables
 
@@ -167,7 +201,9 @@ An environment is another way of setting a task up in the same project, such as 
 Docker. It can have its own hooks and `open_url`, which take the place of the project's, and
 ports and variables, which are added to the project's in place of any of the same name. Its own
 `max_stacks`, "Stacks at once" in the app, is how many of the project's stacks, in any
-environment, may be running for one of its tasks to start its own. A task
+environment, may be running for one of its tasks to start its own, and its own `max_setups`,
+"Setups at once", how many of the project's setups may run for one of its tasks to run its
+own. A task
 is created in one environment, or none, and keeps it. An environment cannot be removed while a
 task still uses it.
 

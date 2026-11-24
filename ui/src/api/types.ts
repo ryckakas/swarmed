@@ -24,6 +24,11 @@ export interface Session {
     fast: boolean;
     /** The mark an agent or the user put on it, if any. */
     mark: Mark | null;
+    /**
+     * Whether the message it was made with waits for its task's setup: it goes once that
+     * finishes well, or when the user starts it anyway.
+     */
+    waits_for_setup: boolean;
 }
 
 /** The colours a mark can have. Each theme draws its own. */
@@ -47,6 +52,10 @@ export interface Task {
     worktree_path: string;
     slot: number;
     setup: SetupStatus;
+    /** Why its last setup did not finish well, in words; `null` once one did, or before any ended. */
+    setup_reason: string | null;
+    /** How its setup stands while it is not over; `null` once it is, well or not. */
+    setting_up: SettingUp | null;
     archived: boolean;
     sessions: Session[];
     /** Ids of the sessions whose agent is running. */
@@ -63,6 +72,74 @@ export interface Task {
     environment: string | null;
     /** How far along what the task keeps running is; `null` if its project starts nothing. */
     stack: StackState | null;
+}
+
+/**
+ * Where a task's setup is: making the worktree ready (a snapshot put in place), waiting for a
+ * place among the repository's setups (`max_setups`), its `setup` hook, keeping a snapshot of
+ * what it made, starting its stack.
+ */
+export type SetupStep = "preparing" | "waiting" | "hook" | "keeping" | "stack";
+
+/** How a task's setup stands while it is not over. */
+export type SettingUp =
+    /** This Swarmed sets it up. `began` is in milliseconds since 1970. */
+    | { state: "here"; step: SetupStep; began: number; latest: string | null }
+    /** Another Swarmed on the same data sets it up. */
+    | { state: "elsewhere" }
+    /** It never finished, and nothing sets it up: the Swarmed that did ended first. */
+    | { state: "interrupted" };
+
+/** Why a setup was stopped. */
+export type SetupStop = "removed" | "asked" | "user";
+
+/** How a setup ended. */
+export type SetupEnd =
+    | { outcome: "done" }
+    | { outcome: "failed"; reason: string }
+    | { outcome: "stopped"; why: SetupStop; reason: string };
+
+/** What a task's setup has come to, as it goes. */
+export interface SetupProgress {
+    task_id: number;
+    step: SetupStep;
+    /** When this setup began, in milliseconds since 1970: it tells one run from the next. */
+    began: number;
+    /** What it printed since the last report, each line ending in a newline. */
+    output: string;
+    /** Where in its log `output` starts and ends, in bytes. */
+    from: number;
+    to: number;
+    /** How it ended, on its last report. */
+    ended: SetupEnd | null;
+}
+
+/** The end of a task's setup log, from the start of a line. */
+export interface SetupLog {
+    text: string;
+    /** Where in the log `text` ends, in bytes: what is published from there on comes after it. */
+    end: number;
+}
+
+/** A task just started from a prompt, and its first session, whose prompt waits for the setup. */
+export interface TaskStarted {
+    task: Omit<
+        Task,
+        "sessions" | "running" | "url" | "urls" | "has_note" | "closed" | "stack" | "setting_up"
+    >;
+    session: Session;
+}
+
+/** How a task is started from a prompt. */
+export interface TaskStart {
+    /** An existing branch to check out instead of making one. */
+    branch: string | null;
+    environment: EnvironmentChoice;
+    setup: SessionSetup;
+    /** The first session's title, if a model named the task. */
+    title: string | null;
+    prompt: string;
+    files: string[];
 }
 
 /**
@@ -228,6 +305,11 @@ export interface Environment {
      * own. Left out, the project's own `max_stacks`.
      */
     max_stacks?: number;
+    /**
+     * How many of the project's tasks may run their setup at once for one of this environment's
+     * tasks to run its own; 0 is no limit. Left out, the project's own `max_setups`.
+     */
+    max_setups?: number;
 }
 
 /** One file or folder in a folder of a task's worktree. */
@@ -797,6 +879,11 @@ export type AgentEvent =
      * it comes with session id 0, and every session shows it.
      */
     | { type: "account_usage"; usage: AccountUsage }
+    /**
+     * How a task's setup goes: where it is, what it printed, how it ended. It belongs to no
+     * session: it comes with session id 0, and is never stored.
+     */
+    | { type: "setup"; progress: SetupProgress }
     /** What stands before this is a copy of what was said in the session forked from. */
     | { type: "forked"; from: number }
     /** HTML the agent showed through Swarmed's own tool, handed over by the tool itself. */

@@ -34,11 +34,14 @@ import type {
     SessionSettings,
     SessionSetup,
     Settings,
+    SetupLog,
     Skill,
     SlashCommand,
     Snapshot,
     Task,
     TaskNaming,
+    TaskStart,
+    TaskStarted,
     Template,
     TerminalConfig,
     TerminalOpened,
@@ -151,7 +154,7 @@ export interface Api {
     taskNameFor(project: string, prompt: string): Promise<TaskNaming | null>;
     /**
      * Creates a task: a worktree on a new branch, or on `branch` if one is given, then the
-     * project's `setup` hook. This can take a while.
+     * project's `setup` hook. Resolves once it is set up, which can take a while.
      */
     taskNew(
         project: string,
@@ -159,6 +162,28 @@ export interface Api {
         branch: string | null,
         environment: EnvironmentChoice,
     ): Promise<Task>;
+    /**
+     * Starts a task from a prompt: a worktree on a new branch, or on `start.branch`, and its
+     * first session, with the prompt waiting for the task's setup. Resolves once both are
+     * written down, while the task is set up; how the setup goes arrives as `setup` events,
+     * and the prompt goes once it finishes well. A name that is taken gives way to the first
+     * free one, which the task returned has.
+     */
+    taskStart(project: string, name: string, start: TaskStart): Promise<TaskStarted>;
+    /**
+     * Runs a task's setup again; once it finishes well, what its sessions wait to send goes.
+     * Resolves when it is over, and rejects with why it did not finish well.
+     */
+    taskSetup(project: string, name: string): Promise<Task>;
+    /** Stops a task's setup, which leaves the task to be set up again. */
+    taskSetupStop(project: string, name: string): Promise<void>;
+    /**
+     * Sends what a task's sessions wait to send until it is set up now, in the worktree as it
+     * is. Resolves to the sessions it went to.
+     */
+    taskStartAnyway(project: string, name: string): Promise<number[]>;
+    /** The end of what a task's last setup printed, and how it ended. */
+    taskSetupLog(project: string, name: string): Promise<SetupLog>;
     /**
      * Hands a prompt to a cloud agent working on the project's repository, from the branch of
      * `task` if one is named and it has been pushed. Rejects, saying what to do, if the

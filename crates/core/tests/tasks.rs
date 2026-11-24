@@ -128,9 +128,14 @@ STACK = "{{project}}-{{task}}"
         std::fs::read_to_string(task.worktree_path.join("env.out")).expect("test setup"),
         "3100 demo-fix-login\n"
     );
+    // What making the task does, then what its setup printed.
     assert_eq!(
         *lines.lock().expect("test setup"),
-        vec!["hello from setup".to_string()]
+        [
+            "fetching",
+            "making the worktree, on swarm/fix-login",
+            "hello from setup"
+        ]
     );
 
     // A second task gets the next slot and therefore different ports.
@@ -194,7 +199,7 @@ async fn failed_setup_keeps_the_task_and_can_be_retried() {
 
     std::fs::write(task.worktree_path.join("allow-setup"), "").expect("test setup");
     let task = core
-        .task_setup("demo", "one", &hooks::discard)
+        .task_setup("demo", "one", None, &hooks::discard)
         .await
         .expect("test setup");
     assert_eq!(task.setup, SetupStatus::Ok);
@@ -621,7 +626,7 @@ async fn a_setup_stopped_when_swarmed_goes_leaves_the_task_to_be_set_up_again() 
     let (_, task) = core.task("demo", "one").expect("the task stays");
     assert_eq!(task.setup, SetupStatus::Failed);
     // A setup begun after that is stopped before it starts: Swarmed is on its way out.
-    let again = core.task_setup("demo", "one", &hooks::discard).await;
+    let again = core.task_setup("demo", "one", None, &hooks::discard).await;
     assert!(
         matches!(again, Err(Error::SetupStopped { .. })),
         "{again:?}"
@@ -629,7 +634,7 @@ async fn a_setup_stopped_when_swarmed_goes_leaves_the_task_to_be_set_up_again() 
     std::fs::write(worktree.join("done"), "").expect("test setup");
     let core = Core::open(fx.paths.clone()).expect("reopens");
     let task = core
-        .task_setup("demo", "one", &hooks::discard)
+        .task_setup("demo", "one", None, &hooks::discard)
         .await
         .expect("sets up");
     assert_eq!(task.setup, SetupStatus::Ok);
@@ -1535,7 +1540,7 @@ async fn setting_up_again_keeps_a_task_only_if_it_was_never_set_up_well() {
     let fx = fixture_with_deps("test -f allow-setup && mkdir -p deps && echo built > deps/lib.txt");
     let core = core_with_project(&fx).await;
     let kept = || core.snapshots("demo").expect("reads").len();
-    let again = || core.task_setup("demo", "one", &hooks::discard);
+    let again = || core.task_setup("demo", "one", None, &hooks::discard);
 
     let failed = core
         .task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
@@ -2630,7 +2635,6 @@ fn listed(core: &Core) -> (Vec<String>, Vec<String>) {
 async fn repositories_tasks_and_sessions_keep_the_order_they_are_put_in() {
     let fx = fixture();
     let core = core_with_project(&fx).await;
-    let mut bus = core.subscribe();
     // A repository added later goes at the end, whatever its name.
     let other = fx.repo.with_file_name("aardvark");
     std::fs::create_dir(&other).expect("test setup");
@@ -2646,6 +2650,8 @@ async fn repositories_tasks_and_sessions_keep_the_order_they_are_put_in() {
     }
     assert_eq!(listed(&core).0, ["demo", "aardvark"]);
     assert_eq!(listed(&core).1, ["one", "two", "three"]);
+    // After the tasks are made, whose setups are told on the same stream.
+    let mut bus = core.subscribe();
 
     core.project_move("aardvark", -1).expect("moves");
     let heard = bus.try_recv().expect("told");
