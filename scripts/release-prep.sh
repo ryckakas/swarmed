@@ -79,13 +79,19 @@ rewrite CHANGELOG.md -v version="${version}" -v today="$(date -u +%Y-%m-%d)" \
     { print }
 '
 
+# The workspace's version, and the exact one `swarmed` requires of swarmed-core (`=X.Y.Z`): the
+# core makes no promise about its API, so the command builds with its own and no other.
 # shellcheck disable=SC2016
-rewrite Cargo.toml -v old="\"${current}\"" -v new="\"${version}\"" '
+rewrite Cargo.toml -v old="\"${current}\"" -v new="\"${version}\"" \
+    -v pinned="\"=${current}\"" -v repinned="\"=${version}\"" '
     /^\[/ { section = $0 }
     section == "[workspace.package]" && $0 == "version = " old { $0 = "version = " new }
     section == "[workspace.dependencies]" && index($0, "swarmed-core = ") == 1 {
-        at = index($0, "version = " old)
-        if (at) $0 = substr($0, 1, at - 1) "version = " new substr($0, at + length("version = " old))
+        at = index($0, "version = " pinned)
+        if (at) {
+            rest = substr($0, at + length("version = " pinned))
+            $0 = substr($0, 1, at - 1) "version = " repinned rest
+        }
     }
     { print }
 '
@@ -101,8 +107,10 @@ cargo update --workspace --quiet
 for file in Cargo.toml Cargo.lock package.json; do
     grep -q "\"${version}\"" "${file}" || fail "${file} does not name ${version}: check it by hand"
 done
-if grep -q "\"${current}\"" Cargo.toml; then
+if grep -q "\"=\{0,1\}${current}\"" Cargo.toml; then
     fail "Cargo.toml still names ${current}: check it by hand"
 fi
+grep -q "^swarmed-core = .*version = \"=${version}\"" Cargo.toml ||
+    fail "Cargo.toml does not require swarmed-core =${version}: check it by hand"
 
 echo "OK: ${version} prepared (previous release: ${previous:-none})"

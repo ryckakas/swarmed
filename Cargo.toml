@@ -14,7 +14,9 @@ keywords = ["agents", "claude", "git-worktree", "orchestrator"]
 categories = ["development-tools"]
 
 [workspace.dependencies]
-swarmed-core = { path = "crates/core", version = "0.4.0" }
+# Exactly this version: swarmed-core makes no promise about its API, so a `swarmed` from crates.io
+# must build with the core it was released with and no other. release-prep.sh moves it.
+swarmed-core = { path = "crates/core", version = "=0.4.0" }
 anyhow = "1.0.104"
 mac-notification-sys = "0.6.15"
 mac-usernotifications = "0.3.1"

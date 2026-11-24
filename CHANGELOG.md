@@ -5,8 +5,9 @@
 Notable changes per release, in the format of [Keep a Changelog](https://keepachangelog.com).
 This project follows [Semantic Versioning](https://semver.org). While it is pre-1.0, a
 backwards-compatible change is a patch bump (0.1.0 → 0.1.1), and a change that breaks a `swarmed`
-command, a file in the data directory or `swarmed-core`'s public API moves to the next minor
-(0.1.x → 0.2.0).
+command or a file in the data directory moves to the next minor (0.1.x → 0.2.0). `swarmed-core`
+is published only for the `swarmed` command, which requires the one of its own version exactly,
+and makes no promise about its API: any release may change it.
 
 The release workflow publishes the section matching a tag as that release's notes, so an entry
 here is what a user reads on the GitHub release page. Each pull request with a change a user would
@@ -95,6 +96,11 @@ notice adds its line under Unreleased.
 
 ### Changed
 
+- **`swarmed-core` makes no promise about its API.** It is published so that `swarmed` can be
+  installed from crates.io, and each `swarmed` now requires the `swarmed-core` of its own
+  version exactly. A release changes its version by what it does to the `swarmed` command and
+  the data directory alone, so a patch can change the core's API, as this one does: code of
+  your own on `swarmed-core` should require one version exactly.
 - **A conversation says what its agent loaded once, and ends only turns that showed something.**
   Claude Code says which model, sign-in, MCP servers and skills it has at the start of every
   turn, and each one drew the same line again; now only the first is drawn, at the top, and
