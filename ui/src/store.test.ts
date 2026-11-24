@@ -435,6 +435,36 @@ describe("unsent messages", () => {
         expect(useStore.getState().recalls).toEqual({});
     });
 
+    it("keep where each transcript was left, and go with the session, sub-agents' too", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        useStore.setState({ scrolls: {} });
+        for (const id of [3, 4, 5]) {
+            await useStore.getState().open(api, id);
+        }
+        const up = { following: false as const, key: 12, offset: 40 };
+        const { keepScroll } = useStore.getState();
+        keepScroll(3, "3", up);
+        keepScroll(4, "4", up);
+        keepScroll(4, "4/toolu_01", { following: true });
+        keepScroll(5, "5", up);
+        // A transcript whose session is not open, or not there, keeps nothing.
+        keepScroll(999, "999", up);
+        expect(Object.keys(useStore.getState().scrolls).sort()).toEqual([
+            "3",
+            "4",
+            "4/toolu_01",
+            "5",
+        ]);
+        await useStore.getState().deleteSession(api, 4);
+        expect(Object.keys(useStore.getState().scrolls).sort()).toEqual(["3", "5"]);
+        await useStore.getState().close(api, 5);
+        expect(Object.keys(useStore.getState().scrolls)).toEqual(["3"]);
+        // Its transcript goes after a closed session: what it would keep then is not kept.
+        keepScroll(5, "5", up);
+        expect(Object.keys(useStore.getState().scrolls)).toEqual(["3"]);
+    });
+
     it("are kept per repository in the new-task box, and go with a removed repository", async () => {
         const api = createMockApi();
         await useStore.getState().refresh(api);

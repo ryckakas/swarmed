@@ -21,6 +21,7 @@ import type { Comparison } from "./components/CompareDialog";
 import { type Dismissed, readDismissed } from "./rateLimit";
 import type { Browsing } from "./recall";
 import { type ReviewComment, withComment } from "./review";
+import { type ScrollSpot, withoutScrolls } from "./scrollSpot";
 import { type Draft, NO_DRAFT, putBack, withDraft } from "./sending";
 import { atWork, type SubAgent, subAgentsIn } from "./subagents";
 import {
@@ -95,6 +96,13 @@ interface State {
     recalls: Record<number, Browsing>;
     /** Notes where going through the messages sent stands in session `sessionId`, or that it ended. */
     noteRecall(sessionId: number, browsing: Browsing | null): void;
+    /**
+     * Where each transcript was left, by `scrollKey`: a session's, and a sub-agent's under its
+     * session. In memory only, and forgotten with the session, as its draft is.
+     */
+    scrolls: Record<string, ScrollSpot>;
+    /** Keeps where a transcript was left, if its session is still there to come back to. */
+    keepScroll(sessionId: number, key: string, spot: ScrollSpot): void;
     /** What the new-task box holds and has not sent, per repository by its name; in memory too. */
     newTaskDrafts: Record<string, Draft>;
     /** Changes what the new-task box holds for repository `project`. */
@@ -550,6 +558,7 @@ function forgotten(state: State, sessionIds: number[], taskIds: number[]): Parti
         queues: without(state.queues, sessionIds),
         drafts: without(state.drafts, sessionIds),
         recalls: without(state.recalls, sessionIds),
+        scrolls: withoutScrolls(state.scrolls, sessionIds),
         subView: of(state.subView),
         terminalCommand: of(state.terminalCommand),
         edits: without(state.edits, taskIds),
@@ -592,6 +601,7 @@ function closed(state: State, sessionId: number): Partial<State> {
         // Put away, it cannot be written to; and its task can go while it is put away.
         drafts: without(state.drafts, [sessionId]),
         recalls: without(state.recalls, [sessionId]),
+        scrolls: withoutScrolls(state.scrolls, [sessionId]),
     };
 }
 
@@ -606,6 +616,21 @@ function readAgain(state: State, projects: Project[]): Partial<State> {
         foldedTasks: stillFolded(state.foldedTasks, projects),
         ...(gone ? leaving(state, [selected]) : {}),
     };
+}
+
+/**
+ * What keeping a transcript's spot changes: its spot kept, unless its session is gone. A
+ * transcript goes after its session when that is closed or forgotten, and its spot would
+ * outlive it.
+ */
+function keptScroll(
+    state: State,
+    sessionId: number,
+    key: string,
+    spot: ScrollSpot,
+): Partial<State> {
+    const there = state.events[sessionId] !== undefined && findSession(state.projects, sessionId);
+    return there ? { scrolls: { ...state.scrolls, [key]: spot } } : {};
 }
 
 /** `recalls` with session `sessionId`'s set to `browsing`, or dropped when that is `null`. */
@@ -696,6 +721,8 @@ export const useStore = create<State>((set, get) => ({
     recalls: {},
     noteRecall: (sessionId, browsing) =>
         set((state) => ({ recalls: withRecall(state.recalls, sessionId, browsing) })),
+    scrolls: {},
+    keepScroll: (sessionId, key, spot) => set((state) => keptScroll(state, sessionId, key, spot)),
     newTaskDrafts: {},
     editNewTaskDraft: (project, change) =>
         set((state) => ({ newTaskDrafts: withDraft(state.newTaskDrafts, project, change) })),

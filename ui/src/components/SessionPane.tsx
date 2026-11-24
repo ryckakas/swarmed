@@ -2,6 +2,7 @@ import { forkSession } from "../actions";
 import type { AgentEvent, Session, Task } from "../api/types";
 import { isSwarm } from "../appearance";
 import { agentName, iconForAgent } from "../providerIcons";
+import { scrollKey } from "../scrollSpot";
 import { useStore } from "../store";
 import { findSession, findSessionHome } from "../tree";
 import { useWords } from "../useWords";
@@ -134,6 +135,7 @@ export function SessionPane() {
                 <Transcript
                     key={`transcript-${session.id}`}
                     sessionId={session.id}
+                    place={scrollKey(session.id)}
                     events={events}
                     working={session.status === "working"}
                     sendsToBackground={sendsToBackground}

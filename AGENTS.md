@@ -744,6 +744,12 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   goes when another session is opened, and never on disk. A failed send puts it back into its
   own session's draft, wherever the user is by then. A draft goes with its session when that is
   closed or forgotten, and with its repository.
+- **Where a transcript was left is kept by row, not by pixel** (`scrollSpot.ts`,
+  `useScrollSpot.ts`, `scrolls` in the store). Rows out of view have only an estimated
+  height, so a `scrollTop` would land elsewhere: the spot is the item at the top of the view
+  (`data-key`) and how far down it the view was, put back once that row is measured, or
+  following at the bottom. It is kept per session and per sub-agent when the transcript goes,
+  in memory only, and forgotten with the session as its draft is.
 - **The message box handles a few keys itself** (`ui/src/editing.ts`): Home and End move within
   the line, and ⌘⌫ at the very start empties the box. ↑ at the very start and ↓ at the very end
   go through what was sent to the session (`ui/src/recall.ts`): its `user_message` events as

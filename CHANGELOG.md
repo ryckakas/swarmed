@@ -16,6 +16,14 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **Each session keeps its place, and a button takes you back to the latest message.** Scroll
+  up in a session, open another and come back: it is where you left it, on the same message,
+  and it stays there as new ones arrive. One you left at the bottom comes back at the bottom,
+  with what arrived meanwhile, and keeps following; so does a sub-agent's conversation. While a
+  conversation is scrolled up, a round button with a downward arrow shows over its bottom edge,
+  above the message box and any waiting messages, when the pointer is over it or it has the
+  keyboard: press it to go to the latest message and follow again. Places are not kept after
+  Swarmed quits.
 - **`swarmed events` prints what happens in every session as it happens**, whichever Swarmed
   does it: the app, another command or this one. Ctrl-C ends it.
 - **`swarmed limits` prints your account's usage limits and extra usage** as Claude Code last

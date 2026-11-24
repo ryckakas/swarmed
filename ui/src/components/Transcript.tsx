@@ -1,4 +1,4 @@
-import { memo, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useMemo, useRef, useState } from "react";
 import { forkFromMessage } from "../actions";
 import { api } from "../api";
 import type { AgentEvent } from "../api/types";
@@ -19,6 +19,7 @@ import {
 import { findSession, findSessionHome } from "../tree";
 import { formatDuration } from "../turns";
 import { useRoll } from "../useRoll";
+import { useScrollSpot } from "../useScrollSpot";
 import { useWords } from "../useWords";
 import type { Words } from "../wording";
 import { activityWords, pickWord, wordsFor } from "../wording";
@@ -31,11 +32,10 @@ import { QuestionPrompt } from "./QuestionPrompt";
 import { Spawning, Swarming } from "./Spawning";
 import { ToolCall, ToolRun } from "./ToolCall";
 
-/** How close to the bottom, in pixels, still counts as "following the conversation". */
-const FOLLOW_DISTANCE = 80;
-
 interface Props {
     sessionId: number;
+    /** What its scroll position is kept under (`scrollKey`): the session's, or a sub-agent's. */
+    place: string;
     events: AgentEvent[];
     /** Whether the agent is busy on a turn; the transcript then ends with what it is doing. */
     working: boolean;
@@ -46,7 +46,7 @@ interface Props {
     sendsToBackground: boolean;
 }
 
-export function Transcript({ sessionId, events, working, sendsToBackground }: Props) {
+export function Transcript({ sessionId, place, events, working, sendsToBackground }: Props) {
     const words = useWords();
     const toolCalls = useStore((state) => state.settings?.tool_calls ?? "folded");
     const turnEnds = useStore((state) => state.settings?.turn_end_lines ?? true);
@@ -57,67 +57,61 @@ export function Transcript({ sessionId, events, working, sendsToBackground }: Pr
     const lastMove = useMemo(() => latestMove(items), [items]);
     const sendsFrom = working && sendsToBackground ? sessionId : null;
     const scroller = useRef<HTMLDivElement>(null);
-    // Each session gets its own Transcript (keyed by the caller), so this starts out true.
-    const following = useRef(true);
-    const knownHeight = useRef(0);
-
-    // Keep the latest message in view, unless the user scrolled up to read something. Rows
-    // out of view have only an estimated height, so the list also grows as they are measured:
-    // watching its size keeps the view pinned through that too.
-    useLayoutEffect(() => {
-        const element = scroller.current;
-        const list = element?.firstElementChild;
-        if (!(element && list)) {
-            return;
-        }
-        const pin = () => {
-            if (following.current) {
-                element.scrollTop = element.scrollHeight;
-            }
-            knownHeight.current = element.scrollHeight;
-        };
-        pin();
-        const observer = new ResizeObserver(pin);
-        observer.observe(list);
-        return () => observer.disconnect();
-    }, []);
-
-    const onScroll = () => {
-        const element = scroller.current;
-        // A scroll event with a new content height is the browser adjusting to rows being
-        // measured, not the user scrolling; only the user can stop the view from following.
-        if (element && element.scrollHeight === knownHeight.current) {
-            const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
-            following.current = distance < FOLLOW_DISTANCE;
-        }
-    };
+    // The latest message stays in view, unless the user scrolled up to read something; and a
+    // transcript opened again comes back to where it was left.
+    const { atEnd, toLatest, onScroll } = useScrollSpot(scroller, sessionId, place);
 
     return (
-        <div className="transcript" ref={scroller} onScroll={onScroll}>
-            <ol className="items">
-                {items.map((item) => (
-                    <li key={item.key} className={`item item-${item.kind}`}>
-                        <ItemView
-                            item={item}
-                            sessionId={sessionId}
-                            latest={item.key === lastMove}
-                            sendsFrom={sendsFrom}
-                        />
-                    </li>
-                ))}
-                {working && (
-                    <li className="activity" aria-live="polite">
-                        <Spawning />
-                        <Activity events={events} />
-                    </li>
-                )}
-                {working && toolCalls === "hidden" && (
-                    <li className="activity-large">
-                        <Swarming />
-                    </li>
-                )}
-            </ol>
+        <div className="transcript-frame">
+            <div className="transcript" ref={scroller} onScroll={onScroll}>
+                <ol className="items">
+                    {items.map((item) => (
+                        <li key={item.key} data-key={item.key} className={`item item-${item.kind}`}>
+                            <ItemView
+                                item={item}
+                                sessionId={sessionId}
+                                latest={item.key === lastMove}
+                                sendsFrom={sendsFrom}
+                            />
+                        </li>
+                    ))}
+                    {working && (
+                        <li className="activity" aria-live="polite">
+                            <Spawning />
+                            <Activity events={events} />
+                        </li>
+                    )}
+                    {working && toolCalls === "hidden" && (
+                        <li className="activity-large">
+                            <Swarming />
+                        </li>
+                    )}
+                </ol>
+            </div>
+            {!atEnd && <ToLatest onPress={toLatest} />}
         </div>
+    );
+}
+
+/**
+ * The way back to the latest message: a round button over the transcript's bottom edge, which
+ * clears the message box and the queue above it however tall they are. It is there while the
+ * view is scrolled up, and shows while the pointer is over the transcript or it has the
+ * keyboard (`app.css`).
+ */
+function ToLatest({ onPress }: { onPress: () => void }) {
+    return (
+        <button
+            type="button"
+            className="round-button to-latest"
+            aria-label="Scroll to the latest message"
+            title="Scroll to the latest message"
+            onClick={onPress}
+        >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M8 3.5v9M4 8.5l4 4 4-4" />
+            </svg>
+        </button>
     );
 }
 
