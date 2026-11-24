@@ -4,7 +4,10 @@
 //! the app beside a command. To the second, a session that counts as busy and a stack it did
 //! not start are the first one's work, not leftovers. So only the first to arrive settles
 //! sessions when it starts and ends stacks it finds when it quits. It is known by a lock on a
-//! file, which the system lets go of when the process ends, however it ends.
+//! file, which the system lets go of when the process ends, however it ends. An app that
+//! arrived second takes the lock once it is free (`Core::notice_others`): from then on it ends
+//! every stack when it quits, and shows the notices of what other processes run. It settles
+//! nothing then, since the sessions it found when it arrived were the first one's to settle.
 
 use std::fs::{File, TryLockError};
 use std::sync::atomic::Ordering;
@@ -41,7 +44,7 @@ impl Core {
     }
 
     /// Whether this is the Swarmed that arrived first, taking that place if nobody has it.
-    fn keeps_house(&self) -> Result<bool> {
+    pub(crate) fn keeps_house(&self) -> Result<bool> {
         let mut house = lock(&self.house);
         if house.is_some() {
             return Ok(true);

@@ -9,8 +9,8 @@ use std::time::Duration;
 use common::{core_with_project, fixture, next, turn};
 use swarmed_core::agent::{AgentEvent, Auth, FakeBackend};
 use swarmed_core::{
-    Action, Core, Error, NewTaskOptions, Session, SessionEvent, SessionOptions, SessionStatus,
-    hooks,
+    Action, Core, Error, NewTaskOptions, RemoveOptions, Session, SessionEvent, SessionOptions,
+    SessionStatus, hooks,
 };
 use tokio::sync::broadcast::Receiver;
 
@@ -235,6 +235,34 @@ async fn a_session_run_elsewhere_is_not_started_here_and_its_queue_waits_for_tha
         here.session(session.id).expect("reads").status,
         SessionStatus::Working
     );
+    // Nor is it put away or deleted here, nor its task or repository removed, even by force:
+    // that agent would work on where no list shows it, or in a worktree that is gone.
+    let closed = here.session_close(session.id);
+    assert!(matches!(closed, Err(Error::RunsElsewhere(_))), "{closed:?}");
+    let deleted = here.session_delete(session.id);
+    assert!(
+        matches!(deleted, Err(Error::RunsElsewhere(_))),
+        "{deleted:?}"
+    );
+    let forced = RemoveOptions {
+        force: true,
+        delete_branch: false,
+    };
+    let removed = here
+        .task_remove("demo", "one", forced, &hooks::discard)
+        .await;
+    assert!(
+        matches!(removed, Err(Error::RunsElsewhere(_))),
+        "{removed:?}"
+    );
+    let removed = here.project_remove("demo", true, &hooks::discard).await;
+    assert!(
+        matches!(removed, Err(Error::RunsElsewhere(_))),
+        "{removed:?}"
+    );
+    let (_, task) = here.task("demo", "one").expect("still there");
+    assert!(task.worktree_path.exists());
+    assert!(here.session(session.id).is_ok());
 
     here.session_enqueue(session.id, "after that")
         .expect("queues");
@@ -283,4 +311,85 @@ async fn an_action_added_elsewhere_has_front_ends_read_the_configuration_again()
     assert!(!seen.iter().any(tree_changed), "{seen:?}");
     let actions = here.actions(None).expect("reads");
     assert!(actions.iter().any(|action| action.name == "Test"));
+}
+
+#[tokio::test]
+async fn a_history_read_while_another_core_writes_holds_each_event_once_with_what_follows() {
+    let fx = fixture();
+    let (here, there) = two_cores(&fx).await;
+    let session = new_session(&here);
+    here.notice_others().expect("looks");
+    let mut bus = here.subscribe();
+    // Stored there, and no look here has passed it on yet.
+    let mut theirs = there.subscribe();
+    there
+        .session_message(session.id, "hello", &[], Auth::Subscription)
+        .expect("sends");
+    turn(&mut theirs, session.id).await;
+
+    let history = here.session_events(session.id).expect("reads");
+    let echo = AgentEvent::Text {
+        text: "echo: hello".to_string(),
+    };
+    assert!(history.contains(&echo), "{history:?}");
+    // Published before the history was read, where a front end reading it hears that it has
+    // to read again; nothing of it comes after.
+    let before = heard(&mut bus);
+    assert!(before.iter().any(|event| event.event == echo), "{before:?}");
+    here.notice_others().expect("looks");
+    let after: Vec<SessionEvent> = heard(&mut bus)
+        .into_iter()
+        .filter(|event| event.session_id == session.id)
+        .collect();
+    assert_eq!(after, vec![], "published again after the read");
+
+    // What is stored after the read is published once, and adds to what was read.
+    there
+        .session_message(session.id, "again", &[], Auth::Subscription)
+        .expect("sends");
+    turn(&mut theirs, session.id).await;
+    let seen = noticed(
+        &here,
+        &mut bus,
+        |event| matches!(&event.event, AgentEvent::Text { text } if text == "echo: again"),
+    )
+    .await;
+    let again = seen
+        .iter()
+        .filter(|event| matches!(&event.event, AgentEvent::Text { text } if text == "echo: again"));
+    assert_eq!(again.count(), 1, "{seen:?}");
+    let echoed = seen.iter().any(|event| event.event == echo);
+    assert!(!echoed, "{seen:?}");
+}
+
+#[tokio::test]
+async fn the_app_left_over_shows_the_notices_once_the_first_has_quit() {
+    let fx = fixture();
+    let (first, second) = two_cores(&fx).await;
+    first.arrive().expect("arrives");
+    second.arrive().expect("arrives");
+    let command =
+        Core::with_backend(fx.paths.clone(), Arc::new(FakeBackend::default())).expect("opens");
+    let session = new_session(&first);
+    second.notice_others().expect("looks");
+    drop(first);
+    // The first has quit: the second takes its place at its next look.
+    second.notice_others().expect("looks");
+
+    let mut bus = second.subscribe();
+    let mut theirs = command.subscribe();
+    command
+        .session_message(session.id, "hello", &[], Auth::Subscription)
+        .expect("sends");
+    turn(&mut theirs, session.id).await;
+    let seen = noticed(&second, &mut bus, |event| {
+        matches!(event.event, AgentEvent::TurnDone { .. })
+    })
+    .await;
+    let done = seen
+        .iter()
+        .find(|event| matches!(event.event, AgentEvent::TurnDone { .. }))
+        .expect("the turn's end");
+    let notice = second.notice_for(done).expect("reads");
+    assert!(notice.is_some_and(|notice| notice.title.starts_with("Finished")));
 }

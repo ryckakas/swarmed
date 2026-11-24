@@ -88,9 +88,10 @@ impl Store {
     }
 
     /// The events another process stored since the last look, oldest first, each with its
-    /// session. One statement reads them, so what it sees is one moment: SQLite gives ids in
-    /// the order writes are committed, and none lower than one seen can come later.
-    fn events_elsewhere(&self) -> Result<Vec<(i64, AgentEvent)>> {
+    /// session, and the highest event id dealt with now. One statement reads them, so what it
+    /// sees is one moment: SQLite gives ids in the order writes are committed, and none lower
+    /// than one seen can come later.
+    fn events_elsewhere(&self) -> Result<(Vec<(i64, AgentEvent)>, i64)> {
         let mark = self.written.borrow().mark;
         let sql = "SELECT id, session_id, event FROM session_events WHERE id > ?1 ORDER BY id";
         let mut statement = self.conn.prepare(sql)?;
@@ -108,7 +109,17 @@ impl Store {
         // What was stored here and is not there any more went with its session.
         let mark = written.mark;
         written.own.retain(|id| *id > mark);
-        Ok(theirs)
+        Ok((theirs, mark))
+    }
+
+    /// A session's events up to event `upto`, oldest first.
+    pub(crate) fn events_upto(&self, session_id: i64, upto: i64) -> Result<Vec<AgentEvent>> {
+        let sql = "SELECT event FROM session_events WHERE session_id = ?1 AND id <= ?2 \
+                   ORDER BY id";
+        let mut statement = self.conn.prepare(sql)?;
+        let rows = statement.query_map(params![session_id, upto], |row| row.get::<_, String>(0))?;
+        let texts = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(texts.iter().map(|text| event_from_json(text)).collect())
     }
 
     /// What changes whenever another connection commits, and not for this one's own writes.
@@ -230,6 +241,9 @@ pub(crate) struct Elsewhere {
     /// The sessions with messages queued here while another process ran their agent: they go
     /// once that run is over.
     pub(crate) waiting: Mutex<HashSet<i64>>,
+    /// Held from reading what other processes stored to publishing it, so that two readers,
+    /// such as a look and a history being read, publish it in order and once.
+    passing: Mutex<()>,
 }
 
 impl Elsewhere {
@@ -276,12 +290,18 @@ impl Core {
     /// that stays runs [`follow_others`], which looks every second. Must be called from within
     /// a tokio runtime.
     pub fn notice_others(&self) -> Result<()> {
-        let events = self.store().events_elsewhere()?;
-        let changes = self.look_again()?;
-        if changes.tree {
+        self.house_if_free();
+        let passing = lock(&self.elsewhere.passing);
+        let (events, _) = self.store().events_elsewhere()?;
+        // The events are passed on whatever this look finds: they are past the mark already,
+        // and would not be read again.
+        let changes = self.look_again();
+        if changes.as_ref().is_ok_and(|changes| changes.tree) {
             self.live.publish_apart(AgentEvent::TreeChanged);
         }
         self.pass_on(events);
+        drop(passing);
+        let changes = changes?;
         if changes.agents {
             // What could not be read is said in the problem banner, which reads it again.
             self.reload_agents().ok();
@@ -292,6 +312,27 @@ impl Core {
         }
         self.send_what_waited();
         Ok(())
+    }
+
+    /// A session's events, oldest first, once what other processes stored has been passed on:
+    /// everything returned has been published, so a front end that reads it and then adds what
+    /// it hears shows nothing twice. What arrives after is left out, and published later.
+    pub(crate) fn events_noticed(&self, id: i64) -> Result<Vec<AgentEvent>> {
+        let passing = lock(&self.elsewhere.passing);
+        let (events, upto) = self.store().events_elsewhere()?;
+        self.pass_on(events);
+        drop(passing);
+        self.store().events_upto(id, upto)
+    }
+
+    /// Takes the house if the Swarmed that kept it has gone, for a front end that stays: the
+    /// first to arrive shows the notices of what others run and stops every stack when it
+    /// quits, and with two apps open, the one left over does that once the other has quit.
+    fn house_if_free(&self) {
+        if self.live.shows_notices.load(Ordering::Relaxed) {
+            // One that cannot be taken now is tried again at the next look.
+            self.keeps_house().ok();
+        }
     }
 
     /// Publishes events another process stored, in order. The last of each session's carries
@@ -378,9 +419,20 @@ impl Core {
     }
 
     /// Deletes the lock on session `id`'s run, for a session that is going: nothing is to
-    /// start it again.
+    /// start it again. Not while another process holds it: a third would make a new one, lock
+    /// it and start the session beside that process's agent.
     pub(crate) fn forget_run_lock(&self, id: i64) {
-        std::fs::remove_file(run_lock(&self.paths, id)).ok();
+        if !self.runs_elsewhere(id) {
+            std::fs::remove_file(run_lock(&self.paths, id)).ok();
+        }
+    }
+
+    /// Refuses, with the first of them, if another process runs the agent of any of `ids`.
+    pub(crate) fn none_run_elsewhere(&self, ids: &[i64]) -> Result<()> {
+        match ids.iter().find(|id| self.runs_elsewhere(**id)) {
+            Some(id) => Err(Error::RunsElsewhere(*id)),
+            None => Ok(()),
+        }
     }
 
     /// Whether another Swarmed process runs session `id`'s agent now.

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api } from "../api";
 import type { Project, RemoveTarget } from "../api/types";
+import { anywayHelps, refusalSaid } from "../removal";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
 import type { Words } from "../wording";
@@ -53,8 +54,9 @@ function Question({ target, project }: { target: RemoveTarget; project: Project 
     // Kept in the store: a dialog closed and asked for again must not start a second removal.
     const key = removalKey(target);
     const busy = useStore((state) => state.removals.includes(key));
-    // What stopped the last attempt. After one, the button removes regardless.
+    // What stopped the last attempt. After one over unsaved work, the button removes regardless.
     const [problem, setProblem] = useState<string | null>(null);
+    const anyway = problem !== null && anywayHelps(problem);
     const { title, what, action } = wording(target, project, words);
 
     // Closing the dialog does not stop a removal: what comes of it is then said elsewhere.
@@ -69,7 +71,7 @@ function Question({ target, project }: { target: RemoveTarget; project: Project 
         // Off its sessions before its agents stop and its worktree goes, not once it is gone.
         leaveForRemoval(target);
         try {
-            const passedOver = await removeTarget(target, problem !== null);
+            const passedOver = await removeTarget(target, anyway);
             if (askedAgain()) {
                 askToRemove(null);
             }
@@ -97,7 +99,7 @@ function Question({ target, project }: { target: RemoveTarget; project: Project 
             size="small"
             closeOnBackdrop={true}
             onClose={() => askToRemove(null)}
-            problem={problem && `Not removed: ${problem}. Removing anyway discards that work.`}
+            problem={problem && refusalSaid(problem)}
             busy={busy}
             actions={
                 <button
@@ -105,7 +107,7 @@ function Question({ target, project }: { target: RemoveTarget; project: Project 
                     className="button button-danger"
                     onClick={() => void remove()}
                 >
-                    {buttonLabel(busy, problem, action)}
+                    {buttonLabel(busy, anyway, action)}
                 </button>
             }
         >
@@ -133,9 +135,9 @@ function removeTarget(target: RemoveTarget, force: boolean): Promise<string[]> {
         : api.taskRemove(target.project, target.task, force);
 }
 
-function buttonLabel(busy: boolean, problem: string | null, action: string): string {
+function buttonLabel(busy: boolean, anyway: boolean, action: string): string {
     if (busy) {
         return "Removing…";
     }
-    return problem ? "Remove anyway" : action;
+    return anyway ? "Remove anyway" : action;
 }

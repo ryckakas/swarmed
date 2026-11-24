@@ -146,16 +146,24 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     changed on disk is published as `ConfigChanged` with the kind `file` on session id 0, and
     a changed `agents.toml` is read again. Own writes count too: the UI keeps what it reads
     again when it is the same (`unlessSame`), and says the same problems once.
+  - **A history read** (`session_events`) passes on what is above the mark first, under the
+    same lock as a look (`Elsewhere::passing`), and reads only up to it (`events_upto`):
+    everything it returns has been published, so a front end that reads it and adds what it
+    hears shows nothing twice. A look that fails still publishes the events it read.
   - **Notices:** only the first Swarmed to arrive shows those of events from elsewhere, and
-    not while a Swarmed that shows its own runs the session (`shows_notices_of`).
+    not while a Swarmed that shows its own runs the session (`shows_notices_of`). An app that
+    arrived second takes the house at its next look once the first has quit
+    (`house_if_free`), and from then on also stops every stack when it quits.
   The first look takes stock and publishes no tree or file change. `swarmed events` drives
   the same from the command line.
 - **A session's agent runs in one process at a time** (`claim_run`). `launch` takes a lock on
   `run/sessions/<id>.lock`, under the lock on the running sessions, and `Live::forget` lets go
   of it there once no run of the session is left. The system lets go of it when the process
   ends, so a crashed one blocks nothing. Another process refuses to start the session
-  (`Error::RunsElsewhere`), to interrupt it or to answer its requests; a message queued for it
-  there goes once the lock is free (`Elsewhere::waiting`). `sessions_settle` passes over the
+  (`Error::RunsElsewhere`), to interrupt, close or delete it, to answer its requests, and to
+  remove its task or repository, even by force; a message queued for it there goes once the
+  lock is free (`Elsewhere::waiting`). The lock file is deleted with its session only while
+  no other process holds it (`forget_run_lock`). `sessions_settle` passes over the
   sessions run elsewhere. The lock is unlocked before it is closed (`let_go_run`): a process
   another thread forks meanwhile holds the file open until it execs, and closing alone would
   leave it locked that long. A dropped `Core` lets go of its locks, as its process would.
@@ -406,7 +414,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   `warn <percent> <seconds>`), runs until stopped for `slow`, runs a
   command its turn waits on for `long: <command>`, until it is sent to the background or
   stopped, and renames the session as another Swarmed would for `elsewhere: <title>`, saying
-  only `tree_changed`; one sample session has 2,000 messages for checking scroll speed. The README's
+  only `tree_changed`; one sample session has 2,000 messages for checking scroll speed.
+  Removing the sample task `invoice-export` is refused over unsaved work, and `shop-142` over
+  a session another Swarmed runs. The README's
   screenshot and GIF are of this sample data, never of anyone's real projects.
 - **MCP servers are one pool for every agent** (`mcp_pool.rs`). When a session starts, each
   agent's servers are read from its own configuration (`mcp.rs` and `mcp_plugins.rs` for
@@ -939,7 +949,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   notes, its snapshots, environments and own actions. Its config file stays. The repository is not touched. Removing a task stops its sessions first. In the UI
   both ask first, and offer to go ahead regardless only after a refusal over unsaved work.
 - **Only unsaved work stops a task's removal** (`task_remove`): changes not committed, commits
-  not pushed, or a worktree git no longer knows, whose work cannot be checked. The stack is
+  not pushed, or a worktree git no longer knows, whose work cannot be checked. And, whatever
+  `force` says, a session of it whose agent another Swarmed runs (`Error::RunsElsewhere`): the
+  dialog offers no "Remove anyway" for that (`anywayHelps`). The stack is
   always stopped. A `stop` or `teardown` that fails, or outlasts `HOOK_LIMIT` and is then
   killed with what it started (`hooks::run_within`), a broken
   configuration, and a process that outlives being killed are passed over and returned as

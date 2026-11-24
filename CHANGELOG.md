@@ -16,6 +16,8 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **`swarmed events` prints what happens in every session as it happens**, whichever Swarmed
+  does it: the app, another command or this one. Ctrl-C ends it.
 - **Codex and OpenCode sub-agents show as Claude Code's do.** While one works it is listed
   under its session; press it to read what it says and does, apart from the conversation, and
   the Background list shows it until it is done, with what it handed back. Its permission
@@ -99,8 +101,8 @@ notice adds its line under Unreleased.
   shows within about a second, and a session run elsewhere follows live, with its status,
   unread state, conversation and notices. A session's agent runs in one place at a time:
   sending to one that another Swarmed runs says so instead of starting a second agent on the
-  same conversation, and a message queued for it goes once that run is over. `swarmed events`
-  prints what happens in every session, whichever Swarmed does it.
+  same conversation, and so does closing or deleting it, or removing its task, while it runs
+  there. A message queued for it goes once that run is over.
 - **Every Claude Code session shows the same usage, and the newest.** The coins' warning, the
   usage limits and the extra usage were what each session heard after its own last turn, so
   one session warned while another did not, a new session showed nothing, a window that had

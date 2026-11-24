@@ -8,7 +8,8 @@ The command drives the same core as the app, on the same data, from a terminal o
 What it changes shows in a running app within about a second: a session renamed, marked,
 closed or started, a task made or removed, an action added, and the conversation of a session
 it runs, as it goes. A session's agent runs in one place at a time: one the app runs is refused
-here, and the other way round, until that run is over. A message queued in the app for a
+here, and the other way round, until it is stopped there or that Swarmed quits. So is closing or
+deleting it, and removing its task or repository. A message queued in the app for a
 session the command runs goes once the command is done. `swarmed events` prints what happens in
 every session, whichever Swarmed does it.
 

@@ -232,8 +232,10 @@ impl Core {
     ///
     /// Without `force` this refuses when the worktree holds work that would be lost: changes
     /// not committed, commits not pushed, or a worktree git no longer knows, whose work cannot
-    /// be checked. Nothing else stops it. A `stop` or `teardown` that fails or hangs and a
-    /// process that will not end are passed over, and returned to be said.
+    /// be checked. Nor, whatever `force` says, while another Swarmed runs the agent of one of its
+    /// sessions ([`Error::RunsElsewhere`]): that agent works in the worktree, and only that
+    /// Swarmed can stop it. Nothing else stops it. A `stop` or `teardown` that fails or hangs
+    /// and a process that will not end are passed over, and returned to be said.
     pub async fn task_remove(
         &self,
         project: &str,
@@ -243,6 +245,7 @@ impl Core {
     ) -> Result<Vec<String>> {
         let (project, task) = self.task(project, name)?;
         let repo = &project.repo_path;
+        self.none_run_elsewhere(&self.store().session_ids(task.id)?)?;
         // Nothing may still be running in a directory that is about to go: the agents are
         // waited for, and killed if they do not go by themselves.
         self.sessions_ended(task.id).await?;
@@ -345,6 +348,8 @@ impl Core {
     ///
     /// Without `force` this stops at the first task that holds unsaved work. The tasks before
     /// it are removed by then; the project and everything else about it are still there.
+    /// Nothing is removed while another Swarmed runs the agent of a session of one of its
+    /// tasks ([`Error::RunsElsewhere`]).
     /// Returns what its tasks' removals passed over, as [`Core::task_remove`] does.
     pub async fn project_remove(
         &self,
@@ -358,6 +363,10 @@ impl Core {
             delete_branch: false,
         };
         let tasks = self.store().tasks(project.id, false)?;
+        // Asked of every task first, so that none is removed when one of them cannot be.
+        for task in &tasks {
+            self.none_run_elsewhere(&self.store().session_ids(task.id)?)?;
+        }
         let mut notes = vec![];
         for task in tasks {
             let passed_over = self.task_remove(name, &task.name, options, sink).await?;

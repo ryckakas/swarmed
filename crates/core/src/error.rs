@@ -316,10 +316,11 @@ pub enum Error {
     #[error("session {0} is not running")]
     SessionNotRunning(i64),
     /// Another Swarmed on the same data, such as the app or a command line, runs the session's
-    /// agent: a second one would take the conversation over from it.
+    /// agent until it is stopped there or that Swarmed quits: a second one would take the
+    /// conversation over from it.
     #[error(
-        "session {0} runs in another Swarmed: wait until its turn there is over, or send the \
-         message there"
+        "session {0} runs in another Swarmed: do this there, or once it is stopped there or \
+         that Swarmed has quit"
     )]
     RunsElsewhere(i64),
     /// A stored or outgoing event could not be converted to or from JSON.

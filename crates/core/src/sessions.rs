@@ -332,7 +332,7 @@ impl Store {
     }
 
     /// The ids of every session of a task, the closed ones too.
-    fn session_ids(&self, task_id: i64) -> Result<Vec<i64>> {
+    pub(crate) fn session_ids(&self, task_id: i64) -> Result<Vec<i64>> {
         let mut stmt = self
             .conn
             .prepare("SELECT id FROM sessions WHERE task_id = ?1 ORDER BY id")?;
@@ -780,9 +780,13 @@ impl Core {
     }
 
     /// Everything a session has said and been told, oldest first.
+    ///
+    /// What other Swarmed processes stored is published first ([`Core::notice_others`]), and
+    /// what is stored after that is left out: a front end that reads this and then adds the
+    /// events it hears shows each once.
     pub fn session_events(&self, id: i64) -> Result<Vec<AgentEvent>> {
         self.store().session_by_id(id)?;
-        self.store().events(id)
+        self.events_noticed(id)
     }
 
     /// The commands and skills a message to this session can call by starting with `/`.
@@ -1304,8 +1308,11 @@ impl Core {
     }
 
     /// Stops a session's agent and takes the session out of every list. Its history is kept.
+    /// Refused while another Swarmed runs its agent ([`Error::RunsElsewhere`]), which would work
+    /// on where no list shows it.
     pub fn session_close(&self, id: i64) -> Result<()> {
         self.session(id)?;
+        self.none_run_elsewhere(&[id])?;
         self.remote_control_closing(id)?;
         self.session_stop(id);
         self.terminal_close(id);
@@ -1316,9 +1323,11 @@ impl Core {
 
     /// Deletes a session for good, open or closed: its agent is stopped, and its conversation
     /// and what Swarmed kept for it are gone. The task's files and branch are not touched, and
-    /// neither is what the agent keeps of the conversation in its own folders.
+    /// neither is what the agent keeps of the conversation in its own folders. Refused while
+    /// another Swarmed runs its agent ([`Error::RunsElsewhere`]), which only it can stop.
     pub fn session_delete(&self, id: i64) -> Result<()> {
         self.session(id)?;
+        self.none_run_elsewhere(&[id])?;
         self.session_stop(id);
         // Its conversation is going, so the agent is not given time to finish anything: it
         // is killed, and whatever it still says meanwhile is dropped. That holds for an

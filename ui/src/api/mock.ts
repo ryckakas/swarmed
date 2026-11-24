@@ -229,6 +229,12 @@ function removeApi(projects: () => Project[]): Pick<Api, "projectRemove" | "task
             if (name === "invoice-export" && !force) {
                 throw new Error("task `invoice-export` has uncommitted changes");
             }
+            // Another has a session whose agent another Swarmed runs, which nothing gets past.
+            if (name === "shop-142") {
+                throw new Error(
+                    "session 6 runs in another Swarmed: do this there, or once it is stopped there or that Swarmed has quit",
+                );
+            }
             const tasks = projects().find((project) => project.name === projectName)?.tasks ?? [];
             const at = tasks.findIndex((task) => task.name === name);
             tasks.splice(at, at === -1 ? 0 : 1);
