@@ -1,5 +1,6 @@
 import type { KeyboardEvent } from "react";
 import { api } from "../api";
+import { placeName } from "../chats";
 import { INBOX_KINDS, type InboxItem, type InboxKind, inbox } from "../inbox";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
@@ -82,7 +83,7 @@ function InboxGroup({ kind, items }: { kind: InboxKind; items: InboxItem[] }) {
                     <StatusMark status={session.status} unread={session.unread} />
                     <span className="inbox-title">{session.title || words.untitled}</span>
                     <span className="inbox-place">
-                        {project} / {task}
+                        {placeName(project, words)} / {task}
                     </span>
                 </button>
             ))}

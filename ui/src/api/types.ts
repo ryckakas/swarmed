@@ -441,6 +441,11 @@ export interface Project {
     id: number;
     name: string;
     repo_path: string;
+    /**
+     * Whether this is where the chats are kept: sessions with no repository, each chat a task
+     * in a folder of its own. Its name is `CHATS`, which no repository can have.
+     */
+    chats: boolean;
     tasks: Task[];
     /** Whether the user keeps a note on the repository. */
     has_note: boolean;

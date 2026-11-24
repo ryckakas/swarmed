@@ -2,6 +2,7 @@ import { type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
 import { addProject, moveRow, newSession } from "../actions";
 import { api } from "../api";
 import type { CloudTask, Mark, Project, Session, Task } from "../api/types";
+import { CHATS, chatsOf, repositoriesOf } from "../chats";
 import { cloudProvider, cloudTitle, cloudTone, cloudTooltip, isUnfinished } from "../cloud";
 import { taskTooltip } from "../environments";
 import { gripTitle, orderAttributes, orderGroup, starterHere } from "../ordering";
@@ -42,6 +43,8 @@ export function Sidebar() {
     const unread = countUnread(projects);
     const words = useStore((state) => wordsFor(state.settings?.style));
     const startDrag = useRowDrag(moveRow);
+    const chats = chatsOf(projects);
+    const repositories = repositoriesOf(projects);
 
     return (
         <nav
@@ -76,18 +79,18 @@ export function Sidebar() {
                     </button>
                 )}
             </div>
-            {projects.length > 0 && (
-                <button type="button" className="new-task-button" onClick={() => startNew()}>
-                    {words.startTask}
-                </button>
-            )}
+            {/* A chat needs no repository, so a task can always be started. */}
+            <button type="button" className="new-task-button" onClick={() => startNew()}>
+                {words.startTask}
+            </button>
             <div className="sidebar-scroll">
-                {load === "ready" && projects.length === 0 && <NoProjects />}
-                {projects.map((project) => (
+                {chats && <ChatsGroup home={chats} />}
+                {load === "ready" && repositories.length === 0 && <NoProjects />}
+                {repositories.map((project) => (
                     <ProjectGroup key={project.id} project={project} />
                 ))}
             </div>
-            {projects.length > 0 && (
+            {repositories.length > 0 && (
                 <div className="sidebar-bottom">
                     <button
                         type="button"
@@ -200,7 +203,60 @@ function ProjectGroup({ project }: { project: Project }) {
     );
 }
 
-function TaskGroup({ project, task }: { project: string; task: Task }) {
+/**
+ * The chats, sessions with no repository, above the repositories and apart from them: each
+ * chat is drawn as a task is, with what only a repository has left out. They fold like a
+ * repository's tasks, and are not moved among the repositories.
+ */
+function ChatsGroup({ home }: { home: Project }) {
+    const words = useStore((state) => wordsFor(state.settings?.style));
+    const startNew = useStore((state) => state.startNew);
+    const folded = useStore((state) => state.folded.includes(home.id));
+    const toggleFolded = useStore((state) => state.toggleFolded);
+    const chats = home.tasks.filter((task) => !task.archived);
+    if (chats.length === 0) {
+        return null;
+    }
+    const status = folded ? projectStatus(home) : null;
+    return (
+        <section className="project project-chats">
+            <div className="row-head">
+                <h2 className="project-name">
+                    <button
+                        type="button"
+                        className="project-toggle"
+                        aria-expanded={!folded}
+                        title={folded ? `Show the ${words.chat}s` : `Hide the ${words.chat}s`}
+                        onClick={() => toggleFolded(home.id)}
+                    >
+                        <FoldChevron />
+                        <ChatIcon />
+                        <span className="project-title">{words.chats}</span>
+                        {status && <StatusMark status={status} unread={projectUnread(home)} />}
+                        {folded && <span className="project-count">{chats.length}</span>}
+                    </button>
+                </h2>
+                <button
+                    type="button"
+                    className="row-add"
+                    aria-label={`New ${words.chat}`}
+                    title={`New ${words.chat}`}
+                    onClick={() => startNew(CHATS)}
+                >
+                    <ButtonIcon>
+                        <PlusIcon />
+                    </ButtonIcon>
+                </button>
+            </div>
+            {!folded &&
+                chats.map((task) => (
+                    <TaskGroup key={task.id} project={home.name} task={task} chat />
+                ))}
+        </section>
+    );
+}
+
+function TaskGroup({ project, task, chat }: { project: string; task: Task; chat?: boolean }) {
     const words = useStore((state) => wordsFor(state.settings?.style));
     const folded = useStore((state) => state.foldedTasks.includes(task.id));
     const order = orderAttributes(
@@ -211,9 +267,9 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
         <div className="task" {...order}>
             <div className="row-head">
                 <Grip />
-                <TaskHeading task={task} folded={folded} />
-                <PullBadge project={project} task={task} />
-                <CloudButton project={project} task={task.name} />
+                <TaskHeading task={task} folded={folded} chat={chat === true} />
+                {!chat && <PullBadge project={project} task={task} />}
+                {!chat && <CloudButton project={project} task={task.name} />}
                 <NoteButton project={project} task={task.name} has={task.has_note} />
                 <button
                     type="button"
@@ -226,7 +282,7 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
                         <PlusIcon />
                     </ButtonIcon>
                 </button>
-                <RemoveButton project={project} task={task.name} />
+                <RemoveButton project={project} task={task.name} chat={chat === true} />
             </div>
             {!folded && <TaskSessions project={project} task={task} />}
         </div>
@@ -238,22 +294,23 @@ function TaskGroup({ project, task }: { project: string; task: Task }) {
  * does its tasks. Folded, it still says how many sessions are open, what the most urgent of
  * them needs and whether one holds an unread answer, as a folded repository does.
  */
-function TaskHeading({ task, folded }: { task: Task; folded: boolean }) {
+function TaskHeading({ task, folded, chat }: { task: Task; folded: boolean; chat: boolean }) {
     const words = useStore((state) => wordsFor(state.settings?.style));
     const toggleTaskFolded = useStore((state) => state.toggleTaskFolded);
     const summary = folded ? foldedSummary(task) : null;
     const fold = folded ? words.showSessions : words.hideSessions;
+    const what = chat ? `A ${words.chat}, in ${task.worktree_path}` : taskTooltip(task, words);
     return (
         <h3 className="task-name">
             <button
                 type="button"
                 className="task-toggle"
                 aria-expanded={!folded}
-                title={`${taskTooltip(task, words)}. ${fold}`}
+                title={`${what}. ${fold}`}
                 onClick={() => toggleTaskFolded(task.id)}
             >
                 <FoldChevron />
-                <WorktreeIcon />
+                {chat ? <ChatIcon /> : <WorktreeIcon />}
                 <span className="task-title">{task.name}</span>
                 {task.setup === "failed" && <span className="task-flag">setup failed</span>}
                 {summary?.status && <StatusMark status={summary.status} unread={summary.unread} />}
@@ -533,6 +590,15 @@ function RepositoryIcon() {
     );
 }
 
+/** A chat: a speech bubble. */
+function ChatIcon() {
+    return (
+        <svg className="row-icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M2.5 3.5h11v7.2H7l-3.2 2.6v-2.6H2.5z" />
+        </svg>
+    );
+}
+
 /** A worktree: a branch leaving the trunk. */
 function WorktreeIcon() {
     return (
@@ -618,12 +684,13 @@ function ClosedSessions({ project, task, count }: ClosedProps) {
     );
 }
 
-/** Asks to remove a repository or a task. Nothing goes before the question is answered. */
-function RemoveButton({ project, task }: { project: string; task: string | null }) {
+/** Asks to remove a repository, a task or a chat. Nothing goes before the question is answered. */
+function RemoveButton(props: { project: string; task: string | null; chat?: boolean }) {
+    const { project, task } = props;
     const words = useWords();
     const askToRemove = useStore((state) => state.askToRemove);
-    const label =
-        task === null ? `Remove ${project} from Swarmed` : `Remove the ${words.terms.task} ${task}`;
+    const kind = props.chat ? words.chat : words.terms.task;
+    const label = task === null ? `Remove ${project} from Swarmed` : `Remove the ${kind} ${task}`;
     return (
         <button
             type="button"

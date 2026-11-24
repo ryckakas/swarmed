@@ -7,7 +7,7 @@ use std::sync::Arc;
 use common::{core_with_project, fixture, next, turn};
 use swarmed_core::agent::{AgentEvent, Auth};
 use swarmed_core::{
-    Core, Delivery, Environment, Error, Layout, LimitWarnings, MAX_SPAWNED, NewTaskOptions,
+    CHATS, Core, Delivery, Environment, Error, Layout, LimitWarnings, MAX_SPAWNED, NewTaskOptions,
     Palette, Session, SessionEvent, SessionOptions, ToolCalls, hooks, serve_session_tools,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -274,6 +274,36 @@ async fn sessions_of_another_project_are_out_of_reach() {
     // Within its own project it is read like any other.
     let own = core.peer_digest(there.id, there.id, None).expect("reads");
     assert!(own.contains("swordfish"), "{own}");
+}
+
+#[tokio::test]
+async fn a_chat_reaches_every_repository_and_each_can_answer_it() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let in_repository = new_session(&core);
+    let free = NewTaskOptions {
+        free_name: true,
+        ..NewTaskOptions::default()
+    };
+    core.task_new(CHATS, "question", free, &hooks::discard)
+        .await
+        .expect("makes a chat");
+    let chat = core
+        .session_new(CHATS, "question", &SessionOptions::default())
+        .expect("creates");
+
+    // The chat lists the repository's sessions, with their repository, and itself.
+    let listed = core.peer_sessions(chat.id).expect("lists");
+    assert!(listed.contains("task demo/one"), "{listed}");
+    assert!(listed.contains("chat question"), "{listed}");
+    core.peer_digest(chat.id, in_repository.id, None)
+        .expect("reads a repository's session");
+    // And a session in a repository can answer the chat that wrote to it.
+    let back = core.peer_sessions(in_repository.id).expect("lists");
+    assert!(back.contains("chat question"), "{back}");
+    assert!(back.contains("task one"), "{back}");
+    core.peer_digest(in_repository.id, chat.id, None)
+        .expect("reads the chat");
 }
 
 #[tokio::test]

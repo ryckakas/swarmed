@@ -34,6 +34,12 @@ pub(crate) struct Head(pub(crate) Option<String>);
 /// after every tool call, where the answer is needed before anything else is done. `None`
 /// when git cannot tell.
 pub(crate) fn head_now(worktree: &Path) -> Option<Head> {
+    // A folder that is no repository's top level, such as a chat's, is on no branch, even
+    // inside a repository of the user's own (a home folder kept in git): git would answer for
+    // that one.
+    if !worktree.join(".git").exists() {
+        return None;
+    }
     let output = std::process::Command::new("git")
         .arg("-C")
         .arg(worktree)

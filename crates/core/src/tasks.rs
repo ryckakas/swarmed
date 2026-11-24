@@ -8,6 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
+use crate::chats::CHATS;
 use crate::config::ProjectConfig;
 use crate::environments::EnvironmentChoice;
 use crate::error::{Error, Result};
@@ -57,19 +58,24 @@ impl Core {
     /// What a new task in `project` can start from. Reads local refs only; it does not fetch.
     pub async fn branch_choices(&self, project: &str) -> Result<BranchChoices> {
         let project = self.project(project)?;
+        let repo = project.repo()?;
         let config = self.project_config(&project.name)?;
         let base = if config.base_branch.is_empty() {
-            git::default_base(&project.repo_path).await?
+            git::default_base(repo).await?
         } else {
             config.base_branch
         };
-        let existing = git::available_branches(&project.repo_path).await?;
+        let existing = git::available_branches(repo).await?;
         Ok(BranchChoices { base, existing })
     }
 
     /// The project's tasks, oldest first, archived ones last when included.
     pub fn tasks(&self, project: &str, include_archived: bool) -> Result<Vec<Task>> {
-        let project = self.project(project)?;
+        let project = match self.project(project) {
+            // The chats have no home until the first one is made, and none until then.
+            Err(Error::ProjectNotFound(_)) if project == CHATS => return Ok(vec![]),
+            found => found?,
+        };
         self.store().tasks(project.id, include_archived)
     }
 
@@ -88,6 +94,9 @@ impl Core {
     ///
     /// If `setup` fails the task is kept with [`SetupStatus::Failed`] and the hook's error is
     /// returned, so the worktree can be inspected and `setup` retried with [`Core::task_setup`].
+    ///
+    /// In [`CHATS`] it makes a chat instead: a folder of its own, with no repository, branch
+    /// or setup.
     pub async fn task_new(
         &self,
         project: &str,
@@ -96,11 +105,14 @@ impl Core {
         sink: OutputSink<'_>,
     ) -> Result<Task> {
         paths::validate_name(name)?;
+        if project == CHATS {
+            return self.chat_new(name, &options).await;
+        }
         let project = self.project(project)?;
         let environment = self.environment_chosen(&project.name, &options.environment)?;
         let environment = environment.as_deref();
         let config = self.config_in(&project.name, environment)?;
-        let repo = &project.repo_path;
+        let repo = project.repo()?;
 
         git::fetch(repo).await?;
         // A brand new repository has nothing to branch from until it has a commit.
@@ -171,7 +183,7 @@ impl Core {
 
     /// Takes the slot and writes the row under one lock, so two concurrent creations cannot
     /// get the same slot.
-    fn insert_in_free_slot(&self, mut new: NewTask<'_>) -> Result<Task> {
+    pub(crate) fn insert_in_free_slot(&self, mut new: NewTask<'_>) -> Result<Task> {
         let store = self.store();
         new.slot = store.free_slot(new.project_id)?;
         store.task_insert(&new)
@@ -236,6 +248,8 @@ impl Core {
     /// sessions ([`Error::RunsElsewhere`]): that agent works in the worktree, and only that
     /// Swarmed can stop it. Nothing else stops it. A `stop` or `teardown` that fails or hangs
     /// and a process that will not end are passed over, and returned to be said.
+    ///
+    /// A chat goes with its folder, which without `force` must be empty.
     pub async fn task_remove(
         &self,
         project: &str,
@@ -244,7 +258,10 @@ impl Core {
         sink: OutputSink<'_>,
     ) -> Result<Vec<String>> {
         let (project, task) = self.task(project, name)?;
-        let repo = &project.repo_path;
+        if project.chats {
+            return self.chat_remove(&project, &task, options.force, sink).await;
+        }
+        let repo = project.repo()?;
         self.none_run_elsewhere(&self.store().session_ids(task.id)?)?;
         // Nothing may still be running in a directory that is about to go: the agents are
         // waited for, and killed if they do not go by themselves.
@@ -278,7 +295,7 @@ impl Core {
     /// `name-2`, `name-3` and so on that is free. Refused if `name` is taken and may not be
     /// changed, or if no name up to `name-99` is free. A name another task is being created
     /// under counts as taken, and the one returned is claimed until the claim is dropped.
-    async fn name_for_task(
+    pub(crate) async fn name_for_task(
         &self,
         project: &Project,
         name: &str,
@@ -286,7 +303,11 @@ impl Core {
         options: &NewTaskOptions<'_>,
     ) -> Result<NameClaim<'_>> {
         let tasks = self.store().tasks(project.id, options.free_name)?;
-        let branches = git::branch_names(&project.repo_path).await?;
+        // A chat has no branch to keep free.
+        let branches = match project.repo() {
+            Ok(repo) => git::branch_names(repo).await?,
+            Err(_) => HashSet::new(),
+        };
         // From here to the claim under one lock, with nothing awaited: tasks created at once
         // each see the names the others chose.
         let mut claimed = lock(&self.names_claimed);
@@ -300,7 +321,7 @@ impl Core {
                 .collect(),
             branches,
             pattern,
-            existing_branch: options.existing_branch.is_some(),
+            existing_branch: options.existing_branch.is_some() || project.chats,
             paths: &self.paths,
         };
         let chosen = if options.free_name {
@@ -412,7 +433,7 @@ impl Core {
     /// deleting them made a removal wait the better part of a minute. One that cannot be moved
     /// is deleted where it is.
     async fn take_away_worktree(&self, project: &Project, task: &Task, known: bool) -> Result<()> {
-        let repo = &project.repo_path;
+        let repo = project.repo()?;
         let path = &task.worktree_path;
         if let Some(aside) = move_aside(path, task.id) {
             // git still has the worktree where it was, which is not there any more.
@@ -535,6 +556,11 @@ impl Core {
         let Some(project) = self.store().project_by_id(task.project_id)? else {
             return Ok(vec![]);
         };
+        // A chat has no repository, branch or environment to tell of, and is no worktree a
+        // skill could take it for.
+        if project.chats {
+            return Ok(vec![]);
+        }
         let config = self.config_in(&project.name, task.environment.as_deref())?;
         let vars = self.task_vars(&project, &config, task)?;
         let rendered = |(name, value): (&String, &String)| Ok((name.clone(), vars.render(value)?));
@@ -635,11 +661,11 @@ fn branch_vars(project: &Project, task: &str) -> Vars {
 /// How a new task's name becomes its branch's: the repository's pattern, with the variables
 /// known before the task exists and `{{prefix}}`. The prefix is for the pattern alone: hooks
 /// have `{{branch}}`, which holds the prefix the task was made with.
-struct BranchPattern<'a> {
-    project: &'a Project,
-    pattern: &'a str,
+pub(crate) struct BranchPattern<'a> {
+    pub(crate) project: &'a Project,
+    pub(crate) pattern: &'a str,
     /// What `{{prefix}}` stands for.
-    prefix: String,
+    pub(crate) prefix: String,
 }
 
 impl BranchPattern<'_> {
@@ -652,10 +678,10 @@ impl BranchPattern<'_> {
 }
 
 /// A new task's name, kept from other tasks being created until this is dropped.
-struct NameClaim<'a> {
+pub(crate) struct NameClaim<'a> {
     claimed: &'a Mutex<HashSet<(i64, String)>>,
     project: i64,
-    name: String,
+    pub(crate) name: String,
 }
 
 impl Drop for NameClaim<'_> {
@@ -676,7 +702,8 @@ struct TakenNames<'a> {
     branches: HashSet<String>,
     /// What a task's name becomes as a branch.
     pattern: &'a BranchPattern<'a>,
-    /// Whether the task checks out a branch that exists, rather than making one.
+    /// Whether the task checks out a branch that exists, rather than making one, or is a chat
+    /// and has none: either way no branch is made, and there is none to keep free.
     existing_branch: bool,
     paths: &'a Paths,
 }
@@ -776,11 +803,12 @@ async fn delete_safe_branch(repo: &Path, task: &Task) -> Result<Option<String>> 
 
 /// Best-effort removal of a worktree, and the branch created for it, after a failed creation.
 async fn discard_worktree(project: &Project, worktree: &Path, branch: Option<&str>) {
-    git::worktree_remove(&project.repo_path, worktree)
-        .await
-        .ok();
+    let Ok(repo) = project.repo() else {
+        return;
+    };
+    git::worktree_remove(repo, worktree).await.ok();
     if let Some(branch) = branch {
-        git::branch_delete(&project.repo_path, branch).await.ok();
+        git::branch_delete(repo, branch).await.ok();
     }
 }
 
@@ -801,7 +829,7 @@ pub(crate) const REMOVED: &str = ".removed";
 
 /// Moves a worktree into [`REMOVED`] beside it: on the same disk, so the move is instant.
 /// `None` when it cannot be moved.
-fn move_aside(worktree: &Path, id: i64) -> Option<PathBuf> {
+pub(crate) fn move_aside(worktree: &Path, id: i64) -> Option<PathBuf> {
     let folder = worktree.parent()?.join(REMOVED);
     std::fs::create_dir_all(&folder).ok()?;
     let name = worktree.file_name()?.to_string_lossy();
@@ -818,7 +846,7 @@ fn move_aside(worktree: &Path, id: i64) -> Option<PathBuf> {
 /// it leaves is deleted when Swarmed next starts ([`Core::finish_removals`]). Nobody hears of
 /// a file it could not delete, so what stays in [`REMOVED`] is counted with what Swarmed takes
 /// up ([`Usage::removed_bytes`](crate::Usage::removed_bytes)).
-fn delete_later(folder: &Path) {
+pub(crate) fn delete_later(folder: &Path) {
     let deleting = std::process::Command::new("rm")
         .arg("-rf")
         .arg("--")

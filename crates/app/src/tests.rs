@@ -1131,6 +1131,52 @@ fn marks_are_put_on_and_taken_off(app: &App, id: &Value) {
 }
 
 #[test]
+fn the_ui_can_start_a_chat_and_carry_it_on_in_a_repository() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    // A chat is asked for as a task in `.chats`, which no repository can be called.
+    let none = json!({ "project": ".chats", "prompt": "What is a monad?" });
+    app.ok("task_name_for", none);
+    let chat =
+        json!({ "project": ".chats", "name": "monads", "branch": null, "environment": null });
+    let made = app.ok("task_new", chat);
+    assert_eq!(made["branch"], "");
+    let overview = app.ok("overview", json!({}));
+    let home = overview
+        .as_array()
+        .and_then(|projects| projects.iter().find(|project| project["chats"] == true))
+        .expect("the chats are listed")
+        .clone();
+    assert_eq!(home["name"], ".chats");
+    assert_eq!(home["tasks"][0]["name"], "monads");
+    assert_eq!(overview[0]["chats"], false);
+    // What only a repository has is refused, in words the UI can show.
+    let refused = app
+        .invoke("branch_choices", json!({ "project": ".chats" }))
+        .expect_err("no branches");
+    assert!(refused.to_string().contains("no repository"), "{refused}");
+
+    let session = app.ok(
+        "session_new",
+        json!({ "project": ".chats", "task": "monads", "agent": null, "how": { "model": null, "supervision": "ask", "effort": null } }),
+    );
+    let id = &session["id"];
+    app.ok(
+        "task_new",
+        json!({ "project": "demo", "name": "one", "branch": null }),
+    );
+    let into = json!({ "id": id, "project": "demo", "task": "one" });
+    let carried = app.ok("session_fork_into", into);
+    assert_ne!(carried["id"], *id);
+    let tasks = app.ok("overview", json!({}))[0]["tasks"].clone();
+    assert_eq!(tasks[0]["sessions"][0]["id"], carried["id"]);
+
+    let remove =
+        json!({ "project": ".chats", "name": "monads", "force": false, "deleteBranch": true });
+    app.ok("task_remove", remove);
+}
+
+#[test]
 fn the_ui_can_list_closed_sessions_and_reopen_one() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));

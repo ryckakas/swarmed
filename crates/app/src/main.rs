@@ -230,7 +230,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::status_line, commands::account_usage, commands::session_usage_refresh, commands::session_rename, commands::session_close, commands::session_delete,
         commands::session_remote_control,
         commands::sessions_search, commands::sessions_closed, commands::session_reopen,
-        commands::session_fork, commands::session_set_agent,
+        commands::session_fork, commands::session_fork_into, commands::session_set_agent,
         commands::update_state, commands::update_check, commands::update_restart,
     ])
 }

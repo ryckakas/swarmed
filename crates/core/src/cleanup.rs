@@ -205,7 +205,8 @@ impl Core {
     async fn branch_items(&self) -> Result<Vec<Measured>> {
         let projects = self.projects()?;
         let mut items = vec![];
-        for project in &projects {
+        // The chats have no repository, and no branch.
+        for project in projects.iter().filter(|project| !project.chats) {
             items.extend(self.project_branch_items(project, &projects).await?);
         }
         Ok(items)
@@ -279,7 +280,8 @@ impl Core {
         let project = self
             .project(&item.project)
             .map_err(|error| error.to_string())?;
-        git::branch_delete(&project.repo_path, &item.name)
+        let repo = project.repo().map_err(|error| error.to_string())?;
+        git::branch_delete(repo, &item.name)
             .await
             .map_err(|error| format!("git would not delete it: {}", said(&error)))
     }
@@ -294,7 +296,11 @@ impl Core {
         for project in &projects {
             let area = self.paths.worktrees_root.join(&project.name);
             items.extend(stale_folder_items(&project.name, stale_folders(&area, &keep)).await);
-            let records = gone_records(&project.repo_path, &keep).await;
+            // Chats' folders are no worktrees: git has no records of them.
+            let records = match project.repo() {
+                Ok(repo) => gone_records(repo, &keep).await,
+                Err(_) => vec![],
+            };
             let new = records.into_iter().filter(|path| seen.insert(path.clone()));
             items.extend(new.map(|path| record_item(&project.name, path)));
         }
@@ -322,7 +328,8 @@ impl Core {
         owned.extend(being_made.iter().map(|path| resolved(path)));
         let repos = projects
             .iter()
-            .map(|project| resolved(&project.repo_path))
+            .filter_map(|project| project.repo().ok())
+            .map(resolved)
             .collect();
         Ok(Kept { owned, repos })
     }
@@ -335,15 +342,19 @@ impl Core {
         let project = self
             .project(&item.project)
             .map_err(|error| error.to_string())?;
-        let repo = &project.repo_path;
+        // A chat's folder was never a worktree, and has no record.
+        let repo = project.repo().ok();
         if item.record {
+            let repo = repo.ok_or_else(|| Error::NoRepository.to_string())?;
             return forget_record(repo, path).await;
         }
         delete_folder(path).await?;
         // A folder that was a worktree of the repository leaves git's record of it, which
         // would keep its branch from being checked out anywhere else. One that was not has
         // no record to forget.
-        git::worktree_remove(repo, path).await.ok();
+        if let Some(repo) = repo {
+            git::worktree_remove(repo, path).await.ok();
+        }
         Ok(())
     }
 
@@ -524,7 +535,7 @@ async fn removable_branch(
     in_use: &HashSet<String>,
     branch: RemovedBranch,
 ) -> Option<Measured> {
-    let repo = &project.repo_path;
+    let repo = project.repo().ok()?;
     if in_use.contains(&branch.branch)
         || !git::local_branch_exists(repo, &branch.branch).await
         || started_from(repo, &branch).await

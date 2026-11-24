@@ -120,6 +120,10 @@ pub enum Error {
         /// What would be lost.
         reason: String,
     },
+    /// What only a repository has (a branch, changes, a pull request, a stack, the cloud)
+    /// was asked of a chat, which has none.
+    #[error("a chat has no repository: start a task in a repository for that")]
+    NoRepository,
     /// A template names a variable that does not exist.
     #[error("unknown variable `{{{{{0}}}}}` in template")]
     UnknownVariable(String),

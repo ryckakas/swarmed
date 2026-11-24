@@ -1,12 +1,14 @@
 import { forkSession } from "../actions";
-import type { AgentEvent, Session, Task } from "../api/types";
+import type { AgentEvent, Project, Session, Task } from "../api/types";
 import { isSwarm } from "../appearance";
+import { placeName } from "../chats";
 import { agentName, iconForAgent } from "../providerIcons";
 import { scrollKey } from "../scrollSpot";
 import { useStore } from "../store";
 import { findSession, findSessionHome } from "../tree";
 import { useWords } from "../useWords";
 import { capitalized } from "../wording";
+import { CarryOnButton } from "./CarryOnDialog";
 import { Composer } from "./Composer";
 import { CloudIcon, EndIcon, ForkIcon, IconButton, PanelIcon } from "./IconButton";
 import { NewTask } from "./NewTask";
@@ -39,7 +41,6 @@ export function SessionPane() {
         selectedSessionId === null ? undefined : state.events[selectedSessionId],
     );
     const askToClose = useStore((state) => state.askToClose);
-    const askToDelegate = useStore((state) => state.askToDelegate);
     const words = useWords();
     const panelOpen = useStore((state) => state.panelOpen);
     const togglePanel = useStore((state) => state.togglePanel);
@@ -51,11 +52,13 @@ export function SessionPane() {
     if (!(session && home)) {
         return <NewTask projects={projects} />;
     }
+    // The chats are no repository: what they are listed under stands in for its name.
+    const where = placeName(home.project.name, words);
     if (subView?.sessionId === session.id) {
         return (
             <SubAgentPane
                 session={session}
-                crumbs={`${home.project.name} / ${home.task.name}`}
+                crumbs={`${where} / ${home.task.name}`}
                 id={subView.id}
                 events={events ?? NO_EVENTS}
             />
@@ -87,18 +90,7 @@ export function SessionPane() {
                     >
                         <ForkIcon />
                     </IconButton>
-                    <IconButton
-                        label={`${words.delegate}: what this ${words.session} arrived at, as a brief or as the whole conversation`}
-                        onClick={() =>
-                            askToDelegate({
-                                project: home.project.name,
-                                task: home.task.name,
-                                session: session.id,
-                            })
-                        }
-                    >
-                        <CloudIcon />
-                    </IconButton>
+                    <HandOn session={session} project={home.project} task={home.task} />
                     {!panelOpen && (
                         <IconButton
                             label={`Show the ${words.terms.task} panel`}
@@ -117,7 +109,7 @@ export function SessionPane() {
                     </IconButton>
                 </div>
                 <p className="crumbs">
-                    {home.project.name} / {home.task.name}
+                    {where} / {home.task.name}
                 </p>
                 <SessionTitle key={session.id} session={session} />
                 <div className="session-meta">
@@ -149,6 +141,28 @@ export function SessionPane() {
                 events={events ?? NO_EVENTS}
             />
         </article>
+    );
+}
+
+/**
+ * Where what the session arrived at can go on: to a cloud agent, which works on a repository,
+ * or from a chat, which has none, into a task of a repository.
+ */
+function HandOn({ session, project, task }: { session: Session; project: Project; task: Task }) {
+    const words = useWords();
+    const askToDelegate = useStore((state) => state.askToDelegate);
+    if (project.chats) {
+        return <CarryOnButton session={session} chat={task} />;
+    }
+    return (
+        <IconButton
+            label={`${words.delegate}: what this ${words.session} arrived at, as a brief or as the whole conversation`}
+            onClick={() =>
+                askToDelegate({ project: project.name, task: task.name, session: session.id })
+            }
+        >
+            <CloudIcon />
+        </IconButton>
     );
 }
 

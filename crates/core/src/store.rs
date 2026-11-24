@@ -6,18 +6,33 @@ use std::path::{Path, PathBuf};
 use rusqlite::{Connection, OptionalExtension, Row, ToSql, Transaction, params};
 use serde::Serialize;
 
+use crate::chats::CHATS;
 use crate::elsewhere::Written;
 use crate::error::{Error, Result};
 
-/// A registered git repository.
+/// A registered git repository, or the home of the chats, which has none ([`CHATS`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Project {
     /// The database id.
     pub id: i64,
     /// The unique name the project is addressed by.
     pub name: String,
-    /// The repository's top-level directory.
+    /// The repository's top-level directory. For the chats, the folder their own folders are
+    /// in, which is no repository: [`Project::repo`] says so.
     pub repo_path: PathBuf,
+    /// Whether this is the home of the chats: sessions with no repository, each chat a task in
+    /// a folder of its own.
+    pub chats: bool,
+}
+
+impl Project {
+    /// The repository's top-level directory, or [`Error::NoRepository`] for the chats.
+    pub fn repo(&self) -> Result<&Path> {
+        if self.chats {
+            return Err(Error::NoRepository);
+        }
+        Ok(&self.repo_path)
+    }
 }
 
 /// Whether a task's `setup` hook has run.
@@ -275,6 +290,7 @@ impl Store {
             id: self.conn.last_insert_rowid(),
             name: name.to_string(),
             repo_path: repo_path.to_path_buf(),
+            chats: name == CHATS,
         })
     }
 
@@ -478,9 +494,11 @@ impl Store {
 }
 
 fn project_from_row(row: &Row<'_>) -> rusqlite::Result<Project> {
+    let name: String = row.get(1)?;
     Ok(Project {
         id: row.get(0)?,
-        name: row.get(1)?,
+        chats: name == CHATS,
+        name,
         repo_path: PathBuf::from(row.get::<_, String>(2)?),
     })
 }

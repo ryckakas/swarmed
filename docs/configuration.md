@@ -11,6 +11,7 @@ worktree of its own, with a stack: what the project's hooks set up and keep runn
 | --- | --- |
 | Configuration and state | `~/Library/Application Support/swarmed`, or `SWARMED_DATA_DIR` |
 | Worktrees | `~/swarmed/<project>/<task>`, or under `SWARMED_WORKTREES_DIR` |
+| Chats' folders | `~/swarmed/.chats/<chat>`, beside the worktrees |
 
 In the data directory:
 

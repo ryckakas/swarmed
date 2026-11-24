@@ -9,6 +9,7 @@ use rusqlite::{OptionalExtension, Params, params};
 
 use crate::Core;
 use crate::agent::AgentEvent;
+use crate::chats::CHATS;
 use crate::error::{Error, Result};
 use crate::store::Store;
 
@@ -115,11 +116,12 @@ fn session_siblings(rows: &SessionRows, id: i64) -> Vec<(i64, bool)> {
 
 impl Core {
     /// Moves repository `name` `by` places among the others, earlier for a negative number,
-    /// and no further than either end.
+    /// and no further than either end. The chats are listed apart, above the repositories,
+    /// and are not among them.
     pub fn project_move(&self, name: &str, by: i32) -> Result<()> {
         let project = self.project(name)?;
-        let sql = "SELECT id, 1 FROM projects ORDER BY position, name";
-        let rows = self.store().order_rows(sql, [])?;
+        let sql = "SELECT id, name <> ?1 FROM projects ORDER BY position, name";
+        let rows = self.store().order_rows(sql, params![CHATS])?;
         self.reorder(Kind::Project, &rows, project.id, by)
     }
 
@@ -168,7 +170,7 @@ impl Core {
     /// Puts `id` `by` places further among `rows` of `kind`, and tells every front end.
     fn reorder(&self, kind: Kind, rows: &[(i64, bool)], id: i64, by: i32) -> Result<()> {
         let before: Vec<i64> = rows.iter().map(|row| row.0).collect();
-        // Every caller found `id` among `rows` as listed.
+        // A row that is not listed, such as the chats among the repositories, stays.
         let order = moved(rows, id, by).unwrap_or_else(|| before.clone());
         // A move that stops where it is, at either end or by nothing, changes nothing: front
         // ends are not sent to read everything again for it.

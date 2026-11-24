@@ -167,10 +167,12 @@ impl Core {
     /// are asked for first; if that fails, the last known ones are given.
     pub async fn cloud_tasks(&self, project: &str, refresh: bool) -> Result<Vec<CloudTask>> {
         let project = self.project(project)?;
-        if refresh && self.has_cloud_tasks(project.id)? {
-            self.refresh_cloud(project.id, &project.repo_path)
-                .await
-                .ok();
+        // A chat has none to ask about: nothing can be delegated from one.
+        let repo = project.repo().ok();
+        if let Some(repo) = repo.filter(|_| refresh)
+            && self.has_cloud_tasks(project.id)?
+        {
+            self.refresh_cloud(project.id, repo).await.ok();
         }
         self.cloud_tasks_of(Some(project.id))
     }
@@ -223,7 +225,7 @@ impl Core {
         }
         let project = self.project(project)?;
         self.within_share(origin.session)?;
-        let repo = self.cloud_repo(&project.repo_path).await?;
+        let repo = self.cloud_repo(project.repo()?).await?;
         let started = match origin.provider {
             CloudProvider::Codex => self.start_codex(&project, &repo, prompt, origin).await?,
             CloudProvider::Claude => self.start_claude(&project, prompt).await?,
@@ -260,7 +262,7 @@ impl Core {
     ) -> Result<Started> {
         self.require_cloud_environment(repo).await?;
         let branch = self
-            .cloud_branch(&project.name, &project.repo_path, origin.task)
+            .cloud_branch(&project.name, project.repo()?, origin.task)
             .await?;
         // After `--`, so that a prompt that starts with a dash is not read as an option.
         let exec = [
@@ -292,7 +294,7 @@ impl Core {
         let program = find_program("claude", &self.tool_dirs).ok_or_else(|| {
             refused("Claude Code is not installed: install it from Settings, under Agents")
         })?;
-        let repo = &project.repo_path;
+        let repo = project.repo()?;
         let mut command = with_terminal(&program, &["--cloud", prompt]);
         command
             .current_dir(repo)
@@ -402,7 +404,7 @@ impl Core {
         let Some(task) = task else {
             return Ok(None);
         };
-        let (_, task) = self.task(project, task)?;
+        let (_, task) = self.repo_task(project, task)?;
         let at_hand = git::current_branch(&task.worktree_path).await;
         let branch = at_hand.ok().flatten().unwrap_or(task.branch);
         let on_github = format!("refs/remotes/origin/{branch}");
@@ -456,7 +458,7 @@ impl Core {
     /// the user to look at and commit there.
     pub async fn cloud_task_apply(&self, id: i64, project: &str, name: &str) -> Result<()> {
         let cloud = self.codex_cloud_task(id)?;
-        let (_, task) = self.task(project, name)?;
+        let (_, task) = self.repo_task(project, name)?;
         let args = ["cloud", "apply", &cloud.remote_id];
         let ran = self.codex_in(&task.worktree_path, &args).await?;
         if ran.ok {

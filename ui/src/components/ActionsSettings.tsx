@@ -2,6 +2,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import { ACTION_ICONS, actionLabel, pickedIcon } from "../actionbar";
 import { api } from "../api";
 import type { Action } from "../api/types";
+import { repositoriesOf } from "../chats";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
 import { capitalized, withArticle } from "../wording";
@@ -121,7 +122,10 @@ export function ActionsSettings() {
                     }}
                     options={[
                         [EVERYWHERE, `Every ${words.terms.repository}`],
-                        ...projects.map((one): [string, string] => [one.name, one.name]),
+                        ...repositoriesOf(projects).map((one): [string, string] => [
+                            one.name,
+                            one.name,
+                        ]),
                     ]}
                 />
             </div>

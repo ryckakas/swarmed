@@ -18,6 +18,7 @@ import {
     variantLabel,
     variantNames,
 } from "../broadcast";
+import { newTaskPlace, newTaskSays, repositoryChoices } from "../chats";
 import {
     environmentChoice,
     environmentOptions,
@@ -52,7 +53,10 @@ import { Picker } from "./Picker";
 /** The value of the branch picker that means "create a new branch". */
 const NEW_BRANCH = "";
 
-/** Starts a task from a prompt: pick the repository and branch, type, send. */
+/**
+ * Starts a task from a prompt: pick the repository and branch, type, send. With no repository,
+ * which is where it starts unless opened for one, it starts a chat.
+ */
 export function NewTask({ projects }: { projects: Project[] }) {
     const draftProject = useStore((state) => state.draftProject);
     const hookLine = useStore((state) => state.hookLine);
@@ -74,26 +78,22 @@ export function NewTask({ projects }: { projects: Project[] }) {
     const commands = sentOn(useSlashCommands(null));
     const [creating, setCreating] = useState<string | null>(null);
 
-    // The sidebar's plus on a project preselects it; otherwise the last choice, or the first.
-    const project =
-        projects.find((candidate) => candidate.name === (chosen ?? draftProject)) ?? projects[0];
+    // The sidebar's plus on a repository preselects it; otherwise the last choice, or none,
+    // for a chat.
+    const { repository, home, taken } = newTaskPlace(projects, chosen, draftProject);
+    const says = newTaskSays(words, repository);
     // What was typed for this repository and not sent, apart from every other repository's.
-    const { text: prompt, files } = useStore(
-        (state) => state.newTaskDrafts[project?.name ?? ""] ?? NO_DRAFT,
-    );
+    const { text: prompt, files } = useStore((state) => state.newTaskDrafts[home] ?? NO_DRAFT);
     const editNewTaskDraft = useStore((state) => state.editNewTaskDraft);
-    const choices = useBranchChoices(project?.name);
-    const environments = useEnvironments(project?.name);
+    const choices = useBranchChoices(repository?.name);
+    const environments = useEnvironments(repository?.name);
     // What was picked, by repository: one where nothing was picked starts on its default.
     const [picked, setPicked] = useState<Record<string, string>>({});
-    if (!project) {
-        return null;
-    }
-    const environment = picked[project.name];
+    // Nothing is ever picked for the chats, which have no environments.
+    const environment = picked[home];
 
     // A removed task's name too, since its branch may still be there. The core has the last
     // word: it steps past branches here and on a remote, and the task it makes says its name.
-    const taken = project.tasks.map((task) => task.name);
     const base = branch === NEW_BRANCH ? taskNameForPrompt(prompt) : taskNameFrom(branch);
     const name = uniqueTaskName(base || "task", taken);
     const canSend = prompt.trim() !== "" && creating === null;
@@ -107,11 +107,11 @@ export function NewTask({ projects }: { projects: Project[] }) {
         try {
             // A task on a new branch is named for what it is about; one on an existing branch
             // keeps that branch's name.
-            const naming = branch === NEW_BRANCH ? await named(project.name, prompt.trim()) : null;
+            const naming = branch === NEW_BRANCH ? await named(home, prompt.trim()) : null;
             const chosen = naming ? uniqueTaskName(naming.name, taken) : name;
             setCreating(chosen);
             const start = {
-                project: project.name,
+                project: home,
                 name: chosen,
                 title: naming?.title ?? null,
                 branch: branch === NEW_BRANCH ? null : branch,
@@ -139,45 +139,35 @@ export function NewTask({ projects }: { projects: Project[] }) {
             <h1>{words.newTask}</h1>
             <ComposerBox
                 value={prompt}
-                onChange={(text) => editNewTaskDraft(project.name, { text })}
+                onChange={(text) => editNewTaskDraft(home, { text })}
                 files={files}
-                onFiles={(added) => editNewTaskDraft(project.name, { files: added })}
+                onFiles={(added) => editNewTaskDraft(home, { files: added })}
                 onSend={() => void send()}
                 canSend={canSend}
-                placeholder={words.describeTask}
+                placeholder={says.placeholder}
                 disabled={creating !== null}
                 autoFocus
                 commands={commands}
             >
                 <Picker
                     label={words.repository}
-                    value={project.name}
+                    value={home}
                     onChange={(value) => {
                         setChosen(value);
                         setBranch(NEW_BRANCH);
                     }}
-                    options={projects.map((candidate) => [candidate.name, candidate.name])}
+                    options={repositoryChoices(projects, words.noRepository)}
                 />
-                <Picker
-                    label={capitalized(words.terms.branch)}
-                    value={branch}
-                    onChange={setBranch}
-                    options={[
-                        [
-                            NEW_BRANCH,
-                            `New ${words.terms.branch} from ${choices?.base ?? `the default ${words.terms.branch}`}`,
-                        ],
-                        ...(choices?.existing ?? []).map((existing): [string, string] => [
-                            existing,
-                            existing,
-                        ]),
-                    ]}
-                />
-                <EnvironmentPicker
-                    environments={environments}
-                    picked={environment}
-                    onChange={(name) => setPicked({ ...picked, [project.name]: name })}
-                />
+                {repository && (
+                    <RepositoryPickers
+                        branch={branch}
+                        onBranch={setBranch}
+                        choices={choices}
+                        environments={environments}
+                        environment={environment}
+                        onEnvironment={(name) => setPicked({ ...picked, [repository.name]: name })}
+                    />
+                )}
                 <ModePicker value={supervision} agentId={agentId} onChange={setSupervision} />
                 <AgentPickers
                     agents={agents}
@@ -204,19 +194,64 @@ export function NewTask({ projects }: { projects: Project[] }) {
             <AgentNotice agentId={agentId} />
             <p className="new-task-note" aria-live="polite">
                 {creating !== null && <Incubating />}
-                {note(creating, prompt, hookLine, words)}
+                {note(creating, prompt, hookLine, says.hint, words)}
             </p>
         </div>
+    );
+}
+
+interface RepositoryPickersProps {
+    branch: string;
+    onBranch(branch: string): void;
+    choices: BranchChoices | null;
+    environments: Environments;
+    environment: string | undefined;
+    onEnvironment(name: string): void;
+}
+
+/** What only a task in a repository is asked: the branch it starts from, and its environment. */
+function RepositoryPickers(props: RepositoryPickersProps) {
+    const words = useWords();
+    const { choices } = props;
+    return (
+        <>
+            <Picker
+                label={capitalized(words.terms.branch)}
+                value={props.branch}
+                onChange={props.onBranch}
+                options={[
+                    [
+                        NEW_BRANCH,
+                        `New ${words.terms.branch} from ${choices?.base ?? `the default ${words.terms.branch}`}`,
+                    ],
+                    ...(choices?.existing ?? []).map((existing): [string, string] => [
+                        existing,
+                        existing,
+                    ]),
+                ]}
+            />
+            <EnvironmentPicker
+                environments={props.environments}
+                picked={props.environment}
+                onChange={props.onEnvironment}
+            />
+        </>
     );
 }
 
 /** Stands for the task's name while it is still being thought of. */
 const NAMING = "";
 
-/** The line under the box: what sending will do, or what is being done. */
-function note(creating: string | null, prompt: string, hookLine: string | null, words: Words) {
+/** The line under the box: what sending will do, `hint`, or what is being done. */
+function note(
+    creating: string | null,
+    prompt: string,
+    hookLine: string | null,
+    hint: string,
+    words: Words,
+) {
     if (creating === null) {
-        return prompt.trim() !== "" && words.newTaskHint;
+        return prompt.trim() !== "" && hint;
     }
     return creating === NAMING
         ? words.namingTask
@@ -244,8 +279,9 @@ interface Start {
 
 /**
  * Sends the same prompt to every other agent chosen, each from the same base in a task of
- * its own. One that cannot be started is reported; the others carry on. An existing branch
- * can only be checked out once, so there the variants are left out.
+ * its own, or each in a chat of its own. One that cannot be started is reported; the others
+ * carry on. An existing branch can only be checked out once, so there the variants are left
+ * out.
  */
 async function startVariants(
     start: Start,
@@ -286,7 +322,7 @@ async function startTask(start: Start, show: boolean) {
 }
 
 interface VariantsProps {
-    /** Whether more agents can be added at all: only where a new branch is made. */
+    /** Whether more agents can be added at all: only where a new branch is made, or a chat. */
     offered: boolean;
     agents: AgentInfo[];
     /** The agent and model the task runs on anyway. */
@@ -297,7 +333,8 @@ interface VariantsProps {
 
 /**
  * More agents to run the same prompt on: a menu to add one, and what was added, each with a
- * way to take it off again. Only where a new branch is made, since each needs its own.
+ * way to take it off again. Only where a new branch is made, since each needs its own, or in a
+ * chat, where each is a chat of its own.
  */
 function Variants({ offered, agents, first, variants, onChange }: VariantsProps) {
     const words = useWords();

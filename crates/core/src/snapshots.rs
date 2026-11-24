@@ -127,7 +127,7 @@ impl Core {
     /// the one there was. Refused for a task whose setup did not go well: what a failed
     /// setup left is not worth starting from.
     pub async fn snapshot_save(&self, project: &str, task: &str) -> Result<Snapshot> {
-        let (project, task) = self.task(project, task)?;
+        let (project, task) = self.repo_task(project, task)?;
         if task.setup != SetupStatus::Ok {
             return Err(failed(format!(
                 "`{}` was not set up successfully, so there is nothing good to keep",

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { Costs, Usage } from "../api/types";
+import { placeName } from "../chats";
 import { useStore } from "../store";
 import { formatBytes, formatCpu, formatUsd, totalBytes } from "../usage";
 import { useWords } from "../useWords";
@@ -74,7 +75,7 @@ function CostFigures() {
                 {costs.tasks.map((task) => (
                     <Figure
                         key={`${task.project}/${task.task}`}
-                        name={`${task.project} / ${task.task}`}
+                        name={`${placeName(task.project, words)} / ${task.task}`}
                         detail={words.terms.task}
                     >
                         {formatUsd(task.usd)}
@@ -99,7 +100,7 @@ function Figures({ usage }: { usage: Usage }) {
             {listed.map((worktree) => (
                 <Figure
                     key={worktree.path}
-                    name={`${worktree.project} / ${worktree.task}`}
+                    name={`${placeName(worktree.project, words)} / ${worktree.task}`}
                     detail={words.terms.worktree}
                 >
                     {worktree.bytes === null ? "not measured" : formatBytes(worktree.bytes)}

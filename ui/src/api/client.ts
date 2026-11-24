@@ -314,6 +314,12 @@ export interface Api {
      * conversation for another agent to carry on.
      */
     sessionFork(id: number, from: number | null, agent?: string): Promise<Session>;
+    /**
+     * A new session in task `task` of `project`, on the same agent and under the same title,
+     * that starts with all that was said in session `id`: for a chat whose work belongs in a
+     * repository. The first session stays as it is.
+     */
+    sessionForkInto(id: number, project: string, task: string): Promise<Session>;
     /** Everything the session has said and been told, oldest first. */
     sessionEvents(id: number): Promise<AgentEvent[]>;
     /** Starts a turn, starting the session's agent first if it is not running. */

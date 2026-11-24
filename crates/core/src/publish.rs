@@ -260,7 +260,7 @@ impl Core {
     /// What of a task's work is not committed, and what is not pushed, on the branch its
     /// worktree is on. A branch seen here for the first time is remembered for the task.
     pub async fn task_unpublished(&self, project: &str, name: &str) -> Result<Unpublished> {
-        let (_, task) = self.task(project, name)?;
+        let (_, task) = self.repo_task(project, name)?;
         let worktree = &task.worktree_path;
         let status = git::git(worktree, &["status", "--porcelain"]).await?;
         let changed = status.lines().filter(|line| !line.is_empty()).count();
@@ -298,7 +298,7 @@ impl Core {
     /// not conflict, and refuses with its reason when they do; every branch keeps its commits.
     /// Refused while a rebase is under way.
     pub async fn task_switch(&self, project: &str, name: &str, branch: &str) -> Result<()> {
-        let (_, task) = self.task(project, name)?;
+        let (_, task) = self.repo_task(project, name)?;
         let worktree = &task.worktree_path;
         if rebase_under_way(worktree).await? {
             return Err(mid_rebase());
@@ -320,7 +320,7 @@ impl Core {
 
     /// Commits everything in a task's worktree, new files included, under `message`.
     pub async fn task_commit(&self, project: &str, name: &str, message: &str) -> Result<()> {
-        let (_, task) = self.task(project, name)?;
+        let (_, task) = self.repo_task(project, name)?;
         let message = message.trim();
         if message.is_empty() {
             return Err(refused("a commit needs a message"));
@@ -344,7 +344,7 @@ impl Core {
         name: &str,
         session: Option<i64>,
     ) -> Result<String> {
-        let (_, task) = self.task(project, name)?;
+        let (_, task) = self.repo_task(project, name)?;
         let worktree = &task.worktree_path;
         let status = git::git(worktree, &["status", "--porcelain"]).await?;
         if status.trim().is_empty() {
@@ -400,7 +400,7 @@ impl Core {
     /// Pushes the branch a task's worktree is on to `origin`, and makes that its upstream:
     /// the task's own, unless something switched the worktree to another.
     pub async fn task_push(&self, project: &str, name: &str) -> Result<()> {
-        let (_, task) = self.task(project, name)?;
+        let (_, task) = self.repo_task(project, name)?;
         let branch = branch_at_hand(&task).await?;
         let push = ["push", "--quiet", "--set-upstream", "origin", &branch];
         git::git(&task.worktree_path, &push).await?;
@@ -409,7 +409,7 @@ impl Core {
 
     /// A title and description to start the task's pull request from: its commits.
     pub async fn task_pull_draft(&self, project: &str, name: &str) -> Result<PullDraft> {
-        let (_, task) = self.task(project, name)?;
+        let (_, task) = self.repo_task(project, name)?;
         let range = format!("{}..HEAD", task.base_ref);
         let log = ["log", "--reverse", "--format=%s%x1f%b%x1e", &range];
         let log = git::git(&task.worktree_path, &log).await?;
@@ -427,7 +427,7 @@ impl Core {
         name: &str,
         session: Option<i64>,
     ) -> Result<PullDraft> {
-        let (_, task) = self.task(project, name)?;
+        let (_, task) = self.repo_task(project, name)?;
         let worktree = &task.worktree_path;
         let range = format!("{}..HEAD", task.base_ref);
         let log = ["log", "--reverse", "--format=%s%n%b", &range];
@@ -467,7 +467,7 @@ impl Core {
         draft: &PullDraft,
         as_draft: bool,
     ) -> Result<Pull> {
-        let (_, task) = self.task(project, name)?;
+        let (_, task) = self.repo_task(project, name)?;
         if draft.title.trim().is_empty() {
             return Err(refused("a pull request needs a title"));
         }

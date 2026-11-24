@@ -298,7 +298,7 @@ Every session gets an MCP server named `swarmed`, with these tools:
 | Tool | What it does |
 | --- | --- |
 | `show_html` | shows HTML in the conversation, in a sandboxed frame |
-| `list_sessions`, `read_session` | see and read the other open sessions of the same project |
+| `list_sessions`, `read_session` | see and read the other open sessions of the same project and the chats; from a chat, every open session |
 | `send_message` | write to another session; queued if it is busy |
 | `spawn_session`, `close_session` | start a session in the same task, up to six, and close the idle ones it started |
 | `delegate_to_cloud` | hand work to a Codex cloud agent or a Claude Code cloud session |
@@ -318,6 +318,8 @@ tells an agent the names of an environment's variables, never their values.
 
 Every agent is also told that it works in its task's own worktree and is to keep the work on the
 task's branch: to make no other branch, worktree or clone, and to ask you for a new task when
-something needs a branch of its own. When the worktree moves to another branch all the same, the
+something needs a branch of its own. A chat's agent is told instead that it has no repository,
+works in an empty folder of its own, and reads files where you name them; it is not given the
+task's `SWARMED_*` variables. When the worktree moves to another branch all the same, the
 conversation says so with a button to switch back, you are notified, and the task's panel
 follows the branch it is on.

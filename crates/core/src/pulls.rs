@@ -239,7 +239,7 @@ impl Core {
     /// Nothing, not an error, when `gh` is not installed, is not signed in, takes too long, or
     /// finds no pull request: a task without one is the ordinary case.
     pub async fn task_pull(&self, project: &str, name: &str) -> Result<Option<Pull>> {
-        let (_, task) = self.task(project, name)?;
+        let (_, task) = self.repo_task(project, name)?;
         let Some(gh) = find_program("gh", &self.tool_dirs) else {
             return Ok(None);
         };
