@@ -45,7 +45,7 @@ once: each has its own worktree and ports, so they don't step on each other. A d
   and Swarmed shows it in the conversation, in a sandbox with no way out to the app or the
   network.
 - **From prompt to pull request.** The task's diff, comments on lines sent back to the agent,
-  commit, push, and a pull request with its checks.
+  commit, push, a pull request with its checks, and merging it, now or once its checks pass.
 - **Chats, with no repository.** New task starts a chat unless you pick a repository: for a
   question, a repository you have not added, or several agents' opinions on one thing. Each
   chat gets an empty folder of its own and is listed under General. A chat can read and message

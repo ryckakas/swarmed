@@ -26,6 +26,14 @@ notice adds its line under Unreleased.
   into the message box for you to read and send. `swarmed task pull --follow` prints each change
   in the terminal. Configuration's [Pull requests](docs/configuration.md#pull-requests) says what
   Swarmed asks GitHub and how often.
+- **Merge a task's pull request from its panel.** **Merge…** opens a dialog with where it goes,
+  the commit it is at, its checks and its review, and the methods the repository allows, starting
+  on the one you used there last. Its button merges the way its menu chose: **Merge**, which
+  points you to **Force merge** while a check failed, and **Bypass requirements** if you
+  administer the repository. **Enable auto-merge** has GitHub merge it once its requirements are
+  met. Only the commit you saw is merged, no branch is deleted, GitHub's refusals are shown in
+  its words and a merge queue is named as one. `swarmed task merge` does the same in the
+  terminal.
 
 ### Changed
 

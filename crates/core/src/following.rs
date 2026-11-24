@@ -352,8 +352,12 @@ pub(crate) fn step(
         };
         return (seen, Vec::new());
     };
-    // While GitHub works out whether it conflicts, it is as it was.
+    // While GitHub works out whether it conflicts, it is as it was; and whether it would merge
+    // it, for the commit it worked that out for.
     pull.conflicts = conflicts.unwrap_or(old.pull.conflicts);
+    if pull.merge_state.is_none() && old.head == head {
+        pull.merge_state.clone_from(&old.pull.merge_state);
+    }
     let mut news: Vec<PullChange> = state_news(old.pull.state, pull.state).into_iter().collect();
     if pull.state == PullState::Open {
         news.extend(check_news(&old.pull, &pull, old.head == head));
@@ -1001,6 +1005,10 @@ mod tests {
             review: None,
             checks,
             conflicts: false,
+            head: String::new(),
+            base: "main".to_string(),
+            auto_merge: None,
+            merge_state: None,
         }
     }
 

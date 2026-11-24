@@ -5,6 +5,7 @@ mod cleanup;
 mod events;
 mod layout;
 mod limits;
+mod merge;
 mod pull;
 mod session;
 mod setup;
@@ -326,6 +327,9 @@ enum TaskCommand {
     },
     /// Show the pull request of the task's branch and how its checks stand.
     Pull(pull::PullArgs),
+    /// Merge the pull request of the task's branch as it is now, or have GitHub merge it once
+    /// its requirements are met. No branch is deleted.
+    Merge(merge::MergeArgs),
     /// Move a task among the project's other open tasks, as the app lists them: a pinned one
     /// among the pinned.
     Move {
@@ -1223,6 +1227,7 @@ async fn task(core: &Arc<Core>, command: TaskCommand) -> Result<()> {
             say(&format!("removed task `{name}`"));
         }
         TaskCommand::Pull(args) => pull::run(core, &args).await?,
+        TaskCommand::Merge(args) => merge::run(core, &args).await?,
         TaskCommand::Background { project, name } => background(core, &project, &name)?,
         TaskCommand::Commit {
             project,

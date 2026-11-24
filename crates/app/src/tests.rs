@@ -695,6 +695,31 @@ fn the_ui_can_commit_a_tasks_work_and_is_told_what_cannot_be_published() {
     assert_eq!(untitled, json!("a pull request needs a title"));
 }
 
+#[test]
+fn the_ui_can_ask_to_merge_a_tasks_pull_request() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+    let target = json!({ "project": "demo", "name": "one" });
+    // With no remote there is nothing on GitHub to merge, whether `gh` is installed or not;
+    // the arguments are the ones the window sends.
+    let merge = json!({
+        "project": "demo", "name": "one", "method": "squash", "when": "now",
+        "head": "0123456789abcdef",
+    });
+    let unmerged = app
+        .invoke("task_pull_merge", merge)
+        .expect_err("no pull request");
+    assert!(!unmerged.to_string().contains("invalid args"), "{unmerged}");
+    let off = app.invoke("task_pull_auto_merge_off", target.clone());
+    let off = off.expect_err("no pull request");
+    assert!(!off.to_string().contains("invalid args"), "{off}");
+    let rules = app.invoke("project_merge_rules", json!({ "project": "demo" }));
+    let rules = rules.expect_err("no repository on GitHub");
+    assert!(!rules.to_string().contains("invalid args"), "{rules}");
+}
+
 /// A task's files are listed folder by folder, and nothing above its worktree is.
 fn files_are_listed_within_the_worktree(app: &App) {
     let top = app.ok(

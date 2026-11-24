@@ -267,6 +267,21 @@ follows one task's from the terminal. A pull request is matched to a task by the
 worktree is on; following stops once it is merged or closed, when its task is removed, and
 when the worktree leaves the branch.
 
+**Merge…** in a task's panel merges its open pull request, as you, through the same `gh`. The
+dialog shows where it goes, the commit it is at, its checks and its review, and offers the
+methods the repository allows, starting on the one you used there last. Its button merges the
+way its menu chose: **Merge**, which waits while a check failed; **Force merge**, which merges
+anyway where no rule requires that check; and, if you administer the repository, **Bypass
+requirements**. **Enable auto-merge** turns on GitHub's own auto-merge, which merges once the
+requirements are met, where the repository allows it. Only the commit you saw is merged: if
+someone pushed since, the merge is refused and the pull request read again. No branch is
+deleted; a merge queue is named as one.
+
+| | |
+| --- | --- |
+| What the repository allows | once per repository while the app runs (`gh api graphql`: its merge methods, auto-merge, whether you administer it, your default method) |
+| A merge | `gh pr merge <number> --merge\|--squash\|--rebase --match-head-commit <commit>`, with `--admin` or `--auto` as chosen, then the pull request read once |
+
 ## Settings
 
 Set in the app's Settings, kept in `settings.toml`.

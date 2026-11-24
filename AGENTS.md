@@ -458,7 +458,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   stopped, and renames the session as another Swarmed would for `elsewhere: <title>`, saying
   only `tree_changed`; one sample session has 2,000 messages for checking scroll speed.
   The pull request of `fix-login-redirect` has a check running that fails 15 seconds after the
-  window opens, as the core's follower would say it (`pull_read`, `pull_changed`).
+  window opens, as the core's follower would say it (`pull_read`, `pull_changed`). Its
+  required check holds a merge back (`mockMerging.ts`): Force merge is refused in GitHub's
+  words, auto-merge can be turned on, and Bypass requirements merges it.
   Removing the sample task `invoice-export` is refused over unsaved work, and `shop-142` over
   a session another Swarmed runs. A new task's setup is quick in storefront, takes half a
   minute in bonsai-lint, and in fsum is killed the first time and succeeds when run again
@@ -1030,6 +1032,24 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   - **Send the failure to the agent** (`task_pull_failure`) builds a message with the tail of
     each failed Actions job's log (`gh run view --log-failed`) in tags marked as output, which
     the UI puts into the message box (`draftFailure`). Nothing reaches an agent unasked.
+- **A task's pull request is merged by the user's `gh`, at the head they saw** (`merging.rs`,
+  #367, `MergeDialog.tsx`, `merging.ts`).
+  - **`task_pull_merge`** reads the pull request again and refuses one that is not open, a
+    draft, or whose head is not the one the front end passes; then `gh pr merge` with the
+    method and `--match-head-commit`. Never `--delete-branch`: `gh` would delete the local
+    branch and move the worktree off it. The reading after it goes through `pull_take_in`, so
+    the merge is recorded once and no follower says it again.
+  - **Ways** (`MergeWhen`): `now` is refused while a check failed and points to `force`, which
+    leaves it to GitHub's rules; `bypass` is `--admin`, which the UI offers to admins only;
+    `auto` is GitHub's own auto-merge, refused where `merge_state` says GitHub would merge it
+    now, since `gh --auto` then merges at once. `task_pull_auto_merge_off` takes it back.
+  - **What came of it** is read from the pull request after: merged, `queued` (still open after
+    a merge that is not auto-merge: a merge queue took it), auto-merge on, or `asked` when it
+    could not be read back. GitHub's refusals are given in its words (`gh_words`); the UI names
+    `gh`'s `--auto` and `--admin` hints as its own controls (`mergeProblem`).
+  - **Rules** (`project_merge_rules`): one GraphQL query per repository per process, kept in
+    memory, since `gh repo view` cannot say whether auto-merge is allowed. The method last
+    merged with is kept in `projects.merge_method`, as the default environment is.
 - **A task's work leaves its worktree only when asked** (`publish.rs`): commit everything, push
   the branch, open a pull request, each a step of its own behind a button. Commits are made by
   the user's git as them, the pull request by their `gh`; nothing is added to either.

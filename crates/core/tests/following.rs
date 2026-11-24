@@ -175,7 +175,7 @@ async fn takes_stock(scene: &Scene, core: &Core) {
     gh.lists(&[scene.printed("OPEN", "", "2026-11-24T10:00:00Z")]);
     core.pulls_follow().await.expect("follows");
     let fields = "number,title,url,state,isDraft,reviewDecision,statusCheckRollup,headRefName,\
-                  headRefOid,updatedAt,mergeable";
+                  headRefOid,updatedAt,mergeable,baseRefName,autoMergeRequest,mergeStateStatus";
     let list = format!("pr list --state open --author @me --limit 100 --json {fields}");
     assert_eq!(gh.asked(), [list]);
     let pull = pull_of(core).expect("has its pull request");

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api } from "../api";
 import type { Check, Pull, Task } from "../api/types";
+import { mergeable } from "../merging";
 import {
     CHECKS_SEARCHED_FROM,
     checkCounts,
@@ -15,6 +16,7 @@ import { useStore } from "../store";
 import { usePull, useReadPullOnce } from "../usePull";
 import { useWords } from "../useWords";
 import { capitalized } from "../wording";
+import { MergeDialog } from "./MergeDialog";
 
 /**
  * A task's pull request in the sidebar: its number, coloured by how its checks stand. What it
@@ -60,6 +62,7 @@ export function PullSection({ project, task }: { project: string; task: Task }) 
     const pull = usePull(task);
     const report = useStore((state) => state.report);
     const sessionId = useStore((state) => state.selectedSessionId);
+    const [merging, setMerging] = useState<Pull | null>(null);
     if (!pull) {
         return null;
     }
@@ -67,7 +70,12 @@ export function PullSection({ project, task }: { project: string; task: Task }) 
         api.taskPullOpen(project, task.name, check).catch(report);
     const review = pull.review ? `, ${pull.review.replaceAll("_", " ")}` : "";
     const conflicts = pull.conflicts ? ", conflicts with its base" : "";
-    const summary = `${checksSummary(pull)}${review}${conflicts}`;
+    const auto =
+        pull.auto_merge && pull.state === "open"
+            ? ", merges itself once its requirements are met"
+            : "";
+    const summary = `${checksSummary(pull)}${review}${conflicts}${auto}`;
+    const sendFailure = failedChecks(pull).length > 0 && sessionId !== null;
     return (
         <section className="pull" aria-label={capitalized(words.terms.pullRequest)}>
             <button type="button" className="pull-title" onClick={() => void open(null)}>
@@ -77,8 +85,30 @@ export function PullSection({ project, task }: { project: string; task: Task }) 
                 {pull.title}
             </button>
             <Checks pull={pull} summary={summary} onOpen={(name) => void open(name)} />
-            {failedChecks(pull).length > 0 && sessionId !== null && (
-                <SendFailure project={project} task={task.name} sessionId={sessionId} />
+            {(mergeable(pull) || sendFailure) && (
+                <div className="pull-actions">
+                    {mergeable(pull) && (
+                        <button
+                            type="button"
+                            className="button"
+                            title={`Merges the ${words.terms.pullRequest} on GitHub, or has GitHub merge it once its requirements are met`}
+                            onClick={() => setMerging(pull)}
+                        >
+                            Merge…
+                        </button>
+                    )}
+                    {sendFailure && (
+                        <SendFailure project={project} task={task.name} sessionId={sessionId} />
+                    )}
+                </div>
+            )}
+            {merging && (
+                <MergeDialog
+                    project={project}
+                    task={task}
+                    opened={merging}
+                    onClose={() => setMerging(null)}
+                />
             )}
         </section>
     );

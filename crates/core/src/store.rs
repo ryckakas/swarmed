@@ -278,6 +278,12 @@ const MIGRATIONS: &[&str] = &[
     "
     ALTER TABLE tasks ADD COLUMN pull TEXT;
 ",
+    // The method a pull request of the project was last merged with from Swarmed, which the
+    // next merge starts on. Here, not in the project's files, for the reason the default
+    // environment is (`merging.rs`).
+    "
+    ALTER TABLE projects ADD COLUMN merge_method TEXT;
+",
 ];
 
 /// Stands in [`MIGRATIONS`] for the one change SQL in a transaction cannot make: every

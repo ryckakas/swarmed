@@ -13,6 +13,7 @@ import {
     resetToWaitFor,
 } from "./mockContinuation";
 import { mockImagesApi } from "./mockImages";
+import { mergeApi } from "./mockMerging";
 import { MockSetups, taskSetupApi } from "./mockSetups";
 import { heardUsage, sampleAccountUsage } from "./mockUsage";
 import type {
@@ -40,6 +41,7 @@ import type {
     McpServerView,
     Project,
     Pull,
+    PullChange,
     PullDraft,
     QueuedMessage,
     RemoteState,
@@ -1400,6 +1402,10 @@ const SAMPLE_PULLS: Record<string, () => Pull> = {
             { name: "Test", workflow: "CI", outcome: "passed", url: null },
         ],
         conflicts: false,
+        head: "5d1f0c2a9e7b3d4c6f8a1b2c3d4e5f6a7b8c9d0e",
+        base: "main",
+        auto_merge: null,
+        merge_state: null,
     }),
     "shop-142": () => ({
         number: 415,
@@ -1410,6 +1416,10 @@ const SAMPLE_PULLS: Record<string, () => Pull> = {
         review: null,
         checks: [],
         conflicts: false,
+        head: "9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b",
+        base: "main",
+        auto_merge: null,
+        merge_state: "draft",
     }),
 };
 
@@ -1490,6 +1500,11 @@ function openPull(): Pull {
             ),
         ],
         conflicts: false,
+        head: "c0ffee1234567890abcdef1234567890abcdef12",
+        base: "main",
+        auto_merge: null,
+        // Its unit tests are required: it waits on them, and once they fail it cannot merge.
+        merge_state: "blocked",
     };
 }
 
@@ -1773,16 +1788,27 @@ class MockAgent {
      * wrote to last.
      */
     private failCheck(name: string) {
+        const pull = this.pullOf(name);
+        if (pull?.state === "open") {
+            const change = { kind: "checks_failed" as const, checks: [FAILING_CHECK] };
+            this.pullTakenIn(name, withFailedCheck(pull), change);
+        }
+    }
+
+    /**
+     * Keeps a task's pull request as the core would have read it: the reading goes to every
+     * window, and what changed is recorded in the task's session the user wrote to last.
+     */
+    pullTakenIn(name: string, pull: Pull, change: PullChange | null) {
         const task = this.tasks().find((known) => known.name === name);
-        if (!task?.pull) {
+        if (!task) {
             return;
         }
-        task.pull = withFailedCheck(task.pull);
-        this.tell(0, { type: "pull_read", task_id: task.id, pull: task.pull }, null);
+        task.pull = pull;
+        this.tell(0, { type: "pull_read", task_id: task.id, pull }, null);
         const session = task.sessions[0];
-        if (session) {
-            const { number, url } = task.pull;
-            const change = { kind: "checks_failed" as const, checks: [FAILING_CHECK] };
+        if (session && change) {
+            const { number, url } = pull;
             this.publish(session.id, { type: "pull_changed", number, url, change }, null);
         }
     }
@@ -3187,6 +3213,7 @@ export function createMockApi(): Api {
         taskPull: async (_project, name) => agent.pullOf(name),
         taskPullFailure: async (_project, name) => agent.pullFailure(name),
         taskPullOpen: async () => undefined,
+        ...mergeApi(agent),
         taskChanges: sampleChanges,
         taskDiff: sampleDiff,
         taskOpenEditor: async () => undefined,

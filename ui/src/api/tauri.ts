@@ -22,6 +22,8 @@ import type {
     FileDiff,
     HookOutput,
     McpServerView,
+    MergeReport,
+    MergeRules,
     Project,
     Pull,
     PullDraft,
@@ -146,6 +148,11 @@ export const tauriApi: Api = {
     taskPullFailure: (project, name) => invoke<string>("task_pull_failure", { project, name }),
     taskPullOpen: (project, name, check) =>
         invoke<void>("task_pull_open", { project, name, check }),
+    projectMergeRules: (project) => invoke<MergeRules>("project_merge_rules", { project }),
+    taskPullMerge: (project, name, method, when, head) =>
+        invoke<MergeReport>("task_pull_merge", { project, name, method, when, head }),
+    taskPullAutoMergeOff: (project, name) =>
+        invoke<MergeReport>("task_pull_auto_merge_off", { project, name }),
     taskChanges: (project, name) => invoke<FileChange[]>("task_changes", { project, name }),
     taskDiff: (project, name, path) => invoke<FileDiff>("task_diff", { project, name, path }),
     taskFiles: (project, name, dir) => invoke("task_files", { project, name, dir }),

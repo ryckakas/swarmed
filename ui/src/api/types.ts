@@ -288,6 +288,49 @@ export interface Pull {
     checks: Check[];
     /** Whether its branch conflicts with its base, as GitHub last worked it out. */
     conflicts: boolean;
+    /** Its head commit, which a merge names so that only what was read is merged. */
+    head: string;
+    /** The branch it goes into. */
+    base: string;
+    /** The method GitHub merges it with once its requirements are met, while auto-merge is on. */
+    auto_merge: MergeMethod | null;
+    /**
+     * Whether GitHub would merge it now: `clean`, `unstable` (checks no rule requires did not
+     * pass), `has_hooks`, `blocked` (a requirement is not met), `behind`, `dirty` or `draft`;
+     * `null` while GitHub has not worked it out.
+     */
+    merge_state: string | null;
+}
+
+/** How a pull request's commits go into its base. */
+export type MergeMethod = "merge" | "squash" | "rebase";
+
+/**
+ * When, and past what, a pull request is merged: now unless a check failed, now although
+ * checks failed, now past the repository's requirements as its admin, or by GitHub's own
+ * auto-merge once they are met.
+ */
+export type MergeWhen = "now" | "force" | "bypass" | "auto";
+
+/** What a repository allows for merging, and what the user may do there. */
+export interface MergeRules {
+    /** The methods it allows, in the order GitHub lists them. */
+    methods: MergeMethod[];
+    /** The method a merge starts on: the last used there, the user's own default, or the first. */
+    method: MergeMethod | null;
+    /** Whether it allows auto-merge. */
+    auto_merge: boolean;
+    /** Whether the user administers it, which lets them merge past its requirements. */
+    admin: boolean;
+}
+
+/** What came of a merge: merged, taken by a merge queue, auto-merge on or off, or not known yet. */
+export type MergeOutcome = "merged" | "queued" | "auto_merge" | "auto_merge_off" | "asked";
+
+/** What came of a merge, and the pull request as read after it. */
+export interface MergeReport {
+    outcome: MergeOutcome;
+    pull: Pull | null;
 }
 
 /** What changed on a task's pull request: who reviewed or commented, never what they wrote. */

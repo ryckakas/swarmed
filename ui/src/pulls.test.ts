@@ -27,6 +27,10 @@ const pull = (checks: Check[], more: Partial<Pull> = {}): Pull => ({
     review: null,
     checks,
     conflicts: false,
+    head: "0123456789abcdef",
+    base: "main",
+    auto_merge: null,
+    merge_state: null,
     ...more,
 });
 

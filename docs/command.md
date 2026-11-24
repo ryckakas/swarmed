@@ -25,8 +25,16 @@ swarmed task push shop fix-login
 swarmed task switch shop fix-login                    # back to its own branch, or to one named
 swarmed task pr shop fix-login                        # through your own gh
 swarmed task pull shop fix-login --follow             # its checks, reviews and merge as they come
+swarmed task merge shop fix-login --squash            # or --auto, to merge once checks pass
 swarmed task rm shop fix-login                        # teardown hook, worktree removed
 ```
+
+`task merge` merges the pull request at the commit it just read: one pushed since is refused.
+Without a method it takes the one last used for the repository. It refuses while a check failed;
+`--force` merges anyway where no rule of the repository requires that check, `--admin` merges
+past the repository's requirements, as only its admins can, and `--auto` has GitHub merge it
+once they are met (`--cancel-auto` takes that back). No branch is deleted: the task's goes with
+`task rm --delete-branch`.
 
 `task rm` refuses while the worktree has uncommitted changes or unpushed commits, or is one git
 no longer knows; `--force` removes it anyway. A failing `teardown` does not stop it: what it had
@@ -71,7 +79,7 @@ applies. `SWARMED_FAKE_AGENT=1` swaps in a scripted agent that spends no tokens.
 | Command | What it does |
 | --- | --- |
 | `project` | add, list, remove, move and pin repositories; `project config` prints the path of a project's config file |
-| `task` | create, remove, move and pin tasks, rerun `setup`, run the `start` command, see changes, commit, push, open a pull request and follow it (`task pull --follow`) |
+| `task` | create, remove, move and pin tasks, rerun `setup`, run the `start` command, see changes, commit, push, open a pull request, follow it (`task pull --follow`) and merge it (`task merge`) |
 | `session` | run, continue, list, show, fork, rename, mark, move, pin, close, reopen and delete sessions; change a session's model or supervision; let a Claude Code session be reached from claude.ai (`remote-control`); let one a usage limit stopped go on by itself when the limit resets (`continue-at-reset`, which the app sends) |
 | `environment` | list a project's environments; choose the default one new tasks are set up in |
 | `snapshot` | keep the files git ignores in a set-up task, for new tasks to start from |

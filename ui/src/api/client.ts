@@ -24,6 +24,10 @@ import type {
     MarkColour,
     McpServerInput,
     McpServerView,
+    MergeMethod,
+    MergeReport,
+    MergeRules,
+    MergeWhen,
     Project,
     Pull,
     PullDraft,
@@ -282,6 +286,21 @@ export interface Api {
     taskPullFailure(project: string, name: string): Promise<string>;
     /** Opens a task's pull request in the browser, or the details of its check `check`. */
     taskPullOpen(project: string, name: string, check: string | null): Promise<void>;
+    /** What a repository allows for merging its pull requests. GitHub is asked once per run. */
+    projectMergeRules(project: string): Promise<MergeRules>;
+    /**
+     * Merges a task's pull request with `method`, `when` asked, if its head is still `head`, the
+     * one the user saw. No branch is deleted.
+     */
+    taskPullMerge(
+        project: string,
+        name: string,
+        method: MergeMethod,
+        when: MergeWhen,
+        head: string,
+    ): Promise<MergeReport>;
+    /** Turns off the auto-merge of a task's pull request. */
+    taskPullAutoMergeOff(project: string, name: string): Promise<MergeReport>;
     taskChanges(project: string, name: string): Promise<FileChange[]>;
     /** One changed file's diff. */
     taskDiff(project: string, name: string, path: string): Promise<FileDiff>;

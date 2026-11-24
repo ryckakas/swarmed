@@ -48,6 +48,7 @@ mod mcp_opencode;
 mod mcp_own;
 mod mcp_plugins;
 mod mcp_pool;
+mod merging;
 mod naming;
 mod notes;
 mod notices;
@@ -123,6 +124,7 @@ pub use layouts::{
 };
 pub use marks::{MAX_MARK_LABEL_CHARS, Mark, MarkColour};
 pub use mcp_own::{McpServerInput, McpServerView};
+pub use merging::{MergeMethod, MergeOutcome, MergeReport, MergeRules, MergeWhen};
 pub use naming::TaskNaming;
 pub use notices::Notice;
 pub use open::open_link;
@@ -196,6 +198,8 @@ pub struct Core {
     elsewhere: elsewhere::Elsewhere,
     /// How the pull requests of tasks are followed (`following.rs`).
     following: following::Following,
+    /// What GitHub said each repository allows for merging (`merging.rs`).
+    merging: merging::Merging,
 }
 
 /// The store is only ever locked for one short query, never across an `.await`. A panic while
@@ -241,6 +245,7 @@ impl Core {
             setups: Arc::default(),
             elsewhere: elsewhere::Elsewhere::default(),
             following: following::Following::default(),
+            merging: merging::Merging::default(),
         })
     }
 

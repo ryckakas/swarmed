@@ -13,14 +13,16 @@ use tokio::process::Command;
 use crate::agent_setup::find_program;
 use crate::error::Error;
 use crate::following::Reading;
+use crate::merging::MergeMethod;
 use crate::{Core, Result, git, open};
 
 /// How long `gh` gets to answer. It asks the network, and nothing waits on it.
-const GH_TIMEOUT: Duration = Duration::from_secs(20);
+pub(crate) const GH_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// What `gh pr view` and `gh pr list` are asked for: what is shown, and what tells a change.
 pub(crate) const FIELDS: &str = "number,title,url,state,isDraft,reviewDecision,\
-                                 statusCheckRollup,headRefName,headRefOid,updatedAt,mergeable";
+                                 statusCheckRollup,headRefName,headRefOid,updatedAt,mergeable,\
+                                 baseRefName,autoMergeRequest,mergeStateStatus";
 
 /// Where a pull request stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -85,6 +87,23 @@ pub struct Pull {
     /// what was kept before this.
     #[serde(default)]
     pub conflicts: bool,
+    /// Its head commit, which a merge names so that only what was read is merged. Absent
+    /// from what was kept before this.
+    #[serde(default)]
+    pub head: String,
+    /// The branch it goes into. Absent from what was kept before this.
+    #[serde(default)]
+    pub base: String,
+    /// The method GitHub merges it with once its requirements are met, while its auto-merge
+    /// is on.
+    #[serde(default)]
+    pub auto_merge: Option<MergeMethod>,
+    /// Whether GitHub would merge it now, as it last worked it out: `clean`, `unstable`
+    /// (checks no rule requires did not pass), `has_hooks`, `blocked` (a requirement is not
+    /// met), `behind` (its base moved on and a rule wants it up to date), `dirty`
+    /// (conflicts) or `draft`; nothing while GitHub has not worked it out.
+    #[serde(default)]
+    pub merge_state: Option<String>,
 }
 
 /// A check as `gh` prints it: a check run has a status and a conclusion, a commit status only a
@@ -135,6 +154,21 @@ struct RawPull {
     updated_at: String,
     #[serde(default)]
     mergeable: String,
+    #[serde(default)]
+    base_ref_name: String,
+    #[serde(default)]
+    auto_merge_request: Option<RawAutoMerge>,
+    #[serde(default)]
+    merge_state_status: String,
+}
+
+/// A pull request's auto-merge as `gh` prints it. The commit message it would merge with is
+/// in that too, and never read into this.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawAutoMerge {
+    #[serde(default)]
+    merge_method: String,
 }
 
 /// How a check came out, from whichever of its fields says so.
@@ -241,6 +275,14 @@ fn reading(raw: RawPull) -> Reading {
         "MERGEABLE" => Some(false),
         _ => None,
     };
+    // GitHub merges with no method but these three.
+    let auto_merge = (raw.auto_merge_request)
+        .map(|auto| MergeMethod::of_github(&auto.merge_method).unwrap_or(MergeMethod::Merge));
+    // `UNKNOWN` while GitHub works it out, as for conflicts.
+    let merge_state = match raw.merge_state_status.as_str() {
+        "" | "UNKNOWN" => None,
+        known => Some(known.to_lowercase()),
+    };
     let pull = Pull {
         number: raw.number,
         title: raw.title,
@@ -253,6 +295,10 @@ fn reading(raw: RawPull) -> Reading {
             .map(check)
             .collect(),
         conflicts: conflicts.unwrap_or(false),
+        head: raw.head_ref_oid.clone(),
+        base: raw.base_ref_name,
+        auto_merge,
+        merge_state,
     };
     Reading {
         pull,
@@ -286,13 +332,23 @@ pub(crate) async fn ask_gh(
     dir: &Path,
     args: &[&str],
 ) -> std::result::Result<String, GhFailed> {
+    ask_gh_within(gh, dir, args, GH_TIMEOUT).await
+}
+
+/// What `gh` printed when asked `args` in `dir`, as [`ask_gh`], given `timeout` to answer.
+pub(crate) async fn ask_gh_within(
+    gh: &Path,
+    dir: &Path,
+    args: &[&str],
+    timeout: Duration,
+) -> std::result::Result<String, GhFailed> {
     let mut command = Command::new(gh);
     command
         .args(args)
         .current_dir(dir)
         .stdin(std::process::Stdio::null())
         .kill_on_drop(true);
-    let output = match tokio::time::timeout(GH_TIMEOUT, command.output()).await {
+    let output = match tokio::time::timeout(timeout, command.output()).await {
         Ok(Ok(output)) => output,
         Ok(Err(error)) => return Err(GhFailed(error.to_string())),
         Err(_) => return Err(GhFailed("`gh` took too long to answer".to_string())),
