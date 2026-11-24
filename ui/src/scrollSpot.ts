@@ -2,8 +2,9 @@
 // pixels would not do: rows out of view have only an estimated height (`content-visibility`),
 // so the same `scrollTop` lands somewhere else once a transcript is drawn again. What is kept
 // instead is the row at the top of the view and how far down that row the view was, and the
-// view goes back to that row once it has been measured. Kept per session, and per sub-agent,
-// in the store and never on disk: after a restart a session opens at the bottom.
+// view goes back to that row once it has been measured. It goes back only after every move
+// of the user's is taken in, so that none is ever taken back. Kept per session, and per
+// sub-agent, in the store and never on disk: after a restart a session opens at the bottom.
 
 /** How close to the bottom, in pixels, still counts as following the conversation. */
 export const FOLLOW_DISTANCE = 80;
@@ -32,9 +33,12 @@ export interface Scrolled {
     view: number;
 }
 
-/** Whether the view is at the bottom, or close enough to it to follow what arrives. */
-export function atBottom({ top, height, view }: Scrolled): boolean {
-    return height - top - view < FOLLOW_DISTANCE;
+/**
+ * Whether the view is at the bottom, or less than `within` pixels from it: by default close
+ * enough to follow what arrives.
+ */
+export function atBottom({ top, height, view }: Scrolled, within = FOLLOW_DISTANCE): boolean {
+    return height - top - view < within;
 }
 
 /** A row as it is laid out: its item's key, and its top in the scroller's content. */
@@ -44,26 +48,62 @@ export interface Row {
 }
 
 /**
- * Where a transcript stands, from how it is scrolled and the row at the top of its view
- * (`null` if there is none to name). At the bottom it follows, wherever its rows are.
+ * Where a transcript stands once its view moved by a scroll, from how it is scrolled, the row at
+ * the top of its view (`null` if there is none to name) and whether the scroll went `up`. At the
+ * bottom it follows, wherever its rows are. Within the follow distance of it too, unless the
+ * scroll went up and the view is not right at the bottom: while an answer is written, the
+ * first pixels of a scroll up are the user leaving the bottom, and following would pull the
+ * view back down with every piece that arrives.
  */
-export function spotOf(scrolled: Scrolled, row: Row | null): ScrollSpot {
-    if (atBottom(scrolled) || row === null) {
+export function spotOf(scrolled: Scrolled, row: Row | null, up: boolean): ScrollSpot {
+    // Less than a pixel is the bottom: a scroller can stop a fraction short of it.
+    const following = up ? atBottom(scrolled, 1) : atBottom(scrolled);
+    if (following || row === null) {
         return FOLLOWING;
     }
     return { following: false, key: row.key, offset: scrolled.top - row.top };
 }
 
+/** What a look at a transcript whose rows changed size finds, in pixels down its content. */
+export interface Look {
+    /** Whether it is the first look since the transcript was drawn. */
+    first: boolean;
+    /** How it is scrolled now. */
+    scrolled: Scrolled;
+    /** Where the view was last known to be: put there for its spot, or scrolled there. */
+    last: number;
+    /** The row at the top of the view now; asked only when the view moved. */
+    rowAtTop(): Row | null;
+    /** Where the row of an item is now, by its key, or `null` when it is not drawn. */
+    rowTop(key: number): number | null;
+}
+
+/** Where a look puts the view: at the bottom, at a point, or nowhere, leaving it where it is. */
+export type Placement = number | "bottom" | null;
+
 /**
- * Where to scroll to stand at `spot` again, given where its row's top is now (`null` if the
- * row is not there): `"bottom"` to follow, the row's top and the offset for a row, and `null`
- * when the row is gone, so the view stays where it is.
+ * Where the view goes for `spot` now that rows changed size, and the spot it then stands at.
+ * A view that is not where it was last known to be was moved by the user, or by the browser
+ * keeping what is in view in place as rows above it changed size (`overflow-anchor`), and
+ * stands at a spot of its own even if its scroll event is still to come: that scroll is taken
+ * in first, or the view would be put back, as when it came in the same frame as a reply's
+ * piece. Then the view goes to the bottom to follow, or to its row's top and the offset, once
+ * that row is measured. A row that is not drawn leaves the view where it is, except on the
+ * first look, which then shows the latest.
  */
-export function scrollTarget(spot: ScrollSpot, rowTop: number | null): number | "bottom" | null {
-    if (spot.following) {
-        return "bottom";
+export function placeFor(spot: ScrollSpot, look: Look): { spot: ScrollSpot; top: Placement } {
+    const { first, scrolled, last } = look;
+    const moved = !first && scrolled.top !== last;
+    const at = moved ? spotOf(scrolled, look.rowAtTop(), scrolled.top < last) : spot;
+    if (at.following) {
+        return { spot: at, top: "bottom" };
     }
-    return rowTop === null ? null : rowTop + spot.offset;
+    const rowTop = look.rowTop(at.key);
+    if (rowTop === null) {
+        return first ? { spot: FOLLOWING, top: "bottom" } : { spot: at, top: null };
+    }
+    const target = rowTop + at.offset;
+    return { spot: at, top: Math.abs(target - scrolled.top) >= 1 ? target : null };
 }
 
 /**

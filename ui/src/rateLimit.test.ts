@@ -335,9 +335,29 @@ describe("the usage notice", () => {
         const climbed = [fiveHour(0.5), window("seven_day", 0.3)];
         expect(notice(climbed, "frequent", dismissed, false, later)?.window.kind).toBe("five_hour");
         expect(heldBack(window("seven_day", 0.6), 1, dismissed, later)).toBe(true);
-        // A window nobody knew of when it was dismissed has no reset to go by: it stays away.
-        expect(heldBack(window("seven_day_fable", 0.8), 2, dismissed, later)).toBe(true);
-        expect(heldBack(window("seven_day_fable", 0.9), 3, dismissed, later)).toBe(false);
+        // A window nobody knew of when it was dismissed is news at any level.
+        expect(heldBack(window("seven_day_fable", 0.5), 1, dismissed, later)).toBe(false);
+        expect(heldBack(window("seven_day_fable", 0.8), 2, dismissed, later)).toBe(false);
+    });
+
+    it("shows a window first reported after it was dismissed, even at the level dismissed", () => {
+        // Requests stopped by the 5-hour limit, dismissed while it was the only window known.
+        const fiveHour = window("five_hour", 1, "rejected", inAnHour);
+        const dismissed = dismissalOf([fiveHour], false);
+        expect(dismissed).toEqual({ level: STOPPED, resets: { five_hour: inAnHour } });
+        expect(notice([fiveHour], "none", dismissed)).toBeNull();
+        // The weekly limit is reported later, and stops requests too.
+        const weekly = window("seven_day", 1, "rejected");
+        expect(notice([fiveHour, weekly], "none", dismissed)?.window.kind).toBe("seven_day");
+    });
+
+    it("keeps a window that said no reset away until a higher level", () => {
+        // There is no telling when it resets: as news, it would come straight back.
+        const unsaid = { ...window("seven_day", 0.8), resetsAt: null };
+        const dismissed = dismissalOf([unsaid], false);
+        expect(dismissed).toEqual({ level: 2, resets: { seven_day: null } });
+        expect(notice([unsaid], "frequent", dismissed, false, friday + 60)).toBeNull();
+        expect(notice([{ ...unsaid, used: 0.9 }], "frequent", dismissed)?.level).toBe(3);
     });
 
     it("is dismissed for the account through a restart, from what this machine kept", () => {

@@ -101,7 +101,8 @@ in every session, and it shows one level, the highest any window has reached:
 Claude Code reports one window at a time, after each turn and often several times in one, so
 nothing is said per report: a report only raises or lowers the level. Dismiss the notice and it
 stays away in every session, and after Swarmed starts again, until a window reaches a higher
-level, or a window that has reset since climbs back to one. The dismissal is kept on this Mac.
+level, a window that has reset since climbs back to one, or a window first reported after you
+dismissed it, such as one model's weekly limit, reaches one. The dismissal is kept on this Mac.
 
 The conversation says nothing of usage, except where a limit stopped a turn with nothing to pay
 past it: that turn keeps one line, which says why the agent stopped. Conversations recorded

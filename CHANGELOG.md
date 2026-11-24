@@ -87,7 +87,8 @@ notice adds its line under Unreleased.
   reached: 50%, 75% or 90% of a window used, a limit reached with extra usage paying, or a
   limit that stops requests, with the window and when it resets. It is the same in every
   session. Dismiss it and it stays away in all of them, and after a restart, until a higher
-  level is reached or its window resets and climbs back. The conversation keeps one line only
+  level is reached, its window resets and climbs back, or a limit first reported since, such as
+  one model's weekly limit, reaches a level. The conversation keeps one line only
   where a limit stopped a turn. **Usage warnings** in Settings, under Storage and activity,
   picks the levels: every one (Frequent), from 90% (Rare), or only requests stopped (None).
   An agent can change it for you too.
@@ -117,6 +118,10 @@ notice adds its line under Unreleased.
 
 ### Fixed
 
+- **Scrolling up while an answer is being written stays where you scrolled.** A scroll made as
+  a piece of the answer arrived was taken back to the bottom, and so was any scroll up that had
+  not yet gone 80 pixels, so a slow scroll or a short turn of the wheel could not get away from
+  the bottom until the answer was done. Now the first pixels of a scroll up stop following.
 - **The window shows what the `swarmed` command or a second Swarmed changes.** A session
   renamed, marked, closed, reopened, deleted, moved or set from the command line, a task or
   session made or removed there, and an action or setting written there or by hand, used to

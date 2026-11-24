@@ -572,7 +572,7 @@ function UsageWarnings({ settings }: { settings: Settings }) {
             <h3>Claude Code's usage limits</h3>
             <Row
                 label="Usage warnings"
-                hint="Which levels of your 5-hour and weekly limits the notice at the top of the window says, in Claude Code sessions: 50%, 75% and 90% used, a limit reached with extra usage paying, and a limit that stops requests (Frequent); only from 90% (Rare); or only requests stopped (None). Dismissed, it stays away in every session until a higher level, or until its window resets. The coins at the top of a session always show how much is used."
+                hint="Which levels of your 5-hour and weekly limits the notice at the top of the window says, in Claude Code sessions: 50%, 75% and 90% used, a limit reached with extra usage paying, and a limit that stops requests (Frequent); only from 90% (Rare); or only requests stopped (None). Dismissed, it stays away in every session until a higher level, until its window resets, or until a limit first reported since reaches a level. The coins at the top of a session always show how much is used."
             >
                 <Picker
                     label="Usage warnings"

@@ -215,7 +215,7 @@ export const TOOL_CALLS: [ToolCalls, string][] = [
     ["hidden", "Hidden, with a larger animation while it works"],
 ];
 
-/** How often a conversation can say that Claude Code warns of a usage limit. */
+/** Which levels of the account's usage the notice at the top of the window says. */
 export const LIMIT_WARNINGS: [LimitWarnings, string][] = [
     ["frequent", "Frequent"],
     ["rare", "Rare, from 90% used"],

@@ -669,7 +669,11 @@ export interface AccountUsage {
     /** Every window heard of, each with its newest figure, by kind. */
     windows: UsageWindow[];
     extra: ExtraUsageHeard | null;
-    /** What the newest report after a turn said of extra usage paying for the turn. */
+    /**
+     * What the newest report after a turn that said anything of extra usage said of it. A
+     * report of a window still within, while extra usage pays for another window's limit until
+     * it resets, says nothing of it.
+     */
     billed: { on: boolean; resets_at: number | null; heard_at: number } | null;
 }
 

@@ -196,10 +196,13 @@ export function dismissalOf(windows: LimitWindow[], paying: boolean): Dismissed 
 }
 
 /**
- * Whether a dismissal keeps a window's notice away at `now`: the window is at no higher level
- * than the one dismissed, and has not reset since. A window that was to reset before `now`
- * has, and whatever level it climbs back to is news. One nobody knew of then has no reset to
- * go by, and is kept away like the rest.
+ * Whether a dismissal keeps a window's notice away at `now`: the window was known when the
+ * notice was dismissed, is at no higher level than the one dismissed, and has not reset since.
+ * A window that was to reset before `now` has, and whatever level it climbs back to is news.
+ * So is one nobody knew of then, such as a model's weekly limit first reported later: what was
+ * dismissed did not speak of it. One known with no reset is kept away until a higher level,
+ * since there is no telling when it resets: were it news, dismissing it would do nothing while
+ * reports leave its reset out.
  */
 export function heldBack(
     window: LimitWindow,
@@ -211,7 +214,10 @@ export function heldBack(
         return false;
     }
     const reset = dismissed.resets[window.kind];
-    return reset === undefined || reset === null || reset > now;
+    if (reset === undefined) {
+        return false;
+    }
+    return reset === null || reset > now;
 }
 
 /**
