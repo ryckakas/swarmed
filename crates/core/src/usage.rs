@@ -10,6 +10,7 @@ use serde::Serialize;
 use tokio::process::Command;
 
 use crate::error::Result;
+use crate::tasks::REMOVED;
 use crate::{Core, lock};
 
 /// How long one folder's size is waited for. A worktree with a large build can take a while.
@@ -203,15 +204,21 @@ impl Core {
         Ok(worktrees)
     }
 
-    /// The size of what removals moved aside, in every project, and is still there.
+    /// The size of what removals moved aside, in every project, and is still there. Each thing
+    /// left is measured, not the folder holding them: an empty folder takes a block of its own
+    /// on some file systems (4 KB on ext4), and would be counted for good once all is deleted.
     async fn removed_bytes(&self) -> u64 {
         let Ok(projects) = std::fs::read_dir(&self.paths.worktrees_root) else {
             return 0;
         };
+        let left: Vec<PathBuf> = projects
+            .flatten()
+            .filter_map(|project| std::fs::read_dir(project.path().join(REMOVED)).ok())
+            .flat_map(|entries| entries.flatten().map(|entry| entry.path()))
+            .collect();
         let mut bytes = 0;
-        for project in projects.flatten() {
-            let folder = project.path().join(crate::tasks::REMOVED);
-            bytes += folder_bytes(&folder).await.unwrap_or(0);
+        for path in left {
+            bytes += folder_bytes(&path).await.unwrap_or(0);
         }
         bytes
     }
