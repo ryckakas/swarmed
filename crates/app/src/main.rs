@@ -193,7 +193,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::agent_configure, commands::agent_models_refresh, commands::openrouter_models,
         commands::overview, commands::project_add, commands::project_remove,
         commands::project_move, commands::task_move, commands::session_move,
-        commands::cloud_task_move,
+        commands::cloud_task_move, commands::project_pin, commands::task_pin, commands::session_pin,
         commands::branch_choices, commands::task_name_for, commands::task_new,
         commands::task_start, commands::task_setup, commands::task_setup_stop,
         commands::task_start_anyway, commands::task_setup_log,

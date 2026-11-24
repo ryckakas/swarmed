@@ -139,6 +139,15 @@ export interface Api {
     /** Moves a cloud task `by` places among the others of its project. */
     cloudTaskMove(id: number, by: number): Promise<void>;
     /**
+     * Pins a project above the others that are not pinned, put last among the pinned ones, or
+     * with `pinned` false unpins it, put first among the others.
+     */
+    projectPin(project: string, pinned: boolean): Promise<void>;
+    /** Pins a task above its project's other open tasks that are not pinned, or unpins it. */
+    taskPin(project: string, task: string, pinned: boolean): Promise<void>;
+    /** Pins a session above its siblings that are not pinned, or unpins it. */
+    sessionPin(id: number, pinned: boolean): Promise<void>;
+    /**
      * Removes a task's worktree and takes the task out of the tree. Its branch is kept. Without
      * `force` it refuses if the worktree holds unsaved work; nothing else stops it. Resolves to
      * what it passed over to get there, a teardown that failed say, for the user to read.

@@ -185,6 +185,10 @@ pub(crate) fn track(open: &mut HashSet<String>, event: &AgentEvent) {
 
 /// One conversation with an agent, in a task's worktree.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each is a column of its own, apart from the others, which front ends read as it is"
+)]
 pub struct Session {
     /// The database id.
     pub id: i64,
@@ -217,6 +221,9 @@ pub struct Session {
     /// Whether the message it was made with waits for its task's setup: it goes once that
     /// finishes well, or when the user sends it anyway.
     pub waits_for_setup: bool,
+    /// Whether the user pinned it above its siblings that are not pinned. A closed session
+    /// keeps its pin.
+    pub pinned: bool,
 }
 
 /// What can be changed about a session after it was created.
@@ -250,7 +257,11 @@ pub struct SessionOptions {
 }
 
 const SESSION_SELECT: &str = "SELECT id, task_id, title, agent_session_id, model, supervision, status, agent, effort, unread, spawned_by, fast, mark_colour, mark_label, \
-     setup_prompt IS NOT NULL FROM sessions";
+     setup_prompt IS NOT NULL, pinned FROM sessions";
+
+/// The order the sidebar lists a task's sessions in: the pinned ones first, then as the user
+/// put them.
+pub(crate) const SESSION_ORDER: &str = "pinned DESC, position, id";
 
 fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
     Ok(Session {
@@ -279,6 +290,7 @@ fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
             })
             .transpose()?,
         waits_for_setup: row.get(14)?,
+        pinned: row.get(15)?,
     })
 }
 
@@ -316,6 +328,7 @@ impl Store {
             fast: options.fast,
             mark: None,
             waits_for_setup: false,
+            pinned: false,
         })
     }
 
@@ -372,7 +385,7 @@ impl Store {
 
     pub(crate) fn sessions(&self, task_id: i64) -> Result<Vec<Session>> {
         let mut stmt = self.conn.prepare(&format!(
-            "{SESSION_SELECT} WHERE task_id = ?1 AND closed_at IS NULL ORDER BY position, id"
+            "{SESSION_SELECT} WHERE task_id = ?1 AND closed_at IS NULL ORDER BY {SESSION_ORDER}"
         ))?;
         let rows = stmt.query_map(params![task_id], session_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -388,7 +401,7 @@ impl Store {
 
     pub(crate) fn sessions_all(&self) -> Result<Vec<Session>> {
         let mut stmt = self.conn.prepare(&format!(
-            "{SESSION_SELECT} WHERE closed_at IS NULL ORDER BY task_id, position, id"
+            "{SESSION_SELECT} WHERE closed_at IS NULL ORDER BY task_id, {SESSION_ORDER}"
         ))?;
         let rows = stmt.query_map([], session_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)

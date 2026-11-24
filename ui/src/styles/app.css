@@ -1274,11 +1274,11 @@ code {
  * browser's own padding is taken off: it leaves less room than the icon needs, and the icon then
  * starts at the padding and sits right of its button's centre.
  */
-:is(.row-add, .row-note, .row-close) {
+:is(.row-add, .row-note, .row-pin, .row-close) {
     padding: 0;
 }
 
-:is(.row-add, .row-note, .row-close) svg {
+:is(.row-add, .row-note, .row-pin, .row-close) svg {
     width: 13px;
     height: 13px;
     fill: none;
@@ -1302,6 +1302,49 @@ code {
 .row-note:focus-visible {
     background: var(--raised);
     color: var(--text);
+}
+
+/* The pin on a row: out of the way until the row is pointed at, in view once it is pinned. */
+.row-pin {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--faint);
+    opacity: 0;
+}
+
+.row-head:hover .row-pin,
+.row-head:focus-within .row-pin,
+.session-line:hover .row-pin,
+.session-line:focus-within .row-pin,
+.row-pin:focus-visible {
+    opacity: 1;
+}
+
+.row-pin[data-pinned="true"] {
+    color: var(--sky);
+    opacity: 1;
+}
+
+.row-pin[data-pinned="true"] .pin-head {
+    fill: currentColor;
+}
+
+.row-pin:hover,
+.row-pin:focus-visible {
+    background: var(--raised);
+    color: var(--text);
+}
+
+/* A session's row is drawn on the raised colour when pointed at, so its pin is set off by more. */
+.session-line .row-pin:hover,
+.session-line .row-pin:focus-visible {
+    background: var(--line);
 }
 
 /* What kind of thing a row is, left of its name. */

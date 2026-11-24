@@ -12,6 +12,7 @@ export type HotkeyId =
     | "next-waiting"
     | "move-up"
     | "move-down"
+    | "pin"
     | "session-1"
     | "session-2"
     | "session-3"
@@ -80,6 +81,12 @@ export const HOTKEYS: Hotkey[] = [
         id: "move-down",
         keys: "cmd+alt+arrowdown", // gitleaks:allow
         label: "Move down in the sidebar: the focused row, or the open session",
+        group: "Sessions",
+    },
+    {
+        id: "pin",
+        keys: "cmd+d",
+        label: "Pin above the rest in the sidebar, or unpin: the focused row, or the open session",
         group: "Sessions",
     },
     {

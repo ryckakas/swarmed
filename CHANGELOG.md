@@ -31,6 +31,12 @@ notice adds its line under Unreleased.
   tags, with your words after them, and the transcript shows them as a quote. A message brought
   back with ↑, or a waiting message opened to edit, has its quotes and large pastes as tokens
   again, no longer pasted out in full.
+- **Pin a repository, a task or a session to the top of its list in the sidebar.** Press the pin
+  that shows when you point at a row, or ⌘D for the focused row or the open session. A pinned
+  row stays above the rows beside it that are not pinned, keeps its pin, and moves only among
+  the pinned ones; unpinned, it goes back to the top of the others. A closed session keeps its
+  pin for when it is reopened. On the command line: `swarmed project pin`, `swarmed task pin`
+  and `swarmed session pin`, and `unpin` for each.
 
 ### Fixed
 

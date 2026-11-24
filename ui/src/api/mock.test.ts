@@ -142,6 +142,34 @@ describe("the mock's tree", () => {
         await api.sessionRename(created.id, "Slow work");
         expect((await sessionOf(api, created.id))?.title).toBe("Slow work");
     });
+
+    it("lists pinned tasks first, and moves each among those pinned as it is", async () => {
+        const api = createMockApi();
+        const tasks = async () =>
+            (await api.overview())
+                .find((project) => project.name === "storefront")
+                ?.tasks.map((task) => `${task.name}${task.pinned ? " (pinned)" : ""}`);
+        expect(await tasks()).toEqual([
+            "fix-login-redirect (pinned)",
+            "invoice-export",
+            "shop-142",
+        ]);
+        await api.taskPin("storefront", "shop-142", true);
+        await api.taskMove("storefront", "invoice-export", -5);
+        expect(await tasks()).toEqual([
+            "fix-login-redirect (pinned)",
+            "shop-142 (pinned)",
+            "invoice-export",
+        ]);
+        await api.taskPin("storefront", "fix-login-redirect", false);
+        expect(await tasks()).toEqual([
+            "shop-142 (pinned)",
+            "fix-login-redirect",
+            "invoice-export",
+        ]);
+        await api.sessionPin(2, true);
+        expect((await sessionOf(api, 2))?.pinned).toBe(true);
+    });
 });
 
 describe("the mock's agent", () => {

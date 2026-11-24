@@ -444,6 +444,30 @@ pub(crate) fn session_move(core: CoreState<'_>, id: i64, by: i32) -> Command<()>
     Ok(core.session_move(id, by)?)
 }
 
+/// Pins a project above the others that are not pinned, or with `pinned` false unpins it.
+/// In order with the window's moves, as each is from the list the last one left.
+#[tauri::command]
+pub(crate) fn project_pin(core: CoreState<'_>, project: String, pinned: bool) -> Command<()> {
+    Ok(core.project_pin(&project, pinned)?)
+}
+
+/// Pins a task above its project's other open tasks that are not pinned, or unpins it.
+#[tauri::command]
+pub(crate) fn task_pin(
+    core: CoreState<'_>,
+    project: String,
+    task: String,
+    pinned: bool,
+) -> Command<()> {
+    Ok(core.task_pin(&project, &task, pinned)?)
+}
+
+/// Pins a session above its siblings that are not pinned, or unpins it.
+#[tauri::command]
+pub(crate) fn session_pin(core: CoreState<'_>, id: i64, pinned: bool) -> Command<()> {
+    Ok(core.session_pin(id, pinned)?)
+}
+
 /// Moves a cloud task `by` places among the others of its project.
 #[tauri::command]
 pub(crate) fn cloud_task_move(core: CoreState<'_>, id: i64, by: i32) -> Command<()> {

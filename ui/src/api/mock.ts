@@ -1,6 +1,6 @@
 import { lastDays } from "../analytics";
 import { CHATS } from "../chats";
-import { movedAmong, starterHere } from "../ordering";
+import { movedAmong, pinnedAmong, starterHere } from "../ordering";
 import { calledCommand } from "../slash";
 import { PLAN_TOOL, withFiles } from "../transcript";
 import { titleFrom } from "../tree";
@@ -152,6 +152,8 @@ function session(id: number, taskId: number, title: string, status: SessionStatu
         // One sample session carries a mark, as a skill's last step would leave it.
         mark: id === 3 ? { colour: "green", label: "e2e passed" } : null,
         waits_for_setup: false,
+        // One sample session is pinned above the others of its task.
+        pinned: id === 1,
     };
 }
 
@@ -214,6 +216,8 @@ function task(id: number, projectId: number, name: string, sessions: Session[]):
         environment: null,
         // Two sample tasks have a dev server to start and stop, one of them running.
         stack: SAMPLE_STACKS[id] ?? null,
+        // One sample task is pinned above the others of its repository.
+        pinned: id === 1,
     };
 }
 
@@ -680,7 +684,16 @@ function cloudApi(
 /** Putting the sample's repositories, tasks, sessions and cloud tasks in another order. */
 function orderApi(
     projects: () => Project[],
-): Pick<Api, "projectMove" | "taskMove" | "sessionMove" | "cloudTaskMove"> {
+): Pick<
+    Api,
+    | "projectMove"
+    | "taskMove"
+    | "sessionMove"
+    | "cloudTaskMove"
+    | "projectPin"
+    | "taskPin"
+    | "sessionPin"
+> {
     const project = (name: string) => {
         const found = projects().find((candidate) => candidate.name === name);
         if (!found) {
@@ -688,39 +701,68 @@ function orderApi(
         }
         return found;
     };
-    const everyTask = () => projects().flatMap((one) => one.tasks);
+    const taskOf = (id: number) => {
+        const task = projects()
+            .flatMap((one) => one.tasks)
+            .find((one) => one.sessions.some((s) => s.id === id));
+        const session = task?.sessions.find((s) => s.id === id);
+        if (!(task && session)) {
+            throw new Error(`session ${id} not found`);
+        }
+        return { task, session };
+    };
     const replace = <T>(list: T[], moved: T[]) => list.splice(0, list.length, ...moved);
+    // A row moves among those pinned as it is, as the core has it.
+    const pinnedAs =
+        <T extends { pinned: boolean }>(row: T | undefined) =>
+        (one: T) =>
+            one.pinned === row?.pinned;
     return {
         projectMove: async (name, by) => {
             const all = projects();
+            const among = pinnedAs(all.find((one) => one.name === name));
             replace(
                 all,
-                movedAmong(
-                    all,
-                    () => true,
-                    (one) => one.name === name,
-                    by,
-                ),
+                movedAmong(all, among, (one) => one.name === name, by),
             );
         },
         taskMove: async (name, task, by) => {
             const { tasks } = project(name);
-            const open = (one: Task) => !one.archived;
+            const among = pinnedAs(tasks.find((one) => one.name === task && !one.archived));
+            const open = (one: Task) => !one.archived && among(one);
             replace(
                 tasks,
                 movedAmong(tasks, open, (one) => one.name === task, by),
             );
         },
         sessionMove: async (id, by) => {
-            const task = everyTask().find((one) => one.sessions.some((s) => s.id === id));
-            const session = task?.sessions.find((s) => s.id === id);
-            if (!(task && session)) {
-                throw new Error(`session ${id} not found`);
-            }
+            const { task, session } = taskOf(id);
             const starter = starterHere(task.sessions, session);
-            const siblings = (one: Session) => starterHere(task.sessions, one) === starter;
+            const siblings = (one: Session) =>
+                starterHere(task.sessions, one) === starter && one.pinned === session.pinned;
             const moved = movedAmong(task.sessions, siblings, (one) => one.id === id, by);
             replace(task.sessions, moved);
+        },
+        projectPin: async (name, pinned) => {
+            const all = projects();
+            replace(
+                all,
+                pinnedAmong(all, (one) => one.name === name && !one.chats, pinned),
+            );
+        },
+        taskPin: async (name, task, pinned) => {
+            const { tasks } = project(name);
+            const open = tasks.filter((one) => !one.archived);
+            const pinning = (one: Task) => one.name === task;
+            const archived = tasks.filter((one) => one.archived);
+            replace(tasks, [...pinnedAmong(open, pinning, pinned), ...archived]);
+        },
+        sessionPin: async (id, pinned) => {
+            const { task } = taskOf(id);
+            replace(
+                task.sessions,
+                pinnedAmong(task.sessions, (one) => one.id === id, pinned),
+            );
         },
         cloudTaskMove: async (id, by) => {
             const owner = projects().find((one) => one.cloud.some((task) => task.id === id));
@@ -1074,6 +1116,7 @@ export function sampleProjects(): Project[] {
             repo_path: "/Users/you/code/storefront",
             chats: false,
             has_note: true,
+            pinned: false,
             cloud: [
                 {
                     id: 1,
@@ -1105,6 +1148,7 @@ export function sampleProjects(): Project[] {
             chats: false,
             has_note: false,
             cloud: [],
+            pinned: false,
             tasks: [
                 task(4, 2, "rust-support", [
                     session(4, 4, "Sketch a Rust language spec", "errored"),
@@ -1120,6 +1164,7 @@ export function sampleProjects(): Project[] {
             tasks: [],
             has_note: false,
             cloud: [],
+            pinned: false,
         },
         // The chats, with one: what is asked with no repository. Last, as the core adds them
         // when the first is made; the sidebar shows them first.
@@ -1130,6 +1175,7 @@ export function sampleProjects(): Project[] {
             chats: true,
             has_note: false,
             cloud: [],
+            pinned: false,
             tasks: [
                 chat(5, 4, "what-is-a-monad", [
                     session(6, 5, "What is a monad, in plain words?", "idle"),
@@ -2614,6 +2660,7 @@ function sampleChatNew(projects: Project[], name: string): Task {
             tasks: [],
             has_note: false,
             cloud: [],
+            pinned: false,
         };
         projects.push(home);
     }
@@ -2887,6 +2934,7 @@ export function createMockApi(): Api {
                 tasks: [],
                 has_note: false,
                 cloud: [],
+                pinned: false,
             };
             agent.projects.push(project);
             return project;

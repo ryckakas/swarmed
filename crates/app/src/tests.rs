@@ -406,6 +406,42 @@ fn the_ui_can_put_projects_tasks_and_sessions_in_order() {
 }
 
 #[test]
+fn the_ui_can_pin_projects_tasks_and_sessions() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    for name in ["one", "two"] {
+        let task = json!({ "project": "demo", "name": name, "branch": null });
+        app.ok("task_new", task);
+    }
+    app.ok("project_pin", json!({ "project": "demo", "pinned": true }));
+    app.ok(
+        "task_pin",
+        json!({ "project": "demo", "task": "two", "pinned": true }),
+    );
+    let how = json!({ "model": null, "supervision": "auto", "effort": null });
+    let options = json!({ "project": "demo", "task": "two", "agent": null, "how": how });
+    let (first, second) = (
+        app.ok("session_new", options.clone())["id"].clone(),
+        app.ok("session_new", options)["id"].clone(),
+    );
+    app.ok("session_pin", json!({ "id": second, "pinned": true }));
+    let overview = app.ok("overview", json!({}));
+    let demo = &overview[0];
+    assert_eq!(demo["pinned"], json!(true));
+    let two = &demo["tasks"][0];
+    assert_eq!(
+        (&two["name"], &two["pinned"]),
+        (&json!("two"), &json!(true))
+    );
+    let sessions = &two["sessions"];
+    assert_eq!((&sessions[0]["id"], &sessions[1]["id"]), (&second, &first));
+    assert_eq!(sessions[0]["pinned"], json!(true));
+    app.ok("session_pin", json!({ "id": second, "pinned": false }));
+    app.invoke("session_pin", json!({ "id": 999, "pinned": true }))
+        .expect_err("no such session");
+}
+
+#[test]
 fn the_ui_can_deny_interrupt_and_remove() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));

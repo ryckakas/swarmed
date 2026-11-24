@@ -323,6 +323,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   stored; front ends read the tree again on it. The UI drags rows with pointer events, not
   HTML drag and drop, which would fight the window's dropping of files to attach
   (`useRowDrag`, `ordering.ts`), and ⌥⌘↑/↓ move the focused row or the open session.
+  A repository, a task or a session can be pinned (`pinned`, `project_pin` and the like):
+  lists order by `pinned DESC` first, a move stays among the rows pinned as it is (each pin
+  state is a drag group of its own in the UI), pinning puts a row last among the pinned and
+  unpinning first among the others, and a closed session keeps its pin. A pin is published
+  as a move is. Cloud tasks and the chats among the repositories are not pinned.
 - **Closing a session keeps it; deleting one does not** (`session_close`, `session_delete`).
   A closed session is put away with its conversation and can be reopened; until it is, its
   agent cannot be started and nothing can be sent to it (`Error::SessionClosed`). A deleted one is

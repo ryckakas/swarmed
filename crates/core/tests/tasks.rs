@@ -2618,6 +2618,86 @@ async fn a_branch_prefix_git_would_not_take_is_refused_with_its_reason() {
     assert_eq!(task.branch, format!("{}/one", login()));
 }
 
+#[tokio::test]
+async fn pinned_rows_stay_above_their_siblings_and_move_among_themselves() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    two_repositories_and_three_tasks(&fx, &core).await;
+    let mut bus = core.subscribe();
+    let told = |bus: &mut tokio::sync::broadcast::Receiver<_>, what: &str| {
+        let heard: swarmed_core::SessionEvent = bus.try_recv().expect("told");
+        assert_eq!(heard.session_id, 0);
+        assert!(matches!(&heard.event, AgentEvent::Reordered { kind } if kind == what));
+    };
+
+    // A pinned repository goes above the others, and stays there as they move.
+    core.project_pin("aardvark", true).expect("pins");
+    told(&mut bus, "project");
+    assert_eq!(listed(&core).0, ["aardvark", "demo"]);
+    assert!(core.project("aardvark").expect("found").pinned);
+    core.project_pin("aardvark", true).expect("pinned already");
+    core.project_move("demo", -1).expect("moves");
+    assert_eq!(listed(&core).0, ["aardvark", "demo"]);
+    assert!(
+        bus.try_recv().is_err(),
+        "nothing changed, so nobody is told"
+    );
+    // Unpinned, it is first among the others, where it was.
+    core.project_pin("aardvark", false).expect("unpins");
+    told(&mut bus, "project");
+    assert_eq!(listed(&core).0, ["aardvark", "demo"]);
+    assert!(!core.project("aardvark").expect("found").pinned);
+    core.project_move("aardvark", 1).expect("moves");
+    told(&mut bus, "project");
+
+    // Each task pinned goes last among the pinned ones, which move among themselves.
+    core.task_pin("demo", "three", true).expect("pins");
+    told(&mut bus, "task");
+    core.task_pin("demo", "two", true).expect("pins");
+    assert_eq!(listed(&core).1, ["three", "two", "one"]);
+    core.task_move("demo", "one", -5).expect("moves");
+    assert_eq!(listed(&core).1, ["three", "two", "one"]);
+    core.task_move("demo", "two", -1).expect("moves");
+    assert_eq!(listed(&core).1, ["two", "three", "one"]);
+    // A new task goes at the end, below the pinned ones.
+    core.task_new("demo", "four", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("creates");
+    core.task_pin("demo", "two", false).expect("unpins");
+    assert_eq!(listed(&core).1, ["three", "two", "one", "four"]);
+    assert!(matches!(
+        core.task_pin("demo", "nowhere", true),
+        Err(Error::TaskNotFound { .. })
+    ));
+
+    // A closed session keeps its pin, and comes back where it was.
+    let new = || {
+        core.session_new("demo", "one", &SessionOptions::default())
+            .expect("creates")
+            .id
+    };
+    let (first, second, third) = (new(), new(), new());
+    let ids = |core: &Core| -> Vec<i64> {
+        let sessions = core.sessions("demo", "one").expect("lists");
+        sessions.iter().map(|session| session.id).collect()
+    };
+    while bus.try_recv().is_ok() {}
+    core.session_pin(third, true).expect("pins");
+    told(&mut bus, "session");
+    core.session_pin(second, true).expect("pins");
+    assert_eq!(ids(&core), [third, second, first]);
+    core.session_close(third).expect("closes");
+    assert!(matches!(
+        core.session_pin(third, false),
+        Err(Error::SessionClosed(id)) if id == third
+    ));
+    core.session_move(first, -5).expect("moves");
+    assert_eq!(ids(&core), [second, first]);
+    core.session_reopen(third).expect("reopens");
+    assert_eq!(ids(&core), [third, second, first]);
+    assert!(core.session(third).expect("found").pinned);
+}
+
 /// The names of the repositories, and of the first one's open tasks, as the sidebar lists them.
 fn listed(core: &Core) -> (Vec<String>, Vec<String>) {
     let overview = core.overview().expect("reads");
@@ -2631,11 +2711,8 @@ fn listed(core: &Core) -> (Vec<String>, Vec<String>) {
     (projects, tasks)
 }
 
-#[tokio::test]
-async fn repositories_tasks_and_sessions_keep_the_order_they_are_put_in() {
-    let fx = fixture();
-    let core = core_with_project(&fx).await;
-    // A repository added later goes at the end, whatever its name.
+/// Adds a second repository, `aardvark`, beside the fixture's `demo`, and three tasks to `demo`.
+async fn two_repositories_and_three_tasks(fx: &common::Fixture, core: &Core) {
     let other = fx.repo.with_file_name("aardvark");
     std::fs::create_dir(&other).expect("test setup");
     git(&other, &["init", "--quiet", "-b", "main"]);
@@ -2648,6 +2725,14 @@ async fn repositories_tasks_and_sessions_keep_the_order_they_are_put_in() {
             .await
             .expect("creates");
     }
+}
+
+#[tokio::test]
+async fn repositories_tasks_and_sessions_keep_the_order_they_are_put_in() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    // A repository added later goes at the end, whatever its name.
+    two_repositories_and_three_tasks(&fx, &core).await;
     assert_eq!(listed(&core).0, ["demo", "aardvark"]);
     assert_eq!(listed(&core).1, ["one", "two", "three"]);
     // After the tasks are made, whose setups are told on the same stream.

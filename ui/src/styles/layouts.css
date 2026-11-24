@@ -84,6 +84,7 @@
     .row-add,
     .row-close,
     .row-note,
+    .row-pin,
     .icon-button,
     .icon-picker,
     .round-button,
@@ -109,7 +110,11 @@
 }
 
 /* And takes no room until then, so a name is cut short only while its row is pointed at. */
-:root[data-layout="senior"] .row-head:not(:hover, :focus-within) .row-note:not([data-has="true"]) {
+:root[data-layout="senior"] .row-head:not(:hover, :focus-within) .row-note:not([data-has="true"]),
+:root[data-layout="senior"] .row-head:not(:hover, :focus-within) .row-pin:not([data-pinned="true"]),
+:root[data-layout="senior"]
+    .session-line:not(:hover, :focus-within)
+    .row-pin:not([data-pinned="true"]) {
     display: none;
 }
 

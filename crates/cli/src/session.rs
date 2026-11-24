@@ -117,13 +117,19 @@ pub(crate) enum SessionCommand {
     /// Give a session a new title.
     Rename { id: i64, title: String },
     /// Move a session among the other open sessions of its task, as the app lists them: one
-    /// another session started, among those that one started.
+    /// another session started, among those that one started, and a pinned one among the
+    /// pinned.
     Move {
         id: i64,
         /// How many places: negative for earlier, as in `--by=-1`.
         #[arg(long, allow_hyphen_values = true)]
         by: i32,
     },
+    /// Pin a session above its task's other open sessions that are not pinned: one another
+    /// session started, among those that one started. It keeps its pin while it is closed.
+    Pin { id: i64 },
+    /// Unpin a session: it goes first among those that are not pinned.
+    Unpin { id: i64 },
     /// Put a mark on a session: a colour and a few words shown in the sidebar.
     Mark {
         id: i64,
@@ -289,6 +295,8 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
         }
         SessionCommand::Rename { id, title } => renamed(core, id, &title),
         SessionCommand::Move { id, by } => moved(core, id, by),
+        SessionCommand::Pin { id } => pinned(core, id, true),
+        SessionCommand::Unpin { id } => pinned(core, id, false),
         SessionCommand::Mark { id, colour, label } => mark(core, id, &colour, &label),
         SessionCommand::RemoteControl { id, off, auth } => {
             remote_control(core, id, off, auth).await
@@ -337,6 +345,12 @@ fn chosen_or_kept(core: &Core, id: i64, chosen: Option<Supervision>) -> Result<S
 fn moved(core: &Core, id: i64, by: i32) -> Result<()> {
     core.session_move(id, by)?;
     say("moved");
+    Ok(())
+}
+
+fn pinned(core: &Core, id: i64, pinned: bool) -> Result<()> {
+    core.session_pin(id, pinned)?;
+    say(if pinned { "pinned" } else { "unpinned" });
     Ok(())
 }
 

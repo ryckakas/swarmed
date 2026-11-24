@@ -124,6 +124,14 @@ async fn no_repository_can_take_the_name_of_the_chats_and_a_general_one_is_its_o
         .map(|project| project.name)
         .collect();
     assert_eq!(order, ["general", "demo"]);
+    // Nor are they pinned among them; a chat is pinned among the chats.
+    core.project_pin(CHATS, true).expect("left as it is");
+    assert!(!core.project(CHATS).expect("found").pinned);
+    chat(&core, "two").await;
+    core.task_pin(CHATS, "two", true).expect("pins");
+    let chats = core.tasks(CHATS, false).expect("lists");
+    let chats: Vec<(String, bool)> = chats.into_iter().map(|t| (t.name, t.pinned)).collect();
+    assert_eq!(chats, [("two".into(), true), ("one".into(), false)]);
 }
 
 #[tokio::test]

@@ -89,6 +89,9 @@ export const tauriApi: Api = {
     taskMove: (project, task, by) => invoke<void>("task_move", { project, task, by }),
     sessionMove: (id, by) => invoke<void>("session_move", { id, by }),
     cloudTaskMove: (id, by) => invoke<void>("cloud_task_move", { id, by }),
+    projectPin: (project, pinned) => invoke<void>("project_pin", { project, pinned }),
+    taskPin: (project, task, pinned) => invoke<void>("task_pin", { project, task, pinned }),
+    sessionPin: (id, pinned) => invoke<void>("session_pin", { id, pinned }),
     taskRemove: (project, name, force) =>
         // Its branch goes too, unless commits on it exist nowhere else: the core keeps it then.
         invoke("task_remove", { project, name, force, deleteBranch: true }),

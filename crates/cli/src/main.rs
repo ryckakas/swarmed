@@ -249,13 +249,17 @@ enum ProjectCommand {
     },
     /// Print the path of a project's local config file.
     Config { project: String },
-    /// Move a project among the others, as the app lists them.
+    /// Move a project among the others, as the app lists them: a pinned one among the pinned.
     Move {
         project: String,
         /// How many places: negative for earlier, as in `--by=-1`.
         #[arg(long, allow_hyphen_values = true)]
         by: i32,
     },
+    /// Pin a project above the others that are not pinned.
+    Pin { project: String },
+    /// Unpin a project: it goes first among the others that are not pinned.
+    Unpin { project: String },
 }
 
 #[derive(Debug, Subcommand)]
@@ -321,7 +325,8 @@ enum TaskCommand {
     },
     /// Show the pull request of the task's branch and how its checks stand.
     Pull { project: String, name: String },
-    /// Move a task among the project's other open tasks, as the app lists them.
+    /// Move a task among the project's other open tasks, as the app lists them: a pinned one
+    /// among the pinned.
     Move {
         project: String,
         name: String,
@@ -329,6 +334,10 @@ enum TaskCommand {
         #[arg(long, allow_hyphen_values = true)]
         by: i32,
     },
+    /// Pin a task above the project's other open tasks that are not pinned.
+    Pin { project: String, name: String },
+    /// Unpin a task: it goes first among the project's tasks that are not pinned.
+    Unpin { project: String, name: String },
     /// List what the task's agents left running in the background, and how it ended.
     Background { project: String, name: String },
     /// Commit everything in the task's worktree.
@@ -1051,9 +1060,15 @@ async fn project(core: &Core, command: ProjectCommand) -> Result<()> {
         }
         ProjectCommand::Move { project, by } => {
             core.project_move(&project, by)?;
-            for project in core.projects()? {
-                say(&project.name);
-            }
+            projects_in_order(core)?;
+        }
+        ProjectCommand::Pin { project } => {
+            core.project_pin(&project, true)?;
+            projects_in_order(core)?;
+        }
+        ProjectCommand::Unpin { project } => {
+            core.project_pin(&project, false)?;
+            projects_in_order(core)?;
         }
         ProjectCommand::Config { project } => {
             let project = core.project(&project)?;
@@ -1111,9 +1126,15 @@ async fn sent_or_switched(core: &Core, command: TaskCommand) -> Result<Option<Ta
         }
         TaskCommand::Move { project, name, by } => {
             core.task_move(&project, &name, by)?;
-            for task in core.tasks(&project, false)? {
-                say(&task.name);
-            }
+            tasks_in_order(core, &project)?;
+        }
+        TaskCommand::Pin { project, name } => {
+            core.task_pin(&project, &name, true)?;
+            tasks_in_order(core, &project)?;
+        }
+        TaskCommand::Unpin { project, name } => {
+            core.task_pin(&project, &name, false)?;
+            tasks_in_order(core, &project)?;
         }
         other => return Ok(Some(other)),
     }
@@ -1230,6 +1251,8 @@ async fn task(core: &Arc<Core>, command: TaskCommand) -> Result<()> {
         | TaskCommand::Push { .. }
         | TaskCommand::Switch { .. }
         | TaskCommand::Move { .. }
+        | TaskCommand::Pin { .. }
+        | TaskCommand::Unpin { .. }
         | TaskCommand::Setup { .. }
         | TaskCommand::StartAnyway { .. }
         | TaskCommand::SetupLog { .. } => {}
@@ -1260,6 +1283,31 @@ async fn task(core: &Arc<Core>, command: TaskCommand) -> Result<()> {
         TaskCommand::Open { project, name, .. } => core.task_open_editor(&project, &name)?,
     }
     Ok(())
+}
+
+/// The projects' names as the app lists them, each pinned one marked so.
+fn projects_in_order(core: &Core) -> Result<()> {
+    for project in core.projects()? {
+        say(&in_order(&project.name, project.pinned));
+    }
+    Ok(())
+}
+
+/// A project's open tasks' names as the app lists them, each pinned one marked so.
+fn tasks_in_order(core: &Core, project: &str) -> Result<()> {
+    for task in core.tasks(project, false)? {
+        say(&in_order(&task.name, task.pinned));
+    }
+    Ok(())
+}
+
+/// A name in a list put in order, with `pinned` after it if it is.
+fn in_order(name: &str, pinned: bool) -> String {
+    if pinned {
+        format!("{name}\tpinned")
+    } else {
+        name.to_string()
+    }
 }
 
 fn task_row(task: &Task) -> String {

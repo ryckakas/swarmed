@@ -29,6 +29,8 @@ export interface Session {
      * finishes well, or when the user starts it anyway.
      */
     waits_for_setup: boolean;
+    /** Whether the user pinned it above its siblings that are not. A closed session keeps its pin. */
+    pinned: boolean;
 }
 
 /** The colours a mark can have. Each theme draws its own. */
@@ -72,6 +74,8 @@ export interface Task {
     environment: string | null;
     /** How far along what the task keeps running is; `null` if its project starts nothing. */
     stack: StackState | null;
+    /** Whether the user pinned it above its repository's tasks that are not. */
+    pinned: boolean;
 }
 
 /**
@@ -535,6 +539,8 @@ export interface Project {
     has_note: boolean;
     /** The tasks handed to cloud agents from the repository, newest first, as last heard of. */
     cloud: CloudTask[];
+    /** Whether the user pinned it above the repositories that are not. */
+    pinned: boolean;
 }
 
 /** A set of instructions for one kind of task, kept by an agent or by Swarmed itself. */
