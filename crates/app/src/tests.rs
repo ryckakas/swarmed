@@ -279,6 +279,63 @@ fn the_ui_can_go_from_an_empty_app_to_an_answered_permission_request() {
     assert_eq!(unread(&app), false);
 }
 
+/// The first bytes of a PNG, which is all the core looks at, in base64.
+const PNG: &str = "iVBORw0KGgo=";
+
+#[test]
+fn the_ui_can_paste_an_image_into_a_message_and_show_it_again() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    app.ok(
+        "task_new",
+        json!({ "project": "demo", "name": "one", "branch": null }),
+    );
+    let session = app.ok(
+        "session_new",
+        json!({ "project": "demo", "task": "one", "agent": null, "how": { "model": null, "supervision": "ask", "effort": null } }),
+    );
+    let id = &session["id"];
+    let root = app.ok("attachments_root", json!({}));
+    let root = Path::new(root.as_str().expect("a path"));
+    let folder = root.join(id.to_string());
+
+    let kept = app.ok("session_images_keep", json!({ "id": id, "images": [PNG] }));
+    let path = kept[0].as_str().expect("a path").to_string();
+    assert_eq!(Path::new(&path), folder.join("pasted-1.png"));
+    let shown = app.ok("session_image", json!({ "id": id, "path": path }));
+    assert_eq!(shown, json!(format!("data:image/png;base64,{PNG}")));
+    // A format agents do not read is refused, saying what it is; so is reading elsewhere.
+    let tiff = app.invoke(
+        "session_images_keep",
+        json!({ "id": id, "images": ["SUkqAA=="] }),
+    );
+    assert_eq!(
+        tiff,
+        Err(json!(
+            "a TIFF image cannot be attached: agents read only PNG, JPEG, GIF and WebP images"
+        ))
+    );
+    let readme = app.repo.join("README.md");
+    for command in ["session_image", "session_image_open"] {
+        let outside = app.invoke(command, json!({ "id": id, "path": readme }));
+        assert!(outside.is_err(), "{command}: {outside:?}");
+    }
+
+    // Its path is attached like any file's.
+    let sent = json!({ "id": id, "text": "look", "files": [path] });
+    app.ok("session_send", sent);
+    let message = app.wait_for_event(id, "user_message");
+    assert_eq!(
+        message["text"],
+        format!("look\n\nAttached files:\n- {path}")
+    );
+    // The folder goes with the session, when it goes for good.
+    app.ok("session_close", json!({ "id": id }));
+    assert!(folder.exists());
+    app.ok("session_delete", json!({ "id": id }));
+    assert!(!folder.exists());
+}
+
 /// Closed, a session is still kept; deleted, it is gone for good.
 fn deleted_for_good(app: &App, id: &Value) {
     assert_eq!(app.ok("overview", json!({}))[0]["tasks"][0]["closed"], 1);
@@ -440,7 +497,7 @@ fn the_ui_can_start_a_task_from_a_prompt_and_act_on_its_setup() {
     let start = json!({
         "branch": null, "environment": null, "agent": null,
         "how": { "model": null, "supervision": "auto", "effort": null, "fast": false },
-        "title": "Fix the login", "prompt": "fix the login", "files": [],
+        "title": "Fix the login", "prompt": "fix the login", "files": [], "images": [PNG],
     });
     let started = app.ok(
         "task_start",
@@ -478,7 +535,14 @@ fn the_ui_can_start_a_task_from_a_prompt_and_act_on_its_setup() {
     assert_eq!(app.ok("task_setup", target.clone())["setup"], "ok");
     let id = &session["id"];
     let sent = app.wait_for_event(id, "user_message");
-    assert_eq!(sent["text"], "fix the login");
+    // The image pasted into the prompt is the session's own, attached as a file.
+    let image = app
+        .data_dir()
+        .join(format!("attachments/{id}/pasted-1.png"));
+    assert_eq!(
+        sent["text"],
+        format!("fix the login\n\nAttached files:\n- {}", image.display())
+    );
     let nothing = app
         .invoke("task_start_anyway", target)
         .expect_err("nothing waits");

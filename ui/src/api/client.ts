@@ -350,6 +350,18 @@ export interface Api {
     /** Starts a turn, starting the session's agent first if it is not running. */
     sessionSend(id: number, text: string, files?: string[]): Promise<void>;
     /**
+     * Keeps images pasted into a message to the session, each in base64, as files of the
+     * session's own, and resolves to their paths, to attach to the message like any file.
+     * Rejects, saying why, an image in a format agents do not read or too large.
+     */
+    sessionImagesKeep(id: number, images: string[]): Promise<string[]>;
+    /** An image pasted into the session, as a `data:` address to show it from. */
+    sessionImage(id: number, path: string): Promise<string>;
+    /** Opens an image pasted into the session in the system's viewer. */
+    sessionImageOpen(id: number, path: string): Promise<void>;
+    /** The folder that holds every session's pasted images, a folder named by its id each. */
+    attachmentsRoot(): Promise<string>;
+    /**
      * Tells a waiting message to the agent now, in the middle of its turn, without stopping
      * it: only for an agent that `hears_mid_turn`.
      */

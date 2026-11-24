@@ -180,6 +180,10 @@ export const tauriApi: Api = {
         invoke<Session>("session_new", { project, task, agent, how }),
     sessionEvents: (id) => invoke<AgentEvent[]>("session_events", { id }),
     sessionSend: (id, text, files) => invoke("session_send", { id, text, files: files ?? [] }),
+    sessionImagesKeep: (id, images) => invoke<string[]>("session_images_keep", { id, images }),
+    sessionImage: (id, path) => invoke<string>("session_image", { id, path }),
+    sessionImageOpen: (id, path) => invoke<void>("session_image_open", { id, path }),
+    attachmentsRoot: () => invoke<string>("attachments_root"),
     sessionTellNow: (id, message) => invoke<void>("session_tell_now", { id, message }),
     sessionMessageNow: (id, text, files) =>
         invoke("session_message_now", { id, text, files: files ?? [] }),

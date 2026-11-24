@@ -660,6 +660,22 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   under the message in one fixed form, which the UI reads back (`splitFiles`) to show them as
   files. The front end gets paths from the system's file picker and from files dropped on the
   window, never file contents.
+- **A pasted image is the one part of a message Swarmed keeps** (`pasted.rs`, `images.ts`,
+  #378), since it has no path to name. Until the message goes it is in the draft, in the
+  window's memory (`images` of the `Draft`, in base64). Sending, queueing, saving an edited
+  waiting message or starting a task hands it to the core (`session_images_keep`,
+  `FirstSession::images`), which checks it by its first bytes (PNG, JPEG, GIF or WebP, at most
+  `MAX_IMAGE_MB`; anything else is refused with what it is, never converted: there is no image
+  library) and writes it into `attachments/<session>/` in the data directory, `0700` with files
+  `0600`, under a name of its own (`pasted-<n>.<ext>`, never over a file). Its path is then
+  attached like any file, so every agent reads it with its own tools; no agent is sent image
+  content, and `UserMessage` stays text. A message's files in that folder show as images
+  (`isPastedImage`), read through `session_image`, which reads only a file right in the
+  session's folder, links followed, and answers a `data:` address, the only kind the window's
+  policy loads. The folder goes with the session for good (`forget_session_files`,
+  `session_delete`); closing keeps it. A fork copies the images its messages name into its own
+  folder and has them name the copies (`images_forked`), so deleting the first session costs it
+  nothing.
 - **Each session can have a terminal** (`terminal.rs`): the user's shell on a pseudo-terminal in
   the task's worktree, shown in place of the message box. Its output is published on its own
   channel (`Core::subscribe_terminals`) and not stored. What it printed since the agent's last

@@ -1,5 +1,6 @@
 import type { Api } from "./api/client";
 import type { SessionStatus } from "./api/types";
+import type { PastedImage } from "./images";
 
 // How a message reaches a session, and what becomes of one that did not. Pure, so it can be
 // tested: the app's own `Api` is handed in.
@@ -38,14 +39,42 @@ export async function delivered(
     }
 }
 
-/** What stands in the message box: the text and the files attached to it. */
+/**
+ * The files a message goes with: those attached, then the images pasted into it once the core
+ * has kept them as files of the session's own. Nothing is kept for a message with none.
+ */
+export async function filesWith(
+    api: Pick<Api, "sessionImagesKeep">,
+    id: number,
+    draft: Pick<Draft, "files" | "images">,
+): Promise<string[]> {
+    if (draft.images.length === 0) {
+        return draft.files;
+    }
+    const kept = await api.sessionImagesKeep(
+        id,
+        draft.images.map((image) => image.data),
+    );
+    return [...draft.files, ...kept];
+}
+
+/**
+ * What stands in the message box: the text, the files attached to it, and the images pasted
+ * into it, which are only in the window's memory until the message goes.
+ */
 export interface Draft {
     text: string;
     files: string[];
+    images: PastedImage[];
 }
 
 /** An empty message box; one object, so that reading it twice gives the same thing. */
-export const NO_DRAFT: Draft = { text: "", files: [] };
+export const NO_DRAFT: Draft = { text: "", files: [], images: [] };
+
+/** Whether a draft holds nothing at all. */
+export function isEmpty(draft: Draft): boolean {
+    return draft.text === "" && draft.files.length === 0 && draft.images.length === 0;
+}
 
 /** `drafts` with the one under `key` changed by `change`; one emptied is dropped. */
 export function withDraft<K extends string | number>(
@@ -55,7 +84,7 @@ export function withDraft<K extends string | number>(
 ): Record<K, Draft> {
     const draft: Draft = { ...(drafts[key] ?? NO_DRAFT), ...change };
     const kept = { ...drafts };
-    if (draft.text === "" && draft.files.length === 0) {
+    if (isEmpty(draft)) {
         delete kept[key];
     } else {
         kept[key] = draft;
@@ -68,5 +97,5 @@ export function withDraft<K extends string | number>(
  * user has written something else in the meantime, which is theirs to keep.
  */
 export function putBack(now: Draft, unsent: Draft): Draft {
-    return now.text === "" && now.files.length === 0 ? unsent : now;
+    return isEmpty(now) ? unsent : now;
 }

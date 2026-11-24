@@ -92,7 +92,8 @@ export function NewTask({ projects }: { projects: Project[] }) {
     const noteCreating = useStore((state) => state.noteCreating);
     const says = newTaskSays(words, repository);
     // What was typed for this repository and not sent, apart from every other repository's.
-    const { text: prompt, files } = useStore((state) => state.newTaskDrafts[home] ?? NO_DRAFT);
+    const draft = useStore((state) => state.newTaskDrafts[home] ?? NO_DRAFT);
+    const { text: prompt, files, images } = draft;
     const editNewTaskDraft = useStore((state) => state.editNewTaskDraft);
     const choices = useBranchChoices(repository?.name);
     const environments = useEnvironments(repository?.name);
@@ -129,6 +130,8 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 setup: setupFor(agentId, model, supervision, effort, fast),
                 prompt: expandPastes(prompt.trim()),
                 files,
+                // Kept by the core as the session's own, once there is a session.
+                images: images.map((image) => image.data),
             };
             await startTask(start, true);
             // It is a task now, with the prompt waiting in its session; one that could not be
@@ -152,6 +155,8 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 onChange={(text) => editNewTaskDraft(home, { text })}
                 files={files}
                 onFiles={(added) => editNewTaskDraft(home, { files: added })}
+                images={images}
+                onImages={(added) => editNewTaskDraft(home, { images: added })}
                 onSend={() => void send()}
                 canSend={canSend}
                 placeholder={says.placeholder}
@@ -298,6 +303,8 @@ interface Start {
     prompt: string;
     /** The files the first message points the agent at. */
     files: string[];
+    /** Images pasted into the first message, in base64. */
+    images: string[];
 }
 
 /**
@@ -343,10 +350,10 @@ function reportStartFailed(error: unknown) {
  * `name-2` and so on.
  */
 async function startTask(start: Start, show: boolean) {
-    const { project, name, title, setup, prompt, files } = start;
+    const { project, name, title, setup, prompt, files, images } = start;
     const { refresh, open } = useStore.getState();
     const environment = start.environment;
-    const begun = { branch: start.branch, environment, setup, title, prompt, files };
+    const begun = { branch: start.branch, environment, setup, title, prompt, files, images };
     const { session } = await api.taskStart(project, name, begun);
     await refresh(api);
     if (show) {

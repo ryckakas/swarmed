@@ -16,6 +16,7 @@ use crate::agent::Auth;
 use crate::chats::CHATS;
 use crate::error::{Error, Result};
 use crate::hooks::{self, OutputSink};
+use crate::pasted::Pasted;
 use crate::sessions::{Session, SessionOptions};
 use crate::store::Task;
 use crate::tasks::NewTaskOptions;
@@ -31,6 +32,9 @@ pub struct FirstSession {
     pub prompt: String,
     /// The files the prompt points the agent at, listed under it.
     pub files: Vec<PathBuf>,
+    /// Images pasted into the prompt, each in base64: kept as the session's own, as
+    /// [`Core::session_images_keep`] keeps them, and listed after the files.
+    pub images: Vec<String>,
 }
 
 /// A task just started, and its first session.
@@ -93,15 +97,18 @@ impl Core {
         if first.prompt.trim().is_empty() {
             return Err(Error::EmptyMessage);
         }
+        let images = Pasted::all(&first.images)?;
         if let Some(agent) = &first.options.agent {
             self.agents_now().backend(agent)?;
         }
         if project == CHATS {
-            return self.chat_start(name, &options, &first, auth).await;
+            return self.chat_start(name, &options, &first, &images, auth).await;
         }
         let made = self.task_made(project, name, &options, sink).await?;
         let run = self.setup_begin(&made.task)?;
         let session = self.session_for_prompt(&made.task, &first.options, &message)?;
+        let files = self.with_images(session.id, &first.files, &images)?;
+        let message = with_files(&first.prompt, &files)?;
         self.keep_for_setup(made.task.id, session.id, &message)?;
         let started = TaskStarted {
             task: made.task.clone(),
@@ -121,12 +128,14 @@ impl Core {
         name: &str,
         options: &NewTaskOptions<'_>,
         first: &FirstSession,
+        images: &[Pasted],
         auth: Auth,
     ) -> Result<(TaskStarted, SetupGoing)> {
         let task = self.chat_new(name, options).await?;
         let message = with_files(&first.prompt, &first.files)?;
         let session = self.session_for_prompt(&task, &first.options, &message)?;
-        self.session_message(session.id, &first.prompt, &first.files, auth)?;
+        let files = self.with_images(session.id, &first.files, images)?;
+        self.session_message(session.id, &first.prompt, &files, auth)?;
         let started = TaskStarted {
             task: task.clone(),
             session,
@@ -158,5 +167,11 @@ impl Core {
             self.session_resume_queue(*id, auth.clone())?;
         }
         Ok(waiting)
+    }
+
+    /// `files`, then the paths of `images` once they are kept as session `id`'s own.
+    fn with_images(&self, id: i64, files: &[PathBuf], images: &[Pasted]) -> Result<Vec<PathBuf>> {
+        let kept = self.images_kept(id, images)?;
+        Ok(files.iter().cloned().chain(kept).collect())
     }
 }

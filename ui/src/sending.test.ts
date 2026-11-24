@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { SessionStatus } from "./api/types";
-import { type Draft, delivered, NO_DRAFT, putBack, waitsItsTurn, withDraft } from "./sending";
+import {
+    type Draft,
+    delivered,
+    filesWith,
+    NO_DRAFT,
+    putBack,
+    waitsItsTurn,
+    withDraft,
+} from "./sending";
 
 /** An `Api` that only notes how each message was handed over. */
 function noting() {
@@ -72,16 +80,16 @@ describe("delivered now", () => {
 });
 
 describe("putBack", () => {
-    const unsent = { text: "the message", files: ["/a.txt"] };
+    const unsent = { text: "the message", files: ["/a.txt"], images: [] };
 
     it("returns the message to a box that is still empty", () => {
-        expect(putBack({ text: "", files: [] }, unsent)).toBe(unsent);
+        expect(putBack({ text: "", files: [], images: [] }, unsent)).toBe(unsent);
     });
 
     it("leaves alone what was written or attached since", () => {
-        const typed = { text: "something new", files: [] };
+        const typed = { text: "something new", files: [], images: [] };
         expect(putBack(typed, unsent)).toBe(typed);
-        const attached = { text: "", files: ["/b.txt"] };
+        const attached = { text: "", files: ["/b.txt"], images: [] };
         expect(putBack(attached, unsent)).toBe(attached);
     });
 });
@@ -89,20 +97,52 @@ describe("putBack", () => {
 describe("withDraft", () => {
     it("changes one draft and leaves the others alone", () => {
         const drafts: Record<number, Draft> = {
-            1: { text: "one", files: [] },
-            2: { text: "two", files: ["/a"] },
+            1: { text: "one", files: [], images: [] },
+            2: { text: "two", files: ["/a"], images: [] },
         };
-        expect(withDraft(drafts, 1, { files: ["/b"] })).toEqual({
-            1: { text: "one", files: ["/b"] },
-            2: { text: "two", files: ["/a"] },
+        expect(withDraft(drafts, 1, { files: ["/b"], images: [] })).toEqual({
+            1: { text: "one", files: ["/b"], images: [] },
+            2: { text: "two", files: ["/a"], images: [] },
         });
-        expect(withDraft(drafts, 3, { text: "three" })[3]).toEqual({ text: "three", files: [] });
-        expect(drafts[1]).toEqual({ text: "one", files: [] });
+        expect(withDraft(drafts, 3, { text: "three" })[3]).toEqual({
+            text: "three",
+            files: [],
+            images: [],
+        });
+        expect(drafts[1]).toEqual({ text: "one", files: [], images: [] });
     });
 
     it("drops a draft that is emptied", () => {
-        const drafts = { storefront: { text: "fix it", files: [] } };
+        const drafts = { storefront: { text: "fix it", files: [], images: [] } };
         expect(withDraft(drafts, "storefront", { text: "" })).toEqual({});
         expect(withDraft(drafts, "storefront", NO_DRAFT)).toEqual({});
+    });
+});
+
+describe("filesWith", () => {
+    const image = { key: 1, format: "png" as const, data: "iVBORw0KGgo=" };
+
+    it("keeps the pasted images as the session's files and attaches them after the others", async () => {
+        const asked: string[] = [];
+        const api = {
+            sessionImagesKeep: async (id: number, images: string[]) => {
+                asked.push(`${id} ${images.join(",")}`);
+                return images.map((_, index) => `/data/attachments/${id}/pasted-${index + 1}.png`);
+            },
+        };
+        const files = await filesWith(api, 4, { files: ["/a.txt"], images: [image] });
+        expect(files).toEqual(["/a.txt", "/data/attachments/4/pasted-1.png"]);
+        expect(asked).toEqual(["4 iVBORw0KGgo="]);
+        // With none pasted, nothing is kept.
+        expect(await filesWith(api, 4, { files: ["/a.txt"], images: [] })).toEqual(["/a.txt"]);
+        expect(asked).toHaveLength(1);
+    });
+
+    it("lets a draft with only an image count as one, and puts it back", () => {
+        const pasted = { ...NO_DRAFT, images: [image] };
+        const none: Record<number, Draft> = {};
+        expect(withDraft(none, 1, pasted)).toEqual({ 1: pasted });
+        expect(putBack(NO_DRAFT, pasted)).toBe(pasted);
+        expect(putBack(pasted, { ...NO_DRAFT, text: "older" })).toBe(pasted);
     });
 });

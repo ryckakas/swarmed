@@ -57,7 +57,8 @@ export function sentMessages(events: AgentEvent[], spawned = false): Draft[] {
         if (event.type !== "user_message" || isFromSession(event.text)) {
             continue;
         }
-        const message = splitFiles(event.text);
+        // Images pasted into it are files of the session's by now, and come back as such.
+        const message = { ...splitFiles(event.text), images: [] };
         const last = sent.at(-1);
         if (!(last && sameDraft(last, message))) {
             sent.push(message);
@@ -66,12 +67,14 @@ export function sentMessages(events: AgentEvent[], spawned = false): Draft[] {
     return sent;
 }
 
-/** Whether two drafts hold the same text and the same files. */
+/** Whether two drafts hold the same text, the same files and the same pasted images. */
 export function sameDraft(one: Draft, other: Draft): boolean {
     return (
         one.text === other.text &&
         one.files.length === other.files.length &&
-        one.files.every((file, index) => other.files[index] === file)
+        one.files.every((file, index) => other.files[index] === file) &&
+        one.images.length === other.images.length &&
+        one.images.every((image, index) => other.images[index]?.key === image.key)
     );
 }
 

@@ -5,7 +5,7 @@ import type { AgentEvent, Session } from "../api/types";
 import { noteCommandSent } from "../commandSent";
 import { expandPastes, forgetPastes } from "../pastes";
 import { browse, type Direction, sentMessages } from "../recall";
-import { type Draft, NO_DRAFT, waitsItsTurn } from "../sending";
+import { type Draft, filesWith, NO_DRAFT, waitsItsTurn } from "../sending";
 import { takenBySwarmed } from "../slash";
 import { appliedEffort } from "../statusline";
 import { useStore } from "../store";
@@ -98,18 +98,19 @@ function TerminalPane({ id, busy }: { id: number; busy: boolean }) {
 export function Composer({ session }: { session: Session }) {
     const words = useWords();
     const { id, status } = session;
-    const { text, files } = useStore((state) => state.drafts[id] ?? NO_DRAFT);
+    const draft = useStore((state) => state.drafts[id] ?? NO_DRAFT);
+    const { text, files, images } = draft;
     const editDraft = useStore((state) => state.editDraft);
     const putDraftBack = useStore((state) => state.putDraftBack);
     const terminal = useStore((state) => state.terminalOpen);
     const toggleTerminal = useStore((state) => state.toggleTerminal);
     const report = useStore((state) => state.report);
     const input = useRef<HTMLTextAreaElement>(null);
-    const recalling = useRecall(id, session.spawned_by !== null, { text, files });
+    const recalling = useRecall(id, session.spawned_by !== null, draft);
     const busy = waitsItsTurn(status);
     const commands = useSlashCommands(id, status);
     const suggestion = useStore((state) => suggestionOf(state.events[id]));
-    const canSend = text.trim() !== "" || files.length > 0;
+    const canSend = text.trim() !== "" || files.length > 0 || images.length > 0;
     const hearsMidTurn = useHearsMidTurn(session.agent);
 
     // Answering a permission request removes the button that had focus. Bring it back here, so
@@ -125,17 +126,24 @@ export function Composer({ session }: { session: Session }) {
         if (!canSend) {
             return;
         }
-        const unsent: Draft = { text, files };
+        let unsent: Draft = draft;
         editDraft(id, NO_DRAFT);
         recalling.forget();
         // What was pasted large goes out in full, in place of the token that stood for it.
         // A busy agent is not interrupted: the message waits its turn, and can still be changed.
         const message = expandPastes(text.trim());
-        const atOnce = files.length === 0 && takenBySwarmed(message, commands);
+        const atOnce =
+            files.length === 0 && images.length === 0 && takenBySwarmed(message, commands);
         if (atOnce) {
             noteCommandSent(id);
         }
-        sendOrQueue(id, message, files, atOnce, now)
+        // Pasted images are kept as the session's files first, and go as their paths.
+        filesWith(api, id, draft)
+            .then((attached) => {
+                // Kept now: a message that comes back has them as files, not to be kept twice.
+                unsent = { ...draft, files: attached, images: [] };
+                return sendOrQueue(id, message, attached, atOnce, now);
+            })
             // The pastes are only forgotten once they are sent: a message that comes back
             // still has their tokens in it.
             .then(() => forgetPastes(unsent.text))
@@ -159,6 +167,9 @@ export function Composer({ session }: { session: Session }) {
                         onChange={(value) => editDraft(id, { text: value })}
                         files={files}
                         onFiles={(value) => editDraft(id, { files: value })}
+                        images={images}
+                        onImages={(value) => editDraft(id, { images: value })}
+                        sessionId={id}
                         onSend={() => send()}
                         onSendNow={() => send(true)}
                         onStop={status === "working" ? stop : undefined}

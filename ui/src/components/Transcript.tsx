@@ -153,7 +153,7 @@ function ItemView({ item, sessionId, latest, sendsFrom }: ItemProps) {
                 <div className="said">
                     {item.remote && <p className="said-from">Typed on claude.ai</p>}
                     <Said text={item.text} />
-                    <FileChips files={item.files} />
+                    <FileChips files={item.files} sessionId={sessionId} />
                     <button
                         type="button"
                         className="said-fork"

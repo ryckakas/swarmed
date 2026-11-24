@@ -15,6 +15,16 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Added
+
+- **Paste an image, such as a screenshot, into a message box to attach it.** It shows above the
+  text with a × to take it off, in a session's box, the new-task view and a waiting message
+  being edited. Sent, it is kept in the session's own folder in Swarmed's data directory,
+  readable by you alone, and the agent is given its path. Sent messages show their pasted
+  images, which open in Preview when pressed. PNG, JPEG, GIF and WebP up to 20 MB can be
+  pasted; anything else, such as TIFF, is refused with the reason. The images are deleted with
+  the session, and a fork gets copies of its own.
+
 ### Fixed
 
 - **What waits for a task's setup is sent once, and all of it.** A message typed into a session

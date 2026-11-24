@@ -217,3 +217,17 @@ describe("the mock's terminal", () => {
         expect(heard.at(-1)).toEqual({ run: other.run, ended: true });
     });
 });
+
+describe("the mock's pasted images", () => {
+    const PNG = "iVBORw0KGgo=";
+
+    it("keeps them as the session's own, attaches them by path and shows them again", async () => {
+        const api = createMockApi();
+        const root = await api.attachmentsRoot();
+        const [path] = await api.sessionImagesKeep(3, [PNG]);
+        expect(path).toBe(`${root}/3/pasted-1.png`);
+        expect(await api.sessionImage(3, path ?? "")).toBe(`data:image/png;base64,${PNG}`);
+        await expect(api.sessionImage(4, path ?? "")).rejects.toThrow("not an image pasted");
+        await expect(api.sessionImagesKeep(3, ["SUkqAA=="])).rejects.toThrow("a TIFF image");
+    });
+});

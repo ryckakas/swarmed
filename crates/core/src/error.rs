@@ -298,6 +298,16 @@ pub enum Error {
     /// A message with nothing in it.
     #[error("a message cannot be empty")]
     EmptyMessage,
+    /// A pasted image in a format agents do not read, or something that is no image at all.
+    /// Says which, when the format is known.
+    #[error("{0} cannot be attached: agents read only PNG, JPEG, GIF and WebP images")]
+    ImageNotRead(String),
+    /// A pasted image larger than one is kept, in megabytes.
+    #[error("an image of more than {0} MB cannot be attached")]
+    ImageTooLarge(usize),
+    /// A path that is not an image pasted into the session it was asked of.
+    #[error("{} is not an image pasted into this session", .0.display())]
+    NotPastedImage(PathBuf),
     /// A command of the agent's that Swarmed does not send on: it has its own way to do what
     /// the command does in a terminal, or does not leave it to the agent at all.
     #[error("/{command} is not sent. {instead}")]

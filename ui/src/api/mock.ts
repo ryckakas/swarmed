@@ -6,6 +6,7 @@ import { PLAN_TOOL, withFiles } from "../transcript";
 import { titleFrom } from "../tree";
 import type { Api } from "./client";
 import { MOCK_COMMANDS, mockQuestions, mockSaid, mockScreen, mockScreenOnly } from "./mockCommands";
+import { mockImagesApi } from "./mockImages";
 import { MockSetups, taskSetupApi } from "./mockSetups";
 import { heardUsage, sampleAccountUsage } from "./mockUsage";
 import type {
@@ -2801,6 +2802,7 @@ export function createMockApi(): Api {
         { name: "GEMINI_API_KEY", provider: "Google Gemini", stored: false },
     ];
     const environments = environmentApi();
+    const images = mockImagesApi();
     let customLayout: CustomLayout = { base: "classic" };
     let terminalConfig: TerminalConfig = {};
     let settings: Settings = {
@@ -2826,6 +2828,7 @@ export function createMockApi(): Api {
     };
     return {
         overview: async () => structuredClone(agent.projects),
+        ...images,
         ...mcpApi(),
         ...templatesApi(),
         ...actionsApi(),
@@ -2922,6 +2925,7 @@ export function createMockApi(): Api {
                 return created;
             },
             newSession: (taskId) => agent.newSession(taskId),
+            keepImages: (id, data) => images.sessionImagesKeep(id, data),
             enqueue: (id, text) => agent.enqueue(id, text),
             sendQueued: (id) => agent.sendQueued(id),
             send: (id, text) => agent.send(id, text),

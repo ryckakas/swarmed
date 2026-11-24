@@ -140,6 +140,8 @@ export interface TaskStart {
     title: string | null;
     prompt: string;
     files: string[];
+    /** Images pasted into the prompt, each in base64: the session's own once it is made. */
+    images: string[];
 }
 
 /**

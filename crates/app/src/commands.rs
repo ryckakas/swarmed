@@ -239,6 +239,9 @@ pub(crate) struct Start {
     prompt: String,
     #[serde(default)]
     files: Vec<PathBuf>,
+    /// Images pasted into the prompt, each in base64.
+    #[serde(default)]
+    images: Vec<String>,
 }
 
 /// Starts a task from a prompt: the task and its first session are made and returned while
@@ -269,6 +272,7 @@ pub(crate) async fn task_start<R: Runtime>(
         },
         prompt: start.prompt,
         files: start.files,
+        images: start.images,
     };
     let sink = hook_sink(&app, &project, &name);
     let starting = core
@@ -947,6 +951,36 @@ pub(crate) async fn session_send(
 ) -> Command<()> {
     let files = files.unwrap_or_default();
     Ok(core.session_message(id, &text, &files, Auth::default())?)
+}
+
+/// Keeps images pasted into a message to a session, each in base64, as files of the session's
+/// own, and returns their paths to attach to the message. Off the main thread: an image can be
+/// megabytes.
+#[tauri::command(async)]
+pub(crate) fn session_images_keep(
+    core: CoreState<'_>,
+    id: i64,
+    images: Vec<String>,
+) -> Command<Vec<PathBuf>> {
+    Ok(core.session_images_keep(id, &images)?)
+}
+
+/// An image pasted into a session, as a `data:` address to show it from.
+#[tauri::command(async)]
+pub(crate) fn session_image(core: CoreState<'_>, id: i64, path: PathBuf) -> Command<String> {
+    Ok(core.session_image(id, &path)?)
+}
+
+/// Opens an image pasted into a session in the system's viewer.
+#[tauri::command]
+pub(crate) fn session_image_open(core: CoreState<'_>, id: i64, path: PathBuf) -> Command<()> {
+    Ok(core.session_image_open(id, &path)?)
+}
+
+/// The folder that holds the pasted images of every session, one folder each.
+#[tauri::command]
+pub(crate) fn attachments_root(core: CoreState<'_>) -> PathBuf {
+    core.attachments_root()
 }
 
 /// Tells a waiting message to the session's agent in the middle of its turn, without stopping it.

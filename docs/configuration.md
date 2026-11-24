@@ -29,6 +29,7 @@ In the data directory:
 | `notes/` | notes on projects and tasks, readable by you alone |
 | `snapshots/` | snapshots, below, readable by you alone |
 | `spool/` | HTML views agents hand over through Swarmed's `show_html` tool |
+| `attachments/<session id>/` | images pasted into a session's messages, readable by you alone; deleted with the session |
 | `run/` | stacks' logs and what Swarmed is running |
 
 The app and the `swarmed` command write these. The TOML and JSON files may be edited by hand

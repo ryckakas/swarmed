@@ -202,6 +202,8 @@ export interface SetupDeps {
     ): Promise<Task>;
     /** A new session in task `taskId`, which nothing has been said to. */
     newSession(taskId: number): Session;
+    /** Keeps images pasted into a first message as session `id`'s own; their paths. */
+    keepImages(id: number, images: string[]): Promise<string[]>;
     enqueue(id: number, text: string): void;
     /** Sends the session's first waiting message, as the end of a setup or a turn does. */
     sendQueued(id: number): void;
@@ -249,15 +251,16 @@ export function taskSetupApi(
         },
         taskStart: async (project, name, start) => {
             const task = await deps.make(project, name, start.branch, start.environment);
-            const prompt = withFiles(start.prompt, start.files);
             const session: Session = {
                 ...deps.newSession(task.id),
                 ...start.setup,
                 agent: start.setup.agent ?? "claude",
                 fast: start.setup.fast ?? false,
-                title: start.title ?? titleFrom(prompt),
+                title: start.title ?? titleFrom(start.prompt),
                 waits_for_setup: project !== CHATS,
             };
+            const kept = await deps.keepImages(session.id, start.images);
+            const prompt = withFiles(start.prompt, [...start.files, ...kept]);
             task.sessions.push(session);
             if (project === CHATS) {
                 deps.send(session.id, prompt);

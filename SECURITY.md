@@ -35,6 +35,11 @@ advisory is published with credit to you, unless you'd rather not be named.
   set in its tasks' processes, agents included, but Swarmed's own tools tell an agent only their
   names, so their values stay out of conversations. Snapshots, which may hold `.env` files, sit
   in folders only you can open.
+- **A pasted image is the one thing of a message Swarmed keeps.** Attached files are named by
+  their paths and never copied. An image pasted into a message has no path, so it is written
+  into `attachments/<session>/` in the data directory, readable by you alone, and its path is
+  attached. It is deleted when the session is deleted or its task removed; closing a session
+  keeps it. Nothing pasted is written into a repository or a worktree.
 - **An agent's HTML cannot reach the app.** Views are shown in a sandboxed frame on an origin of
   their own, under a policy that lets them make no request. A link in a view opens only when you
   press Open.

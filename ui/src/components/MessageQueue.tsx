@@ -1,9 +1,13 @@
-import { type KeyboardEvent, useEffect, useState } from "react";
+import { type ClipboardEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { QueuedMessage } from "../api/types";
 import { editingAfter, queueHeading } from "../queue";
+import { type Draft, filesWith } from "../sending";
 import { useStore } from "../store";
+import { splitFiles, withFiles } from "../transcript";
+import { usePastedImages } from "../usePastedImages";
 import { useWords } from "../useWords";
+import { FileChips } from "./FileChips";
 
 /** Stands in for a queue that has not been read, without a new array on every render. */
 const NONE: QueuedMessage[] = [];
@@ -132,24 +136,29 @@ function useHold(sessionId: number, message: number, open: boolean) {
 
 function QueuedRow(props: RowProps) {
     const { sessionId, message, sendNowLabel, onSave, onSendNow, onTellNow, onEditing } = props;
-    // `null` while the message is only shown; the text being typed while it is edited.
-    const [draft, setDraft] = useState<string | null>(null);
+    // `null` while the message is only shown; what is being written while it is edited, its
+    // files and images apart from its text, as in the message box.
+    const [draft, setDraft] = useState<Draft | null>(null);
     const open = draft !== null;
     useHold(sessionId, message.id, open);
+    const said = splitFiles(message.text);
     if (draft === null) {
         return (
             <div className="queue-row">
-                <button
-                    type="button"
-                    className="queue-text"
-                    title="Edit this message"
-                    onClick={() => {
-                        setDraft(message.text);
-                        onEditing(true);
-                    }}
-                >
-                    {message.text}
-                </button>
+                <div className="queue-said">
+                    <button
+                        type="button"
+                        className="queue-text"
+                        title="Edit this message"
+                        onClick={() => {
+                            setDraft({ ...said, images: [] });
+                            onEditing(true);
+                        }}
+                    >
+                        {said.text || "Files only"}
+                    </button>
+                    <FileChips files={said.files} sessionId={sessionId} />
+                </div>
                 {onTellNow && <TellNow onClick={onTellNow} />}
                 <button
                     type="button"
@@ -174,35 +183,101 @@ function QueuedRow(props: RowProps) {
             </div>
         );
     }
-    const finish = (text: string | null) => {
+    const close = () => {
         setDraft(null);
         onEditing(false);
-        if (text !== null && text !== message.text) {
-            onSave(text);
+    };
+    return (
+        <QueueEdit
+            sessionId={sessionId}
+            draft={draft}
+            onChange={setDraft}
+            onDone={(text) => {
+                close();
+                if (text !== message.text) {
+                    onSave(text);
+                }
+            }}
+            onCancel={close}
+        />
+    );
+}
+
+interface EditProps {
+    sessionId: number;
+    draft: Draft;
+    onChange(draft: Draft): void;
+    /** The edit is over, with the message as it is to be sent now. */
+    onDone(text: string): void;
+    onCancel(): void;
+}
+
+/**
+ * The box a waiting message is edited in: its files and images above its text, each with a
+ * way to take it off, and images can be pasted in. Images pasted are kept as the session's
+ * files before the edit is over, so that the message never waits without them.
+ */
+function QueueEdit({ sessionId, draft, onChange, onDone, onCancel }: EditProps) {
+    const report = useStore((state) => state.report);
+    // Keeping images takes a moment: Enter and leaving the box then must not save twice.
+    const finishing = useRef(false);
+    const takeImages = usePastedImages(draft.images, (images) => onChange({ ...draft, images }));
+    const finish = () => {
+        if (finishing.current) {
+            return;
         }
+        finishing.current = true;
+        filesWith(api, sessionId, draft)
+            .then((files) => onDone(withFiles(draft.text, files)))
+            .catch((error: unknown) => {
+                // Left open, to try again or give up.
+                finishing.current = false;
+                report(error);
+            });
     };
     const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
         if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
             event.preventDefault();
-            finish(draft);
+            finish();
         } else if (event.key === "Escape") {
             // Only the edit is given up: the agent is not stopped from in here.
             event.stopPropagation();
-            finish(null);
+            finishing.current = true;
+            onCancel();
+        }
+    };
+    const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+        const images = takeImages(event.clipboardData);
+        if (images && event.clipboardData.getData("text/plain") === "") {
+            event.preventDefault();
         }
     };
     return (
-        <textarea
-            className="queue-edit"
-            aria-label="Waiting message"
-            rows={Math.min(8, draft.split("\n").length)}
-            value={draft}
-            // biome-ignore lint/a11y/noAutofocus: the box appears because the user chose to edit
-            autoFocus
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={onKeyDown}
-            onBlur={() => finish(draft)}
-        />
+        <div className="queue-editing">
+            <FileChips
+                files={draft.files}
+                onRemove={(file) =>
+                    onChange({ ...draft, files: draft.files.filter((other) => other !== file) })
+                }
+                sessionId={sessionId}
+                images={draft.images}
+                onRemoveImage={(image) =>
+                    onChange({ ...draft, images: draft.images.filter((other) => other !== image) })
+                }
+            />
+            <textarea
+                className="queue-edit"
+                aria-label="Waiting message"
+                rows={Math.min(8, draft.text.split("\n").length)}
+                value={draft.text}
+                // biome-ignore lint/a11y/noAutofocus: the box appears because the user chose to edit
+                autoFocus
+                onChange={(event) => onChange({ ...draft, text: event.target.value })}
+                onKeyDown={onKeyDown}
+                onPaste={onPaste}
+                onBlur={finish}
+            />
+        </div>
     );
 }
 

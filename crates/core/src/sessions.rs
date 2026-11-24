@@ -482,7 +482,7 @@ impl Store {
 
     /// Takes a session and everything said in it out of the database. A session it started
     /// stays, as one nobody started; a cloud task handed off from it stays, without it.
-    fn session_delete(&self, id: i64) -> Result<()> {
+    pub(crate) fn session_delete(&self, id: i64) -> Result<()> {
         self.conn.execute(
             "UPDATE sessions SET spawned_by = NULL WHERE spawned_by = ?1",
             params![id],
@@ -1285,11 +1285,12 @@ impl Core {
     }
 
     /// Deletes what a session's agent was handed as files, which can hold the secrets of its
-    /// MCP servers, and the views it showed that nobody read. Best effort: the session is
-    /// going, or its task is, and nothing reads them again.
+    /// MCP servers, the views it showed that nobody read, and the images pasted into it. Best
+    /// effort: the session is going, or its task is, and nothing reads them again.
     fn forget_session_files(&self, id: i64) {
         std::fs::remove_dir_all(self.paths.view_spool(id)).ok();
         std::fs::remove_dir_all(self.private_dir(id)).ok();
+        self.forget_images(id);
         self.forget_run_lock(id);
     }
 
@@ -1410,6 +1411,7 @@ impl Core {
             _ => {}
         }
         std::fs::remove_dir_all(self.private_dir(id)).ok();
+        self.forget_images(id);
         self.forget_run_lock(id);
         self.store().session_delete(id)?;
         // Only told, not recorded: there is no session left to record it in.

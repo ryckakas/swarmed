@@ -20,7 +20,7 @@ const press = (key: string, modifiers: Partial<RecallPress> = {}): RecallPress =
 });
 
 const said = (text: string): AgentEvent => ({ type: "user_message", text });
-const draft = (text: string, files: string[] = []): Draft => ({ text, files });
+const draft = (text: string, files: string[] = []): Draft => ({ text, files, images: [] });
 
 describe("recallDirection", () => {
     const TEXT = "first line\nsecond line\nthird";
@@ -122,6 +122,16 @@ describe("browse", () => {
         expect(step(two, false, edited)).toBeNull();
         const again = step(two, true, edited);
         expect(again).toMatchObject({ at: 0, shown: draft("newest"), draft: edited });
+    });
+
+    it("brings back a draft's pasted images with it, and ends when an image is pasted", () => {
+        const image = { key: 1, format: "png" as const, data: "iVBORw0KGgo=" };
+        const typed = { ...draft("look"), images: [image] };
+        const one = step(null, true, typed);
+        expect(step(one, false, draft("newest"))?.shown).toBe(typed);
+        // An image pasted into a message brought back makes it a draft of its own.
+        const pasted = { ...draft("newest"), images: [image] };
+        expect(step(one, false, pasted)).toBeNull();
     });
 
     it("does nothing with ↓ before ↑, or with nothing sent", () => {

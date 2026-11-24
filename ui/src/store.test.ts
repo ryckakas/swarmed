@@ -4,6 +4,7 @@ import { api as moduleApi } from "./api";
 import type { Api } from "./api/client";
 import { createMockApi } from "./api/mock";
 import type { AccountUsage, AgentEvent, SessionEvent } from "./api/types";
+import { NO_DRAFT } from "./sending";
 import {
     appendEvent,
     configProblemsSaid,
@@ -377,23 +378,23 @@ describe("unsent messages", () => {
         useStore.getState().startNew();
         await useStore.getState().open(api, 4);
         expect(drafts()).toEqual({
-            4: { text: "half a thought", files: ["/tmp/shot.png"] },
-            3: { text: "another", files: [] },
+            4: { text: "half a thought", files: ["/tmp/shot.png"], images: [] },
+            3: { text: "another", files: [], images: [] },
         });
     });
 
     it("go back into their own session when a send fails, unless it was written to since", () => {
         useStore.getState().editDraft(4, { text: "send me", files: ["/a"] });
-        const unsent = drafts()[4] ?? { text: "", files: [] };
+        const unsent = drafts()[4] ?? NO_DRAFT;
         // Sending empties the box; the user moves on to session 3 while it fails.
         useStore.getState().editDraft(4, { text: "", files: [] });
         useStore.setState({ selectedSessionId: 3 });
         useStore.getState().putDraftBack(4, unsent);
-        expect(drafts()).toEqual({ 4: { text: "send me", files: ["/a"] } });
+        expect(drafts()).toEqual({ 4: { text: "send me", files: ["/a"], images: [] } });
 
         useStore.getState().editDraft(4, { text: "something new", files: [] });
         useStore.getState().putDraftBack(4, unsent);
-        expect(drafts()[4]).toEqual({ text: "something new", files: [] });
+        expect(drafts()[4]).toEqual({ text: "something new", files: [], images: [] });
     });
 
     it("go with a session that is deleted or closed, and with a removed task's sessions", async () => {
@@ -416,8 +417,8 @@ describe("unsent messages", () => {
     it("keep what was typed before ↑ while another session is open, and go with the session", async () => {
         const api = createMockApi();
         await useStore.getState().refresh(api);
-        const typed = { text: "half a thought", files: [] };
-        const sent = { text: "sent before", files: [] };
+        const typed = { text: "half a thought", files: [], images: [] };
+        const sent = { text: "sent before", files: [], images: [] };
         const browsing = { sent: [sent], at: 0, draft: typed, shown: sent };
         useStore.getState().noteRecall(4, browsing);
         useStore.getState().editDraft(4, sent);
@@ -472,8 +473,8 @@ describe("unsent messages", () => {
         editNewTaskDraft("storefront", { text: "add a search box" });
         editNewTaskDraft("bonsai-lint", { text: "support Go", files: ["/spec.md"] });
         expect(useStore.getState().newTaskDrafts).toEqual({
-            storefront: { text: "add a search box", files: [] },
-            "bonsai-lint": { text: "support Go", files: ["/spec.md"] },
+            storefront: { text: "add a search box", files: [], images: [] },
+            "bonsai-lint": { text: "support Go", files: ["/spec.md"], images: [] },
         });
         await api.projectRemove("bonsai-lint", false);
         await useStore.getState().refresh(api);
