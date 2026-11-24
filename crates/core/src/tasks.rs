@@ -14,6 +14,7 @@ use crate::environments::EnvironmentChoice;
 use crate::error::{Error, Result};
 use crate::hooks::OutputSink;
 use crate::paths::Paths;
+use crate::setups::{Setup, SetupRun, SetupStop};
 use crate::stacks::HOOK_LIMIT;
 use crate::store::{NewTask, Project, SetupStatus, Task};
 use crate::vars::{Vars, env_name};
@@ -165,6 +166,9 @@ impl Core {
             }
         };
         drop(claim);
+        // From here on a removal stops the setup on purpose, rather than finding its hook among
+        // what runs in the worktree and killing it.
+        let run = self.setup_begin(&task)?;
         // What an earlier task's setup produced, so that this one's has less to do. Not
         // having it is no reason to fail: setup then does all the work, as it always could.
         let seeded = self
@@ -178,7 +182,8 @@ impl Core {
             Ok(None) => {}
             Err(error) => sink(&format!("the snapshot could not be used: {error}")),
         }
-        self.run_setup(&project, &config, task, true, sink).await
+        self.run_setup(&project, &config, task, (true, &run), sink)
+            .await
     }
 
     /// Takes the slot and writes the row under one lock, so two concurrent creations cannot
@@ -190,6 +195,7 @@ impl Core {
     }
 
     /// Runs the `setup` hook again, for a task whose setup failed or whose hook changed.
+    /// Refused while the task's setup runs already.
     pub async fn task_setup(
         &self,
         project: &str,
@@ -201,21 +207,28 @@ impl Core {
         // A task set up well before has been lived in since: its stack's logs and caches lie
         // beside what setup made, so it is not what new tasks should start from.
         let fresh = task.setup != SetupStatus::Ok;
-        self.run_setup(&project, &config, task, fresh, sink).await
+        let run = self.setup_begin(&task)?;
+        self.run_setup(&project, &config, task, (fresh, &run), sink)
+            .await
     }
 
-    /// `fresh` for a task never set up well before, which is one a first snapshot can be of.
+    /// Runs the task's `setup` and what follows it. `fresh` for a task never set up well
+    /// before, which is one a first snapshot can be of; `run` is the task's place among the
+    /// running setups, through which a removal or quitting stops it.
     async fn run_setup(
         &self,
         project: &Project,
         config: &ProjectConfig,
         mut task: Task,
-        fresh: bool,
+        (fresh, run): (bool, &SetupRun<'_>),
         sink: OutputSink<'_>,
     ) -> Result<Task> {
-        let result = self
-            .run_hook("setup", &config.hooks.setup, project, config, &task, sink)
-            .await;
+        let setup = &run.setup;
+        let result = self.setup_hook(setup, project, config, &task, sink).await;
+        // Stopped while it ran, the hook ended because it was told to: no failure of its own.
+        if let Some(why) = setup.interrupted() {
+            return self.setup_stopped(task, why);
+        }
         task.setup = if result.is_ok() {
             SetupStatus::Ok
         } else {
@@ -225,13 +238,20 @@ impl Core {
         // The first task set up well in its environment is what the next ones start from: kept
         // before its stack starts writing logs and caches beside what setup made. Not keeping
         // it is said, and costs the task nothing.
-        if result.is_ok() && fresh {
+        if result.is_ok() && fresh && setup.stopped().is_none() {
             self.keep_first_snapshot(project, &task, sink).await;
         }
-        // Set up, so what the task keeps running can be started. That failing does not make
-        // the task unusable: it is said, and the stack can be started again later.
-        let started = result
-            .is_ok()
+        // A removal that came meanwhile takes the task: nothing more is started in it.
+        if let Some(why @ SetupStop::Removed) = setup.stopped() {
+            return Err(Error::SetupStopped {
+                task: task.name,
+                why,
+            });
+        }
+        // Set up, so what the task keeps running can be started, unless Swarmed is on its way
+        // out. That failing does not make the task unusable: it is said, and the stack can be
+        // started again later.
+        let started = (result.is_ok() && setup.stopped().is_none())
             .then(|| self.start_stack(project, config, &task));
         if let Some(Err(error)) = started {
             sink(&format!("the stack could not be started: {error}"));
@@ -239,8 +259,45 @@ impl Core {
         result.map(|()| task)
     }
 
-    /// Removes a task: stops its agents and its stack, runs `teardown`, ends whatever still
-    /// runs in the worktree, takes the worktree away and archives the record.
+    /// Runs the `setup` hook in a process group of its own, which a stop ends with everything
+    /// it started. One stopped before it began is not begun.
+    async fn setup_hook(
+        &self,
+        setup: &Setup,
+        project: &Project,
+        config: &ProjectConfig,
+        task: &Task,
+        sink: OutputSink<'_>,
+    ) -> Result<()> {
+        // An empty hook is no command, and is not run.
+        let ran = match self.hook_command(&config.hooks.setup, project, config, task) {
+            _ if setup.stopped().is_some() => Ok(()),
+            Ok((command, env)) => {
+                let cwd = &task.worktree_path;
+                let started = |group| setup.started(group);
+                hooks::run_in_group("setup", &command, cwd, &env, sink, &started).await
+            }
+            Err(error) => Err(error),
+        };
+        setup.hook_ended();
+        ran
+    }
+
+    /// What a setup stopped while it ran comes to. Stopped by asking, the task is not set up,
+    /// and setup can be run again; a removal takes the task, and leaves it as it was.
+    fn setup_stopped(&self, task: Task, why: SetupStop) -> Result<Task> {
+        if why == SetupStop::Asked {
+            self.store().task_set_setup(task.id, SetupStatus::Failed)?;
+        }
+        Err(Error::SetupStopped {
+            task: task.name,
+            why,
+        })
+    }
+
+    /// Removes a task: stops its agents, its setup if that is under way, and its stack, runs
+    /// `teardown`, ends whatever still runs in the worktree, takes the worktree away and
+    /// archives the record. A setup stopped so ends as [`Error::SetupStopped`], not failed.
     ///
     /// Without `force` this refuses when the worktree holds work that would be lost: changes
     /// not committed, commits not pushed, or a worktree git no longer knows, whose work cannot
@@ -272,6 +329,9 @@ impl Core {
             ensure_removable(&task, known).await?;
         }
         let (config, mut notes) = self.config_for_removal(&project, &task);
+        // Before anything else is ended in the worktree, which would find the hook there and
+        // kill it, and before the stack, which it would start once done.
+        notes.extend(self.setup_stop_for_removal(&task, sink).await);
         notes.extend(self.stop_stack(&project, &config, &task, sink).await);
         if exists {
             notes.extend(
@@ -570,26 +630,10 @@ impl Core {
         Ok(env)
     }
 
-    /// Renders and runs one hook in the task's worktree. Every variable is also exported as
-    /// `SWARMED_<NAME>`, so a hook can be a script that never sees the template syntax.
-    pub(crate) async fn run_hook(
-        &self,
-        hook: &'static str,
-        template: &str,
-        project: &Project,
-        config: &ProjectConfig,
-        task: &Task,
-        sink: OutputSink<'_>,
-    ) -> Result<()> {
-        if template.trim().is_empty() {
-            return Ok(());
-        }
-        let (command, env) = self.hook_command(template, project, config, task)?;
-        hooks::run(hook, &command, &task.worktree_path, &env, sink).await
-    }
-
-    /// [`run_hook`](Core::run_hook) for no longer than [`HOOK_LIMIT`]: `None` when the hook
-    /// took longer, and was killed with what it had started.
+    /// Renders and runs one hook in the task's worktree, for no longer than [`HOOK_LIMIT`]:
+    /// `None` when the hook took longer, and was killed with what it had started. Every
+    /// variable is also exported as `SWARMED_<NAME>`, so a hook can be a script that never
+    /// sees the template syntax.
     pub(crate) async fn run_hook_limited(
         &self,
         hook: &'static str,

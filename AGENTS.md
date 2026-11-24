@@ -1021,6 +1021,21 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   without write permission writable first. A removal under way is kept in the UI's store (`removals`), so a dialog closed
   and asked for again starts no second one. An environment that tasks use
   cannot be removed (`Error::EnvironmentInUse`).
+- **A task's `setup` is stopped on purpose, never found and killed** (`setups.rs`, #360). From
+  when the task is written down until its hook and what follows it are done, its setup has a
+  place in `Core::setups` (`setup_begin`, refused while one runs), and the hook runs in a
+  process group of its own (`hooks::run_in_group`). A removal stops it before anything else
+  (`setup_stop_for_removal`): its group is ended as a stack is (`stacks::end_group`: asked,
+  `STOP_GRACE`, killed, then what it started that set itself apart), and the removal waits
+  until the setup is over, so no stack is started behind it. `end_in` would otherwise find
+  the hook in the worktree and kill it, reported as `HookFailed`, and could not find what it
+  ran elsewhere, which held its output open. What ran the setup ends as
+  `Error::SetupStopped`: for a removal (`SetupStop::Removed`) it writes no status and the UI
+  says nothing (`removedWhileSetUp`); asked (`setups_stop_all`: quitting, Ctrl-C on the
+  command line, and every setup begun after it) leaves the task `failed`, to set up again. A
+  stop that came after the hook had ended leaves the hook's own end standing
+  (`Setup::interrupted`). The setups are this process's own: a removal from another Swarmed
+  finds the hook among what runs in the worktree, as before.
 - **Opening things elsewhere** (`open.rs`) starts the user's editor (`settings.toml`, VS Code by
   default) or the browser and never waits for them.
 - **A hook's command takes each value as one word** (`Vars::render_for_shell`): a value with

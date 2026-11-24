@@ -751,6 +751,29 @@ fn background(core: &Core, project: &str, name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Waits for what sets a task up. Ctrl-C stops the setup with everything it started, as
+/// quitting the app does, and it then ends as stopped; a second Ctrl-C stops waiting for that.
+/// The setup runs in a process group of its own, which Ctrl-C does not reach by itself.
+async fn setting_up<T>(
+    core: &Core,
+    making: impl Future<Output = swarmed_core::Result<T>>,
+) -> Result<T> {
+    let mut making = std::pin::pin!(making);
+    tokio::select! {
+        made = &mut making => return Ok(made?),
+        _ = tokio::signal::ctrl_c() => {}
+    }
+    aside("stopping setup; Ctrl-C again to stop waiting for it");
+    let stopping = async {
+        core.setups_stop_all().await;
+        making.await
+    };
+    tokio::select! {
+        made = stopping => Ok(made?),
+        _ = tokio::signal::ctrl_c() => Err(anyhow::anyhow!("interrupted while setup was stopping")),
+    }
+}
+
 /// Runs a task's stack until it ends or Ctrl-C, printing what it prints, then stops it.
 async fn stack(core: &Core, project: &str, name: &str) -> Result<()> {
     if !core.stack_start(project, name)? {
@@ -1112,7 +1135,8 @@ async fn task(core: &Core, command: TaskCommand) -> Result<()> {
                 environment: environment_choice(environment, no_environment),
                 free_name: false,
             };
-            let task = core.task_new(&project, &name, options, &hook_line).await?;
+            let making = core.task_new(&project, &name, options, &hook_line);
+            let task = setting_up(core, making).await?;
             say(&created(&task));
         }
         TaskCommand::List { project, all } => {
@@ -1121,7 +1145,7 @@ async fn task(core: &Core, command: TaskCommand) -> Result<()> {
                 .for_each(|task| say(&task_row(task)));
         }
         TaskCommand::Setup { project, name } => {
-            core.task_setup(&project, &name, &hook_line).await?;
+            setting_up(core, core.task_setup(&project, &name, &hook_line)).await?;
             say(&format!("setup finished for `{name}`"));
         }
         TaskCommand::Start { project, name } => stack(core, &project, &name).await?,

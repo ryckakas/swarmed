@@ -105,8 +105,10 @@ Each hook runs with `sh -c` in the task's worktree, and an empty one is skipped.
    one stack more than `max_stacks` is refused: the task's environment's, if it sets one.
 3. Stopping a stack runs `stop`, then ends whatever `start` started, including what it started
    in process groups of their own.
-4. Removing a task stops its agents and its stack, runs `teardown`, ends whatever else still
-   runs in the worktree, and removes the worktree. It is refused while the worktree has
+4. Removing a task stops its agents, its `setup` if that still runs, and its stack, runs
+   `teardown`, ends whatever else still runs in the worktree, and removes the worktree. A
+   `setup` stopped so is not counted as failed: it runs in a process group of its own, which
+   is asked to stop with everything it started and given 15 seconds before it is killed. It is refused while the worktree has
    uncommitted changes or unpushed commits, or is one git no longer knows, whose work cannot
    be checked, unless forced; nothing else stops it. A `stop` or
    `teardown` that fails or takes longer than a minute is passed over, and so is a process that
@@ -133,9 +135,10 @@ of a worktree is listed only while nothing is at its path, and only the record i
 a folder made there again is never deleted. What became at risk after the list was read, a
 branch that gained commits say, is kept and named with why.
 
-Quitting the app ends its stacks' processes without running `stop`. From the command line,
-`swarmed task new` and `swarmed task setup` end the stack again when they exit, and
-`swarmed task start` keeps one running in the foreground.
+Quitting the app ends its stacks' processes without running `stop`, and stops a `setup` under
+way, which leaves its task as not set up, to run setup again. From the command line,
+`swarmed task new` and `swarmed task setup` end the stack again when they exit, and Ctrl-C
+stops their setup the same way; `swarmed task start` keeps a stack running in the foreground.
 
 ## Variables
 

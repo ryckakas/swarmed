@@ -65,6 +65,7 @@ mod search;
 pub mod secrets;
 mod sessions;
 mod settings;
+mod setups;
 mod shellenv;
 mod skills;
 mod snapshots;
@@ -131,6 +132,7 @@ pub use sessions::{
     EVENT_BUFFER, Session, SessionEvent, SessionOptions, SessionSettings, SessionStatus,
 };
 pub use settings::{Layout, LimitWarnings, Palette, Settings, Style, Theme, ToolCalls, UpdateMode};
+pub use setups::SetupStop;
 pub use skills::Skill;
 pub use snapshots::Snapshot;
 pub use stacks::StackState;
@@ -177,6 +179,8 @@ pub struct Core {
     /// The names of tasks being created, by project id, from when each name is chosen until
     /// its task is written down, so that tasks created at once never pick the same name.
     names_claimed: Mutex<std::collections::HashSet<(i64, String)>>,
+    /// The tasks' `setup` hooks this process runs now, so that one can be stopped on purpose.
+    setups: setups::Setups,
     /// What this core knows of other Swarmed processes on the same data.
     elsewhere: elsewhere::Elsewhere,
 }
@@ -221,6 +225,7 @@ impl Core {
             tool_server: None,
             house: Mutex::new(None),
             names_claimed: Mutex::default(),
+            setups: setups::Setups::default(),
             elsewhere: elsewhere::Elsewhere::default(),
         })
     }

@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use crate::setups::SetupStop;
+
 /// The result type of every fallible core operation.
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -102,6 +104,18 @@ pub enum Error {
         /// The exit status as the platform describes it.
         status: String,
     },
+    /// A task's `setup` was stopped on purpose before it finished, which is no failure of the
+    /// hook's: by removing the task, or by asking.
+    #[error("the setup of `{task}` was stopped {}", .why.said())]
+    SetupStopped {
+        /// The task's name.
+        task: String,
+        /// What stopped it.
+        why: SetupStop,
+    },
+    /// The task's `setup` runs already.
+    #[error("the setup of `{0}` is running already")]
+    SetupRunning(String),
     /// As many of the project's stacks run as its config, or the task's environment, allows.
     #[error(
         "`{project}` already has {limit} stack(s) running, which is its `max_stacks`: stop one, or raise the limit in the task's environment or the project's config"

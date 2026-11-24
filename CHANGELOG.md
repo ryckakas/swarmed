@@ -29,6 +29,18 @@ notice adds its line under Unreleased.
   and the chat stays as it was. On the command line a chat is a task of `.chats`, and
   `swarmed session fork --into` carries one on.
 
+### Fixed
+
+- **Removing a task while its `setup` runs no longer reports a failed setup.** Swarmed used to
+  find the hook among what runs in the worktree and kill it three seconds later, and then
+  said ``the `setup` hook failed with signal: 9 (SIGKILL)``. Removing the task now stops its
+  setup on purpose before anything else, with everything the hook started, also what works
+  outside the worktree, and gives it time to wind down first, as devenv and the like do; the
+  task then goes without a word about its setup. Quitting the app stops a setup under way
+  too, and so does Ctrl-C during `swarmed task new` or `swarmed task setup`; the task is then
+  left as not set up, to run setup again. What a stack or a removal leaves running is given
+  ten seconds to stop, not three, before it is killed.
+
 ## [0.4.1] - 2026-11-24
 
 ### Added
