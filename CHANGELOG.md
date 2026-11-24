@@ -15,6 +15,39 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Added
+
+- **Paste an image, such as a screenshot, into a message box to attach it.** It shows above the
+  text with a × to take it off, in a session's box, the new-task view and a waiting message
+  being edited. Sent, it is kept in the session's own folder in Swarmed's data directory,
+  readable by you alone, and the agent is given its path. Sent messages show their pasted
+  images, which open in Preview when pressed. PNG, JPEG, GIF and WebP up to 20 MB can be
+  pasted; anything else, such as TIFF, is refused with the reason. The images are deleted with
+  the session, and a fork gets copies of its own.
+- **Quote part of an agent's reply into your message, and write what you make of it under the
+  quote.** Select words in one reply and press **Quote** beside them, or ⌘⇧L. The quote stands
+  in the message box as one token, `[Quote #1: "the first words…"]`, which Backspace and Delete
+  take out whole; a message can hold several. The agent is sent the quoted words in numbered
+  tags, with your words after them, and the transcript shows them as a quote. A message brought
+  back with ↑, or a waiting message opened to edit, has its quotes and large pastes as tokens
+  again, no longer pasted out in full.
+- **Pin a repository, a task or a session to the top of its list in the sidebar.** Press the pin
+  that shows when you point at a row, or ⌘D for the focused row or the open session. A pinned
+  row stays above the rows beside it that are not pinned, keeps its pin, and moves only among
+  the pinned ones; unpinned, it goes back to the top of the others. A closed session keeps its
+  pin for when it is reopened. On the command line: `swarmed project pin`, `swarmed task pin`
+  and `swarmed session pin`, and `unpin` for each.
+- **A Claude Code session a usage limit stopped can go on by itself when the limit resets.**
+  The line that says the limit stopped the turn offers **Continue at 14:05**; pressed, the
+  session is sent "Continue where you stopped." at that time, ahead of anything you queued
+  meanwhile, and the message says it was sent by itself. A small clock beside the session in
+  the sidebar shows the time; pressing it cancels, and so do writing to the session, Stop and
+  closing it. **Continue after a limit** in Settings, under Storage and activity, does this for
+  every refused turn. Sessions one limit stopped go on a few seconds apart. It is kept when
+  Swarmed quits, and one whose time came while Swarmed was closed is sent when the app next
+  opens. Nothing asks Claude Code for usage to do it. On the command line:
+  `swarmed session continue-at-reset <id>`, `--cancel`, and `swarmed session show` names it.
+
 ### Fixed
 
 - **What waits for a task's setup is sent once, and all of it.** A message typed into a session

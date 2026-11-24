@@ -13,6 +13,7 @@ import { api } from "../api";
 import type { SlashCommand, Template } from "../api/types";
 import { type Edit, editFor } from "../editing";
 import { matchHotkey } from "../hotkeys";
+import type { PastedImage } from "../images";
 import { isLargePaste, tokenFor, withToken } from "../pastes";
 import { caretAfter, type Direction, recallDirection } from "../recall";
 import type { Draft } from "../sending";
@@ -26,6 +27,7 @@ import {
 } from "../slash";
 import { useStore } from "../store";
 import { takesSuggestion } from "../suggestion";
+import { usePastedImages } from "../usePastedImages";
 import { useWords } from "../useWords";
 import { FileChips } from "./FileChips";
 
@@ -47,6 +49,11 @@ interface Props {
     /** The files the message points the agent at. */
     files: string[];
     onFiles(files: string[]): void;
+    /** Images pasted into the message, kept in the draft until it goes. */
+    images: PastedImage[];
+    onImages(images: PastedImage[]): void;
+    /** The session the message goes to, whose pasted images show as images; none for a new task. */
+    sessionId?: number;
     /** The message the agent suggests next: shown in the empty box, and taken with Tab. */
     suggestion?: string | null;
     /** What sits under the text, left of the button: pickers or labels. */
@@ -61,7 +68,7 @@ interface Props {
 /** The message box: text that grows with what is typed, options below it, and one round button. */
 export function ComposerBox(props: Props) {
     const { value, onChange, onSend, onStop, canSend, placeholder, children } = props;
-    const { files, onFiles } = props;
+    const { files, onFiles, images, onImages } = props;
     const offered = value === "" && !props.disabled ? props.suggestion : null;
     const own = useRef<HTMLTextAreaElement>(null);
     // What to select once a kept prompt is in the box: its first place to fill in.
@@ -72,6 +79,7 @@ export function ComposerBox(props: Props) {
         onChange(text);
     });
     const attach = useAttaching(files, onFiles);
+    const takeImages = usePastedImages(images, onImages);
 
     // Grow with the text, up to the limit the stylesheet sets, then scroll.
     // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the text changes
@@ -134,6 +142,9 @@ export function ComposerBox(props: Props) {
             <FileChips
                 files={files}
                 onRemove={(file) => onFiles(files.filter((other) => other !== file))}
+                sessionId={props.sessionId}
+                images={images}
+                onRemoveImage={(image) => onImages(images.filter((other) => other !== image))}
             />
             <textarea
                 ref={(element) => {
@@ -148,7 +159,7 @@ export function ComposerBox(props: Props) {
                 // biome-ignore lint/a11y/noAutofocus: the screen exists to type into this box
                 autoFocus={props.autoFocus}
                 onChange={(event) => onChange(event.target.value)}
-                onPaste={(event) => onPaste(event, onChange)}
+                onPaste={(event) => onPaste(event, onChange, takeImages)}
                 onKeyDown={onKeyDown}
             />
             <SuggestionHint shown={Boolean(offered)} />
@@ -327,11 +338,21 @@ function replaceIn(
 }
 
 /**
- * A large paste goes into the box as a short token that stands for it; the text itself is
- * sent with the message. Anything smaller is pasted as it always is.
+ * Images in a paste go into the draft as images, and the text beside them, if any, is pasted
+ * as text. A large paste goes into the box as a short token that stands for it; the text itself
+ * is sent with the message. Anything smaller is pasted as it always is.
  */
-function onPaste(event: ClipboardEvent<HTMLTextAreaElement>, onChange: (value: string) => void) {
+function onPaste(
+    event: ClipboardEvent<HTMLTextAreaElement>,
+    onChange: (value: string) => void,
+    takeImages: (data: DataTransfer) => boolean,
+) {
     const pasted = event.clipboardData.getData("text/plain");
+    const images = takeImages(event.clipboardData);
+    if (images && pasted === "") {
+        event.preventDefault();
+        return;
+    }
     if (!isLargePaste(pasted)) {
         return;
     }

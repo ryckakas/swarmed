@@ -40,6 +40,10 @@ pub struct QueuedMessage {
     pub id: u64,
     /// What it says.
     pub text: String,
+    /// Whether Swarmed put it there by itself, when the usage limit that stopped the session
+    /// reset, as the user asked it to. Absent from what the user wrote.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub at_reset: bool,
 }
 
 /// How long a hold on a waiting message lasts unless it is renewed. An open edit box renews it
@@ -115,15 +119,30 @@ impl Queues {
             .insert(0, message);
     }
 
+    /// Puts the message that continues a session when the usage limit that stopped it resets
+    /// first in its queue: what the user queued meanwhile goes after it.
+    pub(crate) fn push_front_at_reset(&self, session: i64, text: &str) {
+        let message = QueuedMessage {
+            at_reset: true,
+            ..self.message(text)
+        };
+        lock(&self.waiting)
+            .entry(session)
+            .or_default()
+            .insert(0, message);
+    }
+
     fn message(&self, text: &str) -> QueuedMessage {
         let id = self.ids.fetch_add(1, Ordering::Relaxed) + 1;
         QueuedMessage {
             id,
             text: text.to_string(),
+            at_reset: false,
         }
     }
 
-    /// Gives a waiting message new text; text with nothing in it takes the message out.
+    /// Gives a waiting message new text, which makes it the user's own; text with nothing in
+    /// it takes the message out.
     fn edit(&self, session: i64, id: u64, text: &str) {
         let mut waiting = lock(&self.waiting);
         let queue = waiting.entry(session).or_default();
@@ -131,6 +150,8 @@ impl Queues {
             queue.retain(|message| message.id != id);
         } else if let Some(message) = queue.iter_mut().find(|message| message.id == id) {
             message.text = text.to_string();
+            // The user's own words now, whatever put the message there.
+            message.at_reset = false;
         }
     }
 
@@ -288,7 +309,7 @@ pub(crate) struct Outbox {
 }
 
 /// Tells every front end what a session's queue now holds.
-fn publish(store: &Mutex<Store>, live: &Live, session: i64) -> Result<()> {
+pub(crate) fn publish(store: &Mutex<Store>, live: &Live, session: i64) -> Result<()> {
     let messages = live.queues.list(session);
     live.note(store, session, AgentEvent::Queue { messages })
 }
@@ -326,7 +347,13 @@ pub(crate) fn send_next(outbox: &Outbox, session: i64) -> Result<()> {
     // Whatever was owed is being sent now.
     live.queues.settle(session);
     let with = (&*outbox.terminals, &outbox.paths);
-    let sent = send_text(store, live, with, session, &message.text);
+    let sent = send_text(
+        store,
+        live,
+        with,
+        session,
+        (&message.text, message.at_reset),
+    );
     if sent.is_err() {
         live.queues.put_back(session, message);
     } else if live.queues.unkeep(session, message.id) {
@@ -644,6 +671,18 @@ impl Core {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_message_sent_at_a_reset_is_the_users_own_once_they_change_it() {
+        let queues = Queues::default();
+        queues.push_front_at_reset(1, "Continue where you stopped.");
+        let waiting = queues.list(1);
+        assert!(waiting[0].at_reset);
+        queues.edit(1, waiting[0].id, "Continue, but leave the tests alone.");
+        let waiting = queues.list(1);
+        assert_eq!(waiting[0].text, "Continue, but leave the tests alone.");
+        assert!(!waiting[0].at_reset);
+    }
 
     #[test]
     fn a_hold_that_is_not_renewed_lapses() {

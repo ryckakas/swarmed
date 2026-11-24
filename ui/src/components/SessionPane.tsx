@@ -133,6 +133,7 @@ export function SessionPane() {
                     events={events}
                     working={session.status === "working"}
                     sendsToBackground={sendsToBackground}
+                    quotable
                 />
             )}
             <Composer key={`composer-${session.id}`} session={session} />

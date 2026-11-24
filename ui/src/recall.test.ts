@@ -20,7 +20,7 @@ const press = (key: string, modifiers: Partial<RecallPress> = {}): RecallPress =
 });
 
 const said = (text: string): AgentEvent => ({ type: "user_message", text });
-const draft = (text: string, files: string[] = []): Draft => ({ text, files });
+const draft = (text: string, files: string[] = []): Draft => ({ text, files, images: [] });
 
 describe("recallDirection", () => {
     const TEXT = "first line\nsecond line\nthird";
@@ -124,9 +124,37 @@ describe("browse", () => {
         expect(again).toMatchObject({ at: 0, shown: draft("newest"), draft: edited });
     });
 
+    it("brings back a draft's pasted images with it, and ends when an image is pasted", () => {
+        const image = { key: 1, format: "png" as const, data: "iVBORw0KGgo=" };
+        const typed = { ...draft("look"), images: [image] };
+        const one = step(null, true, typed);
+        expect(step(one, false, draft("newest"))?.shown).toBe(typed);
+        // An image pasted into a message brought back makes it a draft of its own.
+        const pasted = { ...draft("newest"), images: [image] };
+        expect(step(one, false, pasted)).toBeNull();
+    });
+
     it("does nothing with ↓ before ↑, or with nothing sent", () => {
         expect(step(null, false, draft("typed"))).toBeNull();
         expect(browse(null, "older", draft(""), () => [])).toBeNull();
+    });
+
+    it("shows each message as typed again, and keeps it so", () => {
+        const sent = () => [draft("<b>newest</b>"), draft("<b>oldest</b>")];
+        let made = 0;
+        const typedAgain = (message: Draft) => {
+            made += 1;
+            return { ...message, text: message.text.replaceAll(/<\/?b>/g, "") };
+        };
+        const one = browse(null, "older", draft(""), sent, typedAgain);
+        expect(one?.shown).toEqual(draft("newest"));
+        const two = browse(one, "older", draft("newest"), sent, typedAgain);
+        expect(two?.shown).toEqual(draft("oldest"));
+        const back = browse(two, "newer", draft("oldest"), sent, typedAgain);
+        expect(back?.shown).toEqual(draft("newest"));
+        // Shown again, the newest is made from what it was made into the first time.
+        expect(made).toBe(3);
+        expect(back?.sent).toEqual([draft("newest"), draft("oldest")]);
     });
 
     it("works the list out only when going back starts", () => {

@@ -139,6 +139,15 @@ export interface Api {
     /** Moves a cloud task `by` places among the others of its project. */
     cloudTaskMove(id: number, by: number): Promise<void>;
     /**
+     * Pins a project above the others that are not pinned, put last among the pinned ones, or
+     * with `pinned` false unpins it, put first among the others.
+     */
+    projectPin(project: string, pinned: boolean): Promise<void>;
+    /** Pins a task above its project's other open tasks that are not pinned, or unpins it. */
+    taskPin(project: string, task: string, pinned: boolean): Promise<void>;
+    /** Pins a session above its siblings that are not pinned, or unpins it. */
+    sessionPin(id: number, pinned: boolean): Promise<void>;
+    /**
      * Removes a task's worktree and takes the task out of the tree. Its branch is kept. Without
      * `force` it refuses if the worktree holds unsaved work; nothing else stops it. Resolves to
      * what it passed over to get there, a teardown that failed say, for the user to read.
@@ -350,6 +359,18 @@ export interface Api {
     /** Starts a turn, starting the session's agent first if it is not running. */
     sessionSend(id: number, text: string, files?: string[]): Promise<void>;
     /**
+     * Keeps images pasted into a message to the session, each in base64, as files of the
+     * session's own, and resolves to their paths, to attach to the message like any file.
+     * Rejects, saying why, an image in a format agents do not read or too large.
+     */
+    sessionImagesKeep(id: number, images: string[]): Promise<string[]>;
+    /** An image pasted into the session, as a `data:` address to show it from. */
+    sessionImage(id: number, path: string): Promise<string>;
+    /** Opens an image pasted into the session in the system's viewer. */
+    sessionImageOpen(id: number, path: string): Promise<void>;
+    /** The folder that holds every session's pasted images, a folder named by its id each. */
+    attachmentsRoot(): Promise<string>;
+    /**
      * Tells a waiting message to the agent now, in the middle of its turn, without stopping
      * it: only for an agent that `hears_mid_turn`.
      */
@@ -488,6 +509,14 @@ export interface Api {
      * claude.ai and the Claude app. How it goes arrives as the session's `remote_control` events.
      */
     sessionRemoteControl(id: number, on: boolean): Promise<void>;
+    /**
+     * Lets a session a usage limit stopped go on by itself when the limit resets, and says when,
+     * in seconds since 1970: a message is sent to it then. Every front end hears of it as a
+     * `continuation` event. Refused when no limit still to reset stopped its latest turn.
+     */
+    sessionContinueAtReset(id: number): Promise<number>;
+    /** Cancels a session's going on by itself when a usage limit resets. */
+    sessionContinueCancel(id: number): Promise<void>;
     /** Gives the session a title of the user's choosing. Every front end hears of it as an event. */
     sessionRename(id: number, title: string): Promise<Session>;
     /** Puts a mark on a session; the colour `none` takes it off. */

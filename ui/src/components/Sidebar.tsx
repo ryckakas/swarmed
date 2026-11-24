@@ -1,12 +1,21 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
-import { addProject, moveRow, newSession } from "../actions";
+import { addProject, moveRow, newSession, pinRow } from "../actions";
 import { api } from "../api";
 import type { CloudTask, Mark, Project, Session, Task } from "../api/types";
 import { CHATS, chatsOf, repositoriesOf } from "../chats";
 import { cloudProvider, cloudTitle, cloudTone, cloudTooltip, isUnfinished } from "../cloud";
 import { taskTooltip } from "../environments";
-import { gripTitle, orderAttributes, orderGroup, starterHere } from "../ordering";
+import {
+    gripTitle,
+    orderAttributes,
+    orderGroup,
+    type PinTarget,
+    pinLabel,
+    pinTitle,
+    starterHere,
+} from "../ordering";
 import { agentName, iconForAgent } from "../providerIcons";
+import { clockTime } from "../rateLimit";
 import { isSettingUp, sidebarSays } from "../setup";
 import { useStore } from "../store";
 import type { SubAgent } from "../subagents";
@@ -159,10 +168,8 @@ function ProjectGroup({ project }: { project: Project }) {
     const tasks = project.tasks.filter((task) => !task.archived);
     // A folded repository still shows whether one of its sessions needs something.
     const status = folded ? projectStatus(project) : null;
-    const order = orderAttributes(
-        { kind: "project", project: project.name },
-        orderGroup.projects(),
-    );
+    const target = { kind: "project", project: project.name } as const;
+    const order = orderAttributes(target, orderGroup.projects(project.pinned));
     return (
         <section className="project" {...order}>
             <div className="row-head">
@@ -182,6 +189,7 @@ function ProjectGroup({ project }: { project: Project }) {
                         {folded && <span className="project-count">{tasks.length}</span>}
                     </button>
                 </h2>
+                <PinButton target={target} pinned={project.pinned} name={project.name} />
                 <CloudButton project={project.name} task={null} />
                 <EnvironmentsButton project={project.name} />
                 <NoteButton project={project.name} task={null} has={project.has_note} />
@@ -262,15 +270,14 @@ function ChatsGroup({ home }: { home: Project }) {
 function TaskGroup({ project, task, chat }: { project: string; task: Task; chat?: boolean }) {
     const words = useStore((state) => wordsFor(state.settings?.style));
     const folded = useStore((state) => state.foldedTasks.includes(task.id));
-    const order = orderAttributes(
-        { kind: "task", project, task: task.name },
-        orderGroup.tasks(project),
-    );
+    const target = { kind: "task", project, task: task.name } as const;
+    const order = orderAttributes(target, orderGroup.tasks(project, task.pinned));
     return (
         <div className="task" {...order}>
             <div className="row-head">
                 <Grip />
                 <TaskHeading task={task} folded={folded} chat={chat === true} />
+                <PinButton target={target} pinned={task.pinned} name={task.name} />
                 {!chat && <PullBadge project={project} task={task} />}
                 {!chat && <CloudButton project={project} task={task.name} />}
                 <NoteButton project={project} task={task.name} has={task.has_note} />
@@ -359,7 +366,7 @@ function TaskSessions({ project, task }: { project: string; task: Task }) {
     const sessionOrder = (session: Session) =>
         orderAttributes(
             { kind: "session", id: session.id },
-            orderGroup.sessions(task.id, starterHere(task.sessions, session)),
+            orderGroup.sessions(task.id, starterHere(task.sessions, session), session.pinned),
         );
     return (
         <>
@@ -540,6 +547,42 @@ function EnvironmentsButton({ project }: { project: string }) {
                 <path d="M2 8l6 3 6-3M2 11l6 3 6-3" />
             </svg>
         </button>
+    );
+}
+
+/**
+ * The pin on a repository, a task or a session: out of the way until the row is pointed at,
+ * and in view once it is pinned. Pressing it pins the row above its siblings that are not
+ * pinned, or unpins it.
+ */
+function PinButton({ target, pinned, name }: { target: PinTarget; pinned: boolean; name: string }) {
+    return (
+        <button
+            type="button"
+            className="row-pin"
+            data-pinned={pinned}
+            aria-pressed={pinned}
+            aria-label={pinLabel(pinned, name)}
+            title={pinTitle(pinned)}
+            onClick={() => void pinRow(target, !pinned)}
+        >
+            <ButtonIcon>
+                <PinIcon />
+            </ButtonIcon>
+        </button>
+    );
+}
+
+/** A pin, pushed in at a slant: its head, the bar it is held by, and its point. */
+function PinIcon() {
+    return (
+        <>
+            <path
+                className="pin-head"
+                d="M9.2 2.2 13.8 6.8 11.6 7.6 8.9 10.3 8.4 13 3 7.6 5.7 7.1 8.4 4.4z"
+            />
+            <path d="M5.7 10.3 2.4 13.6" />
+        </>
     );
 }
 
@@ -780,6 +823,14 @@ function SessionRow({ session }: { session: Session }) {
                 <ProviderMark icon={iconForAgent(session.agent)} label={agentName(session.agent)} />
             </button>
             {session.mark && <SessionMark id={session.id} mark={session.mark} />}
+            {session.continue_at !== null && (
+                <SessionContinues id={session.id} at={session.continue_at} />
+            )}
+            <PinButton
+                target={{ kind: "session", id: session.id }}
+                pinned={session.pinned}
+                name={title}
+            />
             <button
                 type="button"
                 className="row-close"
@@ -832,6 +883,31 @@ function SubAgentRows({ session }: { session: Session }) {
                 </li>
             ))}
         </ul>
+    );
+}
+
+/**
+ * The clock beside a session a usage limit stopped, which goes on by itself when the limit
+ * resets, with the time it does. Pressing it cancels that.
+ */
+function SessionContinues({ id, at }: { id: number; at: number }) {
+    const report = useStore((state) => state.report);
+    const time = clockTime(at, new Date());
+    const said = `Goes on by itself at ${time}, when the usage limit resets`;
+    return (
+        <button
+            type="button"
+            className="session-continues"
+            title={`${said}. Press to cancel.`}
+            aria-label={`${said}. Cancel.`}
+            onClick={() => api.sessionContinueCancel(id).catch(report)}
+        >
+            <svg className="session-continues-clock" viewBox="0 0 12 12" aria-hidden="true">
+                <circle cx="6" cy="6" r="4.8" />
+                <path d="M6 3.4V6l1.8 1.2" />
+            </svg>
+            <span>{time}</span>
+        </button>
     );
 }
 

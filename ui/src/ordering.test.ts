@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Session } from "./api/types";
+import type { Api } from "./api/client";
+import type { Project, Session, Task } from "./api/types";
 import {
     dropGap,
     dropMove,
@@ -7,6 +8,12 @@ import {
     movedAmong,
     orderAttributes,
     orderGroup,
+    pinLabel,
+    pinnable,
+    pinnedAmong,
+    pinnedNow,
+    pinTarget,
+    pinTitle,
     starterHere,
     targetOf,
 } from "./ordering";
@@ -51,7 +58,7 @@ describe("moving a row among its siblings", () => {
 
     it("writes a row's target and siblings onto its element and reads them back", () => {
         const target = { kind: "task", project: "demo", task: "one" } as const;
-        const attributes = orderAttributes(target, orderGroup.tasks("demo"));
+        const attributes = orderAttributes(target, orderGroup.tasks("demo", false));
         expect(attributes["data-order-group"]).toBe("tasks:demo");
         const element = (written: Record<string, string>) => ({
             getAttribute: (name: string) => written[name] ?? null,
@@ -72,7 +79,79 @@ describe("moving a row among its siblings", () => {
         const sessions = [session(1, null), session(2, 1), session(3, 9)];
         expect(starterHere(sessions, session(2, 1))).toBe(1);
         expect(starterHere(sessions, session(3, 9))).toBeNull();
-        expect(orderGroup.sessions(4, 1)).toBe("sessions:4:1");
-        expect(orderGroup.sessions(4, null)).toBe("sessions:4:top");
+        expect(orderGroup.sessions(4, 1, false)).toBe("sessions:4:1");
+        expect(orderGroup.sessions(4, null, false)).toBe("sessions:4:top");
+    });
+});
+
+describe("pinning a row above its siblings", () => {
+    const row = (name: string, pinned: boolean) => ({ name, pinned });
+    const rows = [row("a", true), row("b", true), row("c", false), row("d", false)];
+    const named = (name: string) => (one: { name: string }) => one.name === name;
+
+    it("puts a pinned row last among the pinned, and an unpinned one first among the others", () => {
+        expect(pinnedAmong(rows, named("d"), true)).toEqual([
+            row("a", true),
+            row("b", true),
+            row("d", true),
+            row("c", false),
+        ]);
+        expect(pinnedAmong(rows, named("a"), false)).toEqual([
+            row("b", true),
+            row("a", false),
+            row("c", false),
+            row("d", false),
+        ]);
+        expect(pinnedAmong(rows, named("a"), true)).toBe(rows);
+        expect(pinnedAmong(rows, named("x"), true)).toBe(rows);
+    });
+
+    it("moves pinned rows among the pinned and the others among the others", () => {
+        expect(orderGroup.projects(true)).toBe("projects:pinned");
+        expect(orderGroup.projects(false)).toBe("projects");
+        expect(orderGroup.tasks("demo", true)).toBe("tasks:demo:pinned");
+        expect(orderGroup.sessions(4, 1, true)).toBe("sessions:4:1:pinned");
+    });
+
+    it("tells whether a row is pinned now, and leaves cloud tasks out", () => {
+        const session = { id: 7, pinned: true } as Session;
+        const task = { name: "one", archived: false, pinned: false, sessions: [session] } as Task;
+        const projects = [{ name: "demo", pinned: true, tasks: [task] } as unknown as Project];
+        expect(pinnedNow(projects, { kind: "project", project: "demo" })).toBe(true);
+        expect(pinnedNow(projects, { kind: "task", project: "demo", task: "one" })).toBe(false);
+        expect(pinnedNow(projects, { kind: "session", id: 7 })).toBe(true);
+        expect(pinnedNow(projects, { kind: "session", id: 9 })).toBeNull();
+        expect(pinnedNow(projects, { kind: "task", project: "elsewhere", task: "one" })).toBeNull();
+        expect(pinnable({ kind: "cloud", id: 1 })).toBe(false);
+        expect(pinnable({ kind: "session", id: 1 })).toBe(true);
+    });
+
+    it("says what pressing the pin does, with the key that does the same", () => {
+        expect(pinTitle(false)).toBe(
+            "Pin above the rest. ⌘D pins the focused row, or the open session.",
+        );
+        expect(pinTitle(true)).toBe(
+            "Pinned above the rest. Press to unpin, or ⌘D on the focused row.",
+        );
+        expect(pinLabel(true, "fix-login")).toBe("Unpin fix-login");
+    });
+
+    it("asks the core for the kind of row it is", async () => {
+        const asked: string[] = [];
+        const api = {
+            projectPin: async (project: string, pinned: boolean) => {
+                asked.push(`project ${project} ${pinned}`);
+            },
+            taskPin: async (project: string, task: string, pinned: boolean) => {
+                asked.push(`task ${project}/${task} ${pinned}`);
+            },
+            sessionPin: async (id: number, pinned: boolean) => {
+                asked.push(`session ${id} ${pinned}`);
+            },
+        } as unknown as Api;
+        await pinTarget(api, { kind: "project", project: "demo" }, true);
+        await pinTarget(api, { kind: "task", project: "demo", task: "one" }, false);
+        await pinTarget(api, { kind: "session", id: 3 }, true);
+        expect(asked).toEqual(["project demo true", "task demo/one false", "session 3 true"]);
     });
 });

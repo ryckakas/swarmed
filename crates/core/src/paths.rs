@@ -146,6 +146,18 @@ impl Paths {
         self.data_dir.join("spool").join(session.to_string())
     }
 
+    /// The folder that holds every session's pasted images, one folder per session.
+    #[must_use]
+    pub fn attachments_root(&self) -> PathBuf {
+        self.data_dir.join("attachments")
+    }
+
+    /// The folder the images pasted into session `session`'s messages are kept in.
+    #[must_use]
+    pub fn attachments(&self, session: i64) -> PathBuf {
+        self.attachments_root().join(session.to_string())
+    }
+
     /// The worktree directory of `task` in `project`.
     #[must_use]
     pub fn worktree(&self, project: &str, task: &str) -> PathBuf {

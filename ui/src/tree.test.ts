@@ -151,6 +151,31 @@ describe("a marked session", () => {
     });
 });
 
+describe("a session that goes on when a usage limit resets", () => {
+    const continuation = (at: number | null): SessionEvent => ({
+        session_id: 2,
+        status: null,
+        event: { type: "continuation", at },
+    });
+
+    it("shows when, and no longer once it is cancelled", () => {
+        const after = applySessionEvent(sampleProjects(), continuation(1_800_000_000));
+        expect(findSession(after, 2)?.continue_at).toBe(1_800_000_000);
+        const cancelled = applySessionEvent(after, continuation(null));
+        expect(findSession(cancelled, 2)?.continue_at).toBeNull();
+    });
+
+    it("no longer waits once a message goes to it", () => {
+        const before = applySessionEvent(sampleProjects(), continuation(1_800_000_000));
+        const written: SessionEvent = {
+            session_id: 2,
+            status: "working",
+            event: { type: "user_message", text: "carry on", at_reset: true },
+        };
+        expect(findSession(applySessionEvent(before, written), 2)?.continue_at).toBeNull();
+    });
+});
+
 describe("withSessionStatus", () => {
     it("replaces one session's status and leaves other branches untouched", () => {
         const before = sampleProjects();

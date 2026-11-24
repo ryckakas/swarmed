@@ -106,16 +106,28 @@ pub(crate) fn in_terminal(app: &str, folder: &Path) -> Result<()> {
     Err(could_not_open(app, "there is no application of that name"))
 }
 
-/// Opens `url` in the user's default browser.
-pub(crate) fn in_browser(url: &str) -> Result<()> {
-    let opener = if cfg!(target_os = "macos") {
+/// The system's own program for opening a link or a file with whatever handles it.
+fn opener() -> Command {
+    Command::new(if cfg!(target_os = "macos") {
         "open"
     } else {
         "xdg-open"
-    };
-    let mut command = Command::new(opener);
+    })
+}
+
+/// Opens `url` in the user's default browser.
+pub(crate) fn in_browser(url: &str) -> Result<()> {
+    let mut command = opener();
     command.arg(url);
     launch(command).map_err(|e| could_not_open(url, e))
+}
+
+/// Opens `file` in the application the system opens its kind with: Preview, for an image on
+/// a Mac.
+pub(crate) fn in_viewer(file: &Path) -> Result<()> {
+    let mut command = opener();
+    command.arg(file);
+    launch(command).map_err(|e| could_not_open(&file.display().to_string(), e))
 }
 
 /// What a link in a conversation may be for it to be handed to the user's browser or mail

@@ -239,6 +239,9 @@ pub(crate) struct Start {
     prompt: String,
     #[serde(default)]
     files: Vec<PathBuf>,
+    /// Images pasted into the prompt, each in base64.
+    #[serde(default)]
+    images: Vec<String>,
 }
 
 /// Starts a task from a prompt: the task and its first session are made and returned while
@@ -269,6 +272,7 @@ pub(crate) async fn task_start<R: Runtime>(
         },
         prompt: start.prompt,
         files: start.files,
+        images: start.images,
     };
     let sink = hook_sink(&app, &project, &name);
     let starting = core
@@ -438,6 +442,30 @@ pub(crate) fn task_move(
 #[tauri::command]
 pub(crate) fn session_move(core: CoreState<'_>, id: i64, by: i32) -> Command<()> {
     Ok(core.session_move(id, by)?)
+}
+
+/// Pins a project above the others that are not pinned, or with `pinned` false unpins it.
+/// In order with the window's moves, as each is from the list the last one left.
+#[tauri::command]
+pub(crate) fn project_pin(core: CoreState<'_>, project: String, pinned: bool) -> Command<()> {
+    Ok(core.project_pin(&project, pinned)?)
+}
+
+/// Pins a task above its project's other open tasks that are not pinned, or unpins it.
+#[tauri::command]
+pub(crate) fn task_pin(
+    core: CoreState<'_>,
+    project: String,
+    task: String,
+    pinned: bool,
+) -> Command<()> {
+    Ok(core.task_pin(&project, &task, pinned)?)
+}
+
+/// Pins a session above its siblings that are not pinned, or unpins it.
+#[tauri::command]
+pub(crate) fn session_pin(core: CoreState<'_>, id: i64, pinned: bool) -> Command<()> {
+    Ok(core.session_pin(id, pinned)?)
 }
 
 /// Moves a cloud task `by` places among the others of its project.
@@ -949,6 +977,36 @@ pub(crate) async fn session_send(
     Ok(core.session_message(id, &text, &files, Auth::default())?)
 }
 
+/// Keeps images pasted into a message to a session, each in base64, as files of the session's
+/// own, and returns their paths to attach to the message. Off the main thread: an image can be
+/// megabytes.
+#[tauri::command(async)]
+pub(crate) fn session_images_keep(
+    core: CoreState<'_>,
+    id: i64,
+    images: Vec<String>,
+) -> Command<Vec<PathBuf>> {
+    Ok(core.session_images_keep(id, &images)?)
+}
+
+/// An image pasted into a session, as a `data:` address to show it from.
+#[tauri::command(async)]
+pub(crate) fn session_image(core: CoreState<'_>, id: i64, path: PathBuf) -> Command<String> {
+    Ok(core.session_image(id, &path)?)
+}
+
+/// Opens an image pasted into a session in the system's viewer.
+#[tauri::command]
+pub(crate) fn session_image_open(core: CoreState<'_>, id: i64, path: PathBuf) -> Command<()> {
+    Ok(core.session_image_open(id, &path)?)
+}
+
+/// The folder that holds the pasted images of every session, one folder each.
+#[tauri::command]
+pub(crate) fn attachments_root(core: CoreState<'_>) -> PathBuf {
+    core.attachments_root()
+}
+
 /// Tells a waiting message to the session's agent in the middle of its turn, without stopping it.
 #[tauri::command]
 pub(crate) fn session_tell_now(core: CoreState<'_>, id: i64, message: u64) -> Command<()> {
@@ -1317,6 +1375,19 @@ pub(crate) async fn session_usage_refresh(core: CoreState<'_>, id: i64) -> Comma
 #[tauri::command(async)]
 pub(crate) fn session_remote_control(core: CoreState<'_>, id: i64, on: bool) -> Command<()> {
     Ok(core.session_remote_control(id, on, Auth::default())?)
+}
+
+/// Lets a session a usage limit stopped go on by itself when the limit resets, and says when,
+/// in seconds since 1970.
+#[tauri::command]
+pub(crate) fn session_continue_at_reset(core: CoreState<'_>, id: i64) -> Command<i64> {
+    Ok(core.session_continue_at_reset(id)?)
+}
+
+/// Cancels a session's going on by itself when a usage limit resets.
+#[tauri::command]
+pub(crate) fn session_continue_cancel(core: CoreState<'_>, id: i64) -> Command<()> {
+    Ok(core.session_continue_cancel(id)?)
 }
 
 #[tauri::command]

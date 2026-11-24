@@ -1,4 +1,4 @@
-import type { Project, Session, SessionEvent, SessionStatus, Task } from "./api/types";
+import type { AgentEvent, Project, Session, SessionEvent, SessionStatus, Task } from "./api/types";
 
 // Pure functions over the project tree, kept apart from the store so they can be tested.
 
@@ -51,33 +51,47 @@ function mapSession(
     return projects.map(inProject);
 }
 
+/** What an event sets on its session's row by itself, whatever it does to the status. */
+function rowChange(event: AgentEvent): ((session: Session) => Session) | null {
+    switch (event.type) {
+        case "renamed":
+            return (session) => ({ ...session, title: event.title });
+        case "marked": {
+            const mark =
+                event.colour === null ? null : { colour: event.colour, label: event.label };
+            return (session) => ({ ...session, mark });
+        }
+        case "supervision_changed":
+            return (session) => ({ ...session, supervision: event.supervision });
+        case "continuation":
+            return (session) => ({ ...session, continue_at: event.at });
+        default:
+            return null;
+    }
+}
+
 /**
  * Applies what a published event means for the sidebar: the session's new status, and, for
  * the first message of an untitled session, the title the core has just given it.
  */
 export function applySessionEvent(projects: Project[], published: SessionEvent): Project[] {
     const { session_id: id, status, event } = published;
-    if (event.type === "renamed") {
-        return mapSession(projects, id, (session) => ({ ...session, title: event.title }));
-    }
-    if (event.type === "marked") {
-        const mark = event.colour === null ? null : { colour: event.colour, label: event.label };
-        return mapSession(projects, id, (session) => ({ ...session, mark }));
-    }
-    if (event.type === "supervision_changed") {
-        const { supervision } = event;
-        return mapSession(projects, id, (session) => ({ ...session, supervision }));
+    const change = rowChange(event);
+    if (change !== null) {
+        return mapSession(projects, id, change);
     }
     const firstMessage = event.type === "user_message" ? event.text : null;
     if (status === null && firstMessage === null) {
         return projects;
     }
+    // Writing to a session starts something new: its mark was about what came before, and it
+    // goes on now rather than when a usage limit resets.
+    const written = firstMessage === null ? {} : { mark: null, continue_at: null };
     return mapSession(projects, id, (session) => ({
         ...session,
         unread: unreadAfter(session.unread, published),
         status: status ?? session.status,
-        // Writing to a session starts something new: its mark was about what came before.
-        mark: event.type === "user_message" ? null : session.mark,
+        ...written,
         title:
             session.title === "" && firstMessage !== null ? titleFrom(firstMessage) : session.title,
     }));

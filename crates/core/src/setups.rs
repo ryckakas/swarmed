@@ -755,6 +755,7 @@ mod tests {
             setup_reason: None,
             archived: false,
             environment: None,
+            pinned: false,
         }
     }
 

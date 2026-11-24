@@ -57,7 +57,8 @@ export function sentMessages(events: AgentEvent[], spawned = false): Draft[] {
         if (event.type !== "user_message" || isFromSession(event.text)) {
             continue;
         }
-        const message = splitFiles(event.text);
+        // Images pasted into it are files of the session's by now, and come back as such.
+        const message = { ...splitFiles(event.text), images: [] };
         const last = sent.at(-1);
         if (!(last && sameDraft(last, message))) {
             sent.push(message);
@@ -66,12 +67,14 @@ export function sentMessages(events: AgentEvent[], spawned = false): Draft[] {
     return sent;
 }
 
-/** Whether two drafts hold the same text and the same files. */
+/** Whether two drafts hold the same text, the same files and the same pasted images. */
 export function sameDraft(one: Draft, other: Draft): boolean {
     return (
         one.text === other.text &&
         one.files.length === other.files.length &&
-        one.files.every((file, index) => other.files[index] === file)
+        one.files.every((file, index) => other.files[index] === file) &&
+        one.images.length === other.images.length &&
+        one.images.every((image, index) => other.images[index]?.key === image.key)
     );
 }
 
@@ -92,26 +95,41 @@ export interface Browsing {
  * key brings nothing back and is left to move the caret. A box that holds something other than
  * what browsing put there was typed in: that ends browsing, and ↑ starts again from the newest
  * message, with what is in the box now as the draft. The list is only worked out (`sentNow`)
- * when browsing starts.
+ * when browsing starts. A message is shown as `typedAgain` makes it, and kept so: shown again,
+ * it is made from that, so that what the first time took in (a paste's token, say) is not
+ * taken in twice.
  */
 export function browse(
     browsing: Browsing | null,
     direction: Direction,
     now: Draft,
     sentNow: () => Draft[],
+    typedAgain: (sent: Draft) => Draft = (sent) => sent,
 ): Browsing | null {
     const going = browsing && sameDraft(browsing.shown, now) ? browsing : null;
     if (!going) {
         const sent = direction === "older" ? sentNow() : [];
-        const newest = sent[0];
-        return newest ? { sent, at: 0, draft: now, shown: newest } : null;
+        return shownAt({ sent, at: 0, draft: now, shown: now }, 0, typedAgain);
     }
     const at = going.at + (direction === "older" ? 1 : -1);
     if (at < -1) {
         return null;
     }
-    const shown = at === -1 ? going.draft : going.sent[at];
-    return shown ? { ...going, at, shown } : null;
+    return at === -1 ? { ...going, at, shown: going.draft } : shownAt(going, at, typedAgain);
+}
+
+/** `browsing` showing the message sent at `at`, as `typedAgain` makes it; `null` if none is. */
+function shownAt(
+    browsing: Browsing,
+    at: number,
+    typedAgain: (sent: Draft) => Draft,
+): Browsing | null {
+    const sent = browsing.sent[at];
+    if (!sent) {
+        return null;
+    }
+    const shown = typedAgain(sent);
+    return { ...browsing, sent: browsing.sent.with(at, shown), at, shown };
 }
 
 /** Where the caret goes in a message brought back: where the next press of the same key works. */

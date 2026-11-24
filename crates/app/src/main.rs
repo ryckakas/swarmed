@@ -19,7 +19,7 @@ use std::sync::Arc;
 use swarmed_core::agent::{Auth, FakeBackend};
 use swarmed_core::{
     Core, Paths, SessionEvent, TOOL_SERVER_ARG, TerminalOutput, VIEW_POLICY, follow_others,
-    serve_session_tools, serve_tools,
+    follow_resets, serve_session_tools, serve_tools,
 };
 use tauri::http::header::{CONTENT_SECURITY_POLICY, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
 use tauri::http::{HeaderValue, Response, StatusCode};
@@ -193,7 +193,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::agent_configure, commands::agent_models_refresh, commands::openrouter_models,
         commands::overview, commands::project_add, commands::project_remove,
         commands::project_move, commands::task_move, commands::session_move,
-        commands::cloud_task_move,
+        commands::cloud_task_move, commands::project_pin, commands::task_pin, commands::session_pin,
         commands::branch_choices, commands::task_name_for, commands::task_new,
         commands::task_start, commands::task_setup, commands::task_setup_stop,
         commands::task_start_anyway, commands::task_setup_log,
@@ -216,7 +216,9 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::set_api_key, commands::delete_api_key, commands::settings,
         commands::config_problems,
         commands::set_settings, commands::branch_example, commands::custom_layout, commands::custom_layout_save, commands::terminal_config, commands::terminal_config_save, commands::session_new, commands::session_events,
-        commands::session_send, commands::session_mark_read, commands::session_queue,
+        commands::session_send, commands::session_images_keep, commands::session_image,
+        commands::session_image_open, commands::attachments_root,
+        commands::session_mark_read, commands::session_queue,
         commands::session_enqueue, commands::session_queue_edit, commands::session_queue_hold,
         commands::session_queue_let_go, commands::session_send_queued,
         commands::session_send_now, commands::session_message_now, commands::session_tell_now,
@@ -230,7 +232,8 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::claude_terminal_write, commands::claude_terminal_resize,
         commands::claude_terminal_close,
         commands::status_line, commands::account_usage, commands::session_usage_refresh, commands::session_rename, commands::session_close, commands::session_delete,
-        commands::session_remote_control,
+        commands::session_remote_control, commands::session_continue_at_reset,
+        commands::session_continue_cancel,
         commands::sessions_search, commands::sessions_closed, commands::session_reopen,
         commands::session_fork, commands::session_fork_into, commands::session_set_agent,
         commands::update_state, commands::update_check, commands::update_restart,
@@ -263,6 +266,7 @@ fn main() {
     let noticing = Arc::clone(&core);
     let resuming = Arc::clone(&core);
     let following = Arc::clone(&core);
+    let resetting = Arc::downgrade(&core);
     let bus = core.subscribe();
     let terminals = core.subscribe_terminals();
     let claude_terminals = core.subscribe_claude_terminals();
@@ -284,6 +288,9 @@ fn main() {
             // What the command line or another Swarmed on the same data writes reaches the
             // window as if this core had written it, and is noticed within a second.
             drop(tauri::async_runtime::spawn(follow_others(following)));
+            // Sessions a usage limit stopped go on by themselves when it resets, where the user
+            // asked for that. Only the first Swarmed on the data sends them.
+            drop(tauri::async_runtime::spawn(follow_resets(resetting)));
             // Sessions that had Remote Control on can be reached from claude.ai again, without
             // anyone writing to them here first. Only the first Swarmed on the data does this.
             drop(tauri::async_runtime::spawn(async move {

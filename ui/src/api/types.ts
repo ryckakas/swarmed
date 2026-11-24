@@ -29,6 +29,13 @@ export interface Session {
      * finishes well, or when the user starts it anyway.
      */
     waits_for_setup: boolean;
+    /** Whether the user pinned it above its siblings that are not. A closed session keeps its pin. */
+    pinned: boolean;
+    /**
+     * When it goes on by itself, the usage limit that stopped it reset, in seconds since 1970:
+     * a message is sent to it then. `null` for not.
+     */
+    continue_at: number | null;
 }
 
 /** The colours a mark can have. Each theme draws its own. */
@@ -72,6 +79,8 @@ export interface Task {
     environment: string | null;
     /** How far along what the task keeps running is; `null` if its project starts nothing. */
     stack: StackState | null;
+    /** Whether the user pinned it above its repository's tasks that are not. */
+    pinned: boolean;
 }
 
 /**
@@ -140,6 +149,8 @@ export interface TaskStart {
     title: string | null;
     prompt: string;
     files: string[];
+    /** Images pasted into the prompt, each in base64: the session's own once it is made. */
+    images: string[];
 }
 
 /**
@@ -482,6 +493,8 @@ export interface Settings {
     turn_end_lines: boolean;
     /** Which levels of the account's usage the notice at the top of the window says. */
     limit_warnings: LimitWarnings;
+    /** Whether a session a usage limit stopped goes on by itself when it resets, unasked. */
+    continue_after_limit: boolean;
     /** Whether the system notifies when a session needs you, finishes or fails out of sight. */
     notifications: boolean;
     /** The built-in pieces of the status line under the message box, in order. */
@@ -533,6 +546,8 @@ export interface Project {
     has_note: boolean;
     /** The tasks handed to cloud agents from the repository, newest first, as last heard of. */
     cloud: CloudTask[];
+    /** Whether the user pinned it above the repositories that are not. */
+    pinned: boolean;
 }
 
 /** A set of instructions for one kind of task, kept by an agent or by Swarmed itself. */
@@ -579,6 +594,8 @@ export type RemoveTarget = NoteTarget;
 export interface QueuedMessage {
     id: number;
     text: string;
+    /** Whether Swarmed put it there by itself, when the usage limit that stopped the session reset. */
+    at_reset?: boolean;
 }
 
 /** What a new task and its first session are called, as a model named them. */
@@ -819,8 +836,11 @@ export interface AskedQuestion {
 }
 
 export type AgentEvent =
-    /** What the user wrote; `remote` when typed on claude.ai or in the Claude app. */
-    | { type: "user_message"; text: string; remote?: boolean }
+    /**
+     * What the user wrote; `remote` when typed on claude.ai or in the Claude app, `at_reset`
+     * when Swarmed sent it by itself as the usage limit that stopped the session reset.
+     */
+    | { type: "user_message"; text: string; remote?: boolean; at_reset?: boolean }
     | {
           type: "init";
           agent_session_id: string;
@@ -890,6 +910,11 @@ export type AgentEvent =
     | { type: "view"; html: string }
     /** What the agent says it actually runs with, defaults resolved. */
     | { type: "applied"; model: string; effort: string | null }
+    /**
+     * The session goes on by itself when the usage limit that stopped it resets, at `at` in
+     * seconds since 1970, or no longer does (`null`). A message of the user's takes it off too.
+     */
+    | { type: "continuation"; at: number | null }
     /** What the agent expects the user to say next, offered after a turn. */
     | { type: "suggestion"; text: string }
     /** What the session's queue of waiting messages now holds. Never part of the history. */

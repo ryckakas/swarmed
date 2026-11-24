@@ -21,6 +21,7 @@ use crate::agent::{
 use crate::agents::CLAUDE;
 use crate::chats;
 use crate::commands::SlashCommand;
+use crate::continuation;
 use crate::error::{Error, Result};
 use crate::fork;
 use crate::git::Head;
@@ -123,6 +124,7 @@ impl SessionStatus {
             | AgentEvent::ConfigChanged { .. }
             | AgentEvent::SupervisionChanged { .. }
             | AgentEvent::Applied { .. }
+            | AgentEvent::Continuation { .. }
             | AgentEvent::Suggestion { .. }
             | AgentEvent::Closed
             | AgentEvent::Deleted
@@ -185,6 +187,10 @@ pub(crate) fn track(open: &mut HashSet<String>, event: &AgentEvent) {
 
 /// One conversation with an agent, in a task's worktree.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each is a column of its own, apart from the others, which front ends read as it is"
+)]
 pub struct Session {
     /// The database id.
     pub id: i64,
@@ -217,6 +223,12 @@ pub struct Session {
     /// Whether the message it was made with waits for its task's setup: it goes once that
     /// finishes well, or when the user sends it anyway.
     pub waits_for_setup: bool,
+    /// Whether the user pinned it above its siblings that are not pinned. A closed session
+    /// keeps its pin.
+    pub pinned: bool,
+    /// When it goes on by itself, the usage limit that stopped it reset, in seconds since
+    /// 1970: a message is sent to it then. `None` for not.
+    pub continue_at: Option<i64>,
 }
 
 /// What can be changed about a session after it was created.
@@ -250,7 +262,11 @@ pub struct SessionOptions {
 }
 
 const SESSION_SELECT: &str = "SELECT id, task_id, title, agent_session_id, model, supervision, status, agent, effort, unread, spawned_by, fast, mark_colour, mark_label, \
-     setup_prompt IS NOT NULL FROM sessions";
+     setup_prompt IS NOT NULL, pinned, continue_at FROM sessions";
+
+/// The order the sidebar lists a task's sessions in: the pinned ones first, then as the user
+/// put them.
+pub(crate) const SESSION_ORDER: &str = "pinned DESC, position, id";
 
 fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
     Ok(Session {
@@ -279,6 +295,8 @@ fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
             })
             .transpose()?,
         waits_for_setup: row.get(14)?,
+        pinned: row.get(15)?,
+        continue_at: row.get(16)?,
     })
 }
 
@@ -316,6 +334,8 @@ impl Store {
             fast: options.fast,
             mark: None,
             waits_for_setup: false,
+            pinned: false,
+            continue_at: None,
         })
     }
 
@@ -372,7 +392,7 @@ impl Store {
 
     pub(crate) fn sessions(&self, task_id: i64) -> Result<Vec<Session>> {
         let mut stmt = self.conn.prepare(&format!(
-            "{SESSION_SELECT} WHERE task_id = ?1 AND closed_at IS NULL ORDER BY position, id"
+            "{SESSION_SELECT} WHERE task_id = ?1 AND closed_at IS NULL ORDER BY {SESSION_ORDER}"
         ))?;
         let rows = stmt.query_map(params![task_id], session_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -388,7 +408,7 @@ impl Store {
 
     pub(crate) fn sessions_all(&self) -> Result<Vec<Session>> {
         let mut stmt = self.conn.prepare(&format!(
-            "{SESSION_SELECT} WHERE closed_at IS NULL ORDER BY task_id, position, id"
+            "{SESSION_SELECT} WHERE closed_at IS NULL ORDER BY task_id, {SESSION_ORDER}"
         ))?;
         let rows = stmt.query_map([], session_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -482,7 +502,7 @@ impl Store {
 
     /// Takes a session and everything said in it out of the database. A session it started
     /// stays, as one nobody started; a cloud task handed off from it stays, without it.
-    fn session_delete(&self, id: i64) -> Result<()> {
+    pub(crate) fn session_delete(&self, id: i64) -> Result<()> {
         self.conn.execute(
             "UPDATE sessions SET spawned_by = NULL WHERE spawned_by = ?1",
             params![id],
@@ -602,10 +622,10 @@ impl Store {
                 params![session_id, agent_session_id],
             )?,
             // Whoever writes to a session has seen where it stood, and starts something new:
-            // a mark was about what came before.
+            // a mark was about what came before, and it goes on now, not when a limit resets.
             AgentEvent::UserMessage { text, .. } => self.conn.execute(
                 "UPDATE sessions SET unread = 0, mark_colour = NULL, mark_label = '', \
-                 title = CASE WHEN title = '' THEN ?2 ELSE title END \
+                 continue_at = NULL, title = CASE WHEN title = '' THEN ?2 ELSE title END \
                  WHERE id = ?1",
                 params![session_id, title_from(text)],
             )?,
@@ -1107,7 +1127,7 @@ impl Core {
             self.name_later(id, text);
         }
         let with = (&*self.terminals, &self.paths);
-        send_text(&self.store, &self.live, with, id, text)
+        send_text(&self.store, &self.live, with, id, (text, false))
     }
 
     /// Lets a pending permission request go ahead. Does nothing if it is no longer pending.
@@ -1233,6 +1253,8 @@ impl Core {
         if !self.live.is_running(id) && self.runs_elsewhere(id) {
             return Err(Error::RunsElsewhere(id));
         }
+        // The user is back: the session goes on when they say, not when a limit resets.
+        continuation::cancel(&self.store, &self.live, id)?;
         let busy = || {
             self.session(id)
                 .is_ok_and(|session| is_busy_status(session.status))
@@ -1285,11 +1307,12 @@ impl Core {
     }
 
     /// Deletes what a session's agent was handed as files, which can hold the secrets of its
-    /// MCP servers, and the views it showed that nobody read. Best effort: the session is
-    /// going, or its task is, and nothing reads them again.
+    /// MCP servers, the views it showed that nobody read, and the images pasted into it. Best
+    /// effort: the session is going, or its task is, and nothing reads them again.
     fn forget_session_files(&self, id: i64) {
         std::fs::remove_dir_all(self.paths.view_spool(id)).ok();
         std::fs::remove_dir_all(self.private_dir(id)).ok();
+        self.forget_images(id);
         self.forget_run_lock(id);
     }
 
@@ -1321,6 +1344,7 @@ impl Core {
             self.forget_session_files(id);
             // Its sessions are in no list any more: none is to be started again for it.
             self.remote_control_closing(id)?;
+            continuation::cancel(&self.store, &self.live, id)?;
         }
         Ok(())
     }
@@ -1378,6 +1402,7 @@ impl Core {
         self.session(id)?;
         self.none_run_elsewhere(&[id])?;
         self.remote_control_closing(id)?;
+        continuation::cancel(&self.store, &self.live, id)?;
         self.session_stop(id);
         self.terminal_close(id);
         self.live.queues.clear(id);
@@ -1410,6 +1435,7 @@ impl Core {
             _ => {}
         }
         std::fs::remove_dir_all(self.private_dir(id)).ok();
+        self.forget_images(id);
         self.forget_run_lock(id);
         self.store().session_delete(id)?;
         // Only told, not recorded: there is no session left to record it in.
@@ -1418,13 +1444,14 @@ impl Core {
 }
 
 /// Starts a turn with `text` in a running session: records the message, then hands it to the
-/// agent together with what happened in the session's terminal since its last turn.
+/// agent together with what happened in the session's terminal since its last turn. `at_reset`
+/// says Swarmed sent it by itself, when the usage limit that stopped the session reset.
 pub(crate) fn send_text(
     store: &Mutex<Store>,
     live: &Live,
     (terminals, paths): (&Terminals, &Paths),
     id: i64,
-    text: &str,
+    (text, at_reset): (&str, bool),
 ) -> Result<()> {
     let commands = live.sender(id)?;
     // A message that calls a skill the agent would not know by name is sent with what the
@@ -1437,6 +1464,7 @@ pub(crate) fn send_text(
     let event = AgentEvent::UserMessage {
         text: text.to_string(),
         remote: false,
+        at_reset,
     };
     live.note(store, id, event)?;
     let shared = terminals.take_unshared(id);
@@ -2445,6 +2473,7 @@ fn heard_as(shared: &Shared, id: i64, event: AgentEvent) -> Option<AgentEvent> {
                 return Some(AgentEvent::UserMessage {
                     text: typed,
                     remote: false,
+                    at_reset: false,
                 });
             }
             // Sent from here, and recorded then. What is neither came through Remote Control,
@@ -2453,7 +2482,11 @@ fn heard_as(shared: &Shared, id: i64, event: AgentEvent) -> Option<AgentEvent> {
             let afar = !live.was_sent(id, &text)
                 && live.is_remote(id)
                 && !remote::is_command_record(&text);
-            afar.then_some(AgentEvent::UserMessage { text, remote: true })
+            afar.then_some(AgentEvent::UserMessage {
+                text,
+                remote: true,
+                at_reset: false,
+            })
         }
         AgentEvent::Exited { .. } => {
             let unheard = live.never_heard(id);
@@ -2474,6 +2507,7 @@ fn on_event(shared: &Shared, id: i64, event: AgentEvent) {
     };
     let turn_over = matches!(event, AgentEvent::TurnDone { .. });
     let gone = matches!(event, AgentEvent::Exited { .. });
+    let refused = continuation::refused_until_reset(&event);
     // A turn that ended well makes room for the next message the user left waiting, and so
     // does one the user stopped (marked by `session_interrupt`). One that failed does not:
     // what comes next is then theirs to decide.
@@ -2493,6 +2527,9 @@ fn on_event(shared: &Shared, id: i64, event: AgentEvent) {
     // A full disk must not cut the user off from a running agent: the event is published
     // even if storing it failed.
     live.note(store, id, event).ok();
+    if let Some(reset) = refused {
+        continuation::after_refusal(store, live, &shared.paths, id, reset);
+    }
     if settled {
         show_views(store, live, id, &shared.spool);
         notice_moved(shared, id);

@@ -142,6 +142,34 @@ describe("the mock's tree", () => {
         await api.sessionRename(created.id, "Slow work");
         expect((await sessionOf(api, created.id))?.title).toBe("Slow work");
     });
+
+    it("lists pinned tasks first, and moves each among those pinned as it is", async () => {
+        const api = createMockApi();
+        const tasks = async () =>
+            (await api.overview())
+                .find((project) => project.name === "storefront")
+                ?.tasks.map((task) => `${task.name}${task.pinned ? " (pinned)" : ""}`);
+        expect(await tasks()).toEqual([
+            "fix-login-redirect (pinned)",
+            "invoice-export",
+            "shop-142",
+        ]);
+        await api.taskPin("storefront", "shop-142", true);
+        await api.taskMove("storefront", "invoice-export", -5);
+        expect(await tasks()).toEqual([
+            "fix-login-redirect (pinned)",
+            "shop-142 (pinned)",
+            "invoice-export",
+        ]);
+        await api.taskPin("storefront", "fix-login-redirect", false);
+        expect(await tasks()).toEqual([
+            "shop-142 (pinned)",
+            "fix-login-redirect",
+            "invoice-export",
+        ]);
+        await api.sessionPin(2, true);
+        expect((await sessionOf(api, 2))?.pinned).toBe(true);
+    });
 });
 
 describe("the mock's agent", () => {
@@ -215,5 +243,19 @@ describe("the mock's terminal", () => {
         expect(other.run).not.toBe(first.run);
         await api.claudeTerminalWrite(1, "q");
         expect(heard.at(-1)).toEqual({ run: other.run, ended: true });
+    });
+});
+
+describe("the mock's pasted images", () => {
+    const PNG = "iVBORw0KGgo=";
+
+    it("keeps them as the session's own, attaches them by path and shows them again", async () => {
+        const api = createMockApi();
+        const root = await api.attachmentsRoot();
+        const [path] = await api.sessionImagesKeep(3, [PNG]);
+        expect(path).toBe(`${root}/3/pasted-1.png`);
+        expect(await api.sessionImage(3, path ?? "")).toBe(`data:image/png;base64,${PNG}`);
+        await expect(api.sessionImage(4, path ?? "")).rejects.toThrow("not an image pasted");
+        await expect(api.sessionImagesKeep(3, ["SUkqAA=="])).rejects.toThrow("a TIFF image");
     });
 });

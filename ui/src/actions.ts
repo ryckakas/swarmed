@@ -1,5 +1,13 @@
 import { api } from "./api";
-import { moveTarget, type OrderTarget, targetOf } from "./ordering";
+import {
+    moveTarget,
+    type OrderTarget,
+    type PinTarget,
+    pinnable,
+    pinnedNow,
+    pinTarget,
+    targetOf,
+} from "./ordering";
 import { delivered } from "./sending";
 import { standing } from "./setup";
 import { useStore } from "./store";
@@ -47,30 +55,79 @@ function rowOf(target: OrderTarget): Element | undefined {
     return [...rows].find((row) => row.getAttribute("data-order") === written);
 }
 
+/** Pins a row of the sidebar above its siblings, or unpins it, then reads the tree again. */
+export async function pinRow(target: PinTarget, pinned: boolean) {
+    const { refresh, report } = useStore.getState();
+    try {
+        await pinTarget(api, target, pinned);
+        await refresh(api);
+    } catch (error) {
+        report(error);
+    }
+}
+
+/**
+ * The row of the sidebar that has the keyboard, with what in it has the keyboard, or the
+ * session on screen when no row has it.
+ */
+function rowInHand(): { target: OrderTarget; had: Element | null } | null {
+    const had = document.activeElement;
+    const focused = had?.closest(".sidebar [data-order]");
+    if (focused) {
+        const target = targetOf(focused);
+        return target && { target, had };
+    }
+    const { selectedSessionId } = useStore.getState();
+    return selectedSessionId === null
+        ? null
+        : { target: { kind: "session", id: selectedSessionId }, had: null };
+}
+
+/**
+ * Gives the keyboard back to a row that was moved. Moving the row's element on the page takes
+ * the keyboard from it. It goes back to what had it, or else to the row's own button, the
+ * first it has: the name that folds a repository or a task, or a session's or cloud task's
+ * row. The grip it is dragged by cannot take the keyboard.
+ */
+function keepKeyboard(target: OrderTarget, had: Element) {
+    requestAnimationFrame(() => {
+        const own = rowOf(target)?.querySelector<HTMLElement>("button");
+        (had instanceof HTMLElement && had.isConnected ? had : own)?.focus();
+    });
+}
+
 /**
  * Moves the row of the sidebar that has the keyboard `by` places among its siblings, or the
  * session on screen when no row has it. A row keeps the keyboard as it moves.
  */
 export async function moveFocusedRow(by: number) {
-    const had = document.activeElement;
-    const focused = had?.closest(".sidebar [data-order]");
-    const { selectedSessionId } = useStore.getState();
-    const onScreen: OrderTarget | null =
-        selectedSessionId === null ? null : { kind: "session", id: selectedSessionId };
-    const target = focused ? targetOf(focused) : onScreen;
-    if (!target) {
+    const inHand = rowInHand();
+    if (!inHand) {
         return;
     }
-    await moveRow(target, by);
-    if (focused) {
-        // Moving the row's element on the page takes the keyboard from it. It goes back to
-        // what had it, or else to the row's own button, the first it has: the name that folds
-        // a repository or a task, or a session's or cloud task's row. The grip it is dragged
-        // by cannot take the keyboard.
-        requestAnimationFrame(() => {
-            const own = rowOf(target)?.querySelector<HTMLElement>("button");
-            (had instanceof HTMLElement && had.isConnected ? had : own)?.focus();
-        });
+    await moveRow(inHand.target, by);
+    if (inHand.had) {
+        keepKeyboard(inHand.target, inHand.had);
+    }
+}
+
+/**
+ * Pins the row of the sidebar that has the keyboard, or the session on screen when no row has
+ * it, or unpins it if it is pinned. A row keeps the keyboard as it moves.
+ */
+export async function pinFocusedRow() {
+    const inHand = rowInHand();
+    const target = inHand?.target;
+    if (!(inHand && target && pinnable(target))) {
+        return;
+    }
+    const pinned = pinnedNow(useStore.getState().projects, target);
+    if (pinned === null) {
+        return;
+    }
+    await pinRow(target, !pinned);
+    if (inHand.had) {
+        keepKeyboard(target, inHand.had);
     }
 }
 

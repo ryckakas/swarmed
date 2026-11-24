@@ -346,6 +346,11 @@ pub enum AgentEvent {
         /// before this, and from every message typed in Swarmed.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         remote: bool,
+        /// Whether Swarmed sent it by itself when the usage limit that stopped the session
+        /// reset, as the user asked it to ([`AgentEvent::Continuation`]). Absent from what was
+        /// recorded before this, and from every message typed.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        at_reset: bool,
     },
     /// The agent process is up.
     Init {
@@ -512,6 +517,14 @@ pub enum AgentEvent {
         model: String,
         /// How hard it thinks, if the agent has such a setting.
         effort: Option<String>,
+    },
+    /// The session is to go on by itself when the usage limit that stopped it resets: a
+    /// message is sent to it then, as if typed. Or it no longer is, when that was cancelled
+    /// or the message went. Recorded by the core. A message of the user's cancels it too,
+    /// without this: whoever writes to the session is back.
+    Continuation {
+        /// When the message is sent, in seconds since 1970; `None` for no longer.
+        at: Option<i64>,
     },
     /// What the agent expects the user to say next, offered after a turn. It stands until the
     /// conversation moves on.

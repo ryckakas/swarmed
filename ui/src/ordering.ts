@@ -1,6 +1,7 @@
 import type { Api } from "./api/client";
-import type { Session } from "./api/types";
+import type { Project, Session } from "./api/types";
 import { writtenHotkey } from "./hotkeys";
+import { findSession } from "./tree";
 
 /**
  * A row of the sidebar the user can move among its siblings: a repository, a task among its
@@ -13,12 +14,22 @@ export type OrderTarget =
     | { kind: "session"; id: number }
     | { kind: "cloud"; id: number };
 
+/**
+ * A row of the sidebar the user can pin above its siblings that are not pinned: a repository,
+ * a task or a session. Cloud tasks are not pinned.
+ */
+export type PinTarget = Exclude<OrderTarget, { kind: "cloud" }>;
+
+/** The siblings pinned as a row is: a pinned row moves among the pinned only, as the core has it. */
+const pinGroup = (group: string, pinned: boolean) => (pinned ? `${group}:pinned` : group);
+
 /** What marks the siblings a row moves among, one name per list of the sidebar. */
 export const orderGroup = {
-    projects: () => "projects",
-    tasks: (project: string) => `tasks:${project}`,
+    projects: (pinned: boolean) => pinGroup("projects", pinned),
+    tasks: (project: string, pinned: boolean) => pinGroup(`tasks:${project}`, pinned),
     /** A task's sessions, or with `starter` those that session started. */
-    sessions: (task: number, starter: number | null) => `sessions:${task}:${starter ?? "top"}`,
+    sessions: (task: number, starter: number | null, pinned: boolean) =>
+        pinGroup(`sessions:${task}:${starter ?? "top"}`, pinned),
     cloud: (project: string) => `cloud:${project}`,
 };
 
@@ -105,6 +116,70 @@ export function movedAmong<T>(
         }
     });
     return moved;
+}
+
+/**
+ * `items` with the one `pinning` picks pinned, put last among the pinned ones, or unpinned, put
+ * first among the others, as the core does. The pinned ones are first in `items` already.
+ */
+export function pinnedAmong<T extends { pinned: boolean }>(
+    items: T[],
+    pinning: (item: T) => boolean,
+    pinned: boolean,
+): T[] {
+    const item = items.find(pinning);
+    if (item === undefined || item.pinned === pinned) {
+        return items;
+    }
+    const others = items.filter((one) => one !== item);
+    return [
+        ...others.filter((one) => one.pinned),
+        { ...item, pinned },
+        ...others.filter((one) => !one.pinned),
+    ];
+}
+
+/** Whether a row can be pinned: everything that moves but a cloud task. */
+export function pinnable(target: OrderTarget): target is PinTarget {
+    return target.kind !== "cloud";
+}
+
+/** Whether the row `target` stands for is pinned now; `null` if it is not in the tree. */
+export function pinnedNow(projects: Project[], target: PinTarget): boolean | null {
+    if (target.kind === "session") {
+        return findSession(projects, target.id)?.pinned ?? null;
+    }
+    const project = projects.find((one) => one.name === target.project);
+    if (target.kind === "project") {
+        return project?.pinned ?? null;
+    }
+    const task = project?.tasks.find((one) => one.name === target.task && !one.archived);
+    return task?.pinned ?? null;
+}
+
+/** What the pin on a row says under the pointer: what pressing it does, and the key that does the same. */
+export function pinTitle(pinned: boolean): string {
+    const keys = writtenHotkey("pin");
+    return pinned
+        ? `Pinned above the rest. Press to unpin, or ${keys} on the focused row.`
+        : `Pin above the rest. ${keys} pins the focused row, or the open session.`;
+}
+
+/** What the pin on row `name` is called, for those who cannot see it. */
+export function pinLabel(pinned: boolean, name: string): string {
+    return pinned ? `Unpin ${name}` : `Pin ${name}`;
+}
+
+/** Asks the core to pin `target` above its siblings that are not pinned, or to unpin it. */
+export function pinTarget(api: Api, target: PinTarget, pinned: boolean): Promise<void> {
+    switch (target.kind) {
+        case "project":
+            return api.projectPin(target.project, pinned);
+        case "task":
+            return api.taskPin(target.project, target.task, pinned);
+        case "session":
+            return api.sessionPin(target.id, pinned);
+    }
 }
 
 /** Asks the core to move `target` `by` places among its siblings. */

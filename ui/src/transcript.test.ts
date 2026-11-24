@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { AgentEvent, RemoteState } from "./api/types";
 import {
     activity,
+    continueOffer,
     fileName,
+    type LimitItem,
+    latestLimit,
     latestMove,
     mayGoToBackground,
     messageNumber,
@@ -126,7 +129,7 @@ describe("toItems", () => {
             { type: "exited", code: 1, stderr: "  no such model\n" },
         ]);
         expect(items).toMatchObject([
-            { kind: "notice", tone: "warning", text: "Usage limit reached." },
+            { kind: "limit", text: "Usage limit reached.", resetsAt: null },
             {
                 kind: "notice",
                 tone: "error",
@@ -157,12 +160,36 @@ describe("toItems", () => {
         const refused = report("rejected", { rateLimitType: "five_hour" });
         const failed: AgentEvent = { type: "turn_done", is_error: true, result: null, cost_usd: 1 };
         const said = toItems([warning, refused, refused, failed, refused]).map((item) =>
-            item.kind === "notice" ? item.text : item.kind,
+            item.kind === "limit" ? item.text : item.kind,
         );
         expect(said).toEqual([
             "Usage limit reached (5-hour).",
             "turn",
             "Usage limit reached (5-hour).",
+        ]);
+    });
+
+    it("keeps on a refused turn's line when every limit that refused it resets", () => {
+        const refused = (window: string, resetsAt: number): AgentEvent => ({
+            type: "rate_limit",
+            status: "rejected",
+            resets_at: resetsAt,
+            raw: { rateLimitType: window },
+        });
+        const items = toItems([refused("five_hour", 2_000), refused("seven_day", 9_000)]);
+        expect(items).toMatchObject([
+            { kind: "limit", text: expect.stringContaining("(5-hour)"), resetsAt: 9_000 },
+        ]);
+    });
+
+    it("marks the message Swarmed sent by itself when a limit reset", () => {
+        const items = toItems([
+            { type: "user_message", text: "Continue where you stopped.", at_reset: true },
+            { type: "user_message", text: "typed" },
+        ]);
+        expect(items).toMatchObject([
+            { kind: "user", atReset: true },
+            { kind: "user", atReset: false },
         ]);
     });
 
@@ -780,5 +807,46 @@ describe("Remote Control in the transcript", () => {
             (item) => item.kind === "remote" && item.state,
         );
         expect(kinds).toEqual(["on", "off", "on"]);
+    });
+});
+
+describe("going on when a usage limit resets", () => {
+    const limit = (key: number, resetsAt: number | null): LimitItem => ({
+        kind: "limit",
+        key,
+        text: "Usage limit reached (5-hour).",
+        resetsAt,
+    });
+    const said = (key: number) => ({
+        kind: "user" as const,
+        key,
+        text: "go on",
+        files: [],
+        remote: false,
+        atReset: false,
+    });
+    const peer = { kind: "peer" as const, key: 9, from: 3, title: "", text: "done" };
+
+    it("is offered on the latest refused turn's line, until something is written", () => {
+        expect(latestLimit([limit(1, 50), limit(4, 60)])).toBe(4);
+        expect(latestLimit([limit(1, 50), said(2)])).toBeNull();
+        expect(latestLimit([limit(1, 50), peer])).toBeNull();
+        expect(latestLimit([said(2), limit(3, 50)])).toBe(3);
+        expect(latestLimit([said(2)])).toBeNull();
+    });
+
+    it("offers the reset still to come, and says when it is set", () => {
+        const now = 100;
+        expect(continueOffer(limit(1, 200), true, null, now)).toEqual({
+            state: "offered",
+            at: 200,
+        });
+        expect(continueOffer(limit(1, 200), false, null, now)).toBeNull();
+        // A reset that has passed is nothing to wait for; one unknown neither.
+        expect(continueOffer(limit(1, 100), true, null, now)).toBeNull();
+        expect(continueOffer(limit(1, null), true, null, now)).toBeNull();
+        // Set, the time it goes is the session's, which the core has the last word on.
+        expect(continueOffer(limit(1, 200), true, 300, now)).toEqual({ state: "set", at: 300 });
+        expect(continueOffer(limit(1, 50), true, 300, now)).toEqual({ state: "set", at: 300 });
     });
 });

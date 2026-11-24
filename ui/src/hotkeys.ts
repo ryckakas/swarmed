@@ -12,6 +12,7 @@ export type HotkeyId =
     | "next-waiting"
     | "move-up"
     | "move-down"
+    | "pin"
     | "session-1"
     | "session-2"
     | "session-3"
@@ -29,6 +30,7 @@ export type HotkeyId =
     | "allow"
     | "deny"
     | "send-now"
+    | "quote"
     | "toggle-panel"
     | "open-editor"
     | "open-browser"
@@ -82,6 +84,12 @@ export const HOTKEYS: Hotkey[] = [
         group: "Sessions",
     },
     {
+        id: "pin",
+        keys: "cmd+d",
+        label: "Pin above the rest in the sidebar, or unpin: the focused row, or the open session",
+        group: "Sessions",
+    },
+    {
         id: "next-waiting",
         keys: "cmd+shift+a",
         label: "Go to the next session that needs you or has an unread reply",
@@ -115,6 +123,12 @@ export const HOTKEYS: Hotkey[] = [
         // A key combination, which gitleaks' rule for keys takes for a secret.
         keys: "cmd+shift+enter", // gitleaks:allow
         label: "Stop the agent and send what is typed now",
+        group: "In a session",
+    },
+    {
+        id: "quote",
+        keys: "cmd+shift+l",
+        label: "Quote the words selected in a reply into the message",
         group: "In a session",
     },
     {

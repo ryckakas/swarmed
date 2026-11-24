@@ -32,6 +32,7 @@ function general(): Project {
         tasks: [],
         has_note: false,
         cloud: [],
+        pinned: false,
     };
 }
 

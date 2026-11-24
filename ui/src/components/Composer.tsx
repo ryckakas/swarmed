@@ -1,11 +1,12 @@
-import { lazy, Suspense, useEffect, useRef } from "react";
+import { lazy, type RefObject, Suspense, useEffect, useRef } from "react";
 import { sendOrQueue } from "../actions";
 import { api } from "../api";
 import type { AgentEvent, Session } from "../api/types";
 import { noteCommandSent } from "../commandSent";
-import { expandPastes, forgetPastes } from "../pastes";
+import { expandTokens, forgetTokens, quoteTokenFor, tokensAgain } from "../pastes";
+import { withQuote } from "../quotes";
 import { browse, type Direction, sentMessages } from "../recall";
-import { type Draft, NO_DRAFT, waitsItsTurn } from "../sending";
+import { type Draft, filesWith, NO_DRAFT, waitsItsTurn } from "../sending";
 import { takenBySwarmed } from "../slash";
 import { appliedEffort } from "../statusline";
 import { useStore } from "../store";
@@ -98,19 +99,21 @@ function TerminalPane({ id, busy }: { id: number; busy: boolean }) {
 export function Composer({ session }: { session: Session }) {
     const words = useWords();
     const { id, status } = session;
-    const { text, files } = useStore((state) => state.drafts[id] ?? NO_DRAFT);
+    const draft = useStore((state) => state.drafts[id] ?? NO_DRAFT);
+    const { text, files, images } = draft;
     const editDraft = useStore((state) => state.editDraft);
     const putDraftBack = useStore((state) => state.putDraftBack);
     const terminal = useStore((state) => state.terminalOpen);
     const toggleTerminal = useStore((state) => state.toggleTerminal);
     const report = useStore((state) => state.report);
     const input = useRef<HTMLTextAreaElement>(null);
-    const recalling = useRecall(id, session.spawned_by !== null, { text, files });
+    const recalling = useRecall(id, session.spawned_by !== null, draft);
     const busy = waitsItsTurn(status);
     const commands = useSlashCommands(id, status);
     const suggestion = useStore((state) => suggestionOf(state.events[id]));
-    const canSend = text.trim() !== "" || files.length > 0;
+    const canSend = text.trim() !== "" || files.length > 0 || images.length > 0;
     const hearsMidTurn = useHearsMidTurn(session.agent);
+    useQuoteInto(id, input);
 
     // Answering a permission request removes the button that had focus. Bring it back here, so
     // the keyboard is never left pointing at nothing.
@@ -125,20 +128,27 @@ export function Composer({ session }: { session: Session }) {
         if (!canSend) {
             return;
         }
-        const unsent: Draft = { text, files };
+        let unsent: Draft = draft;
         editDraft(id, NO_DRAFT);
         recalling.forget();
-        // What was pasted large goes out in full, in place of the token that stood for it.
+        // What was pasted large or quoted goes out in full, in place of the token for it.
         // A busy agent is not interrupted: the message waits its turn, and can still be changed.
-        const message = expandPastes(text.trim());
-        const atOnce = files.length === 0 && takenBySwarmed(message, commands);
+        const message = expandTokens(text.trim());
+        const atOnce =
+            files.length === 0 && images.length === 0 && takenBySwarmed(message, commands);
         if (atOnce) {
             noteCommandSent(id);
         }
-        sendOrQueue(id, message, files, atOnce, now)
-            // The pastes are only forgotten once they are sent: a message that comes back
-            // still has their tokens in it.
-            .then(() => forgetPastes(unsent.text))
+        // Pasted images are kept as the session's files first, and go as their paths.
+        filesWith(api, id, draft)
+            .then((attached) => {
+                // Kept now: a message that comes back has them as files, not to be kept twice.
+                unsent = { ...draft, files: attached, images: [] };
+                return sendOrQueue(id, message, attached, atOnce, now);
+            })
+            // Pastes and quotes are only forgotten once they are sent: a message that comes
+            // back still has their tokens in it.
+            .then(() => forgetTokens(unsent.text))
             .catch((error: unknown) => {
                 report(error);
                 // Into this session's box, even if another session is on screen by now.
@@ -159,6 +169,9 @@ export function Composer({ session }: { session: Session }) {
                         onChange={(value) => editDraft(id, { text: value })}
                         files={files}
                         onFiles={(value) => editDraft(id, { files: value })}
+                        images={images}
+                        onImages={(value) => editDraft(id, { images: value })}
+                        sessionId={id}
                         onSend={() => send()}
                         onSendNow={() => send(true)}
                         onStop={status === "working" ? stop : undefined}
@@ -187,6 +200,36 @@ export function Composer({ session }: { session: Session }) {
 }
 
 /**
+ * Puts words quoted from one of the agent's replies into session `id`'s box, as a token at its
+ * caret on a line of its own, and gives the box the keyboard with the caret under the quote,
+ * where the comment on it goes. The words are taken from the store, not read from this render:
+ * an effect may run more than once for one render, and each run would quote them again.
+ */
+function useQuoteInto(id: number, input: RefObject<HTMLTextAreaElement | null>) {
+    const waiting = useStore((state) => state.quoteWaiting);
+    useEffect(() => {
+        if (waiting === null) {
+            return;
+        }
+        const { takeQuote, drafts, editDraft } = useStore.getState();
+        const words = takeQuote(id);
+        if (words === null) {
+            return;
+        }
+        const text = drafts[id]?.text ?? "";
+        const box = input.current;
+        const at = Math.min(box?.selectionEnd ?? text.length, text.length);
+        const placed = withQuote(text, at, quoteTokenFor(words));
+        editDraft(id, { text: placed.value });
+        // Once the box holds its new text.
+        requestAnimationFrame(() => {
+            box?.focus();
+            box?.setSelectionRange(placed.caret, placed.caret);
+        });
+    }, [waiting, id, input]);
+}
+
+/**
  * What ↑ and ↓ do in session `id`'s message box, which holds `now`: go back through what was
  * sent to the session, and forward again to what was typed. Where that stands is kept in the
  * store beside the draft, so what was typed before ↑ is still there to come back to after
@@ -201,7 +244,9 @@ function useRecall(id: number, spawned: boolean, now: Draft) {
             // The events are read already, for the transcript; the list is made from them only
             // when ↑ starts going back.
             const sent = () => sentMessages(events[id] ?? [], spawned);
-            const next = browse(recalls[id] ?? null, direction, now, sent);
+            // A message brought back has its pastes and quotes behind tokens again, as typed.
+            const typedAgain = (draft: Draft) => ({ ...draft, text: tokensAgain(draft.text) });
+            const next = browse(recalls[id] ?? null, direction, now, sent, typedAgain);
             if (next !== null) {
                 noteRecall(id, next);
                 editDraft(id, next.shown);

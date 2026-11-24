@@ -23,6 +23,8 @@ pub struct Project {
     /// Whether this is the home of the chats: sessions with no repository, each chat a task in
     /// a folder of its own.
     pub chats: bool,
+    /// Whether the user pinned it above the repositories that are not pinned.
+    pub pinned: bool,
 }
 
 impl Project {
@@ -93,6 +95,8 @@ pub struct Task {
     pub archived: bool,
     /// The project's environment the task was created in, if it was created in one.
     pub environment: Option<String>,
+    /// Whether the user pinned it above its repository's tasks that are not pinned.
+    pub pinned: bool,
 }
 
 pub(crate) struct NewTask<'a> {
@@ -257,6 +261,17 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE tasks ADD COLUMN setup_reason TEXT;
     ALTER TABLE sessions ADD COLUMN setup_prompt TEXT;
 ",
+    // Rows the user pinned, which stay above their siblings that are not.
+    "
+    ALTER TABLE projects ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE tasks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+",
+    // When a session goes on by itself, once the usage limit that stopped it resets, in
+    // seconds since 1970. Kept, since a reset can be days away.
+    "
+    ALTER TABLE sessions ADD COLUMN continue_at INTEGER;
+",
 ];
 
 /// Stands in [`MIGRATIONS`] for the one change SQL in a transaction cannot make: every
@@ -264,9 +279,19 @@ const MIGRATIONS: &[&str] = &[
 /// ([`rebuild_with_autoincrement`]).
 const AUTOINCREMENT_IDS: &str = "-- every table's id becomes AUTOINCREMENT";
 
+const PROJECT_SELECT: &str = "SELECT id, name, repo_path, pinned FROM projects";
+
+/// The order the sidebar lists repositories in: the pinned ones first, then as the user put
+/// them.
+pub(crate) const PROJECT_ORDER: &str = "pinned DESC, position, name";
+
+/// The order the sidebar lists a repository's tasks in: the pinned ones first, then as the
+/// user put them.
+pub(crate) const TASK_ORDER: &str = "pinned DESC, position, created_at, id";
+
 const TASK_SELECT: &str = "SELECT id, project_id, name, branch, base_ref, worktree_path, slot, \
-                           setup_status, archived_at IS NOT NULL, environment, setup_reason \
-                           FROM tasks";
+                           setup_status, archived_at IS NOT NULL, environment, setup_reason, \
+                           pinned FROM tasks";
 
 #[derive(Debug)]
 pub(crate) struct Store {
@@ -301,6 +326,7 @@ impl Store {
             name: name.to_string(),
             repo_path: repo_path.to_path_buf(),
             chats: name == CHATS,
+            pinned: false,
         })
     }
 
@@ -312,21 +338,18 @@ impl Store {
     }
 
     pub(crate) fn project_by_name(&self, name: &str) -> Result<Option<Project>> {
+        let sql = format!("{PROJECT_SELECT} WHERE name = ?1");
         Ok(self
             .conn
-            .query_row(
-                "SELECT id, name, repo_path FROM projects WHERE name = ?1",
-                params![name],
-                project_from_row,
-            )
+            .query_row(&sql, params![name], project_from_row)
             .optional()?)
     }
 
     pub(crate) fn project_by_id(&self, id: i64) -> Result<Option<Project>> {
-        let sql = "SELECT id, name, repo_path FROM projects WHERE id = ?1";
+        let sql = format!("{PROJECT_SELECT} WHERE id = ?1");
         Ok(self
             .conn
-            .query_row(sql, params![id], project_from_row)
+            .query_row(&sql, params![id], project_from_row)
             .optional()?)
     }
 
@@ -356,7 +379,7 @@ impl Store {
     pub(crate) fn projects(&self) -> Result<Vec<Project>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT id, name, repo_path FROM projects ORDER BY position, name")?;
+            .prepare(&format!("{PROJECT_SELECT} ORDER BY {PROJECT_ORDER}"))?;
         let rows = stmt.query_map([], project_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
@@ -391,6 +414,7 @@ impl Store {
             setup_reason: None,
             archived: false,
             environment: new.environment.map(String::from),
+            pinned: false,
         })
     }
 
@@ -437,7 +461,7 @@ impl Store {
         };
         let mut stmt = self.conn.prepare(&format!(
             "{TASK_SELECT} WHERE project_id = ?1 {filter} \
-             ORDER BY archived_at IS NOT NULL, position, created_at, id"
+             ORDER BY archived_at IS NOT NULL, {TASK_ORDER}"
         ))?;
         let rows = stmt.query_map(params![project_id], task_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -459,8 +483,7 @@ impl Store {
     }
 
     pub(crate) fn tasks_all(&self) -> Result<Vec<Task>> {
-        let sql =
-            format!("{TASK_SELECT} ORDER BY archived_at IS NOT NULL, position, created_at, id");
+        let sql = format!("{TASK_SELECT} ORDER BY archived_at IS NOT NULL, {TASK_ORDER}");
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map([], task_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -521,6 +544,7 @@ fn project_from_row(row: &Row<'_>) -> rusqlite::Result<Project> {
         chats: name == CHATS,
         name,
         repo_path: PathBuf::from(row.get::<_, String>(2)?),
+        pinned: row.get(3)?,
     })
 }
 
@@ -537,6 +561,7 @@ fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
         archived: row.get(8)?,
         environment: row.get(9)?,
         setup_reason: row.get(10)?,
+        pinned: row.get(11)?,
     })
 }
 

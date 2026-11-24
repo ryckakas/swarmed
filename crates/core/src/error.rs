@@ -298,6 +298,16 @@ pub enum Error {
     /// A message with nothing in it.
     #[error("a message cannot be empty")]
     EmptyMessage,
+    /// A pasted image in a format agents do not read, or something that is no image at all.
+    /// Says which, when the format is known.
+    #[error("{0} cannot be attached: agents read only PNG, JPEG, GIF and WebP images")]
+    ImageNotRead(String),
+    /// A pasted image larger than one is kept, in megabytes.
+    #[error("an image of more than {0} MB cannot be attached")]
+    ImageTooLarge(usize),
+    /// A path that is not an image pasted into the session it was asked of.
+    #[error("{} is not an image pasted into this session", .0.display())]
+    NotPastedImage(PathBuf),
     /// A command of the agent's that Swarmed does not send on: it has its own way to do what
     /// the command does in a terminal, or does not leave it to the agent at all.
     #[error("/{command} is not sent. {instead}")]
@@ -330,6 +340,13 @@ pub enum Error {
     /// Only a Claude Code session can be reached from claude.ai.
     #[error("only a Claude Code session has Remote Control, and this session runs `{0}`")]
     NoRemoteControl(String),
+    /// A session goes on by itself only when a usage limit stopped its latest turn and has
+    /// not reset yet.
+    #[error(
+        "no usage limit that is still to reset stopped session {0}'s latest turn: there is \
+         nothing to wait for"
+    )]
+    NoLimitToWaitFor(i64),
     /// No cloud task has this id.
     #[error("cloud task {0} not found")]
     CloudTaskNotFound(i64),

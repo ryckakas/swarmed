@@ -186,6 +186,30 @@ fn usage_asked(app: &App, id: &Value) {
     assert_eq!(account["windows"][0]["used"], 0.36);
 }
 
+/// Lets session `id`, which a usage limit stops, go on by itself when the limit resets, as the
+/// limit's line in the transcript does, and cancels that, as the clock in the sidebar does.
+fn continued_at_reset(app: &App, id: &Value) {
+    app.ok("session_send", json!({ "id": id, "text": "refuse 3600" }));
+    let refused = |e: &Value| e["type"] == "turn_done" && e["result"] == "usage limit reached";
+    wait_for(app, id, "the refused turn's end", refused);
+    let at = app.ok("session_continue_at_reset", json!({ "id": id }));
+    let set = app.wait_for_event(id, "continuation");
+    assert_eq!(set["at"], at);
+    let continue_at = |app: &App| {
+        let tasks = &app.ok("overview", json!({}))[0]["tasks"];
+        let sessions = tasks
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|task| task["sessions"].as_array().cloned().unwrap_or_default());
+        let session = sessions.into_iter().find(|session| &session["id"] == id);
+        session.map(|session| session["continue_at"].clone())
+    };
+    assert_eq!(continue_at(app), Some(at));
+    app.ok("session_continue_cancel", json!({ "id": id }));
+    assert_eq!(continue_at(app), Some(json!(null)));
+}
+
 /// Turns Remote Control of session `id` on, as the session's header does, and off again.
 fn remote_control(app: &App, id: &Value) {
     app.ok("session_remote_control", json!({ "id": id, "on": true }));
@@ -279,6 +303,63 @@ fn the_ui_can_go_from_an_empty_app_to_an_answered_permission_request() {
     assert_eq!(unread(&app), false);
 }
 
+/// The first bytes of a PNG, which is all the core looks at, in base64.
+const PNG: &str = "iVBORw0KGgo=";
+
+#[test]
+fn the_ui_can_paste_an_image_into_a_message_and_show_it_again() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    app.ok(
+        "task_new",
+        json!({ "project": "demo", "name": "one", "branch": null }),
+    );
+    let session = app.ok(
+        "session_new",
+        json!({ "project": "demo", "task": "one", "agent": null, "how": { "model": null, "supervision": "ask", "effort": null } }),
+    );
+    let id = &session["id"];
+    let root = app.ok("attachments_root", json!({}));
+    let root = Path::new(root.as_str().expect("a path"));
+    let folder = root.join(id.to_string());
+
+    let kept = app.ok("session_images_keep", json!({ "id": id, "images": [PNG] }));
+    let path = kept[0].as_str().expect("a path").to_string();
+    assert_eq!(Path::new(&path), folder.join("pasted-1.png"));
+    let shown = app.ok("session_image", json!({ "id": id, "path": path }));
+    assert_eq!(shown, json!(format!("data:image/png;base64,{PNG}")));
+    // A format agents do not read is refused, saying what it is; so is reading elsewhere.
+    let tiff = app.invoke(
+        "session_images_keep",
+        json!({ "id": id, "images": ["SUkqAA=="] }),
+    );
+    assert_eq!(
+        tiff,
+        Err(json!(
+            "a TIFF image cannot be attached: agents read only PNG, JPEG, GIF and WebP images"
+        ))
+    );
+    let readme = app.repo.join("README.md");
+    for command in ["session_image", "session_image_open"] {
+        let outside = app.invoke(command, json!({ "id": id, "path": readme }));
+        assert!(outside.is_err(), "{command}: {outside:?}");
+    }
+
+    // Its path is attached like any file's.
+    let sent = json!({ "id": id, "text": "look", "files": [path] });
+    app.ok("session_send", sent);
+    let message = app.wait_for_event(id, "user_message");
+    assert_eq!(
+        message["text"],
+        format!("look\n\nAttached files:\n- {path}")
+    );
+    // The folder goes with the session, when it goes for good.
+    app.ok("session_close", json!({ "id": id }));
+    assert!(folder.exists());
+    app.ok("session_delete", json!({ "id": id }));
+    assert!(!folder.exists());
+}
+
 /// Closed, a session is still kept; deleted, it is gone for good.
 fn deleted_for_good(app: &App, id: &Value) {
     assert_eq!(app.ok("overview", json!({}))[0]["tasks"][0]["closed"], 1);
@@ -349,6 +430,42 @@ fn the_ui_can_put_projects_tasks_and_sessions_in_order() {
 }
 
 #[test]
+fn the_ui_can_pin_projects_tasks_and_sessions() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    for name in ["one", "two"] {
+        let task = json!({ "project": "demo", "name": name, "branch": null });
+        app.ok("task_new", task);
+    }
+    app.ok("project_pin", json!({ "project": "demo", "pinned": true }));
+    app.ok(
+        "task_pin",
+        json!({ "project": "demo", "task": "two", "pinned": true }),
+    );
+    let how = json!({ "model": null, "supervision": "auto", "effort": null });
+    let options = json!({ "project": "demo", "task": "two", "agent": null, "how": how });
+    let (first, second) = (
+        app.ok("session_new", options.clone())["id"].clone(),
+        app.ok("session_new", options)["id"].clone(),
+    );
+    app.ok("session_pin", json!({ "id": second, "pinned": true }));
+    let overview = app.ok("overview", json!({}));
+    let demo = &overview[0];
+    assert_eq!(demo["pinned"], json!(true));
+    let two = &demo["tasks"][0];
+    assert_eq!(
+        (&two["name"], &two["pinned"]),
+        (&json!("two"), &json!(true))
+    );
+    let sessions = &two["sessions"];
+    assert_eq!((&sessions[0]["id"], &sessions[1]["id"]), (&second, &first));
+    assert_eq!(sessions[0]["pinned"], json!(true));
+    app.ok("session_pin", json!({ "id": second, "pinned": false }));
+    app.invoke("session_pin", json!({ "id": 999, "pinned": true }))
+        .expect_err("no such session");
+}
+
+#[test]
 fn the_ui_can_deny_interrupt_and_remove() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
@@ -392,6 +509,7 @@ fn the_ui_can_deny_interrupt_and_remove() {
     assert_eq!(app.ok("status_line", json!({ "id": id })), json!(null));
     usage_asked(&app, id);
     remote_control(&app, id);
+    continued_at_reset(&app, id);
     let size = json!({ "id": id, "cols": 80, "rows": 24 });
     assert_eq!(
         app.ok("terminal_open", size.clone()),
@@ -440,7 +558,7 @@ fn the_ui_can_start_a_task_from_a_prompt_and_act_on_its_setup() {
     let start = json!({
         "branch": null, "environment": null, "agent": null,
         "how": { "model": null, "supervision": "auto", "effort": null, "fast": false },
-        "title": "Fix the login", "prompt": "fix the login", "files": [],
+        "title": "Fix the login", "prompt": "fix the login", "files": [], "images": [PNG],
     });
     let started = app.ok(
         "task_start",
@@ -478,7 +596,14 @@ fn the_ui_can_start_a_task_from_a_prompt_and_act_on_its_setup() {
     assert_eq!(app.ok("task_setup", target.clone())["setup"], "ok");
     let id = &session["id"];
     let sent = app.wait_for_event(id, "user_message");
-    assert_eq!(sent["text"], "fix the login");
+    // The image pasted into the prompt is the session's own, attached as a file.
+    let image = app
+        .data_dir()
+        .join(format!("attachments/{id}/pasted-1.png"));
+    assert_eq!(
+        sent["text"],
+        format!("fix the login\n\nAttached files:\n- {}", image.display())
+    );
     let nothing = app
         .invoke("task_start_anyway", target)
         .expect_err("nothing waits");
@@ -673,7 +798,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
             "editor": "code", "terminal_app": "Terminal", "auto_title": true, "theme": "system", "palette": "swarm",
             "style": "colony", "layout": "classic",
             "text_scale": 100,
-            "html_views": true, "tool_calls": "folded", "turn_end_lines": true, "limit_warnings": "frequent", "notifications": true, "default_supervision": "auto",
+            "html_views": true, "tool_calls": "folded", "turn_end_lines": true, "limit_warnings": "frequent", "continue_after_limit": false, "notifications": true, "default_supervision": "auto",
             "status_items": ["branch", "changes", "model", "context", "cost"],
             "status_command": "", "rules": "", "updates": "automatic", "branch_prefix": "",
         })

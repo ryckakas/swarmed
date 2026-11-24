@@ -18,6 +18,7 @@ categories = ["development-tools"]
 # must build with the core it was released with and no other. release-prep.sh moves it.
 swarmed-core = { path = "crates/core", version = "=0.4.2" }
 anyhow = "1.0.104"
+base64 = "0.23.1"
 mac-notification-sys = "0.6.15"
 mac-usernotifications = "0.3.1"
 block2 = "0.6.2"

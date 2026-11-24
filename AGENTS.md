@@ -323,6 +323,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   stored; front ends read the tree again on it. The UI drags rows with pointer events, not
   HTML drag and drop, which would fight the window's dropping of files to attach
   (`useRowDrag`, `ordering.ts`), and ⌥⌘↑/↓ move the focused row or the open session.
+  A repository, a task or a session can be pinned (`pinned`, `project_pin` and the like):
+  lists order by `pinned DESC` first, a move stays among the rows pinned as it is (each pin
+  state is a drag group of its own in the UI), pinning puts a row last among the pinned and
+  unpinning first among the others, and a closed session keeps its pin. A pin is published
+  as a move is. Cloud tasks and the chats among the repositories are not pinned.
 - **Closing a session keeps it; deleting one does not** (`session_close`, `session_delete`).
   A closed session is put away with its conversation and can be reopened; until it is, its
   agent cannot be started and nothing can be sent to it (`Error::SessionClosed`). A deleted one is
@@ -447,7 +452,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **Check UI changes in a browser** with `pnpm dev`. The mock agent answers plain text, asks
   permission for `run: <command>`, answers `show …` with an HTML view, ends its turn with a
   weekly usage warning for `warn <percent>` (resetting in that many seconds with
-  `warn <percent> <seconds>`), runs until stopped for `slow`, runs a
+  `warn <percent> <seconds>`), ends its turn refused by a 5-hour limit that resets that many
+  seconds later for `limit <seconds>`, runs until stopped for `slow`, runs a
   command its turn waits on for `long: <command>`, until it is sent to the background or
   stopped, and renames the session as another Swarmed would for `elsewhere: <title>`, saying
   only `tree_changed`; one sample session has 2,000 messages for checking scroll speed.
@@ -660,6 +666,22 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   under the message in one fixed form, which the UI reads back (`splitFiles`) to show them as
   files. The front end gets paths from the system's file picker and from files dropped on the
   window, never file contents.
+- **A pasted image is the one part of a message Swarmed keeps** (`pasted.rs`, `images.ts`,
+  #378), since it has no path to name. Until the message goes it is in the draft, in the
+  window's memory (`images` of the `Draft`, in base64). Sending, queueing, saving an edited
+  waiting message or starting a task hands it to the core (`session_images_keep`,
+  `FirstSession::images`), which checks it by its first bytes (PNG, JPEG, GIF or WebP, at most
+  `MAX_IMAGE_MB`; anything else is refused with what it is, never converted: there is no image
+  library) and writes it into `attachments/<session>/` in the data directory, `0700` with files
+  `0600`, under a name of its own (`pasted-<n>.<ext>`, never over a file). Its path is then
+  attached like any file, so every agent reads it with its own tools; no agent is sent image
+  content, and `UserMessage` stays text. A message's files in that folder show as images
+  (`isPastedImage`), read through `session_image`, which reads only a file right in the
+  session's folder, links followed, and answers a `data:` address, the only kind the window's
+  policy loads. The folder goes with the session for good (`forget_session_files`,
+  `session_delete`); closing keeps it. A fork copies the images its messages name into its own
+  folder and has them name the copies (`images_forked`), so deleting the first session costs it
+  nothing.
 - **Each session can have a terminal** (`terminal.rs`): the user's shell on a pseudo-terminal in
   the task's worktree, shown in place of the message box. Its output is published on its own
   channel (`Core::subscribe_terminals`) and not stored. What it printed since the agent's last
@@ -791,6 +813,14 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   them. Where it stands is in the store (`recalls`), since it holds what was typed before ↑,
   and goes with the session as its draft does. The command list and a question that has the
   keyboard take the arrows first.
+- **A large paste and a quote of a reply stand in the message box as tokens** (`pastes.ts`,
+  `quotes.ts`, #379), all in the UI: the core sends the text as typed. What a token stands for
+  is in the window's memory until its message goes, and the draft holds only the token. Sent, it
+  gives way to its text in numbered tags (`<pasted_text_N>`, `<quoted_reply_N>`), which
+  `messageParts` finds again for the transcript, and a message brought back (↑, or a waiting one
+  opened to edit) has them as tokens again (`tokensAgain`). Only the agent's own replies in the
+  session's transcript are quoted from (`data-quote-into`): not the user's messages, nor a
+  sub-agent's pane, whose words are not in the agent's conversation.
 - **The status line** under the message box is drawn by the UI from built-in pieces
   (`ui/src/statusline.ts`) chosen in the settings. A `status_command` replaces them: the core
   runs it (`statusline.rs`) with the session as JSON on standard input and shows its first line.
@@ -839,6 +869,29 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   how old it is.
   Reports are folded by agent, not by sign-in: a session the command line runs with
   `--auth inherit` on another account's sign-in is taken as the same account.
+- **A session a usage limit stopped can go on by itself when the limit resets**
+  (`continuation.rs`, #374). A continuation is a time on the session (`continue_at`), kept in
+  the database since a reset can be days away, and recorded as `AgentEvent::Continuation`.
+  - **Set** by `session_continue_at_reset`, from the refusals (`RateLimit` reached, nothing
+    paying) recorded since the session's latest message, at the latest of their resets; or
+    by `Settings::continue_after_limit` as a refusal is heard (`after_refusal`, from
+    `on_event`). A reset not later than now sets nothing, so a stale figure cannot loop.
+    Agents cannot reach the setting through `configure`: it sends messages by itself.
+  - **Cancelled** by any `UserMessage` (`Store::record` clears the column, and the UI's
+    `applySessionEvent` mirrors it, as it does marks), Stop (`session_interrupt`), closing,
+    removing the task, and `session_continue_cancel`.
+  - **Sent** by the Swarmed that keeps house only (`continue_due`, which the app's
+    `follow_resets` calls every second, pausing `APART` after each session it continued):
+    taken off first, then `CONTINUE_MESSAGE` goes first in the queue as a `QueuedMessage` with
+    `at_reset`, and is recorded as `UserMessage` with `at_reset`. One whose agent another
+    Swarmed runs goes when that run is over (`queued_for`). If the account's usage as last
+    heard says a limit still refuses requests, every due one waits for that reset instead;
+    one model's weekly limit is not such a limit (`one_models`), since it stops that model
+    alone. One is taken off, or put off, only if it is still due by then
+    (`move_if_due`), so a cancel that came since the look is not undone. A waiting message
+    the user changes is theirs: `Queues::edit` takes `at_reset` off it.
+  - **Asks nothing:** the timer only sends the user's chosen message at a time a report
+    already gave. Only Claude Code reports resets, so other agents' refusals offer nothing.
 - **ACP agents with an effort of their own say what it stands at** when a conversation opens,
   which is recorded as `Applied` too. Before a session's agent has said, a front end shows
   what the agent's default last came to (`effort.rs`, `Core::effort_default`): the latest

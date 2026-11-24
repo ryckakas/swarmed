@@ -1,11 +1,18 @@
 import { lastDays } from "../analytics";
 import { CHATS } from "../chats";
-import { movedAmong, starterHere } from "../ordering";
+import { movedAmong, pinnedAmong, starterHere } from "../ordering";
 import { calledCommand } from "../slash";
 import { PLAN_TOOL, withFiles } from "../transcript";
 import { titleFrom } from "../tree";
 import type { Api } from "./client";
 import { MOCK_COMMANDS, mockQuestions, mockSaid, mockScreen, mockScreenOnly } from "./mockCommands";
+import {
+    CONTINUE_MESSAGE,
+    MockContinuations,
+    mockRefusal,
+    resetToWaitFor,
+} from "./mockContinuation";
+import { mockImagesApi } from "./mockImages";
 import { MockSetups, taskSetupApi } from "./mockSetups";
 import { heardUsage, sampleAccountUsage } from "./mockUsage";
 import type {
@@ -59,8 +66,10 @@ import type {
 // shell. The agent behaves like the core's FakeBackend: plain text is echoed, `run: <command>`
 // asks permission first, `ask` puts questions, `delegate` starts sub-agents, `show` answers
 // with an HTML view, `warn <percent>` ends its turn with a usage warning for the weekly window
-// that full (`warn <percent> <seconds>`: one that resets that soon), `slow` runs until interrupted, and `long: <command>` runs a command the turn
-// waits on until it is sent to the background or stopped.
+// that full (`warn <percent> <seconds>`: one that resets that soon), `limit <seconds>` ends its
+// turn refused by a 5-hour limit that resets that soon, `slow` runs until interrupted, and
+// `long: <command>` runs a command the turn waits on until it is sent to the background or
+// stopped.
 
 // `show` answers with this view: a chart in the app's colours, with buttons that redraw it.
 const SAMPLE_VIEW = `<style>
@@ -151,6 +160,9 @@ function session(id: number, taskId: number, title: string, status: SessionStatu
         // One sample session carries a mark, as a skill's last step would leave it.
         mark: id === 3 ? { colour: "green", label: "e2e passed" } : null,
         waits_for_setup: false,
+        // One sample session is pinned above the others of its task.
+        pinned: id === 1,
+        continue_at: null,
     };
 }
 
@@ -213,6 +225,8 @@ function task(id: number, projectId: number, name: string, sessions: Session[]):
         environment: null,
         // Two sample tasks have a dev server to start and stop, one of them running.
         stack: SAMPLE_STACKS[id] ?? null,
+        // One sample task is pinned above the others of its repository.
+        pinned: id === 1,
     };
 }
 
@@ -679,7 +693,16 @@ function cloudApi(
 /** Putting the sample's repositories, tasks, sessions and cloud tasks in another order. */
 function orderApi(
     projects: () => Project[],
-): Pick<Api, "projectMove" | "taskMove" | "sessionMove" | "cloudTaskMove"> {
+): Pick<
+    Api,
+    | "projectMove"
+    | "taskMove"
+    | "sessionMove"
+    | "cloudTaskMove"
+    | "projectPin"
+    | "taskPin"
+    | "sessionPin"
+> {
     const project = (name: string) => {
         const found = projects().find((candidate) => candidate.name === name);
         if (!found) {
@@ -687,39 +710,68 @@ function orderApi(
         }
         return found;
     };
-    const everyTask = () => projects().flatMap((one) => one.tasks);
+    const taskOf = (id: number) => {
+        const task = projects()
+            .flatMap((one) => one.tasks)
+            .find((one) => one.sessions.some((s) => s.id === id));
+        const session = task?.sessions.find((s) => s.id === id);
+        if (!(task && session)) {
+            throw new Error(`session ${id} not found`);
+        }
+        return { task, session };
+    };
     const replace = <T>(list: T[], moved: T[]) => list.splice(0, list.length, ...moved);
+    // A row moves among those pinned as it is, as the core has it.
+    const pinnedAs =
+        <T extends { pinned: boolean }>(row: T | undefined) =>
+        (one: T) =>
+            one.pinned === row?.pinned;
     return {
         projectMove: async (name, by) => {
             const all = projects();
+            const among = pinnedAs(all.find((one) => one.name === name));
             replace(
                 all,
-                movedAmong(
-                    all,
-                    () => true,
-                    (one) => one.name === name,
-                    by,
-                ),
+                movedAmong(all, among, (one) => one.name === name, by),
             );
         },
         taskMove: async (name, task, by) => {
             const { tasks } = project(name);
-            const open = (one: Task) => !one.archived;
+            const among = pinnedAs(tasks.find((one) => one.name === task && !one.archived));
+            const open = (one: Task) => !one.archived && among(one);
             replace(
                 tasks,
                 movedAmong(tasks, open, (one) => one.name === task, by),
             );
         },
         sessionMove: async (id, by) => {
-            const task = everyTask().find((one) => one.sessions.some((s) => s.id === id));
-            const session = task?.sessions.find((s) => s.id === id);
-            if (!(task && session)) {
-                throw new Error(`session ${id} not found`);
-            }
+            const { task, session } = taskOf(id);
             const starter = starterHere(task.sessions, session);
-            const siblings = (one: Session) => starterHere(task.sessions, one) === starter;
+            const siblings = (one: Session) =>
+                starterHere(task.sessions, one) === starter && one.pinned === session.pinned;
             const moved = movedAmong(task.sessions, siblings, (one) => one.id === id, by);
             replace(task.sessions, moved);
+        },
+        projectPin: async (name, pinned) => {
+            const all = projects();
+            replace(
+                all,
+                pinnedAmong(all, (one) => one.name === name && !one.chats, pinned),
+            );
+        },
+        taskPin: async (name, task, pinned) => {
+            const { tasks } = project(name);
+            const open = tasks.filter((one) => !one.archived);
+            const pinning = (one: Task) => one.name === task;
+            const archived = tasks.filter((one) => one.archived);
+            replace(tasks, [...pinnedAmong(open, pinning, pinned), ...archived]);
+        },
+        sessionPin: async (id, pinned) => {
+            const { task } = taskOf(id);
+            replace(
+                task.sessions,
+                pinnedAmong(task.sessions, (one) => one.id === id, pinned),
+            );
         },
         cloudTaskMove: async (id, by) => {
             const owner = projects().find((one) => one.cloud.some((task) => task.id === id));
@@ -1073,6 +1125,7 @@ export function sampleProjects(): Project[] {
             repo_path: "/Users/you/code/storefront",
             chats: false,
             has_note: true,
+            pinned: false,
             cloud: [
                 {
                     id: 1,
@@ -1104,6 +1157,7 @@ export function sampleProjects(): Project[] {
             chats: false,
             has_note: false,
             cloud: [],
+            pinned: false,
             tasks: [
                 task(4, 2, "rust-support", [
                     session(4, 4, "Sketch a Rust language spec", "errored"),
@@ -1119,6 +1173,7 @@ export function sampleProjects(): Project[] {
             tasks: [],
             has_note: false,
             cloud: [],
+            pinned: false,
         },
         // The chats, with one: what is asked with no repository. Last, as the core adds them
         // when the first is made; the sidebar shows them first.
@@ -1129,6 +1184,7 @@ export function sampleProjects(): Project[] {
             chats: true,
             has_note: false,
             cloud: [],
+            pinned: false,
             tasks: [
                 chat(5, 4, "what-is-a-monad", [
                     session(6, 5, "What is a monad, in plain words?", "idle"),
@@ -1237,6 +1293,16 @@ export function sampleEvents(sessionId: number): AgentEvent[] {
                 text: "A monad is a way to chain steps that each wrap their result in some context (maybe missing, maybe a list, maybe later), without unwrapping it by hand at every step.",
             },
             { type: "turn_done", is_error: false, result: null, cost_usd: 0.01, duration_ms: 4200 },
+            // A part of the reply quoted back, with a question about it.
+            {
+                type: "user_message",
+                text: "<quoted_reply_1>\nwithout unwrapping it by hand at every step\n</quoted_reply_1>\nWhat does unwrapping by hand look like?",
+            },
+            {
+                type: "text",
+                text: "Checking after every call whether there is a value at all, and only then going on: `if user is None: return None`, then the same for the address, then for the street. The monad does that check once, between every two steps.",
+            },
+            { type: "turn_done", is_error: false, result: null, cost_usd: 0.02, duration_ms: 3100 },
         ];
     }
     if (sessionId === 5) {
@@ -1634,6 +1700,9 @@ class MockAgent {
     private readonly owed = new Set<number>();
     /** The account's usage, as every Claude Code session's reports leave it. */
     usage: AccountUsage = sampleAccountUsage();
+    /** Whether every refused turn goes on by itself when its limit resets, as the setting says. */
+    continueAfterLimit = false;
+    private readonly continuations = new MockContinuations((id) => this.continueNow(id));
     private nextId = 100;
 
     history(id: number): AgentEvent[] {
@@ -1659,6 +1728,7 @@ class MockAgent {
         this.record(sessionId, event, status);
         this.tell(sessionId, event, status);
         this.hearUsage(sessionId, event);
+        this.followContinuation(sessionId, event);
         // A turn that ended well makes room for the next waiting message, as in the core.
         if (event.type === "turn_done" && !event.is_error) {
             this.sendQueued(sessionId);
@@ -1699,8 +1769,62 @@ class MockAgent {
             session.unread = true;
         } else if (event.type === "renamed") {
             session.title = event.title;
-        } else if (event.type === "user_message" && session.title === "") {
-            session.title = titleFrom(event.text);
+        } else if (event.type === "continuation") {
+            session.continue_at = event.at;
+        } else if (event.type === "user_message") {
+            session.title = session.title === "" ? titleFrom(event.text) : session.title;
+            // Whoever writes to a session is back: it goes on now, not when a limit resets.
+            session.continue_at = null;
+        }
+    }
+
+    /**
+     * Keeps each session's continuation timed as its events say, as the core does: set,
+     * cancelled, or taken off by a message; and set by a refused turn when the setting says so.
+     */
+    private followContinuation(id: number, event: AgentEvent) {
+        if (event.type === "continuation") {
+            this.continuations.schedule(id, event.at);
+        } else if (event.type === "user_message") {
+            this.continuations.schedule(id, null);
+        }
+        const reset = resetToWaitFor([event], Date.now() / 1000);
+        const waits = this.openSession(id)?.continue_at ?? 0;
+        if (this.continueAfterLimit && reset !== null && reset > waits) {
+            this.publish(id, { type: "continuation", at: reset }, null);
+        }
+    }
+
+    /** The session, if it is open in a task. */
+    private openSession(id: number): Session | undefined {
+        const sessions = this.tasks().flatMap((task) => task.sessions);
+        return sessions.find((candidate) => candidate.id === id);
+    }
+
+    /** Sets a session to go on when the limit that stopped it resets, as the core does; when. */
+    continueAtReset(id: number): number {
+        const at = resetToWaitFor(this.history(id), Date.now() / 1000);
+        if (at === null) {
+            throw "no usage limit that is still to reset stopped this session's latest turn: there is nothing to wait for";
+        }
+        this.publish(id, { type: "continuation", at }, null);
+        return at;
+    }
+
+    /** Cancels a session's continuation, if it has one. */
+    cancelContinuation(id: number) {
+        if (this.openSession(id)?.continue_at != null) {
+            this.publish(id, { type: "continuation", at: null }, null);
+        }
+    }
+
+    /** Sends the message a session goes on with, first in its queue, as the core does. */
+    private continueNow(id: number) {
+        this.publish(id, { type: "continuation", at: null }, null);
+        const message = { id: this.nextId++, text: CONTINUE_MESSAGE, at_reset: true };
+        this.setQueue(id, [message, ...this.queue(id)]);
+        if (this.openSession(id)?.status === "idle") {
+            this.sendQueued(id);
         }
     }
 
@@ -1734,7 +1858,8 @@ class MockAgent {
 
     editQueued(id: number, message: number, text: string): QueuedMessage[] {
         const edited = this.queue(id).map((queued) =>
-            queued.id === message ? { ...queued, text } : queued,
+            // Changed, it is the user's own, whatever put it there.
+            queued.id === message ? { id: queued.id, text } : queued,
         );
         this.setQueue(
             id,
@@ -1771,7 +1896,7 @@ class MockAgent {
         }
         if (first) {
             this.setQueue(id, rest);
-            this.send(id, first.text);
+            this.send(id, first.text, first.at_reset === true);
         }
     }
 
@@ -1885,11 +2010,14 @@ class MockAgent {
         this.publish(id, { type: "command_answered", request_id: requestId, said }, null);
     }
 
-    send(id: number, text: string) {
+    send(id: number, text: string, atReset = false) {
         if (this.command(id, text)) {
             return;
         }
-        this.publish(id, { type: "user_message", text }, "working");
+        const message: AgentEvent = atReset
+            ? { type: "user_message", text, at_reset: true }
+            : { type: "user_message", text };
+        this.publish(id, message, "working");
         // Claude Code says what it loaded at the start of every turn, not once.
         if (this.agentOf(id) === "claude") {
             this.later(id, INIT, null, 0.1);
@@ -1938,6 +2066,8 @@ class MockAgent {
             this.switchWorktree(id, text.slice(7).trim(), done);
         } else if (text.startsWith("elsewhere:")) {
             this.renamedElsewhere(id, text.slice(10).trim(), done);
+        } else if (/^limit \d+$/.test(text)) {
+            this.refuseByLimit(id, Number(text.split(" ")[1]));
         } else if (/^warn \d+( \d+)?$/.test(text)) {
             const [, percent, inSeconds] = text.split(" ");
             this.warnOfLimit(id, Number(percent), Number(inSeconds ?? 6 * 86_400), done);
@@ -2060,6 +2190,20 @@ class MockAgent {
             },
         };
         this.later(id, warning, null, 3);
+    }
+
+    /** Ends the turn refused by a 5-hour limit that resets `inSeconds` from now, as Claude Code does. */
+    private refuseByLimit(id: number, inSeconds: number) {
+        this.later(id, mockRefusal(inSeconds), "working");
+        this.later(id, { type: "text", text: "You've hit your limit." }, "working", 1.5);
+        const refused: AgentEvent = {
+            type: "turn_done",
+            is_error: true,
+            result: "usage limit reached",
+            cost_usd: 0.0123,
+            duration_ms: 3_000,
+        };
+        this.later(id, refused, "idle", 2);
     }
 
     /** Answers in plain words, as an agent's ordinary reply. */
@@ -2441,6 +2585,7 @@ class MockAgent {
 
     close(id: number) {
         this.stopSlow(id);
+        this.continuations.schedule(id, null);
         for (const task of this.tasks()) {
             const closing = task.sessions.filter((candidate) => candidate.id === id);
             task.sessions = task.sessions.filter((candidate) => candidate.id !== id);
@@ -2452,6 +2597,7 @@ class MockAgent {
     /** Gone for good, from the open ones and the closed ones alike. */
     delete(id: number) {
         this.stopSlow(id);
+        this.continuations.schedule(id, null);
         for (const task of this.tasks()) {
             const others = (sessions: Session[]) =>
                 sessions.filter((candidate) => candidate.id !== id);
@@ -2483,6 +2629,8 @@ class MockAgent {
 
     /** Stops a `slow` turn, as the user does: the next waiting message then goes, as in the core. */
     interrupt(id: number): boolean {
+        // The user is back: the session goes on when they say, not when a limit resets.
+        this.cancelContinuation(id);
         const stopped = this.stopSlow(id);
         if (stopped) {
             this.sendQueued(id);
@@ -2603,6 +2751,7 @@ function sampleChatNew(projects: Project[], name: string): Task {
             tasks: [],
             has_note: false,
             cloud: [],
+            pinned: false,
         };
         projects.push(home);
     }
@@ -2801,6 +2950,7 @@ export function createMockApi(): Api {
         { name: "GEMINI_API_KEY", provider: "Google Gemini", stored: false },
     ];
     const environments = environmentApi();
+    const images = mockImagesApi();
     let customLayout: CustomLayout = { base: "classic" };
     let terminalConfig: TerminalConfig = {};
     let settings: Settings = {
@@ -2817,6 +2967,7 @@ export function createMockApi(): Api {
         tool_calls: "folded",
         turn_end_lines: true,
         limit_warnings: "frequent",
+        continue_after_limit: false,
         notifications: true,
         rules: "",
         status_items: ["branch", "changes", "model", "context", "cost", "duration"],
@@ -2826,6 +2977,7 @@ export function createMockApi(): Api {
     };
     return {
         overview: async () => structuredClone(agent.projects),
+        ...images,
         ...mcpApi(),
         ...templatesApi(),
         ...actionsApi(),
@@ -2874,6 +3026,7 @@ export function createMockApi(): Api {
                 tasks: [],
                 has_note: false,
                 cloud: [],
+                pinned: false,
             };
             agent.projects.push(project);
             return project;
@@ -2922,6 +3075,7 @@ export function createMockApi(): Api {
                 return created;
             },
             newSession: (taskId) => agent.newSession(taskId),
+            keepImages: (id, data) => images.sessionImagesKeep(id, data),
             enqueue: (id, text) => agent.enqueue(id, text),
             sendQueued: (id) => agent.sendQueued(id),
             send: (id, text) => agent.send(id, text),
@@ -2974,6 +3128,7 @@ export function createMockApi(): Api {
         setBadge: async () => {},
         setSettings: async (changed) => {
             settings = { ...changed, branch_prefix: keptPrefix(changed.branch_prefix) };
+            agent.continueAfterLimit = changed.continue_after_limit;
         },
         branchExample: async (prefix) => sampleBranch(prefix, "fix-login"),
         terminalConfig: async () => ({ ...terminalConfig }),
@@ -3061,6 +3216,8 @@ export function createMockApi(): Api {
         accountUsage: async () => agent.usage,
         sessionUsageRefresh: async (id) => agent.refreshUsage(id),
         sessionRemoteControl: async (id, on) => agent.remoteControl(id, on),
+        sessionContinueAtReset: async (id) => agent.continueAtReset(id),
+        sessionContinueCancel: async (id) => agent.cancelContinuation(id),
         sessionRename: async (id, title) => agent.rename(id, title),
         sessionMark: async (id, colour, label) => agent.mark(id, colour, label),
         sessionsSearch: async (query) => sampleSearch(agent.projects, query),

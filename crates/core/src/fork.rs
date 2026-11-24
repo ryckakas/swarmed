@@ -7,7 +7,7 @@
 use crate::agent::{AgentEvent, Supervision};
 use crate::agents::CLAUDE;
 use crate::sessions::{Session, SessionOptions};
-use crate::{Core, Result, lock};
+use crate::{Core, Result};
 
 /// The most of an earlier conversation an agent is handed, in characters. Its end matters
 /// most, so that is what is kept.
@@ -157,7 +157,7 @@ impl Core {
     }
 
     fn fork_to(&self, source: Session, fork: &Fork<'_>, title: String) -> Result<Session> {
-        let earlier = kept(&self.session_events(source.id)?, fork.from);
+        let mut earlier = kept(&self.session_events(source.id)?, fork.from);
         let options = match fork.agent.filter(|agent| *agent != source.agent) {
             None => SessionOptions {
                 agent: Some(source.agent),
@@ -179,9 +179,20 @@ impl Core {
                 }
             }
         };
-        let store = lock(&self.store);
-        let forked = store.session_insert(fork.task, &options)?;
-        store.session_copy_events(forked.id, &earlier, source.id)?;
+        let forked = self.store().session_insert(fork.task, &options)?;
+        // The images pasted into the conversation are the fork's own from the start.
+        let copied = self
+            .images_forked(source.id, forked.id, &mut earlier)
+            .and_then(|()| {
+                self.store()
+                    .session_copy_events(forked.id, &earlier, source.id)
+            });
+        if let Err(error) = copied {
+            // Half a fork is none: nothing of it is left.
+            self.forget_images(forked.id);
+            self.store().session_delete(forked.id).ok();
+            return Err(error);
+        }
         Ok(forked)
     }
 }
@@ -201,6 +212,7 @@ mod tests {
         AgentEvent::UserMessage {
             text: text.to_string(),
             remote: false,
+            at_reset: false,
         }
     }
 

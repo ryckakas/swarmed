@@ -2,12 +2,16 @@ import { memo, useMemo, useRef, useState } from "react";
 import { forkFromMessage } from "../actions";
 import { api } from "../api";
 import type { AgentEvent } from "../api/types";
-import { messageParts } from "../pastes";
+import { type MessagePart, messageParts } from "../pastes";
+import { resetWhen } from "../rateLimit";
 import { screenHtml } from "../screens";
 import { useStore } from "../store";
 import {
     activity,
+    continueOffer,
     type Item,
+    type LimitItem,
+    latestLimit,
     latestMove,
     movedSaid,
     PLAN_TOOL,
@@ -18,6 +22,7 @@ import {
 } from "../transcript";
 import { findSession, findSessionHome } from "../tree";
 import { formatDuration } from "../turns";
+import { useRedrawAt } from "../useRedrawAt";
 import { useRoll } from "../useRoll";
 import { useScrollSpot } from "../useScrollSpot";
 import { useWords } from "../useWords";
@@ -29,6 +34,7 @@ import { HtmlView } from "./HtmlView";
 import { Markdown } from "./Markdown";
 import { PermissionPrompt } from "./PermissionPrompt";
 import { QuestionPrompt } from "./QuestionPrompt";
+import { QuoteButton } from "./QuoteButton";
 import { Spawning, Swarming } from "./Spawning";
 import { ToolCall, ToolRun } from "./ToolCall";
 
@@ -44,9 +50,15 @@ interface Props {
      * its calls then offer while it works.
      */
     sendsToBackground: boolean;
+    /**
+     * Whether words of the agent's replies can be quoted into the session's message box: in
+     * the session's own transcript, not in a sub-agent's.
+     */
+    quotable?: boolean;
 }
 
-export function Transcript({ sessionId, place, events, working, sendsToBackground }: Props) {
+export function Transcript(props: Props) {
+    const { sessionId, place, events, working, sendsToBackground, quotable = false } = props;
     const words = useWords();
     const toolCalls = useStore((state) => state.settings?.tool_calls ?? "folded");
     const turnEnds = useStore((state) => state.settings?.turn_end_lines ?? true);
@@ -55,22 +67,32 @@ export function Transcript({ sessionId, place, events, working, sendsToBackgroun
         [events, words, turnEnds, toolCalls],
     );
     const lastMove = useMemo(() => latestMove(items), [items]);
+    const lastLimit = useMemo(() => latestLimit(items), [items]);
     const sendsFrom = working && sendsToBackground ? sessionId : null;
     const scroller = useRef<HTMLDivElement>(null);
+    const frame = useRef<HTMLDivElement>(null);
     // The latest message stays in view, unless the user scrolled up to read something; and a
     // transcript opened again comes back to where it was left.
     const { atEnd, toLatest, onScroll } = useScrollSpot(scroller, sessionId, place);
 
     return (
-        <div className="transcript-frame">
+        <div className="transcript-frame" ref={frame}>
             <div className="transcript" ref={scroller} onScroll={onScroll}>
                 <ol className="items">
                     {items.map((item) => (
-                        <li key={item.key} data-key={item.key} className={`item item-${item.kind}`}>
+                        <li
+                            key={item.key}
+                            data-key={item.key}
+                            className={`item item-${item.kind}`}
+                            // Only the agent's own replies are quoted from (`QUOTE_INTO`).
+                            data-quote-into={
+                                quotable && item.kind === "text" ? sessionId : undefined
+                            }
+                        >
                             <ItemView
                                 item={item}
                                 sessionId={sessionId}
-                                latest={item.key === lastMove}
+                                latest={item.key === lastMove || item.key === lastLimit}
                                 sendsFrom={sendsFrom}
                             />
                         </li>
@@ -89,6 +111,7 @@ export function Transcript({ sessionId, place, events, working, sendsToBackgroun
                 </ol>
             </div>
             {!atEnd && <ToLatest onPress={toLatest} />}
+            {quotable && <QuoteButton frame={frame} scroller={scroller} />}
         </div>
     );
 }
@@ -116,30 +139,40 @@ function ToLatest({ onPress }: { onPress: () => void }) {
 }
 
 /**
- * What the user wrote, with anything they pasted large folded away under a line that says how
- * much there is of it.
+ * What the user wrote: words they quoted from a reply as a quote, with what they wrote about
+ * them around it, and anything they pasted large folded away under a line that says how much
+ * there is of it.
  */
 function Said({ text }: { text: string }) {
-    return messageParts(text).map((part, index) =>
-        part.kind === "text" ? (
-            // biome-ignore lint/suspicious/noArrayIndexKey: the parts of a sent message never change
-            <span key={index}>{part.text}</span>
-        ) : (
-            // biome-ignore lint/suspicious/noArrayIndexKey: the parts of a sent message never change
-            <details key={index} className="pasted">
-                <summary>
-                    Pasted text, {part.lines} {part.lines === 1 ? "line" : "lines"}
-                </summary>
-                <pre>{part.text}</pre>
-            </details>
-        ),
-    );
+    // biome-ignore lint/suspicious/noArrayIndexKey: the parts of a sent message never change
+    return messageParts(text).map((part, index) => <SaidPart key={index} part={part} />);
+}
+
+function SaidPart({ part }: { part: MessagePart }) {
+    switch (part.kind) {
+        case "text":
+            return <span>{part.text}</span>;
+        case "quote":
+            return <blockquote className="said-quote">{part.text}</blockquote>;
+        case "paste":
+            return (
+                <details className="pasted">
+                    <summary>
+                        Pasted text, {part.lines} {part.lines === 1 ? "line" : "lines"}
+                    </summary>
+                    <pre>{part.text}</pre>
+                </details>
+            );
+    }
 }
 
 interface ItemProps {
     item: Item;
     sessionId: number;
-    /** Whether this is the conversation's latest move of the worktree. */
+    /**
+     * Whether this is the conversation's latest move of the worktree, or the line of its latest
+     * turn a usage limit refused, with nothing written since: only those offer something.
+     */
     latest: boolean;
     /** The session whose calls' work can be sent to the background now; `null` for none. */
     sendsFrom: number | null;
@@ -152,8 +185,11 @@ function ItemView({ item, sessionId, latest, sendsFrom }: ItemProps) {
             return (
                 <div className="said">
                     {item.remote && <p className="said-from">Typed on claude.ai</p>}
+                    {item.atReset && (
+                        <p className="said-from">Sent by itself when the usage limit reset</p>
+                    )}
                     <Said text={item.text} />
-                    <FileChips files={item.files} />
+                    <FileChips files={item.files} sessionId={sessionId} />
                     <button
                         type="button"
                         className="said-fork"
@@ -281,7 +317,63 @@ function ItemView({ item, sessionId, latest, sendsFrom }: ItemProps) {
                     {item.text}
                 </p>
             );
+        case "limit":
+            return <LimitLine sessionId={sessionId} item={item} latest={latest} />;
     }
+}
+
+/**
+ * The line where a usage limit stopped a turn, which says why. The latest one offers to go on
+ * by itself when the limit resets, or says that it will, with the way to cancel that.
+ */
+function LimitLine(props: { sessionId: number; item: LimitItem; latest: boolean }) {
+    const { sessionId, item, latest } = props;
+    const continueAt = useStore(
+        (state) => findSession(state.projects, sessionId)?.continue_at ?? null,
+    );
+    const report = useStore((state) => state.report);
+    const [asking, setAsking] = useState(false);
+    const now = new Date();
+    const offer = continueOffer(item, latest, continueAt, Math.floor(now.getTime() / 1000));
+    // An offer is for a reset still to come: at the reset it goes, and the core would refuse it.
+    useRedrawAt(offer?.state === "offered" ? offer.at : null);
+    const ask = (call: () => Promise<unknown>) => {
+        setAsking(true);
+        call()
+            .catch(report)
+            .finally(() => setAsking(false));
+    };
+    return (
+        <div className="limit-line">
+            <p className="notice-line notice-warning" role="alert">
+                {item.text}
+            </p>
+            {offer?.state === "offered" && (
+                <button
+                    type="button"
+                    className="button"
+                    disabled={asking}
+                    title="Sends “Continue where you stopped.” to the session when the limit resets. Writing to it, or Stop, cancels that."
+                    onClick={() => ask(() => api.sessionContinueAtReset(sessionId))}
+                >
+                    Continue {resetWhen(offer.at, now)}
+                </button>
+            )}
+            {offer?.state === "set" && (
+                <p className="aside limit-continues">
+                    Goes on by itself {resetWhen(offer.at, now)}.{" "}
+                    <button
+                        type="button"
+                        className="link-button"
+                        disabled={asking}
+                        onClick={() => ask(() => api.sessionContinueCancel(sessionId))}
+                    >
+                        Cancel
+                    </button>
+                </p>
+            )}
+        </div>
+    );
 }
 
 /**
