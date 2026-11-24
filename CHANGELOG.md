@@ -15,6 +15,19 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Fixed
+
+- **What waits for a task's setup is sent once, and all of it.** A message typed into a session
+  made while its task was still being set up stayed waiting after the setup finished. A first
+  prompt that `swarmed task setup` or `swarmed task start-anyway` sent while the app was open
+  was sent a second time by the app after the session's next turn.
+- **Run setup again says why it could not start**, where the button seemed to do nothing: a
+  configuration that cannot be read, or a setup already under way.
+- **`swarmed task new --prompt` and `swarmed task setup` end when the prompt could not be sent**
+  once setup finished, and say that it still waits, instead of waiting for a turn that never
+  began.
+- **A setup's output no longer loses lines in the panel** when a step changed just as it printed.
+
 ## [0.4.2] - 2026-11-24
 
 ### Added

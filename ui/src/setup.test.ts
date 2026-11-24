@@ -6,6 +6,7 @@ import {
     heard,
     KEPT_BYTES,
     lastLines,
+    ranSince,
     readFrom,
     setupState,
     sidebarSays,
@@ -145,5 +146,22 @@ describe("how a setup is told", () => {
         expect(standing("idle", running)).toBe("working");
         expect(standing("idle", { setup: "ok", setting_up: null })).toBe("idle");
         expect(standing("waiting", undefined)).toBe("waiting");
+    });
+});
+
+describe("whether a setup ran since it was asked for", () => {
+    it("is a run that began after what was kept before", () => {
+        const before = heard(undefined, report({ began: 1000 }));
+        expect(ranSince(before, heard(before, report({ began: 2000 })))).toBe(true);
+        expect(ranSince(undefined, heard(undefined, report({})))).toBe(true);
+    });
+
+    it("is not the run kept before, one only read from its log, or none", () => {
+        const before = heard(undefined, report({ began: 1000 }));
+        expect(ranSince(before, before)).toBe(false);
+        expect(ranSince(undefined, readFrom(undefined, { text: "npm ci\n", end: 7 }, null))).toBe(
+            false,
+        );
+        expect(ranSince(undefined, undefined)).toBe(false);
     });
 });

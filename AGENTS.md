@@ -631,8 +631,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   `rustix`, since unsafe code is forbidden here): a 275,000-file `node_modules` in 6 s against
   48 s for `cp -c`, which clones file by file and is what a path falls back to where a whole
   clone cannot be made. Starting from a snapshot, and the first one Swarmed takes itself, say
-  each step in the setup output, which the new-task view shows as it goes; one taken by hand
-  (`snapshot_save`) says nothing. A new task gets them put into its
+  each step in the setup output, which the session's setup panel shows as it goes; one taken
+  by hand (`snapshot_save`) says nothing. A new task gets them put into its
   worktree before `setup` runs, never over a file that is already there. They may include the
   likes of `.env`: the folder is the user's alone and its contents are never logged. The first
   task set up well in an environment without one is kept as its snapshot (`snapshot_first`,
@@ -1061,6 +1061,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   themselves (`held_for_setup`, `send_next_by_itself`); a setup that finishes well with an
   `Auth` sends them (`send_waiting`); one that does not leaves them, for `task_setup` with an
   `Auth` or `task_start_anyway`. The UI queues what is typed in such a session (`standing`).
+  A kept prompt another Swarmed sent meanwhile is dropped from this one's queue when its turn
+  comes, not sent again (`went_elsewhere`).
   The new-task view only names the task and shows fetching and making the worktree
   (`creating` in the store, by repository); the session's `SetupPanel` shows the rest.
 - **Opening things elsewhere** (`open.rs`) starts the user's editor (`settings.toml`, VS Code by

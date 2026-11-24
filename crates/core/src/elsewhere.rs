@@ -566,7 +566,7 @@ pub(crate) fn claim_run(live: &Live, paths: &Paths, id: i64) -> Result<()> {
 }
 
 /// Locks `file` for this process alone, trying again for a moment. Whether it was locked.
-fn taken(file: &File) -> Result<bool> {
+pub(crate) fn taken(file: &File) -> Result<bool> {
     for attempt in 1..=CLAIM_TRIES {
         match file.try_lock() {
             Ok(()) => return Ok(true),

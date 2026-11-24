@@ -6,6 +6,7 @@ import {
     headline,
     isSettingUp,
     lastLines,
+    ranSince,
     type SetupState,
     setupState,
     whyNotDone,
@@ -107,6 +108,21 @@ interface ActionsProps {
     onShow(): void;
 }
 
+/**
+ * Runs the task's setup again. How it goes is heard as it goes, and how it ended shows in the
+ * panel, not as an error; only a refusal before any setup ran, which nothing else says, is one.
+ */
+function runAgain(project: string, task: Task): void {
+    const { report, refresh } = useStore.getState();
+    const before = useStore.getState().setups[task.id];
+    void api.taskSetup(project, task.name).catch((error: unknown) => {
+        if (!ranSince(before, useStore.getState().setups[task.id])) {
+            report(error);
+        }
+        return refresh(api);
+    });
+}
+
 /** What can be done about a setup: stop one under way; or act on one that did not finish. */
 function SetupActions({ project, task, state, shown, onShow }: ActionsProps) {
     const { report, refresh, askToRemove } = useStore.getState();
@@ -136,8 +152,7 @@ function SetupActions({ project, task, state, shown, onShow }: ActionsProps) {
                 title={
                     waits ? "Runs setup again, then sends what waits for it" : "Runs setup again"
                 }
-                // How it goes is heard as it goes; how it ended shows here, not as an error.
-                onClick={() => api.taskSetup(project, task.name).catch(() => refresh(api))}
+                onClick={() => runAgain(project, task)}
             >
                 Run setup again
             </button>

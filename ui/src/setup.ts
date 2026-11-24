@@ -68,6 +68,11 @@ function goneOn(seen: SetupSeen, more: string, from: number): SetupSeen {
     return { ...seen, text: seen.text + afterBytes(more, seen.end - from), end: after };
 }
 
+/** Whether a run of the setup was heard of since `before` was what the window kept of it. */
+export function ranSince(before: SetupSeen | undefined, now: SetupSeen | undefined): boolean {
+    return now !== undefined && now.began !== null && now.began !== before?.began;
+}
+
 /** What is kept of a setup once one of its reports is heard. A new run starts afresh. */
 export function heard(seen: SetupSeen | undefined, progress: SetupProgress): SetupSeen {
     const fresh = seen === undefined || seen.began !== progress.began;

@@ -60,7 +60,7 @@ pub(crate) async fn start(
         "session {session}: its prompt waits for the setup"
     ));
     shown_until_set_up(core, told, started.task.id, going).await?;
-    follow_turn(core, session, &mut turn).await
+    turn_if_sent(core, session, &mut turn).await
 }
 
 /// Runs the task's setup again and, once it finished well, shows the turn of a message that
@@ -72,9 +72,21 @@ pub(crate) async fn again(core: &Core, project: &str, name: &str) -> Result<()> 
     setting_up(core, setting).await?;
     say(&format!("setup finished for `{name}`"));
     match waiting.first() {
-        Some(id) => follow_turn(core, *id, &mut turn).await,
+        Some(id) => turn_if_sent(core, *id, &mut turn).await,
         None => Ok(()),
     }
+}
+
+/// Shows the turn of the message session `id` waited to send, if the setup's end sent it. One
+/// that could not be sent, or whose agent was busy, started no turn here to wait for.
+async fn turn_if_sent(core: &Core, id: i64, turn: &mut Receiver<SessionEvent>) -> Result<()> {
+    if core.session(id)?.waits_for_setup {
+        aside(&format!(
+            "session {id} still waits to send its prompt: `swarmed task start-anyway` sends it"
+        ));
+        return Ok(());
+    }
+    follow_turn(core, id, turn).await
 }
 
 /// Sends what waits for the task's setup now, in the worktree as it is, and shows the turn it
