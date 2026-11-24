@@ -11,6 +11,7 @@ import {
     latestMove,
     movedSaid,
     PLAN_TOOL,
+    shownLines,
     shownTools,
     summarize,
     toItems,
@@ -48,9 +49,10 @@ interface Props {
 export function Transcript({ sessionId, events, working, sendsToBackground }: Props) {
     const words = useWords();
     const toolCalls = useStore((state) => state.settings?.tool_calls ?? "folded");
+    const turnEnds = useStore((state) => state.settings?.turn_end_lines ?? true);
     const items = useMemo(
-        () => shownTools(toItems(events, words), toolCalls),
-        [events, words, toolCalls],
+        () => shownTools(shownLines(toItems(events, words), turnEnds), toolCalls),
+        [events, words, turnEnds, toolCalls],
     );
     const lastMove = useMemo(() => latestMove(items), [items]);
     const sendsFrom = working && sendsToBackground ? sessionId : null;

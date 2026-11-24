@@ -393,6 +393,11 @@ export interface Settings {
     html_views: boolean;
     /** How the agents' tool calls show in a conversation. */
     tool_calls: ToolCalls;
+    /**
+     * Whether a conversation draws a line where each turn that showed something ends. A turn
+     * that failed or was stopped keeps its line either way.
+     */
+    turn_end_lines: boolean;
     /** Which levels of the account's usage the notice at the top of the window says. */
     limit_warnings: LimitWarnings;
     /** Whether the system notifies when a session needs you, finishes or fails out of sight. */

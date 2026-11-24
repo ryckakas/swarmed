@@ -333,6 +333,36 @@ function talksToUser(tool: ToolItem): boolean {
 }
 
 /**
+ * The session line and the turns' end lines worth drawing, after `toItems` and before
+ * `shownTools`, so that a turn of tool calls the setting hides still showed something. Claude
+ * Code says what it loaded at the start of every turn: only the first is drawn, and the status
+ * line says the model since. A turn's end line closes a turn that showed something; a turn
+ * with nothing in it and no more spent, such as one the agent took by itself to read a report
+ * that came to nothing, has none. With `turnEnds` off, only a turn that failed or was stopped
+ * keeps its line, since that says what the rest does not.
+ */
+export function shownLines(items: Item[], turnEnds: boolean): Item[] {
+    let started = false;
+    let showedSince = false;
+    let lastTurn: Extract<Item, { kind: "turn" }> | null = null;
+    return items.filter((item) => {
+        if (item.kind === "session") {
+            const first = !started;
+            started = true;
+            return first;
+        }
+        if (item.kind !== "turn") {
+            showedSince = true;
+            return true;
+        }
+        const empty = !showedSince && lastTurn !== null && item.costUsd === lastTurn.costUsd;
+        showedSince = false;
+        lastTurn = item;
+        return item.isError || (turnEnds && !empty);
+    });
+}
+
+/**
  * The items with the agent's tool calls shown as the setting says: each on its own (`all`),
  * the ones that follow each other folded into one item (`folded`), or none (`hidden`). Calls
  * that talk to the user stay as they are, and so does everything else.

@@ -13,6 +13,10 @@ use crate::statusline::StatusItem;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 // Unknown keys are read past and named (`lenient`), never refused: see `Settings::read`.
 #[serde(default)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each is a yes or no of the user's own, apart from the others, as the file has it"
+)]
 pub struct Settings {
     /// The command that opens a folder in the user's code editor, such as `code` or `zed`.
     pub editor: String,
@@ -41,6 +45,9 @@ pub struct Settings {
     pub html_views: bool,
     /// How the agents' tool calls show in a conversation.
     pub tool_calls: ToolCalls,
+    /// Whether a conversation draws a line where each turn that showed something ends. A turn
+    /// that failed or was stopped keeps its line either way.
+    pub turn_end_lines: bool,
     /// Which levels of the account's usage the notice at the top of the window says.
     pub limit_warnings: LimitWarnings,
     /// The built-in pieces of the status line under the message box, in order.
@@ -188,6 +195,7 @@ impl Default for Settings {
             notifications: true,
             html_views: true,
             tool_calls: ToolCalls::Folded,
+            turn_end_lines: true,
             limit_warnings: LimitWarnings::Frequent,
             status_items: StatusItem::defaults(),
             status_command: String::new(),
@@ -320,6 +328,7 @@ mod tests {
             notifications: false,
             html_views: false,
             tool_calls: ToolCalls::Hidden,
+            turn_end_lines: false,
             limit_warnings: LimitWarnings::Rare,
             status_items: vec![StatusItem::Cost],
             status_command: "~/bin/status".to_string(),
@@ -366,6 +375,18 @@ mod tests {
             Settings::load(&path).expect("loads").tool_calls,
             ToolCalls::All
         );
+    }
+
+    #[test]
+    fn turn_end_lines_are_drawn_unless_turned_off() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.toml");
+        assert!(Settings::load(&path).expect("defaults").turn_end_lines);
+        // A file written before the setting existed.
+        std::fs::write(&path, "theme = \"dark\"").expect("writes");
+        assert!(Settings::load(&path).expect("loads").turn_end_lines);
+        std::fs::write(&path, "turn_end_lines = false").expect("writes");
+        assert!(!Settings::load(&path).expect("loads").turn_end_lines);
     }
 
     #[test]

@@ -438,6 +438,17 @@ function Sessions({ settings }: { settings: Settings }) {
                 />
             </Row>
             <Row
+                label="Turn end lines"
+                hint="A line where each turn that showed something ends, with how long it took and what was spent so far. A turn that failed or was stopped keeps its line either way, and the status line's Cost piece always shows the cost."
+            >
+                <input
+                    type="checkbox"
+                    aria-label="Draw a line where each turn ends"
+                    checked={settings.turn_end_lines}
+                    onChange={(event) => void change(api, { turn_end_lines: event.target.checked })}
+                />
+            </Row>
+            <Row
                 label="Name new sessions"
                 hint="A small model reads the first message and gives the session a short title."
             >

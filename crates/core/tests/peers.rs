@@ -414,20 +414,28 @@ async fn an_agent_changes_what_is_harmless_at_once() {
     let (ok, said) = configure(
         &socket,
         session.id,
-        json(serde_json::json!({ "kind": "appearance", "op": "save", "palette": "Forest", "layout": "senior", "text_size": 110, "tool_calls": "Folded" })),
+        json(serde_json::json!({ "kind": "appearance", "op": "save", "palette": "Forest", "layout": "senior", "text_size": 110, "tool_calls": "Folded", "turn_end_lines": false })),
     )
     .await;
     assert!(ok, "{said}");
     assert!(said.contains("tool_calls folded"), "{said}");
+    assert!(said.contains("turn_end_lines false"), "{said}");
     let settings = core.settings().expect("reads");
     assert_eq!(
         (
             settings.palette,
             settings.layout,
             settings.text_scale,
-            settings.tool_calls
+            settings.tool_calls,
+            settings.turn_end_lines
         ),
-        (Palette::Forest, Layout::Senior, 110, ToolCalls::Folded)
+        (
+            Palette::Forest,
+            Layout::Senior,
+            110,
+            ToolCalls::Folded,
+            false
+        )
     );
     let layout = serde_json::json!({ "kind": "layout", "op": "save", "json": { "base": "senior", "icons": 140 } });
     let (ok, said) = configure(&socket, session.id, json(layout)).await;

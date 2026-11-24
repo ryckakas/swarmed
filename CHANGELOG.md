@@ -86,6 +86,14 @@ notice adds its line under Unreleased.
 
 ### Changed
 
+- **A conversation says what its agent loaded once, and ends only turns that showed something.**
+  Claude Code says which model, sign-in, MCP servers and skills it has at the start of every
+  turn, and each one drew the same line again; now only the first is drawn, at the top, and
+  `swarmed session show` prints it once too. A turn the agent takes by itself that shows
+  nothing and spends nothing more, such as one reading a sub-agent's report that came to
+  nothing, no longer draws an end line either. **Turn end lines** in Settings, beside Tool
+  calls, turns the end lines off; a turn that failed or was stopped keeps its line. An agent
+  can change it for you too.
 - **Tasks, sessions and cloud tasks are dragged by a grip.** Point at one in the sidebar and
   six dots show before it: drag those to move it among its own kind. Pressing anywhere else on
   the row opens it as before, a click that slips no longer moves it, and dragging across it no

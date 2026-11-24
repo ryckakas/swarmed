@@ -280,11 +280,23 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
 /// Prints everything a session has said and been told, which counts as having read it.
 fn show(core: &Core, id: i64) -> Result<()> {
     core.session_mark_read(id)?;
-    core.session_events(id)?
-        .iter()
-        .filter_map(describe)
-        .for_each(|line| say(&line));
+    for line in shown(&core.session_events(id)?) {
+        say(&line);
+    }
     Ok(())
+}
+
+/// The lines a session's history is shown as. Claude Code says what it loaded at the start of
+/// every turn, and only the first is shown, as in the window.
+fn shown(events: &[AgentEvent]) -> Vec<String> {
+    let mut started = false;
+    let first = |event: &&AgentEvent| {
+        let init = matches!(event, AgentEvent::Init { .. });
+        let again = init && started;
+        started |= init;
+        !again
+    };
+    events.iter().filter(first).filter_map(describe).collect()
 }
 
 /// How a session is supervised from now on: as `chosen` on the command line, or, with none
@@ -774,6 +786,38 @@ mod tests {
         assert_eq!(
             describe(&asked).as_deref(),
             Some("? allow Terminal: cat README.md (Asked by the sub-agent Explorer 1) [y/N]")
+        );
+    }
+
+    #[test]
+    fn a_session_shows_what_its_agent_loaded_once() {
+        let init = |model: &str| AgentEvent::Init {
+            agent_session_id: "abc".into(),
+            model: model.into(),
+            permission_mode: "default".into(),
+            api_key_source: "none".into(),
+            mcp_servers: vec![],
+            skills: 3,
+            slash_commands: vec![],
+        };
+        let done = AgentEvent::TurnDone {
+            is_error: false,
+            result: None,
+            cost_usd: None,
+            duration_ms: None,
+        };
+        let lines = shown(&[
+            init("opus"),
+            done.clone(),
+            init("opus"),
+            done.clone(),
+            init("sonnet"),
+        ]);
+        assert_eq!(lines.len(), 3, "{lines:?}");
+        assert!(lines[0].contains("opus"), "{lines:?}");
+        assert!(
+            lines.iter().skip(1).all(|line| line.starts_with("—")),
+            "{lines:?}"
         );
     }
 

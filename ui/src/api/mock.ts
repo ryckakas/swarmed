@@ -1609,12 +1609,16 @@ class MockAgent {
         }
     }
 
+    /** The agent a session runs on, if it is in a task. */
+    private agentOf(sessionId: number): string | undefined {
+        const sessions = this.tasks().flatMap((task) => task.sessions);
+        return sessions.find((session) => session.id === sessionId)?.agent;
+    }
+
     /** Takes in a Claude Code session's usage report, and tells everyone, as the core does. */
     private hearUsage(sessionId: number, event: AgentEvent) {
         const usage = heardUsage(this.usage, event);
-        const sessions = this.tasks().flatMap((task) => task.sessions);
-        const agent = sessions.find((session) => session.id === sessionId)?.agent;
-        if (usage === null || agent !== "claude") {
+        if (usage === null || this.agentOf(sessionId) !== "claude") {
             return;
         }
         this.usage = usage;
@@ -1825,6 +1829,10 @@ class MockAgent {
             return;
         }
         this.publish(id, { type: "user_message", text }, "working");
+        // Claude Code says what it loaded at the start of every turn, not once.
+        if (this.agentOf(id) === "claude") {
+            this.later(id, INIT, null, 0.1);
+        }
         const said = this.history(id).filter((event) => event.type === "user_message");
         const first = said.length === 1;
         const done: AgentEvent = {
@@ -2698,6 +2706,7 @@ export function createMockApi(): Api {
         default_supervision: "auto",
         html_views: true,
         tool_calls: "folded",
+        turn_end_lines: true,
         limit_warnings: "frequent",
         notifications: true,
         rules: "",
