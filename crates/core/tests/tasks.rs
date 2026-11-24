@@ -1757,8 +1757,7 @@ async fn the_editor_is_started_with_the_worktree() {
     let opened = fx.paths.data_dir.join("opened");
     let script = fx.paths.data_dir.join("editor.sh");
     let body = format!("#!/bin/sh\necho \"$1\" > '{}'\n", opened.display());
-    std::fs::write(&script, body).expect("writes");
-    make_executable(&script);
+    common::executable(&script, &body);
     let editor = script.to_string_lossy().into_owned();
     let settings = Settings {
         editor,
@@ -1769,13 +1768,6 @@ async fn the_editor_is_started_with_the_worktree() {
     core.task_open_editor("demo", "one").expect("starts");
     let written = wait_for_file(&opened).await;
     assert_eq!(written.trim(), task.worktree_path.to_string_lossy());
-}
-
-#[cfg(unix)]
-fn make_executable(path: &Path) {
-    use std::os::unix::fs::PermissionsExt;
-    let permissions = std::fs::Permissions::from_mode(0o755);
-    std::fs::set_permissions(path, permissions).expect("chmod");
 }
 
 /// The file's contents once the launched program has written it.

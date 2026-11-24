@@ -2,7 +2,6 @@
 
 mod common;
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -11,10 +10,7 @@ use swarmed_core::{AgentSetup, Core, Error};
 
 /// An executable file at `path` that runs `script`.
 fn executable(path: &Path, script: &str) {
-    std::fs::write(path, format!("#!/bin/sh\n{script}\n")).expect("writes");
-    let mut permissions = std::fs::metadata(path).expect("exists").permissions();
-    permissions.set_mode(0o755);
-    std::fs::set_permissions(path, permissions).expect("sets");
+    common::executable(path, &format!("#!/bin/sh\n{script}\n"));
 }
 
 /// A core that looks for programs in `tools` only.
