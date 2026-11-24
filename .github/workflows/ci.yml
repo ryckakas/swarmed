@@ -54,7 +54,8 @@ jobs:
         run: |
           mkdir -p "$HOME/apt-archives/partial"
           read -r -a packages <<< "$PACKAGES"
-          wanted=$(sudo apt-get install --print-uris -qq "${packages[@]}" | awk '{ print $2, $4 }')
+          wanted=$(sudo apt-get install --print-uris -qq -o Acquire::ForceHash=SHA256 \
+            "${packages[@]}" | awk '{ print $2, $4 }')
           echo "key=$(sha256sum <<< "$wanted" | cut -c1-32)" >> "$GITHUB_OUTPUT"
 
       - name: Keep the packages
@@ -64,15 +65,26 @@ jobs:
           path: ~/apt-archives/*.deb
           key: apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.wanted.outputs.key }}
 
-      # apt takes a package it finds among the archives, once its checksum matches the lists',
-      # and downloads only what is missing. What it downloaded is left there to be cached, and
-      # handed to the runner's user, who has to read it for that.
+      # apt takes a package it finds among the archives by its name and size alone, and
+      # downloads only what is missing. So each cached package is first held to the checksum
+      # the signed lists give for it, and one that differs is dropped and fetched again: what
+      # is installed is what the mirror would have sent, whatever the cache held. What apt
+      # downloaded is left there to be cached, and handed to the runner's user, who has to
+      # read it for that.
       - name: Install Tauri's Linux dependencies
         if: runner.os == 'Linux'
         env:
           PACKAGES: libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
         run: |
           read -r -a packages <<< "$PACKAGES"
+          sudo apt-get install --print-uris -qq -o Acquire::ForceHash=SHA256 "${packages[@]}" |
+            while read -r _ name _ sum; do
+              file="$HOME/apt-archives/$name"
+              if [ -f "$file" ] && ! sha256sum --check --status <<< "${sum#SHA256:}  $file"; then
+                echo "::warning::$name in the cache is not the package the lists name"
+                rm -f "$file"
+              fi
+            done
           sudo apt-get install -y -o Acquire::Retries=3 \
             -o Dir::Cache::Archives="$HOME/apt-archives" "${packages[@]}"
           sudo chown -R "$(id -u)" "$HOME/apt-archives"
@@ -279,7 +291,8 @@ jobs:
         run: |
           mkdir -p "$HOME/apt-archives/partial"
           read -r -a packages <<< "$PACKAGES"
-          wanted=$(sudo apt-get install --print-uris -qq "${packages[@]}" | awk '{ print $2, $4 }')
+          wanted=$(sudo apt-get install --print-uris -qq -o Acquire::ForceHash=SHA256 \
+            "${packages[@]}" | awk '{ print $2, $4 }')
           echo "key=$(sha256sum <<< "$wanted" | cut -c1-32)" >> "$GITHUB_OUTPUT"
 
       - name: Keep the packages
@@ -289,15 +302,26 @@ jobs:
           path: ~/apt-archives/*.deb
           key: apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.wanted.outputs.key }}
 
-      # apt takes a package it finds among the archives, once its checksum matches the lists',
-      # and downloads only what is missing. What it downloaded is left there to be cached, and
-      # handed to the runner's user, who has to read it for that.
+      # apt takes a package it finds among the archives by its name and size alone, and
+      # downloads only what is missing. So each cached package is first held to the checksum
+      # the signed lists give for it, and one that differs is dropped and fetched again: what
+      # is installed is what the mirror would have sent, whatever the cache held. What apt
+      # downloaded is left there to be cached, and handed to the runner's user, who has to
+      # read it for that.
       - name: Install Tauri's Linux dependencies
         if: runner.os == 'Linux'
         env:
           PACKAGES: libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
         run: |
           read -r -a packages <<< "$PACKAGES"
+          sudo apt-get install --print-uris -qq -o Acquire::ForceHash=SHA256 "${packages[@]}" |
+            while read -r _ name _ sum; do
+              file="$HOME/apt-archives/$name"
+              if [ -f "$file" ] && ! sha256sum --check --status <<< "${sum#SHA256:}  $file"; then
+                echo "::warning::$name in the cache is not the package the lists name"
+                rm -f "$file"
+              fi
+            done
           sudo apt-get install -y -o Acquire::Retries=3 \
             -o Dir::Cache::Archives="$HOME/apt-archives" "${packages[@]}"
           sudo chown -R "$(id -u)" "$HOME/apt-archives"
