@@ -486,6 +486,12 @@ pub enum AgentEvent {
     /// tree again. It belongs to no session: published with session id 0, which no session
     /// has, and never recorded.
     TreeChanged,
+    /// How a task's setup goes: where it is, what it printed, and how it ended. It belongs to
+    /// no session: published with session id 0, which no session has, and never recorded.
+    Setup {
+        /// How far it is.
+        progress: crate::SetupProgress,
+    },
     /// What a Claude Code session heard changed the account's usage, which every session
     /// shows. It belongs to no session: published with session id 0, which no session has,
     /// and never recorded. [`crate::Core::account_usage`] gives the same.

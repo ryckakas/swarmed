@@ -70,6 +70,7 @@ mod shellenv;
 mod skills;
 mod snapshots;
 mod stacks;
+mod starting;
 mod statusline;
 mod store;
 mod tasks;
@@ -132,10 +133,11 @@ pub use sessions::{
     EVENT_BUFFER, Session, SessionEvent, SessionOptions, SessionSettings, SessionStatus,
 };
 pub use settings::{Layout, LimitWarnings, Palette, Settings, Style, Theme, ToolCalls, UpdateMode};
-pub use setups::SetupStop;
+pub use setups::{SettingUp, SetupEnd, SetupLog, SetupProgress, SetupStep, SetupStop};
 pub use skills::Skill;
 pub use snapshots::Snapshot;
 pub use stacks::StackState;
+pub use starting::{FirstSession, SetupGoing, TaskStarted};
 pub use statusline::StatusItem;
 use store::Store;
 pub use store::{Project, SetupStatus, Task};
@@ -180,7 +182,7 @@ pub struct Core {
     /// its task is written down, so that tasks created at once never pick the same name.
     names_claimed: Mutex<std::collections::HashSet<(i64, String)>>,
     /// The tasks' `setup` hooks this process runs now, so that one can be stopped on purpose.
-    setups: setups::Setups,
+    setups: Arc<setups::Setups>,
     /// What this core knows of other Swarmed processes on the same data.
     elsewhere: elsewhere::Elsewhere,
 }
@@ -225,7 +227,7 @@ impl Core {
             tool_server: None,
             house: Mutex::new(None),
             names_claimed: Mutex::default(),
-            setups: setups::Setups::default(),
+            setups: Arc::default(),
             elsewhere: elsewhere::Elsewhere::default(),
         })
     }

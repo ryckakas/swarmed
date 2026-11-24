@@ -454,11 +454,22 @@ fn pass_on_stdin(typed: &UnboundedSender<std::io::Result<String>>) {
 async fn run_turn(core: &Core, id: i64, prompt: &str, files: &[PathBuf], auth: Auth) -> Result<()> {
     let mut bus = core.subscribe();
     core.session_message(id, prompt, files, auth)?;
+    follow_turn(core, id, &mut bus).await
+}
+
+/// Shows the events of session `id` heard on `bus` until its turn ends, answering what the
+/// agent asks from stdin as [`run_turn`] does. The user's message that starts the turn is
+/// left out when it comes first: it is on screen already.
+pub(crate) async fn follow_turn(
+    core: &Core,
+    id: i64,
+    bus: &mut Receiver<SessionEvent>,
+) -> Result<()> {
     let mut typed = Typed::new();
     // The user's own message is the first event published; it is on screen already. A
     // command Swarmed answers itself is no message, and what comes first is its answer.
     let mut first = true;
-    while let Some(event) = next_or_interrupt(core, &mut bus, id, &mut typed).await? {
+    while let Some(event) = next_or_interrupt(core, bus, id, &mut typed).await? {
         let own = first && matches!(event, AgentEvent::UserMessage { .. });
         first = false;
         if let Some(line) = describe(&event).filter(|_| !own) {

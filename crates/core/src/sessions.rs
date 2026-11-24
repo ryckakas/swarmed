@@ -129,6 +129,7 @@ impl SessionStatus {
             | AgentEvent::Reordered { .. }
             | AgentEvent::TreeChanged
             | AgentEvent::AccountUsage { .. }
+            | AgentEvent::Setup { .. }
             | AgentEvent::Background { .. }
             | AgentEvent::View { .. }
             | AgentEvent::Queue { .. }
@@ -213,6 +214,9 @@ pub struct Session {
     pub fast: bool,
     /// The mark an agent or the user put on it, if any.
     pub mark: Option<Mark>,
+    /// Whether the message it was made with waits for its task's setup: it goes once that
+    /// finishes well, or when the user sends it anyway.
+    pub waits_for_setup: bool,
 }
 
 /// What can be changed about a session after it was created.
@@ -245,8 +249,8 @@ pub struct SessionOptions {
     pub fast: bool,
 }
 
-const SESSION_SELECT: &str = "SELECT id, task_id, title, agent_session_id, model, supervision, status, agent, effort, unread, spawned_by, fast, mark_colour, mark_label \
-     FROM sessions";
+const SESSION_SELECT: &str = "SELECT id, task_id, title, agent_session_id, model, supervision, status, agent, effort, unread, spawned_by, fast, mark_colour, mark_label, \
+     setup_prompt IS NOT NULL FROM sessions";
 
 fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
     Ok(Session {
@@ -274,6 +278,7 @@ fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
                 })
             })
             .transpose()?,
+        waits_for_setup: row.get(14)?,
     })
 }
 
@@ -310,7 +315,31 @@ impl Store {
             spawned_by: None,
             fast: options.fast,
             mark: None,
+            waits_for_setup: false,
         })
+    }
+
+    /// Keeps `prompt` as the message session `id` waits to send until its task is set up, or
+    /// with `None` forgets it: it went, or the user took it out.
+    pub(crate) fn session_keep_setup_prompt(&self, id: i64, prompt: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions SET setup_prompt = ?2 WHERE id = ?1",
+            params![id, prompt],
+        )?;
+        Ok(())
+    }
+
+    /// The message session `id` keeps waiting for its task's setup, if any.
+    pub(crate) fn session_setup_prompt(&self, id: i64) -> Result<Option<String>> {
+        let prompt = self
+            .conn
+            .query_row(
+                "SELECT setup_prompt FROM sessions WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(prompt.flatten())
     }
 
     pub(crate) fn session_by_id(&self, id: i64) -> Result<Session> {
@@ -767,6 +796,32 @@ impl Core {
             self.agents_now().backend(agent)?;
         }
         self.store().session_insert(task.id, options)
+    }
+
+    /// Makes a session in `task` whose first message is `prompt`, before it is sent: called
+    /// by the title in `options`, or after the start of the prompt until something names it
+    /// better, as a session is after its first message.
+    pub(crate) fn session_for_prompt(
+        &self,
+        task: &Task,
+        options: &SessionOptions,
+        prompt: &str,
+    ) -> Result<Session> {
+        let given = options
+            .title
+            .as_deref()
+            .map(|title| shortened(title, MAX_TITLE_CHARS))
+            .filter(|title| !title.is_empty());
+        let named = given.is_some();
+        let options = SessionOptions {
+            title: Some(given.unwrap_or_else(|| title_from(prompt))),
+            ..options.clone()
+        };
+        let session = self.store().session_insert(task.id, &options)?;
+        if !named {
+            self.name_later(session.id, prompt);
+        }
+        Ok(session)
     }
 
     /// A task's sessions, oldest first.
@@ -1591,6 +1646,7 @@ fn shown_only(event: &AgentEvent) -> bool {
             | AgentEvent::Reordered { .. }
             | AgentEvent::TreeChanged
             | AgentEvent::AccountUsage { .. }
+            | AgentEvent::Setup { .. }
     )
 }
 
@@ -1666,7 +1722,7 @@ pub(crate) struct Live {
     /// in the locks it holds, so that another does not show the same ones.
     pub(crate) shows_notices: AtomicBool,
     runs: AtomicU64,
-    bus: broadcast::Sender<SessionEvent>,
+    pub(crate) bus: broadcast::Sender<SessionEvent>,
 }
 
 impl Default for Live {
@@ -2470,7 +2526,7 @@ fn end_turn(shared: &Shared, id: i64, finished: bool) {
         restart(shared, id, sends);
     }
     if sends {
-        queue::send_next(&shared.outbox(), id).ok();
+        queue::send_next_by_itself(&shared.outbox(), id).ok();
     }
 }
 

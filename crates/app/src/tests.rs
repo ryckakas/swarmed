@@ -431,6 +431,64 @@ fn the_ui_can_deny_interrupt_and_remove() {
 }
 
 #[test]
+fn the_ui_can_start_a_task_from_a_prompt_and_act_on_its_setup() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    // A setup that fails until the worktree has a file called `go`.
+    let config = app.data_dir().join("projects").join("demo.toml");
+    std::fs::write(&config, "[hooks]\nsetup = \"echo checking; test -f go\"\n").expect("config");
+    let start = json!({
+        "branch": null, "environment": null, "agent": null,
+        "how": { "model": null, "supervision": "auto", "effort": null, "fast": false },
+        "title": "Fix the login", "prompt": "fix the login", "files": [],
+    });
+    let started = app.ok(
+        "task_start",
+        json!({ "project": "demo", "name": "login", "start": start }),
+    );
+    let (task, session) = (&started["task"], &started["session"]);
+    assert_eq!(task["name"], "login");
+    assert_eq!(session["title"], "Fix the login");
+    let target = json!({ "project": "demo", "name": "login" });
+    let deadline = Instant::now() + WAIT_LIMIT;
+    while app.ok("overview", json!({}))[0]["tasks"][0]["setup"] != "failed" {
+        assert!(Instant::now() < deadline, "the setup never failed");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let failed = app.ok("overview", json!({}))[0]["tasks"][0].clone();
+    assert!(
+        failed["setup_reason"]
+            .as_str()
+            .is_some_and(|why| why.contains("exited with status 1"))
+    );
+    assert_eq!(failed["setting_up"], json!(null));
+    assert_eq!(failed["sessions"][0]["waits_for_setup"], true);
+    let log = app.ok("task_setup_log", target.clone());
+    assert!(
+        log["text"]
+            .as_str()
+            .is_some_and(|text| text.starts_with("checking\n"))
+    );
+    // Nothing runs to be stopped.
+    app.ok("task_setup_stop", target.clone());
+
+    // Set up again, it finishes well and sends what waited.
+    let worktree = Path::new(task["worktree_path"].as_str().expect("a path"));
+    std::fs::write(worktree.join("go"), "").expect("writes");
+    assert_eq!(app.ok("task_setup", target.clone())["setup"], "ok");
+    let id = &session["id"];
+    let sent = app.wait_for_event(id, "user_message");
+    assert_eq!(sent["text"], "fix the login");
+    let nothing = app
+        .invoke("task_start_anyway", target)
+        .expect_err("nothing waits");
+    assert_eq!(
+        nothing,
+        json!("nothing of `login`'s sessions waits for its setup")
+    );
+}
+
+#[test]
 fn the_ui_can_commit_a_tasks_work_and_is_told_what_cannot_be_published() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));

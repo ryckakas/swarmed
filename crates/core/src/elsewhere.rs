@@ -505,7 +505,7 @@ fn run_lock(paths: &Paths, id: i64) -> PathBuf {
 
 /// Whether another holds the lock at `path`. Looking takes it for a moment, shared, if nobody
 /// does.
-fn held_elsewhere(path: &Path) -> bool {
+pub(crate) fn held_elsewhere(path: &Path) -> bool {
     let Ok(file) = File::open(path) else {
         return false;
     };

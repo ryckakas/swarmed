@@ -19,6 +19,10 @@ pub struct ProjectConfig {
     /// How many stacks of this project may run at once. Starting one more is refused. An
     /// environment may set its own, for the stacks of its tasks.
     pub max_stacks: u32,
+    /// How many of this project's tasks may run their `setup` at once in one Swarmed; those
+    /// over it wait for a place, and say so. 0, the default, is no limit. An environment may
+    /// set its own, for the setups of its tasks.
+    pub max_setups: u32,
     /// A task's port is `base + slot * port_step`; slot 0 is left to the main checkout.
     pub port_step: u16,
     /// Named base ports, available to hooks as `{{port.<name>}}`.
@@ -61,6 +65,7 @@ impl Default for ProjectConfig {
             branch_pattern: DEFAULT_BRANCH_PATTERN.to_string(),
             base_branch: String::new(),
             max_stacks: 5,
+            max_setups: 0,
             port_step: 100,
             ports: BTreeMap::new(),
             open_url: String::new(),
@@ -87,6 +92,7 @@ const TEMPLATE: &str = r#"# Swarmed project config. This file is local to this m
 # branch_pattern = "{{prefix}}/{{task}}"   # default: the branch prefix, a slash, the task
 # base_branch = "origin/main"   # default: the remote's default branch
 max_stacks = 5
+# max_setups = 2                # tasks set up at once; the others wait. Default: no limit
 port_step = 100                 # task port = base + slot * port_step
 # open_url = "http://localhost:{{port.web}}"   # what "Open in browser" opens for a task;
 #                                              # without it, the local addresses `start` prints

@@ -8,13 +8,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
+use crate::agent::Auth;
 use crate::chats::CHATS;
 use crate::config::ProjectConfig;
 use crate::environments::EnvironmentChoice;
 use crate::error::{Error, Result};
 use crate::hooks::OutputSink;
 use crate::paths::Paths;
-use crate::setups::{Setup, SetupRun, SetupStop};
+use crate::sessions::is_busy_status;
+use crate::setups::{self, Setup, SetupRun, SetupStep, SetupStop};
 use crate::stacks::HOOK_LIMIT;
 use crate::store::{NewTask, Project, SetupStatus, Task};
 use crate::vars::{Vars, env_name};
@@ -34,6 +36,14 @@ pub struct NewTaskOptions<'a> {
     /// here nor on a remote, and whose folder is free. Without it, a name that is taken is
     /// refused, as one the user chose is. The task returned has the name taken.
     pub free_name: bool,
+}
+
+/// A task just written down, with what setting it up needs.
+pub(crate) struct Made {
+    pub(crate) project: Project,
+    pub(crate) config: ProjectConfig,
+    pub(crate) environment: Option<String>,
+    pub(crate) task: Task,
 }
 
 /// What a new task in a project can start from.
@@ -109,12 +119,28 @@ impl Core {
         if project == CHATS {
             return self.chat_new(name, &options).await;
         }
+        let made = self.task_made(project, name, &options, sink).await?;
+        // From here on a removal stops the setup on purpose, rather than finding its hook among
+        // what runs in the worktree and killing it.
+        let run = self.setup_begin(&made.task)?;
+        self.set_up_made(made, &run, None, sink).await
+    }
+
+    /// Makes a task in a repository and writes it down: fetches, makes its branch and its
+    /// worktree, and gives it a slot. Setting it up is left to the caller.
+    pub(crate) async fn task_made(
+        &self,
+        project: &str,
+        name: &str,
+        options: &NewTaskOptions<'_>,
+        sink: OutputSink<'_>,
+    ) -> Result<Made> {
         let project = self.project(project)?;
         let environment = self.environment_chosen(&project.name, &options.environment)?;
-        let environment = environment.as_deref();
-        let config = self.config_in(&project.name, environment)?;
+        let config = self.config_in(&project.name, environment.as_deref())?;
         let repo = project.repo()?;
 
+        sink("fetching");
         git::fetch(repo).await?;
         // A brand new repository has nothing to branch from until it has a commit.
         git::ensure_first_commit(repo).await?;
@@ -127,7 +153,7 @@ impl Core {
         // After the fetch, so that a branch just pushed from elsewhere counts too.
         // Claimed until the task is written down, which then takes the name.
         let claim = self
-            .name_for_task(&project, name, &pattern, &options)
+            .name_for_task(&project, name, &pattern, options)
             .await?;
         let name = &claim.name;
         let worktree = self.paths.worktree(&project.name, name);
@@ -138,6 +164,7 @@ impl Core {
             Some(branch) => branch.to_string(),
             None => pattern.branch(name)?,
         };
+        sink(&format!("making the worktree, on {branch}"));
         add_worktree(
             repo,
             &worktree,
@@ -153,7 +180,7 @@ impl Core {
             base_ref: &base,
             worktree_path: &worktree,
             slot: 0,
-            environment,
+            environment: environment.as_deref(),
             branch_made: options.existing_branch.is_none(),
         };
         let task = match self.insert_in_free_slot(new) {
@@ -166,23 +193,53 @@ impl Core {
             }
         };
         drop(claim);
-        // From here on a removal stops the setup on purpose, rather than finding its hook among
-        // what runs in the worktree and killing it.
-        let run = self.setup_begin(&task)?;
+        Ok(Made {
+            project,
+            config,
+            environment,
+            task,
+        })
+    }
+
+    /// Sets up a task just written down: puts the snapshot of its environment in place, then
+    /// runs `setup` and what follows it, as [`Core::task_setup`] does with `send`.
+    pub(crate) async fn set_up_made(
+        &self,
+        made: Made,
+        run: &SetupRun,
+        send: Option<Auth>,
+        sink: OutputSink<'_>,
+    ) -> Result<Task> {
+        let setup = &run.setup;
+        let said = |line: &str| {
+            setup.say(line);
+            sink(line);
+        };
+        let Made {
+            project,
+            config,
+            environment,
+            task,
+        } = made;
         // What an earlier task's setup produced, so that this one's has less to do. Not
         // having it is no reason to fail: setup then does all the work, as it always could.
         let seeded = self
-            .seed_from_snapshot(&project.name, environment, &worktree, sink)
+            .seed_from_snapshot(
+                &project.name,
+                environment.as_deref(),
+                &task.worktree_path,
+                &said,
+            )
             .await;
         match seeded {
-            Ok(Some(took)) => sink(&format!(
+            Ok(Some(took)) => said(&format!(
                 "started from the snapshot of this environment (copied in {})",
                 crate::snapshots::seconds(took)
             )),
             Ok(None) => {}
-            Err(error) => sink(&format!("the snapshot could not be used: {error}")),
+            Err(error) => said(&format!("the snapshot could not be used: {error}")),
         }
-        self.run_setup(&project, &config, task, (true, &run), sink)
+        self.run_setup(&project, &config, task, (true, run), send, sink)
             .await
     }
 
@@ -195,11 +252,16 @@ impl Core {
     }
 
     /// Runs the `setup` hook again, for a task whose setup failed or whose hook changed.
-    /// Refused while the task's setup runs already.
+    /// Refused while the task's setup runs already, here or in another Swarmed.
+    ///
+    /// With `send`, the messages the task's sessions wait to send until it is set up go once
+    /// it finishes well, their agents started with `send`: the message a task was started with
+    /// ([`Core::task_start`]), and what was queued meanwhile. Without, they stay waiting.
     pub async fn task_setup(
         &self,
         project: &str,
         name: &str,
+        send: Option<Auth>,
         sink: OutputSink<'_>,
     ) -> Result<Task> {
         let (project, task) = self.repo_task(project, name)?;
@@ -207,38 +269,76 @@ impl Core {
         // A task set up well before has been lived in since: its stack's logs and caches lie
         // beside what setup made, so it is not what new tasks should start from.
         let fresh = task.setup != SetupStatus::Ok;
+        if self.setup_runs_elsewhere(&task) {
+            return Err(Error::SetupRunning(task.name));
+        }
+        // What a restart took out of the queues, so that the setup holds it and sends it.
+        for session in self.store().sessions(task.id)? {
+            self.queue_kept_again(session.id)?;
+        }
         let run = self.setup_begin(&task)?;
-        self.run_setup(&project, &config, task, (fresh, &run), sink)
+        self.run_setup(&project, &config, task, (fresh, &run), send, sink)
             .await
     }
 
-    /// Runs the task's `setup` and what follows it. `fresh` for a task never set up well
-    /// before, which is one a first snapshot can be of; `run` is the task's place among the
-    /// running setups, through which a removal or quitting stops it.
+    /// Runs the task's `setup` and what follows it, then says how it ended: in its log, to
+    /// front ends and in the database. `fresh` for a task never set up well before, which is
+    /// one a first snapshot can be of; `run` is the task's place among the running setups,
+    /// through which a removal, the user or quitting stops it. With `send`, the messages its
+    /// sessions wait to send go once it finishes well.
     async fn run_setup(
         &self,
         project: &Project,
         config: &ProjectConfig,
-        mut task: Task,
-        (fresh, run): (bool, &SetupRun<'_>),
+        task: Task,
+        (fresh, run): (bool, &SetupRun),
+        send: Option<Auth>,
         sink: OutputSink<'_>,
     ) -> Result<Task> {
         let setup = &run.setup;
+        let said = |line: &str| {
+            setup.say(line);
+            sink(line);
+        };
+        let result = self
+            .setup_steps(project, config, task, (fresh, setup), &said)
+            .await;
+        if let (Ok(task), Some(auth)) = (&result, send) {
+            self.send_waiting(task, &auth, &said);
+        }
+        setup.end(setups::setup_end(&result));
+        result
+    }
+
+    /// The steps of a setup: its hook, once a place is free for it; the first snapshot of its
+    /// environment, if it is one; and its stack.
+    async fn setup_steps(
+        &self,
+        project: &Project,
+        config: &ProjectConfig,
+        mut task: Task,
+        (fresh, setup): (bool, &Setup),
+        sink: OutputSink<'_>,
+    ) -> Result<Task> {
         let result = self.setup_hook(setup, project, config, &task, sink).await;
         // Stopped while it ran, the hook ended because it was told to: no failure of its own.
         if let Some(why) = setup.interrupted() {
             return self.setup_stopped(task, why);
         }
+        let reason = result.as_ref().err().map(setups::failure_said);
         task.setup = if result.is_ok() {
             SetupStatus::Ok
         } else {
             SetupStatus::Failed
         };
-        self.store().task_set_setup(task.id, task.setup)?;
+        task.setup_reason.clone_from(&reason);
+        self.store()
+            .task_set_setup_said(task.id, task.setup, reason.as_deref())?;
         // The first task set up well in its environment is what the next ones start from: kept
         // before its stack starts writing logs and caches beside what setup made. Not keeping
         // it is said, and costs the task nothing.
         if result.is_ok() && fresh && setup.stopped().is_none() {
+            setup.step_to(SetupStep::Keeping);
             self.keep_first_snapshot(project, &task, sink).await;
         }
         // A removal that came meanwhile takes the task: nothing more is started in it.
@@ -251,8 +351,10 @@ impl Core {
         // Set up, so what the task keeps running can be started, unless Swarmed is on its way
         // out. That failing does not make the task unusable: it is said, and the stack can be
         // started again later.
-        let started = (result.is_ok() && setup.stopped().is_none())
-            .then(|| self.start_stack(project, config, &task));
+        let started = (result.is_ok() && setup.stopped().is_none()).then(|| {
+            setup.step_to(SetupStep::Stack);
+            self.start_stack(project, config, &task)
+        });
         if let Some(Err(error)) = started {
             sink(&format!("the stack could not be started: {error}"));
         }
@@ -260,7 +362,8 @@ impl Core {
     }
 
     /// Runs the `setup` hook in a process group of its own, which a stop ends with everything
-    /// it started. One stopped before it began is not begun.
+    /// it started, once a place is free for it among the project's setups. One stopped before
+    /// it began is not begun.
     async fn setup_hook(
         &self,
         setup: &Setup,
@@ -269,6 +372,7 @@ impl Core {
         task: &Task,
         sink: OutputSink<'_>,
     ) -> Result<()> {
+        self.setup_place(setup, config.max_setups).await;
         // An empty hook is no command, and is not run.
         let ran = match self.hook_command(&config.hooks.setup, project, config, task) {
             _ if setup.stopped().is_some() => Ok(()),
@@ -279,20 +383,49 @@ impl Core {
             }
             Err(error) => Err(error),
         };
-        setup.hook_ended();
+        self.setup_hook_over(setup);
         ran
     }
 
     /// What a setup stopped while it ran comes to. Stopped by asking, the task is not set up,
     /// and setup can be run again; a removal takes the task, and leaves it as it was.
     fn setup_stopped(&self, task: Task, why: SetupStop) -> Result<Task> {
-        if why == SetupStop::Asked {
-            self.store().task_set_setup(task.id, SetupStatus::Failed)?;
+        if why != SetupStop::Removed {
+            self.store()
+                .task_set_setup_said(task.id, SetupStatus::Failed, Some(why.reason()))?;
         }
         Err(Error::SetupStopped {
             task: task.name,
             why,
         })
+    }
+
+    /// Sends what the task's sessions waited to send until it was set up, starting their
+    /// agents with `auth`. A message that cannot be sent is said, and stays waiting. One whose
+    /// agent is in a turn is left to that turn's end, as any queue is: never sent into a busy
+    /// agent.
+    fn send_waiting(&self, task: &Task, auth: &Auth, sink: OutputSink<'_>) {
+        let held = self.live.queues.held_of(task.id);
+        // From here on their queues go as any do, also for a turn that ends before the last
+        // of them is sent.
+        self.live.queues.release_for_setup(task.id);
+        let idle = |id: &i64| {
+            self.session(*id)
+                .is_ok_and(|session| !is_busy_status(session.status))
+        };
+        let waiting = held
+            .into_iter()
+            .filter(|id| self.live.queues.is_waiting(*id))
+            .filter(idle);
+        let unsent = waiting.filter_map(|id| {
+            let sent = self.session_resume_queue(id, auth.clone());
+            sent.err().map(|error| (id, error))
+        });
+        for (id, error) in unsent {
+            sink(&format!(
+                "what session {id} waited to send could not be sent: {error}"
+            ));
+        }
     }
 
     /// Removes a task: stops its agents, its setup if that is under way, and its stack, runs
@@ -344,6 +477,7 @@ impl Core {
         }
         self.store().task_archive(task.id)?;
         self.forget_note(&project.name, &task.name)?;
+        self.forget_setup_files(task.id);
         self.sessions_forgotten(task.id)?;
         if options.delete_branch && git::local_branch_exists(repo, &task.branch).await {
             notes.extend(delete_branch_if_safe(repo, &task).await);

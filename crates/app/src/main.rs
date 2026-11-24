@@ -195,6 +195,8 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::project_move, commands::task_move, commands::session_move,
         commands::cloud_task_move,
         commands::branch_choices, commands::task_name_for, commands::task_new,
+        commands::task_start, commands::task_setup, commands::task_setup_stop,
+        commands::task_start_anyway, commands::task_setup_log,
         commands::environments, commands::templates, commands::template_save,
         commands::template_remove, commands::actions, commands::action_save,
         commands::action_remove, commands::action_move, commands::session_mark, commands::config_answer,

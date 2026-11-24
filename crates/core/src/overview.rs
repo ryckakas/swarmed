@@ -6,6 +6,7 @@ use crate::Core;
 use crate::cloud::CloudTask;
 use crate::error::Result;
 use crate::sessions::Session;
+use crate::setups::SettingUp;
 use crate::stacks::StackState;
 use crate::store::{Project, Task};
 
@@ -44,6 +45,9 @@ pub struct TaskOverview {
     pub closed: usize,
     /// How far along the task's stack is; `None` if its project has no `start` command.
     pub stack: Option<StackState>,
+    /// How its setup stands while it is not over: set up here, by another Swarmed, or cut
+    /// short. `None` once it is over, well or not.
+    pub setting_up: Option<SettingUp>,
 }
 
 impl Core {
@@ -79,6 +83,7 @@ impl Core {
                 has_note: false,
                 closed: closed.get(&task.id).copied().unwrap_or(0),
                 stack: None,
+                setting_up: self.setting_up(&task),
                 task,
             }
         };
