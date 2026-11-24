@@ -1,6 +1,8 @@
 import { type ClipboardEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { QueuedMessage } from "../api/types";
+import { editFor } from "../editing";
+import { expandTokens, forgetTokens, nothingWritten, tokensAgain, withToken } from "../pastes";
 import { editingAfter, queueHeading } from "../queue";
 import { type Draft, filesWith } from "../sending";
 import { useStore } from "../store";
@@ -143,6 +145,8 @@ function QueuedRow(props: RowProps) {
     useHold(sessionId, message.id, open);
     const said = splitFiles(message.text);
     if (draft === null) {
+        // Shown as it was typed: its pastes and quotes as tokens, not in full.
+        const shown = tokensAgain(said.text, nothingWritten());
         return (
             <div className="queue-row">
                 <div className="queue-said">
@@ -151,11 +155,12 @@ function QueuedRow(props: RowProps) {
                         className="queue-text"
                         title="Edit this message"
                         onClick={() => {
-                            setDraft({ ...said, images: [] });
+                            // Its pastes and quotes behind tokens again, sent in full once saved.
+                            setDraft({ ...said, text: tokensAgain(said.text), images: [] });
                             onEditing(true);
                         }}
                     >
-                        {said.text || "Files only"}
+                        {shown || "Files only"}
                     </button>
                     <FileChips files={said.files} sessionId={sessionId} />
                 </div>
@@ -228,7 +233,10 @@ function QueueEdit({ sessionId, draft, onChange, onDone, onCancel }: EditProps) 
         }
         finishing.current = true;
         filesWith(api, sessionId, draft)
-            .then((files) => onDone(withFiles(draft.text, files)))
+            .then((files) => {
+                onDone(withFiles(expandTokens(draft.text), files));
+                forgetTokens(draft.text);
+            })
             .catch((error: unknown) => {
                 // Left open, to try again or give up.
                 finishing.current = false;
@@ -236,6 +244,9 @@ function QueueEdit({ sessionId, draft, onChange, onDone, onCancel }: EditProps) 
             });
     };
     const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+        if (removedToken(event, draft.text, (text) => onChange({ ...draft, text }))) {
+            return;
+        }
         if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
             event.preventDefault();
             finish();
@@ -243,6 +254,7 @@ function QueueEdit({ sessionId, draft, onChange, onDone, onCancel }: EditProps) 
             // Only the edit is given up: the agent is not stopped from in here.
             event.stopPropagation();
             finishing.current = true;
+            forgetTokens(draft.text);
             onCancel();
         }
     };
@@ -279,6 +291,27 @@ function QueueEdit({ sessionId, draft, onChange, onDone, onCancel }: EditProps) 
             />
         </div>
     );
+}
+
+/**
+ * Takes a paste's or a quote's token out whole, for Backspace right after it or Delete right
+ * before it, as the message box does. Says whether the key did that.
+ */
+function removedToken(
+    event: KeyboardEvent<HTMLTextAreaElement>,
+    text: string,
+    onText: (text: string) => void,
+): boolean {
+    const box = event.currentTarget;
+    const edit = editFor(event, text, box.selectionStart, box.selectionEnd);
+    if (edit?.kind !== "remove") {
+        return false;
+    }
+    event.preventDefault();
+    const changed = withToken(text, edit.start, edit.end, "");
+    onText(changed.value);
+    requestAnimationFrame(() => box.setSelectionRange(changed.caret, changed.caret));
+    return true;
 }
 
 /**

@@ -807,6 +807,14 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   them. Where it stands is in the store (`recalls`), since it holds what was typed before ↑,
   and goes with the session as its draft does. The command list and a question that has the
   keyboard take the arrows first.
+- **A large paste and a quote of a reply stand in the message box as tokens** (`pastes.ts`,
+  `quotes.ts`, #379), all in the UI: the core sends the text as typed. What a token stands for
+  is in the window's memory until its message goes, and the draft holds only the token. Sent, it
+  gives way to its text in numbered tags (`<pasted_text_N>`, `<quoted_reply_N>`), which
+  `messageParts` finds again for the transcript, and a message brought back (↑, or a waiting one
+  opened to edit) has them as tokens again (`tokensAgain`). Only the agent's own replies in the
+  session's transcript are quoted from (`data-quote-into`): not the user's messages, nor a
+  sub-agent's pane, whose words are not in the agent's conversation.
 - **The status line** under the message box is drawn by the UI from built-in pieces
   (`ui/src/statusline.ts`) chosen in the settings. A `status_command` replaces them: the core
   runs it (`statusline.rs`) with the session as JSON on standard input and shows its first line.

@@ -139,6 +139,24 @@ describe("browse", () => {
         expect(browse(null, "older", draft(""), () => [])).toBeNull();
     });
 
+    it("shows each message as typed again, and keeps it so", () => {
+        const sent = () => [draft("<b>newest</b>"), draft("<b>oldest</b>")];
+        let made = 0;
+        const typedAgain = (message: Draft) => {
+            made += 1;
+            return { ...message, text: message.text.replaceAll(/<\/?b>/g, "") };
+        };
+        const one = browse(null, "older", draft(""), sent, typedAgain);
+        expect(one?.shown).toEqual(draft("newest"));
+        const two = browse(one, "older", draft("newest"), sent, typedAgain);
+        expect(two?.shown).toEqual(draft("oldest"));
+        const back = browse(two, "newer", draft("oldest"), sent, typedAgain);
+        expect(back?.shown).toEqual(draft("newest"));
+        // Shown again, the newest is made from what it was made into the first time.
+        expect(made).toBe(3);
+        expect(back?.sent).toEqual([draft("newest"), draft("oldest")]);
+    });
+
     it("works the list out only when going back starts", () => {
         let made = 0;
         const sent = () => {

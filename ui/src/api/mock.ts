@@ -1238,6 +1238,16 @@ export function sampleEvents(sessionId: number): AgentEvent[] {
                 text: "A monad is a way to chain steps that each wrap their result in some context (maybe missing, maybe a list, maybe later), without unwrapping it by hand at every step.",
             },
             { type: "turn_done", is_error: false, result: null, cost_usd: 0.01, duration_ms: 4200 },
+            // A part of the reply quoted back, with a question about it.
+            {
+                type: "user_message",
+                text: "<quoted_reply_1>\nwithout unwrapping it by hand at every step\n</quoted_reply_1>\nWhat does unwrapping by hand look like?",
+            },
+            {
+                type: "text",
+                text: "Checking after every call whether there is a value at all, and only then going on: `if user is None: return None`, then the same for the address, then for the street. The monad does that check once, between every two steps.",
+            },
+            { type: "turn_done", is_error: false, result: null, cost_usd: 0.02, duration_ms: 3100 },
         ];
     }
     if (sessionId === 5) {

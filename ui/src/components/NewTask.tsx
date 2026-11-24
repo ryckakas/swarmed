@@ -25,7 +25,7 @@ import {
     environmentShown,
     OWN_SETUP,
 } from "../environments";
-import { expandPastes, forgetPastes } from "../pastes";
+import { expandTokens, forgetTokens } from "../pastes";
 import { removedWhileSetUp } from "../removal";
 import { NO_DRAFT } from "../sending";
 import { sentOn } from "../slash";
@@ -128,7 +128,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 branch: from,
                 environment: environmentChoice(environments.names, environment),
                 setup: setupFor(agentId, model, supervision, effort, fast),
-                prompt: expandPastes(prompt.trim()),
+                prompt: expandTokens(prompt.trim()),
                 files,
                 // Kept by the core as the session's own, once there is a session.
                 images: images.map((image) => image.data),
@@ -139,7 +139,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
             editNewTaskDraft(start.project, NO_DRAFT);
             noteCreating(home, null);
             await startVariants(start, variants, taken, { supervision, effort });
-            forgetPastes(prompt);
+            forgetTokens(prompt);
         } catch (error) {
             reportStartFailed(error);
             await useStore.getState().refresh(api);

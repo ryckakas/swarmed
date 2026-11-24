@@ -25,6 +25,7 @@ describe("matchHotkey", () => {
         expect(matchHotkey(press("3", ["cmd"]))).toBe("session-3");
         expect(matchHotkey(press("ArrowUp", ["cmd", "alt"]))).toBe("move-up");
         expect(matchHotkey(press("ArrowDown", ["cmd", "alt"]))).toBe("move-down");
+        expect(matchHotkey(press("L", ["cmd", "shift"]))).toBe("quote");
         // Plain arrows stay with the sidebar, which moves the focus between its rows.
         expect(matchHotkey(press("ArrowUp"))).toBeNull();
     });

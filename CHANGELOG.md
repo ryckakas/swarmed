@@ -24,6 +24,13 @@ notice adds its line under Unreleased.
   images, which open in Preview when pressed. PNG, JPEG, GIF and WebP up to 20 MB can be
   pasted; anything else, such as TIFF, is refused with the reason. The images are deleted with
   the session, and a fork gets copies of its own.
+- **Quote part of an agent's reply into your message, and write what you make of it under the
+  quote.** Select words in one reply and press **Quote** beside them, or ⌘⇧L. The quote stands
+  in the message box as one token, `[Quote #1: "the first words…"]`, which Backspace and Delete
+  take out whole; a message can hold several. The agent is sent the quoted words in numbered
+  tags, with your words after them, and the transcript shows them as a quote. A message brought
+  back with ↑, or a waiting message opened to edit, has its quotes and large pastes as tokens
+  again, no longer pasted out in full.
 
 ### Fixed
 

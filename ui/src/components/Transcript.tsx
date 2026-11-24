@@ -2,7 +2,7 @@ import { memo, useMemo, useRef, useState } from "react";
 import { forkFromMessage } from "../actions";
 import { api } from "../api";
 import type { AgentEvent } from "../api/types";
-import { messageParts } from "../pastes";
+import { type MessagePart, messageParts } from "../pastes";
 import { screenHtml } from "../screens";
 import { useStore } from "../store";
 import {
@@ -29,6 +29,7 @@ import { HtmlView } from "./HtmlView";
 import { Markdown } from "./Markdown";
 import { PermissionPrompt } from "./PermissionPrompt";
 import { QuestionPrompt } from "./QuestionPrompt";
+import { QuoteButton } from "./QuoteButton";
 import { Spawning, Swarming } from "./Spawning";
 import { ToolCall, ToolRun } from "./ToolCall";
 
@@ -44,9 +45,15 @@ interface Props {
      * its calls then offer while it works.
      */
     sendsToBackground: boolean;
+    /**
+     * Whether words of the agent's replies can be quoted into the session's message box: in
+     * the session's own transcript, not in a sub-agent's.
+     */
+    quotable?: boolean;
 }
 
-export function Transcript({ sessionId, place, events, working, sendsToBackground }: Props) {
+export function Transcript(props: Props) {
+    const { sessionId, place, events, working, sendsToBackground, quotable = false } = props;
     const words = useWords();
     const toolCalls = useStore((state) => state.settings?.tool_calls ?? "folded");
     const turnEnds = useStore((state) => state.settings?.turn_end_lines ?? true);
@@ -57,16 +64,25 @@ export function Transcript({ sessionId, place, events, working, sendsToBackgroun
     const lastMove = useMemo(() => latestMove(items), [items]);
     const sendsFrom = working && sendsToBackground ? sessionId : null;
     const scroller = useRef<HTMLDivElement>(null);
+    const frame = useRef<HTMLDivElement>(null);
     // The latest message stays in view, unless the user scrolled up to read something; and a
     // transcript opened again comes back to where it was left.
     const { atEnd, toLatest, onScroll } = useScrollSpot(scroller, sessionId, place);
 
     return (
-        <div className="transcript-frame">
+        <div className="transcript-frame" ref={frame}>
             <div className="transcript" ref={scroller} onScroll={onScroll}>
                 <ol className="items">
                     {items.map((item) => (
-                        <li key={item.key} data-key={item.key} className={`item item-${item.kind}`}>
+                        <li
+                            key={item.key}
+                            data-key={item.key}
+                            className={`item item-${item.kind}`}
+                            // Only the agent's own replies are quoted from (`QUOTE_INTO`).
+                            data-quote-into={
+                                quotable && item.kind === "text" ? sessionId : undefined
+                            }
+                        >
                             <ItemView
                                 item={item}
                                 sessionId={sessionId}
@@ -89,6 +105,7 @@ export function Transcript({ sessionId, place, events, working, sendsToBackgroun
                 </ol>
             </div>
             {!atEnd && <ToLatest onPress={toLatest} />}
+            {quotable && <QuoteButton frame={frame} scroller={scroller} />}
         </div>
     );
 }
@@ -116,24 +133,31 @@ function ToLatest({ onPress }: { onPress: () => void }) {
 }
 
 /**
- * What the user wrote, with anything they pasted large folded away under a line that says how
- * much there is of it.
+ * What the user wrote: words they quoted from a reply as a quote, with what they wrote about
+ * them around it, and anything they pasted large folded away under a line that says how much
+ * there is of it.
  */
 function Said({ text }: { text: string }) {
-    return messageParts(text).map((part, index) =>
-        part.kind === "text" ? (
-            // biome-ignore lint/suspicious/noArrayIndexKey: the parts of a sent message never change
-            <span key={index}>{part.text}</span>
-        ) : (
-            // biome-ignore lint/suspicious/noArrayIndexKey: the parts of a sent message never change
-            <details key={index} className="pasted">
-                <summary>
-                    Pasted text, {part.lines} {part.lines === 1 ? "line" : "lines"}
-                </summary>
-                <pre>{part.text}</pre>
-            </details>
-        ),
-    );
+    // biome-ignore lint/suspicious/noArrayIndexKey: the parts of a sent message never change
+    return messageParts(text).map((part, index) => <SaidPart key={index} part={part} />);
+}
+
+function SaidPart({ part }: { part: MessagePart }) {
+    switch (part.kind) {
+        case "text":
+            return <span>{part.text}</span>;
+        case "quote":
+            return <blockquote className="said-quote">{part.text}</blockquote>;
+        case "paste":
+            return (
+                <details className="pasted">
+                    <summary>
+                        Pasted text, {part.lines} {part.lines === 1 ? "line" : "lines"}
+                    </summary>
+                    <pre>{part.text}</pre>
+                </details>
+            );
+    }
 }
 
 interface ItemProps {

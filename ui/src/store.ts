@@ -227,6 +227,15 @@ interface State {
     /** Whether the terminal is shown in place of the message box. */
     terminalOpen: boolean;
     toggleTerminal(): void;
+    /**
+     * Words of one of the agent's replies waiting to be quoted into a session's message box,
+     * once that is on screen: the box puts the quote in at its caret.
+     */
+    quoteWaiting: { sessionId: number; text: string } | null;
+    /** Quotes `words` into the message box of `sessionId`, which takes the terminal's place. */
+    quoteReply(sessionId: number, words: string): void;
+    /** The words waiting to be quoted into session `sessionId`'s box, once: `null` if none. */
+    takeQuote(sessionId: number): string | null;
     /** A command waiting to be typed into a session's terminal, once that is on screen. */
     terminalCommand: { sessionId: number; text: string } | null;
     /**
@@ -720,8 +729,12 @@ async function kept<T>(save: () => Promise<T>, taken: (kept: T) => void) {
     }
 }
 
-/** The text of a waiting command meant for the terminal of `sessionId`, which `forget` then drops. */
-function taken(waiting: State["terminalCommand"], sessionId: number, forget: () => void) {
+/** The text of what waits for `sessionId` (a command, a quote), which `forget` then drops. */
+function taken(
+    waiting: { sessionId: number; text: string } | null,
+    sessionId: number,
+    forget: () => void,
+) {
     if (waiting === null || waiting.sessionId !== sessionId) {
         return null;
     }
@@ -846,6 +859,11 @@ export const useStore = create<State>((set, get) => ({
     },
     terminalOpen: false,
     toggleTerminal: () => set((state) => ({ terminalOpen: !state.terminalOpen })),
+    quoteWaiting: null,
+    quoteReply: (sessionId, words) =>
+        set({ terminalOpen: false, quoteWaiting: { sessionId, text: words } }),
+    takeQuote: (sessionId) =>
+        taken(get().quoteWaiting, sessionId, () => set({ quoteWaiting: null })),
     terminalCommand: null,
     runInTerminal: (sessionId, text) => {
         get().leaveClaudeTerminal(sessionId);

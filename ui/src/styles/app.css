@@ -2712,6 +2712,39 @@ code {
     user-select: text;
 }
 
+/* Words quoted from one of the agent's replies, with what the user wrote about them around it. */
+.said-quote {
+    margin: var(--space-1) 0;
+    padding: 0.1em 0 0.1em var(--space-3);
+    border-left: 3px solid var(--lilac);
+    color: var(--muted);
+}
+
+/* Beside words selected in one of the agent's replies: quotes them into the message box. */
+.quote-button {
+    position: absolute;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 2px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--text-xs);
+    box-shadow: 0 1px 4px color-mix(in srgb, var(--text) 22%, transparent);
+}
+
+.quote-button:hover {
+    border-color: var(--sky);
+}
+
+.quote-key {
+    color: var(--muted);
+}
+
 /* What another session left here: set like a message, but not in the user's own colour. */
 .said-peer {
     border-left-color: var(--lilac);

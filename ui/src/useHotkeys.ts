@@ -4,6 +4,7 @@ import { api } from "./api";
 import type { Project } from "./api/types";
 import { inSidebarOrder } from "./chats";
 import { afterPlan, CLAUDE } from "./components/options";
+import { quoteSelected } from "./components/QuoteButton";
 import { type HotkeyId, matchHotkey, stepThrough } from "./hotkeys";
 import { type ShortcutRequest, shortcutRequest } from "./pending";
 import { useStore } from "./store";
@@ -147,6 +148,7 @@ const ACTIONS: Partial<Record<HotkeyId, () => void>> = {
     "toggle-plan": togglePlan,
     allow: () => answer(true),
     deny: () => answer(false),
+    quote: () => void quoteSelected(),
     "toggle-panel": () => useStore.getState().togglePanel(),
     "open-editor": () => openTask("editor"),
     "open-browser": () => openTask("browser"),
