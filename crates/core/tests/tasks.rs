@@ -9,7 +9,7 @@ use common::{core_with_project, fixture, git, write_config};
 use swarmed_core::agent::{AgentEvent, Auth, FakeBackend};
 use swarmed_core::{
     Action, ChangeKind, Core, Environment, EnvironmentChoice, Error, NewTaskOptions, ProjectConfig,
-    RemoveOptions, SessionOptions, Settings, SetupStatus, StackState, hooks,
+    RemoveOptions, SessionOptions, Settings, SetupStatus, SetupStop, StackState, hooks,
 };
 
 #[tokio::test]
@@ -540,6 +540,112 @@ async fn remove_ends_what_still_runs_in_the_worktree() {
     stray.kill().ok();
     assert!(ended.is_some(), "the process in the worktree still runs");
     assert!(!task.worktree_path.exists());
+}
+
+#[tokio::test]
+async fn removing_a_task_while_it_is_set_up_stops_setup_on_purpose_with_all_it_started() {
+    let fx = fixture();
+    // What setup starts: one that ignores being asked to stop and ends four seconds on, as a
+    // tool that winds down its own does, and one working outside the worktree, where looking
+    // for what runs in the worktree does not find it.
+    write_config(
+        &fx,
+        "[hooks]\nsetup = \"(trap '' TERM; sleep 4) & echo $! > slow.pid; (cd / && exec sleep 300) & echo $! > outside.pid; wait\"\n",
+    );
+    let core = core_with_project(&fx).await;
+    let worktree = fx.paths.worktree("demo", "one");
+    let making = core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard);
+    let removing = async {
+        let started = [
+            written_soon(&worktree.join("slow.pid")).await,
+            written_soon(&worktree.join("outside.pid")).await,
+        ];
+        let options = RemoveOptions {
+            force: true,
+            delete_branch: false,
+        };
+        let removed = core
+            .task_remove("demo", "one", options, &hooks::discard)
+            .await;
+        (removed, started)
+    };
+    let (made, (removed, started)) = tokio::join!(making, removing);
+
+    // Said for what it was, not as a hook that failed.
+    assert!(
+        matches!(
+            made,
+            Err(Error::SetupStopped {
+                why: SetupStop::Removed,
+                ..
+            })
+        ),
+        "{made:?}"
+    );
+    assert_eq!(removed.expect("removes"), Vec::<String>::new());
+    for pid in started {
+        assert!(!process_alive(&pid), "process {pid} still runs");
+    }
+    assert_eq!(core.tasks("demo", false).expect("lists"), vec![]);
+    assert!(!worktree.exists());
+}
+
+#[tokio::test]
+async fn a_setup_stopped_when_swarmed_goes_leaves_the_task_to_be_set_up_again() {
+    let fx = fixture();
+    write_config(
+        &fx,
+        "[hooks]\nsetup = \"test -f done || { sleep 300 & echo $! > sleeping.pid; wait; }\"\n",
+    );
+    let core = core_with_project(&fx).await;
+    let worktree = fx.paths.worktree("demo", "one");
+    let making = core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard);
+    let stopping = async {
+        let sleeping = written_soon(&worktree.join("sleeping.pid")).await;
+        core.setups_stop_all().await;
+        sleeping
+    };
+    let (made, sleeping) = tokio::join!(making, stopping);
+
+    assert!(
+        matches!(
+            made,
+            Err(Error::SetupStopped {
+                why: SetupStop::Asked,
+                ..
+            })
+        ),
+        "{made:?}"
+    );
+    assert!(!process_alive(&sleeping), "process {sleeping} still runs");
+    let (_, task) = core.task("demo", "one").expect("the task stays");
+    assert_eq!(task.setup, SetupStatus::Failed);
+    // A setup begun after that is stopped before it starts: Swarmed is on its way out.
+    let again = core.task_setup("demo", "one", &hooks::discard).await;
+    assert!(
+        matches!(again, Err(Error::SetupStopped { .. })),
+        "{again:?}"
+    );
+    std::fs::write(worktree.join("done"), "").expect("test setup");
+    let core = Core::open(fx.paths.clone()).expect("reopens");
+    let task = core
+        .task_setup("demo", "one", &hooks::discard)
+        .await
+        .expect("sets up");
+    assert_eq!(task.setup, SetupStatus::Ok);
+}
+
+/// Waits for `file` to be written, for as long as making a task may take on a slow machine,
+/// and returns what it holds.
+async fn written_soon(file: &Path) -> String {
+    for _ in 0..400 {
+        let text = std::fs::read_to_string(file).unwrap_or_default();
+        if !text.trim().is_empty() {
+            return text.trim().to_string();
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    panic!("{} was never written", file.display());
 }
 
 #[tokio::test]

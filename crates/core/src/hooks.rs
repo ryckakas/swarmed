@@ -31,6 +31,28 @@ pub(crate) async fn run(
     follow(hook, &mut child, sink).await
 }
 
+/// Runs a hook as [`run`] does, in a process group of its own, so that whoever stops it can
+/// end everything it started along with it, wherever that works. `started` is told the
+/// group's id as soon as the hook runs, and says whether it may go on: one that may not is
+/// killed at once, with its group.
+pub(crate) async fn run_in_group(
+    hook: &'static str,
+    command: &str,
+    cwd: &Path,
+    env: &[(String, String)],
+    sink: OutputSink<'_>,
+    started: &(dyn Fn(u32) -> bool + Send + Sync),
+) -> Result<()> {
+    if command.trim().is_empty() {
+        return Ok(());
+    }
+    let mut child = shell(command, cwd, env).process_group(0).spawn()?;
+    if let Some(group) = child.id().filter(|group| !started(*group)) {
+        kill_group(group).await;
+    }
+    follow(hook, &mut child, sink).await
+}
+
 /// Runs a hook as [`run`] does, for no longer than `limit`: `None` when it took longer. It is
 /// then killed with everything it started that is still in its process group, which it is
 /// given for that: killing the shell alone leaves what the shell was waiting for.
@@ -54,14 +76,19 @@ pub(crate) async fn run_within(
         .await
         .ok();
     if let (None, Some(group)) = (&ran, group) {
-        // The group's id is that of the process that leads it; a minus addresses the group.
-        let killing = Command::new("kill")
-            .args(["-KILL", "--", &format!("-{group}")])
-            .stderr(Stdio::null())
-            .status();
-        killing.await.ok();
+        kill_group(group).await;
     }
     ran
+}
+
+/// Kills every process in the group `group` leads.
+async fn kill_group(group: u32) {
+    // The group's id is that of the process that leads it; a minus addresses the group.
+    let killing = Command::new("kill")
+        .args(["-KILL", "--", &format!("-{group}")])
+        .stderr(Stdio::null())
+        .status();
+    killing.await.ok();
 }
 
 /// `sh -c command`, with the output piped and the `PATH` of the user's shell.

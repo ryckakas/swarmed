@@ -27,9 +27,9 @@ fn new_session(core: &Core) -> Session {
         .expect("creates")
 }
 
-/// Waits until something listens on `socket`.
+/// Waits until something listens on `socket`, for as long as a busy test runner may take.
 async fn listening(socket: &std::path::Path) {
-    for _ in 0..200 {
+    for _ in 0..1000 {
         if socket.exists() {
             return;
         }

@@ -479,18 +479,24 @@ async fn answer(core: Arc<Core>, stream: UnixStream) -> std::io::Result<()> {
     writing.write_all(format!("{reply}\n").as_bytes()).await
 }
 
-/// Removes the sockets earlier runs left in `folder`: those nobody answers on any more.
+/// Removes the sockets earlier runs left in `folder`: those of other processes that nobody
+/// answers on any more.
 async fn sweep(folder: &Path) {
     let Ok(mut entries) = tokio::fs::read_dir(folder).await else {
         return;
     };
+    // A socket of this process is a core's that lives here, which may be between binding it
+    // and listening on it, when it refuses a connection: only its owner replaces it. Tests run
+    // many cores in one process at once, and one swept another's socket away.
+    let this_process = format!("{SOCKET_PREFIX}{}-", std::process::id());
     while let Ok(Some(entry)) = entries.next_entry().await {
         let path = entry.path();
         // Only Swarmed's own: the folder is shared with every other program's sockets.
         let name = entry.file_name();
         let name = name.to_string_lossy();
         let ours = name.starts_with(SOCKET_PREFIX) && name.ends_with(".sock");
-        if ours && UnixStream::connect(&path).await.is_err() {
+        let elsewhere = !name.starts_with(&this_process);
+        if ours && elsewhere && UnixStream::connect(&path).await.is_err() {
             tokio::fs::remove_file(path).await.ok();
         }
     }

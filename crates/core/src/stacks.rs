@@ -33,8 +33,9 @@ use crate::{Core, lock};
 /// enough for one that has services of its own to wind down first.
 const STOP_GRACE: Duration = Duration::from_secs(15);
 
-/// How long what a stack left behind is given, once asked, before it is killed too.
-const LEFTOVER_GRACE: Duration = Duration::from_secs(3);
+/// How long what a stack left behind is given, once asked, before it is killed too. Tools
+/// that run others wind them down first: devenv takes up to five seconds.
+const LEFTOVER_GRACE: Duration = Duration::from_secs(10);
 
 /// How long a `stop` or `teardown` may run when a stack is stopped or a task removed. One that
 /// takes longer, or leaves something behind that holds its output open, is not waited for:
@@ -508,6 +509,12 @@ async fn end(mut stack: Stack) -> bool {
     }
     end_leftovers(started).await;
     gone
+}
+
+/// Ends the process group `leader` leads, with whatever it started, as a stack is ended: a
+/// task's `setup` stopped while it runs. Says whether the leading process is gone.
+pub(crate) async fn end_group(leader: u32) -> bool {
+    end(Stack::Found(leader)).await
 }
 
 /// Ends what a stack started and did not take along, or whatever else is to go: asked

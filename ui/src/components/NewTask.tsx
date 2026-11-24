@@ -26,6 +26,7 @@ import {
     OWN_SETUP,
 } from "../environments";
 import { expandPastes, forgetPastes } from "../pastes";
+import { removedWhileSetUp } from "../removal";
 import { NO_DRAFT } from "../sending";
 import { sentOn } from "../slash";
 import { useStore } from "../store";
@@ -136,9 +137,8 @@ export function NewTask({ projects }: { projects: Project[] }) {
             forgetPastes(prompt);
         } catch (error) {
             // A task whose setup failed still exists; reload so it shows up in the sidebar.
-            const { report, refresh } = useStore.getState();
-            report(error);
-            await refresh(api);
+            reportStartFailed(error);
+            await useStore.getState().refresh(api);
             setCreating(null);
         }
     };
@@ -300,16 +300,25 @@ async function startVariants(
 ) {
     const also = start.branch === null ? variants : [];
     const names = variantNames(start.name, also, taken);
-    const { report, refresh } = useStore.getState();
     const started = also.map((variant, index) => {
         const setup = setupFor(variant.agent, variant.model, how.supervision, how.effort);
         return startTask({ ...start, name: names[index] ?? start.name, setup }, false).catch(
-            report,
+            reportStartFailed,
         );
     });
     await Promise.all(started);
     if (also.length > 0) {
-        await refresh(api);
+        await useStore.getState().refresh(api);
+    }
+}
+
+/**
+ * Says why a task could not be started, unless it was removed while it was set up: the user
+ * did that on purpose, and the prompt is still in the box.
+ */
+function reportStartFailed(error: unknown) {
+    if (!removedWhileSetUp(error)) {
+        useStore.getState().report(error);
     }
 }
 

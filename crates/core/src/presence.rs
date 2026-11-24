@@ -34,9 +34,12 @@ impl Core {
         }
     }
 
-    /// Ends the stacks Swarmed leaves behind when it quits: every one if this was the first
-    /// Swarmed to [`arrive`](Core::arrive), and otherwise only the ones it started itself.
+    /// Ends the setups and stacks Swarmed leaves behind when it quits: the setups it runs, and
+    /// every stack if this was the first Swarmed to [`arrive`](Core::arrive), and otherwise only
+    /// the ones it started itself.
     pub async fn leave(&self) {
+        // A setup under way goes first: it would start its stack once done.
+        self.setups_stop_all().await;
         let first = lock(&self.house).is_some();
         if first {
             self.stacks_stop_all().await;
