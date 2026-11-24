@@ -8,6 +8,7 @@ import {
     OWN_SETUP,
     portsFromText,
     portsToText,
+    setupsFromText,
     stacksFromText,
     stacksToText,
 } from "../environments";
@@ -44,6 +45,8 @@ interface Draft {
     ports: string;
     /** How many stacks may run at once, as typed; empty for the repository's own limit. */
     maxStacks: string;
+    /** How many setups may run at once, as typed; empty for the repository's own limit. */
+    maxSetups: string;
 }
 
 /** The form's id, so that the buttons below what scrolls can submit it. */
@@ -60,6 +63,7 @@ const NEW: Draft = {
     variables: "",
     ports: "",
     maxStacks: "",
+    maxSetups: "",
 };
 
 function draftOf(name: string, environment: Environment): Draft {
@@ -74,12 +78,14 @@ function draftOf(name: string, environment: Environment): Draft {
         variables: envToText(environment.env),
         ports: portsToText(environment.ports ?? {}),
         maxStacks: stacksToText(environment.max_stacks),
+        maxSetups: stacksToText(environment.max_setups),
     };
 }
 
 /** What is saved for a draft. Throws, naming the line or value, if one is not written as it has to be. */
 function environmentOf(draft: Draft): Environment {
     const maxStacks = stacksFromText(draft.maxStacks);
+    const maxSetups = setupsFromText(draft.maxSetups);
     return {
         ...EMPTY_ENVIRONMENT,
         setup: draft.setup.trim(),
@@ -90,6 +96,7 @@ function environmentOf(draft: Draft): Environment {
         ports: portsFromText(draft.ports),
         env: envFromText(draft.variables),
         ...(maxStacks === undefined ? {} : { max_stacks: maxStacks }),
+        ...(maxSetups === undefined ? {} : { max_setups: maxSetups }),
     };
 }
 
@@ -345,6 +352,25 @@ function Form({ draft, onChange, onSave }: FormProps) {
                     step={1}
                     value={draft.maxStacks}
                     onChange={(event) => set({ maxStacks: event.target.value })}
+                />
+            </label>
+            <label>
+                <span className="settings-label">Setups at once</span>
+                <span className="settings-hint">
+                    How many of the repository's {words.terms.task}s may run setup at once for one
+                    in this {words.environment.toLowerCase()} to run its own; the others wait for a
+                    place, and say so. 0 is no limit. Left empty, the repository's own limit
+                    applies.
+                </span>
+                <input
+                    className="key-input mono environment-stacks"
+                    aria-label="Setups at once"
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    step={1}
+                    value={draft.maxSetups}
+                    onChange={(event) => set({ maxSetups: event.target.value })}
                 />
             </label>
             <Script

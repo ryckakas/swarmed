@@ -6021,3 +6021,77 @@ kbd {
     color: var(--text);
     opacity: 1;
 }
+
+/* A task's setup, above its session's conversation while it runs or once it did not finish. */
+.setup-panel {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin: var(--space-3) var(--space-4) 0;
+    padding: var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+}
+
+.setup-panel[data-state="failed"],
+.setup-panel[data-state="interrupted"] {
+    border-color: var(--clay);
+}
+
+.setup-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.setup-time {
+    color: var(--muted);
+    font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums;
+}
+
+.setup-reason {
+    margin: 0;
+    color: var(--text);
+    user-select: text;
+}
+
+.setup-output {
+    max-height: 14rem;
+    margin: 0;
+    padding: var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--dusk);
+    overflow: auto;
+    font-size: var(--text-xs);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+}
+
+.setup-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+/* Under a task in the sidebar while it is set up: how long, and what it said last. */
+.setup-line {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    margin: 0;
+    padding: 0 var(--space-2) var(--space-1) var(--space-6);
+    color: var(--faint);
+    font-size: var(--text-xs);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.setup-line .incubating {
+    flex: none;
+}

@@ -7,6 +7,7 @@ import { cloudProvider, cloudTitle, cloudTone, cloudTooltip, isUnfinished } from
 import { taskTooltip } from "../environments";
 import { gripTitle, orderAttributes, orderGroup, starterHere } from "../ordering";
 import { agentName, iconForAgent } from "../providerIcons";
+import { isSettingUp, sidebarSays } from "../setup";
 import { useStore } from "../store";
 import type { SubAgent } from "../subagents";
 import { listedUnder } from "../subagents";
@@ -19,10 +20,12 @@ import {
     projectUnread,
 } from "../tree";
 import { newVersion, updateLine } from "../updates";
+import { useNow } from "../useNow";
 import { useWords } from "../useWords";
 import { withArticle, wordsFor } from "../wording";
 import { ForgetCloudDialog } from "./ForgetCloudDialog";
 import { CloseIcon, CloudIcon, PlusIcon, PlusMinusIcon } from "./IconButton";
+import { Incubating } from "./Incubating";
 import { ProviderMark } from "./ProviderMark";
 import { PullBadge } from "./PullRequest";
 import { StatusMark } from "./StatusMark";
@@ -312,11 +315,40 @@ function TaskHeading({ task, folded, chat }: { task: Task; folded: boolean; chat
                 <FoldChevron />
                 {chat ? <ChatIcon /> : <WorktreeIcon />}
                 <span className="task-title">{task.name}</span>
-                {task.setup === "failed" && <span className="task-flag">setup failed</span>}
+                <SetupFlag task={task} />
                 {summary?.status && <StatusMark status={summary.status} unread={summary.unread} />}
                 {summary && <span className="task-count">{summary.count}</span>}
             </button>
         </h3>
+    );
+}
+
+/** A flag on a task whose setup failed or was cut short. */
+function SetupFlag({ task }: { task: Task }) {
+    const says = sidebarSays(task, undefined, 0);
+    if (says === null || says.busy) {
+        return null;
+    }
+    return <span className="task-flag">{says.text}</span>;
+}
+
+/**
+ * Under a task being set up: how long it has run and what it printed last, or that it waits
+ * for a place, in place of "nothing spawned yet".
+ */
+function SetupLine({ task }: { task: Task }) {
+    const busy = isSettingUp(task);
+    const seen = useStore((state) => state.setups[task.id]);
+    const now = useNow(busy);
+    const says = busy ? sidebarSays(task, seen, now) : null;
+    if (says === null) {
+        return null;
+    }
+    return (
+        <p className="setup-line" title={says.text}>
+            <Incubating />
+            {says.text}
+        </p>
     );
 }
 
@@ -331,7 +363,10 @@ function TaskSessions({ project, task }: { project: string; task: Task }) {
         );
     return (
         <>
-            {task.sessions.length === 0 && <p className="hint">{words.noSessions}</p>}
+            <SetupLine task={task} />
+            {task.sessions.length === 0 && !isSettingUp(task) && (
+                <p className="hint">{words.noSessions}</p>
+            )}
             <ul className="sessions">
                 {nestedSessions(task.sessions).map(({ session, nested }) => (
                     <li

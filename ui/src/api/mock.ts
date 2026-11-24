@@ -6,6 +6,7 @@ import { PLAN_TOOL, withFiles } from "../transcript";
 import { titleFrom } from "../tree";
 import type { Api } from "./client";
 import { MOCK_COMMANDS, mockQuestions, mockSaid, mockScreen, mockScreenOnly } from "./mockCommands";
+import { MockSetups, taskSetupApi } from "./mockSetups";
 import { heardUsage, sampleAccountUsage } from "./mockUsage";
 import type {
     AccountUsage,
@@ -149,6 +150,7 @@ function session(id: number, taskId: number, title: string, status: SessionStatu
         fast: false,
         // One sample session carries a mark, as a skill's last step would leave it.
         mark: id === 3 ? { colour: "green", label: "e2e passed" } : null,
+        waits_for_setup: false,
     };
 }
 
@@ -199,6 +201,8 @@ function task(id: number, projectId: number, name: string, sessions: Session[]):
         worktree_path: `/Users/you/swarmed/storefront/${name}`,
         slot: id,
         setup: "ok",
+        setup_reason: null,
+        setting_up: null,
         archived: false,
         sessions,
         running: sessions.filter((s) => s.status !== "idle").map((s) => s.id),
@@ -233,7 +237,10 @@ function markNote(projects: Project[], project: string, task: string | null, has
 }
 
 /** Removing repositories and tasks from the tree `projects` returns. */
-function removeApi(projects: () => Project[]): Pick<Api, "projectRemove" | "taskRemove"> {
+function removeApi(
+    projects: () => Project[],
+    stopSetup: (taskId: number) => void,
+): Pick<Api, "projectRemove" | "taskRemove"> {
     return {
         projectRemove: async (name) => {
             const at = projects().findIndex((project) => project.name === name);
@@ -253,6 +260,11 @@ function removeApi(projects: () => Project[]): Pick<Api, "projectRemove" | "task
             }
             const tasks = projects().find((project) => project.name === projectName)?.tasks ?? [];
             const at = tasks.findIndex((task) => task.name === name);
+            // A setup under way is stopped first, as the core stops it.
+            const removed = tasks[at];
+            if (removed) {
+                stopSetup(removed.id);
+            }
             tasks.splice(at, at === -1 ? 0 : 1);
             return [];
         },
@@ -1692,6 +1704,11 @@ class MockAgent {
         }
     }
 
+    /** Tells something that belongs to no session, with session id 0, as the core does. */
+    announce(event: AgentEvent) {
+        this.tell(0, event, null);
+    }
+
     private tell(sessionId: number, event: AgentEvent, status: SessionStatus | null) {
         for (const listener of this.listeners) {
             listener({ session_id: sessionId, status, event });
@@ -2773,6 +2790,7 @@ function remoteAsked(name: string, text: string): boolean {
 export function createMockApi(): Api {
     const agent = new MockAgent();
     const tasks = () => agent.projects.flatMap((project) => project.tasks);
+    const setups = new MockSetups((event) => agent.announce(event));
     const hookListeners = new Set<(output: HookOutput) => void>();
     const terminal = new MockTerminal();
     const claudeTerminal = new MockClaudeTerminal();
@@ -2860,7 +2878,10 @@ export function createMockApi(): Api {
             agent.projects.push(project);
             return project;
         },
-        ...removeApi(() => agent.projects),
+        ...removeApi(
+            () => agent.projects,
+            (id) => setups.stop(id, "removed"),
+        ),
         branchChoices: async (projectName) => ({
             base: "origin/main",
             existing:
@@ -2872,29 +2893,39 @@ export function createMockApi(): Api {
         ...skillApi(),
         ...stackApi(() => agent.projects),
         ...cloudApi(() => agent.projects),
-        taskNew: async (projectName, name, branch, choice) => {
-            if (projectName === CHATS) {
-                return sampleChatNew(agent.projects, name);
-            }
-            const project = agent.projects.find((candidate) => candidate.name === projectName);
-            if (!project) {
-                throw new Error(`project \`${projectName}\` not found`);
-            }
-            for (const line of ["Installing dependencies", "Seeding the database"]) {
-                for (const listener of hookListeners) {
-                    listener({ project: projectName, task: name, line });
+        ...taskSetupApi(setups, {
+            projects: () => agent.projects,
+            make: async (projectName, name, branch, choice) => {
+                if (projectName === CHATS) {
+                    return sampleChatNew(agent.projects, name);
                 }
-                await new Promise((resolve) => setTimeout(resolve, PACE * 2));
-            }
-            const environment = await environmentIn(environments, projectName, choice);
-            const created = {
-                ...task(Date.now(), project.id, name, []),
-                branch: branch ?? sampleBranch(settings.branch_prefix, name),
-                environment,
-            };
-            project.tasks.push(created);
-            return created;
-        },
+                const project = agent.projects.find((candidate) => candidate.name === projectName);
+                if (!project) {
+                    throw new Error(`project \`${projectName}\` not found`);
+                }
+                const made = branch ?? sampleBranch(settings.branch_prefix, name);
+                for (const line of ["fetching", `making the worktree, on ${made}`]) {
+                    for (const listener of hookListeners) {
+                        listener({ project: projectName, task: name, line });
+                    }
+                    await new Promise((resolve) => setTimeout(resolve, PACE));
+                }
+                const environment = await environmentIn(environments, projectName, choice);
+                const created: Task = {
+                    ...task(Date.now(), project.id, name, []),
+                    branch: made,
+                    environment,
+                    setup: "pending",
+                    worktree_path: `/Users/you/swarmed/${projectName}/${name}`,
+                };
+                project.tasks.push(created);
+                return created;
+            },
+            newSession: (taskId) => agent.newSession(taskId),
+            enqueue: (id, text) => agent.enqueue(id, text),
+            sendQueued: (id) => agent.sendQueued(id),
+            send: (id, text) => agent.send(id, text),
+        }),
         taskUnpublished: (_project, name) => {
             const own = tasks().find((task) => task.name === name)?.branch;
             return sampleUnpublished(name, own ?? `you/${name}`);

@@ -1,16 +1,17 @@
 import { api } from "./api";
 import { moveTarget, type OrderTarget, targetOf } from "./ordering";
 import { delivered } from "./sending";
+import { standing } from "./setup";
 import { useStore } from "./store";
 import { messageNumber } from "./transcript";
-import { findSession } from "./tree";
+import { findSession, findSessionHome } from "./tree";
 
 // Things the user can ask for from more than one place: a button, and a keyboard shortcut.
 
 /**
  * Sends a message to a session, or has it wait in the session's queue while its agent is at
- * work or waiting for an answer: whatever sends a message, a button as much as the message
- * box, must not take an open request away. With `atOnce` it does not wait: for a command
+ * work or waiting for an answer, or its task is being set up: whatever sends a message, a
+ * button as much as the message box, must not take an open request away. With `atOnce` it does not wait: for a command
  * Swarmed does itself. With `now` the turn under way is stopped and the message goes ahead of
  * what waits. Rejects if the message could not be handed over.
  */
@@ -21,8 +22,11 @@ export function sendOrQueue(
     atOnce = false,
     now = false,
 ): Promise<void> {
-    const status = findSession(useStore.getState().projects, id)?.status;
-    return delivered(api, status, id, text, files, atOnce, now);
+    const { projects } = useStore.getState();
+    const session = findSession(projects, id);
+    const task = session && findSessionHome(projects, session)?.task;
+    // While its task is set up, a session waits as a busy one does: what is typed goes after.
+    return delivered(api, standing(session?.status, task), id, text, files, atOnce, now);
 }
 
 /** Moves a row of the sidebar `by` places among its siblings, then reads the tree again. */

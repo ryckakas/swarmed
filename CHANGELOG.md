@@ -29,6 +29,17 @@ notice adds its line under Unreleased.
   and the chat stays as it was. On the command line a chat is a task of `.chats`, and
   `swarmed session fork --into` carries one on.
 
+- **A task being set up says so, and its prompt is never lost.** A new task's first session is
+  there at once, with your prompt waiting until `setup` succeeds, instead of a task with
+  nothing spawned yet. The sidebar shows how long setup has run and what it printed last, and
+  the session shows each step, what `setup` prints and how long it has taken, also after you
+  open something else and come back; a stop button ends it. A setup that fails says why in
+  words, signal 9 for what it usually means, and offers Run setup again, Start anyway, Show log
+  and Remove task. What a setup printed is kept in a log readable by you alone. `max_setups`
+  in a repository's config or environment limits how many setups run at once; the others wait
+  and say so. A task whose Swarmed quit mid-setup shows as interrupted. On the command line:
+  `swarmed task new --prompt`, `task start-anyway` and `task setup-log`.
+
 ### Fixed
 
 - **Removing a task while its `setup` runs no longer reports a failed setup.** Swarmed used to

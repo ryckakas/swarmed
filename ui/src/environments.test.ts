@@ -8,6 +8,7 @@ import {
     OWN_SETUP,
     portsFromText,
     portsToText,
+    setupsFromText,
     stacksFromText,
     stacksToText,
     taskTooltip,
@@ -40,6 +41,16 @@ describe("an environment's variables", () => {
     it("are shown again as they are kept", () => {
         expect(envToText({ A: "1", B: "two words" })).toBe("A=1\nB=two words");
         expect(envFromText(envToText({ A: "1", B: "x=y" }))).toEqual({ A: "1", B: "x=y" });
+    });
+});
+
+describe("an environment's limit on setups at once", () => {
+    it("is a whole number from 0, which is no limit, or nothing for the repository's own", () => {
+        expect(setupsFromText(" 2 ")).toBe(2);
+        expect(setupsFromText("0")).toBe(0);
+        expect(setupsFromText("")).toBeUndefined();
+        expect(() => setupsFromText("-1")).toThrow('"-1" is not a number of setups');
+        expect(() => setupsFromText("1.5")).toThrow("is not a number of setups");
     });
 });
 

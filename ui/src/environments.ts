@@ -75,13 +75,26 @@ export function stacksToText(limit: number | undefined): string {
  * but a whole number from 1 is an error.
  */
 export function stacksFromText(text: string): number | undefined {
+    return limitFromText(text, 1, "stacks");
+}
+
+/**
+ * The limit on setups at once typed, or `undefined` when nothing is, which leaves the project's
+ * own. 0 is no limit; anything but a whole number from 0 is an error.
+ */
+export function setupsFromText(text: string): number | undefined {
+    return limitFromText(text, 0, "setups");
+}
+
+/** A limit typed: a whole number from `least`, or `undefined` for nothing typed. */
+function limitFromText(text: string, least: number, of: string): number | undefined {
     const typed = text.trim();
     if (typed === "") {
         return undefined;
     }
     const limit = Number(typed);
-    if (!Number.isInteger(limit) || limit < 1 || limit > MOST_STACKS) {
-        throw new Error(`"${typed}" is not a number of stacks: write a whole number from 1`);
+    if (!Number.isInteger(limit) || limit < least || limit > MOST_STACKS) {
+        throw new Error(`"${typed}" is not a number of ${of}: write a whole number from ${least}`);
     }
     return limit;
 }
