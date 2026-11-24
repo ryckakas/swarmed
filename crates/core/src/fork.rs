@@ -212,6 +212,7 @@ mod tests {
         AgentEvent::UserMessage {
             text: text.to_string(),
             remote: false,
+            at_reset: false,
         }
     }
 

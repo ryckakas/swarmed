@@ -37,6 +37,16 @@ notice adds its line under Unreleased.
   the pinned ones; unpinned, it goes back to the top of the others. A closed session keeps its
   pin for when it is reopened. On the command line: `swarmed project pin`, `swarmed task pin`
   and `swarmed session pin`, and `unpin` for each.
+- **A Claude Code session a usage limit stopped can go on by itself when the limit resets.**
+  The line that says the limit stopped the turn offers **Continue at 14:05**; pressed, the
+  session is sent "Continue where you stopped." at that time, ahead of anything you queued
+  meanwhile, and the message says it was sent by itself. A small clock beside the session in
+  the sidebar shows the time; pressing it cancels, and so do writing to the session, Stop and
+  closing it. **Continue after a limit** in Settings, under Storage and activity, does this for
+  every refused turn. Sessions one limit stopped go on a few seconds apart. It is kept when
+  Swarmed quits, and one whose time came while Swarmed was closed is sent when the app next
+  opens. Nothing asks Claude Code for usage to do it. On the command line:
+  `swarmed session continue-at-reset <id>`, `--cancel`, and `swarmed session show` names it.
 
 ### Fixed
 

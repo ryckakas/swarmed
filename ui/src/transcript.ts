@@ -11,7 +11,15 @@ export type Item =
      * What the user wrote, and the files they pointed the agent at with it; `remote` for what
      * they typed on claude.ai or in the Claude app, which reached the session from there.
      */
-    | { kind: "user"; key: number; text: string; files: string[]; remote: boolean }
+    | {
+          kind: "user";
+          key: number;
+          text: string;
+          files: string[];
+          remote: boolean;
+          /** Whether Swarmed sent it by itself, as the usage limit that stopped the session reset. */
+          atReset: boolean;
+      }
     /** A message another of the user's sessions left for this one. */
     | { kind: "peer"; key: number; from: number; title: string; text: string }
     /** Something the agent said. `streaming` while its end has not arrived yet. */
@@ -89,8 +97,21 @@ export type Item =
           durationMs: number | null;
       }
     | { kind: "notice"; key: number; tone: "error" | "warning"; text: string }
+    /**
+     * A usage limit refused the turn, which stopped there: what it says, and when every limit
+     * that refused it resets, in seconds since 1970, if said.
+     */
+    | LimitItem
     /** Where the copy of an earlier conversation ends and the fork's own begins. */
     | { kind: "forked"; key: number; from: number };
+
+/** The line a turn a usage limit refused keeps where it stopped. */
+export interface LimitItem {
+    kind: "limit";
+    key: number;
+    text: string;
+    resetsAt: number | null;
+}
 
 export interface ToolResult {
     content: string;
@@ -151,10 +172,14 @@ export function isFromSession(text: string): boolean {
 }
 
 /** A message as the transcript shows it: the user's own, or one another session left. */
-function messageItem(text: string, key: number, remote = false): Item {
+function messageItem(
+    text: string,
+    key: number,
+    { remote, atReset }: { remote: boolean; atReset: boolean },
+): Item {
     const left = FROM_SESSION.exec(text);
     if (!left) {
-        return { kind: "user", key, ...splitFiles(text), remote };
+        return { kind: "user", key, ...splitFiles(text), remote, atReset };
     }
     return { kind: "peer", key, from: Number(left[1]), title: left[2] ?? "", text: left[3] ?? "" };
 }
@@ -193,7 +218,10 @@ const CLOSES_REQUESTS = new Set<AgentEvent["type"]>(["user_message", "turn_done"
 function single(event: AgentEvent, key: number, words: Words): Item | null {
     switch (event.type) {
         case "user_message":
-            return messageItem(event.text, key, event.remote === true);
+            return messageItem(event.text, key, {
+                remote: event.remote === true,
+                atReset: event.at_reset === true,
+            });
         case "text":
             return { kind: "text", key, text: event.text, streaming: false };
         // A reply still being written reads like a finished one, and becomes one in place.
@@ -279,8 +307,8 @@ interface Draft {
     proposals: Map<string, Extract<Item, { kind: "proposal" }>>;
     /** What commands asked the user, by request id. */
     asked: Map<string, Extract<Item, { kind: "asked" }>>;
-    /** Whether the turn under way was said to be refused by a usage limit, so it is said once. */
-    refused: boolean;
+    /** The line that says a usage limit refused the turn under way, so that it is said once. */
+    refused: LimitItem | null;
     /** Where Remote Control was last shown to be on, so that it is said once until it ends. */
     remoteAt: string | null;
     /** The style's words, for what the items say of their own. */
@@ -300,7 +328,7 @@ export function toItems(events: AgentEvent[], words: Words = wordsFor("plain")):
         settled: new Set(),
         proposals: new Map(),
         asked: new Map(),
-        refused: false,
+        refused: null,
         remoteAt: null,
         words,
     };
@@ -460,7 +488,7 @@ function add(draft: Draft, event: AgentEvent, key: number) {
             draft.settled.add(request);
         }
         draft.open.clear();
-        draft.refused = false;
+        draft.refused = null;
     }
     switch (event.type) {
         case "tool_use":
@@ -567,13 +595,25 @@ function answerAsked(
     draft.items.push({ kind: "asked", key, requestId, command, questions: [], said });
 }
 
-/** A turn a usage limit refused keeps one line where it stopped, which says why. */
+/**
+ * A turn a usage limit refused keeps one line where it stopped, which says why. Another limit
+ * that refused the same turn says nothing more, but the turn can go on only once both reset.
+ */
 function addLimit(draft: Draft, event: RateLimit, key: number) {
     const text = refusalNotice(event, new Date());
-    if (text !== null && !draft.refused) {
-        draft.refused = true;
-        draft.items.push({ kind: "notice", key, tone: "warning", text });
+    if (text === null) {
+        return;
     }
+    if (draft.refused !== null) {
+        draft.refused.resetsAt = laterOf(draft.refused.resetsAt, event.resets_at);
+        return;
+    }
+    draft.refused = { kind: "limit", key, text, resetsAt: event.resets_at };
+    draft.items.push(draft.refused);
+}
+
+function laterOf(a: number | null, b: number | null): number | null {
+    return a === null || b === null ? (a ?? b) : Math.max(a, b);
 }
 
 function addSingle(draft: Draft, event: AgentEvent, key: number) {
@@ -681,6 +721,48 @@ export function messageNumber(events: AgentEvent[], key: number): number {
  */
 export function latestMove(items: Item[]): number | null {
     return items.findLast((item) => item.kind === "moved")?.key ?? null;
+}
+
+/**
+ * The line of the latest turn a usage limit refused, by its key, if nothing was written to the
+ * session since: only that one can offer to go on when the limit resets. A message since, the
+ * user's or another session's, went on already.
+ */
+export function latestLimit(items: Item[]): number | null {
+    const at = items.findLastIndex((item) => item.kind === "limit");
+    const writtenSince = items
+        .slice(at + 1)
+        .some((item) => item.kind === "user" || item.kind === "peer");
+    return at === -1 || writtenSince ? null : (items[at]?.key ?? null);
+}
+
+/** What a refused turn's line offers about going on by itself when its limit resets. */
+export type ContinueOffer =
+    /** To go on at `at`, in seconds since 1970, if the user asks. */
+    | { state: "offered"; at: number }
+    /** It goes on at `at` by itself, which the user can cancel. */
+    | { state: "set"; at: number }
+    | null;
+
+/**
+ * What a refused turn's line offers, at `now` in seconds since 1970: on the latest such line
+ * alone (`latest`), that the session goes on when it is set to (`continueAt`), or else to go on
+ * when its limit resets, if that is still to come. Nothing on any other line.
+ */
+export function continueOffer(
+    item: LimitItem,
+    latest: boolean,
+    continueAt: number | null,
+    now: number,
+): ContinueOffer {
+    if (!latest) {
+        return null;
+    }
+    if (continueAt !== null) {
+        return { state: "set", at: continueAt };
+    }
+    const { resetsAt } = item;
+    return resetsAt !== null && resetsAt > now ? { state: "offered", at: resetsAt } : null;
 }
 
 /**

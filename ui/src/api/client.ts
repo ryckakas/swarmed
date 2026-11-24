@@ -509,6 +509,14 @@ export interface Api {
      * claude.ai and the Claude app. How it goes arrives as the session's `remote_control` events.
      */
     sessionRemoteControl(id: number, on: boolean): Promise<void>;
+    /**
+     * Lets a session a usage limit stopped go on by itself when the limit resets, and says when,
+     * in seconds since 1970: a message is sent to it then. Every front end hears of it as a
+     * `continuation` event. Refused when no limit still to reset stopped its latest turn.
+     */
+    sessionContinueAtReset(id: number): Promise<number>;
+    /** Cancels a session's going on by itself when a usage limit resets. */
+    sessionContinueCancel(id: number): Promise<void>;
     /** Gives the session a title of the user's choosing. Every front end hears of it as an event. */
     sessionRename(id: number, title: string): Promise<Session>;
     /** Puts a mark on a session; the colour `none` takes it off. */

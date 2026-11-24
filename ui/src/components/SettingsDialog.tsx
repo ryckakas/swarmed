@@ -583,6 +583,19 @@ function UsageWarnings({ settings }: { settings: Settings }) {
                     options={LIMIT_WARNINGS}
                 />
             </Row>
+            <Row
+                label="Continue after a limit"
+                hint="A session a usage limit stopped goes on by itself when the limit resets: Swarmed sends it “Continue where you stopped.” then, as if you had typed it. Without this, the line where the limit stopped it offers that each time. Writing to the session, Stop, or the clock beside it cancels it. Swarmed has to be open at the reset; one that was not sends it when it next opens. Nothing asks Claude Code for its usage to do this."
+            >
+                <input
+                    type="checkbox"
+                    aria-label="Continue a session by itself when the usage limit that stopped it resets"
+                    checked={settings.continue_after_limit}
+                    onChange={(event) =>
+                        void change(api, { continue_after_limit: event.target.checked })
+                    }
+                />
+            </Row>
         </section>
     );
 }

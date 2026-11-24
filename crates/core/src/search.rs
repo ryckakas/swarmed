@@ -190,6 +190,7 @@ mod tests {
         let typed = AgentEvent::UserMessage {
             text: "hello".to_string(),
             remote: false,
+            at_reset: false,
         };
         assert_eq!(said(&typed), Some(("hello", true)));
         let reply = AgentEvent::Text {

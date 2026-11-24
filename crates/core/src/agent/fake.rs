@@ -23,6 +23,8 @@ use crate::error::Result;
 /// - `suggest: <text>`: replies as to plain text, then offers `<text>` as the next message;
 /// - `limit <percent>`: replies as to plain text, then reports, as Claude Code does after a
 ///   turn, that the 5-hour and weekly windows are that full;
+/// - `refuse <seconds>`: ends the turn refused by the 5-hour limit, as Claude Code does, which
+///   resets that many seconds from now (a negative number for one that has passed);
 /// - `background agent`: starts a sub-agent in the background and ends the turn; the sub-agent
 ///   then writes, reports its end, and the agent takes a turn of its own to read its report;
 ///   `background agent left` leaves it at work, with no end;
@@ -375,6 +377,10 @@ impl Script {
             self.emit(done(false, None));
             return Next::Continue;
         }
+        if let Some(seconds) = message.strip_prefix("refuse ") {
+            self.refuse(seconds.trim().parse().unwrap_or(0));
+            return Next::Continue;
+        }
         if message == "fail" {
             self.text("trying…");
             self.emit(done(true, Some("it went wrong")));
@@ -427,6 +433,28 @@ impl Script {
             resets_at: Some(2_000_000_000),
             raw: json!({ "unifiedWindows": { "five_hour": window, "seven_day": window } }),
         });
+    }
+
+    /// Ends the turn refused by the 5-hour limit, which resets `seconds` from now, as Claude
+    /// Code reports it: used up, and nothing paying past it.
+    fn refuse(&self, seconds: i64) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| i64::try_from(since.as_secs()).unwrap_or(0));
+        let resets_at = now + seconds;
+        let window = json!({ "status": "rejected", "utilization": 1.0, "resetsAt": resets_at });
+        self.emit(AgentEvent::RateLimit {
+            status: "rejected".to_string(),
+            resets_at: Some(resets_at),
+            raw: json!({
+                "status": "rejected",
+                "rateLimitType": "five_hour",
+                "resetsAt": resets_at,
+                "unifiedWindows": { "five_hour": window },
+            }),
+        });
+        self.text("You've hit your limit.");
+        self.emit(done(true, Some("usage limit reached")));
     }
 
     /// Offers what follows `suggest:` as the user's next message.

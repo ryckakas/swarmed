@@ -23,6 +23,7 @@ fn user_message(text: String) -> AgentEvent {
     AgentEvent::UserMessage {
         text,
         remote: false,
+        at_reset: false,
     }
 }
 

@@ -15,6 +15,7 @@ import {
     starterHere,
 } from "../ordering";
 import { agentName, iconForAgent } from "../providerIcons";
+import { clockTime } from "../rateLimit";
 import { isSettingUp, sidebarSays } from "../setup";
 import { useStore } from "../store";
 import type { SubAgent } from "../subagents";
@@ -822,6 +823,9 @@ function SessionRow({ session }: { session: Session }) {
                 <ProviderMark icon={iconForAgent(session.agent)} label={agentName(session.agent)} />
             </button>
             {session.mark && <SessionMark id={session.id} mark={session.mark} />}
+            {session.continue_at !== null && (
+                <SessionContinues id={session.id} at={session.continue_at} />
+            )}
             <PinButton
                 target={{ kind: "session", id: session.id }}
                 pinned={session.pinned}
@@ -879,6 +883,31 @@ function SubAgentRows({ session }: { session: Session }) {
                 </li>
             ))}
         </ul>
+    );
+}
+
+/**
+ * The clock beside a session a usage limit stopped, which goes on by itself when the limit
+ * resets, with the time it does. Pressing it cancels that.
+ */
+function SessionContinues({ id, at }: { id: number; at: number }) {
+    const report = useStore((state) => state.report);
+    const time = clockTime(at, new Date());
+    const said = `Goes on by itself at ${time}, when the usage limit resets`;
+    return (
+        <button
+            type="button"
+            className="session-continues"
+            title={`${said}. Press to cancel.`}
+            aria-label={`${said}. Cancel.`}
+            onClick={() => api.sessionContinueCancel(id).catch(report)}
+        >
+            <svg className="session-continues-clock" viewBox="0 0 12 12" aria-hidden="true">
+                <circle cx="6" cy="6" r="4.8" />
+                <path d="M6 3.4V6l1.8 1.2" />
+            </svg>
+            <span>{time}</span>
+        </button>
     );
 }
 

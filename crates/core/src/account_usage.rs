@@ -191,13 +191,13 @@ impl AccountUsage {
 }
 
 /// Whether a report's own status says a limit is reached, and not only that a window fills up.
-fn reached(status: &str) -> bool {
+pub(crate) fn reached(status: &str) -> bool {
     !matches!(status, "allowed" | "allowed_warning")
 }
 
 /// Whether a report says extra usage pays for the turn: the plan's limit is reached, and the
 /// work goes on, billed.
-fn on_extra_usage(raw: &Value) -> bool {
+pub(crate) fn on_extra_usage(raw: &Value) -> bool {
     let set = |key: &str| raw.get(key).and_then(Value::as_bool) == Some(true);
     set("isUsingOverage") || set("overageInUse")
 }
@@ -338,7 +338,7 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
 }
 
 /// Now, in seconds since 1970.
-fn seconds_now() -> i64 {
+pub(crate) fn seconds_now() -> i64 {
     let since = SystemTime::now().duration_since(UNIX_EPOCH);
     since.map_or(0, |since| {
         i64::try_from(since.as_secs()).unwrap_or(i64::MAX)

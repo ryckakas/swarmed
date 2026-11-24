@@ -89,7 +89,7 @@ fn ago(at: i64, now: i64) -> String {
 }
 
 /// A span of seconds in its two largest units, to the minute.
-fn span(seconds: i64) -> String {
+pub(crate) fn span(seconds: i64) -> String {
     let minutes = seconds.max(0) / 60;
     let (days, hours, minutes) = (minutes / 1440, minutes / 60 % 24, minutes % 60);
     if days > 0 {
@@ -101,7 +101,7 @@ fn span(seconds: i64) -> String {
     }
 }
 
-fn seconds_now() -> i64 {
+pub(crate) fn seconds_now() -> i64 {
     let since = SystemTime::now().duration_since(UNIX_EPOCH);
     since.map_or(0, |since| {
         i64::try_from(since.as_secs()).unwrap_or(i64::MAX)

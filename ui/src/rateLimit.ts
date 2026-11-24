@@ -57,6 +57,19 @@ export function resetWhen(seconds: number, now: Date): string {
 }
 
 /**
+ * When a session goes on by itself, as the clock beside it says: the time alone if that is
+ * today, and the day's short name before it if not.
+ */
+export function clockTime(seconds: number, now: Date): string {
+    const at = new Date(seconds * 1000);
+    const time = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    if (at.toDateString() === now.toDateString()) {
+        return time;
+    }
+    return `${at.toLocaleDateString([], { weekday: "short" })} ${time}`;
+}
+
+/**
  * What the conversation says about a usage report: that a limit was reached with nothing to
  * pay past it, so the turn was refused, or `null` for nothing. That explains why the agent
  * stopped where it did. A warning, and a limit extra usage pays past, are for the usage notice

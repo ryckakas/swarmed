@@ -133,6 +133,7 @@ async fn a_turn_joins_the_streamed_pieces_into_one_reply() {
     let said = AgentEvent::UserMessage {
         text: "hello".into(),
         remote: false,
+        at_reset: false,
     };
     let context = AgentEvent::ContextUsage {
         used: 1,
@@ -921,6 +922,7 @@ async fn an_acp_agent_is_given_swarmeds_guidance_once_with_its_first_message() {
         Some(&AgentEvent::UserMessage {
             text: "guidance".into(),
             remote: false,
+            at_reset: false,
         })
     );
     core.session_send(id, "guidance").expect("sends");

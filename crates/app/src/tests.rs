@@ -186,6 +186,30 @@ fn usage_asked(app: &App, id: &Value) {
     assert_eq!(account["windows"][0]["used"], 0.36);
 }
 
+/// Lets session `id`, which a usage limit stops, go on by itself when the limit resets, as the
+/// limit's line in the transcript does, and cancels that, as the clock in the sidebar does.
+fn continued_at_reset(app: &App, id: &Value) {
+    app.ok("session_send", json!({ "id": id, "text": "refuse 3600" }));
+    let refused = |e: &Value| e["type"] == "turn_done" && e["result"] == "usage limit reached";
+    wait_for(app, id, "the refused turn's end", refused);
+    let at = app.ok("session_continue_at_reset", json!({ "id": id }));
+    let set = app.wait_for_event(id, "continuation");
+    assert_eq!(set["at"], at);
+    let continue_at = |app: &App| {
+        let tasks = &app.ok("overview", json!({}))[0]["tasks"];
+        let sessions = tasks
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|task| task["sessions"].as_array().cloned().unwrap_or_default());
+        let session = sessions.into_iter().find(|session| &session["id"] == id);
+        session.map(|session| session["continue_at"].clone())
+    };
+    assert_eq!(continue_at(app), Some(at));
+    app.ok("session_continue_cancel", json!({ "id": id }));
+    assert_eq!(continue_at(app), Some(json!(null)));
+}
+
 /// Turns Remote Control of session `id` on, as the session's header does, and off again.
 fn remote_control(app: &App, id: &Value) {
     app.ok("session_remote_control", json!({ "id": id, "on": true }));
@@ -485,6 +509,7 @@ fn the_ui_can_deny_interrupt_and_remove() {
     assert_eq!(app.ok("status_line", json!({ "id": id })), json!(null));
     usage_asked(&app, id);
     remote_control(&app, id);
+    continued_at_reset(&app, id);
     let size = json!({ "id": id, "cols": 80, "rows": 24 });
     assert_eq!(
         app.ok("terminal_open", size.clone()),
@@ -773,7 +798,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
             "editor": "code", "terminal_app": "Terminal", "auto_title": true, "theme": "system", "palette": "swarm",
             "style": "colony", "layout": "classic",
             "text_scale": 100,
-            "html_views": true, "tool_calls": "folded", "turn_end_lines": true, "limit_warnings": "frequent", "notifications": true, "default_supervision": "auto",
+            "html_views": true, "tool_calls": "folded", "turn_end_lines": true, "limit_warnings": "frequent", "continue_after_limit": false, "notifications": true, "default_supervision": "auto",
             "status_items": ["branch", "changes", "model", "context", "cost"],
             "status_command": "", "rules": "", "updates": "automatic", "branch_prefix": "",
         })

@@ -340,6 +340,13 @@ pub enum Error {
     /// Only a Claude Code session can be reached from claude.ai.
     #[error("only a Claude Code session has Remote Control, and this session runs `{0}`")]
     NoRemoteControl(String),
+    /// A session goes on by itself only when a usage limit stopped its latest turn and has
+    /// not reset yet.
+    #[error(
+        "no usage limit that is still to reset stopped session {0}'s latest turn: there is \
+         nothing to wait for"
+    )]
+    NoLimitToWaitFor(i64),
     /// No cloud task has this id.
     #[error("cloud task {0} not found")]
     CloudTaskNotFound(i64),

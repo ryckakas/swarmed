@@ -105,6 +105,7 @@ mod tests {
         AgentEvent::UserMessage {
             text: text.into(),
             remote: false,
+            at_reset: false,
         }
     }
 

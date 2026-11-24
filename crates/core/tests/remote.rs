@@ -63,7 +63,7 @@ fn recorded(core: &Core, id: i64) -> Vec<RemoteState> {
 fn messages(core: &Core, id: i64) -> Vec<(String, bool)> {
     let events = core.session_events(id).expect("reads");
     let said = events.into_iter().filter_map(|event| match event {
-        AgentEvent::UserMessage { text, remote } => Some((text, remote)),
+        AgentEvent::UserMessage { text, remote, .. } => Some((text, remote)),
         _ => None,
     });
     said.collect()
@@ -104,6 +104,7 @@ async fn what_is_typed_on_claude_ai_is_recorded_as_the_users_and_answered_here()
         Some(&AgentEvent::UserMessage {
             text: "from my phone".into(),
             remote: true,
+            at_reset: false,
         })
     );
     assert_eq!(

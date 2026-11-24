@@ -31,6 +31,11 @@ export interface Session {
     waits_for_setup: boolean;
     /** Whether the user pinned it above its siblings that are not. A closed session keeps its pin. */
     pinned: boolean;
+    /**
+     * When it goes on by itself, the usage limit that stopped it reset, in seconds since 1970:
+     * a message is sent to it then. `null` for not.
+     */
+    continue_at: number | null;
 }
 
 /** The colours a mark can have. Each theme draws its own. */
@@ -488,6 +493,8 @@ export interface Settings {
     turn_end_lines: boolean;
     /** Which levels of the account's usage the notice at the top of the window says. */
     limit_warnings: LimitWarnings;
+    /** Whether a session a usage limit stopped goes on by itself when it resets, unasked. */
+    continue_after_limit: boolean;
     /** Whether the system notifies when a session needs you, finishes or fails out of sight. */
     notifications: boolean;
     /** The built-in pieces of the status line under the message box, in order. */
@@ -587,6 +594,8 @@ export type RemoveTarget = NoteTarget;
 export interface QueuedMessage {
     id: number;
     text: string;
+    /** Whether Swarmed put it there by itself, when the usage limit that stopped the session reset. */
+    at_reset?: boolean;
 }
 
 /** What a new task and its first session are called, as a model named them. */
@@ -827,8 +836,11 @@ export interface AskedQuestion {
 }
 
 export type AgentEvent =
-    /** What the user wrote; `remote` when typed on claude.ai or in the Claude app. */
-    | { type: "user_message"; text: string; remote?: boolean }
+    /**
+     * What the user wrote; `remote` when typed on claude.ai or in the Claude app, `at_reset`
+     * when Swarmed sent it by itself as the usage limit that stopped the session reset.
+     */
+    | { type: "user_message"; text: string; remote?: boolean; at_reset?: boolean }
     | {
           type: "init";
           agent_session_id: string;
@@ -898,6 +910,11 @@ export type AgentEvent =
     | { type: "view"; html: string }
     /** What the agent says it actually runs with, defaults resolved. */
     | { type: "applied"; model: string; effort: string | null }
+    /**
+     * The session goes on by itself when the usage limit that stopped it resets, at `at` in
+     * seconds since 1970, or no longer does (`null`). A message of the user's takes it off too.
+     */
+    | { type: "continuation"; at: number | null }
     /** What the agent expects the user to say next, offered after a turn. */
     | { type: "suggestion"; text: string }
     /** What the session's queue of waiting messages now holds. Never part of the history. */

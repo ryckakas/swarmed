@@ -271,6 +271,7 @@ async fn a_skill_called_by_name_is_listed_and_sent_with_what_it_says() {
     assert!(events.contains(&AgentEvent::UserMessage {
         text: "/deploy to staging".to_string(),
         remote: false,
+        at_reset: false,
     }));
     let got = events.iter().find_map(|event| match event {
         AgentEvent::Text { text } => Some(text.as_str()),

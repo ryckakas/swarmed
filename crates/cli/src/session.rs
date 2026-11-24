@@ -15,6 +15,7 @@ use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
+use crate::limits::{seconds_now, span};
 use crate::say;
 
 /// How long a tool call's arguments may be when shown on one line.
@@ -149,6 +150,14 @@ pub(crate) enum SessionCommand {
         off: bool,
         #[arg(long, value_enum, default_value_t)]
         auth: AuthMode,
+    },
+    /// Let a session a usage limit stopped go on by itself when the limit resets: a message is
+    /// sent to it then, as if typed. The app sends it, so it has to be open by then.
+    ContinueAtReset {
+        id: i64,
+        /// Cancel it instead: the session no longer goes on by itself.
+        #[arg(long)]
+        cancel: bool,
     },
     /// Take a session out of the lists. Its history is kept.
     Close { id: i64 },
@@ -301,22 +310,53 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
         SessionCommand::RemoteControl { id, off, auth } => {
             remote_control(core, id, off, auth).await
         }
+        SessionCommand::ContinueAtReset { id, cancel } => continue_at_reset(core, id, cancel),
         SessionCommand::Close { id } => Ok(core.session_close(id)?),
         SessionCommand::Delete { id } => Ok(core.session_delete(id)?),
-        SessionCommand::Reopen { id } => {
-            say(&core.session_reopen(id)?.title);
-            Ok(())
-        }
+        SessionCommand::Reopen { id } => reopened(core, id),
     }
 }
 
-/// Prints everything a session has said and been told, which counts as having read it.
+/// Puts a closed session back in the lists and prints its title.
+fn reopened(core: &Core, id: i64) -> Result<()> {
+    say(&core.session_reopen(id)?.title);
+    Ok(())
+}
+
+/// Prints everything a session has said and been told, which counts as having read it, and
+/// when it goes on by itself, if a usage limit stopped it and it is to.
 fn show(core: &Core, id: i64) -> Result<()> {
     core.session_mark_read(id)?;
     for line in shown(&core.session_events(id)?) {
         say(&line);
     }
+    if let Some(at) = core.session(id)?.continue_at {
+        say(&continues(at, seconds_now()));
+    }
     Ok(())
+}
+
+/// Sets a session to go on by itself when the usage limit that stopped it resets, or cancels
+/// that, and says how it stands.
+fn continue_at_reset(core: &Core, id: i64, cancel: bool) -> Result<()> {
+    if cancel {
+        core.session_continue_cancel(id)?;
+        say("does not go on by itself");
+        return Ok(());
+    }
+    let at = core.session_continue_at_reset(id)?;
+    say(&continues(at, seconds_now()));
+    Ok(())
+}
+
+/// What is said of a session that goes on by itself at `at`.
+fn continues(at: i64, now: i64) -> String {
+    let when = if at > now {
+        format!("in {}", span(at - now))
+    } else {
+        "as soon as the app looks".to_string()
+    };
+    format!("goes on by itself {when}, when the usage limit resets: the app sends it")
 }
 
 /// The lines a session's history is shown as. Claude Code says what it loaded at the start of
@@ -636,13 +676,25 @@ fn refused(status: &str, raw: &Value) -> bool {
         && !set("overageInUse")
 }
 
+/// The line a message to the session is shown as, with where it came from if not from here:
+/// typed on claude.ai, or sent by Swarmed when the usage limit that stopped the session reset.
+fn said(text: &str, remote: bool, at_reset: bool) -> String {
+    let from = match (remote, at_reset) {
+        (true, _) => "[claude.ai] ",
+        (_, true) => "[sent at the limit's reset] ",
+        _ => "",
+    };
+    format!("> {from}{text}")
+}
+
 /// The line an event is shown as, or `None` for events not worth a line.
 pub(crate) fn describe(event: &AgentEvent) -> Option<String> {
     match event {
-        AgentEvent::UserMessage { text, remote } => {
-            let from = if *remote { "[claude.ai] " } else { "" };
-            Some(format!("> {from}{text}"))
-        }
+        AgentEvent::UserMessage {
+            text,
+            remote,
+            at_reset,
+        } => Some(said(text, *remote, *at_reset)),
         AgentEvent::RemoteControl {
             state, url, detail, ..
         } => remote_line(*state, url.as_deref(), detail.as_deref()),

@@ -50,6 +50,9 @@ pub struct Settings {
     pub turn_end_lines: bool,
     /// Which levels of the account's usage the notice at the top of the window says.
     pub limit_warnings: LimitWarnings,
+    /// Whether a Claude Code session that a usage limit stopped goes on by itself when the
+    /// limit resets, without being asked to each time: a message is sent to it then.
+    pub continue_after_limit: bool,
     /// The built-in pieces of the status line under the message box, in order.
     pub status_items: Vec<StatusItem>,
     /// A command whose first line of output replaces the built-in pieces. Empty for none.
@@ -197,6 +200,7 @@ impl Default for Settings {
             tool_calls: ToolCalls::Folded,
             turn_end_lines: true,
             limit_warnings: LimitWarnings::Frequent,
+            continue_after_limit: false,
             status_items: StatusItem::defaults(),
             status_command: String::new(),
             rules: String::new(),
@@ -330,6 +334,7 @@ mod tests {
             tool_calls: ToolCalls::Hidden,
             turn_end_lines: false,
             limit_warnings: LimitWarnings::Rare,
+            continue_after_limit: true,
             status_items: vec![StatusItem::Cost],
             status_command: "~/bin/status".to_string(),
             rules: "Keep answers short.\nNo em dashes.".to_string(),

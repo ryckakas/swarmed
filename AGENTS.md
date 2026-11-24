@@ -452,7 +452,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **Check UI changes in a browser** with `pnpm dev`. The mock agent answers plain text, asks
   permission for `run: <command>`, answers `show …` with an HTML view, ends its turn with a
   weekly usage warning for `warn <percent>` (resetting in that many seconds with
-  `warn <percent> <seconds>`), runs until stopped for `slow`, runs a
+  `warn <percent> <seconds>`), ends its turn refused by a 5-hour limit that resets that many
+  seconds later for `limit <seconds>`, runs until stopped for `slow`, runs a
   command its turn waits on for `long: <command>`, until it is sent to the background or
   stopped, and renames the session as another Swarmed would for `elsewhere: <title>`, saying
   only `tree_changed`; one sample session has 2,000 messages for checking scroll speed.
@@ -868,6 +869,25 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   how old it is.
   Reports are folded by agent, not by sign-in: a session the command line runs with
   `--auth inherit` on another account's sign-in is taken as the same account.
+- **A session a usage limit stopped can go on by itself when the limit resets**
+  (`continuation.rs`, #374). A continuation is a time on the session (`continue_at`), kept in
+  the database since a reset can be days away, and recorded as `AgentEvent::Continuation`.
+  - **Set** by `session_continue_at_reset`, from the refusals (`RateLimit` reached, nothing
+    paying) recorded since the session's latest message, at the latest of their resets; or
+    by `Settings::continue_after_limit` as a refusal is heard (`after_refusal`, from
+    `on_event`). A reset not later than now sets nothing, so a stale figure cannot loop.
+    Agents cannot reach the setting through `configure`: it sends messages by itself.
+  - **Cancelled** by any `UserMessage` (`Store::record` clears the column, and the UI's
+    `applySessionEvent` mirrors it, as it does marks), Stop (`session_interrupt`), closing,
+    removing the task, and `session_continue_cancel`.
+  - **Sent** by the Swarmed that keeps house only (`continue_due`, which the app's
+    `follow_resets` calls every second, pausing `APART` after each session it continued):
+    taken off first, then `CONTINUE_MESSAGE` goes first in the queue as a `QueuedMessage` with
+    `at_reset`, and is recorded as `UserMessage` with `at_reset`. One whose agent another
+    Swarmed runs goes when that run is over (`queued_for`). If the account's usage as last
+    heard says a limit still refuses requests, every due one waits for that reset instead.
+  - **Asks nothing:** the timer only sends the user's chosen message at a time a report
+    already gave. Only Claude Code reports resets, so other agents' refusals offer nothing.
 - **ACP agents with an effort of their own say what it stands at** when a conversation opens,
   which is recorded as `Applied` too. Before a session's agent has said, a front end shows
   what the agent's default last came to (`effort.rs`, `Core::effort_default`): the latest

@@ -267,6 +267,11 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE tasks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
 ",
+    // When a session goes on by itself, once the usage limit that stopped it resets, in
+    // seconds since 1970. Kept, since a reset can be days away.
+    "
+    ALTER TABLE sessions ADD COLUMN continue_at INTEGER;
+",
 ];
 
 /// Stands in [`MIGRATIONS`] for the one change SQL in a transaction cannot make: every

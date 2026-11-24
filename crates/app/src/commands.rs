@@ -1377,6 +1377,19 @@ pub(crate) fn session_remote_control(core: CoreState<'_>, id: i64, on: bool) -> 
     Ok(core.session_remote_control(id, on, Auth::default())?)
 }
 
+/// Lets a session a usage limit stopped go on by itself when the limit resets, and says when,
+/// in seconds since 1970.
+#[tauri::command]
+pub(crate) fn session_continue_at_reset(core: CoreState<'_>, id: i64) -> Command<i64> {
+    Ok(core.session_continue_at_reset(id)?)
+}
+
+/// Cancels a session's going on by itself when a usage limit resets.
+#[tauri::command]
+pub(crate) fn session_continue_cancel(core: CoreState<'_>, id: i64) -> Command<()> {
+    Ok(core.session_continue_cancel(id)?)
+}
+
 #[tauri::command]
 pub(crate) fn session_rename(core: CoreState<'_>, id: i64, title: String) -> Command<Session> {
     Ok(core.session_rename(id, &title)?)

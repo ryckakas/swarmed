@@ -108,6 +108,36 @@ The conversation says nothing of usage, except where a limit stopped a turn with
 past it: that turn keeps one line, which says why the agent stopped. Conversations recorded
 before show no other usage lines either.
 
+### When a limit stops a session
+
+The work stays where the limit stopped it until a message goes to the session. Swarmed can send
+that message for you when the limit resets. The line of the latest turn a limit stopped offers
+**Continue at 14:05**, with the time the limit resets, for a weekly limit too. Pressed, the
+session goes on by itself at that time:
+
+- **What is sent:** "Continue where you stopped.", as if you had typed it, first in the
+  session's queue, so that what you queued meanwhile goes after it. The message says it was sent
+  by itself. Where two limits stopped the turn, it waits for the later reset.
+- **What cancels it:** writing to the session, Stop, closing or deleting it, removing its task,
+  or pressing the clock that shows the time beside the session in the sidebar, or **Cancel**
+  under the limit's line.
+- **Several sessions:** those one limit stopped go on a few seconds apart, not all at once.
+- **When Swarmed is closed:** it is kept with the session, and one whose time came while
+  Swarmed was closed is sent when the app next opens, unless the usage Swarmed last heard says a
+  limit still refuses requests: it then waits for that one to reset. Only the app sends it,
+  not the command line, and with two apps open only the one opened first does.
+
+**Continue after a limit** in Settings, under Storage and activity, does this for every turn a
+limit stops, without asking. It is off unless you turn it on, and an agent cannot turn it on
+for you.
+
+Nothing asks Claude Code for your usage to do any of this: the reset time is the one Claude
+Code gave when it refused the turn. If the limit has not reset after all, the turn is refused
+again and says so, with the new time; with the setting on, the session waits for that one. A
+reset time that has already passed sets nothing. Only Claude Code reports when a limit resets,
+so other agents' sessions offer none of this. `swarmed session continue-at-reset <id>` sets it
+from the command line, `--cancel` cancels it, and `swarmed session show` says when it goes.
+
 **Usage warnings** in Settings, under Storage and activity, chooses which levels the notice
 says:
 

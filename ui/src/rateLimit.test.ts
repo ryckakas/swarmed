@@ -5,6 +5,7 @@ import {
     accountWindows,
     asOf,
     BILLED,
+    clockTime,
     type Dismissed,
     dismissalOf,
     heldBack,
@@ -67,6 +68,15 @@ describe("resetWhen", () => {
         expect(today).not.toContain(" on ");
         const later = resetWhen(seconds(new Date(2026, 10, 27, 22, 0)), now);
         expect(later).toMatch(/^on .*27.* at /);
+    });
+});
+
+describe("clockTime", () => {
+    it("gives the time alone today, and the day's short name before it on another", () => {
+        const today = clockTime(seconds(new Date(2026, 10, 21, 22, 0)), now);
+        expect(today).toMatch(/^\d/);
+        const later = clockTime(seconds(new Date(2026, 10, 27, 22, 0)), now);
+        expect(later).toMatch(/^\D+ \d/);
     });
 });
 
