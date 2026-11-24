@@ -1,6 +1,6 @@
 [package]
 name = "swarmed-core"
-description = "Headless core of Swarmed: projects, tasks, worktrees and agent sessions"
+description = "Headless core of the swarmed command, which requires it at its own version; its API is not stable"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

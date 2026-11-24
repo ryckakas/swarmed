@@ -2,6 +2,11 @@
 //!
 //! Every front end (the CLI, the desktop app) drives this crate and nothing else. It has no
 //! UI dependency.
+//!
+//! Its API makes no promise of stability. It is published so that the `swarmed` command can be
+//! installed from crates.io, and each `swarmed` requires the `swarmed-core` of its own version
+//! exactly. Any release may change the API, whatever its version number: code of your own on
+//! this crate should require one version exactly (`swarmed-core = "=X.Y.Z"`).
 
 mod account_usage;
 mod actions;

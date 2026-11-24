@@ -18,8 +18,10 @@ A release ships Swarmed.app, with the `swarmed` command inside it, from one tag:
    `CHANGELOG.md`, under Added, Changed, Fixed or Removed.
 2. Actions → **Release prep** → Run workflow, with the version (`0.2.0`, no `v`). It runs
    `scripts/release-prep.sh`, which turns the Unreleased entries into the `## [0.2.0]` section and
-   sets the version in `Cargo.toml`, `Cargo.lock` and `package.json`, then opens the PR
-   "chore: release v0.2.0".
+   sets the version in `Cargo.toml` (the workspace's, and the exact `=0.2.0` that `swarmed`
+   requires of `swarmed-core`), `Cargo.lock` and `package.json`, then opens the PR
+   "chore: release v0.2.0". The version follows the rule at the top of `CHANGELOG.md`: what a
+   release does to the `swarmed` command and the data directory, never `swarmed-core`'s API.
 3. Read the notes in that PR and merge it once CI passes. CI then runs again on `main`, on the
    merge commit: once it has passed, `release-tag.yml` tags that commit `v0.2.0`, and
    `release.yml` does the rest. Nothing is released from a commit whose CI failed; rerun the

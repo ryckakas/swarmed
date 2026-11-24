@@ -1043,6 +1043,10 @@ The UI is held to the same bar: Biome's recommended rules plus cognitive complex
   Dependabot moves to each new release. `rust-version` in `Cargo.toml` is the oldest it builds
   with.
 - Dependencies are declared once in `[workspace.dependencies]` and inherited by the crates.
+- `swarmed-core` makes no promise about its API: it is on crates.io only for `swarmed`, which
+  requires it at exactly the workspace's version (`=X.Y.Z`, moved by `release-prep.sh`). A
+  version number follows what a release does to the `swarmed` command and the data directory
+  alone (`CHANGELOG.md`), so a change to the core's public items needs no care for semver.
 - Everything the workflows run is pinned, so a run uses only what a reviewed change chose:
   every action to a commit, with its version in a comment; a binary downloaded by hand to its
   version and SHA-256; a tool `taiki-e/install-action` installs to its version; Node to
