@@ -436,6 +436,20 @@ code {
     border-top: 1px solid var(--line);
 }
 
+/* Putting the task away from the panel: when and why it was, or the offer once it merged. */
+.put-away {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+}
+
+.put-away-said {
+    margin: 0;
+    color: var(--muted);
+}
+
 .pull-title {
     padding: 0;
     border: 0;
@@ -1904,6 +1918,20 @@ code {
 .closed-toggle:focus-visible {
     background: var(--raised);
     color: var(--text);
+}
+
+/* A repository's tasks that were put away: one quiet line at its end that unfolds into them,
+   drawn quieter than the others. */
+.done-group {
+    margin-top: 6px;
+}
+
+.done-toggle {
+    margin-left: 22px;
+}
+
+.task-done .task-title {
+    color: var(--muted);
 }
 
 .closed-row {
@@ -5207,6 +5235,23 @@ code {
 
 .environment-stacks {
     width: 10ch;
+}
+
+/* A rule that puts tasks away by itself: on or off, and after how many days. */
+.rule-days {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.rule-days-count {
+    width: 7ch;
+}
+
+.rule-days-unit {
+    min-width: 4ch;
+    color: var(--muted);
 }
 
 .note-text {

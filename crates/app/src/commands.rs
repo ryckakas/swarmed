@@ -344,6 +344,25 @@ pub(crate) async fn task_remove<R: Runtime>(
     Ok(core.task_remove(&project, &name, options, &sink).await?)
 }
 
+/// Puts a task away: stops its agents and its stack, closes its sessions if the settings say
+/// to, and lists it with the done ones. Returns what went wrong on the way, to be said.
+#[tauri::command]
+pub(crate) async fn task_done<R: Runtime>(
+    app: AppHandle<R>,
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+) -> Command<Vec<String>> {
+    let sink = hook_sink(&app, &project, &name);
+    Ok(core.task_done(&project, &name, &sink).await?)
+}
+
+/// Brings a put away task back to the others.
+#[tauri::command]
+pub(crate) fn task_undone(core: CoreState<'_>, project: String, name: String) -> Command<()> {
+    Ok(core.task_undone(&project, &name)?)
+}
+
 /// What one folder of a task's worktree holds; the worktree itself for an empty `dir`.
 #[tauri::command(async)]
 pub(crate) fn task_files(

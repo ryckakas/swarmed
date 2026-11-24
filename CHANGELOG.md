@@ -34,6 +34,15 @@ notice adds its line under Unreleased.
   met. Only the commit you saw is merged, no branch is deleted, GitHub's refusals are shown in
   its words and a merge queue is named as one. `swarmed task merge` does the same in the
   terminal.
+- **Put finished tasks away.** **Put away** in a task's panel, or **Put away instead** when you
+  remove it, stops its agents and its stack and lists it in a folded **Done** group at the end of
+  its repository, with nothing deleted: the worktree, the branch, your notes and its sessions
+  stay. Once its pull request merged, the panel, the line that says so and the merge dialog
+  offer it. **Bring back** lists it with the others again, and so does working on it.
+  Settings can put tasks away by themselves, each rule off until you turn it on: a set number of
+  days after their pull request merged, or after their sessions sat idle that long, never while
+  one of them is at work. Whether putting away also closes the sessions is a setting of its
+  own. `swarmed task done` and `swarmed task undone` do the same in the terminal.
 
 ### Changed
 

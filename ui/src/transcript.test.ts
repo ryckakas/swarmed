@@ -7,6 +7,7 @@ import {
     type LimitItem,
     latestFailure,
     latestLimit,
+    latestMerge,
     latestMove,
     mayGoToBackground,
     messageNumber,
@@ -635,6 +636,13 @@ describe("a change of the pull request", () => {
         expect(items.map((item) => item.kind)).toEqual(["pull", "pull", "pull"]);
         expect(latestFailure(items)).toBe(2);
         expect(latestFailure(toItems([changed({ kind: "merged" })], words))).toBeNull();
+    });
+
+    it("offers putting the task away from the latest merge only", () => {
+        const merged = changed({ kind: "merged" });
+        const items = toItems([merged, changed({ kind: "approved", by: ["bob"] }), merged], words);
+        expect(latestMerge(items)).toBe(2);
+        expect(latestMerge(toItems([changed({ kind: "closed" })], words))).toBeNull();
     });
 });
 

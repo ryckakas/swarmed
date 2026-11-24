@@ -1009,6 +1009,7 @@ mod tests {
             base: "main".to_string(),
             auto_merge: None,
             merge_state: None,
+            merged_at: None,
         }
     }
 

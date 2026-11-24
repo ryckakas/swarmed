@@ -22,7 +22,7 @@ pub(crate) const GH_TIMEOUT: Duration = Duration::from_secs(20);
 /// What `gh pr view` and `gh pr list` are asked for: what is shown, and what tells a change.
 pub(crate) const FIELDS: &str = "number,title,url,state,isDraft,reviewDecision,\
                                  statusCheckRollup,headRefName,headRefOid,updatedAt,mergeable,\
-                                 baseRefName,autoMergeRequest,mergeStateStatus";
+                                 baseRefName,autoMergeRequest,mergeStateStatus,mergedAt";
 
 /// Where a pull request stands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,6 +104,10 @@ pub struct Pull {
     /// (conflicts) or `draft`; nothing while GitHub has not worked it out.
     #[serde(default)]
     pub merge_state: Option<String>,
+    /// When it was merged, as GitHub writes it (`2026-11-20T10:00:00Z`), if it was. Absent
+    /// from what was kept before this.
+    #[serde(default)]
+    pub merged_at: Option<String>,
 }
 
 /// A check as `gh` prints it: a check run has a status and a conclusion, a commit status only a
@@ -160,6 +164,8 @@ struct RawPull {
     auto_merge_request: Option<RawAutoMerge>,
     #[serde(default)]
     merge_state_status: String,
+    #[serde(default)]
+    merged_at: Option<String>,
 }
 
 /// A pull request's auto-merge as `gh` prints it. The commit message it would merge with is
@@ -299,6 +305,10 @@ fn reading(raw: RawPull) -> Reading {
         base: raw.base_ref_name,
         auto_merge,
         merge_state,
+        // GitHub says no merge with the year 1, or nothing.
+        merged_at: raw
+            .merged_at
+            .filter(|at| crate::put_away::seconds_of(at).is_some()),
     };
     Reading {
         pull,

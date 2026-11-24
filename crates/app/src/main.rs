@@ -19,7 +19,7 @@ use std::sync::Arc;
 use swarmed_core::agent::{Auth, FakeBackend};
 use swarmed_core::{
     Core, Paths, SessionEvent, TOOL_SERVER_ARG, TerminalOutput, VIEW_POLICY, follow_others,
-    follow_pulls, follow_resets, serve_session_tools, serve_tools,
+    follow_pulls, follow_put_away, follow_resets, serve_session_tools, serve_tools,
 };
 use tauri::http::header::{CONTENT_SECURITY_POLICY, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
 use tauri::http::{HeaderValue, Response, StatusCode};
@@ -208,6 +208,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::environment_save, commands::environment_remove, commands::environment_default,
         commands::environment_set_default, commands::snapshots,
         commands::snapshot_save, commands::snapshot_remove, commands::task_remove,
+        commands::task_done, commands::task_undone,
         commands::task_open_editor, commands::task_open_terminal, commands::task_files, commands::task_open_file, commands::task_open_url, commands::open_link,
         commands::task_unpublished, commands::task_commit, commands::task_commit_message, commands::task_pull_message,
         commands::task_push, commands::task_switch, commands::task_pull_draft, commands::task_pull_create,
@@ -270,6 +271,7 @@ fn main() {
     let following = Arc::clone(&core);
     let resetting = Arc::downgrade(&core);
     let pulling = Arc::downgrade(&core);
+    let tidying = Arc::downgrade(&core);
     let bus = core.subscribe();
     let terminals = core.subscribe_terminals();
     let claude_terminals = core.subscribe_claude_terminals();
@@ -297,6 +299,9 @@ fn main() {
             // The pull requests of tasks are followed, and what changed on them is said once.
             // Only the first Swarmed on the data asks GitHub.
             drop(tauri::async_runtime::spawn(follow_pulls(pulling)));
+            // Finished tasks are put away by themselves, where the user's settings say so. Only
+            // the first Swarmed on the data does this.
+            drop(tauri::async_runtime::spawn(follow_put_away(tidying)));
             // Sessions that had Remote Control on can be reached from claude.ai again, without
             // anyone writing to them here first. Only the first Swarmed on the data does this.
             drop(tauri::async_runtime::spawn(async move {

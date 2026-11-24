@@ -282,6 +282,37 @@ deleted; a merge queue is named as one.
 | What the repository allows | once per repository while the app runs (`gh api graphql`: its merge methods, auto-merge, whether you administer it, your default method) |
 | A merge | `gh pr merge <number> --merge\|--squash\|--rebase --match-head-commit <commit>`, with `--admin` or `--auto` as chosen, then the pull request read once |
 
+## Finished tasks
+
+A task you are done with can be put away, without removing it: **Put away** in its panel, **Put
+away instead** when you remove it, or `swarmed task done <repository> <task>`. Its agents and
+its stack are stopped and it is listed in a folded **Done** group at the end of its repository.
+Nothing is deleted: the worktree, the branch, your notes and every conversation stay, and its
+sessions stay open unless `put_away_closes_sessions` says otherwise. Remote Control is turned
+off for them, and a session set to go on when a usage limit resets no longer does.
+
+Once a task's pull request merged, its panel, the line in its conversation that says so and
+the merge dialog offer to put it away; none of them does it unasked. **Bring back** (the arrow
+on its row, or `swarmed task undone`) lists it with the others again, and so does anything
+that works on it: reopening one of its sessions, starting one of its agents (sending a message
+does), or starting its stack. Removing a done task is **Remove…** as for any other, with its
+rules; the clean-up never offers one.
+
+Nothing is put away by itself unless you turn a rule on, each with its own number of days:
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `put_away_merged` | `false` | put a task away `put_away_merged_days` after its pull request merged (GitHub's merge time). A task you brought back after the merge stays |
+| `put_away_merged_days` | `1` | 0 to 365 |
+| `put_away_idle` | `false` | put a task away once none of its sessions recorded anything for `put_away_idle_days`, counted from when it was made or last brought back if that is later. A terminal or a running stack is not activity |
+| `put_away_idle_days` | `14` | 1 to 365 |
+| `put_away_closes_sessions` | `false` | putting a task away, by hand or by a rule, also closes its sessions, which keep their conversations and can be reopened |
+
+A rule never puts away a task while work goes on in it: a session at work or waiting for you,
+something an agent left running in the background, a session another Swarmed runs, a session
+set to go on when a usage limit resets, or its setup. It tries again a minute later. Only the
+first Swarmed to arrive on the data directory applies the rules, while the app runs.
+
 ## Settings
 
 Set in the app's Settings, kept in `settings.toml`.
@@ -298,6 +329,7 @@ Set in the app's Settings, kept in `settings.toml`.
 | `html_views` | `true` | agents may answer with HTML views |
 | `tool_calls` | `folded` | how agents' tool calls show in a conversation: `all`, each on its own line; `folded`, the calls that follow each other in one line that counts them and names the last; `hidden`, none, with a larger animation while the agent works. Permission requests, questions, plans and views always show |
 | `turn_end_lines` | `true` | whether a conversation draws a line where each turn ends, with how long it took and what was spent so far. A turn with nothing in it that spent nothing more has none either way, and a turn that failed or was stopped keeps its line even when this is `false`. What the agent loaded is said once, at the top, whatever this is |
+| `put_away_merged`, `put_away_idle` and their days, `put_away_closes_sessions` | off, 1, 14, `false` | putting finished tasks away by themselves; see [Finished tasks](#finished-tasks) |
 | `continue_after_limit` | `false` | whether a Claude Code session a usage limit stopped goes on by itself when the limit resets, for every refused turn, without being asked each time: it is sent "Continue where you stopped." then. Without it, the limit's line in the conversation offers it each time |
 | `limit_warnings` | `frequent` | which levels of the account's usage the notice at the top of the window says, in Claude Code sessions: `frequent`, every level (50%, 75% and 90% of a window used, a limit reached with extra usage paying, a limit that stops requests); `rare`, from 90% used; `none`, only requests stopped. Dismissed, the notice stays away until a higher level, until its window resets, or until a window first reported since, such as one model's weekly limit, reaches a level. The conversation says only a turn a limit stopped, and the usage coins show the same whatever it is |
 | `rules` | none | rules every agent is given, in every session |

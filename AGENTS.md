@@ -1050,6 +1050,27 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   - **Rules** (`project_merge_rules`): one GraphQL query per repository per process, kept in
     memory, since `gh repo view` cannot say whether auto-merge is allowed. The method last
     merged with is kept in `projects.merge_method`, as the default environment is.
+- **A finished task is put away, not removed** (`put_away.rs`, #375). `task_done` stops its
+  agents and its stack, closes its sessions only with `Settings::put_away_closes_sessions`, and
+  marks it done (`tasks.done_at`, `done_why`), which front ends list in a folded Done group
+  (`putAway.ts`). Nothing is deleted. Sessions left open get Remote Control turned off and
+  their continuation cancelled, since either would start the agent again by itself.
+  - **Coming back.** `task_undone`, and anything that works on it: `session_reopen`,
+    `session_start` (which a message does) and `stack_start` call `bring_back`, which keeps
+    when (`tasks.back_at`). Both ways publish `AgentEvent::TreeChanged`.
+  - **By itself only where the user turned a rule on** (`put_away_merged`, `put_away_idle`,
+    each with its days; off by default). The house looks once a minute (`follow_put_away`,
+    `tasks_put_away_due`); the decision is the pure `due`. Merged counts from GitHub's
+    `mergedAt` (`Pull::merged_at`), idle from the latest of creation, the task's last event
+    and `back_at`; a task brought back after its merge is not put away for it again. Never
+    while work goes on (`works_on`): a session busy, waiting, run elsewhere or with a
+    continuation, work left running in the background, or a setup. Agents cannot turn a rule
+    on through `configure`: it stops agents by itself.
+  - **Offered, never done unasked,** once its pull request merged: in the panel
+    (`PutAwayPart`), on the latest merged line of the conversation, and in the merge dialog's
+    done view. The Remove dialog offers it instead of removal.
+  - **Not the clean-up's.** A done task is a current task to `cleanup.rs`; removal stays
+    `task_remove`'s.
 - **A task's work leaves its worktree only when asked** (`publish.rs`): commit everything, push
   the branch, open a pull request, each a step of its own behind a button. Commits are made by
   the user's git as them, the pull request by their `gh`; nothing is added to either.

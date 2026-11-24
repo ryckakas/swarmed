@@ -486,6 +486,7 @@ mod tests {
             base: "main".to_string(),
             auto_merge: None,
             merge_state: Some("blocked".to_string()),
+            merged_at: None,
         }
     }
 

@@ -960,7 +960,9 @@ impl Core {
             backend,
             spec,
         };
-        launch(shared, id, Launch::UnlessRunning)
+        launch(shared, id, Launch::UnlessRunning)?;
+        // Something works on its task again.
+        self.bring_back_session(id)
     }
 
     /// Everything the agent of `session`, which works in `task`, is started with.
@@ -1394,6 +1396,8 @@ impl Core {
     pub fn session_reopen(&self, id: i64) -> Result<Session> {
         self.session(id)?;
         self.store().session_reopen(id)?;
+        // A put away task comes back with its session.
+        self.bring_back_session(id)?;
         self.session(id)
     }
 

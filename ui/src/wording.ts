@@ -41,6 +41,8 @@ export interface Words {
     closed: (count: number) => string;
     /** The button that puts a closed session back. */
     reopen: string;
+    /** The line that unfolds a repository's tasks that were put away. */
+    done: (count: number) => string;
     /** What handing work to a cloud agent is called, before "from <where>". */
     delegate: string;
     /** Taking a cloud task off the list, which leaves it running at its provider. */
@@ -284,6 +286,7 @@ const PLAIN: Words = {
     addRepository: "Add repository",
     closed: (count) => `${count} closed`,
     reopen: "Reopen",
+    done: (count) => `${count} done`,
     delegate: "Delegate to the cloud",
     forgetCloud: "Take off the list",
     usageLimits: "Usage limits",
@@ -558,6 +561,8 @@ const COLONY: Words = {
     addRepository: "Found a colony",
     closed: (count) => `${count} burrowed`,
     reopen: "Unburrow",
+    // A cell whose brood is grown is capped with wax.
+    done: (count) => `${count} sealed`,
     delegate: "Send spores to the cloud",
     forgetCloud: "Let it drift",
     usageLimits: "Hunger limits",

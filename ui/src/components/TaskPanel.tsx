@@ -15,6 +15,7 @@ import { editorName } from "./options";
 import { Picker } from "./Picker";
 import { Publish } from "./Publish";
 import { PullSection } from "./PullRequest";
+import { PutAwayPart } from "./PutAway";
 import { Resizer } from "./Resizer";
 import { StackControls } from "./StackControls";
 
@@ -162,7 +163,10 @@ function TaskHead({ project, task }: { project: Project; task: Task }) {
     );
 }
 
-/** What only a task in a repository has: its stack, comparing, publishing, its pull request. */
+/**
+ * What only a task in a repository has: its stack, comparing, publishing, its pull request,
+ * and putting it away.
+ */
 function RepositoryParts({ project, task }: { project: Project; task: Task }) {
     return (
         <>
@@ -170,6 +174,7 @@ function RepositoryParts({ project, task }: { project: Project; task: Task }) {
             <CompareWith project={project} task={task} />
             <Publish project={project.name} task={task} />
             <PullSection project={project.name} task={task} />
+            <PutAwayPart project={project.name} task={task} />
         </>
     );
 }

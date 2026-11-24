@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::agent::Supervision;
 use crate::error::{Error, Result};
 use crate::lenient::{self, Problems};
+use crate::put_away::MAX_DAYS;
 use crate::statusline::StatusItem;
 
 /// The user's own preferences, one TOML file in the data directory.
@@ -66,6 +67,19 @@ pub struct Settings {
     /// repository whose `branch_pattern` is the default. Kept without slashes at its ends; empty
     /// for the user's login.
     pub branch_prefix: String,
+    /// Whether a task whose pull request merged is put away by itself, `put_away_merged_days`
+    /// after the merge, unless work goes on in it then (`put_away.rs`).
+    pub put_away_merged: bool,
+    /// How many days after its pull request merged a task is put away, from 0 to 365.
+    pub put_away_merged_days: u32,
+    /// Whether a task none of whose sessions recorded anything for `put_away_idle_days` is put
+    /// away by itself. A terminal or a running stack does not count.
+    pub put_away_idle: bool,
+    /// How many days without anything in its sessions put a task away, from 1 to 365.
+    pub put_away_idle_days: u32,
+    /// Whether putting a task away also closes its sessions. Without it they stay open, with
+    /// their agents stopped.
+    pub put_away_closes_sessions: bool,
 }
 
 /// The longest the user's rules may be, in bytes: they travel with every session's
@@ -206,6 +220,11 @@ impl Default for Settings {
             rules: String::new(),
             updates: UpdateMode::Automatic,
             branch_prefix: String::new(),
+            put_away_merged: false,
+            put_away_merged_days: 1,
+            put_away_idle: false,
+            put_away_idle_days: 14,
+            put_away_closes_sessions: false,
         }
     }
 }
@@ -249,6 +268,8 @@ impl Settings {
     fn within_limits(mut self) -> Self {
         let (smallest, largest) = TEXT_SCALE_RANGE;
         self.text_scale = self.text_scale.clamp(smallest, largest);
+        self.put_away_merged_days = self.put_away_merged_days.min(MAX_DAYS);
+        self.put_away_idle_days = self.put_away_idle_days.clamp(1, MAX_DAYS);
         self.branch_prefix = crate::prefix::trimmed(&self.branch_prefix).to_string();
         self
     }
@@ -340,6 +361,11 @@ mod tests {
             rules: "Keep answers short.\nNo em dashes.".to_string(),
             updates: UpdateMode::WhenAsked,
             branch_prefix: "jd/feat".to_string(),
+            put_away_merged: true,
+            put_away_merged_days: 3,
+            put_away_idle: true,
+            put_away_idle_days: 30,
+            put_away_closes_sessions: true,
         };
         chosen.save(&path).expect("saves");
         assert_eq!(Settings::load(&path).expect("loads"), chosen);
@@ -469,6 +495,33 @@ mod tests {
         typed.save(&path).expect("saves");
         let saved = std::fs::read_to_string(&path).expect("reads back");
         assert!(saved.contains("branch_prefix = \"team-a\""), "{saved}");
+    }
+
+    #[test]
+    fn nothing_is_put_away_by_itself_unless_turned_on_and_days_stay_in_range() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.toml");
+        // A file written before the settings existed.
+        std::fs::write(&path, "theme = \"dark\"").expect("writes");
+        let loaded = Settings::load(&path).expect("loads");
+        assert!(!loaded.put_away_merged && !loaded.put_away_idle);
+        assert!(!loaded.put_away_closes_sessions);
+        assert_eq!(
+            (loaded.put_away_merged_days, loaded.put_away_idle_days),
+            (1, 14)
+        );
+        let written = "put_away_merged_days = 0\nput_away_idle_days = 0\n";
+        std::fs::write(&path, written).expect("writes");
+        let loaded = Settings::load(&path).expect("loads");
+        assert_eq!(
+            (loaded.put_away_merged_days, loaded.put_away_idle_days),
+            (0, 1)
+        );
+        std::fs::write(&path, "put_away_idle_days = 9000\n").expect("writes");
+        assert_eq!(
+            Settings::load(&path).expect("loads").put_away_idle_days,
+            365
+        );
     }
 
     #[test]

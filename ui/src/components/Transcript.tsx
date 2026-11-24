@@ -4,6 +4,7 @@ import { api } from "../api";
 import type { AgentEvent } from "../api/types";
 import { type MessagePart, messageParts } from "../pastes";
 import { failedChecks, pullChangeSaid } from "../pulls";
+import { offersPutAway } from "../putAway";
 import { resetWhen } from "../rateLimit";
 import { screenHtml } from "../screens";
 import { useStore } from "../store";
@@ -14,6 +15,7 @@ import {
     type LimitItem,
     latestFailure,
     latestLimit,
+    latestMerge,
     latestMove,
     movedSaid,
     PLAN_TOOL,
@@ -36,6 +38,7 @@ import { HtmlView } from "./HtmlView";
 import { Markdown } from "./Markdown";
 import { PermissionPrompt } from "./PermissionPrompt";
 import { SendFailure } from "./PullRequest";
+import { PutAwayButton } from "./PutAway";
 import { QuestionPrompt } from "./QuestionPrompt";
 import { QuoteButton } from "./QuoteButton";
 import { Spawning, Swarming } from "./Spawning";
@@ -72,6 +75,7 @@ export function Transcript(props: Props) {
     const lastMove = useMemo(() => latestMove(items), [items]);
     const lastFailure = useMemo(() => latestFailure(items), [items]);
     const lastLimit = useMemo(() => latestLimit(items), [items]);
+    const lastMerge = useMemo(() => latestMerge(items), [items]);
     const sendsFrom = working && sendsToBackground ? sessionId : null;
     const scroller = useRef<HTMLDivElement>(null);
     const frame = useRef<HTMLDivElement>(null);
@@ -96,7 +100,9 @@ export function Transcript(props: Props) {
                             <ItemView
                                 item={item}
                                 sessionId={sessionId}
-                                latest={[lastMove, lastLimit, lastFailure].includes(item.key)}
+                                latest={[lastMove, lastLimit, lastFailure, lastMerge].includes(
+                                    item.key,
+                                )}
                                 sendsFrom={sendsFrom}
                             />
                         </li>
@@ -504,6 +510,13 @@ function PullLine(props: {
     const pull = useStore((state) => (home ? (state.pulls[home.task.id] ?? null) : null));
     const failing = pull !== null && pull.number === item.number && failedChecks(pull).length > 0;
     const offered = latest && item.change.kind === "checks_failed" && failing && home;
+    // Merged, the task can be put away, while it is not and that pull request is still its.
+    const finished =
+        latest &&
+        item.change.kind === "merged" &&
+        pull?.number === item.number &&
+        home &&
+        offersPutAway(home.task, pull);
     return (
         <div className="pull-changed">
             <p className="asked" data-change={item.change.kind}>
@@ -514,6 +527,13 @@ function PullLine(props: {
                     project={home.project.name}
                     task={home.task.name}
                     sessionId={sessionId}
+                />
+            )}
+            {finished && (
+                <PutAwayButton
+                    project={home.project.name}
+                    task={home.task}
+                    label={`Put this ${words.terms.task} away`}
                 />
             )}
         </div>

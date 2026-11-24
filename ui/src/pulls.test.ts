@@ -31,6 +31,7 @@ const pull = (checks: Check[], more: Partial<Pull> = {}): Pull => ({
     base: "main",
     auto_merge: null,
     merge_state: null,
+    merged_at: null,
     ...more,
 });
 

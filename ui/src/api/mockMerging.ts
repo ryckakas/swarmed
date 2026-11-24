@@ -94,7 +94,13 @@ export function mergeApi(
                 host.pullTakenIn(name, auto, null);
                 return { outcome: "auto_merge", pull: auto };
             }
-            const merged: Pull = { ...pull, state: "merged", auto_merge: null, merge_state: null };
+            const merged: Pull = {
+                ...pull,
+                state: "merged",
+                auto_merge: null,
+                merge_state: null,
+                merged_at: new Date().toISOString().replace(/\.\d+Z$/, "Z"),
+            };
             host.pullTakenIn(name, merged, { kind: "merged" });
             return { outcome: "merged", pull: merged };
         },

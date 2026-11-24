@@ -99,6 +99,16 @@ impl Core {
         Ok(listed(reported, &alive))
     }
 
+    /// Whether something a session of task `id` left running still runs.
+    pub(crate) fn background_running(&self, id: i64) -> Result<bool> {
+        let reported = self.store().background_reports(id)?;
+        let alive = self.running_sessions();
+        let listed = listed(reported, &alive);
+        Ok(listed
+            .iter()
+            .any(|task| task.state == BackgroundState::Running))
+    }
+
     /// What a command session `id`'s agent left running printed: from `from` on if that is
     /// no more than is read at once, else its latest part. `None` once the file is gone, which
     /// it is after Claude Code cleared its temporary folder on starting again. Only a file the

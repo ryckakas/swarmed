@@ -194,6 +194,10 @@
     padding-block: var(--space-1);
 }
 
+:root[data-layout="senior"] .done-toggle {
+    margin-left: 28px;
+}
+
 :root[data-layout="senior"] .closed-row {
     padding: var(--space-1) var(--space-2) var(--space-1) 60px;
 }

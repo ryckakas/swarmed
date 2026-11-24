@@ -157,6 +157,14 @@ export interface Api {
      * what it passed over to get there, a teardown that failed say, for the user to read.
      */
     taskRemove(project: string, name: string, force: boolean): Promise<string[]>;
+    /**
+     * Puts a task away: stops its agents and its stack, closes its sessions if the settings say
+     * so, and lists it with the done ones. Nothing is deleted. Resolves to what went wrong on
+     * the way, a `stop` that failed say, for the user to read.
+     */
+    taskDone(project: string, name: string): Promise<string[]>;
+    /** Brings a task that was put away back to the others. Nothing is started. */
+    taskUndone(project: string, name: string): Promise<void>;
     /** What a new task in the project can start from. */
     branchChoices(project: string): Promise<BranchChoices>;
     /**

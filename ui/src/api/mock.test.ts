@@ -145,10 +145,12 @@ describe("the mock's tree", () => {
 
     it("lists pinned tasks first, and moves each among those pinned as it is", async () => {
         const api = createMockApi();
+        // As the sidebar lists them with the others: the task put away is listed apart.
         const tasks = async () =>
             (await api.overview())
                 .find((project) => project.name === "storefront")
-                ?.tasks.map((task) => `${task.name}${task.pinned ? " (pinned)" : ""}`);
+                ?.tasks.filter((task) => task.done_at === null)
+                .map((task) => `${task.name}${task.pinned ? " (pinned)" : ""}`);
         expect(await tasks()).toEqual([
             "fix-login-redirect (pinned)",
             "invoice-export",

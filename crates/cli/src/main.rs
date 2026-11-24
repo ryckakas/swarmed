@@ -325,6 +325,11 @@ enum TaskCommand {
         #[arg(long)]
         delete_branch: bool,
     },
+    /// Put a finished task away: stop its agents and its stack, and list it as done. Its
+    /// sessions are closed too if the settings say so. Nothing is deleted.
+    Done { project: String, name: String },
+    /// Bring a task that was put away back to the others. Nothing is started.
+    Undone { project: String, name: String },
     /// Show the pull request of the task's branch and how its checks stand.
     Pull(pull::PullArgs),
     /// Merge the pull request of the task's branch as it is now, or have GitHub merge it once
@@ -1092,8 +1097,9 @@ async fn written(core: &Core, command: TaskCommand) -> Result<Option<TaskCommand
     Ok(None)
 }
 
-/// Does what a command asks of the branch a task's worktree is on, pushing it or putting the
-/// worktree on another, and hands any other command back.
+/// Does what a command asks of a task's branch or of its place among the others: pushing it,
+/// putting the worktree on another, moving or pinning the task, putting it away or bringing it
+/// back. Hands any other command back.
 async fn sent_or_switched(core: &Core, command: TaskCommand) -> Result<Option<TaskCommand>> {
     match command {
         TaskCommand::Push { project, name } => {
@@ -1123,6 +1129,16 @@ async fn sent_or_switched(core: &Core, command: TaskCommand) -> Result<Option<Ta
         TaskCommand::Unpin { project, name } => {
             core.task_pin(&project, &name, false)?;
             tasks_in_order(core, &project)?;
+        }
+        TaskCommand::Done { project, name } => {
+            for note in core.task_done(&project, &name, &hook_line).await? {
+                say(&note);
+            }
+            say(&format!("put away task `{name}`"));
+        }
+        TaskCommand::Undone { project, name } => {
+            core.task_undone(&project, &name)?;
+            say(&format!("brought back task `{name}`"));
         }
         other => return Ok(Some(other)),
     }
@@ -1218,13 +1234,7 @@ async fn task(core: &Arc<Core>, command: TaskCommand) -> Result<()> {
                 force,
                 delete_branch,
             };
-            for note in core
-                .task_remove(&project, &name, options, &hook_line)
-                .await?
-            {
-                say(&note);
-            }
-            say(&format!("removed task `{name}`"));
+            remove_task(core, &project, &name, options).await?;
         }
         TaskCommand::Pull(args) => pull::run(core, &args).await?,
         TaskCommand::Merge(args) => merge::run(core, &args).await?,
@@ -1242,6 +1252,8 @@ async fn task(core: &Arc<Core>, command: TaskCommand) -> Result<()> {
         | TaskCommand::Move { .. }
         | TaskCommand::Pin { .. }
         | TaskCommand::Unpin { .. }
+        | TaskCommand::Done { .. }
+        | TaskCommand::Undone { .. }
         | TaskCommand::Setup { .. }
         | TaskCommand::StartAnyway { .. }
         | TaskCommand::SetupLog { .. } => {}
@@ -1274,6 +1286,15 @@ async fn task(core: &Arc<Core>, command: TaskCommand) -> Result<()> {
     Ok(())
 }
 
+/// Removes a task, saying what its removal passed over.
+async fn remove_task(core: &Core, project: &str, name: &str, options: RemoveOptions) -> Result<()> {
+    for note in core.task_remove(project, name, options, &hook_line).await? {
+        say(&note);
+    }
+    say(&format!("removed task `{name}`"));
+    Ok(())
+}
+
 /// The projects' names as the app lists them, each pinned one marked so.
 fn projects_in_order(core: &Core) -> Result<()> {
     for project in core.projects()? {
@@ -1302,6 +1323,7 @@ fn in_order(name: &str, pinned: bool) -> String {
 fn task_row(task: &Task) -> String {
     let state = match (task.archived, task.setup) {
         (true, _) => "archived",
+        _ if task.done_at.is_some() => "done",
         (false, SetupStatus::Ok) => "ready",
         (false, SetupStatus::Failed) => "setup failed",
         (false, SetupStatus::Pending) => "setup pending",

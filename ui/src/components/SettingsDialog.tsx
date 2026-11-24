@@ -11,6 +11,7 @@ import type {
 } from "../api/types";
 import { LAYOUTS, PALETTES, STYLES } from "../appearance";
 import { type PrefixCheck, prefixToSave, problemOf } from "../branchPrefix";
+import { daysWithin } from "../putAway";
 import { movedItem, STATUS_ITEMS, statusItemName, withItem } from "../statusline";
 import { SETTINGS_TABS, type SettingsTab, useStore } from "../store";
 import { useWords } from "../useWords";
@@ -150,7 +151,12 @@ function Panel({ tab, settings }: { tab: SettingsTab; settings: Settings }) {
         case "appearance":
             return <Appearance settings={settings} />;
         case "sessions":
-            return <Sessions settings={settings} />;
+            return (
+                <>
+                    <Sessions settings={settings} />
+                    <FinishedTasks settings={settings} />
+                </>
+            );
         case "rules":
             return <Rules settings={settings} />;
         case "status":
@@ -597,6 +603,106 @@ function UsageWarnings({ settings }: { settings: Settings }) {
                 />
             </Row>
         </section>
+    );
+}
+
+/**
+ * Putting finished tasks away by themselves: nothing is, unless a rule is turned on. Each rule
+ * has its own number of days, and what putting away does to the sessions is a choice apart.
+ */
+function FinishedTasks({ settings }: { settings: Settings }) {
+    const words = useWords();
+    const change = useStore((state) => state.changeSettings);
+    const tasks = words.terms.tasks;
+    return (
+        <section className="settings-group" aria-label={`Finished ${tasks}`}>
+            <h3>Finished {tasks}</h3>
+            <Row
+                label="Put away once merged"
+                hint={`A ${words.terms.task} whose ${words.terms.pullRequest} merged is put away this many days after the merge: its ${words.terms.agent}s and its stack are stopped and it is listed under Done, with nothing deleted. Never while one of its sessions is at work or waits for you. A ${words.terms.task} you bring back stays.`}
+            >
+                <RuleDays
+                    label={`Put away ${tasks} whose ${words.terms.pullRequest} merged`}
+                    on={settings.put_away_merged}
+                    days={settings.put_away_merged_days}
+                    least={0}
+                    onOn={(on) => void change(api, { put_away_merged: on })}
+                    onDays={(days) => void change(api, { put_away_merged_days: days })}
+                />
+            </Row>
+            <Row
+                label="Put away when idle"
+                hint={`A ${words.terms.task} none of whose sessions did anything for this many days is put away the same way. A terminal or a running stack does not count as doing something.`}
+            >
+                <RuleDays
+                    label={`Put away idle ${tasks}`}
+                    on={settings.put_away_idle}
+                    days={settings.put_away_idle_days}
+                    least={1}
+                    onOn={(on) => void change(api, { put_away_idle: on })}
+                    onDays={(days) => void change(api, { put_away_idle_days: days })}
+                />
+            </Row>
+            <Row
+                label="Close sessions too"
+                hint={`Putting a ${words.terms.task} away, by hand or by a rule, also closes its sessions. They keep their conversations and can be reopened. Without this they stay open, with their ${words.terms.agent}s stopped.`}
+            >
+                <input
+                    type="checkbox"
+                    aria-label={`Close a ${words.terms.task}'s sessions when it is put away`}
+                    checked={settings.put_away_closes_sessions}
+                    onChange={(event) =>
+                        void change(api, { put_away_closes_sessions: event.target.checked })
+                    }
+                />
+            </Row>
+        </section>
+    );
+}
+
+interface RuleDaysProps {
+    label: string;
+    on: boolean;
+    days: number;
+    /** The fewest days the rule takes. */
+    least: number;
+    onOn(on: boolean): void;
+    onDays(days: number): void;
+}
+
+/** A rule turned on or off, and after how many days; the days are kept once typed. */
+function RuleDays({ label, on, days, least, onOn, onDays }: RuleDaysProps) {
+    const [typed, setTyped] = useState(String(days));
+    const keep = () => {
+        const kept = daysWithin(typed, least);
+        setTyped(String(kept));
+        if (kept !== days) {
+            onDays(kept);
+        }
+    };
+    return (
+        <span className="rule-days">
+            <input
+                type="checkbox"
+                aria-label={label}
+                checked={on}
+                onChange={(event) => onOn(event.target.checked)}
+            />
+            <input
+                className="key-input mono rule-days-count"
+                aria-label={`${label}: after how many days`}
+                type="number"
+                inputMode="numeric"
+                min={least}
+                max={365}
+                step={1}
+                value={typed}
+                onChange={(event) => setTyped(event.target.value)}
+                onBlur={keep}
+                onKeyDown={(event) => event.key === "Enter" && keep()}
+            />
+            <span className="rule-days-unit">{days === 1 ? "day" : "days"}</span>
+        </span>
     );
 }
 

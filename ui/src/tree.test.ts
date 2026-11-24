@@ -76,6 +76,8 @@ describe("a folded task", () => {
             { count: 2, status: "waiting", unread: false },
             { count: 1, status: "idle", unread: false },
             { count: 0, status: null, unread: false },
+            // Put away, its session kept open.
+            { count: 1, status: "idle", unread: false },
         ]);
         expect(bonsai?.tasks.map(foldedSummary)).toEqual([
             { count: 2, status: "errored", unread: true },
@@ -278,7 +280,7 @@ describe("lookups", () => {
 
     it("describes a task by its most urgent session", () => {
         const [storefront, bonsai] = sampleProjects();
-        expect(storefront?.tasks.map(taskStatus)).toEqual(["waiting", "idle", null]);
+        expect(storefront?.tasks.map(taskStatus)).toEqual(["waiting", "idle", null, "idle"]);
         expect(bonsai?.tasks.map(taskStatus)).toEqual(["errored"]);
     });
 });

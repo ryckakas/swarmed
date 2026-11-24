@@ -22,6 +22,7 @@ import type { CloudTarget } from "./cloud";
 import type { Comparison } from "./components/CompareDialog";
 import { forgetImages } from "./keptImages";
 import { pullsOf, withMessage } from "./pulls";
+import { doneShownFor } from "./putAway";
 import { type Dismissed, readDismissed } from "./rateLimit";
 import type { Browsing } from "./recall";
 import { type ReviewComment, withComment } from "./review";
@@ -223,6 +224,19 @@ interface State {
     /** The ids of the tasks whose sessions are folded away in the sidebar. */
     foldedTasks: number[];
     toggleTaskFolded(taskId: number): void;
+    /**
+     * The ids of the repositories whose Done group, of the tasks put away, is unfolded in the
+     * sidebar. Folded until the user unfolds it, or opens a session of a task in it.
+     */
+    doneShown: number[];
+    toggleDoneShown(projectId: number): void;
+    /**
+     * Puts a task away and reads the tree again. What went wrong on the way, a `stop` that
+     * failed say, is said; a refusal is thrown, for whoever asked to say.
+     */
+    putAway(api: Api, project: string, task: string): Promise<void>;
+    /** Brings a task that was put away back to the others, and reads the tree again. */
+    bringBack(api: Api, project: string, task: string): Promise<void>;
     /** Whether the status line under the message box is shown, or folded away. */
     statusOpen: boolean;
     toggleStatus(): void;
@@ -769,6 +783,30 @@ function foldedOnOpening(state: State, sessionId: number): number[] {
         : unfoldedFor(state.foldedTasks, state.projects, sessionId);
 }
 
+/** The Done groups unfolded so that the session on screen has its row in view. */
+function doneInView(state: State): Partial<State> {
+    const id = state.selectedSessionId;
+    return id === null ? {} : { doneShown: doneShownFor(state.doneShown, state.projects, id) };
+}
+
+/**
+ * Puts a task away and reads the tree again; what went wrong on the way is said. The session
+ * on screen keeps its row in view: the Done group it went into unfolds.
+ */
+async function putTaskAway(
+    api: Api,
+    project: string,
+    task: string,
+    store: Pick<State, "refresh" | "report"> & { keepInView(): void },
+) {
+    const passedOver = await api.taskDone(project, task);
+    await store.refresh(api);
+    store.keepInView();
+    if (passedOver.length > 0) {
+        store.report(`Put away, though not everything went as set up: ${passedOver.join("; ")}`);
+    }
+}
+
 export const useStore = create<State>((set, get) => ({
     projects: [],
     load: "loading",
@@ -867,6 +905,15 @@ export const useStore = create<State>((set, get) => ({
     foldedTasks: readIds(FOLDED_TASKS),
     toggleTaskFolded: (taskId) =>
         set((state) => ({ foldedTasks: toggledId(state.foldedTasks, taskId) })),
+    doneShown: [],
+    toggleDoneShown: (projectId) =>
+        set((state) => ({ doneShown: toggledId(state.doneShown, projectId) })),
+    putAway: (api, project, task) =>
+        putTaskAway(api, project, task, { ...get(), keepInView: () => set(doneInView) }),
+    bringBack: async (api, project, task) => {
+        await api.taskUndone(project, task);
+        await get().refresh(api);
+    },
     statusOpen: readFlag(STATUS_OPEN, true),
     toggleStatus: () => {
         const statusOpen = !get().statusOpen;
@@ -994,6 +1041,8 @@ export const useStore = create<State>((set, get) => ({
             selectedSessionId: sessionId,
             subView: null,
             foldedTasks: foldedOnOpening(state, sessionId),
+            // And the Done group it is in, if its task was put away.
+            doneShown: doneShownFor(state.doneShown, state.projects, sessionId),
         }));
         get().markRead(api, sessionId);
         if (get().events[sessionId] || loading.has(sessionId)) {

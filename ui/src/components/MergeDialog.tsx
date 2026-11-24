@@ -17,11 +17,13 @@ import {
     WAY_NAMES,
 } from "../merging";
 import { checksSummary, pullTone } from "../pulls";
+import { putAwayDoes } from "../putAway";
 import { useStore } from "../store";
 import { usePull } from "../usePull";
 import { useWords } from "../useWords";
 import { Dialog } from "./Dialog";
 import { Picker } from "./Picker";
+import { PutAwayButton } from "./PutAway";
 
 interface Props {
     project: string;
@@ -116,11 +118,7 @@ export function MergeDialog({ project, task, opened, onClose }: Props) {
     const title = `Merge ${words.terms.pullRequest} #${pull.number}`;
     if (done) {
         return (
-            <Dialog title={title} size="small" onClose={onClose}>
-                <p className="merge-done" data-outcome={done.outcome}>
-                    {outcomeSaid(done.outcome, done.pull, done.method)}
-                </p>
-            </Dialog>
+            <MergeDone project={project} task={task} done={done} title={title} onClose={onClose} />
         );
     }
     const held = heldBack(pull, way);
@@ -159,6 +157,51 @@ export function MergeDialog({ project, task, opened, onClose }: Props) {
             {method && (
                 <p className="merge-said">
                     {held ?? (busy ? "Merging…" : mergeSaid(pull, way, method))}
+                </p>
+            )}
+        </Dialog>
+    );
+}
+
+/**
+ * What came of the merge. Once it merged, the task is finished: putting it away is offered,
+ * and only done when the user says so.
+ */
+function MergeDone(props: {
+    project: string;
+    task: Task;
+    done: Done;
+    title: string;
+    onClose(): void;
+}) {
+    const { project, task, done, title, onClose } = props;
+    const words = useWords();
+    const settings = useStore((state) => state.settings);
+    const offered = done.outcome === "merged" && task.done_at === null;
+    return (
+        <Dialog
+            title={title}
+            size="small"
+            onClose={onClose}
+            dismiss={offered ? "Not now" : "Close"}
+            actions={
+                offered && (
+                    <PutAwayButton
+                        project={project}
+                        task={task}
+                        primary={true}
+                        label={`Put the ${words.terms.task} away`}
+                        onDone={onClose}
+                    />
+                )
+            }
+        >
+            <p className="merge-done" data-outcome={done.outcome}>
+                {outcomeSaid(done.outcome, done.pull, done.method)}
+            </p>
+            {offered && (
+                <p className="merge-note">
+                    Put the {words.terms.task} away? {putAwayDoes(settings)}
                 </p>
             )}
         </Dialog>

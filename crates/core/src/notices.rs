@@ -79,7 +79,8 @@ fn pull_wording(change: &PullChange) -> (&'static str, String) {
         PullChange::Reviewed { by: who } => ("Reviewed", by(who)),
         PullChange::Commented { by: who } => ("New comment", by(who)),
         PullChange::Conflicts => ("Conflicts with its base", String::new()),
-        PullChange::Merged => ("Merged", String::new()),
+        // Finished: the session it opens offers to put the task away.
+        PullChange::Merged => ("Merged", "Put the task away?".to_string()),
         PullChange::Closed => ("Closed", String::new()),
     }
 }
@@ -259,7 +260,10 @@ mod tests {
             changed(PullChange::Commented { by }),
             Some(("New comment", "By alice".to_string()))
         );
-        assert_eq!(changed(PullChange::Merged), Some(("Merged", String::new())));
+        assert_eq!(
+            changed(PullChange::Merged),
+            Some(("Merged", "Put the task away?".to_string()))
+        );
     }
 
     fn event_of(event: AgentEvent) -> SessionEvent {

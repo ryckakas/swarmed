@@ -46,6 +46,8 @@ once: each has its own worktree and ports, so they don't step on each other. A d
   network.
 - **From prompt to pull request.** The task's diff, comments on lines sent back to the agent,
   commit, push, a pull request with its checks, and merging it, now or once its checks pass.
+  A finished task is put away, its agents and stack stopped and nothing deleted, by hand or by
+  itself once its pull request merged or it sat idle, if you turn that on.
 - **Chats, with no repository.** New task starts a chat unless you pick a repository: for a
   question, a repository you have not added, or several agents' opinions on one thing. Each
   chat gets an empty folder of its own and is listed under General. A chat can read and message

@@ -14,6 +14,7 @@ import {
 } from "./mockContinuation";
 import { mockImagesApi } from "./mockImages";
 import { mergeApi } from "./mockMerging";
+import { bringBack, putAwayApi } from "./mockPutAway";
 import { MockSetups, taskSetupApi } from "./mockSetups";
 import { heardUsage, sampleAccountUsage } from "./mockUsage";
 import type {
@@ -230,6 +231,22 @@ function task(id: number, projectId: number, name: string, sessions: Session[]):
         // One sample task is pinned above the others of its repository.
         pinned: id === 1,
         pull: SAMPLE_PULLS[name]?.() ?? null,
+        done_at: null,
+        done_why: null,
+    };
+}
+
+/** How long ago the sample task that is put away was, in seconds. */
+const PUT_AWAY_AGO = 2 * 86_400;
+
+/** A sample task put away by the rule for merged pull requests, its session kept open. */
+function doneTask(id: number, projectId: number, name: string, sessions: Session[]): Task {
+    return {
+        ...task(id, projectId, name, sessions),
+        running: [],
+        stack: null,
+        done_at: Math.floor(Date.now() / 1000) - PUT_AWAY_AGO,
+        done_why: "merged",
     };
 }
 
@@ -1151,6 +1168,10 @@ export function sampleProjects(): Project[] {
                     session(3, 2, "Why does the CSV export drop the VAT column?", "idle"),
                 ]),
                 task(3, 1, "shop-142", []),
+                // Put away once its pull request merged: listed apart, its session kept.
+                doneTask(6, 1, "dark-mode", [
+                    session(7, 6, "Add a dark mode that follows the system", "idle"),
+                ]),
             ],
         },
         {
@@ -1406,6 +1427,22 @@ const SAMPLE_PULLS: Record<string, () => Pull> = {
         base: "main",
         auto_merge: null,
         merge_state: null,
+        merged_at: "2026-11-20T10:00:00Z",
+    }),
+    "dark-mode": () => ({
+        number: 398,
+        title: "Add a dark mode that follows the system",
+        url: "https://github.com/example/storefront/pull/398",
+        state: "merged",
+        draft: false,
+        review: "approved",
+        checks: [{ name: "Unit tests", workflow: "CI", outcome: "passed", url: null }],
+        conflicts: false,
+        head: "d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e7d6c5",
+        base: "main",
+        auto_merge: null,
+        merge_state: null,
+        merged_at: "2026-11-21T16:30:00Z",
     }),
     "shop-142": () => ({
         number: 415,
@@ -1420,6 +1457,7 @@ const SAMPLE_PULLS: Record<string, () => Pull> = {
         base: "main",
         auto_merge: null,
         merge_state: "draft",
+        merged_at: null,
     }),
 };
 
@@ -1505,6 +1543,7 @@ function openPull(): Pull {
         auto_merge: null,
         // Its unit tests are required: it waits on them, and once they fail it cannot merge.
         merge_state: "blocked",
+        merged_at: null,
     };
 }
 
@@ -2122,6 +2161,7 @@ class MockAgent {
         if (this.command(id, text)) {
             return;
         }
+        this.workedOn(id);
         const message: AgentEvent = atReset
             ? { type: "user_message", text, at_reset: true }
             : { type: "user_message", text };
@@ -2729,6 +2769,7 @@ class MockAgent {
                 );
                 task.sessions = [...task.sessions, back].sort((a, b) => a.id - b.id);
                 task.closed = this.closed(task.id).length;
+                bringBack(task);
                 return back;
             }
         }
@@ -2744,6 +2785,21 @@ class MockAgent {
             this.sendQueued(id);
         }
         return stopped;
+    }
+
+    /** Stops a session's agent, as putting its task away does: its turn ends, and it goes on
+     * by itself at no reset. */
+    stopAgent(id: number) {
+        this.stopSlow(id);
+        this.continuations.schedule(id, null);
+    }
+
+    /** Brings back the task of session `id` if it was put away: something works on it again. */
+    private workedOn(id: number) {
+        const home = this.tasks().find((task) => task.sessions.some((s) => s.id === id));
+        if (home) {
+            bringBack(home);
+        }
     }
 
     /** Ends a `slow` turn and nothing else; whether there was one. */
@@ -3082,6 +3138,11 @@ export function createMockApi(): Api {
         status_command: "",
         updates: "automatic",
         branch_prefix: "",
+        put_away_merged: false,
+        put_away_merged_days: 1,
+        put_away_idle: false,
+        put_away_idle_days: 14,
+        put_away_closes_sessions: false,
     };
     return {
         overview: async () => structuredClone(agent.projects),
@@ -3143,6 +3204,12 @@ export function createMockApi(): Api {
             () => agent.projects,
             (id) => setups.stop(id, "removed"),
         ),
+        ...putAwayApi({
+            projects: () => agent.projects,
+            settings: () => settings,
+            stop: (id) => agent.stopAgent(id),
+            close: (id) => agent.close(id),
+        }),
         branchChoices: async (projectName) => ({
             base: "origin/main",
             existing:

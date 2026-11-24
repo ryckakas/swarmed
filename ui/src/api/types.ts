@@ -83,7 +83,14 @@ export interface Task {
     pinned: boolean;
     /** The pull request of the branch its worktree is on, as the core last read it; `null` for none. */
     pull: Pull | null;
+    /** When it was put away, in seconds since 1970; `null` while it is not. */
+    done_at: number | null;
+    /** Why it was put away, while it is. */
+    done_why: DoneWhy | null;
 }
+
+/** Why a task was put away: by the user, or by their rule for merged or idle tasks. */
+export type DoneWhy = "hand" | "merged" | "idle";
 
 /**
  * Where a task's setup is: making the worktree ready (a snapshot put in place), waiting for a
@@ -300,6 +307,8 @@ export interface Pull {
      * `null` while GitHub has not worked it out.
      */
     merge_state: string | null;
+    /** When it was merged, as GitHub writes it (`2026-11-20T10:00:00Z`), if it was. */
+    merged_at: string | null;
 }
 
 /** How a pull request's commits go into its base. */
@@ -570,6 +579,16 @@ export interface Settings {
      * user's login.
      */
     branch_prefix: string;
+    /** Whether a task whose pull request merged is put away by itself, some days after. */
+    put_away_merged: boolean;
+    /** How many days after the merge, from 0 to 365. */
+    put_away_merged_days: number;
+    /** Whether a task none of whose sessions recorded anything for some days is put away. */
+    put_away_idle: boolean;
+    /** How many days without anything in its sessions, from 1 to 365. */
+    put_away_idle_days: number;
+    /** Whether putting a task away also closes its sessions. */
+    put_away_closes_sessions: boolean;
 }
 
 /**

@@ -26,6 +26,8 @@ swarmed task switch shop fix-login                    # back to its own branch, 
 swarmed task pr shop fix-login                        # through your own gh
 swarmed task pull shop fix-login --follow             # its checks, reviews and merge as they come
 swarmed task merge shop fix-login --squash            # or --auto, to merge once checks pass
+swarmed task done shop fix-login                      # put away: agents and stack stopped, nothing deleted
+swarmed task undone shop fix-login                    # back with the others
 swarmed task rm shop fix-login                        # teardown hook, worktree removed
 ```
 
@@ -35,6 +37,11 @@ Without a method it takes the one last used for the repository. It refuses while
 past the repository's requirements, as only its admins can, and `--auto` has GitHub merge it
 once they are met (`--cancel-auto` takes that back). No branch is deleted: the task's goes with
 `task rm --delete-branch`.
+
+`task done` puts a finished task away: its agents and its stack are stopped and `task list`
+says `done`; its sessions are closed too if `put_away_closes_sessions` is set. Starting one of
+its agents, reopening one of its sessions or starting its stack brings it back, as `task undone`
+does. The rules that put tasks away by themselves run in the app only.
 
 `task rm` refuses while the worktree has uncommitted changes or unpushed commits, or is one git
 no longer knows; `--force` removes it anyway. A failing `teardown` does not stop it: what it had

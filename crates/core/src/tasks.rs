@@ -541,7 +541,11 @@ impl Core {
 
     /// The configuration the task's hooks run with. One that cannot be read does not keep the
     /// task: it goes without its `stop` and `teardown`, and that is said.
-    fn config_for_removal(&self, project: &Project, task: &Task) -> (ProjectConfig, Vec<String>) {
+    pub(crate) fn config_for_removal(
+        &self,
+        project: &Project,
+        task: &Task,
+    ) -> (ProjectConfig, Vec<String>) {
         match self.config_in(&project.name, task.environment.as_deref()) {
             Ok(config) => (config, vec![]),
             Err(error) => (

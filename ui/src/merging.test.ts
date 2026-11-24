@@ -32,6 +32,7 @@ const pull = (more: Partial<Pull> = {}): Pull => ({
     base: "main",
     auto_merge: null,
     merge_state: "blocked",
+    merged_at: null,
     ...more,
 });
 

@@ -466,6 +466,27 @@ fn the_ui_can_pin_projects_tasks_and_sessions() {
 }
 
 #[test]
+fn the_ui_can_put_a_task_away_and_bring_it_back() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+    let which = json!({ "project": "demo", "name": "one" });
+    assert_eq!(app.ok("task_done", which.clone()), json!([]));
+    let one = &app.ok("overview", json!({}))[0]["tasks"][0];
+    assert!(one["done_at"].is_i64(), "{one}");
+    assert_eq!(one["done_why"], json!("hand"));
+    app.ok("task_undone", which);
+    let one = &app.ok("overview", json!({}))[0]["tasks"][0];
+    assert_eq!(
+        (&one["done_at"], &one["done_why"]),
+        (&json!(null), &json!(null))
+    );
+    app.invoke("task_done", json!({ "project": "demo", "name": "nope" }))
+        .expect_err("no such task");
+}
+
+#[test]
 fn the_ui_can_deny_interrupt_and_remove() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
@@ -830,6 +851,8 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
             "html_views": true, "tool_calls": "folded", "turn_end_lines": true, "limit_warnings": "frequent", "continue_after_limit": false, "notifications": true, "default_supervision": "auto",
             "status_items": ["branch", "changes", "model", "context", "cost"],
             "status_command": "", "rules": "", "updates": "automatic", "branch_prefix": "",
+            "put_away_merged": false, "put_away_merged_days": 1, "put_away_idle": false,
+            "put_away_idle_days": 14, "put_away_closes_sessions": false,
         })
     );
 

@@ -744,6 +744,15 @@ export function latestFailure(items: Item[]): number | null {
 }
 
 /**
+ * The latest line that says the task's pull request merged, by its key, or `null`. Only that
+ * one offers to put the task away.
+ */
+export function latestMerge(items: Item[]): number | null {
+    const merged = (item: Item) => item.kind === "pull" && item.change.kind === "merged";
+    return items.findLast(merged)?.key ?? null;
+}
+
+/**
  * The line of the latest turn a usage limit refused, by its key, if nothing was written to the
  * session since: only that one can offer to go on when the limit resets. A message since, the
  * user's or another session's, went on already.
