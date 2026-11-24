@@ -15,6 +15,8 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-24
+
 ### Added
 
 - **Each session keeps its place, and a button takes you back to the latest message.** Scroll
@@ -608,7 +610,8 @@ through Homebrew or a browser.
 - **Installing:** an install script, a Homebrew cask that also puts `swarmed` on the PATH, and
   `cargo install swarmed` for the command alone.
 
-[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/ryckakas/swarmed/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/ryckakas/swarmed/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ryckakas/swarmed/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/ryckakas/swarmed/compare/v0.2.1...v0.2.2
