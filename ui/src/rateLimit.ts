@@ -1,8 +1,11 @@
-// What Claude Code reports about the user's usage limits, in words for the transcript. It
-// reports after every turn: `allowed`, `allowed_warning` while a window fills up, and another
-// status once a limit is reached. A warning is not a limit reached, and is said once, when it
-// starts, not again with every turn. Which warnings are said at all is the user's setting
-// (`LimitWarnings`); a limit reached always is.
+// What Claude Code reports about the user's usage limits, and what Swarmed makes of it. It
+// reports after every turn, one window at a time: `allowed`, `allowed_warning` while a window
+// fills up, and another status once a limit is reached. Reports of two windows come in turn,
+// so nothing is said per report. The account's windows, as the newest reports of any session
+// left them, make one usage notice at the top of the window, by the highest level reached
+// (`usageNotice`); which levels it says is the user's setting (`LimitWarnings`), and dismissing
+// it keeps it away until a higher level or a reset (`Dismissed`). The conversation says only
+// that a limit stopped a turn (`refusalNotice`).
 
 import type { AccountUsage, AgentEvent, LimitWarnings } from "./api/types";
 
@@ -33,13 +36,10 @@ function onExtraUsage(event: RateLimit): boolean {
     return raw.isUsingOverage === true || raw.overageInUse === true;
 }
 
-/** Which window a report is about, and how much of it is used, where Claude Code says. */
-function details(event: RateLimit): { window: string | null; used: number | null } {
+/** Which window a report is about, where Claude Code says. */
+function windowOf(event: RateLimit): string | null {
     const raw = isRecord(event.raw) ? event.raw : {};
-    const type = raw.rateLimitType;
-    const window = typeof type === "string" ? windowName(type) : null;
-    const used = typeof raw.utilization === "number" ? raw.utilization : null;
-    return { window, used };
+    return typeof raw.rateLimitType === "string" ? windowName(raw.rateLimitType) : null;
 }
 
 /**
@@ -57,84 +57,24 @@ export function resetWhen(seconds: number, now: Date): string {
 }
 
 /**
- * What the transcript says about a usage report, or `null` for nothing: nothing while all is
- * well, a warning when one starts that `mode` says, and every time a limit is reached, whatever
- * `mode` is. `previous` is the report before it in the conversation.
+ * What the conversation says about a usage report: that a limit was reached with nothing to
+ * pay past it, so the turn was refused, or `null` for nothing. That explains why the agent
+ * stopped where it did. A warning, and a limit extra usage pays past, are for the usage notice
+ * at the top of the window alone.
  */
-export function limitNotice(
-    event: RateLimit,
-    previous: RateLimit | null,
-    now: Date,
-    mode: LimitWarnings,
-): string | null {
-    if (event.status === "allowed") {
+export function refusalNotice(event: RateLimit, now: Date): string | null {
+    if (event.status === "allowed" || event.status === "allowed_warning" || onExtraUsage(event)) {
         return null;
     }
-    const { window } = details(event);
+    const window = windowOf(event);
     const resets = event.resets_at === null ? "" : ` It resets ${resetWhen(event.resets_at, now)}.`;
-    if (onExtraUsage(event)) {
-        return billedNotice(previous, window, resets);
-    }
-    if (event.status !== "allowed_warning") {
-        return `Usage limit reached${window ? ` (${window})` : ""}.${resets}`;
-    }
-    return warningNotice(event, previous, mode, resets);
-}
-
-/**
- * Whether `mode` says a report's warning: every one when frequent; when rare, only one that says
- * its window is at least `LIMIT_WARNING` full, since Claude Code warns from about half; none
- * when none.
- */
-function says(event: RateLimit, mode: LimitWarnings): boolean {
-    if (event.status !== "allowed_warning" || mode === "none") {
-        return false;
-    }
-    const { used } = details(event);
-    return mode === "frequent" || (used !== null && used >= LIMIT_WARNING);
-}
-
-/**
- * A warning that a window fills up, said once: not while the report before it was a warning of
- * the same window that `mode` said too. A warning `mode` left unsaid was not news yet, so the
- * one that passes the mark is.
- */
-function warningNotice(
-    event: RateLimit,
-    previous: RateLimit | null,
-    mode: LimitWarnings,
-    resets: string,
-): string | null {
-    const { window, used } = details(event);
-    const saidAlready =
-        previous !== null && says(previous, mode) && details(previous).window === window;
-    if (!says(event, mode) || saidAlready) {
-        return null;
-    }
-    const share = used === null ? "" : `: ${Math.round(used * 100)}% used`;
-    return `Claude Code warns that the ${window ?? "usage"} limit is getting closer${share}. Nothing is limited yet.${resets}`;
-}
-
-/**
- * A limit reached while extra usage carries the work on: said once, not with every turn that
- * goes on billed, as long as the reports before it said the same of the same window.
- */
-function billedNotice(
-    previous: RateLimit | null,
-    window: string | null,
-    resets: string,
-): string | null {
-    const saidAlready =
-        previous !== null && onExtraUsage(previous) && details(previous).window === window;
-    if (saidAlready) {
-        return null;
-    }
-    const which = window ? `The ${window} limit` : "A usage limit";
-    return `${which} is reached: Claude Code goes on with extra usage, which is billed.${resets}`;
+    return `Usage limit reached${window ? ` (${window})` : ""}.${resets}`;
 }
 
 /** One of the account's usage windows, as it stands now. */
 export interface LimitWindow {
+    /** What tells it apart, in Claude Code's words, such as `five_hour` or `seven_day`. */
+    kind: string;
     /** What the window is called here, such as "5-hour" or "weekly". */
     name: string;
     /** How much of it is used, from 0 to 1. */
@@ -192,6 +132,154 @@ export function warningLine(window: LimitWindow): string {
 }
 
 /**
+ * How far the account's usage has come, one level for every window: 0 for none, 1 to 3 for
+ * 50%, 75% and 90% of it used, `BILLED` for its limit reached with extra usage paying past it,
+ * and `STOPPED` for its limit reached with nothing paying, so that requests are refused.
+ */
+export type UsageLevel = 0 | 1 | 2 | 3 | 4 | 5;
+
+/** A limit reached, and extra usage pays for the work: it goes on, billed. */
+export const BILLED: UsageLevel = 4;
+
+/** A limit reached, and nothing pays: requests are refused until it resets. */
+export const STOPPED: UsageLevel = 5;
+
+/** The shares of a window used that are a level each, lowest first. */
+const SHARES = [0.5, 0.75, 0.9];
+
+/**
+ * A window's level, `paying` saying whether extra usage pays past a limit reached. A report's
+ * own word for how near it is is not taken, as in `limitLevel`.
+ */
+export function windowLevel(window: LimitWindow, paying: boolean): UsageLevel {
+    if (limitLevel(window) === "reached") {
+        return paying ? BILLED : STOPPED;
+    }
+    const passed = SHARES.filter((share) => window.used >= share).length;
+    return passed === 3 ? 3 : passed === 2 ? 2 : passed === 1 ? 1 : 0;
+}
+
+/** The lowest level the setting says: every one when frequent, from 90% when rare, and only requests refused when none. */
+export function lowestSaid(mode: LimitWarnings): UsageLevel {
+    switch (mode) {
+        case "frequent":
+            return 1;
+        case "rare":
+            return 3;
+        case "none":
+            return STOPPED;
+    }
+}
+
+/** The usage notice: the window at the highest level, and that level. */
+export interface UsageNotice {
+    window: LimitWindow;
+    level: UsageLevel;
+}
+
+/**
+ * What dismissing the usage notice keeps, for the account and not for a session: the highest
+ * level any window had reached then, and when each window was to reset, by its kind.
+ */
+export interface Dismissed {
+    level: UsageLevel;
+    resets: Record<string, number | null>;
+}
+
+/** What dismissing the notice keeps, with `windows` as they stand. */
+export function dismissalOf(windows: LimitWindow[], paying: boolean): Dismissed {
+    const level = windows.reduce<UsageLevel>(
+        (highest, window) => Math.max(highest, windowLevel(window, paying)) as UsageLevel,
+        0,
+    );
+    return { level, resets: Object.fromEntries(windows.map((w) => [w.kind, w.resetsAt])) };
+}
+
+/**
+ * Whether a dismissal keeps a window's notice away at `now`: the window was known when the
+ * notice was dismissed, is at no higher level than the one dismissed, and has not reset since.
+ * A window that was to reset before `now` has, and whatever level it climbs back to is news.
+ * So is one nobody knew of then, such as a model's weekly limit first reported later: what was
+ * dismissed did not speak of it. One known with no reset is kept away until a higher level,
+ * since there is no telling when it resets: were it news, dismissing it would do nothing while
+ * reports leave its reset out.
+ */
+export function heldBack(
+    window: LimitWindow,
+    level: UsageLevel,
+    dismissed: Dismissed | null,
+    now: number,
+): boolean {
+    if (dismissed === null || level > dismissed.level) {
+        return false;
+    }
+    const reset = dismissed.resets[window.kind];
+    if (reset === undefined) {
+        return false;
+    }
+    return reset === null || reset > now;
+}
+
+/**
+ * The usage notice to show at `now` (seconds since 1970), or `null` for none: of the windows
+ * at a level `mode` says, and not kept away by `dismissed`, the one at the highest level, and
+ * of those the fullest. Built from the account's windows, so reports of one window and another
+ * in turn change nothing: a report can only raise or lower the level.
+ */
+export function usageNotice(
+    windows: LimitWindow[],
+    paying: boolean,
+    mode: LimitWarnings,
+    dismissed: Dismissed | null,
+    now: number,
+): UsageNotice | null {
+    const lowest = lowestSaid(mode);
+    const said = windows
+        .map((window) => ({ window, level: windowLevel(window, paying) }))
+        .filter(({ level }) => level > 0 && level >= lowest)
+        .filter(({ window, level }) => !heldBack(window, level, dismissed, now));
+    const above = (a: UsageNotice, b: UsageNotice) =>
+        a.level > b.level || (a.level === b.level && a.window.used > b.window.used);
+    return said.reduce<UsageNotice | null>(
+        (best, notice) => (best === null || above(notice, best) ? notice : best),
+        null,
+    );
+}
+
+/** What the usage notice says, in a sentence or two. */
+export function usageNoticeText({ window, level }: UsageNotice, now: Date): string {
+    const resets = window.resetsAt === null ? "" : ` It resets ${resetWhen(window.resetsAt, now)}.`;
+    if (level === STOPPED) {
+        return `The ${window.name} limit is reached, and nothing pays past it: Claude Code's requests are refused.${resets}`;
+    }
+    if (level === BILLED) {
+        return `The ${window.name} limit is reached: Claude Code goes on with extra usage, which is billed.${resets}`;
+    }
+    const share = Math.round(window.used * 100);
+    return `The ${window.name} limit is ${share}% used. Nothing is limited yet.${resets}`;
+}
+
+/** A dismissal as it was kept on this machine, or `null` if what is kept is not one. */
+export function readDismissed(stored: unknown): Dismissed | null {
+    if (!(isRecord(stored) && isRecord(stored.resets))) {
+        return null;
+    }
+    const { level } = stored;
+    const isLevel = (value: unknown): value is UsageLevel =>
+        typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= STOPPED;
+    if (!isLevel(level)) {
+        return null;
+    }
+    const resets: Record<string, number | null> = {};
+    for (const [kind, at] of Object.entries(stored.resets)) {
+        if (typeof at === "number" || at === null) {
+            resets[kind] = at;
+        }
+    }
+    return { level, resets };
+}
+
+/**
  * The account's usage windows as they stand at `now`, in seconds since 1970: each as the newest
  * report any Claude Code session heard gave it, except that one past its reset counts as reset,
  * at 0%, until a report says otherwise. In the core's order, the 5-hour window first. Only
@@ -201,6 +289,7 @@ export function accountWindows(usage: AccountUsage | null, now: number): LimitWi
     return (usage?.windows ?? []).map((window) => {
         const reset = window.resets_at !== null && window.resets_at <= now;
         return {
+            kind: window.kind,
             name: window.name,
             used: reset ? 0 : window.used,
             resetsAt: window.resets_at,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentEvent, LimitWarnings, RemoteState } from "./api/types";
+import type { AgentEvent, RemoteState } from "./api/types";
 import {
     activity,
     fileName,
@@ -9,6 +9,7 @@ import {
     movedSaid,
     planOf,
     sameToolCall,
+    shownLines,
     shownTools,
     splitFiles,
     summarize,
@@ -134,34 +135,35 @@ describe("toItems", () => {
         ]);
     });
 
-    it("says Claude Code's usage warnings as the setting says, and a limit reached always", () => {
-        const warning = (utilization: number): AgentEvent => ({
+    it("says no usage report but a turn a limit refused, once, where it stopped", () => {
+        const report = (status: string, raw: Record<string, unknown>): AgentEvent => ({
             type: "rate_limit",
-            status: "allowed_warning",
+            status,
             resets_at: null,
-            raw: { rateLimitType: "seven_day", utilization },
+            raw,
         });
-        const reached: AgentEvent = {
-            type: "rate_limit",
-            status: "rejected",
-            resets_at: null,
-            raw: {},
-        };
-        const events = [warning(0.5), warning(0.8), reached];
-        const said = (mode: LimitWarnings) =>
-            toItems(events, wordsFor("plain"), mode).map((item) =>
-                item.kind === "notice" ? item.text : item.kind,
-            );
-        expect(said("frequent")).toEqual([
-            "Claude Code warns that the weekly limit is getting closer: 50% used. Nothing is limited yet.",
-            "Usage limit reached.",
+        // What session 95 heard on 24 Nov, two windows in turn, with every turn.
+        const warning = report("allowed_warning", {
+            rateLimitType: "seven_day",
+            utilization: 0.99,
+        });
+        const billed = report("rejected", {
+            rateLimitType: "seven_day_overage_included",
+            isUsingOverage: true,
+        });
+        const done: AgentEvent = { type: "turn_done", is_error: false, result: null, cost_usd: 1 };
+        expect(kinds([warning, billed, done, warning, billed, done])).toEqual(["turn", "turn"]);
+        // Refused, with nothing paying: the turn stops there, and says why, once.
+        const refused = report("rejected", { rateLimitType: "five_hour" });
+        const failed: AgentEvent = { type: "turn_done", is_error: true, result: null, cost_usd: 1 };
+        const said = toItems([warning, refused, refused, failed, refused]).map((item) =>
+            item.kind === "notice" ? item.text : item.kind,
+        );
+        expect(said).toEqual([
+            "Usage limit reached (5-hour).",
+            "turn",
+            "Usage limit reached (5-hour).",
         ]);
-        expect(toItems(events).length).toBe(2);
-        expect(said("rare")).toEqual([
-            "Claude Code warns that the weekly limit is getting closer: 80% used. Nothing is limited yet.",
-            "Usage limit reached.",
-        ]);
-        expect(said("none")).toEqual(["Usage limit reached."]);
     });
 
     it("describes what a session loaded", () => {
@@ -585,6 +587,99 @@ describe("a worktree that moved to another branch", () => {
         expect(movedSaid("second", "you/one", true, words)).toBe(
             "The worktree was moved from second to you/one since the last turn, and the agent was told with this message.",
         );
+    });
+});
+
+describe("shownLines", () => {
+    // Claude Code says what it loaded at the start of every turn.
+    const init: AgentEvent = {
+        type: "init",
+        agent_session_id: "abc",
+        model: "claude-opus-5-5",
+        permission_mode: "default",
+        api_key_source: "none",
+        mcp_servers: [],
+        skills: 91,
+        slash_commands: [],
+    };
+    const ask = (text: string): AgentEvent => ({ type: "user_message", text });
+    const say = (text: string): AgentEvent => ({ type: "text", text });
+    const done = (cost: number, isError = false): AgentEvent => ({
+        type: "turn_done",
+        is_error: isError,
+        result: null,
+        cost_usd: cost,
+    });
+    // The turns of the issue: two answers, a sub-agent's report read by itself, and then a
+    // turn the agent took by itself that came to nothing at all.
+    const events = [
+        ask("wait 30 seconds in a sub-agent"),
+        init,
+        say("Started it."),
+        done(1),
+        init,
+        say("The subagent finished its 30-second wait and replied: done"),
+        done(1.04),
+        init,
+        done(1.04),
+    ];
+    const lines = (shown: ReturnType<typeof toItems>) =>
+        shown.map((item) => (item.kind === "turn" ? `turn ${item.costUsd}` : item.kind));
+
+    it("draws the session line once, at the top, and a turn's end only after something", () => {
+        expect(lines(shownLines(toItems(events), true))).toEqual([
+            "user",
+            "session",
+            "text",
+            "turn 1",
+            "text",
+            "turn 1.04",
+        ]);
+    });
+
+    it("keeps the end of a turn with nothing in it that spent more", () => {
+        const spent = [...events.slice(0, 4), init, done(1.2)];
+        expect(lines(shownLines(toItems(spent), true))).toEqual([
+            "user",
+            "session",
+            "text",
+            "turn 1",
+            "turn 1.2",
+        ]);
+    });
+
+    it("draws no end lines when off, but for a turn that failed or was stopped", () => {
+        const failed = [
+            ...events,
+            ask("again"),
+            init,
+            say("Trying."),
+            done(1.5, true),
+            init,
+            done(1.5, true),
+        ];
+        expect(lines(shownLines(toItems(failed), false))).toEqual([
+            "user",
+            "session",
+            "text",
+            "text",
+            "user",
+            "text",
+            "turn 1.5",
+            "turn 1.5",
+        ]);
+    });
+
+    it("counts a turn of tool calls as one that showed something, whatever shows of them", () => {
+        const tool: AgentEvent = {
+            type: "tool_use",
+            id: "t1",
+            name: "Bash",
+            input: { command: "ls" },
+        };
+        const ran = [ask("list"), init, tool, done(1), init, tool, done(1)];
+        const shown = shownTools(shownLines(toItems(ran), true), "hidden");
+        expect(lines(shown)).toEqual(["user", "session", "turn 1", "turn 1"]);
     });
 });
 

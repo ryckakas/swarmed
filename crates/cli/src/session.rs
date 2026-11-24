@@ -280,11 +280,23 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
 /// Prints everything a session has said and been told, which counts as having read it.
 fn show(core: &Core, id: i64) -> Result<()> {
     core.session_mark_read(id)?;
-    core.session_events(id)?
-        .iter()
-        .filter_map(describe)
-        .for_each(|line| say(&line));
+    for line in shown(&core.session_events(id)?) {
+        say(&line);
+    }
     Ok(())
+}
+
+/// The lines a session's history is shown as. Claude Code says what it loaded at the start of
+/// every turn, and only the first is shown, as in the window.
+fn shown(events: &[AgentEvent]) -> Vec<String> {
+    let mut started = false;
+    let first = |event: &&AgentEvent| {
+        let init = matches!(event, AgentEvent::Init { .. });
+        let again = init && started;
+        started |= init;
+        !again
+    };
+    events.iter().filter(first).filter_map(describe).collect()
 }
 
 /// How a session is supervised from now on: as `chosen` on the command line, or, with none
@@ -566,6 +578,14 @@ async fn decide(core: &Core, id: i64, typed: &mut Typed, request_id: &str) -> Re
     Ok(())
 }
 
+/// Whether a usage report says a limit refused the turn: reached, with no extra usage paying.
+fn refused(status: &str, raw: &Value) -> bool {
+    let set = |key: &str| raw.get(key).and_then(Value::as_bool) == Some(true);
+    !matches!(status, "allowed" | "allowed_warning")
+        && !set("isUsingOverage")
+        && !set("overageInUse")
+}
+
 /// The line an event is shown as, or `None` for events not worth a line.
 pub(crate) fn describe(event: &AgentEvent) -> Option<String> {
     match event {
@@ -632,9 +652,13 @@ pub(crate) fn describe(event: &AgentEvent) -> Option<String> {
                 summary(input)
             ))
         }
+        // Only a turn a limit refused, as in the window: a warning, or a limit extra usage
+        // pays past, is for `swarmed limits`, and Claude Code reports them with every turn.
         AgentEvent::RateLimit {
-            status, resets_at, ..
-        } if status != "allowed" => Some(format!(
+            status,
+            resets_at,
+            raw,
+        } if refused(status, raw) => Some(format!(
             "usage limit: {status}, resets at {}",
             resets_at.unwrap_or_default()
         )),
@@ -766,6 +790,38 @@ mod tests {
     }
 
     #[test]
+    fn a_session_shows_what_its_agent_loaded_once() {
+        let init = |model: &str| AgentEvent::Init {
+            agent_session_id: "abc".into(),
+            model: model.into(),
+            permission_mode: "default".into(),
+            api_key_source: "none".into(),
+            mcp_servers: vec![],
+            skills: 3,
+            slash_commands: vec![],
+        };
+        let done = AgentEvent::TurnDone {
+            is_error: false,
+            result: None,
+            cost_usd: None,
+            duration_ms: None,
+        };
+        let lines = shown(&[
+            init("opus"),
+            done.clone(),
+            init("opus"),
+            done.clone(),
+            init("sonnet"),
+        ]);
+        assert_eq!(lines.len(), 3, "{lines:?}");
+        assert!(lines[0].contains("opus"), "{lines:?}");
+        assert!(
+            lines.iter().skip(1).all(|line| line.starts_with("—")),
+            "{lines:?}"
+        );
+    }
+
+    #[test]
     fn quiet_events_get_no_line() {
         let ok = AgentEvent::ToolResult {
             tool_use_id: "t".into(),
@@ -779,6 +835,20 @@ mod tests {
             raw: json!({}),
         };
         assert_eq!(describe(&allowed), None);
+        let report = |status: &str, raw: Value| AgentEvent::RateLimit {
+            status: status.into(),
+            resets_at: Some(1_795_813_200),
+            raw,
+        };
+        let warning = report("allowed_warning", json!({ "utilization": 0.99 }));
+        assert_eq!(describe(&warning), None);
+        let billed = report("rejected", json!({ "isUsingOverage": true }));
+        assert_eq!(describe(&billed), None);
+        let refused = report("rejected", json!({}));
+        assert_eq!(
+            describe(&refused).as_deref(),
+            Some("usage limit: rejected, resets at 1795813200")
+        );
     }
 
     #[test]

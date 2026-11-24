@@ -17,6 +17,7 @@ import { SessionPane } from "./components/SessionPane";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { Sidebar } from "./components/Sidebar";
 import { TaskPanel } from "./components/TaskPanel";
+import { UsageNotice } from "./components/UsageNotice";
 import { drawnLayout } from "./customLayout";
 import { PANEL_WIDTH, sidebarOf, widestPanel } from "./resize";
 import { connect, useStore } from "./store";
@@ -67,6 +68,7 @@ export function App() {
                         </button>
                     </div>
                 )}
+                {load === "ready" && <UsageNotice />}
                 {load === "loading" && <Splash />}
                 {load === "ready" && <SessionPane />}
                 {typeof load === "object" && <LoadError message={load.error} />}

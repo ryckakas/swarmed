@@ -16,6 +16,14 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **Each session keeps its place, and a button takes you back to the latest message.** Scroll
+  up in a session, open another and come back: it is where you left it, on the same message,
+  and it stays there as new ones arrive. One you left at the bottom comes back at the bottom,
+  with what arrived meanwhile, and keeps following; so does a sub-agent's conversation. While a
+  conversation is scrolled up, a round button with a downward arrow shows over its bottom edge,
+  above the message box and any waiting messages, when the pointer is over it or it has the
+  keyboard: press it to go to the latest message and follow again. Places are not kept after
+  Swarmed quits.
 - **`swarmed events` prints what happens in every session as it happens**, whichever Swarmed
   does it: the app, another command or this one. Ctrl-C ends it.
 - **`swarmed limits` prints your account's usage limits and extra usage** as Claude Code last
@@ -72,15 +80,29 @@ notice adds its line under Unreleased.
   you leave out looks as it does now, and the repository's name now grows with the text sizes
   like everything else. Colours that would be hard to read are refused with the reason. Ask an
   agent to change the layout, or edit it in Settings.
-- **Fewer usage warnings in the conversation, or none.** Claude Code warns that a usage window
-  is getting closer from about half of it, and every session said so. **Usage warnings** in
-  Settings, under Storage and activity, keeps each warning (Frequent, as before), says one only
-  once a window is at least 75% used (Rare), or says none. A limit reached, and work that goes
-  on with extra usage, are always said, and the usage coins show the same whatever you choose.
+- **One usage notice at the top of the window, in place of lines in the conversation.**
+  Claude Code reports each usage window in turn, several times a turn, and the conversation
+  repeated two lines with every turn once a limit was near. Now a notice at the top of the
+  window, while a Claude Code session is on screen, shows the highest level the account has
+  reached: 50%, 75% or 90% of a window used, a limit reached with extra usage paying, or a
+  limit that stops requests, with the window and when it resets. It is the same in every
+  session. Dismiss it and it stays away in all of them, and after a restart, until a higher
+  level is reached, its window resets and climbs back, or a limit first reported since, such as
+  one model's weekly limit, reaches a level. The conversation keeps one line only
+  where a limit stopped a turn. **Usage warnings** in Settings, under Storage and activity,
+  picks the levels: every one (Frequent), from 90% (Rare), or only requests stopped (None).
   An agent can change it for you too.
 
 ### Changed
 
+- **A conversation says what its agent loaded once, and ends only turns that showed something.**
+  Claude Code says which model, sign-in, MCP servers and skills it has at the start of every
+  turn, and each one drew the same line again; now only the first is drawn, at the top, and
+  `swarmed session show` prints it once too. A turn the agent takes by itself that shows
+  nothing and spends nothing more, such as one reading a sub-agent's report that came to
+  nothing, no longer draws an end line either. **Turn end lines** in Settings, beside Tool
+  calls, turns the end lines off; a turn that failed or was stopped keeps its line. An agent
+  can change it for you too.
 - **Tasks, sessions and cloud tasks are dragged by a grip.** Point at one in the sidebar and
   six dots show before it: drag those to move it among its own kind. Pressing anywhere else on
   the row opens it as before, a click that slips no longer moves it, and dragging across it no
@@ -96,6 +118,10 @@ notice adds its line under Unreleased.
 
 ### Fixed
 
+- **Scrolling up while an answer is being written stays where you scrolled.** A scroll made as
+  a piece of the answer arrived was taken back to the bottom, and so was any scroll up that had
+  not yet gone 80 pixels, so a slow scroll or a short turn of the wheel could not get away from
+  the bottom until the answer was done. Now the first pixels of a scroll up stop following.
 - **The window shows what the `swarmed` command or a second Swarmed changes.** A session
   renamed, marked, closed, reopened, deleted, moved or set from the command line, a task or
   session made or removed there, and an action or setting written there or by hand, used to

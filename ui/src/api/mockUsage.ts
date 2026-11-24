@@ -102,7 +102,14 @@ export function heardUsage(usage: AccountUsage, event: AgentEvent): AccountUsage
     if (event.type === "rate_limit") {
         const raw = isRecord(event.raw) ? event.raw : {};
         const on = raw.isUsingOverage === true || raw.overageInUse === true;
-        const billed = { on, resets_at: event.resets_at, heard_at: at };
+        // As in the core: a report of a window still within says nothing of a limit that
+        // extra usage pays for until it resets.
+        const reached = event.status !== "allowed" && event.status !== "allowed_warning";
+        const holds = usage.billed?.on === true && (usage.billed.resets_at ?? 0) > at;
+        const billed =
+            on || reached || !holds
+                ? { on, resets_at: event.resets_at, heard_at: at }
+                : usage.billed;
         return take({ ...usage, billed }, reported(event.raw, at), false);
     }
     if (event.type === "usage_limits") {

@@ -2257,6 +2257,20 @@ code {
     user-select: text;
 }
 
+/* The account's usage notice: a warning, below the window's own problems. */
+.usage-notice {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    margin: 0 var(--space-6) var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-left: 2px solid var(--pollen);
+    background: color-mix(in srgb, var(--pollen) 12%, transparent);
+    user-select: text;
+}
+
 .session {
     flex: 1;
     display: flex;
@@ -2344,6 +2358,15 @@ code {
 }
 
 /* Transcript */
+
+/* The transcript, and what floats over its bottom edge. */
+.transcript-frame {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
 
 .transcript {
     flex: 1;
@@ -4288,6 +4311,36 @@ code {
 
 .round-button:disabled {
     color: var(--faint);
+}
+
+/*
+ * Back to the latest message, over the transcript's bottom edge: the frame ends where the
+ * message box and its queue begin, so it clears both. There while the view is scrolled up,
+ * and shown while the pointer is over the transcript or the button has the keyboard.
+ */
+.to-latest {
+    position: absolute;
+    bottom: var(--space-3);
+    left: 50%;
+    translate: -50% 0;
+    box-shadow: 0 1px 4px color-mix(in srgb, var(--text) 22%, transparent);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease;
+}
+
+.transcript-frame:hover .to-latest,
+.to-latest:focus-visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.to-latest svg {
+    fill: none;
+    stroke: currentcolor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
 }
 
 /* New task: the same box, in the middle of an otherwise empty window. */

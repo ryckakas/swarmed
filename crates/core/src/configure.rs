@@ -470,10 +470,14 @@ impl Core {
         if let Some(scale) = asked.choice("text_size")? {
             settings.text_scale = scale;
         }
-        // Done at once like the rest: it only changes what conversations say of usage, and a
-        // limit reached is said whatever it is.
+        // Done at once like the rest: it only changes which levels the usage notice says, and
+        // a limit that stops requests is said whatever it is.
         if let Some(warnings) = asked.choice::<LimitWarnings>("limit_warnings")? {
             settings.limit_warnings = warnings;
+        }
+        // Done at once too: a turn that failed or was stopped keeps its line whatever it is.
+        if let Some(lines) = asked.choice("turn_end_lines")? {
+            settings.turn_end_lines = lines;
         }
         let tool_calls: Option<ToolCalls> = asked.choice("tool_calls")?;
         // Hiding what agents do is the one part of the looks the user has to agree to: an
@@ -740,8 +744,9 @@ fn appearance_of(settings: &Settings) -> String {
          ember, swarm); style {style} (plain, swarm, colony); layout {layout} (classic, senior, custom: \
          see kind layout); \
          text_size {} (80 to 150); tool_calls {tool_calls} (all, folded, hidden); \
-         limit_warnings {warnings} (frequent: each of Claude Code's usage warnings; rare: only \
-         from 75% used; none)",
-        settings.text_scale
+         turn_end_lines {} (true or false: a line where each turn ends); \
+         limit_warnings {warnings} (which levels the usage notice at the top of the window says; \
+         frequent: from 50% used; rare: from 90% used; none: only requests stopped)",
+        settings.text_scale, settings.turn_end_lines
     )
 }

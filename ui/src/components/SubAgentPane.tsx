@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { AgentEvent, Session } from "../api/types";
+import { scrollKey } from "../scrollSpot";
 import { useStore } from "../store";
 import { answerOfSubAgent, eventsOfSubAgent, isAtWork, subAgentOf } from "../subagents";
 import { useWords } from "../useWords";
@@ -61,6 +62,7 @@ export function SubAgentPane({ session, crumbs, id, events }: Props) {
                 <Transcript
                     key={`sub-${session.id}-${id}`}
                     sessionId={session.id}
+                    place={scrollKey(session.id, id)}
                     events={own}
                     working={working}
                     // Read-only: what a sub-agent does is its own agent's to send on.

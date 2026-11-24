@@ -1,17 +1,28 @@
 import { describe, expect, it } from "vitest";
 import type { AccountUsage, LimitWarnings, UsageWindow } from "./api/types";
+import { onExtraUsageNow } from "./extraUsage";
 import {
     accountWindows,
     asOf,
+    BILLED,
+    type Dismissed,
+    dismissalOf,
+    heldBack,
     type LimitWindow,
     limitLevel,
-    limitNotice,
     limitWarning,
+    lowestSaid,
     newestHeard,
     type RateLimit,
+    readDismissed,
+    refusalNotice,
     resetWhen,
+    STOPPED,
     untilNextReset,
+    usageNotice,
+    usageNoticeText,
     warningLine,
+    windowLevel,
     windowNote,
     windowNotes,
 } from "./rateLimit";
@@ -29,121 +40,23 @@ function report(status: string, raw: unknown, resetsAt: Date | null = null): Rat
     };
 }
 
-// What Claude Code sent with the warning that read as a limit reached: every window allowed.
-const weeklyWarning = report(
-    "allowed_warning",
-    {
-        status: "allowed_warning",
-        rateLimitType: "seven_day",
-        utilization: 0.29,
-        unifiedWindows: {
-            five_hour: { status: "allowed", utilization: 0.31 },
-            seven_day: { status: "allowed", utilization: 0.29 },
-        },
-    },
-    new Date(2026, 10, 27, 22, 0),
-);
-
-describe("limitNotice", () => {
-    it("says nothing while all is well", () => {
-        expect(limitNotice(report("allowed", {}), null, now, "frequent")).toBeNull();
-    });
-
-    it("says a warning is a warning, with how much is used and the day it resets", () => {
-        const text = limitNotice(weeklyWarning, null, now, "frequent") ?? "";
-        expect(text).toMatch(
-            /^Claude Code warns that the weekly limit is getting closer: 29% used\./,
+describe("refusalNotice", () => {
+    it("says a turn a limit refused, which window and when it resets", () => {
+        const at = new Date(2026, 10, 21, 17, 0);
+        const refused = report("rejected", { rateLimitType: "five_hour" }, at);
+        expect(refusalNotice(refused, now)).toBe(
+            `Usage limit reached (5-hour). It resets ${resetWhen(seconds(at), now)}.`,
         );
-        expect(text).toContain("Nothing is limited yet.");
-        expect(text).not.toContain("reached");
-        // Six days away: the time alone would read as tonight.
-        expect(text).toContain(
-            `It resets ${resetWhen(seconds(new Date(2026, 10, 27, 22, 0)), now)}.`,
-        );
-        expect(text).toMatch(/ on .+ at /);
+        expect(refusalNotice(report("rejected", null), now)).toBe("Usage limit reached.");
     });
 
-    it("says a warning once, not again with every turn", () => {
-        expect(limitNotice(weeklyWarning, weeklyWarning, now, "frequent")).toBeNull();
-        // Once all was well again, a new warning is news.
-        expect(limitNotice(weeklyWarning, report("allowed", {}), now, "frequent")).not.toBeNull();
-        // A warning about another window is too.
-        const hourly = report("allowed_warning", { rateLimitType: "five_hour" });
-        expect(limitNotice(hourly, weeklyWarning, now, "frequent")).toMatch(/the 5-hour limit/);
-    });
-
-    it("says every time a limit is reached, and which", () => {
-        const reached = report(
-            "rejected",
-            { rateLimitType: "five_hour" },
-            new Date(2026, 10, 21, 17, 0),
-        );
-        const text = `Usage limit reached (5-hour). It resets ${resetWhen(seconds(new Date(2026, 10, 21, 17, 0)), now)}.`;
-        expect(limitNotice(reached, null, now, "frequent")).toBe(text);
-        expect(limitNotice(reached, reached, now, "frequent")).toBe(text);
-        expect(limitNotice(report("rejected", null), null, now, "frequent")).toBe(
-            "Usage limit reached.",
-        );
-    });
-});
-
-describe("limitNotice, as often as the user wants usage warnings", () => {
-    const weekly = (used: number | null, window = "seven_day") =>
-        report("allowed_warning", {
-            rateLimitType: window,
-            ...(used === null ? {} : { utilization: used }),
-        });
-    // What a weekly window that fills up through a day of work reports, turn by turn.
-    const filling = [weekly(0.52), weekly(0.6), weekly(0.76), weekly(0.81), weekly(0.9)];
-    const said = (mode: LimitWarnings, reports: RateLimit[]) =>
-        reports.flatMap((event, at) => {
-            const text = limitNotice(event, reports[at - 1] ?? null, now, mode);
-            return text === null ? [] : [text];
-        });
-
-    it("says each warning once when frequent, as Swarmed always did", () => {
-        const text = said("frequent", filling);
-        expect(text).toHaveLength(1);
-        expect(text[0]).toMatch(/weekly limit is getting closer: 52% used/);
-        expect(said("frequent", [weekly(null)])).toHaveLength(1);
-    });
-
-    it("says nothing below 75% when rare, and once when the window passes it", () => {
-        const text = said("rare", filling);
-        expect(text).toHaveLength(1);
-        expect(text[0]).toMatch(/weekly limit is getting closer: 76% used/);
-        expect(said("rare", [weekly(0.29), weekly(0.74)])).toEqual([]);
-        expect(said("rare", [weekly(0.75)])).toHaveLength(1);
-        // A warning that does not say how full its window is says nothing.
-        expect(said("rare", [weekly(null)])).toEqual([]);
-        expect(said("rare", [weekly(null), weekly(0.8)])).toHaveLength(1);
-    });
-
-    it("says it again when rare for another window, or once all was well again", () => {
-        const hourly = weekly(0.8, "five_hour");
-        const both = said("rare", [weekly(0.8), hourly]);
-        expect(both).toHaveLength(2);
-        expect(both[1]).toMatch(/the 5-hour limit is getting closer: 80% used/);
-        const allowed = report("allowed", {});
-        expect(said("rare", [weekly(0.8), allowed, weekly(0.8)])).toHaveLength(2);
-    });
-
-    it("says no warning at all when none", () => {
-        expect(said("none", [...filling, weekly(null), weekly(0.8, "five_hour")])).toEqual([]);
-    });
-
-    it("says every time a limit is reached, and work going on billed, whatever the mode", () => {
-        const reached = report("rejected", { rateLimitType: "five_hour" });
+    it("says nothing of a warning, or of a limit extra usage pays past", () => {
+        expect(refusalNotice(report("allowed", {}), now)).toBeNull();
+        expect(refusalNotice(report("allowed_warning", { utilization: 0.99 }), now)).toBeNull();
         const billed = report("rejected", { rateLimitType: "five_hour", isUsingOverage: true });
-        for (const mode of ["frequent", "rare", "none"] as const) {
-            expect(said(mode, [reached, reached])).toEqual([
-                "Usage limit reached (5-hour).",
-                "Usage limit reached (5-hour).",
-            ]);
-            expect(said(mode, [weekly(0.9), billed])).toContain(
-                "The 5-hour limit is reached: Claude Code goes on with extra usage, which is billed.",
-            );
-        }
+        expect(refusalNotice(billed, now)).toBeNull();
+        const inUse = report("rejected", { rateLimitType: "five_hour", overageInUse: true });
+        expect(refusalNotice(inUse, now)).toBeNull();
     });
 });
 
@@ -154,30 +67,6 @@ describe("resetWhen", () => {
         expect(today).not.toContain(" on ");
         const later = resetWhen(seconds(new Date(2026, 10, 27, 22, 0)), now);
         expect(later).toMatch(/^on .*27.* at /);
-    });
-});
-
-describe("a limit reached while extra usage carries on", () => {
-    // What Claude Code reported on 19 Nov when the 5-hour window filled and work went on.
-    const billed = report("rejected", {
-        status: "rejected",
-        rateLimitType: "five_hour",
-        isUsingOverage: true,
-        overageInUse: true,
-        overageStatus: "allowed",
-    });
-
-    it("says the work goes on, billed, not that it stopped", () => {
-        const text = limitNotice(billed, null, now, "frequent") ?? "";
-        expect(text).toBe(
-            "The 5-hour limit is reached: Claude Code goes on with extra usage, which is billed.",
-        );
-    });
-
-    it("says it once, not with every billed turn after it", () => {
-        expect(limitNotice(billed, billed, now, "frequent")).toBeNull();
-        // Back within the plan and over again: news once more.
-        expect(limitNotice(billed, report("allowed", {}), now, "frequent")).not.toBeNull();
     });
 });
 
@@ -211,6 +100,7 @@ describe("the account's windows", () => {
         const fable = window("seven_day_fable", 1, inAnHour, asked);
         const [shown] = accountWindows(usage(fable), seconds(now));
         expect(shown).toEqual({
+            kind: "seven_day_fable",
             name: "weekly Fable",
             used: 1,
             resetsAt: inAnHour,
@@ -282,6 +172,7 @@ describe("the account's windows", () => {
 
 describe("warning of a limit", () => {
     const window = (name: string, used: number, status = "allowed"): LimitWindow => ({
+        kind: name,
         name,
         used,
         resetsAt: null,
@@ -314,3 +205,203 @@ describe("warning of a limit", () => {
         expect(warningLine(window("5-hour", 1))).toBe("5-hour: used up.");
     });
 });
+
+describe("the usage notice", () => {
+    // Friday 27 Nov at 22:00, when the weekly windows reset, and an hour from now.
+    const friday = seconds(new Date(2026, 10, 27, 22, 0));
+    const inAnHour = seconds(now) + 3600;
+    const window = (kind: string, used: number, status = "allowed", resetsAt = friday) => ({
+        kind,
+        name: kind,
+        used,
+        resetsAt,
+        status,
+        heardAt: seconds(now),
+        asked: false,
+        reset: false,
+    });
+    const notice = (
+        windows: LimitWindow[],
+        mode: LimitWarnings = "frequent",
+        dismissed: Dismissed | null = null,
+        paying = false,
+        at = seconds(now),
+    ) => usageNotice(windows, paying, mode, dismissed, at);
+
+    it("has a level for each window, by how full it is and what pays past its limit", () => {
+        expect(windowLevel(window("five_hour", 0.49), false)).toBe(0);
+        expect(windowLevel(window("five_hour", 0.5), false)).toBe(1);
+        expect(windowLevel(window("five_hour", 0.75), false)).toBe(2);
+        expect(windowLevel(window("five_hour", 0.9), false)).toBe(3);
+        expect(windowLevel(window("five_hour", 1), true)).toBe(BILLED);
+        expect(windowLevel(window("five_hour", 1), false)).toBe(STOPPED);
+        expect(windowLevel(window("five_hour", 0.2, "rejected"), false)).toBe(STOPPED);
+        // Claude Code's own word for a window less than a third full is not taken.
+        expect(windowLevel(window("seven_day", 0.29, "allowed_warning"), false)).toBe(0);
+    });
+
+    it("says the levels the setting picks", () => {
+        expect(lowestSaid("frequent")).toBe(1);
+        expect(lowestSaid("rare")).toBe(3);
+        expect(lowestSaid("none")).toBe(STOPPED);
+    });
+
+    it("is the same through reports of two windows in turn: billed, weekly, resets Friday", () => {
+        // Session 95 on 24 Nov: a warning of the weekly window and a billed limit of the
+        // weekly window with extra usage, in turn, with every turn. The account keeps the
+        // newest of each, and the billed limit until it resets.
+        const kinds = (billedAt: number, warnedAt: number): AccountUsage => ({
+            windows: [
+                { ...usageWindow("five_hour", 0.09, "allowed", inAnHour), heard_at: warnedAt },
+                {
+                    ...usageWindow("seven_day", 0.99, "allowed_warning", friday),
+                    heard_at: warnedAt,
+                },
+                {
+                    ...usageWindow("seven_day_overage_included", 1, "rejected", friday),
+                    heard_at: billedAt,
+                },
+            ],
+            extra: null,
+            billed: { on: true, resets_at: friday, heard_at: billedAt },
+        });
+        const after = [kinds(100, 90), kinds(100, 110), kinds(200, 110), kinds(200, 210)];
+        const shown = after.map((usage) => {
+            const windows = accountWindows(usage, seconds(now));
+            const said = notice(windows, "frequent", null, onExtraUsageNow(usage, seconds(now)));
+            return (
+                said && {
+                    kind: said.window.kind,
+                    level: said.level,
+                    text: usageNoticeText(said, now),
+                }
+            );
+        });
+        const billed = {
+            kind: "seven_day_overage_included",
+            level: BILLED,
+            text: `The weekly, extra usage included limit is reached: Claude Code goes on with extra usage, which is billed. It resets ${resetWhen(friday, now)}.`,
+        };
+        expect(shown).toEqual([billed, billed, billed, billed]);
+        expect(resetWhen(friday, now)).toMatch(/^on .*27.* at /);
+    });
+
+    it("shows the highest level reached, and of those the fullest window", () => {
+        expect(notice([window("five_hour", 0.3)])).toBeNull();
+        expect(notice([window("five_hour", 0.8), window("seven_day", 0.6)])?.window.kind).toBe(
+            "five_hour",
+        );
+        expect(notice([window("five_hour", 0.92), window("seven_day", 0.97)])?.window.kind).toBe(
+            "seven_day",
+        );
+        expect(notice([window("seven_day", 0.97), window("five_hour", 1)])?.level).toBe(STOPPED);
+        expect(notice([])).toBeNull();
+    });
+
+    it("shows again at each level when frequent, only from 90% when rare, and only stopped when none", () => {
+        // A weekly window filling up, with the notice dismissed each time it shows.
+        const filling = [0.5, 0.6, 0.75, 0.8, 0.9, 0.95, 1];
+        const shown = (mode: LimitWarnings) => {
+            let dismissed: Dismissed | null = null;
+            return filling.flatMap((used) => {
+                const windows = [window("seven_day", used)];
+                const said = notice(windows, mode, dismissed);
+                if (said === null) {
+                    return [];
+                }
+                dismissed = dismissalOf(windows, false);
+                return [said.level];
+            });
+        };
+        expect(shown("frequent")).toEqual([1, 2, 3, STOPPED]);
+        expect(shown("rare")).toEqual([3, STOPPED]);
+        expect(shown("none")).toEqual([STOPPED]);
+    });
+
+    it("stays dismissed until a higher level, or until its window resets and climbs back", () => {
+        const fiveHour = (used: number) => window("five_hour", used, "allowed", inAnHour);
+        const windows = [fiveHour(0.8), window("seven_day", 0.3)];
+        const dismissed = dismissalOf(windows, false);
+        expect(dismissed).toEqual({ level: 2, resets: { five_hour: inAnHour, seven_day: friday } });
+        expect(notice(windows, "frequent", dismissed)).toBeNull();
+        // Another window climbing to no higher a level stays away too.
+        expect(notice([fiveHour(0.8), window("seven_day", 0.6)], "frequent", dismissed)).toBeNull();
+        // A higher level is news.
+        expect(
+            notice([fiveHour(0.9), window("seven_day", 0.3)], "frequent", dismissed)?.level,
+        ).toBe(3);
+        // The 5-hour window resets and climbs back to 50%: news, in an hour and a bit.
+        const later = inAnHour + 600;
+        const climbed = [fiveHour(0.5), window("seven_day", 0.3)];
+        expect(notice(climbed, "frequent", dismissed, false, later)?.window.kind).toBe("five_hour");
+        expect(heldBack(window("seven_day", 0.6), 1, dismissed, later)).toBe(true);
+        // A window nobody knew of when it was dismissed is news at any level.
+        expect(heldBack(window("seven_day_fable", 0.5), 1, dismissed, later)).toBe(false);
+        expect(heldBack(window("seven_day_fable", 0.8), 2, dismissed, later)).toBe(false);
+    });
+
+    it("shows a window first reported after it was dismissed, even at the level dismissed", () => {
+        // Requests stopped by the 5-hour limit, dismissed while it was the only window known.
+        const fiveHour = window("five_hour", 1, "rejected", inAnHour);
+        const dismissed = dismissalOf([fiveHour], false);
+        expect(dismissed).toEqual({ level: STOPPED, resets: { five_hour: inAnHour } });
+        expect(notice([fiveHour], "none", dismissed)).toBeNull();
+        // The weekly limit is reported later, and stops requests too.
+        const weekly = window("seven_day", 1, "rejected");
+        expect(notice([fiveHour, weekly], "none", dismissed)?.window.kind).toBe("seven_day");
+    });
+
+    it("keeps a window that said no reset away until a higher level", () => {
+        // There is no telling when it resets: as news, it would come straight back.
+        const unsaid = { ...window("seven_day", 0.8), resetsAt: null };
+        const dismissed = dismissalOf([unsaid], false);
+        expect(dismissed).toEqual({ level: 2, resets: { seven_day: null } });
+        expect(notice([unsaid], "frequent", dismissed, false, friday + 60)).toBeNull();
+        expect(notice([{ ...unsaid, used: 0.9 }], "frequent", dismissed)?.level).toBe(3);
+    });
+
+    it("is dismissed for the account through a restart, from what this machine kept", () => {
+        const dismissed = dismissalOf([window("seven_day", 1)], true);
+        expect(readDismissed(JSON.parse(JSON.stringify(dismissed)))).toEqual(dismissed);
+        expect(readDismissed(null)).toBeNull();
+        expect(readDismissed({ level: 9, resets: {} })).toBeNull();
+        expect(readDismissed({ level: 2 })).toBeNull();
+        expect(readDismissed({ level: 2, resets: { five_hour: "soon" } })).toEqual({
+            level: 2,
+            resets: {},
+        });
+    });
+
+    it("says what it comes to at each level", () => {
+        const weekly = window("weekly", 0.874);
+        const resets = ` It resets ${resetWhen(friday, now)}.`;
+        expect(usageNoticeText({ window: weekly, level: 2 }, now)).toBe(
+            `The weekly limit is 87% used. Nothing is limited yet.${resets}`,
+        );
+        expect(usageNoticeText({ window: window("weekly", 1), level: STOPPED }, now)).toBe(
+            `The weekly limit is reached, and nothing pays past it: Claude Code's requests are refused.${resets}`,
+        );
+        const unsaid = { ...window("5-hour", 1), resetsAt: null };
+        expect(usageNoticeText({ window: unsaid, level: BILLED }, now)).toBe(
+            "The 5-hour limit is reached: Claude Code goes on with extra usage, which is billed.",
+        );
+    });
+});
+
+/** One of the account's windows as the core sends it, named as the core names it. */
+function usageWindow(kind: string, used: number, status: string, resetsAt: number): UsageWindow {
+    const names: Record<string, string> = {
+        five_hour: "5-hour",
+        seven_day: "weekly",
+        seven_day_overage_included: "weekly, extra usage included",
+    };
+    return {
+        kind,
+        name: names[kind] ?? kind,
+        used,
+        resets_at: resetsAt,
+        status,
+        heard_at: 0,
+        asked: false,
+    };
+}

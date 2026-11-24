@@ -438,6 +438,17 @@ function Sessions({ settings }: { settings: Settings }) {
                 />
             </Row>
             <Row
+                label="Turn end lines"
+                hint="A line where each turn that showed something ends, with how long it took and what was spent so far. A turn that failed or was stopped keeps its line either way, and the status line's Cost piece always shows the cost."
+            >
+                <input
+                    type="checkbox"
+                    aria-label="Draw a line where each turn ends"
+                    checked={settings.turn_end_lines}
+                    onChange={(event) => void change(api, { turn_end_lines: event.target.checked })}
+                />
+            </Row>
+            <Row
                 label="Name new sessions"
                 hint="A small model reads the first message and gives the session a short title."
             >
@@ -551,8 +562,8 @@ function BranchPrefix({ kept }: { kept: string }) {
 }
 
 /**
- * How often a conversation says that Claude Code warns of a usage limit. With the usage
- * figures, where someone looking for less of them would look.
+ * Which levels of the account's usage the notice at the top of the window says. With the
+ * usage figures, where someone looking for less of them would look.
  */
 function UsageWarnings({ settings }: { settings: Settings }) {
     const change = useStore((state) => state.changeSettings);
@@ -561,7 +572,7 @@ function UsageWarnings({ settings }: { settings: Settings }) {
             <h3>Claude Code's usage limits</h3>
             <Row
                 label="Usage warnings"
-                hint="When a conversation says that Claude Code warns of its 5-hour or weekly limit: at each warning, which it gives from about half; only from 75% used; or never. A limit reached, and work that goes on with extra usage, are always said, and the coins at the top of a session always show how much is used."
+                hint="Which levels of your 5-hour and weekly limits the notice at the top of the window says, in Claude Code sessions: 50%, 75% and 90% used, a limit reached with extra usage paying, and a limit that stops requests (Frequent); only from 90% (Rare); or only requests stopped (None). Dismissed, it stays away in every session until a higher level, until its window resets, or until a limit first reported since reaches a level. The coins at the top of a session always show how much is used."
             >
                 <Picker
                     label="Usage warnings"

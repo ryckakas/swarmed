@@ -13,6 +13,10 @@ use crate::statusline::StatusItem;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 // Unknown keys are read past and named (`lenient`), never refused: see `Settings::read`.
 #[serde(default)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each is a yes or no of the user's own, apart from the others, as the file has it"
+)]
 pub struct Settings {
     /// The command that opens a folder in the user's code editor, such as `code` or `zed`.
     pub editor: String,
@@ -41,7 +45,10 @@ pub struct Settings {
     pub html_views: bool,
     /// How the agents' tool calls show in a conversation.
     pub tool_calls: ToolCalls,
-    /// What a conversation says when Claude Code warns that a usage window fills up.
+    /// Whether a conversation draws a line where each turn that showed something ends. A turn
+    /// that failed or was stopped keeps its line either way.
+    pub turn_end_lines: bool,
+    /// Which levels of the account's usage the notice at the top of the window says.
     pub limit_warnings: LimitWarnings,
     /// The built-in pieces of the status line under the message box, in order.
     pub status_items: Vec<StatusItem>,
@@ -139,21 +146,21 @@ pub enum ToolCalls {
     Hidden,
 }
 
-/// What a conversation says when Claude Code warns that a usage window fills up.
+/// Which levels of the account's usage the notice at the top of the window says.
 ///
-/// A limit reached, and work that goes on with extra usage, are said whatever this is, and the
-/// usage coins show the same either way.
+/// The levels are 50%, 75% and 90% of a window used, a limit reached with extra usage paying
+/// for the work, and a limit reached with nothing paying, so that requests are refused. The
+/// conversation says only a turn a limit refused, and the usage coins show the same whatever
+/// this is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LimitWarnings {
-    /// Each warning Claude Code gives, once for as long as the same window keeps warning. It
-    /// warns from about half a window.
+    /// Every level, from 50% of a window used.
     #[default]
     Frequent,
-    /// Only once a window is at least 75% used, when the usage coins warn too, and once for
-    /// as long as it stays there.
+    /// From 90% of a window used: 90%, billed and stopped.
     Rare,
-    /// None at all.
+    /// Only a limit that stops requests.
     None,
 }
 
@@ -188,6 +195,7 @@ impl Default for Settings {
             notifications: true,
             html_views: true,
             tool_calls: ToolCalls::Folded,
+            turn_end_lines: true,
             limit_warnings: LimitWarnings::Frequent,
             status_items: StatusItem::defaults(),
             status_command: String::new(),
@@ -320,6 +328,7 @@ mod tests {
             notifications: false,
             html_views: false,
             tool_calls: ToolCalls::Hidden,
+            turn_end_lines: false,
             limit_warnings: LimitWarnings::Rare,
             status_items: vec![StatusItem::Cost],
             status_command: "~/bin/status".to_string(),
@@ -366,6 +375,18 @@ mod tests {
             Settings::load(&path).expect("loads").tool_calls,
             ToolCalls::All
         );
+    }
+
+    #[test]
+    fn turn_end_lines_are_drawn_unless_turned_off() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.toml");
+        assert!(Settings::load(&path).expect("defaults").turn_end_lines);
+        // A file written before the setting existed.
+        std::fs::write(&path, "theme = \"dark\"").expect("writes");
+        assert!(Settings::load(&path).expect("loads").turn_end_lines);
+        std::fs::write(&path, "turn_end_lines = false").expect("writes");
+        assert!(!Settings::load(&path).expect("loads").turn_end_lines);
     }
 
     #[test]

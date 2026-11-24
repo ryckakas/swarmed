@@ -39,7 +39,9 @@ pub struct AccountUsage {
     pub windows: Vec<UsageWindow>,
     /// The extra usage as Claude Code last gave it when asked, if it ever did.
     pub extra: Option<ExtraUsageHeard>,
-    /// What the newest report after a turn said of extra usage, if there was one.
+    /// What the newest report after a turn that said anything of extra usage said of it, if
+    /// there was one. A report of a window still within, while extra usage pays for another
+    /// window's limit until it resets, says nothing of it.
     pub billed: Option<Billed>,
 }
 
@@ -102,12 +104,12 @@ impl AccountUsage {
     pub(crate) fn hear(&mut self, event: &AgentEvent, at: i64) -> bool {
         let before = self.clone();
         match event {
-            AgentEvent::RateLimit { resets_at, raw, .. } => {
-                self.billed = Some(Billed {
-                    on: on_extra_usage(raw),
-                    resets_at: *resets_at,
-                    heard_at: at,
-                });
+            AgentEvent::RateLimit {
+                status,
+                resets_at,
+                raw,
+            } => {
+                self.hear_billed(status, *resets_at, raw, at);
                 self.take(reported(raw, at), false);
             }
             AgentEvent::UsageLimits { limits } => {
@@ -135,6 +137,27 @@ impl AccountUsage {
             _ => return false,
         }
         *self != before
+    }
+
+    /// Takes in what a report heard at `at` says of extra usage, if it says anything of it.
+    fn hear_billed(&mut self, status: &str, resets_at: Option<i64>, raw: &Value, at: i64) {
+        let on = on_extra_usage(raw);
+        if on || reached(status) || !self.billed_until_reset(at) {
+            self.billed = Some(Billed {
+                on,
+                resets_at,
+                heard_at: at,
+            });
+        }
+    }
+
+    /// Whether extra usage was heard to pay for the turns until a reset still to come at `at`.
+    /// Claude Code sends a report of each window in turn, and one of a window still within
+    /// says the turn was not billed while another window's limit is reached and billed: it
+    /// says nothing of that limit, which stays billed until it resets.
+    fn billed_until_reset(&self, at: i64) -> bool {
+        self.billed
+            .is_some_and(|billed| billed.on && billed.resets_at.is_some_and(|reset| reset > at))
     }
 
     /// Puts `windows` in place of those of the same kind and keeps the rest: a report after a
@@ -165,6 +188,11 @@ impl AccountUsage {
         }
         Ok(usage)
     }
+}
+
+/// Whether a report's own status says a limit is reached, and not only that a window fills up.
+fn reached(status: &str) -> bool {
+    !matches!(status, "allowed" | "allowed_warning")
 }
 
 /// Whether a report says extra usage pays for the turn: the plan's limit is reached, and the
@@ -578,6 +606,42 @@ mod tests {
         // What is no report changes nothing, and the same report heard again neither.
         assert!(!usage.hear(&AgentEvent::Closed, 400));
         assert!(!usage.hear(&turn_report(1.0, 2_000_000_000, true), 300));
+    }
+
+    #[test]
+    fn a_report_of_a_window_within_leaves_a_limit_billed_until_it_resets() {
+        let resets = 2_000_000_000;
+        let report = |status: &str, kind: &str, billed: bool| AgentEvent::RateLimit {
+            status: status.to_string(),
+            resets_at: Some(resets),
+            raw: json!({
+                "isUsingOverage": billed,
+                "rateLimitType": kind,
+                "unifiedWindows": {
+                    kind: { "status": status, "utilization": 0.99, "resetsAt": resets },
+                },
+            }),
+        };
+        let billed = report("rejected", "seven_day_overage_included", true);
+        let warning = report("allowed_warning", "seven_day", false);
+        let mut usage = AccountUsage::default();
+        // As Claude Code sends them in a turn: one window, then the other, and again.
+        for (at, event) in [
+            (100, &billed),
+            (110, &warning),
+            (200, &billed),
+            (210, &warning),
+        ] {
+            usage.hear(event, at);
+            assert!(usage.billed.is_some_and(|billed| billed.on), "at {at}");
+        }
+        // Once the limit has reset, a turn that was not billed says it is not.
+        usage.hear(&warning, resets + 10);
+        assert!(usage.billed.is_some_and(|billed| !billed.on));
+        // A limit reached and nothing paying says so at once.
+        usage.hear(&billed, resets + 20);
+        usage.hear(&report("rejected", "five_hour", false), resets + 30);
+        assert!(usage.billed.is_some_and(|billed| !billed.on));
     }
 
     #[test]

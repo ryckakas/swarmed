@@ -679,10 +679,12 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   built-in button for one person's workflow: that is what an action is for.
 - **Agents change Swarmed's own configuration through one tool, `configure`** (`configure.rs`),
   in three kinds. Done at once: prompts, actions that send a prompt, the status line's pieces,
-  appearance (with `limit_warnings`, which of Claude Code's usage warnings a conversation
-  says: a limit reached is said whatever it is). Only proposed: rules, environments, an action's command, the status line's
-  script, hiding tool calls (`tool_calls` to `hidden`; all and folded are appearance like the
-  rest). These outlive the session, so an agent that read something hostile could plant one;
+  appearance (with `limit_warnings`, which levels the usage notice at the top of the window
+  says: a limit that stops requests is said whatever it is; and `turn_end_lines`, whether
+  turns end with a line: one that failed or was stopped keeps it whatever it is). Only
+  proposed: rules, environments, an action's command, the status line's script, hiding tool
+  calls (`tool_calls` to `hidden`; all and folded are appearance like the rest). These
+  outlive the session, so an agent that read something hostile could plant one;
   the change is shown in the conversation (`ConfigProposed`) and made when the user accepts it
   there (`Core::config_answer`), whatever the agent's own permission mode. Not reachable at
   all: API keys, MCP servers, sign-ins, supervision, notes, the branch prefix (set once by the
@@ -744,6 +746,16 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   goes when another session is opened, and never on disk. A failed send puts it back into its
   own session's draft, wherever the user is by then. A draft goes with its session when that is
   closed or forgotten, and with its repository.
+- **Where a transcript was left is kept by row, not by pixel** (`scrollSpot.ts`,
+  `useScrollSpot.ts`, `scrolls` in the store). Rows out of view have only an estimated
+  height, so a `scrollTop` would land elsewhere: the spot is the item at the top of the view
+  (`data-key`) and how far down it the view was, put back once that row is measured, or
+  following at the bottom. It is kept per session and per sub-agent when the transcript goes,
+  in memory only, and forgotten with the session as its draft is. A move of the view the hook
+  did not make (the user's, or the browser's own anchoring) is taken in before the view is put
+  anywhere, even when rows grew in the same frame and its scroll event is still to come
+  (`placeFor`): a spot left stale would put the view back. A scroll up stops following at
+  once, or each piece of a reply would pull the view back down.
 - **The message box handles a few keys itself** (`ui/src/editing.ts`): Home and End move within
   the line, and ⌘⌫ at the very start empties the box. ↑ at the very start and ↓ at the very end
   go through what was sent to the session (`ui/src/recall.ts`): its `user_message` events as
