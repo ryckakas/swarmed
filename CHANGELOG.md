@@ -18,6 +18,8 @@ notice adds its line under Unreleased.
 
 - **`swarmed events` prints what happens in every session as it happens**, whichever Swarmed
   does it: the app, another command or this one. Ctrl-C ends it.
+- **`swarmed limits` prints your account's usage limits and extra usage** as Claude Code last
+  reported them in any session, with how old each figure is. Nothing is asked for it.
 - **Codex and OpenCode sub-agents show as Claude Code's do.** While one works it is listed
   under its session; press it to read what it says and does, apart from the conversation, and
   the Background list shows it until it is done, with what it handed back. Its permission
@@ -111,7 +113,6 @@ notice adds its line under Unreleased.
   them: a new session shows them before its first turn, a model's limit stays until it resets
   or is asked again, a window past its reset time shows as reset and its warning goes then,
   and each figure says how old it is. Nothing more is asked of Claude Code for it.
-  `swarmed limits` prints the same figures.
 - **A Codex command's output shows under its call.** Codex sends what a command prints beside
   the call, and its calls ended with nothing to show.
 - **An OpenCode sub-agent's words no longer join the agent's reply.** What a sub-agent said

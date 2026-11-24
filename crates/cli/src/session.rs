@@ -11,9 +11,9 @@ use swarmed_core::agent::{
     ScreenSection, Supervision,
 };
 use swarmed_core::{Core, Session, SessionEvent, SessionOptions, SessionSettings};
-use tokio::io::{AsyncBufReadExt, BufReader, Lines, Stdin};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use crate::say;
 
@@ -359,8 +359,12 @@ const TO_BACKGROUND: &str = "bg";
 /// The lines typed on the terminal while a turn runs. [`TO_BACKGROUND`] is acted on as it is
 /// typed; any other line answers the next question, as it did when nothing was read until a
 /// question came.
+///
+/// Stdin is read on a thread of its own, never by tokio: a read of a terminal cannot be given
+/// up, and tokio waits for one it started before the program may end. The command would then
+/// stay, its turn over, until Enter was pressed. A thread left reading ends with the program.
 struct Typed {
-    lines: Lines<BufReader<Stdin>>,
+    lines: UnboundedReceiver<std::io::Result<String>>,
     /// Lines typed before a question came, first typed first.
     ahead: VecDeque<String>,
     /// Whether stdin may still have more: a closed one would be read for ever.
@@ -369,11 +373,19 @@ struct Typed {
 
 impl Typed {
     fn new() -> Self {
+        let (typed, lines) = unbounded_channel();
+        // Not waited for: it ends when stdin does, when nobody listens, or with the program.
+        drop(std::thread::spawn(move || pass_on_stdin(&typed)));
         Self {
-            lines: BufReader::new(tokio::io::stdin()).lines(),
+            lines,
             ahead: VecDeque::new(),
             open: true,
         }
+    }
+
+    /// The next line read from stdin; `None` once it is closed.
+    async fn read(&mut self) -> Result<Option<String>> {
+        Ok(self.lines.recv().await.transpose()?)
     }
 
     /// The next line typed, those typed ahead first; `None` once stdin is closed.
@@ -384,9 +396,18 @@ impl Typed {
         if !self.open {
             return Ok(None);
         }
-        let line = self.lines.next_line().await?;
+        let line = self.read().await?;
         self.open = line.is_some();
         Ok(line)
+    }
+}
+
+/// Hands each line of stdin to `typed`, until stdin ends or nobody is left to hear.
+fn pass_on_stdin(typed: &UnboundedSender<std::io::Result<String>>) {
+    for line in std::io::stdin().lines() {
+        if typed.send(line).is_err() {
+            return;
+        }
     }
 }
 
@@ -435,7 +456,7 @@ async fn next_or_interrupt(
                 Err(RecvError::Closed) => return Ok(None),
             },
             _ = tokio::signal::ctrl_c() => core.session_interrupt(id)?,
-            line = typed.lines.next_line(), if typed.open => match line? {
+            line = typed.read(), if typed.open => match line? {
                 Some(line) if line.trim() == TO_BACKGROUND => to_background(core, id).await,
                 Some(line) => typed.ahead.push_back(line),
                 None => typed.open = false,

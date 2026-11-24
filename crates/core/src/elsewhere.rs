@@ -328,10 +328,21 @@ impl Core {
     /// Takes the house if the Swarmed that kept it has gone, for a front end that stays: the
     /// first to arrive shows the notices of what others run and stops every stack when it
     /// quits, and with two apps open, the one left over does that once the other has quit.
+    ///
+    /// It also settles what the one that went left busy, as arriving first would have: that
+    /// one, opened again, finds the house kept and settles nothing, and its sessions would
+    /// count as working for good. The sessions this process runs are passed over.
     fn house_if_free(&self) {
-        if self.live.shows_notices.load(Ordering::Relaxed) {
-            // One that cannot be taken now is tried again at the next look.
-            self.keeps_house().ok();
+        if !self.live.shows_notices.load(Ordering::Relaxed) || lock(&self.house).is_some() {
+            return;
+        }
+        // One that cannot be taken now is tried again at the next look.
+        if !self.keeps_house().unwrap_or(false) {
+            return;
+        }
+        self.finish_removals();
+        if self.sessions_settle().is_ok_and(|settled| settled > 0) {
+            self.live.publish_apart(AgentEvent::TreeChanged);
         }
     }
 

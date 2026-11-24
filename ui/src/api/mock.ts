@@ -16,6 +16,7 @@ import type {
     BackgroundTask,
     Check,
     Cleanup,
+    CleanupItem,
     CloudProvider,
     CloudTask,
     Costs,
@@ -390,8 +391,10 @@ function cleanupApi(): Pick<Api, "cleanup" | "cleanupClean" | "usage"> {
     const refused = "storefront:ada/stuck";
     return {
         cleanup: async () => structuredClone(listed),
-        cleanupClean: async (kind, keys) => {
-            const named = listed[kind].filter((item) => keys.includes(item.key));
+        cleanupClean: async (kind, keys, atRisk) => {
+            // As the core: what loses work and was not shown so is not deleted.
+            const agreed = (item: CleanupItem) => !item.at_risk || atRisk.includes(item.key);
+            const named = listed[kind].filter((item) => keys.includes(item.key) && agreed(item));
             const kept = named.filter((item) => item.key === refused);
             const deleted = named.filter((item) => item.key !== refused).map((item) => item.key);
             listed[kind] = listed[kind].filter((item) => !deleted.includes(item.key));

@@ -109,14 +109,18 @@ pub(crate) async fn cleanup(core: CoreState<'_>) -> Command<Cleanup> {
     Ok(core.cleanup().await?)
 }
 
-/// Deletes what the user ticked of one kind, named by the keys it was listed with.
+/// Deletes what the user ticked of one kind, named by the keys it was listed with. `at_risk`
+/// names those the window showed as losing work, so that one which became so since is kept.
 #[tauri::command]
 pub(crate) async fn cleanup_clean(
     core: CoreState<'_>,
     kind: CleanupKind,
     keys: Vec<String>,
+    at_risk: Vec<String>,
 ) -> Command<Cleaned> {
-    Ok(core.cleanup_clean(kind, Some(&keys)).await?)
+    Ok(core
+        .cleanup_clean(kind, Some(&keys), Some(&at_risk))
+        .await?)
 }
 
 /// What the agents report their work has cost: today, this week, in all, by task and by day.

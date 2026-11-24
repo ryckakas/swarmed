@@ -9,6 +9,7 @@ import {
     keptNote,
     kindSummary,
     kindWording,
+    shownAtRisk,
     tickedKeys,
     toggledTick,
 } from "./cleanup";
@@ -59,6 +60,12 @@ describe("ticks", () => {
             "safe",
             "other",
         ]);
+    });
+
+    it("tells the core which of the keys asked for were shown as losing work", () => {
+        expect(shownAtRisk([safe, risky, other], ["safe", "risky"])).toEqual(["risky"]);
+        // One shown as losing work and left unticked is not among them.
+        expect(shownAtRisk([safe, risky, other], ["safe"])).toEqual([]);
     });
 
     it("says how many the button deletes", () => {

@@ -393,3 +393,41 @@ async fn the_app_left_over_shows_the_notices_once_the_first_has_quit() {
     let notice = second.notice_for(done).expect("reads");
     assert!(notice.is_some_and(|notice| notice.title.starts_with("Finished")));
 }
+
+/// Starts a turn that does not end, and waits until its agent has said all it says before it
+/// is stopped: within one process an agent outlives its core for a moment, and what it stored
+/// after that would make its session busy again, as a Swarmed that really ended could not.
+async fn busy_session(core: &Core) -> Session {
+    let session = new_session(core);
+    let mut bus = core.subscribe();
+    core.session_message(session.id, "slow", &[], Auth::Subscription)
+        .expect("sends");
+    loop {
+        let event = next(&mut bus).await;
+        if event.session_id == session.id && matches!(event.event, AgentEvent::Text { .. }) {
+            return session;
+        }
+    }
+}
+
+#[tokio::test]
+async fn the_app_left_over_settles_what_the_first_left_busy_and_not_what_it_runs() {
+    let fx = fixture();
+    let (first, second) = two_cores(&fx).await;
+    first.arrive().expect("arrives");
+    second.arrive().expect("arrives");
+    // Each app is in the middle of a turn of its own.
+    let theirs = busy_session(&first).await;
+    let own = busy_session(&second).await;
+    second.notice_others().expect("looks");
+    let status = |id: i64| second.session(id).expect("reads").status;
+    assert_eq!(status(theirs.id), SessionStatus::Working);
+
+    // The first ends without a word, as one that crashed does: its session stays busy.
+    drop(first);
+    let mut bus = second.subscribe();
+    // The second takes the first's place at a look, and tells front ends to read the tree.
+    noticed(&second, &mut bus, tree_changed).await;
+    assert_eq!(status(theirs.id), SessionStatus::Idle);
+    assert_eq!(status(own.id), SessionStatus::Working);
+}

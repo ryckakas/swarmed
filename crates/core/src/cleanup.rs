@@ -70,6 +70,10 @@ pub struct CleanupItem {
     /// Where it is on disk, for a folder or a record of one.
     #[serde(skip)]
     path: Option<PathBuf>,
+    /// Whether it is only git's record of a worktree, whose folder was gone when it was listed:
+    /// no folder is ever deleted for one.
+    #[serde(skip)]
+    record: bool,
 }
 
 /// What can be cleaned up, kind by kind, as of when it was asked.
@@ -132,14 +136,19 @@ impl Core {
     /// Deletes things of one kind: those `keys` name, at risk or not, or without `keys` every
     /// one that is not at risk. What is deleted is listed again first, and only what is still
     /// listed goes; the rest is returned with why, as is what could not be deleted.
+    ///
+    /// A caller that showed the user a list says in `shown_at_risk` which of `keys` it showed
+    /// as at risk. What is at risk now and was not shown so is kept: the list may be old, and
+    /// the user agreed to lose nothing by it. Without it, naming a key is agreeing.
     pub async fn cleanup_clean(
         &self,
         kind: CleanupKind,
         keys: Option<&[String]>,
+        shown_at_risk: Option<&[String]>,
     ) -> Result<Cleaned> {
         let listed = self.listed(kind).await?;
         let items: Vec<CleanupItem> = listed.into_iter().map(|(item, _)| item).collect();
-        let (chosen, kept) = choose(&items, keys);
+        let (chosen, kept) = choose(&items, keys, shown_at_risk);
         let mut cleaned = Cleaned {
             deleted: vec![],
             kept,
@@ -213,7 +222,11 @@ impl Core {
         if removed.is_empty() {
             return Ok(vec![]);
         }
-        let in_use = self.branches_in_use(project, projects).await?;
+        // A repository that cannot be asked, one moved or on a disk that is away, has no
+        // branch that could be checked: none is listed, and the other kinds still are.
+        let Some(in_use) = self.branches_in_use(project, projects).await? else {
+            return Ok(vec![]);
+        };
         let mut items = vec![];
         for branch in removed {
             items.extend(removable_branch(project, &in_use, branch).await);
@@ -225,11 +238,12 @@ impl Core {
     /// deleted: every current task's own, the others its worktree was seen on and its base;
     /// the project's configured base; and whatever any worktree of the repository has checked
     /// out, the repository's own checkout included. Over every project of the same repository.
+    /// `None` when git cannot say what the repository's worktrees have checked out.
     async fn branches_in_use(
         &self,
         project: &Project,
         projects: &[Project],
-    ) -> Result<HashSet<String>> {
+    ) -> Result<Option<HashSet<String>>> {
         let mut in_use = HashSet::new();
         let here = resolved(&project.repo_path);
         let same = projects
@@ -238,9 +252,11 @@ impl Core {
         for other in same {
             in_use.extend(self.branches_used_by(other)?);
         }
-        let worktrees = git::worktree_list(&project.repo_path).await?;
+        let Ok(worktrees) = git::worktree_list(&project.repo_path).await else {
+            return Ok(None);
+        };
         in_use.extend(worktrees.into_iter().filter_map(|record| record.branch));
-        Ok(in_use)
+        Ok(Some(in_use))
     }
 
     /// The branches one project's current tasks use, and the base it is configured with.
@@ -288,19 +304,21 @@ impl Core {
     /// The places a stale worktree is never looked for in: current tasks' worktrees, those of
     /// tasks being made, and the repositories themselves.
     fn kept_places(&self, projects: &[Project]) -> Result<Kept> {
-        let tasks = self.store().tasks_all()?;
-        let current = tasks.iter().filter(|task| !task.archived);
-        let mut owned: HashSet<PathBuf> =
-            current.map(|task| resolved(&task.worktree_path)).collect();
         let by_id: HashMap<i64, &str> = projects
             .iter()
             .map(|project| (project.id, project.name.as_str()))
             .collect();
-        // Read under the lock, resolved after it: tasks being made wait on it.
+        // The names claimed are read before the tasks: a task is written down and only then
+        // lets go of its name, so one being made is in at least one of the two. Read under the
+        // lock, resolved after it: tasks being made wait on it.
         let being_made: Vec<PathBuf> = lock(&self.names_claimed)
             .iter()
             .filter_map(|(project, name)| Some(self.paths.worktree(by_id.get(project)?, name)))
             .collect();
+        let tasks = self.store().tasks_all()?;
+        let current = tasks.iter().filter(|task| !task.archived);
+        let mut owned: HashSet<PathBuf> =
+            current.map(|task| resolved(&task.worktree_path)).collect();
         owned.extend(being_made.iter().map(|path| resolved(path)));
         let repos = projects
             .iter()
@@ -309,18 +327,17 @@ impl Core {
         Ok(Kept { owned, repos })
     }
 
-    /// Deletes a stale folder and git's record of it, or only the record when the folder is
-    /// gone.
+    /// Deletes a stale folder and git's record of it, or only the record for an item listed as
+    /// one. A record's folder is never deleted: one that is there again is somebody's, made
+    /// since, and nothing looked at what it holds.
     async fn delete_stale(&self, item: &CleanupItem) -> std::result::Result<(), String> {
         let path = item_path(item)?;
         let project = self
             .project(&item.project)
             .map_err(|error| error.to_string())?;
         let repo = &project.repo_path;
-        if std::fs::symlink_metadata(path).is_err() {
-            return git::worktree_remove(repo, path)
-                .await
-                .map_err(|error| format!("git would not forget it: {}", said(&error)));
+        if item.record {
+            return forget_record(repo, path).await;
         }
         delete_folder(path).await?;
         // A folder that was a worktree of the repository leaves git's record of it, which
@@ -384,18 +401,28 @@ async fn folders_bytes(folders: Vec<PathBuf>) -> Option<u64> {
 
 /// Which of `items` to delete: those `keys` names, or without them every one not at risk.
 /// A key that names nothing listed is returned as kept: what it named is gone already, or is
-/// in use again.
+/// in use again. So is one at risk now that the caller did not show as at risk
+/// (`shown_at_risk`), with what it would lose.
 fn choose<'a>(
     items: &'a [CleanupItem],
     keys: Option<&[String]>,
+    shown_at_risk: Option<&[String]>,
 ) -> (Vec<&'a CleanupItem>, Vec<NotCleaned>) {
     let Some(keys) = keys else {
         return (items.iter().filter(|item| !item.at_risk).collect(), vec![]);
     };
-    let chosen = items
-        .iter()
-        .filter(|item| keys.contains(&item.key))
-        .collect();
+    let risky_since = |item: &CleanupItem| {
+        item.at_risk && shown_at_risk.is_some_and(|shown| !shown.contains(&item.key))
+    };
+    let named = || items.iter().filter(|item| keys.contains(&item.key));
+    let chosen = named().filter(|item| !risky_since(item)).collect();
+    let risky = named()
+        .filter(|item| risky_since(item))
+        .map(|item| NotCleaned {
+            key: item.key.clone(),
+            name: item.name.clone(),
+            reason: format!("since it was listed, {}", item.reason),
+        });
     let unlisted = keys
         .iter()
         .filter(|key| !items.iter().any(|item| &item.key == *key))
@@ -403,9 +430,8 @@ fn choose<'a>(
             key: key.clone(),
             name: key.clone(),
             reason: "it is no longer listed: gone already, or in use again".to_string(),
-        })
-        .collect();
-    (chosen, unlisted)
+        });
+    (chosen, risky.chain(unlisted).collect())
 }
 
 /// What a project's removals moved aside and is still there, in the project's folder beside
@@ -434,6 +460,7 @@ fn removed_item(project: &str, path: PathBuf) -> Measured {
         since: since.or_else(|| changed_at(&path)),
         at_risk: false,
         path: Some(path.clone()),
+        record: false,
     };
     (item, vec![path])
 }
@@ -542,6 +569,7 @@ fn branch_item(project: &str, branch: &RemovedBranch, only_here: Result<u32>) ->
         since: branch.removed_at,
         at_risk,
         path: None,
+        record: false,
     }
 }
 
@@ -598,13 +626,33 @@ async fn stale_folder_items(project: &str, folders: Vec<PathBuf>) -> Vec<Measure
 /// The worktrees of the repository at `repo` whose folder is gone, which no current task owns.
 /// Locked ones are left alone, as git leaves them: their folder may only be out of reach. A
 /// repository that cannot be asked, one deleted by hand say, has none to clean up here.
+///
+/// Git calls a record prunable when the folder's `.git` file is missing, which a folder made
+/// again in its place, with anything in it, also is. So the folder itself is looked for.
 async fn gone_records(repo: &Path, keep: &Kept) -> Vec<PathBuf> {
     let records = git::worktree_list(repo).await.unwrap_or_default();
     records
         .into_iter()
         .filter(|record| record.prunable && !record.locked && !keep.owns(&record.path))
+        .filter(|record| !is_there(&record.path))
         .map(|record| record.path)
         .collect()
+}
+
+/// Has git forget its record of the worktree at `path`, whose folder was gone when it was
+/// listed. Refused if something is there again, which is left alone.
+async fn forget_record(repo: &Path, path: &Path) -> std::result::Result<(), String> {
+    if is_there(path) {
+        return Err("a folder is there again, which is left alone".to_string());
+    }
+    git::worktree_remove(repo, path)
+        .await
+        .map_err(|error| format!("git would not forget it: {}", said(&error)))
+}
+
+/// Whether anything is at `path`: a folder, a file, or a link, wherever it leads.
+fn is_there(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok()
 }
 
 /// A folder no task owns, with what deleting it would lose, if anything.
@@ -620,6 +668,7 @@ async fn stale_folder_item(project: &str, folder: PathBuf) -> Measured {
         bytes: None,
         since: changed_at(&folder),
         path: Some(folder.clone()),
+        record: false,
     };
     (item, vec![folder])
 }
@@ -636,6 +685,7 @@ fn record_item(project: &str, path: PathBuf) -> Measured {
         since: None,
         at_risk: false,
         path: Some(path),
+        record: true,
     };
     (item, vec![])
 }
@@ -692,6 +742,7 @@ fn snapshot_item(project: &str, found: SnapshotFolders) -> Measured {
         since,
         at_risk: false,
         path: None,
+        record: false,
     };
     (item, found.folders)
 }
@@ -777,6 +828,7 @@ mod tests {
             since: None,
             at_risk,
             path: None,
+            record: false,
         }
     }
 
@@ -786,14 +838,28 @@ mod tests {
         let keys = |chosen: Vec<&CleanupItem>| -> Vec<String> {
             chosen.into_iter().map(|item| item.key.clone()).collect()
         };
-        let (all, kept) = choose(&items, None);
+        let (all, kept) = choose(&items, None, None);
         assert_eq!(keys(all), ["a", "c"]);
         assert_eq!(kept, []);
         let named = ["b".to_string(), "gone".to_string()];
-        let (chosen, kept) = choose(&items, Some(&named));
+        let (chosen, kept) = choose(&items, Some(&named), None);
         assert_eq!(keys(chosen), ["b"]);
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].key, "gone");
+    }
+
+    #[test]
+    fn what_became_at_risk_since_it_was_shown_is_kept() {
+        let items = [item("a", false), item("b", true), item("c", true)];
+        let named = ["a".to_string(), "b".to_string(), "c".to_string()];
+        // The user was shown `c` as at risk and ticked it; `b` looked safe then.
+        let shown = ["c".to_string()];
+        let (chosen, kept) = choose(&items, Some(&named), Some(&shown));
+        let chosen: Vec<&str> = chosen.iter().map(|item| item.key.as_str()).collect();
+        assert_eq!(chosen, ["a", "c"]);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].key, "b");
+        assert!(kept[0].reason.starts_with("since it was listed"));
     }
 
     #[test]

@@ -349,6 +349,8 @@ impl Children {
         }
         one.run = Run::Running;
         one.runs += 1;
+        // What the run before it said last is not what this one hands back.
+        one.voice.said.clear();
         let (call, mut events) = match tied {
             Some(call) => (call, vec![]),
             None => made_up(child, one),
@@ -590,6 +592,14 @@ mod tests {
         assert!(
             matches!(&again[0], AgentEvent::ToolUse { id, input, .. } if id == "P:subagent:T1~2" && input["prompt"] == "More.")
         );
+        // Stopped before it said a word, it hands back nothing, not the first run's words.
+        let idle = json!({ "sessionId": CODEX_CHILD, "state": { "state": "idle", "stopReason": "cancelled" } });
+        let ended = children.update(&update(idle));
+        let handed_back = ended.iter().find_map(|event| match event {
+            AgentEvent::Background { summary, .. } => Some(summary.clone()),
+            _ => None,
+        });
+        assert_eq!(handed_back, Some(None), "{ended:?}");
     }
 
     #[test]

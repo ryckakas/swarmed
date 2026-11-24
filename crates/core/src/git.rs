@@ -50,13 +50,19 @@ pub(crate) fn head_now(worktree: &Path) -> Option<Head> {
 /// Why git would not take `name` as a branch's name, by its own rules
 /// (`git check-ref-format --branch`), or `None` when it would. Asked without waiting on a
 /// runtime: it needs no repository, and settings are saved from threads that have none.
+///
+/// Run inside a repository, git reads `@{-1}` and the like as the branch they stand for there
+/// and prints that one. A name it prints back as another is no name: the branch made under
+/// it would not be the one recorded.
 pub(crate) fn branch_name_problem(name: &str) -> Result<Option<String>> {
     let output = std::process::Command::new("git")
         .args(["check-ref-format", "--branch", name])
         .env("GIT_TERMINAL_PROMPT", "0")
         .output()?;
     if output.status.success() {
-        return Ok(None);
+        let printed = String::from_utf8_lossy(&output.stdout);
+        let another = printed.trim() != name;
+        return Ok(another.then(|| format!("'{name}' is not a valid branch name")));
     }
     let said = String::from_utf8_lossy(&output.stderr);
     let said = said.trim();

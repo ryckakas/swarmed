@@ -52,7 +52,9 @@ Code session:
 The usage limits and the extra usage are your account's, not a session's, so every Claude Code
 session shows the same: the newest figures any of them heard. A new session shows them before
 its first turn, and they are kept when Swarmed is opened again. Every Claude Code session runs
-on your own Claude Code sign-in, so they all report the same account.
+on your own Claude Code sign-in, so they all report the same account. The one exception is a
+session you run from the command line with `--auth inherit` in a shell set up for another
+account: Swarmed cannot tell, and its figures show under every session too.
 
 Swarmed only learns these figures from what Claude Code says while it works. It never asks for
 them on a timer or when the card opens. So each says how old it is ("As of 14:48"), and they can

@@ -82,6 +82,11 @@ export function tickedKeys(items: CleanupItem[], ticks: string[]): string[] {
     return items.filter((item) => ticks.includes(item.key)).map((item) => item.key);
 }
 
+/** Those of the keys asked for that the list showed as losing work, which the core is told. */
+export function shownAtRisk(items: CleanupItem[], keys: string[]): string[] {
+    return items.filter((item) => item.at_risk && keys.includes(item.key)).map((item) => item.key);
+}
+
 /** What the dialog's button says. */
 export function deleteLabel(count: number, busy: boolean): string {
     if (busy) {

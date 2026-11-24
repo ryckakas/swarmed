@@ -125,6 +125,13 @@ deleted only if you tick it on its own. Nothing of a current task, no branch on 
 branch Swarmed did not make and no repository's own checkout is ever listed. `swarmed cleanup`
 does the same from the command line.
 
+A folder beside your tasks' worktrees that is no git worktree, with no `.git` in it, counts
+as safe to delete and is ticked: that place is Swarmed's, and what is left there is usually
+what a removed task's services wrote after it. Do not keep folders of your own there. A record
+of a worktree is listed only while nothing is at its path, and only the record is forgotten:
+a folder made there again is never deleted. What became at risk after the list was read, a
+branch that gained commits say, is kept and named with why.
+
 Quitting the app ends its stacks' processes without running `stop`. From the command line,
 `swarmed task new` and `swarmed task setup` end the stack again when they exit, and
 `swarmed task start` keeps one running in the foreground.
@@ -201,6 +208,7 @@ Set in the app's Settings, kept in `settings.toml`.
 | `terminal_app` | `Terminal` | the application "Open in Terminal" uses |
 | `default_supervision` | `auto` | how new sessions are supervised: `ask`, `auto` or `plan`; `bypass`, which allows everything, is not offered in Settings |
 | `auto_title` | `true` | a model names each new session after its first message |
+| `branch_prefix` | empty | what a new task's branch starts with, before `/` and the task's name; empty is your login. See [A task's branch](#a-tasks-branch) |
 | `notifications` | `true` | notify when a session needs you, finishes, fails or moves its worktree to another branch |
 | `updates` | `automatic` | how Swarmed updates itself: `automatic` looks at launch and every few hours, downloads a new version and installs it when you quit; `when_asked` fetches nothing until About opens and installs only when you ask |
 | `html_views` | `true` | agents may answer with HTML views |

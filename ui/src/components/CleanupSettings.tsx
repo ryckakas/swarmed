@@ -10,6 +10,7 @@ import {
     keptNote,
     kindSummary,
     kindWording,
+    shownAtRisk,
     tickedKeys,
     toggledTick,
 } from "../cleanup";
@@ -131,7 +132,7 @@ function CleanupDialog({ kind, items, onClose, onCleaned }: DialogProps) {
         setBusy(true);
         setProblem(null);
         try {
-            const done = await api.cleanupClean(kind, chosen);
+            const done = await api.cleanupClean(kind, chosen, shownAtRisk(items, chosen));
             onCleaned();
             const note = keptNote(done);
             if (note === null) {

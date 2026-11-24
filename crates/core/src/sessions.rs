@@ -1201,12 +1201,15 @@ impl Core {
     /// started, when no agent runs yet and whatever says otherwise is left from a Swarmed that
     /// ended in the middle of a turn. Says how many there were. What their agents left in the
     /// background went with them, which is recorded as the end those agents never reported.
+    ///
+    /// A session whose agent runs, in another Swarmed or in this one, is as busy as it says
+    /// and is passed over.
     pub fn sessions_settle(&self) -> Result<usize> {
-        // Those whose agent another Swarmed runs are as busy as they say.
-        let elsewhere = self.sessions_run_elsewhere();
+        let mut running = self.sessions_run_elsewhere();
+        running.extend(lock(&self.live.runs_held).keys());
         let store = self.store();
-        store.background_settle(&elsewhere)?;
-        store.sessions_settle(&elsewhere)
+        store.background_settle(&running)?;
+        store.sessions_settle(&running)
     }
 
     /// Stops a session's agent. Its history stays, and [`Core::session_start`] continues it.

@@ -8,6 +8,7 @@ import {
     useId,
     useRef,
 } from "react";
+import { closesBeside, dialogStart } from "../dialogs";
 import { CloseIcon, IconButton } from "./IconButton";
 
 /**
@@ -16,29 +17,6 @@ import { CloseIcon, IconButton } from "./IconButton";
  * scrolls.
  */
 export type DialogSize = "small" | "medium" | "large" | "wide";
-
-/**
- * Where the keyboard starts when a dialog opens: the first element its content marks with
- * `data-dialog-start`, else the body's first field, else the main button, else the footer's
- * first button. A question whose action cannot be undone has no main button, so a stray Enter
- * takes its way out.
- */
-const STARTS = [
-    "[data-dialog-start]",
-    ".dialog-body :is(input:not([type='hidden']), textarea, select):not(:disabled)",
-    ".dialog-foot .button-primary:not(:disabled)",
-    ".dialog-foot button:not(:disabled)",
-];
-
-function startOf(dialog: HTMLDialogElement): HTMLElement | null {
-    for (const selector of STARTS) {
-        const found = dialog.querySelector<HTMLElement>(selector);
-        if (found) {
-            return found;
-        }
-    }
-    return null;
-}
 
 interface Props {
     /** The heading, which also names the dialog to a screen reader. */
@@ -97,7 +75,7 @@ export function Dialog(props: Props) {
         const element = dialog.current;
         if (element && !element.open) {
             element.showModal();
-            startOf(element)?.focus();
+            dialogStart((selector) => element.querySelector<HTMLElement>(selector))?.focus();
         }
     }, []);
 
@@ -112,8 +90,13 @@ export function Dialog(props: Props) {
         pressedBeside.current = event.target === event.currentTarget;
     };
     const onClick = (event: MouseEvent<HTMLDialogElement>) => {
-        const beside = pressedBeside.current && event.target === event.currentTarget;
-        if (beside && closeOnBackdrop && !busy) {
+        const click = {
+            pressedBeside: pressedBeside.current,
+            endedBeside: event.target === event.currentTarget,
+            closeOnBackdrop,
+            busy,
+        };
+        if (closesBeside(click)) {
             onClose();
         }
     };

@@ -851,6 +851,11 @@ export type AgentEvent =
            * to the background. Absent otherwise.
            */
           moved?: boolean;
+          /**
+           * Set when the agent offers no way to stop it, such as a shell OpenCode left running.
+           * Absent otherwise. The Background list reads `BackgroundTask.stoppable` instead.
+           */
+          unstoppable?: boolean;
       }
     /** One of the agent's own screens, such as `/usage`, with the contents the agent gave. */
     | { type: "screen"; command: string; title: string; note: string; sections: ScreenSection[] }

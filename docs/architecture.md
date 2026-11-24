@@ -66,7 +66,8 @@ variants and fields are only ever added, never renamed, and schema changes are a
   run is over.
 - **The first app to arrive passes its place on.** With two apps open, the one left over takes
   `run/first.lock` once the first has quit: it then shows the notices of what the command line
-  runs, and stops every stack when it quits.
+  runs, stops every stack when it quits, and puts the sessions the first left busy back to
+  idle.
 
 ## HTML views
 

@@ -1069,7 +1069,7 @@ fn the_ui_can_clean_up_what_removed_tasks_left() {
     let key = branches[0]["key"].clone();
     let cleaned = app.ok(
         "cleanup_clean",
-        json!({ "kind": "branches", "keys": [key] }),
+        json!({ "kind": "branches", "keys": [key], "atRisk": [] }),
     );
     assert_eq!(cleaned, json!({ "deleted": [key], "kept": [] }));
     assert_eq!(app.ok("cleanup", json!({}))["branches"], json!([]));

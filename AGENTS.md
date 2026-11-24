@@ -153,7 +153,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   - **Notices:** only the first Swarmed to arrive shows those of events from elsewhere, and
     not while a Swarmed that shows its own runs the session (`shows_notices_of`). An app that
     arrived second takes the house at its next look once the first has quit
-    (`house_if_free`), and from then on also stops every stack when it quits.
+    (`house_if_free`), and from then on also stops every stack when it quits. It settles
+    then what the first left busy, as `arrive` would have (`sessions_settle`, which passes
+    over what runs here or elsewhere): the first, opened again, finds the house kept and
+    settles nothing.
   The first look takes stock and publishes no tree or file change. `swarmed events` drives
   the same from the command line.
 - **A session's agent runs in one process at a time** (`claim_run`). `launch` takes a lock on
@@ -196,7 +199,12 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   (folders in a project's place under the worktrees root that no task owns, and git's records
   of worktrees whose folder is gone) and snapshots. `Core::cleanup` lists them, each with a
   key; `cleanup_clean` deletes one kind, by keys or every item not at risk, after listing again,
-  so only what is still listed goes. Never listed: a current task's worktree or branch (its
+  so only what is still listed goes. A record is listed only while nothing is at its path:
+  git calls one prunable when the folder's `.git` file is missing, which a folder made again
+  in its place also is, and no folder is ever deleted for an item listed as a record. A
+  front end that showed a list says which keys it showed as at risk (`shown_at_risk`): one at
+  risk now and not shown so is kept, since the list may be old. A repository that cannot be
+  asked lists no branches and stops no other kind. Never listed: a current task's worktree or branch (its
   own, the others its worktree was seen on, its base), a task being made (`names_claimed`),
   anything a worktree of the repository has checked out, the repositories themselves and any
   folder with a repository of its own, a remote branch, and a branch Swarmed did not make
@@ -246,7 +254,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   way out first and the main button last. Width is a size by name (`small`, `medium`, `large`,
   `wide`); spacing, radius and colours come from the tokens, so every layout applies. A click
   beside one closes it only when the dialog says nothing would be lost (`closeOnBackdrop`), and
-  `busy` disables its actions but never the way out. A dialog opened from another keeps Esc to
+  `busy` disables its actions but never the way out. Those two decisions and where the
+  keyboard starts are pure functions (`ui/src/dialogs.ts`), tested there. A dialog opened from another keeps Esc to
   itself. A new dialog takes these props, not a frame or a class of its own.
 - **A layout is a setting apart from palette and style** (`Settings::layout`, `data-layout` on
   the root). Classic is what `app.css` draws; `layouts.css` holds only what senior changes:
@@ -266,6 +275,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   The sidebar's levels (`sidebar`: repository, task, session, sub-agent) are drawn from
   `--sidebar-<level>-size`, `-weight`, `-colour` and `-background`, which only the custom
   stylesheet sets; each rule's fallback is what classic and senior draw, so keep it so.
+  The core checks a level's colour against its own background only, so a session row that
+  is pointed at, open, waiting or unread keeps to that pair (`sessionStates` in
+  `customLayout.ts`: the background tinted with the colour) and never takes the palette's.
   Agents save it whole through `configure`'s `layout` kind, at once: it cannot hide or move
   anything, and it has to stay that way for that to be safe.
 - **The terminal is xterm.js, drawn from the palette and the user's `terminal.json`**
@@ -539,7 +551,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **What agents leave running** (`background.rs`) is read back from the sessions' histories:
   Claude Code reports a `task_started` and a `task_notification` for each background command
   or agent, which become `AgentEvent::Background`. Stopping one is the `stop_task` control
-  request. What ran under an agent that is no longer running is listed as stopped.
+  request. What ran under an agent that is no longer running is listed as stopped, and so is
+  what an earlier run of the agent left once that run's `Exited` is recorded: the agent
+  started again knows nothing of it.
   - **OpenCode's shells** (`agent/acp/shells.rs`): a call that ends with
     `rawOutput.metadata.status: "running"` and a `shellID` left one running, reported as
     `local_bash`. Nothing over ACP tells its end, so every shell reported running is taken to
@@ -567,8 +581,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   the core hands to whoever asked (`Live::await_sent`) and neither stores nor publishes; only
   Claude Code can (`AgentInfo::sends_to_background`), and the core refuses for the others.
   The transcript offers it on a running `Bash`, `Agent` or `Task` call of such an agent while
-  it works (`mayGoToBackground`), and says quietly when it did not go; `bg` typed during
-  `swarmed session send` does the same for every call. A stack's
+  it works (`mayGoToBackground`), each call listed in an opened run of folded calls
+  included, and says quietly when it did not go; `bg` typed during
+  `swarmed session send` does the same for every call. The command line reads what is typed
+  on a thread of its own (`Typed`), never with Tokio's stdin: a read of a terminal cannot be
+  given up, and the runtime would wait for it before the command could end. A stack's
   `start` command is spawned with `std::process`, never Tokio's: window commands that are not
   `async` run on a thread without a runtime, where a Tokio spawn aborts the app.
 - **What a background command printed can be read** (`session_background_output`), from the
@@ -782,6 +799,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   past its `resets_at` counts as reset, at 0%, until a report says otherwise
   (`accountWindows`), and `useAccountUsage` draws again at the next reset. Each figure says
   how old it is.
+  Reports are folded by agent, not by sign-in: a session the command line runs with
+  `--auth inherit` on another account's sign-in is taken as the same account.
 - **ACP agents with an effort of their own say what it stands at** when a conversation opens,
   which is recorded as `Applied` too. Before a session's agent has said, a front end shows
   what the agent's default last came to (`effort.rs`, `Core::effort_default`): the latest

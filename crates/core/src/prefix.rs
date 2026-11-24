@@ -78,6 +78,9 @@ mod tests {
     fn a_prefix_git_would_not_take_is_refused_with_its_reason() {
         for prefix in [
             "a b", "a..b", "x~1", "feat:", ".hidden", "-x", "jd.lock", "a//b",
+            // Inside a repository git reads this as the branch it was on before, and prints
+            // that one; outside one it refuses it.
+            "@{-1}",
         ] {
             let refused = branch_example(prefix);
             assert!(

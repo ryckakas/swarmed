@@ -652,6 +652,17 @@ function taken(waiting: State["terminalCommand"], sessionId: number, forget: () 
     return waiting.text;
 }
 
+/**
+ * The folded tasks once session `sessionId` is opened: its task unfolds to show its row. Not
+ * for the session already on screen, which is only read again, after events were missed say:
+ * its task is folded because the user folded it.
+ */
+function foldedOnOpening(state: State, sessionId: number): number[] {
+    return state.selectedSessionId === sessionId
+        ? state.foldedTasks
+        : unfoldedFor(state.foldedTasks, state.projects, sessionId);
+}
+
 export const useStore = create<State>((set, get) => ({
     projects: [],
     load: "loading",
@@ -850,7 +861,7 @@ export const useStore = create<State>((set, get) => ({
         set((state) => ({
             selectedSessionId: sessionId,
             subView: null,
-            foldedTasks: unfoldedFor(state.foldedTasks, state.projects, sessionId),
+            foldedTasks: foldedOnOpening(state, sessionId),
         }));
         get().markRead(api, sessionId);
         if (get().events[sessionId] || loading.has(sessionId)) {

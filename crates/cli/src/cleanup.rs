@@ -78,7 +78,7 @@ pub(crate) async fn run(core: &Core, args: CleanupArgs) -> Result<()> {
         return Ok(());
     }
     let keys = (!args.keys.is_empty()).then_some(args.keys.as_slice());
-    let cleaned = core.cleanup_clean(kind.core(), keys).await?;
+    let cleaned = core.cleanup_clean(kind.core(), keys, None).await?;
     for key in &cleaned.deleted {
         say(&format!("deleted\t{key}"));
     }

@@ -44,6 +44,28 @@ describe("layoutCss", () => {
         );
     });
 
+    it("keeps a session's row within its own colours whatever it is doing", () => {
+        const css = layoutCss({
+            base: "classic",
+            sidebar: { session: { dark: { colour: "#111111", background: "#f0f0f0" } } },
+        });
+        // Pointed at, open or waiting, it stays on its own background, tinted with its colour:
+        // the palette's were never checked against it. An unread title keeps the colour too.
+        expect(css).toContain("--sidebar-session-pointed: color-mix(in srgb, #111111 6%, #f0f0f0)");
+        expect(css).toContain("--sidebar-session-open: color-mix(in srgb, #111111 12%, #f0f0f0)");
+        expect(css).toContain("--sidebar-session-unread: #111111");
+        // A colour alone is drawn on the sidebar's own backgrounds, as before.
+        const alone = layoutCss({
+            base: "classic",
+            sidebar: {
+                session: { dark: { colour: "#e0e0e0" } },
+                task: { dark: { colour: "#e0e0e0", background: "#101010" } },
+            },
+        });
+        expect(alone).not.toContain("-pointed");
+        expect(alone).not.toContain("-unread");
+    });
+
     it("writes a level's colours beside the form's own", () => {
         const css = layoutCss({
             base: "classic",

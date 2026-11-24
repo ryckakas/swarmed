@@ -140,8 +140,30 @@ function levelColours(custom: CustomLayout, form: "dark" | "light"): string[] {
                 lines.push(`--sidebar-${token}-${part}: ${value}`);
             }
         }
+        if (name === "session") {
+            lines.push(...sessionStates(given?.colour, given?.background));
+        }
     }
     return lines;
+}
+
+/**
+ * What a session's row is drawn on while it is pointed at, open or waiting, and what its
+ * title is drawn in while unread, for a layout that gives sessions a background of their own.
+ * The core checked the colour against that background alone, so these stay with the pair: the
+ * background tinted a little with the colour, never the palette's own, which nothing checked
+ * the colour against.
+ */
+function sessionStates(colour: unknown, background: unknown): string[] {
+    if (!(hex(colour) && hex(background))) {
+        return [];
+    }
+    const tinted = (share: number) => `color-mix(in srgb, ${colour} ${share}%, ${background})`;
+    return [
+        `--sidebar-session-pointed: ${tinted(6)}`,
+        `--sidebar-session-open: ${tinted(12)}`,
+        `--sidebar-session-unread: ${colour}`,
+    ];
 }
 
 function rule(selector: string, lines: string[]): string {

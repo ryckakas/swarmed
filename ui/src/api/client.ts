@@ -84,8 +84,10 @@ export interface Api {
     /**
      * Deletes the things of one kind named by their keys, after listing them again: only
      * what is still listed goes. Returns what was deleted, and what was not with why.
+     * `atRisk` names those of the keys that were shown as losing work: one that loses work
+     * now and was not shown so is kept, since the list the user read may be old.
      */
-    cleanupClean(kind: CleanupKind, keys: string[]): Promise<Cleaned>;
+    cleanupClean(kind: CleanupKind, keys: string[], atRisk: string[]): Promise<Cleaned>;
     /** What the agents report their work has cost: by day and by task. */
     costs(): Promise<Costs>;
     /** The project's snapshots: what new tasks of each environment start from. */

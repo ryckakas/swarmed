@@ -225,14 +225,16 @@ impl Store {
         Ok(self.reports_of(session, task_id)?.iter().any(unstoppable))
     }
 
-    /// What the task's open sessions said of the things they left running, oldest first.
+    /// What the task's open sessions said of the things they left running, oldest first, with
+    /// the ends of their agents among it: what an agent left running went with it.
     fn background_reports(&self, task: i64) -> Result<Vec<Reported>> {
-        // The event's type is the first thing in its JSON, which keeps this a prefix match.
+        // The event's type is the first thing in its JSON, which keeps these prefix matches.
         let mut statement = self.conn.prepare(
             "SELECT s.id, s.title, e.event FROM session_events e
              JOIN sessions s ON s.id = e.session_id
              WHERE s.task_id = ?1 AND s.closed_at IS NULL
-               AND e.event LIKE '{\"type\":\"background\"%'
+               AND (e.event LIKE '{\"type\":\"background\"%'
+                    OR e.event LIKE '{\"type\":\"exited\"%')
              ORDER BY e.id",
         )?;
         let rows = statement.query_map(params![task], |row| {
@@ -274,10 +276,16 @@ fn task_of(session_id: i64, session_title: String, event: AgentEvent) -> Option<
 }
 
 /// Folds the reports into one entry per thing, by the last word on each. What a session's
-/// agent left running does not outlive that agent, so it is stopped if the agent is gone.
+/// agent left running does not outlive that agent, so it is stopped if the agent is gone, and
+/// where the agent's end is among the reports: an agent started again for the session knows
+/// nothing of what the one before it left, and would otherwise make it count as running again.
 fn listed(reported: Vec<Reported>, alive: &[i64]) -> Vec<BackgroundTask> {
     let mut tasks: Vec<BackgroundTask> = Vec::new();
     for (session_id, session_title, event) in reported {
+        if matches!(event, AgentEvent::Exited { .. }) {
+            stop_running(&mut tasks, |task| task.session_id == session_id);
+            continue;
+        }
         let Some(new) = task_of(session_id, session_title, event) else {
             continue;
         };
@@ -292,16 +300,21 @@ fn listed(reported: Vec<Reported>, alive: &[i64]) -> Vec<BackgroundTask> {
         task.heard(new);
         tasks.push(task);
     }
-    for task in &mut tasks {
-        let orphaned = task.state == BackgroundState::Running && !alive.contains(&task.session_id);
-        if orphaned {
-            task.state = BackgroundState::Stopped;
-        }
-    }
+    stop_running(&mut tasks, |task| !alive.contains(&task.session_id));
     // Running first; within each, the newest word first.
     tasks.reverse();
     tasks.sort_by_key(|task| task.state != BackgroundState::Running);
     tasks
+}
+
+/// Counts as stopped every running entry that `gone` says went with its agent.
+fn stop_running(tasks: &mut [BackgroundTask], gone: impl Fn(&BackgroundTask) -> bool) {
+    let running = tasks
+        .iter_mut()
+        .filter(|task| task.state == BackgroundState::Running);
+    for task in running.filter(|task| gone(task)) {
+        task.state = BackgroundState::Stopped;
+    }
 }
 
 /// The file `named`, links followed, if it is one output is read from: a regular `.output`
@@ -501,6 +514,32 @@ mod tests {
             [
                 ("a", BackgroundState::Running),
                 ("a", BackgroundState::Stopped)
+            ]
+        );
+    }
+
+    #[test]
+    fn what_an_earlier_run_of_the_agent_left_is_stopped_though_the_agent_runs_again() {
+        let exited = AgentEvent::Exited {
+            code: None,
+            stderr: String::new(),
+        };
+        let reported = vec![
+            report(1, "a", BackgroundState::Running),
+            report(2, "other", BackgroundState::Running),
+            (1, "session 1".to_string(), exited),
+            // What the agent started again for the session leaves running is its own.
+            report(1, "b", BackgroundState::Running),
+        ];
+        let listed = listed(reported, &[1, 2]);
+        let mut tasks = states(&listed);
+        tasks.sort_unstable_by_key(|(id, _)| *id);
+        assert_eq!(
+            tasks,
+            [
+                ("a", BackgroundState::Stopped),
+                ("b", BackgroundState::Running),
+                ("other", BackgroundState::Running),
             ]
         );
     }

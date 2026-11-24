@@ -159,14 +159,15 @@ export const ToolRun = memo(function ToolRun({ calls, sendsFrom }: RunProps) {
                 <ol className="tool-run-calls">
                     {calls.map((call) => (
                         <li key={call.key}>
-                            {/* The line above offers it for the call still at work. */}
+                            {/* Calls made at once each wait on work of their own, so each
+                                offers it; the line above already does for the last. */}
                             <ToolCall
                                 id={call.id}
                                 name={call.name}
                                 input={call.input}
                                 result={call.result}
                                 moved={call.moved}
-                                sendsFrom={null}
+                                sendsFrom={offered && call === last ? null : sendsFrom}
                             />
                         </li>
                     ))}

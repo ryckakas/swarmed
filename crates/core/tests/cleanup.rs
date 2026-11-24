@@ -80,7 +80,7 @@ async fn removed_worktrees_not_deleted_yet_are_listed_with_their_size_and_delete
     assert!(core.usage().await.expect("measures").removed_bytes > 0);
 
     let cleaned = core
-        .cleanup_clean(CleanupKind::Removed, None)
+        .cleanup_clean(CleanupKind::Removed, None, None)
         .await
         .expect("cleans");
     assert_eq!(cleaned.deleted, [listed[0].key.clone()]);
@@ -137,7 +137,7 @@ async fn only_branches_swarmed_made_for_removed_tasks_are_listed_and_work_goes_o
 
     // Asked for everything, what would lose work stays.
     let cleaned = core
-        .cleanup_clean(CleanupKind::Branches, None)
+        .cleanup_clean(CleanupKind::Branches, None, None)
         .await
         .expect("cleans");
     assert_eq!(cleaned.deleted, [key_of(&listed, &done.branch)]);
@@ -146,7 +146,7 @@ async fn only_branches_swarmed_made_for_removed_tasks_are_listed_and_work_goes_o
     // Named on its own, it goes.
     let named = [key_of(&listed, &work.branch)];
     let cleaned = core
-        .cleanup_clean(CleanupKind::Branches, Some(&named))
+        .cleanup_clean(CleanupKind::Branches, Some(&named), None)
         .await
         .expect("cleans");
     assert_eq!(cleaned.deleted, named);
@@ -173,7 +173,7 @@ async fn a_branch_git_refuses_to_delete_is_said_and_the_others_still_go() {
     std::fs::write(&lock, "").expect("test setup");
 
     let cleaned = core
-        .cleanup_clean(CleanupKind::Branches, None)
+        .cleanup_clean(CleanupKind::Branches, None, None)
         .await
         .expect("cleans what it can");
     assert_eq!(cleaned.deleted.len(), 1, "{cleaned:?}");
@@ -219,7 +219,7 @@ async fn a_branch_on_a_remote_keeps_its_remote_copy() {
     assert_eq!(names(&listed), [shared.branch.as_str()]);
     // Its commits are on the remote, so it loses nothing.
     assert!(!listed[0].at_risk, "{listed:?}");
-    core.cleanup_clean(CleanupKind::Branches, None)
+    core.cleanup_clean(CleanupKind::Branches, None, None)
         .await
         .expect("cleans");
     assert!(!has_branch(&fx.repo, &shared.branch));
@@ -291,7 +291,7 @@ async fn stale_worktrees_are_what_no_task_owns_and_work_in_one_goes_only_when_na
     assert!(!of(&gone).at_risk);
 
     let cleaned = core
-        .cleanup_clean(CleanupKind::Stale, None)
+        .cleanup_clean(CleanupKind::Stale, None, None)
         .await
         .expect("cleans");
     assert_eq!(cleaned.deleted.len(), 2, "{cleaned:?}");
@@ -305,7 +305,7 @@ async fn stale_worktrees_are_what_no_task_owns_and_work_in_one_goes_only_when_na
 
     let named = [of(&by_hand).key];
     let cleaned = core
-        .cleanup_clean(CleanupKind::Stale, Some(&named))
+        .cleanup_clean(CleanupKind::Stale, Some(&named), None)
         .await
         .expect("cleans");
     assert_eq!(cleaned.deleted, named);
@@ -313,6 +313,57 @@ async fn stale_worktrees_are_what_no_task_owns_and_work_in_one_goes_only_when_na
     let records = worktrees(&fx.repo);
     assert!(!records.contains("by-hand"), "{records}");
     assert!(records.contains(&current.worktree_path.to_string_lossy().into_owned()));
+}
+
+#[tokio::test]
+async fn a_record_whose_folder_is_there_again_is_not_listed_and_the_folder_stays() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    // A worktree made by hand, deleted, and its place then used for something else. Git still
+    // calls the record prunable: it only looks for the `.git` file in it.
+    let reused = fx.repo.with_file_name("reused");
+    let place = reused.to_string_lossy().into_owned();
+    git(
+        &fx.repo,
+        &["worktree", "add", "--quiet", "-b", "reused", &place],
+    );
+    std::fs::remove_dir_all(&reused).expect("test setup");
+    std::fs::create_dir_all(&reused).expect("test setup");
+    std::fs::write(reused.join("thesis.txt"), "years of work").expect("test setup");
+    assert!(worktrees(&fx.repo).contains("prunable"), "git's own view");
+
+    let listed = core.cleanup_items(CleanupKind::Stale).await.expect("lists");
+    assert!(listed.is_empty(), "{listed:?}");
+    // Named by the key it would have, as a list read before the folder came back names it.
+    let named = [place];
+    let cleaned = core
+        .cleanup_clean(CleanupKind::Stale, Some(&named), None)
+        .await
+        .expect("cleans");
+    assert!(cleaned.deleted.is_empty(), "{cleaned:?}");
+    assert_eq!(cleaned.kept.len(), 1, "{cleaned:?}");
+    assert!(reused.join("thesis.txt").exists());
+}
+
+#[tokio::test]
+async fn a_repository_that_is_away_lists_no_branches_and_stops_no_other_kind() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    let done = new_task(&core, "done").await;
+    remove(&core, "done").await;
+    let left = fx
+        .paths
+        .worktrees_root
+        .join("demo/.removed/one-7-1700000000000000000");
+    std::fs::create_dir_all(&left).expect("test setup");
+    let listed = core.cleanup().await.expect("lists");
+    assert_eq!(names(&listed.branches), [done.branch.as_str()]);
+
+    // The repository is moved, or on a disk that is not there now.
+    std::fs::rename(&fx.repo, fx.repo.with_file_name("moved")).expect("test setup");
+    let listed = core.cleanup().await.expect("still lists");
+    assert!(listed.branches.is_empty(), "{listed:?}");
+    assert_eq!(listed.removed.len(), 1);
 }
 
 /// What `git worktree list` says of the repository.
@@ -358,7 +409,7 @@ async fn a_snapshot_being_taken_is_kept_and_one_cut_short_goes() {
     let lock = std::fs::File::open(snapshots.join("_lock._default")).expect("there");
     lock.try_lock().expect("free");
     let cleaned = core
-        .cleanup_clean(CleanupKind::Snapshots, None)
+        .cleanup_clean(CleanupKind::Snapshots, None, None)
         .await
         .expect("cleans");
     assert_eq!(cleaned.deleted, [listed[1].key.clone()]);
@@ -372,7 +423,7 @@ async fn a_snapshot_being_taken_is_kept_and_one_cut_short_goes() {
 
     lock.unlock().expect("unlocks");
     let cleaned = core
-        .cleanup_clean(CleanupKind::Snapshots, None)
+        .cleanup_clean(CleanupKind::Snapshots, None, None)
         .await
         .expect("cleans");
     assert_eq!(cleaned.deleted, [listed[0].key.clone()]);

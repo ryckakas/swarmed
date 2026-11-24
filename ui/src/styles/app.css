@@ -1471,12 +1471,15 @@ code {
     font-weight: var(--sidebar-session-weight, 400);
 }
 
+/* A background the layout gives sessions was checked against their colour alone, so a row
+   that is pointed at, open or waiting keeps to that pair (customLayout.ts) and does not go
+   over to the palette's own, on which the layout's colour might not be readable. */
 .session-line:hover {
-    background: color-mix(in srgb, var(--raised) 55%, transparent);
+    background: var(--sidebar-session-pointed, color-mix(in srgb, var(--raised) 55%, transparent));
 }
 
 .session-line[data-current="true"] {
-    background: var(--raised);
+    background: var(--sidebar-session-open, var(--raised));
 }
 
 .session-line.status-idle {
@@ -1485,7 +1488,7 @@ code {
 
 .session-line.status-waiting {
     border-left-color: var(--pollen);
-    background: var(--pollen-wash);
+    background: var(--sidebar-session-open, var(--pollen-wash));
     font-weight: max(600, var(--sidebar-session-weight, 400));
 }
 
@@ -1880,7 +1883,7 @@ code {
 }
 
 .session-line[data-unread="true"] .session-title {
-    color: var(--bright);
+    color: var(--sidebar-session-unread, var(--bright));
     font-weight: max(650, var(--sidebar-session-weight, 400));
 }
 

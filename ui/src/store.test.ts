@@ -705,6 +705,16 @@ describe("a folded task", () => {
         expect(remembered()).toBe("[1]");
     });
 
+    it("stays folded over the session on screen when that one is only read again", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        await useStore.getState().open(api, 5);
+        // Folded by the user with its session open, then read again after events were missed.
+        useStore.setState({ foldedTasks: [4] });
+        await useStore.getState().open(api, 5);
+        expect(useStore.getState().foldedTasks).toEqual([4]);
+    });
+
     it("unfolds when a session is started in it", async () => {
         await useStore.getState().refresh(moduleApi);
         useStore.setState({ foldedTasks: [4] });
