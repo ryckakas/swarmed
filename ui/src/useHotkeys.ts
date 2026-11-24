@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { addProject, moveFocusedRow, newSession } from "./actions";
 import { api } from "./api";
 import type { Project } from "./api/types";
+import { inSidebarOrder } from "./chats";
 import { afterPlan, CLAUDE } from "./components/options";
 import { type HotkeyId, matchHotkey, stepThrough } from "./hotkeys";
 import { type ShortcutRequest, shortcutRequest } from "./pending";
@@ -15,7 +16,7 @@ const TEXT_RANGE = { min: 80, max: 150 };
 
 /** The ids of the sessions in the order the sidebar lists them. */
 function sessionIds(projects: Project[]): number[] {
-    return projects
+    return inSidebarOrder(projects)
         .flatMap((project) => project.tasks)
         .filter((task) => !task.archived)
         .flatMap((task) => nestedSessions(task.sessions))

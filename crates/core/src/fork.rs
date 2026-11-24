@@ -131,13 +131,34 @@ impl Core {
         agent: Option<&str>,
     ) -> Result<Session> {
         let source = self.session(id)?;
-        let earlier = kept(&self.session_events(id)?, from);
         let title = if source.title.is_empty() {
             "Fork".to_string()
         } else {
             format!("{} (fork)", source.title)
         };
-        let options = match agent.filter(|agent| *agent != source.agent) {
+        let task = source.task_id;
+        self.fork_to(source, &Fork { from, agent, task }, title)
+    }
+
+    /// A new session in task `task` of `project`, on the same agent and under the same title,
+    /// starting with all that was said in session `id`, as [`Core::session_fork`] starts one.
+    /// For a chat whose work belongs in a repository: it carries on in a task there, and the
+    /// chat stays as it is.
+    pub fn session_fork_into(&self, id: i64, project: &str, task: &str) -> Result<Session> {
+        let source = self.session(id)?;
+        let (_, task) = self.task(project, task)?;
+        let title = source.title.clone();
+        let fork = Fork {
+            from: None,
+            agent: None,
+            task: task.id,
+        };
+        self.fork_to(source, &fork, title)
+    }
+
+    fn fork_to(&self, source: Session, fork: &Fork<'_>, title: String) -> Result<Session> {
+        let earlier = kept(&self.session_events(source.id)?, fork.from);
+        let options = match fork.agent.filter(|agent| *agent != source.agent) {
             None => SessionOptions {
                 agent: Some(source.agent),
                 title: Some(title),
@@ -159,10 +180,17 @@ impl Core {
             }
         };
         let store = lock(&self.store);
-        let fork = store.session_insert(source.task_id, &options)?;
-        store.session_copy_events(fork.id, &earlier, id)?;
-        Ok(fork)
+        let forked = store.session_insert(fork.task, &options)?;
+        store.session_copy_events(forked.id, &earlier, source.id)?;
+        Ok(forked)
     }
+}
+
+/// Where a fork goes and what it takes: from which message, on which agent, in which task.
+struct Fork<'a> {
+    from: Option<usize>,
+    agent: Option<&'a str>,
+    task: i64,
 }
 
 #[cfg(test)]

@@ -76,7 +76,7 @@ impl Core {
     /// Starts the task's stack with its `start` command, unless it is running already. Says
     /// whether there is a stack at all: a task whose project has no `start` command has none.
     pub fn stack_start(&self, project: &str, task: &str) -> Result<bool> {
-        let (project, task) = self.task(project, task)?;
+        let (project, task) = self.repo_task(project, task)?;
         let config = self.config_in(&project.name, task.environment.as_deref())?;
         self.start_stack(&project, &config, &task)
     }
@@ -230,7 +230,7 @@ impl Core {
     /// Stops the task's stack: runs its `stop` command, if it has one, then ends whatever of
     /// the stack is still there.
     pub async fn stack_stop(&self, project: &str, task: &str, sink: OutputSink<'_>) -> Result<()> {
-        let (project, task) = self.task(project, task)?;
+        let (project, task) = self.repo_task(project, task)?;
         let config = self.config_in(&project.name, task.environment.as_deref())?;
         for note in self.stop_stack(&project, &config, &task, sink).await {
             sink(&note);

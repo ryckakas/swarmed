@@ -15,6 +15,20 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Added
+
+- **Chats, with no repository.** New task now starts a chat unless you pick a repository, for a
+  question, a repository you have not added, or a folder that is no repository at all. A
+  repository's plus still starts a task in it. With no repository there is no branch or
+  environment to pick, and the extra agents stay: each gets the same prompt in a chat of its
+  own, to compare their answers. Each chat has an empty folder of its own under
+  `~/swarmed/.chats` and is listed under General, above the repositories; a repository called
+  `general` is a repository like any other. A chat's agent can read and message the sessions in
+  every repository, and they can answer it, without reading the chat themselves. When a chat
+  turns into work, Carry on in a repository starts a task there with the whole conversation,
+  and the chat stays as it was. On the command line a chat is a task of `.chats`, and
+  `swarmed session fork --into` carries one on.
+
 ## [0.4.1] - 2026-11-24
 
 ### Added

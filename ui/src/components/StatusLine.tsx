@@ -1,6 +1,7 @@
 import { type CSSProperties, useEffect, useState } from "react";
 import { api } from "../api";
 import type { AgentEvent, FileChange, Session, Task } from "../api/types";
+import { isChats } from "../chats";
 import {
     type ContextUsage,
     contextBreakdown,
@@ -60,7 +61,8 @@ function useTick(task: Task, session: Session): string {
 function BuiltIn({ project, task, session, events }: Props) {
     const items = useStore((state) => state.settings?.status_items ?? []);
     const tick = useTick(task, session);
-    const wanted = items.includes("changes");
+    // A chat has no repository, and so no changes to count.
+    const wanted = items.includes("changes") && !isChats(project);
     const [changes, setChanges] = useState<FileChange[] | null>(null);
     // biome-ignore lint/correctness/useExhaustiveDependencies: a new tick means read again
     useEffect(() => {

@@ -24,7 +24,10 @@ function removalKey(target: RemoveTarget): string {
     return `${target.project}/${target.task ?? ""}`;
 }
 
-/** What the dialog says about a repository, or about one of its tasks; its button in the style's words. */
+/**
+ * What the dialog says about a repository, one of its tasks, or a chat; its button in the
+ * style's words.
+ */
 function wording(target: RemoveTarget, project: Project, words: Words) {
     const tasks = project.tasks.filter((task) => !task.archived);
     if (target.task === null) {
@@ -33,6 +36,13 @@ function wording(target: RemoveTarget, project: Project, words: Words) {
             title: `Remove ${project.name} from Swarmed?`,
             what: `Its ${worktrees}, their worktrees and sessions, and your notes on it are deleted. The repository itself and its branches stay as they are.`,
             action: `Remove ${words.terms.repository}`,
+        };
+    }
+    if (project.chats) {
+        return {
+            title: `Remove the ${words.chat} ${target.task}?`,
+            what: `Its folder, its sessions and your note on it are deleted. A folder something was written into is kept, unless you remove it anyway.`,
+            action: `Remove ${words.chat}`,
         };
     }
     const branch = tasks.find((task) => task.name === target.task)?.branch;

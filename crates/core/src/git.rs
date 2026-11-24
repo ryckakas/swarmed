@@ -34,6 +34,12 @@ pub(crate) struct Head(pub(crate) Option<String>);
 /// after every tool call, where the answer is needed before anything else is done. `None`
 /// when git cannot tell.
 pub(crate) fn head_now(worktree: &Path) -> Option<Head> {
+    // A folder that is no repository's top level, such as a chat's, is on no branch, even
+    // inside a repository of the user's own (a home folder kept in git): git would answer for
+    // that one.
+    if !worktree.join(".git").exists() {
+        return None;
+    }
     let output = std::process::Command::new("git")
         .arg("-C")
         .arg(worktree)
@@ -415,5 +421,23 @@ mod tests {
         assert_eq!(records[2].branch.as_deref(), Some("feature/x"));
         assert!(records[2].prunable && !records[2].locked);
         assert!(records[3].prunable && records[3].locked);
+    }
+
+    #[test]
+    fn a_folder_inside_a_repository_is_on_no_branch_of_its_own() {
+        let home = tempfile::tempdir().expect("test setup");
+        let made = std::process::Command::new("git")
+            .arg("-C")
+            .arg(home.path())
+            .args(["init", "--quiet", "--initial-branch", "main"])
+            .status()
+            .expect("git runs");
+        assert!(made.success());
+        let chat = home.path().join("swarmed/.chats/question");
+        std::fs::create_dir_all(&chat).expect("test setup");
+
+        // The repository's own top level is on its branch; a folder in it answers nothing.
+        assert_eq!(head_now(home.path()), Some(Head(Some("main".to_string()))));
+        assert_eq!(head_now(&chat), None);
     }
 }

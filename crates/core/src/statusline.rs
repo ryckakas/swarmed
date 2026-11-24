@@ -141,7 +141,7 @@ impl Core {
                 "cost_usd": cost, "context": context,
             },
             "task": { "name": task.name, "branch": task.branch, "worktree": task.worktree_path },
-            "project": project.map(|p| json!({ "name": p.name, "repo": p.repo_path })),
+            "project": project.map(|p| json!({ "name": p.name, "repo": p.repo().ok() })),
         });
         Ok((input, task.worktree_path))
     }

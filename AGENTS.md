@@ -77,6 +77,30 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   (`Paths`); worktrees live under `~/swarmed/<project>/<task>`. The one exception: a repository
   with no commits is given an empty first commit when its first task is created, because a
   branch needs a commit to start from. Its files and index are not touched.
+- **A chat is a session with no repository** (`chats.rs`, `ui/src/chats.ts`, #357). The chats
+  are the tasks of one project, `CHATS` (`.chats`), made the first time `task_new` is asked for
+  one there. No repository can take that name (`validate_name` wants a letter or digit first),
+  and nothing keys on what the window calls them (General, a word of the style), so a
+  repository called `general` is a repository like any other. `Project::chats` marks it.
+  - **A folder, not a worktree.** Each chat has an empty folder under
+    `~/swarmed/.chats/<chat>`, no branch and no setup. Its agent is told so
+    (`chats::INSTRUCTIONS` in place of the worktree guidance) and gets no `SWARMED_*` task
+    variables. `git::head_now` answers only for a folder with a `.git` of its own, so a chat
+    inside a home folder kept in git never reports a move.
+  - **What only a repository has is refused, not tried.** `Project::repo` is the repository's
+    path or `Error::NoRepository`; changes, publishing, pull requests, snapshots and the cloud
+    look their task up with `repo_task`, and cleanup leaves the chats out of git. Use
+    `repo()` for any new git call on a project's path, never `repo_path` itself.
+  - **Removal** (`chat_remove`) takes the folder, and without `force` refuses one that holds
+    anything (`TaskNotClean`), since an agent's files there exist nowhere else.
+  - **Reach.** From a chat, `list_sessions` and the other peer tools reach every open
+    session. A repository's sessions list and read their own, and can write to a chat, so one
+    a chat wrote to can answer it. They cannot list or read one (`Access`): a chat may hold
+    what it read of another repository.
+  - **Carrying on in a repository** is a task there and `session_fork_into`: the whole
+    conversation, the same agent and title; the chat stays.
+  - **In the UI** New task starts on No repository; a repository's plus preselects it. The chats
+    are drawn above the repositories, apart from their order (`project_move` skips them).
 - **Agents sit behind `AgentBackend`** (`agent/`), and a session records which agent runs it.
   `agents.rs` holds the registry: Claude Code, plus the ACP agents listed in the user's
   `agents.toml`. `AcpBackend` (`agent/acp.rs`) speaks the Agent Client Protocol to any of them;
@@ -719,8 +743,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   a socket in the system's temporary folder (`Paths::tools_socket`; short, since a socket's
   path is limited), which a front end serves with `serve_session_tools`. A message arrives as
   a message in the other conversation, queued if that session is busy. Only open sessions of
-  the caller's own project can be read or written to (`peer_in_reach`): a closed one would
-  be started out of sight. A spawned session runs
+  the caller's own project can be read or written to (`peer_in_reach`), and from a chat those
+  of every project (see the chats above): a closed one would be started out of sight. A spawned session runs
   in its parent's task with its settings, cannot spawn itself, and a session can have
   `MAX_SPAWNED` open. The tools are not on the allow list: in ask mode the user is asked.
   A session can close only sessions it started, and only idle ones (`peer_close`).

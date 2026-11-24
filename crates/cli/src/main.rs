@@ -259,7 +259,8 @@ enum ProjectCommand {
 
 #[derive(Debug, Subcommand)]
 enum TaskCommand {
-    /// Create a task: branch, worktree, then the `setup` hook.
+    /// Create a task: branch, worktree, then the `setup` hook. In the project `.chats`, a
+    /// chat: a folder of its own, with no repository and no branch.
     New {
         project: String,
         name: String,
@@ -783,8 +784,15 @@ async fn stack(core: &Core, project: &str, name: &str) -> Result<()> {
 }
 
 /// What is said of a task just created. Its environment is named, since a task that names none
-/// may still have been set up in the project's default.
+/// may still have been set up in the project's default. A chat has no branch to name.
 fn created(task: &Task) -> String {
+    if task.branch.is_empty() {
+        return format!(
+            "created chat `{}` at {}",
+            task.name,
+            task.worktree_path.display()
+        );
+    }
     let set_up_in = task
         .environment
         .as_ref()
@@ -987,11 +995,11 @@ async fn project(core: &Core, command: ProjectCommand) -> Result<()> {
         }
         ProjectCommand::List => {
             for project in core.projects()? {
-                say(&format!(
-                    "{}\t{}",
-                    project.name,
-                    project.repo_path.display()
-                ));
+                let place = match project.repo() {
+                    Ok(repo) => repo.display().to_string(),
+                    Err(_) => "the chats, with no repository".to_string(),
+                };
+                say(&format!("{}\t{place}", project.name));
             }
         }
         ProjectCommand::Rm { project, force } => {

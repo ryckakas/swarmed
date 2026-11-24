@@ -1,4 +1,5 @@
 import { lastDays } from "../analytics";
+import { CHATS } from "../chats";
 import { movedAmong, starterHere } from "../ordering";
 import { calledCommand } from "../slash";
 import { PLAN_TOOL, withFiles } from "../transcript";
@@ -173,6 +174,20 @@ function sampleBranch(prefix: string, name: string): string {
 
 /** The sample tasks that have a stack, by id, and how it stands. */
 const SAMPLE_STACKS: Partial<Record<number, StackState>> = { 1: "running", 2: "stopped" };
+
+/** A sample chat: a task in a folder of its own, with no branch, stack or address. */
+function chat(id: number, projectId: number, name: string, sessions: Session[]): Task {
+    return {
+        ...task(id, projectId, name, sessions),
+        branch: "",
+        base_ref: "",
+        worktree_path: `/Users/you/swarmed/.chats/${name}`,
+        url: null,
+        urls: [],
+        has_note: false,
+        stack: null,
+    };
+}
 
 function task(id: number, projectId: number, name: string, sessions: Session[]): Task {
     return {
@@ -1044,6 +1059,7 @@ export function sampleProjects(): Project[] {
             id: 1,
             name: "storefront",
             repo_path: "/Users/you/code/storefront",
+            chats: false,
             has_note: true,
             cloud: [
                 {
@@ -1073,6 +1089,7 @@ export function sampleProjects(): Project[] {
             id: 2,
             name: "bonsai-lint",
             repo_path: "/Users/you/code/bonsai-lint",
+            chats: false,
             has_note: false,
             cloud: [],
             tasks: [
@@ -1086,9 +1103,25 @@ export function sampleProjects(): Project[] {
             id: 3,
             name: "fsum",
             repo_path: "/Users/you/code/fsum",
+            chats: false,
             tasks: [],
             has_note: false,
             cloud: [],
+        },
+        // The chats, with one: what is asked with no repository. Last, as the core adds them
+        // when the first is made; the sidebar shows them first.
+        {
+            id: 4,
+            name: CHATS,
+            repo_path: "/Users/you/swarmed/.chats",
+            chats: true,
+            has_note: false,
+            cloud: [],
+            tasks: [
+                chat(5, 4, "what-is-a-monad", [
+                    session(6, 5, "What is a monad, in plain words?", "idle"),
+                ]),
+            ],
         },
     ];
 }
@@ -1181,6 +1214,17 @@ export function sampleEvents(sessionId: number): AgentEvent[] {
                 is_error: true,
             },
             { type: "exited", code: 1, stderr: "API Error: 529 overloaded" },
+        ];
+    }
+    if (sessionId === 6) {
+        return [
+            { type: "user_message", text: "What is a monad, in plain words?" },
+            INIT,
+            {
+                type: "text",
+                text: "A monad is a way to chain steps that each wrap their result in some context (maybe missing, maybe a list, maybe later), without unwrapping it by hand at every step.",
+            },
+            { type: "turn_done", is_error: false, result: null, cost_usd: 0.01, duration_ms: 4200 },
         ];
     }
     if (sessionId === 5) {
@@ -2503,6 +2547,53 @@ function sampleFork(
     return fork;
 }
 
+/** The task called `name` in `project`: by its project too, since a chat can have a task's name. */
+function sampleTaskIn(projects: Project[], project: string, name: string): Task | undefined {
+    const home = projects.find((candidate) => candidate.name === project);
+    return home?.tasks.find((candidate) => candidate.name === name);
+}
+
+/** A fork of session `id` into task `name` of `project`, under the same title, as the core makes one. */
+function sampleForkInto(
+    agent: MockAgent,
+    tasks: Task[],
+    id: number,
+    project: string,
+    name: string,
+): Session {
+    const into = sampleTaskIn(agent.projects, project, name);
+    if (!into) {
+        throw new Error(`task \`${name}\` not found in project \`${project}\``);
+    }
+    const fork = sampleFork(agent, tasks, id, null);
+    for (const one of tasks) {
+        one.sessions = one.sessions.filter((other) => other.id !== fork.id);
+    }
+    const carried = { ...fork, task_id: into.id, title: fork.title.replace(/ \(fork\)$/, "") };
+    into.sessions.push(carried);
+    return carried;
+}
+
+/** A new chat in the sample's chats, which are made the first time: as the core makes one. */
+function sampleChatNew(projects: Project[], name: string): Task {
+    let home = projects.find((project) => project.chats);
+    if (!home) {
+        home = {
+            id: projects.length + 100,
+            name: CHATS,
+            repo_path: "/Users/you/swarmed/.chats",
+            chats: true,
+            tasks: [],
+            has_note: false,
+            cloud: [],
+        };
+        projects.push(home);
+    }
+    const created = chat(Date.now(), home.id, name, []);
+    home.tasks.push(created);
+    return created;
+}
+
 /** `actions` with the one called `name` moved `by` places, no further than either end. */
 function movedAction(actions: Action[], name: string, by: number): Action[] {
     const from = actions.findIndex((action) => action.name === name);
@@ -2761,6 +2852,7 @@ export function createMockApi(): Api {
                 id: agent.projects.length + 1,
                 name,
                 repo_path: path,
+                chats: false,
                 tasks: [],
                 has_note: false,
                 cloud: [],
@@ -2781,6 +2873,9 @@ export function createMockApi(): Api {
         ...stackApi(() => agent.projects),
         ...cloudApi(() => agent.projects),
         taskNew: async (projectName, name, branch, choice) => {
+            if (projectName === CHATS) {
+                return sampleChatNew(agent.projects, name);
+            }
             const project = agent.projects.find((candidate) => candidate.name === projectName);
             if (!project) {
                 throw new Error(`project \`${projectName}\` not found`);
@@ -2865,8 +2960,8 @@ export function createMockApi(): Api {
             hookListeners.add(listener);
             return () => hookListeners.delete(listener);
         },
-        sessionNew: async (_project, taskName, setup) => {
-            const home = tasks().find((candidate) => candidate.name === taskName);
+        sessionNew: async (projectName, taskName, setup) => {
+            const home = sampleTaskIn(agent.projects, projectName, taskName);
             if (!home) {
                 throw new Error(`task \`${taskName}\` not found`);
             }
@@ -2879,6 +2974,8 @@ export function createMockApi(): Api {
             return created;
         },
         sessionFork: async (id, from, onAgent) => sampleFork(agent, tasks(), id, from, onAgent),
+        sessionForkInto: async (id, projectName, taskName) =>
+            sampleForkInto(agent, tasks(), id, projectName, taskName),
         sessionEvents: async (id) => [...agent.history(id)],
         sessionSend: async (id, text, files) => agent.send(id, withFiles(text, files ?? [])),
         sessionMessageNow: async (id, text, files) =>

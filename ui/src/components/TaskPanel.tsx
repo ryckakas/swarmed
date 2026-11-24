@@ -61,16 +61,18 @@ type Tab = "files" | "changes" | "background";
 
 /**
  * The lower part of the panel, one tab at a time: the task's files, what the task changed, and
- * what its agents left running. The last tab says how many of those still run.
+ * what its agents left running. The last tab says how many of those still run. A chat has no
+ * repository, and so no changes: its files come first.
  */
 function Tabs({ project, task }: { project: Project; task: Task }) {
     const words = useWords();
-    const [tab, setTab] = useState<Tab>("changes");
+    const [tab, setTab] = useState<Tab>(project.chats ? "files" : "changes");
     const { tasks, read } = useBackground(project.name, task.name);
     const running = runningCount(tasks);
+    const changes: [Tab, string][] = project.chats ? [] : [["changes", words.changes]];
     const tabs: [Tab, string][] = [
         ["files", words.files],
-        ["changes", words.changes],
+        ...changes,
         ["background", running > 0 ? `${words.background} (${running})` : words.background],
     ];
     return (
@@ -137,7 +139,7 @@ function TaskHead({ project, task }: { project: Project; task: Task }) {
             </div>
             <h2>{task.name}</h2>
             <p className="mono panel-branch" title={task.worktree_path}>
-                {task.branch}
+                {project.chats ? words.noRepository : task.branch}
             </p>
             {task.urls.length > 0 && (
                 <div className="panel-actions">
@@ -155,11 +157,20 @@ function TaskHead({ project, task }: { project: Project; task: Task }) {
                 </div>
             )}
             <ActionBar project={project.name} />
+            {!project.chats && <RepositoryParts project={project} task={task} />}
+        </header>
+    );
+}
+
+/** What only a task in a repository has: its stack, comparing, publishing, its pull request. */
+function RepositoryParts({ project, task }: { project: Project; task: Task }) {
+    return (
+        <>
             <StackControls project={project.name} task={task} />
             <CompareWith project={project} task={task} />
             <Publish project={project.name} task={task} />
             <PullSection project={project.name} task={task} />
-        </header>
+        </>
     );
 }
 

@@ -51,7 +51,7 @@ impl Core {
     /// The files a task has changed since its branch left its base: committed, staged, unstaged
     /// and new files alike, sorted by path.
     pub async fn task_changes(&self, project: &str, task: &str) -> Result<Vec<FileChange>> {
-        let (_, task) = self.task(project, task)?;
+        let (_, task) = self.repo_task(project, task)?;
         let worktree = &task.worktree_path;
         let base = starting_point(worktree, &task.base_ref).await;
         let kinds = git::git(
@@ -74,7 +74,7 @@ impl Core {
 
     /// One changed file's diff against the task's starting point.
     pub async fn task_diff(&self, project: &str, task: &str, path: &str) -> Result<FileDiff> {
-        let (_, task) = self.task(project, task)?;
+        let (_, task) = self.repo_task(project, task)?;
         let worktree = &task.worktree_path;
         if !stays_inside(path) {
             return Err(Error::PathOutsideWorktree(path.to_string()));

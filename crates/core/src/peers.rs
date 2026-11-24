@@ -14,10 +14,12 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 
 use crate::agent::{AgentEvent, Auth};
+use crate::chats::CHATS;
 use crate::cloud::{CloudOrigin, CloudProvider};
 use crate::error::{Error, Result};
 use crate::paths::SOCKET_PREFIX;
 use crate::sessions::{Session, SessionOptions, SessionStatus};
+use crate::store::Project;
 use crate::toolserver::DELEGATE_TO_CLOUD;
 use crate::{Core, Task};
 
@@ -91,8 +93,71 @@ fn is_busy(session: &Session) -> bool {
     )
 }
 
+/// Which sessions a session can reach: those of its own repository, or from a chat every one,
+/// since a chat is often about work in a repository.
+///
+/// A repository's session can write to a chat, so that one a chat wrote to can answer it, and
+/// can neither list nor read one: a chat may hold what it read of another repository, and
+/// would hand that on to every repository otherwise.
+#[derive(Debug, Clone, Copy)]
+enum Reach {
+    Project {
+        project: i64,
+        /// The home of the chats, once there is one.
+        chats: Option<i64>,
+    },
+    All,
+}
+
+impl Reach {
+    /// Whether a session of `task` is listed and can be read.
+    fn reads(self, task: &Task) -> bool {
+        match self {
+            Self::Project { project, .. } => task.project_id == project,
+            Self::All => true,
+        }
+    }
+
+    /// Whether a session of `task` can be written to: what can be read, and the chats.
+    fn writes(self, task: &Task) -> bool {
+        match self {
+            Self::Project { chats, .. } => self.reads(task) || Some(task.project_id) == chats,
+            Self::All => true,
+        }
+    }
+
+    fn covers(self, task: &Task, what: Access) -> bool {
+        match what {
+            Access::Read => self.reads(task),
+            Access::Write => self.writes(task),
+        }
+    }
+}
+
+/// What a session wants of another.
+#[derive(Debug, Clone, Copy)]
+enum Access {
+    Read,
+    Write,
+}
+
+/// Where a session works, as another session is told of it: its chat, or its task, with the
+/// repository where sessions of every repository are listed.
+fn place(task: &Task, reach: Reach, projects: &[Project]) -> String {
+    let project = projects
+        .iter()
+        .find(|project| project.id == task.project_id);
+    match project {
+        Some(project) if project.chats => format!("chat {}", task.name),
+        Some(project) if matches!(reach, Reach::All) => {
+            format!("task {}/{}", project.name, task.name)
+        }
+        _ => format!("task {}", task.name),
+    }
+}
+
 /// One line about a session, as another session is told of it.
-fn brief(session: &Session, task: &Task, own: i64) -> String {
+fn brief(session: &Session, place: &str, own: i64) -> String {
     let you = if session.id == own { " (you)" } else { "" };
     let state = if session.unread && !is_busy(session) {
         "finished, not yet read by the user"
@@ -104,7 +169,7 @@ fn brief(session: &Session, task: &Task, own: i64) -> String {
     } else {
         &session.title
     };
-    format!("{}{you}\t{state}\ttask {}\t{title}", session.id, task.name)
+    format!("{}{you}\t{state}\t{place}\t{title}", session.id)
 }
 
 /// What a session said or was told, if the event is that, as one paragraph.
@@ -131,19 +196,33 @@ impl Core {
         task.ok_or(Error::SessionNotFound(session.id))
     }
 
-    /// The open sessions of the project `from` works in, one line each, for an agent to read.
+    /// Which sessions session `own` can reach.
+    fn reach_of(&self, own: &Session) -> Result<Reach> {
+        let task = self.task_of(own)?;
+        if self.is_chat(&task) {
+            return Ok(Reach::All);
+        }
+        let chats = self.store().project_by_name(CHATS)?;
+        Ok(Reach::Project {
+            project: task.project_id,
+            chats: chats.map(|home| home.id),
+        })
+    }
+
+    /// The open sessions `from` can read, one line each, for an agent to read: those of the
+    /// project it works in, or from a chat, every one.
     pub fn peer_sessions(&self, from: i64) -> Result<String> {
         let own = self.session(from)?;
-        let project = self.task_of(&own)?.project_id;
-        let (tasks, sessions) = {
+        let reach = self.reach_of(&own)?;
+        let (projects, tasks, sessions) = {
             let store = self.store();
-            (store.tasks_all()?, store.sessions_all()?)
+            (store.projects()?, store.tasks_all()?, store.sessions_all()?)
         };
-        let in_project = |task: &&Task| task.project_id == project && !task.archived;
+        let in_reach = |task: &&Task| reach.reads(task) && !task.archived;
         let line = |session: &Session| {
             let task = tasks.iter().find(|task| task.id == session.task_id);
-            task.filter(in_project)
-                .map(|task| brief(session, task, from))
+            task.filter(in_reach)
+                .map(|task| brief(session, &place(task, reach, &projects), from))
         };
         let mut lines = vec!["id\tstate\ttask\ttitle".to_string()];
         lines.extend(sessions.iter().filter_map(line));
@@ -151,22 +230,24 @@ impl Core {
     }
 
     /// Session `id` as session `from` may reach it: an open session in a task of the project
-    /// `from` works in, which is what [`Core::peer_sessions`] lists. Anything else is refused
-    /// in the same words, so that asking tells an agent nothing about what it may not see.
-    fn peer_in_reach(&self, from: i64, id: i64) -> Result<Session> {
+    /// `from` works in, or from a chat any open session, which is what
+    /// [`Core::peer_sessions`] lists; to write to, an open chat as well. Anything else is
+    /// refused in the same words, so that asking tells an agent nothing about what it may not
+    /// see.
+    fn peer_in_reach(&self, from: i64, id: i64, what: Access) -> Result<Session> {
         let own = self.session(from)?;
-        let project = self.task_of(&own)?.project_id;
+        let reach = self.reach_of(&own)?;
         let found = || {
             let other = self.session(id).ok()?;
             let task = self.task_of(&other).ok()?;
             let closed = self.store().session_is_closed(id).ok()?;
-            let listed = task.project_id == project && !task.archived && !closed;
+            let listed = reach.covers(&task, what) && !task.archived && !closed;
             listed.then_some(other)
         };
         found().ok_or_else(|| {
             refused(format!(
-                "there is no open session {id} in this project; `list_sessions` says which \
-                 there are"
+                "there is no open session {id} you can reach; `list_sessions` says which there \
+                 are"
             ))
         })
     }
@@ -175,9 +256,10 @@ impl Core {
     /// first, for session `from` to read. Tool calls and their output are left out: they are
     /// the session's workings, and would drown what it concluded.
     ///
-    /// Only an open session of the project `from` works in can be read.
+    /// Only an open session `from` can reach can be read: of its own project, or any from a
+    /// chat. A repository's session cannot read a chat, which may hold another repository's.
     pub fn peer_digest(&self, from: i64, id: i64, messages: Option<usize>) -> Result<String> {
-        self.peer_in_reach(from, id)?;
+        self.peer_in_reach(from, id, Access::Read)?;
         let events = self.session_events(id)?;
         let said: Vec<String> = events.iter().filter_map(spoken).collect();
         let wanted = messages.unwrap_or(DIGEST_MESSAGES).max(1);
@@ -192,7 +274,8 @@ impl Core {
     /// conversation, marked with who sent it: now if `to` is idle, starting its agent if need
     /// be, else when its turn ends.
     ///
-    /// Only an open session of the project `from` works in can be written to. A closed one
+    /// Only an open session `from` can reach can be written to: one it can read, or a chat, so
+    /// that a session a chat wrote to can answer it. A closed one
     /// stays closed: a message must not start an agent where no list shows it, nor bring back
     /// sessions that were closed to make room under [`MAX_SPAWNED`].
     pub fn peer_message(&self, from: i64, to: i64, text: &str) -> Result<Delivery> {
@@ -200,7 +283,7 @@ impl Core {
         if from == to {
             return Err(refused("a session cannot send a message to itself"));
         }
-        let receiver = self.peer_in_reach(from, to)?;
+        let receiver = self.peer_in_reach(from, to, Access::Write)?;
         if text.trim().is_empty() {
             return Err(Error::EmptyMessage);
         }

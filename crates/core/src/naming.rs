@@ -128,9 +128,11 @@ impl Core {
         let Some(namer) = self.namer.clone().filter(|_| wanted) else {
             return Ok(None);
         };
-        // No task yet, so no worktree: the repository's own skills are the same.
-        let repo = self.project(project)?.repo_path;
-        let asked = self.naming_prompt(prompt, None, Some(&repo));
+        // No task yet, so no worktree: the repository's own skills are the same. A chat has
+        // neither.
+        let repo = self.project(project).ok();
+        let repo = repo.as_ref().and_then(|project| project.repo().ok());
+        let asked = self.naming_prompt(prompt, None, repo);
         let answer = tokio::time::timeout(NAMING_TIMEOUT, namer.name(asked)).await;
         let title = answer.ok().flatten();
         let title = title.and_then(|answer| title_of(&answer, prompt));

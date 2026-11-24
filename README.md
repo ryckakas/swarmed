@@ -46,6 +46,11 @@ once: each has its own worktree and ports, so they don't step on each other. A d
   network.
 - **From prompt to pull request.** The task's diff, comments on lines sent back to the agent,
   commit, push, and a pull request with its checks.
+- **Chats, with no repository.** New task starts a chat unless you pick a repository: for a
+  question, a repository you have not added, or several agents' opinions on one thing. Each
+  chat gets an empty folder of its own and is listed under General. A chat can read and message
+  the sessions in your repositories, which can answer it, and when it turns into work, it
+  carries on in a new task of a repository with the whole conversation.
 - **Made yours, by hand or by an agent.** Six palettes and a layout of your own sizes, fonts and
   colours; the terminal and the status line; buttons that send a prompt or run a command; saved
   prompts, rules for every agent, and environments for setting tasks up. Change them in the app,
@@ -53,7 +58,7 @@ once: each has its own worktree and ports, so they don't step on each other. A d
   rules, environments and commands for your yes.
 - **No files of its own in your repository.** Swarmed keeps its configuration and state in a
   folder of its own. The repository gains only the tasks' branches (and an empty first commit
-  if it had none), and their worktrees live under `~/swarmed`.
+  if it had none), and their worktrees live under `~/swarmed`, beside the chats' folders.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/app-dark.png">
@@ -87,7 +92,8 @@ hand, macOS stops it the first time it opens: allow it under System Settings →
 ## Get started
 
 Swarmed runs agents you have installed and signed in to yourself; Claude Code is the default.
-Open the app, add a repository, start a task and say what the agent should do. The app speaks
+Open the app, add a repository, start a task and say what the agent should do. Or press New task
+with no repository picked, which starts a chat. The app speaks
 in swarm words, unless Icons and words in Settings → Appearance is set to Boring: adding a
 repository is **Found a colony**, a new task **New brood**.
 

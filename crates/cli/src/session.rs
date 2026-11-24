@@ -77,6 +77,15 @@ pub(crate) enum SessionCommand {
         /// another agent to carry on.
         #[arg(long)]
         agent: Option<String>,
+        /// Start it in this task of this project instead of the session's own, with all that
+        /// was said: for a chat whose work belongs in a repository.
+        #[arg(
+            long,
+            num_args = 2,
+            value_names = ["PROJECT", "TASK"],
+            conflicts_with_all = ["from", "agent"]
+        )]
+        into: Option<Vec<String>>,
     },
     /// Change the model and supervision a session runs with from now on. Without `--auto`,
     /// `--ask` or `--plan` the session stays supervised as it is.
@@ -178,6 +187,21 @@ fn mark(core: &Core, id: i64, colour: &str, label: &str) -> Result<()> {
     Ok(())
 }
 
+/// Forks session `id`: from message `from` and on `agent`, or whole into another task.
+fn fork(
+    core: &Core,
+    id: i64,
+    (from, agent): (Option<usize>, Option<&str>),
+    into: Option<&[String]>,
+) -> Result<()> {
+    let fork = match into {
+        Some([project, task]) => core.session_fork_into(id, project, task)?,
+        _ => core.session_fork(id, from, agent)?,
+    };
+    say(&format!("session {}\t{}", fork.id, fork.title));
+    Ok(())
+}
+
 pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> {
     match command {
         SessionCommand::Run {
@@ -227,11 +251,12 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             }
             Ok(())
         }
-        SessionCommand::Fork { id, from, agent } => {
-            let fork = core.session_fork(id, from, agent.as_deref())?;
-            say(&format!("session {}\t{}", fork.id, fork.title));
-            Ok(())
-        }
+        SessionCommand::Fork {
+            id,
+            from,
+            agent,
+            into,
+        } => fork(core, id, (from, agent.as_deref()), into.as_deref()),
         SessionCommand::Show { id } => show(core, id),
         SessionCommand::Set {
             id,

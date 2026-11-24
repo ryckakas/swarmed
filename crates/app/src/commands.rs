@@ -949,6 +949,18 @@ pub(crate) fn session_fork(
     Ok(core.session_fork(id, from, agent.as_deref())?)
 }
 
+/// A new session in task `task` of `project` that starts with all that was said in session
+/// `id`: for a chat whose work belongs in a repository.
+#[tauri::command(async)]
+pub(crate) fn session_fork_into(
+    core: CoreState<'_>,
+    id: i64,
+    project: String,
+    task: String,
+) -> Command<Session> {
+    Ok(core.session_fork_into(id, &project, &task)?)
+}
+
 /// Puts a closed session back in the lists.
 #[tauri::command]
 pub(crate) fn session_reopen(core: CoreState<'_>, id: i64) -> Command<Session> {

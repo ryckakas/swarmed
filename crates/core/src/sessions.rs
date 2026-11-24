@@ -19,6 +19,7 @@ use crate::agent::{
     SessionSpec, Supervision,
 };
 use crate::agents::CLAUDE;
+use crate::chats;
 use crate::commands::SlashCommand;
 use crate::error::{Error, Result};
 use crate::fork;
@@ -933,13 +934,17 @@ impl Core {
     }
 
     /// What every agent is told by Swarmed, on top of what it knows by itself: the user's own
-    /// rules, if they wrote any; to keep to its task's branch and worktree; about the other sessions, when
-    /// there is a tool server to reach them through; and about showing views, when the user has
-    /// those switched on.
+    /// rules, if they wrote any; to keep to its task's branch and worktree, or in a chat that
+    /// it has neither; about the other sessions, when there is a tool server to reach them
+    /// through; and about showing views, when the user has those switched on.
     fn guidance(&self, settings: &Settings, agent: &str, task: &Task) -> String {
         let rules = settings.rules.trim();
         let rules = (!rules.is_empty()).then(|| format!("{RULES_HEADING}\n{rules}"));
-        let branch = publish::worktree_instructions(&task.branch);
+        let branch = if self.is_chat(task) {
+            chats::INSTRUCTIONS.to_string()
+        } else {
+            publish::worktree_instructions(&task.branch)
+        };
         let sessions = self.tool_server.as_ref().map(|_| peers::INSTRUCTIONS);
         // Handed over through the tool server, so only worth naming when there is one.
         let skills = sessions.and_then(|_| self.skills_guidance(agent, &task.worktree_path));
@@ -984,10 +989,11 @@ impl Core {
         if !self.agents_now().gets_shared_mcp_servers(agent)? {
             return Ok(vec![]);
         }
+        // A chat has no repository: its folder stands in for one.
         let repo = self
             .store()
             .project_by_id(task.project_id)?
-            .map(|project| project.repo_path);
+            .and_then(|project| project.repo().ok().map(Path::to_path_buf));
         let repo = repo.unwrap_or_else(|| task.worktree_path.clone());
         let paths = &self.paths;
         Ok(paths.shared_mcp_servers(agent, &repo, &task.worktree_path))
@@ -1427,6 +1433,9 @@ pub(crate) fn send_text(
 /// where it was, if there was one: by the user, from Swarmed or by hand, or by another session.
 /// The agent knows where it is from now on, and so does the watch for moves.
 fn moved_since(store: &Mutex<Store>, live: &Live, id: i64) -> Option<(Head, Head)> {
+    if in_chat(store, id) {
+        return None;
+    }
     let worktree = {
         let store = lock(store);
         let session = store.session_by_id(id).ok()?;
@@ -2109,6 +2118,9 @@ fn show_views(store: &Mutex<Store>, live: &Live, id: i64, spool: &Path) {
 /// turn ended: once per move, in the session whose agent was at work, which knows of it from
 /// then on. The branch is remembered for the task even if nobody looks at its panel meanwhile.
 fn notice_moved(shared: &Shared, id: i64) {
+    if in_chat(&shared.store, id) {
+        return;
+    }
     let worktree = &shared.spec.cwd;
     let Some(now) = git::head_now(worktree) else {
         return;
@@ -2126,6 +2138,16 @@ fn notice_moved(shared: &Shared, id: i64) {
         between_turns: false,
     };
     shared.live.note(&shared.store, id, event).ok();
+}
+
+/// Whether session `id` is a chat's. A chat has no branch to move from, even once its agent
+/// made a repository of its folder: there is no task's branch to switch back to.
+fn in_chat(store: &Mutex<Store>, id: i64) -> bool {
+    let store = lock(store);
+    let task = store.session_by_id(id).ok().map(|session| session.task_id);
+    let task = task.and_then(|task| store.task_by_id(task).ok().flatten());
+    let project = task.and_then(|task| store.project_by_id(task.project_id).ok().flatten());
+    project.is_some_and(|project| project.chats)
 }
 
 /// Remembers `branch` among the branches of session `id`'s task, unless it is the task's own.

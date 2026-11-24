@@ -166,6 +166,8 @@ export const tauriApi: Api = {
         listen<HookOutput>("hook-output", (event) => listener(event.payload)),
     sessionFork: (id, from, agent) =>
         invoke<Session>("session_fork", { id, from, agent: agent ?? null }),
+    sessionForkInto: (id, project, task) =>
+        invoke<Session>("session_fork_into", { id, project, task }),
     sessionNew: (project, task, { agent, ...how }) =>
         invoke<Session>("session_new", { project, task, agent, how }),
     sessionEvents: (id) => invoke<AgentEvent[]>("session_events", { id }),

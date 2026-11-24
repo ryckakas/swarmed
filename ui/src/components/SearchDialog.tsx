@@ -1,6 +1,7 @@
 import { type KeyboardEvent, useEffect, useState } from "react";
 import { api } from "../api";
 import type { SearchHit } from "../api/types";
+import { placeName } from "../chats";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
 import { Dialog } from "./Dialog";
@@ -100,7 +101,7 @@ export function SearchDialog() {
                     <span className="search-hit-head">
                         <span className="inbox-title">{hit.title || words.untitled}</span>
                         <span className="inbox-place">
-                            {hit.project} / {hit.task}
+                            {placeName(hit.project, words)} / {hit.task}
                             {hit.closed && ", closed"}
                             {hit.matches > 1 && `, ${hit.matches} places`}
                         </span>

@@ -171,6 +171,17 @@ export interface Words {
     /** Its box's placeholder, and the picker of the repository it goes in. */
     describeTask: string;
     repository: string;
+    /**
+     * The chats, sessions with no repository: what the picker offers in place of one, the
+     * new-task screen's hint and placeholder for one, and the heading they are listed under.
+     */
+    noRepository: string;
+    newChatHint: string;
+    describeChat: string;
+    chats: string;
+    /** What a chat is, and starting a task in a repository that carries on from one. */
+    chat: string;
+    carryOn: string;
     /** The picker that runs a new task's prompt on another agent too. */
     alsoRunOn: string;
     /** A task set up with no environment: the repository's own setup. */
@@ -352,10 +363,16 @@ const PLAIN: Words = {
     emptySession: "Nothing has been said yet. The agent starts with your first message.",
     reply: "Reply to the agent",
     newTaskHint: "Creates a task for this in its own worktree.",
+    newChatHint: "Starts a chat in a folder of its own, with no repository.",
     namingTask: "Naming the task…",
     settingUp: (name) => `Setting up ${name}…`,
     describeTask: "Describe the task",
     repository: "Repository",
+    noRepository: "No repository",
+    describeChat: "Ask anything",
+    chats: "General",
+    chat: "chat",
+    carryOn: "Carry on in a repository",
     alsoRunOn: "Also run on…",
     ownSetup: "Repository's own setup",
     readingChanges: "Reading the changes…",
@@ -551,9 +568,15 @@ const COLONY: Words = {
     openInClaude: "Open in Claude Code's lair",
     backToShell: "Back to the burrow",
     newTaskHint: "Lays a brood for this in its own worktree.",
+    newChatHint: "Starts a murmur in a hollow of its own, with no colony.",
     namingTask: "Naming the brood…",
     describeTask: "Describe the brood",
     repository: "Colony",
+    noRepository: "No colony",
+    describeChat: "Murmur anything",
+    chats: "Commons",
+    chat: "murmur",
+    carryOn: "Carry on in a colony",
     compareTask: "Compare with another brood",
     noRepositories: "No colonies yet.",
     showTasks: "Show this colony's broods",
@@ -621,6 +644,8 @@ const ENTRIES: [pick: (words: Words) => string, meaning: string][] = [
     [(w) => w.overview || "Overview", "Everything Swarmed works on, in the sidebar."],
     [(w) => w.terms.repository, "A git repository you added to Swarmed."],
     [(w) => w.terms.task, "A piece of work, on a branch and in a worktree of its own."],
+    [(w) => w.chats, "Where the chats are listed: sessions with no repository."],
+    [(w) => w.chat, "A session with no repository, in a folder of its own."],
     [(w) => w.session, "A conversation with an agent, in a task."],
     [(w) => w.subAgent, "An agent that a session's agent started for part of its work."],
     [(w) => w.background, "Commands and agents a session left running."],

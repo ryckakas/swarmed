@@ -16,6 +16,7 @@ import type {
     TerminalConfig,
     UpdateState,
 } from "./api/types";
+import { CHATS } from "./chats";
 import type { CloudTarget } from "./cloud";
 import type { Comparison } from "./components/CompareDialog";
 import { type Dismissed, readDismissed } from "./rateLimit";
@@ -646,7 +647,8 @@ function withRecall(
 
 /** The new-task drafts of the repositories still listed: a removed one's goes with it. */
 function listedOnly(drafts: Record<string, Draft>, projects: Project[]): Record<string, Draft> {
-    const listed = new Set(projects.map((project) => project.name));
+    // The chats' draft stays: there is no project to list until the first chat is made.
+    const listed = new Set([CHATS, ...projects.map((project) => project.name)]);
     const names = Object.keys(drafts);
     if (names.every((name) => listed.has(name))) {
         return drafts;
