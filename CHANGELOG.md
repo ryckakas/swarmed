@@ -43,6 +43,15 @@ notice adds its line under Unreleased.
   days after their pull request merged, or after their sessions sat idle that long, never while
   one of them is at work. Whether putting away also closes the sessions is a setting of its
   own. `swarmed task done` and `swarmed task undone` do the same in the terminal.
+- **Start a task from a GitHub issue.** The issue button on a repository's row, or ⌘⇧I, lists
+  its issues through your own `gh`: everyone's or those assigned to you, opened by you or
+  mentioning you, open or closed, and words to look for. Pick one to read it with its comments,
+  drawn as text, never as HTML. **Start a task** opens New task with a prompt that names the
+  issue and asks the agent to read it, for you to read and send. The task remembers its issue:
+  the sidebar shows its number, the panel its title and whether it is still open, and the pull
+  request text Swarmed writes ends with `Closes #N`, so merging closes the issue. Without `gh`,
+  or off GitHub, the list says why. `swarmed issue list`, `swarmed issue show` and
+  `swarmed task new --issue` do the same in the terminal.
 
 ### Changed
 

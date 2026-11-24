@@ -13,6 +13,7 @@ import {
     resetToWaitFor,
 } from "./mockContinuation";
 import { mockImagesApi } from "./mockImages";
+import { issuesApi } from "./mockIssues";
 import { mergeApi } from "./mockMerging";
 import { bringBack, putAwayApi } from "./mockPutAway";
 import { MockSetups, taskSetupApi } from "./mockSetups";
@@ -233,8 +234,13 @@ function task(id: number, projectId: number, name: string, sessions: Session[]):
         pull: SAMPLE_PULLS[name]?.() ?? null,
         done_at: null,
         done_why: null,
+        // One sample task was started for one of its repository's issues.
+        issue: SAMPLE_ISSUES[name] ?? null,
     };
 }
+
+/** The issue each sample task was started for, by the task's name (`mockIssues.ts`). */
+const SAMPLE_ISSUES: Record<string, number> = { "shop-142": 142 };
 
 /** How long ago the sample task that is put away was, in seconds. */
 const PUT_AWAY_AGO = 2 * 86_400;
@@ -3204,6 +3210,7 @@ export function createMockApi(): Api {
             () => agent.projects,
             (id) => setups.stop(id, "removed"),
         ),
+        ...issuesApi(() => agent.projects),
         ...putAwayApi({
             projects: () => agent.projects,
             settings: () => settings,

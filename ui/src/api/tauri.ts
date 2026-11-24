@@ -21,6 +21,9 @@ import type {
     FileChange,
     FileDiff,
     HookOutput,
+    Issue,
+    IssueDetail,
+    IssueList,
     McpServerView,
     MergeReport,
     MergeRules,
@@ -150,6 +153,10 @@ export const tauriApi: Api = {
     taskPullFailure: (project, name) => invoke<string>("task_pull_failure", { project, name }),
     taskPullOpen: (project, name, check) =>
         invoke<void>("task_pull_open", { project, name, check }),
+    projectIssues: (project, filter) => invoke<IssueList>("project_issues", { project, filter }),
+    projectIssue: (project, issue) =>
+        invoke<IssueDetail>("project_issue", { project, number: issue }),
+    taskIssue: (project, name) => invoke<Issue | null>("task_issue", { project, name }),
     projectMergeRules: (project) => invoke<MergeRules>("project_merge_rules", { project }),
     taskPullMerge: (project, name, method, when, head) =>
         invoke<MergeReport>("task_pull_merge", { project, name, method, when, head }),

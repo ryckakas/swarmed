@@ -282,6 +282,29 @@ deleted; a merge queue is named as one.
 | What the repository allows | once per repository while the app runs (`gh api graphql`: its merge methods, auto-merge, whether you administer it, your default method) |
 | A merge | `gh pr merge <number> --merge\|--squash\|--rebase --match-head-commit <commit>`, with `--admin` or `--auto` as chosen, then the pull request read once |
 
+## Issues
+
+A repository's GitHub issues are read through the same `gh`, only when you ask: the issue
+button on the repository's row, or ⌘⇧I, lists them; picking one reads it whole, with its
+comments. What an issue says is shown as text, never as HTML, and an image in it as a link:
+anyone can write one. A comment GitHub hides, as spam say, is left out. **Start a task** opens
+New task with a prompt naming the issue and asking the agent to read it with `gh`; nothing of
+what the issue says is pasted in, and nothing is sent until you send it.
+
+The task records the issue. Its number shows beside the task in the sidebar, and its panel says
+whether it is still open; the pull request title and description Swarmed writes for it end with
+`Closes #N`, which you can take out before opening it. Nothing reads an issue on a timer: a task
+learns that its issue was closed elsewhere when its panel next opens.
+
+| | |
+| --- | --- |
+| The list, when it opens, a filter changes or you refresh | `gh issue list --json number,title,state,labels,assignees,author,updatedAt,url --state open\|closed --limit 50`, with `--assignee @me`, `--author @me` or `--mention @me`, and `--search=<words>` |
+| An issue you pick | `gh issue view <number> --json` with its body and comments as well |
+| A task's issue, when its panel opens | `gh issue view <number> --json` with the fields of the list |
+
+Without `gh`, or for a repository that is not on GitHub or has issues turned off, the list is
+empty and says why, in `gh`'s words.
+
 ## Finished tasks
 
 A task you are done with can be put away, without removing it: **Put away** in its panel, **Put

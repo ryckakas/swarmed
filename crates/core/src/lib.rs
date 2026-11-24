@@ -38,6 +38,7 @@ mod fork;
 mod git;
 mod handoff;
 pub mod hooks;
+mod issues;
 mod layouts;
 mod leftovers;
 mod lenient;
@@ -119,6 +120,10 @@ pub use following::{
 };
 pub use handoff::MAX_HANDED;
 pub use hooks::OutputSink;
+pub use issues::{
+    ISSUES_LISTED, Issue, IssueComment, IssueDetail, IssueFilter, IssueList, IssueState, IssueWho,
+    MAX_ISSUES_LISTED,
+};
 pub use layouts::{
     Colour, Colours, CustomLayout, LayoutBase, LevelColours, SidebarLevel, SidebarLevels,
     TextSizes, layout_schema,

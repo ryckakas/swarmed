@@ -4,6 +4,7 @@ import type {
     AccountUsage,
     AgentEvent,
     CustomLayout,
+    Issue,
     NoteTarget,
     Project,
     Pull,
@@ -20,6 +21,7 @@ import type {
 import { CHATS } from "./chats";
 import type { CloudTarget } from "./cloud";
 import type { Comparison } from "./components/CompareDialog";
+import { type IssueLink, type IssuesTarget, issueLink, withIssuePrompt } from "./issues";
 import { forgetImages } from "./keptImages";
 import { pullsOf, withMessage } from "./pulls";
 import { doneShownFor } from "./putAway";
@@ -113,6 +115,19 @@ interface State {
     newTaskDrafts: Record<string, Draft>;
     /** Changes what the new-task box holds for repository `project`. */
     editNewTaskDraft(project: string, change: Partial<Draft>): void;
+    /** The issue the new task of each repository is for, by the repository's name; in memory. */
+    newTaskIssues: Record<string, IssueLink>;
+    /** Says which issue the new task of repository `project` is for; `null` for none. */
+    linkIssue(project: string, link: IssueLink | null): void;
+    /**
+     * Starts a task on an issue: the new-task view of its repository opens with the issue's
+     * prompt in the box, for the user to read and send, and the task is linked to the issue.
+     */
+    startFromIssue(project: string, issue: Pick<Issue, "number" | "title" | "url">): void;
+    /** The repository whose GitHub issues are listed, and the issue picked there first. */
+    issuesOf: IssuesTarget | null;
+    /** Opens a repository's issues; `null` puts them away. */
+    showIssues(target: IssuesTarget | null): void;
     /** The events of every session whose transcript has been opened. */
     events: Record<number, AgentEvent[]>;
     /** Per task id, a count that goes up whenever its agents may have changed files. */
@@ -686,6 +701,7 @@ function readAgain(state: State, projects: Project[]): Partial<State> {
         load: "ready",
         pulls: pullsOf(projects),
         newTaskDrafts: listedOnly(state.newTaskDrafts, projects),
+        newTaskIssues: listedOnly(state.newTaskIssues, projects),
         foldedTasks: stillFolded(state.foldedTasks, projects),
         ...(gone ? leaving(state, [selected]) : {}),
     };
@@ -718,7 +734,20 @@ function withRecall(
 }
 
 /** The new-task drafts of the repositories still listed: a removed one's goes with it. */
-function listedOnly(drafts: Record<string, Draft>, projects: Project[]): Record<string, Draft> {
+/** Each repository's issue for its new task, with `project`'s now `link`, or none for `null`. */
+function withIssue(
+    links: Record<string, IssueLink>,
+    project: string,
+    link: IssueLink | null,
+): Record<string, IssueLink> {
+    if (link === null) {
+        const { [project]: _gone, ...rest } = links;
+        return rest;
+    }
+    return { ...links, [project]: link };
+}
+
+function listedOnly<T>(drafts: Record<string, T>, projects: Project[]): Record<string, T> {
     // The chats' draft stays: there is no project to list until the first chat is made.
     const listed = new Set([CHATS, ...projects.map((project) => project.name)]);
     const names = Object.keys(drafts);
@@ -828,6 +857,25 @@ export const useStore = create<State>((set, get) => ({
     newTaskDrafts: {},
     editNewTaskDraft: (project, change) =>
         set((state) => ({ newTaskDrafts: withDraft(state.newTaskDrafts, project, change) })),
+    newTaskIssues: {},
+    linkIssue: (project, link) =>
+        set((state) => ({ newTaskIssues: withIssue(state.newTaskIssues, project, link) })),
+    startFromIssue: (project, issue) =>
+        set((state) => {
+            const link = issueLink(issue);
+            const draft = state.newTaskDrafts[project] ?? NO_DRAFT;
+            const before = state.newTaskIssues[project] ?? null;
+            const text = withIssuePrompt(draft.text, before, link.prompt);
+            return {
+                newTaskDrafts: withDraft(state.newTaskDrafts, project, { text }),
+                newTaskIssues: withIssue(state.newTaskIssues, project, link),
+                issuesOf: null,
+                selectedSessionId: null,
+                draftProject: project,
+            };
+        }),
+    issuesOf: null,
+    showIssues: (target) => set({ issuesOf: target }),
     events: {},
     subAgents: {},
     subView: null,

@@ -9,6 +9,7 @@ import { CloudDiffDialog } from "./components/CloudDiffDialog";
 import { CompareDialog } from "./components/CompareDialog";
 import { EnvironmentsDialog } from "./components/EnvironmentsDialog";
 import { InboxDialog } from "./components/InboxDialog";
+import { IssuesDialog } from "./components/IssuesDialog";
 import { NoteDialog } from "./components/NoteDialog";
 import { RemoveDialog } from "./components/RemoveDialog";
 import { Resizer, useStoredWidth } from "./components/Resizer";
@@ -87,6 +88,7 @@ export function App() {
             <SearchDialog />
             <NoteDialog />
             <EnvironmentsDialog />
+            <IssuesDialog />
             <CloudDialog />
             <RemoveDialog />
             <SettingsDialog />

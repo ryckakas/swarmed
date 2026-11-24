@@ -87,6 +87,8 @@ export interface Task {
     done_at: number | null;
     /** Why it was put away, while it is. */
     done_why: DoneWhy | null;
+    /** The number of the repository's GitHub issue it was started for; `null` for none. */
+    issue: number | null;
 }
 
 /** Why a task was put away: by the user, or by their rule for merged or idle tasks. */
@@ -160,6 +162,67 @@ export interface TaskStart {
     files: string[];
     /** Images pasted into the prompt, each in base64: the session's own once it is made. */
     images: string[];
+    /** The number of the repository's GitHub issue the task is for, which it records. */
+    issue: number | null;
+}
+
+/** Whose issues a list holds: everyone's, or those assigned to, opened by or mentioning the user. */
+export type IssueWho = "anyone" | "assigned" | "authored" | "mentioned";
+
+/** Whether an issue is open, as GitHub says. */
+export type IssueState = "open" | "closed";
+
+/** Which of a repository's issues to list. */
+export interface IssueFilter {
+    who: IssueWho;
+    state: IssueState;
+    /** Words to look for, in GitHub's search syntax; empty for none. */
+    search: string;
+    /** How many at most, up to 200. */
+    limit: number;
+}
+
+/** One of a repository's issues, as a list shows it. Anyone can write one: drawn as text only. */
+export interface Issue {
+    number: number;
+    title: string;
+    state: IssueState;
+    /** Where it is on GitHub. */
+    url: string;
+    /** The names of its labels. */
+    labels: string[];
+    /** The logins of the people it is assigned to. */
+    assignees: string[];
+    /** The login of whoever opened it; empty for an account that is gone. */
+    author: string;
+    /** When it last changed, as GitHub writes it. */
+    updated_at: string;
+}
+
+/** One comment on an issue. */
+export interface IssueComment {
+    /** The login of whoever wrote it; empty for an account that is gone. */
+    author: string;
+    /** What it says, in Markdown; empty for one GitHub hides. */
+    body: string;
+    created_at: string;
+    /** Why GitHub hides it, such as `spam` or `off topic`, if it does; its words are left out. */
+    hidden: string | null;
+}
+
+/** An issue read whole: what it says, and its comments, oldest first. */
+export interface IssueDetail extends Issue {
+    created_at: string;
+    /** What it says, in Markdown. */
+    body: string;
+    comments: IssueComment[];
+}
+
+/** A repository's issues, the latest changed first, or why none could be listed. */
+export interface IssueList {
+    issues: Issue[];
+    /** Why there are none to show: no `gh`, not on GitHub, no sign-in, in `gh`'s words. */
+    unavailable: string | null;
 }
 
 /**

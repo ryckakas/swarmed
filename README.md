@@ -44,8 +44,9 @@ once: each has its own worktree and ports, so they don't step on each other. A d
 - **Answers you can see.** An agent can answer with HTML, such as a chart, a table or a mock-up,
   and Swarmed shows it in the conversation, in a sandbox with no way out to the app or the
   network.
-- **From prompt to pull request.** The task's diff, comments on lines sent back to the agent,
-  commit, push, a pull request with its checks, and merging it, now or once its checks pass.
+- **From issue to pull request.** A task started from one of the repository's GitHub issues,
+  the task's diff, comments on lines sent back to the agent, commit, push, a pull request with
+  its checks that closes the issue, and merging it, now or once its checks pass.
   A finished task is put away, its agents and stack stopped and nothing deleted, by hand or by
   itself once its pull request merged or it sat idle, if you turn that on.
 - **Chats, with no repository.** New task starts a chat unless you pick a repository: for a

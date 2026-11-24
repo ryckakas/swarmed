@@ -102,6 +102,9 @@ pub struct Task {
     pub done_at: Option<i64>,
     /// Why it was put away, while it is.
     pub done_why: Option<DoneWhy>,
+    /// The number of the repository's GitHub issue the task was started for, if it was
+    /// (`issues.rs`).
+    pub issue: Option<u64>,
 }
 
 pub(crate) struct NewTask<'a> {
@@ -114,6 +117,8 @@ pub(crate) struct NewTask<'a> {
     pub(crate) environment: Option<&'a str>,
     /// Whether the branch was made for the task, rather than checked out as it was.
     pub(crate) branch_made: bool,
+    /// The repository's issue the task is for, if any.
+    pub(crate) issue: Option<u64>,
 }
 
 /// A removed task's branch, as the task left it.
@@ -296,6 +301,10 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE tasks ADD COLUMN done_why TEXT;
     ALTER TABLE tasks ADD COLUMN back_at INTEGER;
 ",
+    // The number of the repository's GitHub issue a task was started for (`issues.rs`).
+    "
+    ALTER TABLE tasks ADD COLUMN issue INTEGER;
+",
 ];
 
 /// Stands in [`MIGRATIONS`] for the one change SQL in a transaction cannot make: every
@@ -315,7 +324,7 @@ pub(crate) const TASK_ORDER: &str = "pinned DESC, position, created_at, id";
 
 const TASK_SELECT: &str = "SELECT id, project_id, name, branch, base_ref, worktree_path, slot, \
                            setup_status, archived_at IS NOT NULL, environment, setup_reason, \
-                           pinned, done_at, done_why FROM tasks";
+                           pinned, done_at, done_why, issue FROM tasks";
 
 #[derive(Debug)]
 pub(crate) struct Store {
@@ -412,8 +421,8 @@ impl Store {
         self.conn.execute(
             // At the end of its repository's tasks.
             "INSERT INTO tasks (project_id, name, branch, base_ref, worktree_path, slot, environment,
-                                branch_made, position)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
+                                branch_made, issue, position)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
                      (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks WHERE project_id = ?1))",
             params![
                 new.project_id,
@@ -423,7 +432,8 @@ impl Store {
                 new.worktree_path.to_string_lossy(),
                 new.slot,
                 new.environment,
-                new.branch_made
+                new.branch_made,
+                new.issue.and_then(|number| i64::try_from(number).ok())
             ],
         )?;
         Ok(Task {
@@ -441,6 +451,7 @@ impl Store {
             pinned: false,
             done_at: None,
             done_why: None,
+            issue: new.issue,
         })
     }
 
@@ -593,6 +604,9 @@ fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
             .get::<_, Option<String>>(13)?
             .as_deref()
             .map(DoneWhy::parse),
+        issue: row
+            .get::<_, Option<i64>>(14)?
+            .and_then(|number| u64::try_from(number).ok()),
     })
 }
 

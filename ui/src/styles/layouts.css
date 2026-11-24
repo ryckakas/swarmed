@@ -76,7 +76,8 @@
     .grip-dots,
     .agent-ready,
     .activity-swatch,
-    .image-chip
+    .image-chip,
+    .issue-badge svg
 ) {
     zoom: var(--icon-zoom, 1);
 }

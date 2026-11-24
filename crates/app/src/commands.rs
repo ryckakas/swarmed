@@ -15,11 +15,11 @@ use swarmed_core::{
     AccountUsage, Action, AgentInfo, AgentSetup, ApiKeyInfo, BackgroundOutput, BackgroundTask,
     BranchChoices, Cleaned, Cleanup, CleanupKind, CloudOrigin, CloudProvider, CloudTask, Core,
     Costs, CustomLayout, Environment, EnvironmentChoice, FileChange, FileDiff, FileListing,
-    FirstSession, McpServerInput, McpServerView, MergeMethod, MergeReport, MergeRules, MergeWhen,
-    NewTaskOptions, Project, ProjectOverview, Pull, PullDraft, QueuedMessage, RemoveOptions,
-    SearchHit, Session, SessionOptions, SessionSettings, Settings, SetupLog, Skill, SlashCommand,
-    Snapshot, Task, TaskNaming, TaskStarted, Template, TerminalConfig, TerminalOpened, TurnStats,
-    Unpublished, Usage, hooks,
+    FirstSession, Issue, IssueDetail, IssueFilter, IssueList, McpServerInput, McpServerView,
+    MergeMethod, MergeReport, MergeRules, MergeWhen, NewTaskOptions, Project, ProjectOverview,
+    Pull, PullDraft, QueuedMessage, RemoveOptions, SearchHit, Session, SessionOptions,
+    SessionSettings, Settings, SetupLog, Skill, SlashCommand, Snapshot, Task, TaskNaming,
+    TaskStarted, Template, TerminalConfig, TerminalOpened, TurnStats, Unpublished, Usage, hooks,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -221,6 +221,7 @@ pub(crate) async fn task_new<R: Runtime>(
         existing_branch: branch.as_deref(),
         environment: environment.unwrap_or_default(),
         free_name: true,
+        issue: None,
     };
     let sink = hook_sink(&app, &project, &name);
     Ok(core.task_new(&project, &name, options, &sink).await?)
@@ -243,6 +244,9 @@ pub(crate) struct Start {
     /// Images pasted into the prompt, each in base64.
     #[serde(default)]
     images: Vec<String>,
+    /// The number of the repository's GitHub issue the task is started for, if any.
+    #[serde(default)]
+    issue: Option<u64>,
 }
 
 /// Starts a task from a prompt: the task and its first session are made and returned while
@@ -261,6 +265,7 @@ pub(crate) async fn task_start<R: Runtime>(
         existing_branch: start.branch.as_deref(),
         environment: start.environment.unwrap_or_default(),
         free_name: true,
+        issue: start.issue,
     };
     let first = FirstSession {
         options: SessionOptions {
@@ -845,6 +850,36 @@ pub(crate) async fn task_pull_failure(
     name: String,
 ) -> Command<String> {
     Ok(core.task_pull_failure(&project, &name).await?)
+}
+
+/// The issues of a repository that `filter` picks, or why none could be listed.
+#[tauri::command]
+pub(crate) async fn project_issues(
+    core: CoreState<'_>,
+    project: String,
+    filter: IssueFilter,
+) -> Command<IssueList> {
+    Ok(core.project_issues(&project, &filter).await?)
+}
+
+/// One issue of a repository read whole, with its comments.
+#[tauri::command]
+pub(crate) async fn project_issue(
+    core: CoreState<'_>,
+    project: String,
+    number: u64,
+) -> Command<IssueDetail> {
+    Ok(core.project_issue(&project, number).await?)
+}
+
+/// The issue a task was started for, read now; nothing for a task that is for none.
+#[tauri::command]
+pub(crate) async fn task_issue(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+) -> Command<Option<Issue>> {
+    Ok(core.task_issue(&project, &name).await?)
 }
 
 /// What a repository allows for merging its pull requests, and the method a merge starts on.

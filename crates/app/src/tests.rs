@@ -635,6 +635,46 @@ fn the_ui_can_start_a_task_from_a_prompt_and_act_on_its_setup() {
 }
 
 #[test]
+fn the_ui_can_list_issues_and_start_a_task_for_one() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    // The test repository has no remote: whether `gh` is installed or not, the list is empty
+    // and says why, rather than failing. The filter is the one the window sends.
+    let filter = json!({ "who": "assigned", "state": "open", "search": "login", "limit": 50 });
+    let listed = app.ok(
+        "project_issues",
+        json!({ "project": "demo", "filter": filter }),
+    );
+    assert_eq!(listed["issues"], json!([]));
+    assert!(listed["unavailable"].is_string(), "{listed}");
+    let unread = app
+        .invoke("project_issue", json!({ "project": "demo", "number": 12 }))
+        .expect_err("nothing on GitHub to read");
+    assert!(!unread.to_string().contains("invalid args"), "{unread}");
+
+    // A task started for an issue records it, and the tree says so.
+    let start = json!({
+        "branch": null, "environment": null, "agent": null,
+        "how": { "model": null, "supervision": "auto", "effort": null, "fast": false },
+        "title": null, "prompt": "Work on issue #12", "files": [], "images": [], "issue": 12,
+    });
+    let started = app.ok(
+        "task_start",
+        json!({ "project": "demo", "name": "login", "start": start }),
+    );
+    assert_eq!(started["task"]["issue"], 12);
+    assert_eq!(app.ok("overview", json!({}))[0]["tasks"][0]["issue"], 12);
+    let target = json!({ "project": "demo", "name": "login" });
+    let issue = app.invoke("task_issue", target).expect_err("not on GitHub");
+    assert!(!issue.to_string().contains("invalid args"), "{issue}");
+    // A task started for none has none, and nothing is asked.
+    let task = json!({ "project": "demo", "name": "other", "branch": null });
+    assert_eq!(app.ok("task_new", task)["issue"], json!(null));
+    let other = json!({ "project": "demo", "name": "other" });
+    assert_eq!(app.ok("task_issue", other), json!(null));
+}
+
+#[test]
 fn the_ui_can_commit_a_tasks_work_and_is_told_what_cannot_be_published() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));

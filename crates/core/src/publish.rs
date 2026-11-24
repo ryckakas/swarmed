@@ -14,6 +14,7 @@ use crate::agent_setup::find_program;
 use crate::agents::CLAUDE;
 use crate::changes::untracked;
 use crate::error::Error;
+use crate::issues::{issue_for_message, with_closes};
 use crate::pulls::Pull;
 use crate::sessions::Session;
 use crate::store::Task;
@@ -407,20 +408,26 @@ impl Core {
         Ok(())
     }
 
-    /// A title and description to start the task's pull request from: its commits.
+    /// A title and description to start the task's pull request from: its commits. For a
+    /// task started for an issue, the description closes it (`Closes #12`).
     pub async fn task_pull_draft(&self, project: &str, name: &str) -> Result<PullDraft> {
         let (_, task) = self.repo_task(project, name)?;
         let range = format!("{}..HEAD", task.base_ref);
         let log = ["log", "--reverse", "--format=%s%x1f%b%x1e", &range];
         let log = git::git(&task.worktree_path, &log).await?;
-        Ok(draft_from(&commits_in(&log), &task.name))
+        let draft = draft_from(&commits_in(&log), &task.name);
+        Ok(PullDraft {
+            body: with_closes(&draft.body, task.issue),
+            ..draft
+        })
     }
 
     /// A title and a description for the task's pull request, written from its commits and
     /// from what the branch changes against its base, for the user to read and change before
     /// anything is opened. Written by the agent of `session` on that session's model, in a
     /// conversation of its own; for a session on Claude Code, or without one, by the small
-    /// model that titles sessions. A repository's own pull request template is filled in.
+    /// model that titles sessions. A repository's own pull request template is filled in. For
+    /// a task started for an issue, the writer is told so, and the description closes it.
     pub async fn task_pull_message(
         &self,
         project: &str,
@@ -442,7 +449,8 @@ impl Core {
         let stat = git::git(worktree, &["diff", "--stat", &against]).await?;
         let diff = git::git(worktree, &["diff", &against]).await?;
         let template = pull_template(worktree);
-        let branch = branch_for_message(&log, &stat, &diff, template.as_deref());
+        let mut branch = branch_for_message(&log, &stat, &diff, template.as_deref());
+        branch.push_str(&issue_for_message(task.issue));
         let writer = session.map(|id| self.session(id)).transpose()?;
         let answer = if let Some(session) = writer.filter(|session| session.agent != CLAUDE) {
             self.ask_for_message(&session, PULL_INSTRUCTIONS, &branch)
@@ -452,10 +460,14 @@ impl Core {
             let namer = namer.ok_or_else(|| refused("nothing here can write a pull request"))?;
             namer.pull_message(branch).await
         };
-        answer
-            .as_deref()
-            .and_then(draft_of)
-            .ok_or_else(|| refused("no pull request text came back: is the agent signed in?"))
+        let draft = answer.as_deref().and_then(draft_of);
+        let draft = draft
+            .ok_or_else(|| refused("no pull request text came back: is the agent signed in?"))?;
+        // Kept even where the writer left it out: the task's issue closes with its merge.
+        Ok(PullDraft {
+            body: with_closes(&draft.body, task.issue),
+            ..draft
+        })
     }
 
     /// Opens a pull request for the branch a task's worktree is on into the task's base, with

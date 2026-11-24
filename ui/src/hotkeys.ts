@@ -35,6 +35,7 @@ export type HotkeyId =
     | "open-editor"
     | "open-browser"
     | "open-note"
+    | "issues"
     | "toggle-status"
     | "settings"
     | "shortcuts"
@@ -147,6 +148,12 @@ export const HOTKEYS: Hotkey[] = [
         group: "Task",
     },
     { id: "open-note", keys: "cmd+shift+n", label: "Open the task's note", group: "Task" },
+    {
+        id: "issues",
+        keys: "cmd+shift+i",
+        label: "List the repository's GitHub issues, to start a task on one",
+        group: "Task",
+    },
     {
         id: "toggle-status",
         keys: "cmd+shift+s",

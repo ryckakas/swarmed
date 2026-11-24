@@ -193,6 +193,7 @@ function ProjectGroup({ project }: { project: Project }) {
                 </h2>
                 <PinButton target={target} pinned={project.pinned} name={project.name} />
                 <CloudButton project={project.name} task={null} />
+                <IssuesButton project={project.name} />
                 <EnvironmentsButton project={project.name} />
                 <NoteButton project={project.name} task={null} has={project.has_note} />
                 <button
@@ -311,6 +312,7 @@ function DoneTaskGroup({ project, task }: { project: string; task: Task }) {
         <div className="task task-done">
             <div className="row-head">
                 <TaskHeading task={task} folded={folded} chat={false} />
+                <IssueBadge project={project} task={task} />
                 <PullBadge project={project} task={task} />
                 <NoteButton project={project} task={task.name} has={task.has_note} />
                 <BringBackRow project={project} task={task.name} />
@@ -355,6 +357,7 @@ function TaskGroup({ project, task, chat }: { project: string; task: Task; chat?
                 <Grip />
                 <TaskHeading task={task} folded={folded} chat={chat === true} />
                 <PinButton target={target} pinned={task.pinned} name={task.name} />
+                {!chat && <IssueBadge project={project} task={task} />}
                 {!chat && <PullBadge project={project} task={task} />}
                 {!chat && <CloudButton project={project} task={task.name} />}
                 <NoteButton project={project} task={task.name} has={task.has_note} />
@@ -605,6 +608,57 @@ function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] })
                 ))}
             </ul>
         </>
+    );
+}
+
+/** Opens the repository's GitHub issues, to read them and start a task on one. */
+function IssuesButton({ project }: { project: string }) {
+    const showIssues = useStore((state) => state.showIssues);
+    const label = `Issues of ${project}`;
+    return (
+        <button
+            type="button"
+            className="row-note"
+            aria-label={label}
+            title={`${label}: read them and start a task on one`}
+            onClick={() => showIssues({ project, issue: null })}
+        >
+            <IssueIcon />
+        </button>
+    );
+}
+
+/** An issue as GitHub draws one: a ring with a dot in it. */
+function IssueIcon() {
+    return (
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+            <circle cx="8" cy="8" r="5.5" />
+            <circle cx="8" cy="8" r="1.2" />
+        </svg>
+    );
+}
+
+/**
+ * The issue a task was started for, beside its pull request: pressing it shows the issue in
+ * the repository's Issues view.
+ */
+function IssueBadge({ project, task }: { project: string; task: Task }) {
+    const showIssues = useStore((state) => state.showIssues);
+    if (task.issue === null) {
+        return null;
+    }
+    const label = `For issue #${task.issue}: show it`;
+    return (
+        <button
+            type="button"
+            className="issue-badge"
+            title={label}
+            aria-label={label}
+            onClick={() => showIssues({ project, issue: task.issue })}
+        >
+            <IssueIcon />
+            {task.issue}
+        </button>
     );
 }
 

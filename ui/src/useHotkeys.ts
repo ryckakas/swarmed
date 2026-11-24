@@ -6,6 +6,7 @@ import { inSidebarOrder } from "./chats";
 import { afterPlan, CLAUDE } from "./components/options";
 import { quoteSelected } from "./components/QuoteButton";
 import { type HotkeyId, matchHotkey, stepThrough } from "./hotkeys";
+import { issuesRepository } from "./issues";
 import { type ShortcutRequest, shortcutRequest } from "./pending";
 import { useStore } from "./store";
 import { toItems } from "./transcript";
@@ -157,6 +158,13 @@ const ACTIONS: Partial<Record<HotkeyId, () => void>> = {
         const open = current();
         if (open) {
             useStore.getState().askForNote({ project: open.project.name, task: open.task.name });
+        }
+    },
+    issues: () => {
+        const { projects, selectedSessionId, draftProject, showIssues } = useStore.getState();
+        const project = issuesRepository(projects, selectedSessionId, draftProject);
+        if (project !== null) {
+            showIssues({ project, issue: null });
         }
     },
     "toggle-status": () => useStore.getState().toggleStatus(),

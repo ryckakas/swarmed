@@ -436,6 +436,26 @@ code {
     border-top: 1px solid var(--line);
 }
 
+/* The issue the task was started for, as read when the panel opened. */
+.panel-issue {
+    margin-top: var(--space-3);
+}
+
+.panel-issue-said {
+    margin: 0;
+    color: var(--text);
+    overflow-wrap: anywhere;
+}
+
+.panel-issue[data-state="closed"] .panel-issue-said {
+    color: var(--muted);
+}
+
+.panel-issue-problem {
+    color: var(--faint);
+    font-size: var(--text-sm);
+}
+
 /* Putting the task away from the panel: when and why it was, or the offer once it merged. */
 .put-away {
     display: flex;
@@ -1572,6 +1592,36 @@ code {
 .pull-badge[data-state="closed"] {
     color: var(--faint);
     border-style: dashed;
+}
+
+/* The issue a task was started for: GitHub's ring with a dot, and its number. */
+.issue-badge {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 4px 0 2px;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    color: var(--faint);
+    font: inherit;
+    font-size: var(--text-xs);
+    line-height: 1.45;
+}
+
+.issue-badge:hover,
+.issue-badge:focus-visible {
+    background: var(--raised);
+    color: var(--text);
+}
+
+.issue-badge svg {
+    width: 11px;
+    height: 11px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
 }
 
 .hint {
@@ -5082,6 +5132,142 @@ code {
 .search-snippet {
     color: var(--muted);
     font-size: var(--text-sm);
+}
+
+/* A repository's issues: the filters and the list on the left, the issue picked on the right. */
+.issues-main {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+}
+
+.issues-side {
+    flex: none;
+    width: min(56ch, 45%);
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--line);
+    background: var(--panel);
+}
+
+.issues-filters {
+    flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border-bottom: 1px solid var(--line);
+}
+
+.issues-search {
+    flex: 1 1 18ch;
+    min-width: 0;
+    padding: 4px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--dusk);
+    color: var(--text);
+    font: inherit;
+}
+
+.issues-list {
+    flex: 1;
+    min-height: 0;
+    margin: 0;
+    padding: var(--space-2);
+    overflow-y: auto;
+    list-style: none;
+}
+
+.issues-list[aria-busy="true"] {
+    opacity: 0.7;
+}
+
+.issue-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    padding: 6px var(--space-2);
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+}
+
+.issue-row:hover,
+.issue-row:focus-visible {
+    background: color-mix(in srgb, var(--line) 60%, transparent);
+}
+
+.issue-row[aria-current="true"] {
+    background: var(--line);
+}
+
+.issue-row-title {
+    overflow-wrap: anywhere;
+}
+
+.issue-row-line {
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--text-xs);
+}
+
+.dialog .issues-note {
+    margin: 0;
+    padding: var(--space-3);
+}
+
+.issues-detail {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+    padding: var(--space-3) var(--space-6) var(--space-4);
+}
+
+.issues-detail .issues-note {
+    padding: 0;
+}
+
+.issue-detail-title {
+    margin: 0;
+    font-size: var(--text-md);
+    font-weight: 650;
+    overflow-wrap: anywhere;
+}
+
+.issue-detail .issue-row-line {
+    margin-top: var(--space-1);
+}
+
+.issue-comment {
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--line);
+}
+
+.dialog .issue-comment-head {
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--text-sm);
+}
+
+/* With too little room for both, the list goes above the issue. */
+@media (max-width: 720px) {
+    .issues-main {
+        flex-direction: column;
+    }
+
+    .issues-side {
+        width: auto;
+        max-height: 45%;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+    }
 }
 
 /* Two tasks side by side: a head for each, then a row per file, opening into both diffs. */

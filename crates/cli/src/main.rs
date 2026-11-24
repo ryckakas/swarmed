@@ -3,6 +3,7 @@
 mod action;
 mod cleanup;
 mod events;
+mod issue;
 mod layout;
 mod limits;
 mod merge;
@@ -18,6 +19,7 @@ use std::sync::Arc;
 use action::ActionCommand;
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
+use issue::IssueCommand;
 use layout::LayoutCommand;
 use session::SessionCommand;
 use swarmed_core::agent::FakeBackend;
@@ -46,6 +48,9 @@ enum Command {
     /// Run agent sessions in a task's worktree.
     #[command(subcommand)]
     Session(SessionCommand),
+    /// List a repository's GitHub issues, or read one, through your own `gh`.
+    #[command(subcommand)]
+    Issue(IssueCommand),
     /// List the MCP servers agents are given: those set up in Swarmed and Claude Code's own.
     Mcp,
     /// Show what Swarmed takes up on disk, and in memory and processor time right now.
@@ -292,6 +297,10 @@ enum TaskCommand {
         /// The model the first session runs on; defaults to the agent's own default.
         #[arg(long, requires = "prompt")]
         model: Option<String>,
+        /// The number of the repository's GitHub issue the task is for, which it records: its
+        /// pull request text then says `Closes #N`. See `swarmed issue list`.
+        #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
+        issue: Option<u64>,
     },
     /// Suggest a name for a task that starts with PROMPT, as the app names new tasks.
     Name { project: String, prompt: String },
@@ -482,6 +491,7 @@ async fn run(core: &Arc<Core>, command: Command) -> Result<()> {
         Command::Project(command) => project(core, command).await,
         Command::Task(command) => task(core, command).await,
         Command::Session(command) => session::session(core, command).await,
+        Command::Issue(command) => issue::run(core, command).await,
         // Answered above, before anything was opened.
         Command::ToolServer => Ok(()),
         Command::Agent(command) => agent(core, command).await,
@@ -840,8 +850,11 @@ pub(crate) fn created(task: &Task) -> String {
         .environment
         .as_ref()
         .map_or_else(String::new, |name| format!(" in environment `{name}`"));
+    let issue = task
+        .issue
+        .map_or_else(String::new, |number| format!(" for issue #{number}"));
     format!(
-        "created task `{}` on branch `{}` (slot {}){set_up_in} at {}",
+        "created task `{}`{issue} on branch `{}` (slot {}){set_up_in} at {}",
         task.name,
         task.branch,
         task.slot,
@@ -1208,12 +1221,14 @@ async fn task(core: &Arc<Core>, command: TaskCommand) -> Result<()> {
             prompt,
             agent,
             model,
+            issue,
         } => {
             // The name is the user's own: one that is taken is refused, not changed.
             let options = NewTaskOptions {
                 existing_branch: branch.as_deref(),
                 environment: environment_choice(environment, no_environment),
                 free_name: false,
+                issue,
             };
             let prompted = prompt.map(|prompt| setup::Prompted::new(prompt, agent, model));
             new_task(core, (&project, &name), options, prompted).await?;

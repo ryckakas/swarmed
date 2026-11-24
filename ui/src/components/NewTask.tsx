@@ -95,6 +95,9 @@ export function NewTask({ projects }: { projects: Project[] }) {
     const draft = useStore((state) => state.newTaskDrafts[home] ?? NO_DRAFT);
     const { text: prompt, files, images } = draft;
     const editNewTaskDraft = useStore((state) => state.editNewTaskDraft);
+    // The issue the task is started for, if it was started from one: the task records it.
+    const issue = useStore((state) => state.newTaskIssues[home] ?? null);
+    const linkIssue = useStore((state) => state.linkIssue);
     const choices = useBranchChoices(repository?.name);
     const environments = useEnvironments(repository?.name);
     // What was picked, by repository: one where nothing was picked starts on its default.
@@ -132,11 +135,13 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 files,
                 // Kept by the core as the session's own, once there is a session.
                 images: images.map((image) => image.data),
+                issue: issue?.number ?? null,
             };
             await startTask(start, true);
             // It is a task now, with the prompt waiting in its session; one that could not be
             // made leaves the prompt here to try again.
             editNewTaskDraft(start.project, NO_DRAFT);
+            linkIssue(start.project, null);
             noteCreating(home, null);
             await startVariants(start, variants, taken, { supervision, effort });
             forgetTokens(prompt);
@@ -164,6 +169,16 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 autoFocus
                 commands={commands}
             >
+                {issue && (
+                    <button
+                        type="button"
+                        className="variant-chip issue-chip"
+                        title={`Started for issue #${issue.number}: ${issue.title}. Press to start it for no issue.`}
+                        onClick={() => linkIssue(home, null)}
+                    >
+                        For issue #{issue.number} ×
+                    </button>
+                )}
                 <Picker
                     label={words.repository}
                     value={home}
@@ -305,6 +320,8 @@ interface Start {
     files: string[];
     /** Images pasted into the first message, in base64. */
     images: string[];
+    /** The number of the repository's issue the task is for, if any. */
+    issue: number | null;
 }
 
 /**
@@ -350,10 +367,10 @@ function reportStartFailed(error: unknown) {
  * `name-2` and so on.
  */
 async function startTask(start: Start, show: boolean) {
-    const { project, name, title, setup, prompt, files, images } = start;
+    const { project, name, title, setup, prompt, files, images, issue } = start;
     const { refresh, open } = useStore.getState();
     const environment = start.environment;
-    const begun = { branch: start.branch, environment, setup, title, prompt, files, images };
+    const begun = { branch: start.branch, environment, setup, title, prompt, files, images, issue };
     const { session } = await api.taskStart(project, name, begun);
     await refresh(api);
     if (show) {

@@ -36,6 +36,10 @@ pub struct NewTaskOptions<'a> {
     /// here nor on a remote, and whose folder is free. Without it, a name that is taken is
     /// refused, as one the user chose is. The task returned has the name taken.
     pub free_name: bool,
+    /// The number of the repository's GitHub issue the task is for, which it records. Its
+    /// pull request text then closes that issue (`issues.rs`). Left out of a chat, which has
+    /// no repository.
+    pub issue: Option<u64>,
 }
 
 /// A task just written down, with what setting it up needs.
@@ -182,6 +186,7 @@ impl Core {
             slot: 0,
             environment: environment.as_deref(),
             branch_made: options.existing_branch.is_none(),
+            issue: options.issue,
         };
         let task = match self.insert_in_free_slot(new) {
             Ok(task) => task,

@@ -464,7 +464,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   Removing the sample task `invoice-export` is refused over unsaved work, and `shop-142` over
   a session another Swarmed runs. A new task's setup is quick in storefront, takes half a
   minute in bonsai-lint, and in fsum is killed the first time and succeeds when run again
-  (`mockSetups.ts`). The README's
+  (`mockSetups.ts`). Storefront and bonsai-lint have GitHub issues, `shop-142` was started for
+  #142, #428's text holds HTML, an image and a hidden comment, and fsum is not on GitHub, so its
+  list says why (`mockIssues.ts`). The README's
   screenshot and GIF are of this sample data, never of anyone's real projects.
 - **MCP servers are one pool for every agent** (`mcp_pool.rs`). When a session starts, each
   agent's servers are read from its own configuration (`mcp.rs` and `mcp_plugins.rs` for
@@ -1071,6 +1073,30 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     done view. The Remove dialog offers it instead of removal.
   - **Not the clean-up's.** A done task is a current task to `cleanup.rs`; removal stays
     `task_remove`'s.
+- **A repository's GitHub issues are read through the user's `gh`, only when asked**
+  (`issues.rs`, #370, `IssuesDialog.tsx`, `issues.ts`).
+  - **Listed** by `project_issues` with an `IssueFilter` (whose, open or closed, GitHub search
+    words, a limit), made into `gh issue list` arguments by the pure `list_args` (the words as
+    one `--search=` argument, so a leading dash is never an option) and put in order by
+    `ordered`, the latest changed first. No `gh`, no GitHub remote, issues turned off or no
+    sign-in is an empty `IssueList` whose `unavailable` says why in `gh`'s words, never an
+    error, as a task without a pull request is none. `project_issue` reads one whole.
+  - **What an issue says is anyone's to write:** the core hands it on as text and leaves out
+    the words of a comment GitHub hides (`hidden`). The window draws it with
+    `UntrustedMarkdown` only: never a view, raw HTML stays text, and an image is a link rather
+    than loaded from wherever it points. The command line strips control characters before
+    printing it (`printable`).
+  - **Start a task** fills the new-task view of the repository with `issuePrompt` (title and
+    number first, the address, and a line asking the agent to read it with `gh`; never the
+    body) and links it there (`newTaskIssues` in the store, a chip that takes it off). Sent,
+    `TaskStart::issue` reaches `NewTaskOptions::issue`, which the task records in
+    `tasks.issue` (`Task::issue`); a chat never has one.
+  - **Linked:** the sidebar shows the number beside the task, which opens the Issues view on
+    it; the panel reads the issue when it opens (`task_issue`), never on a timer.
+    `task_pull_draft` and `task_pull_message` end the description with `Closes #N`
+    (`with_closes`, kept when the text closes it already); the writer is told the branch
+    closes it among what it is shown. Opening the pull request adds nothing, so the user can
+    take the line out.
 - **A task's work leaves its worktree only when asked** (`publish.rs`): commit everything, push
   the branch, open a pull request, each a step of its own behind a button. Commits are made by
   the user's git as them, the pull request by their `gh`; nothing is added to either.

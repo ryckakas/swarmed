@@ -758,6 +758,7 @@ mod tests {
             pinned: false,
             done_at: None,
             done_why: None,
+            issue: None,
         }
     }
 

@@ -27,6 +27,33 @@ describe("the mock's notes", () => {
     });
 });
 
+describe("the mock's issues", () => {
+    it("lists a repository's issues by the filters, and says why where there are none", async () => {
+        const api = createMockApi();
+        const filter = { who: "anyone", state: "open", search: "", limit: 50 } as const;
+        const open = await api.projectIssues("storefront", filter);
+        expect(open.unavailable).toBeNull();
+        expect(open.issues.map((issue) => issue.number)).toContain(142);
+        const mine = await api.projectIssues("storefront", { ...filter, who: "assigned" });
+        expect(mine.issues.map((issue) => issue.number)).toEqual([428, 142]);
+        const closed = await api.projectIssues("storefront", { ...filter, state: "closed" });
+        expect(closed.issues.every((issue) => issue.state === "closed")).toBe(true);
+        const off = await api.projectIssues("fsum", filter);
+        expect(off.issues).toEqual([]);
+        expect(off.unavailable).toContain("GitHub host");
+    });
+
+    it("reads an issue whole, and a task's issue", async () => {
+        const api = createMockApi();
+        const detail = await api.projectIssue("storefront", 428);
+        expect(detail.body).toContain("<script>");
+        expect(detail.comments.some((comment) => comment.hidden === "spam")).toBe(true);
+        await expect(api.projectIssue("storefront", 1)).rejects.toThrow("Could not resolve");
+        expect((await api.taskIssue("storefront", "shop-142"))?.number).toBe(142);
+        expect(await api.taskIssue("storefront", "invoice-export")).toBeNull();
+    });
+});
+
 describe("the mock's removing", () => {
     it("refuses a task with unsaved work until told to remove it anyway", async () => {
         const api = createMockApi();

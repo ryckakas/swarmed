@@ -21,6 +21,10 @@ import type {
     FileDiff,
     FileListing,
     HookOutput,
+    Issue,
+    IssueDetail,
+    IssueFilter,
+    IssueList,
     MarkColour,
     McpServerInput,
     McpServerView,
@@ -294,6 +298,15 @@ export interface Api {
     taskPullFailure(project: string, name: string): Promise<string>;
     /** Opens a task's pull request in the browser, or the details of its check `check`. */
     taskPullOpen(project: string, name: string, check: string | null): Promise<void>;
+    /**
+     * The repository's GitHub issues that `filter` picks, the latest changed first, through the
+     * user's own `gh`. Without `gh`, or off GitHub, the list is empty and says why.
+     */
+    projectIssues(project: string, filter: IssueFilter): Promise<IssueList>;
+    /** One issue read whole, with its comments. Rejects with `gh`'s reason when it cannot be read. */
+    projectIssue(project: string, issue: number): Promise<IssueDetail>;
+    /** The issue a task was started for, read now; `null` for a task that is for none. */
+    taskIssue(project: string, name: string): Promise<Issue | null>;
     /** What a repository allows for merging its pull requests. GitHub is asked once per run. */
     projectMergeRules(project: string): Promise<MergeRules>;
     /**

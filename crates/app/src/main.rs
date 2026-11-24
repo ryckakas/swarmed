@@ -214,6 +214,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::task_push, commands::task_switch, commands::task_pull_draft, commands::task_pull_create,
         commands::task_pull, commands::task_pull_failure, commands::task_pull_open,
         commands::project_merge_rules, commands::task_pull_merge, commands::task_pull_auto_merge_off,
+        commands::project_issues, commands::project_issue, commands::task_issue,
         commands::task_changes,
         commands::task_diff, commands::note, commands::set_note, commands::api_keys,
         commands::set_api_key, commands::delete_api_key, commands::settings,
