@@ -204,6 +204,60 @@ async fn setting_up_again_sends_what_waits_once_it_finishes_well() {
 }
 
 #[tokio::test]
+async fn a_session_made_while_its_task_is_set_up_sends_what_it_waited_to_send_too() {
+    let fx = fixture();
+    write_config(&fx, WAITS_FOR_GO);
+    let core = Arc::new(core_with_project(&fx).await);
+    let mut bus = core.subscribe();
+    let (started, going) = started(&core, "one", "fix the login").await;
+    soon(|| step_of(&core, "one") == Some(SetupStep::Hook)).await;
+    let second = core
+        .session_new("demo", "one", &SessionOptions::default())
+        .expect("makes a second session");
+    core.session_enqueue(second.id, "and the tests")
+        .expect("waits");
+
+    std::fs::write(started.task.worktree_path.join("go"), "").expect("test setup");
+    going.finished().await.expect("sets up");
+    let events = turn(&mut bus, second.id).await;
+    assert_eq!(said_by_user(&events), ["and the tests"]);
+}
+
+#[tokio::test]
+async fn a_prompt_another_swarmed_sent_is_not_sent_again_from_this_ones_queue() {
+    let fx = fixture();
+    write_config(&fx, "[hooks]\nsetup = \"exit 3\"\n");
+    let core = Arc::new(core_with_project(&fx).await);
+    let (started, going) = started(&core, "one", "fix the login").await;
+    assert!(going.finished().await.is_err());
+    let session = started.session.id;
+
+    // Another Swarmed, the command line say, sends it and ends.
+    let other = Core::with_backend(
+        fx.paths.clone(),
+        Arc::new(swarmed_core::agent::FakeBackend::default()),
+    )
+    .expect("opens beside it");
+    let mut others = other.subscribe();
+    other
+        .task_start_anyway("demo", "one", &Auth::default())
+        .expect("sends anyway");
+    turn(&mut others, session).await;
+    drop(other);
+
+    // This one still has it waiting; the end of its next turn drops it.
+    assert_eq!(core.session_queue(session).expect("reads").len(), 1);
+    let mut bus = core.subscribe();
+    core.session_start(session, Auth::default())
+        .expect("starts");
+    core.session_send(session, "and the tests").expect("sends");
+    turn(&mut bus, session).await;
+    soon(|| core.session_queue(session).expect("reads").is_empty()).await;
+    let said = said_by_user(&core.session_events(session).expect("reads"));
+    assert_eq!(said, ["fix the login", "and the tests"]);
+}
+
+#[tokio::test]
 async fn a_setup_stopped_by_the_user_leaves_the_task_failed_and_the_prompt_waiting() {
     let fx = fixture();
     write_config(
@@ -271,17 +325,17 @@ async fn a_setup_nothing_runs_any_more_is_told_from_one_another_swarmed_runs() {
     .expect("opens beside it");
     let making = core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard);
     // Given up halfway, as by a Swarmed that ended: the setup is never finished.
-    let given_up = tokio::time::timeout(Duration::from_secs(1), async {
-        tokio::join!(making, async {
-            soon(|| step_of(&core, "one") == Some(SetupStep::Hook)).await;
-            assert_eq!(setting_up(&other, "one"), Some(SettingUp::Elsewhere));
-            let again = other.task_setup("demo", "one", None, &hooks::discard).await;
-            assert!(matches!(again, Err(Error::SetupRunning(_))), "{again:?}");
-            std::future::pending::<()>().await;
-        })
-    })
-    .await;
-    assert!(given_up.is_err());
+    let looked = async {
+        soon(|| step_of(&core, "one") == Some(SetupStep::Hook)).await;
+        assert_eq!(setting_up(&other, "one"), Some(SettingUp::Elsewhere));
+        let again = other.task_setup("demo", "one", None, &hooks::discard).await;
+        assert!(matches!(again, Err(Error::SetupRunning(_))), "{again:?}");
+    };
+    // Given up only once it was looked at, however long the setup took to get there.
+    tokio::select! {
+        made = making => panic!("the setup ended: {made:?}"),
+        () = looked => {}
+    }
     assert_eq!(setting_up(&core, "one"), Some(SettingUp::Interrupted));
     assert_eq!(setting_up(&other, "one"), Some(SettingUp::Interrupted));
 }

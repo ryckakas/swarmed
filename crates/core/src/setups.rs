@@ -19,7 +19,7 @@
 //! wait for a place, and say so.
 
 use std::collections::HashMap;
-use std::fs::{File, OpenOptions, TryLockError};
+use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
@@ -31,6 +31,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{Notify, watch};
 
 use crate::agent::AgentEvent;
+use crate::elsewhere::taken;
 use crate::error::{Error, Result};
 use crate::hooks::OutputSink;
 use crate::sessions::Live;
@@ -379,8 +380,10 @@ impl Setup {
             output,
             ended,
         };
-        drop(state);
+        // Published before the state is let go of, so that reports go out in the order of
+        // the log: a front end drops one that starts before where it already is.
         self.live.publish_apart(AgentEvent::Setup { progress });
+        drop(state);
     }
 
     /// Publishes what it printed since the last report, if it printed anything.
@@ -461,6 +464,8 @@ impl Core {
     /// messages its sessions wait to send stay waiting until it is over. Refused while the
     /// task's setup already runs, here or in another Swarmed.
     pub(crate) fn setup_begin(&self, task: &Task) -> Result<SetupRun> {
+        // Read before the setup has its place: nothing would take it out again if this failed.
+        let sessions = self.store().session_ids(task.id)?;
         let mut running = lock(&self.setups.running);
         if running.contains_key(&task.id) {
             return Err(Error::SetupRunning(task.name.clone()));
@@ -477,7 +482,6 @@ impl Core {
         let setup = Arc::new(setup);
         running.insert(task.id, Arc::clone(&setup));
         drop(running);
-        let sessions = self.store().session_ids(task.id)?;
         self.live.queues.hold_for_setup(task.id, &sessions);
         setup.keep_reporting();
         Ok(SetupRun {
@@ -499,10 +503,11 @@ impl Core {
             .truncate(false)
             .write(true)
             .open(&path)?;
-        match file.try_lock() {
-            Ok(()) => Ok(file),
-            Err(TryLockError::WouldBlock) => Err(Error::SetupRunning(task.name.clone())),
-            Err(TryLockError::Error(error)) => Err(error.into()),
+        // Tried again for a moment: whoever looks whether it is held holds it for an instant.
+        if taken(&file)? {
+            Ok(file)
+        } else {
+            Err(Error::SetupRunning(task.name.clone()))
         }
     }
 

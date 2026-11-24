@@ -405,7 +405,10 @@ impl Core {
     /// agent is in a turn is left to that turn's end, as any queue is: never sent into a busy
     /// agent.
     fn send_waiting(&self, task: &Task, auth: &Auth, sink: OutputSink<'_>) {
-        let held = self.live.queues.held_of(task.id);
+        // Every session of the task, not only those held when the setup began: one made
+        // meanwhile was queued into as well, and no turn of its own would send it.
+        let held = self.store().session_ids(task.id);
+        let held = held.unwrap_or_else(|_| self.live.queues.held_of(task.id));
         // From here on their queues go as any do, also for a turn that ends before the last
         // of them is sent.
         self.live.queues.release_for_setup(task.id);

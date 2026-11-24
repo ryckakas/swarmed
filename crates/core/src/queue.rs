@@ -320,6 +320,9 @@ pub(crate) fn send_next(outbox: &Outbox, session: i64) -> Result<()> {
     let Some(message) = live.queues.take_first(session) else {
         return Ok(());
     };
+    if went_elsewhere(store, live, session, message.id) {
+        return publish(store, live, session);
+    }
     // Whatever was owed is being sent now.
     live.queues.settle(session);
     let with = (&*outbox.terminals, &outbox.paths);
@@ -332,6 +335,18 @@ pub(crate) fn send_next(outbox: &Outbox, session: i64) -> Result<()> {
     }
     publish(store, live, session)?;
     sent
+}
+
+/// Whether message `id`, taken out of the session's queue, is the one kept for its task's
+/// setup and another Swarmed has sent it since: the database no longer keeps it, and only
+/// this process's queue still did. It is no longer kept here either, and must not go twice.
+fn went_elsewhere(store: &Mutex<Store>, live: &Live, session: i64, id: u64) -> bool {
+    if live.queues.kept_of(session) != Some(id) {
+        return false;
+    }
+    // One that cannot be read is taken to be kept still: better sent than lost.
+    let gone = matches!(lock(store).session_setup_prompt(session), Ok(None));
+    gone && live.queues.unkeep(session, id)
 }
 
 /// Sends the session's first waiting message, as a turn's end does: not while its task is
