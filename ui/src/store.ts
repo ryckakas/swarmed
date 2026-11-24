@@ -20,6 +20,7 @@ import type {
 import { CHATS } from "./chats";
 import type { CloudTarget } from "./cloud";
 import type { Comparison } from "./components/CompareDialog";
+import { forgetImages } from "./keptImages";
 import { type Dismissed, readDismissed } from "./rateLimit";
 import type { Browsing } from "./recall";
 import { type ReviewComment, withComment } from "./review";
@@ -588,6 +589,7 @@ function forgotten(state: State, sessionIds: number[], taskIds: number[]): Parti
     for (const id of sessionIds) {
         loading.delete(id);
     }
+    forgetImages(sessionIds);
     const of = <T extends { sessionId: number }>(held: T | null): T | null =>
         held !== null && sessionIds.includes(held.sessionId) ? null : held;
     return {
@@ -636,6 +638,8 @@ function leaving(state: State, sessionIds: number[], project?: string | null): P
 
 /** What changes when a session is closed: it leaves the tree, and the centre if it was there. */
 function closed(state: State, sessionId: number): Partial<State> {
+    // Put back, it reads its images again; put away, they are not held for it.
+    forgetImages([sessionId]);
     return {
         ...leaving(state, [sessionId]),
         // Asked about it, the question goes with it; asked about another, that stays.

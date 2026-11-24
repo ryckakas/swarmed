@@ -22,6 +22,7 @@ import {
 } from "../transcript";
 import { findSession, findSessionHome } from "../tree";
 import { formatDuration } from "../turns";
+import { useRedrawAt } from "../useRedrawAt";
 import { useRoll } from "../useRoll";
 import { useScrollSpot } from "../useScrollSpot";
 import { useWords } from "../useWords";
@@ -334,6 +335,8 @@ function LimitLine(props: { sessionId: number; item: LimitItem; latest: boolean 
     const [asking, setAsking] = useState(false);
     const now = new Date();
     const offer = continueOffer(item, latest, continueAt, Math.floor(now.getTime() / 1000));
+    // An offer is for a reset still to come: at the reset it goes, and the core would refuse it.
+    useRedrawAt(offer?.state === "offered" ? offer.at : null);
     const ask = (call: () => Promise<unknown>) => {
         setAsking(true);
         call()

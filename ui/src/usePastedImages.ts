@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
-import { imageFolder, imagesAmong, type PastedImage, readPasted, withImages } from "./images";
+import {
+    imageFolder,
+    imagesAmong,
+    isTextWithItsPicture,
+    type PastedImage,
+    readPasted,
+    withImages,
+} from "./images";
 import { useStore } from "./store";
 
 /** The folder every session's pasted images are in, once the core has said where it is. */
@@ -37,8 +44,14 @@ export function useImageFolder(session: number | undefined): string | null {
     return session === undefined ? null : imageFolder(known, session);
 }
 
-/** The images among what a paste holds: as files, or as items of kind `file`. */
+/**
+ * The images among what a paste holds: as files, or as items of kind `file`. None for text
+ * copied from a document, whose picture of itself is not what the user pasted.
+ */
 function imagesOfPaste(data: DataTransfer): File[] {
+    if (isTextWithItsPicture(data.types, data.getData("text/plain"))) {
+        return [];
+    }
     const files = imagesAmong(data.files);
     if (files.length > 0) {
         return files;

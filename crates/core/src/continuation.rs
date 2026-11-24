@@ -82,12 +82,21 @@ fn refused_until(usage: &AccountUsage, now: i64) -> Option<i64> {
         return None;
     }
     let used_up = |status: &str, used: f64| status == "rejected" || used >= 1.0;
-    let windows = usage.windows.iter();
+    // One model's weekly limit refuses that model alone: a session on another goes on.
+    let windows = usage
+        .windows
+        .iter()
+        .filter(|window| !one_models(&window.kind));
     let refusing = windows.filter(|window| used_up(&window.status, window.used));
     refusing
         .filter_map(|window| window.resets_at)
         .filter(|at| *at > now)
         .max()
+}
+
+/// Whether a usage window of this kind is one model's weekly limit, and not the account's.
+fn one_models(kind: &str) -> bool {
+    kind.starts_with("seven_day_") && kind != "seven_day_overage_included"
 }
 
 impl Store {
@@ -98,6 +107,17 @@ impl Store {
             params![id, at],
         )?;
         Ok(())
+    }
+
+    /// Sets the continuation of session `id` to `to` if it is still due at `now`, and says
+    /// whether it was: one cancelled since it was listed, or whose session was closed, is left.
+    fn continuation_move_if_due(&self, id: i64, now: i64, to: Option<i64>) -> Result<bool> {
+        let changed = self.conn.execute(
+            "UPDATE sessions SET continue_at = ?3 \
+             WHERE id = ?1 AND continue_at <= ?2 AND closed_at IS NULL",
+            params![id, now, to],
+        )?;
+        Ok(changed > 0)
     }
 
     /// The usage reports session `id` recorded since its latest message: those of the turn
@@ -136,6 +156,23 @@ impl Store {
 fn set(store: &Mutex<Store>, live: &Live, id: i64, at: Option<i64>) -> Result<()> {
     lock(store).session_set_continue_at(id, at)?;
     live.note(store, id, AgentEvent::Continuation { at })
+}
+
+/// Moves the continuation of session `id` to `to` and tells every front end, if it is still
+/// due at `now`; says whether it was. A cancel, a message or a close that came since the due
+/// ones were listed, in this Swarmed or another, is not undone.
+fn move_if_due(
+    store: &Mutex<Store>,
+    live: &Live,
+    id: i64,
+    now: i64,
+    to: Option<i64>,
+) -> Result<bool> {
+    let moved = lock(store).continuation_move_if_due(id, now, to)?;
+    if moved {
+        live.note(store, id, AgentEvent::Continuation { at: to })?;
+    }
+    Ok(moved)
 }
 
 /// Cancels session `id`'s continuation, if it has one: the user is back. A session that is
@@ -206,29 +243,32 @@ impl Core {
         };
         let usage = self.live.usage.now(&self.store)?;
         if let Some(until) = refused_until(&usage, now) {
-            self.wait_until(&due, until)?;
+            self.wait_until(&due, now, until)?;
+            return Ok(None);
+        }
+        // Taken off before anything else, and only if it still stands.
+        if !move_if_due(&self.store, &self.live, first, now, None)? {
             return Ok(None);
         }
         self.continue_now(first)?;
         Ok(Some(first))
     }
 
-    /// Has the continuations of `sessions` wait until `until`, when the limit that refuses
-    /// requests now resets.
-    fn wait_until(&self, sessions: &[i64], until: i64) -> Result<()> {
+    /// Has the continuations of `sessions` that are still due at `now` wait until `until`,
+    /// when the limit that refuses requests now resets.
+    fn wait_until(&self, sessions: &[i64], now: i64, until: i64) -> Result<()> {
         for id in sessions {
-            set(&self.store, &self.live, *id, Some(until))?;
+            move_if_due(&self.store, &self.live, *id, now, Some(until))?;
         }
         Ok(())
     }
 
     /// Sends session `id` [`CONTINUE_MESSAGE`] through its queue, first in it, starting its
-    /// agent if it is not running. Its continuation is taken off before anything else, so
-    /// that it never goes twice: a message that cannot go waits in the queue, where the user
-    /// sees it. One whose agent another Swarmed runs goes once that run is over; one whose
-    /// agent is busy goes when its turn ends.
+    /// agent if it is not running. Its continuation was taken off before, so that it never
+    /// goes twice: a message that cannot go waits in the queue, where the user sees it. One
+    /// whose agent another Swarmed runs goes once that run is over; one whose agent is busy
+    /// goes when its turn ends.
     fn continue_now(&self, id: i64) -> Result<()> {
-        set(&self.store, &self.live, id, None)?;
         self.live.queues.push_front_at_reset(id, CONTINUE_MESSAGE);
         queue::publish(&self.store, &self.live, id)?;
         if self.runs_elsewhere(id) {
@@ -332,9 +372,14 @@ mod tests {
             ..AccountUsage::default()
         };
         assert_eq!(refused_until(&usage, now), None);
+        // One model's weekly limit stops that model, not the account.
         usage
             .windows
-            .push(window("seven_day_opus", 1.0, "allowed", 20_000));
+            .push(window("seven_day_opus", 1.0, "rejected", 90_000));
+        assert_eq!(refused_until(&usage, now), None);
+        usage
+            .windows
+            .push(window("seven_day_overage_included", 1.0, "allowed", 20_000));
         assert_eq!(refused_until(&usage, now), Some(20_000));
         // Extra usage pays past it until it resets: nothing is refused.
         usage.billed = Some(Billed {

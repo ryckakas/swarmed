@@ -92,6 +92,16 @@ export function imagesAmong<T extends { type: string }>(files: Iterable<T>): T[]
     return [...files].filter((file) => file.type.startsWith("image/"));
 }
 
+/**
+ * Whether a paste is text copied from a document, with a picture of that text beside it: it
+ * holds plain text and rich text (`text/rtf`), which spreadsheets and word processors put
+ * beside a picture of what was selected. Such a paste is the text alone. An image copied in a
+ * browser may come with its address as text, and never with rich text, so it stays an image.
+ */
+export function isTextWithItsPicture(types: readonly string[], text: string): boolean {
+    return text !== "" && types.includes("text/rtf");
+}
+
 /** `bytes` in base64, a piece at a time: one call with all of them would overflow the stack. */
 export function toBase64(bytes: Uint8Array): string {
     const pieces: string[] = [];

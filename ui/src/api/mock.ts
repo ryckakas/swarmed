@@ -1858,7 +1858,8 @@ class MockAgent {
 
     editQueued(id: number, message: number, text: string): QueuedMessage[] {
         const edited = this.queue(id).map((queued) =>
-            queued.id === message ? { ...queued, text } : queued,
+            // Changed, it is the user's own, whatever put it there.
+            queued.id === message ? { id: queued.id, text } : queued,
         );
         this.setQueue(
             id,

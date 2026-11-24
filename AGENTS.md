@@ -885,7 +885,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     taken off first, then `CONTINUE_MESSAGE` goes first in the queue as a `QueuedMessage` with
     `at_reset`, and is recorded as `UserMessage` with `at_reset`. One whose agent another
     Swarmed runs goes when that run is over (`queued_for`). If the account's usage as last
-    heard says a limit still refuses requests, every due one waits for that reset instead.
+    heard says a limit still refuses requests, every due one waits for that reset instead;
+    one model's weekly limit is not such a limit (`one_models`), since it stops that model
+    alone. One is taken off, or put off, only if it is still due by then
+    (`move_if_due`), so a cancel that came since the look is not undone. A waiting message
+    the user changes is theirs: `Queues::edit` takes `at_reset` off it.
   - **Asks nothing:** the timer only sends the user's chosen message at a time a report
     already gave. Only Claude Code reports resets, so other agents' refusals offer nothing.
 - **ACP agents with an effort of their own say what it stands at** when a conversation opens,

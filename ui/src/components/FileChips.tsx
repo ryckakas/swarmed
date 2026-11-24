@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { imageSource, isPastedImage, type PastedImage } from "../images";
+import { keptImage } from "../keptImages";
 import { useStore } from "../store";
 import { fileName } from "../transcript";
 import { useImageFolder } from "../usePastedImages";
@@ -86,21 +87,6 @@ function FileChip({ file, onRemove }: { file: string; onRemove: (() => void) | u
     );
 }
 
-/** What has been read of the images kept for sessions, by session and path; they never change. */
-const shown = new Map<string, Promise<string>>();
-
-function imageOf(sessionId: number, file: string): Promise<string> {
-    const key = `${sessionId}\n${file}`;
-    let image = shown.get(key);
-    if (image === undefined) {
-        image = api.sessionImage(sessionId, file);
-        // One that could not be read is asked again next time: it may be there by then.
-        image.catch(() => shown.delete(key));
-        shown.set(key, image);
-    }
-    return image;
-}
-
 /**
  * An image pasted into the session and kept as its file. It takes its room at once, so that the
  * transcript does not move once it is read; one that cannot be read shows as the file it is.
@@ -111,7 +97,7 @@ function KeptImage(props: { sessionId: number; file: string; onRemove: (() => vo
     const [gone, setGone] = useState(false);
     useEffect(() => {
         let current = true;
-        imageOf(sessionId, file).then(
+        keptImage(sessionId, file, api.sessionImage).then(
             (found) => current && setSource(found),
             () => current && setGone(true),
         );

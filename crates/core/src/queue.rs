@@ -141,7 +141,8 @@ impl Queues {
         }
     }
 
-    /// Gives a waiting message new text; text with nothing in it takes the message out.
+    /// Gives a waiting message new text, which makes it the user's own; text with nothing in
+    /// it takes the message out.
     fn edit(&self, session: i64, id: u64, text: &str) {
         let mut waiting = lock(&self.waiting);
         let queue = waiting.entry(session).or_default();
@@ -149,6 +150,8 @@ impl Queues {
             queue.retain(|message| message.id != id);
         } else if let Some(message) = queue.iter_mut().find(|message| message.id == id) {
             message.text = text.to_string();
+            // The user's own words now, whatever put the message there.
+            message.at_reset = false;
         }
     }
 
@@ -668,6 +671,18 @@ impl Core {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_message_sent_at_a_reset_is_the_users_own_once_they_change_it() {
+        let queues = Queues::default();
+        queues.push_front_at_reset(1, "Continue where you stopped.");
+        let waiting = queues.list(1);
+        assert!(waiting[0].at_reset);
+        queues.edit(1, waiting[0].id, "Continue, but leave the tests alone.");
+        let waiting = queues.list(1);
+        assert_eq!(waiting[0].text, "Continue, but leave the tests alone.");
+        assert!(!waiting[0].at_reset);
+    }
 
     #[test]
     fn a_hold_that_is_not_renewed_lapses() {

@@ -124,7 +124,8 @@ session goes on by itself at that time:
 - **Several sessions:** those one limit stopped go on a few seconds apart, not all at once.
 - **When Swarmed is closed:** it is kept with the session, and one whose time came while
   Swarmed was closed is sent when the app next opens, unless the usage Swarmed last heard says a
-  limit still refuses requests: it then waits for that one to reset. Only the app sends it,
+  limit still refuses requests: it then waits for that one to reset. One model's weekly limit
+  does not count for that, since it stops that model alone. Only the app sends it,
   not the command line, and with two apps open only the one opened first does.
 
 **Continue after a limit** in Settings, under Storage and activity, does this for every turn a

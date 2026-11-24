@@ -27,6 +27,11 @@ fn started(core: &Core) -> i64 {
     id
 }
 
+/// Refuses the turn with a reset a few seconds off: far enough that the clock does not reach
+/// it between the turn and the next line of a test, on a machine however busy.
+const REFUSED: &str = "refuse 3";
+const RESETS_IN: i64 = 3;
+
 fn now() -> i64 {
     let since = SystemTime::now().duration_since(UNIX_EPOCH);
     i64::try_from(since.expect("after 1970").as_secs()).expect("fits")
@@ -43,9 +48,9 @@ fn waits(core: &Core, id: i64) -> Option<i64> {
     core.session(id).expect("exists").continue_at
 }
 
-/// Calls [`Core::continue_due`] until it continues a session, for at most five seconds.
+/// Calls [`Core::continue_due`] until it continues a session, for at most ten seconds.
 async fn continued(core: &Core) -> Option<i64> {
-    for _ in 0..50 {
+    for _ in 0..100 {
         if let Some(id) = core.continue_due().expect("looks") {
             return Some(id);
         }
@@ -68,13 +73,13 @@ async fn a_refused_turn_goes_on_by_itself_when_its_limit_resets() {
     core.arrive().expect("arrives");
     let id = started(&core);
     let before = now();
-    said(&core, id, "refuse 1").await;
+    said(&core, id, REFUSED).await;
 
     let at = core
         .session_continue_at_reset(id)
         .expect("a limit stopped it");
     assert!(
-        (before + 1..=now() + 1).contains(&at),
+        (before + RESETS_IN..=now() + RESETS_IN).contains(&at),
         "{at} is not its reset"
     );
     assert_eq!(waits(&core, id), Some(at));
@@ -165,7 +170,7 @@ async fn it_outlives_a_restart_and_only_the_swarmed_that_keeps_house_sends_it() 
     let fx = fixture();
     let first = core_with_task(&fx).await;
     let id = started(&first);
-    said(&first, id, "refuse 1").await;
+    said(&first, id, REFUSED).await;
     let at = first.session_continue_at_reset(id).expect("sets");
     drop(first);
     while now() < at {
@@ -193,8 +198,8 @@ async fn sessions_one_limit_stopped_go_on_one_at_a_time() {
     core.arrive().expect("arrives");
     let one = started(&core);
     let two = started(&core);
-    said(&core, one, "refuse 1").await;
-    said(&core, two, "refuse 1").await;
+    said(&core, one, REFUSED).await;
+    said(&core, two, REFUSED).await;
     core.session_continue_at_reset(one).expect("sets");
     core.session_continue_at_reset(two).expect("sets");
 
@@ -210,7 +215,7 @@ async fn what_waited_in_the_queue_goes_after_the_message_sent_at_the_reset() {
     let core = core_with_task(&fx).await;
     core.arrive().expect("arrives");
     let id = started(&core);
-    said(&core, id, "refuse 1").await;
+    said(&core, id, REFUSED).await;
     core.session_continue_at_reset(id).expect("sets");
     // Queued, not written to the session: the user is not back, and it waits.
     core.session_enqueue(id, "and then this").expect("queues");

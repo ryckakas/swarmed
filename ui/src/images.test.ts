@@ -5,6 +5,7 @@ import {
     imageSource,
     imagesAmong,
     isPastedImage,
+    isTextWithItsPicture,
     MAX_IMAGE_MB,
     readPasted,
     toBase64,
@@ -105,5 +106,22 @@ describe("isPastedImage", () => {
         expect(isPastedImage("/Users/you/Desktop/pasted-1.png", folder)).toBe(false);
         expect(isPastedImage("/data/attachments/12/pasted-1.png", null)).toBe(false);
         expect(imageFolder(null, 12)).toBeNull();
+    });
+});
+
+describe("isTextWithItsPicture", () => {
+    it("takes cells copied from a spreadsheet as their text alone", () => {
+        const types = ["text/plain", "text/html", "text/rtf", "Files"];
+        expect(isTextWithItsPicture(types, "a\tb")).toBe(true);
+    });
+
+    it("leaves an image copied in a browser, which may come with its address, an image", () => {
+        const types = ["text/plain", "text/html", "Files"];
+        expect(isTextWithItsPicture(types, "https://example.com/cat.png")).toBe(false);
+    });
+
+    it("leaves a paste with no text an image", () => {
+        expect(isTextWithItsPicture(["text/rtf", "Files"], "")).toBe(false);
+        expect(isTextWithItsPicture(["Files"], "")).toBe(false);
     });
 });
