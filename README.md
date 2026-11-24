@@ -35,6 +35,12 @@ once: each has its own worktree and ports, so they don't step on each other. A d
   configuration.
 - **Supervise from one window.** Permission requests, questions and plans are answered in the
   conversation, and a notification says when a session needs you.
+- **Sessions outlive a restart.** Every session is kept on disk with its whole conversation, and
+  its task's worktree stays where it was, so quitting Swarmed or restarting the machine loses
+  none of them. Write to a session afterwards and its agent carries on where it left off:
+  Claude Code, Codex and OpenCode pick up their own conversation, and a turn the restart cut
+  short no longer shows as working. For an agent that cannot resume, fork the session: the fork
+  starts with the conversation so far, on the same agent or another.
 - **Answers you can see.** An agent can answer with HTML, such as a chart, a table or a mock-up,
   and Swarmed shows it in the conversation, in a sandbox with no way out to the app or the
   network.
