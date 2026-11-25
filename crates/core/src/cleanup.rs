@@ -42,16 +42,19 @@ pub enum CleanupKind {
     Snapshots,
     /// The checkpoints of tasks that are gone: their turns' trees (`checkpoints.rs`).
     Checkpoints,
+    /// The browsers of tasks that are gone: their Chrome's profile (`browser.rs`).
+    Browsers,
 }
 
 impl CleanupKind {
     /// Every kind, in the order they are shown.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Removed,
         Self::Branches,
         Self::Stale,
         Self::Snapshots,
         Self::Checkpoints,
+        Self::Browsers,
     ];
 }
 
@@ -98,6 +101,8 @@ pub struct Cleanup {
     pub snapshots: Vec<CleanupItem>,
     /// Checkpoints of tasks that are gone.
     pub checkpoints: Vec<CleanupItem>,
+    /// Browsers of tasks that are gone.
+    pub browsers: Vec<CleanupItem>,
 }
 
 /// Something a clean-up was asked to delete and did not.
@@ -124,12 +129,13 @@ impl Core {
     /// What can be cleaned up, every kind of it. Measures folders and asks git, so this can
     /// take a few seconds.
     pub async fn cleanup(&self) -> Result<Cleanup> {
-        let (removed, branches, stale, snapshots, checkpoints) = tokio::join!(
+        let (removed, branches, stale, snapshots, checkpoints, browsers) = tokio::join!(
             self.cleanup_items(CleanupKind::Removed),
             self.cleanup_items(CleanupKind::Branches),
             self.cleanup_items(CleanupKind::Stale),
             self.cleanup_items(CleanupKind::Snapshots),
             self.cleanup_items(CleanupKind::Checkpoints),
+            self.cleanup_items(CleanupKind::Browsers),
         );
         Ok(Cleanup {
             removed: removed?,
@@ -137,6 +143,7 @@ impl Core {
             stale: stale?,
             snapshots: snapshots?,
             checkpoints: checkpoints?,
+            browsers: browsers?,
         })
     }
 
@@ -187,6 +194,7 @@ impl Core {
             CleanupKind::Stale => self.stale_items().await,
             CleanupKind::Snapshots => self.snapshot_items(),
             CleanupKind::Checkpoints => self.checkpoint_items(),
+            CleanupKind::Browsers => self.browser_items(),
         }
     }
 
@@ -202,6 +210,7 @@ impl Core {
             CleanupKind::Stale => self.delete_stale(item).await,
             CleanupKind::Snapshots => self.forget_snapshot(item),
             CleanupKind::Checkpoints => self.delete_checkpoints(item).await,
+            CleanupKind::Browsers => self.delete_browser(item).await,
         }
     }
 
@@ -430,6 +439,56 @@ impl Core {
             self.store()
                 .checkpoints_forget_task(task)
                 .map_err(|error| error.to_string())?;
+        }
+        delete_folder(path).await
+    }
+
+    /// Every browser folder whose task is removed or unknown.
+    fn browser_items(&self) -> Result<Vec<Measured>> {
+        let Ok(folders) = std::fs::read_dir(self.paths.browsers_root()) else {
+            return Ok(vec![]);
+        };
+        let mut items = vec![];
+        for path in folders.flatten().map(|folder| folder.path()) {
+            items.extend(self.browser_item_of(path)?);
+        }
+        Ok(items)
+    }
+
+    /// The browser folder at `path` as an item, if its task is removed or unknown.
+    fn browser_item_of(&self, path: PathBuf) -> Result<Option<Measured>> {
+        let Some(id) = task_id_of(&path) else {
+            return Ok(None);
+        };
+        let task = self.store().task_by_id(id)?;
+        if task.as_ref().is_some_and(|task| !task.archived) {
+            return Ok(None);
+        }
+        let project = task
+            .as_ref()
+            .and_then(|task| self.store().project_by_id(task.project_id).ok().flatten());
+        let item = CleanupItem {
+            key: path.to_string_lossy().into_owned(),
+            project: project.map_or_default(|project| project.name),
+            name: path.to_string_lossy().into_owned(),
+            task: task.map(|task| task.name),
+            reason: "its task is gone; it holds what was signed in to in its browser".to_string(),
+            bytes: None,
+            since: changed_at(&path),
+            at_risk: false,
+            path: Some(path.clone()),
+            record: false,
+        };
+        Ok(Some((item, vec![path])))
+    }
+
+    /// Deletes a listed browser folder, its Chrome stopped first if it still runs.
+    async fn delete_browser(&self, item: &CleanupItem) -> std::result::Result<(), String> {
+        let path = item_path(item)?;
+        if let Some(task) = task_id_of(path)
+            && let Some(note) = self.stop_browser(task).await
+        {
+            return Err(note);
         }
         delete_folder(path).await
     }
@@ -853,6 +912,11 @@ fn checkpoint_item(project: Option<String>, task: Option<Task>, path: PathBuf) -
         record: false,
     };
     (item, vec![path])
+}
+
+/// The task a folder named by its id belongs to.
+fn task_id_of(path: &Path) -> Option<i64> {
+    path.file_name()?.to_str()?.parse().ok()
 }
 
 /// The folder or record an item of a kind on disk stands for.

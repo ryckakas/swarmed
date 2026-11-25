@@ -89,6 +89,8 @@ export interface Task {
     done_why: DoneWhy | null;
     /** The number of the repository's GitHub issue it was started for; `null` for none. */
     issue: number | null;
+    /** Whether the task's own Chrome runs, here or in another Swarmed. */
+    browser: boolean;
 }
 
 /** Why a task was put away: by the user, or by their rule for merged or idle tasks. */
@@ -710,6 +712,10 @@ export interface Settings {
     put_away_idle_days: number;
     /** Whether putting a task away also closes its sessions. */
     put_away_closes_sessions: boolean;
+    /** The program a task's browser runs; empty for the first of Chrome, Chromium, Edge, Brave found. */
+    browser_program: string;
+    /** Minutes a task's browser may sit unused before it is stopped, up to 1440; 0 for never. */
+    browser_idle_minutes: number;
 }
 
 /**
@@ -894,6 +900,8 @@ export interface Usage {
     images_bytes: number;
     /** The checkpoints of every task's turns. */
     checkpoints_bytes: number;
+    /** The tasks' browsers: their profiles and what their pages downloaded. */
+    browsers_bytes: number;
     /** Every active task's worktree, largest first; `bytes` is `null` if it was not measured. */
     worktrees: { project: string; task: string; path: string; bytes: number | null }[];
     /** Removed tasks' worktrees that are not deleted yet, or could not be. */
@@ -906,9 +914,16 @@ export interface Usage {
 
 /**
  * A kind of thing a clean-up deletes: removed tasks' worktrees not deleted yet, branches of
- * removed tasks, stale worktrees, snapshots, and the checkpoints of tasks that are gone.
+ * removed tasks, stale worktrees, snapshots, and the checkpoints and browsers of tasks that
+ * are gone.
  */
-export type CleanupKind = "removed" | "branches" | "stale" | "snapshots" | "checkpoints";
+export type CleanupKind =
+    | "removed"
+    | "branches"
+    | "stale"
+    | "snapshots"
+    | "checkpoints"
+    | "browsers";
 
 /** One thing a clean-up can delete, as the core lists it. */
 export interface CleanupItem {
@@ -1432,3 +1447,118 @@ export interface SessionSetup {
     /** Whether the agent is asked for its fast mode, where it has one. Left out, it is off. */
     fast?: boolean;
 }
+
+/** The browser a task's Chrome runs on, or what would install one. */
+export interface BrowserSetup {
+    /** Such as "Google Chrome"; `null` if none was found. */
+    name: string | null;
+    path: string | null;
+    /** What would install one, shown before it runs; `null` where Swarmed knows no way. */
+    install_command: string | null;
+    /** Whether the program was set in the settings rather than found. */
+    chosen: boolean;
+}
+
+/** A dialog a page opened (`alert`, `confirm`, `prompt`), which holds it until answered. */
+export interface PageDialog {
+    kind: string;
+    message: string;
+    default_prompt: string;
+}
+
+/** A page open in a task's Chrome. */
+export interface BrowserTab {
+    id: string;
+    title: string;
+    url: string;
+    loading: boolean;
+    can_go_back: boolean;
+    can_go_forward: boolean;
+    dialog: PageDialog | null;
+}
+
+/** What the Browser pane shows of a task's Chrome. */
+export interface BrowserState {
+    task_id: number;
+    running: boolean;
+    /** Which browser, such as "Google Chrome", once it runs here. */
+    name: string | null;
+    /** Where its DevTools endpoint answers: `http://127.0.0.1:<port>`. */
+    endpoint: string | null;
+    websocket: string | null;
+    tabs: BrowserTab[];
+    /** The tab the pane shows. */
+    shown: string | null;
+    /** Where what its pages download goes. */
+    downloads: string;
+}
+
+export type ConsoleLevel = "debug" | "info" | "warning" | "error";
+
+/** One line a page logged, or an error it did not catch. */
+export interface ConsoleLine {
+    /** Its place among every line of the task's Chrome: higher is later. */
+    n: number;
+    level: ConsoleLevel;
+    text: string;
+    /** Where it was said, as `address:line`. */
+    source: string | null;
+    /** When, in milliseconds since 1970. */
+    at: number;
+}
+
+/** What the tasks' browsers show, as the core publishes it. */
+export type BrowserEvent =
+    | {
+          kind: "frame";
+          task_id: number;
+          tab: string;
+          /** A JPEG, in base64. */
+          data: string;
+          /** The page's size, in CSS pixels. */
+          width: number;
+          height: number;
+      }
+    | ({ kind: "state" } & BrowserState)
+    | { kind: "console"; task_id: number; tab: string; line: ConsoleLine };
+
+/** The room the pane gives a page: CSS pixels, and screen pixels per CSS pixel. */
+export interface Viewport {
+    width: number;
+    height: number;
+    scale: number;
+}
+
+/** The keys held down with a click or a key. */
+export interface Modifiers {
+    alt: boolean;
+    ctrl: boolean;
+    meta: boolean;
+    shift: boolean;
+}
+
+/** One thing the mouse did on the picture of a page, in the page's CSS pixels. */
+export interface MouseInput {
+    kind: "down" | "up" | "move" | "wheel";
+    x: number;
+    y: number;
+    button: "none" | "left" | "middle" | "right" | "back" | "forward";
+    buttons: number;
+    click_count: number;
+    delta_x: number;
+    delta_y: number;
+    modifiers: Modifiers;
+}
+
+/** One key pressed or let go on the picture of a page. */
+export interface KeyInput {
+    kind: "down" | "up";
+    key: string;
+    code: string;
+    key_code: number;
+    modifiers: Modifiers;
+    repeat: boolean;
+}
+
+/** Where a tab is to go: to an address typed, back, forward, again, or stop loading. */
+export type BrowserGo = { address: string } | "back" | "forward" | "reload" | "stop";

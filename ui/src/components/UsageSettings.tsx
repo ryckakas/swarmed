@@ -103,6 +103,9 @@ function Figures({ usage }: { usage: Usage }) {
             <Figure name="Checkpoints" detail="what each turn changed">
                 {formatBytes(usage.checkpoints_bytes)}
             </Figure>
+            <Figure name="Browsers" detail={`each ${words.terms.task}'s own Chrome`}>
+                {formatBytes(usage.browsers_bytes)}
+            </Figure>
             {listed.map((worktree) => (
                 <Figure
                     key={worktree.path}

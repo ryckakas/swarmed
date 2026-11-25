@@ -52,6 +52,8 @@ pub struct TaskOverview {
     /// The pull request of the branch its worktree is on, as Swarmed last read it, if it has
     /// one (`following.rs`).
     pub pull: Option<Pull>,
+    /// Whether the task's browser runs (`browser.rs`), here or in another Swarmed.
+    pub browser: bool,
 }
 
 impl Core {
@@ -90,6 +92,7 @@ impl Core {
                 stack: None,
                 setting_up: self.setting_up(&task),
                 pull: pulls.remove(&task.id),
+                browser: !task.archived && self.browser_running(task.id),
                 task,
             }
         };

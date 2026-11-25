@@ -174,6 +174,19 @@ impl Paths {
         self.checkpoints_root().join(task.to_string())
     }
 
+    /// The folder that holds every task's browser, one each.
+    #[must_use]
+    pub fn browsers_root(&self) -> PathBuf {
+        self.data_dir.join("browsers")
+    }
+
+    /// The folder of the browser of the task with id `task`: its Chrome's profile, which holds
+    /// what was signed in to there, and what its pages downloaded. The user's alone.
+    #[must_use]
+    pub fn browser(&self, task: i64) -> PathBuf {
+        self.browsers_root().join(task.to_string())
+    }
+
     /// The worktree directory of `task` in `project`.
     #[must_use]
     pub fn worktree(&self, project: &str, task: &str) -> PathBuf {

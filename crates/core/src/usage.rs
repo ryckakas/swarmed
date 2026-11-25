@@ -30,6 +30,8 @@ pub struct Usage {
     /// The checkpoints of every task's turns, in bytes: what of the worktrees' files their
     /// repositories have not got.
     pub checkpoints_bytes: u64,
+    /// The tasks' browsers, in bytes: their profiles and what their pages downloaded.
+    pub browsers_bytes: u64,
     /// Every active task's worktree, largest first.
     pub worktrees: Vec<WorktreeUsage>,
     /// Removed tasks' worktrees that are not deleted yet, or could not be, in bytes.
@@ -168,11 +170,13 @@ impl Core {
         let notes = self.paths.data_dir.join("notes");
         let checkpoints = self.paths.checkpoints_root();
         let images = self.paths.attachments_root();
+        let browsers = self.paths.browsers_root();
         let kept = async {
             tokio::join!(
                 folder_bytes(&notes),
                 folder_bytes(&images),
-                folder_bytes(&checkpoints)
+                folder_bytes(&checkpoints),
+                folder_bytes(&browsers)
             )
         };
         let (kept, worktrees, removed_bytes, processes) = tokio::join!(
@@ -181,13 +185,14 @@ impl Core {
             self.removed_bytes(),
             processes()
         );
-        let (notes_bytes, images_bytes, checkpoints_bytes) = kept;
+        let (notes_bytes, images_bytes, checkpoints_bytes, browsers_bytes) = kept;
         Ok(Usage {
             database_bytes,
             events,
             notes_bytes: notes_bytes.unwrap_or(0),
             images_bytes: images_bytes.unwrap_or(0),
             checkpoints_bytes: checkpoints_bytes.unwrap_or(0),
+            browsers_bytes: browsers_bytes.unwrap_or(0),
             worktrees: worktrees?,
             removed_bytes,
             running: tree_usage(&processes, std::process::id()),

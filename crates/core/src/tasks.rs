@@ -438,9 +438,9 @@ impl Core {
         }
     }
 
-    /// Removes a task: stops its agents, its setup if that is under way, and its stack, runs
-    /// `teardown`, ends whatever still runs in the worktree, takes the worktree away and
-    /// archives the record. A setup stopped so ends as [`Error::SetupStopped`], not failed.
+    /// Removes a task: stops its agents, its setup if that is under way, its stack and its
+    /// browser, runs `teardown`, ends whatever still runs in the worktree, takes the worktree
+    /// away and archives the record. The browser's profile goes with it. A setup stopped so ends as [`Error::SetupStopped`], not failed.
     ///
     /// Without `force` this refuses when the worktree holds work that would be lost: changes
     /// not committed, commits not pushed, or a worktree git no longer knows, whose work cannot
@@ -472,10 +472,7 @@ impl Core {
             ensure_removable(&task, known).await?;
         }
         let (config, mut notes) = self.config_for_removal(&project, &task);
-        // Before anything else is ended in the worktree, which would find the hook there and
-        // kill it, and before the stack, which it would start once done.
-        notes.extend(self.setup_stop_for_removal(&task, sink).await);
-        notes.extend(self.stop_stack(&project, &config, &task, sink).await);
+        notes.extend(self.stop_for_removal(&project, &config, &task, sink).await);
         if exists {
             notes.extend(
                 self.remove_worktree(&project, &config, &task, known, sink)
@@ -497,6 +494,27 @@ impl Core {
             notes.extend(delete_branch_if_safe(repo, &task).await);
         }
         Ok(notes)
+    }
+
+    /// Stops what runs for a task that is being removed: its setup first, before anything else
+    /// is ended in the worktree, which would find the hook there and kill it, and before the
+    /// stack, which it would start once done; then the stack, and the browser, whose profile
+    /// goes with it. Returns what did not go as it should, to be said.
+    async fn stop_for_removal(
+        &self,
+        project: &Project,
+        config: &ProjectConfig,
+        task: &Task,
+        sink: OutputSink<'_>,
+    ) -> Vec<String> {
+        let mut notes: Vec<String> = self
+            .setup_stop_for_removal(task, sink)
+            .await
+            .into_iter()
+            .collect();
+        notes.extend(self.stop_stack(project, config, task, sink).await);
+        notes.extend(self.browser_forget(task.id).await);
+        notes
     }
 
     /// The name a new task gets: `name` itself, or with `free_name` the first of `name`,

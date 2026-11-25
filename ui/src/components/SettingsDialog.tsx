@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
+import { type KeyboardEvent, useEffect, useState } from "react";
 import { api } from "../api";
 import type {
     LimitWarnings,
@@ -20,6 +20,7 @@ import { About, lookForUpdate } from "./About";
 import { ActionsSettings } from "./ActionsSettings";
 import { AgentsSettings } from "./AgentsSettings";
 import { ApiKeys } from "./ApiKeys";
+import { BrowserSettings } from "./BrowserSettings";
 import { Dialog } from "./Dialog";
 import { McpSettings } from "./McpSettings";
 import {
@@ -32,6 +33,7 @@ import {
     terminalAppChoices,
 } from "./options";
 import { Picker } from "./Picker";
+import { Row } from "./SettingsRow";
 import { ShortcutLists } from "./Shortcuts";
 import { SkillsSettings } from "./SkillsSettings";
 import { SwarmDictionary } from "./SwarmDictionary";
@@ -155,6 +157,7 @@ function Panel({ tab, settings }: { tab: SettingsTab; settings: Settings }) {
                 <>
                     <Sessions settings={settings} />
                     <FinishedTasks settings={settings} />
+                    <BrowserSettings settings={settings} />
                 </>
             );
         case "rules":
@@ -900,16 +903,4 @@ function AboutSection({ settings }: { settings: Settings }) {
 function withCurrent(options: [string, string][], current: string): [string, string][] {
     const known = options.some(([value]) => value === current);
     return known ? options : [...options, [current, `${current}%`]];
-}
-
-function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
-    return (
-        <div className="settings-row">
-            <div>
-                <p className="settings-label">{label}</p>
-                {hint && <p className="settings-hint">{hint}</p>}
-            </div>
-            {children}
-        </div>
-    );
 }

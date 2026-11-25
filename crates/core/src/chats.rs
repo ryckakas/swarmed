@@ -123,7 +123,7 @@ impl Core {
                 reason: "files in its folder".to_string(),
             });
         }
-        let mut notes = vec![];
+        let mut notes = self.browser_forget(chat.id).await;
         if exists {
             notes.extend(leftovers::end_in(folder, sink).await);
             match move_aside(folder, chat.id) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createMockApi, suggestedTitle } from "./mock";
-import type { SessionEvent } from "./types";
+import type { BrowserEvent, SessionEvent } from "./types";
 
 // The sample `Api` the UI runs on in a plain browser. These tests are about the mock alone:
 // what the store makes of an `Api` is tested with the store.
@@ -373,5 +373,52 @@ describe("the mock's pasted images", () => {
         expect(await api.sessionImage(3, path ?? "")).toBe(`data:image/png;base64,${PNG}`);
         await expect(api.sessionImage(4, path ?? "")).rejects.toThrow("not an image kept");
         await expect(api.sessionImagesKeep(3, ["SUkqAA=="])).rejects.toThrow("a TIFF image");
+    });
+});
+
+describe("the mock's browsers", () => {
+    const view = { width: 640, height: 480, scale: 1 };
+
+    it("start with the pane, draw the tab shown, follow where it goes and stop", async () => {
+        const api = createMockApi();
+        const tasks = (await api.overview()).flatMap((project) => project.tasks);
+        const running = tasks.find((task) => task.browser);
+        const idle = tasks.find((task) => !(task.browser || task.archived || task.done_at));
+        if (!(running && idle)) {
+            throw new Error(
+                "the sample data has a task whose browser runs, and one whose does not",
+            );
+        }
+        expect((await api.browserState(running.id)).running).toBe(true);
+        const heard: BrowserEvent[] = [];
+        await api.onBrowserEvent((event) => heard.push(event));
+
+        const shown = await api.browserShow(idle.id, null, view);
+        const tab = shown.shown ?? "";
+        expect(shown.running).toBe(true);
+        expect(heard.some((event) => event.kind === "frame" && event.tab === tab)).toBe(true);
+        await api.browserGo(idle.id, tab, { address: "localhost:3000/console" });
+        const lines = await api.browserConsole(idle.id, tab);
+        expect(lines.map((line) => line.text)).toEqual([
+            "hello from http://localhost:3000/console",
+        ]);
+        await expect(
+            api.browserGo(idle.id, tab, { address: "localhost:9/refused" }),
+        ).rejects.toThrow("ERR_CONNECTION_REFUSED");
+        const marked = (await api.overview()).flatMap((project) => project.tasks);
+        expect(marked.find((task) => task.id === idle.id)?.browser).toBe(true);
+
+        await api.browserStop(idle.id);
+        expect((await api.browserState(idle.id)).running).toBe(false);
+        await expect(api.browserText(idle.id, "late")).rejects.toThrow("not running");
+    });
+
+    it("offer to install one when the program set is missing", async () => {
+        const api = createMockApi();
+        const settings = await api.settings();
+        await api.setSettings({ ...settings, browser_program: "/missing/chrome" });
+        expect((await api.browserSetup()).name).toBeNull();
+        const task = (await api.overview())[0]?.tasks[0];
+        await expect(api.browserOpen(task?.id ?? 0)).rejects.toThrow("no Google Chrome");
     });
 });

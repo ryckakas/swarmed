@@ -5,6 +5,7 @@ import { calledCommand } from "../slash";
 import { PLAN_TOOL } from "../transcript";
 import { titleFrom } from "../tree";
 import type { Api } from "./client";
+import { browserApi } from "./mockBrowser";
 import { MOCK_COMMANDS, mockQuestions, mockSaid, mockScreen, mockScreenOnly } from "./mockCommands";
 import {
     CONTINUE_MESSAGE,
@@ -209,6 +210,7 @@ function chat(id: number, projectId: number, name: string, sessions: Session[]):
         urls: [],
         has_note: false,
         stack: null,
+        browser: false,
     };
 }
 
@@ -241,6 +243,8 @@ function task(id: number, projectId: number, name: string, sessions: Session[]):
         done_why: null,
         // One sample task was started for one of its repository's issues.
         issue: SAMPLE_ISSUES[name] ?? null,
+        // The task whose stack runs has its browser running too.
+        browser: SAMPLE_STACKS[id] === "running",
     };
 }
 
@@ -256,6 +260,7 @@ function doneTask(id: number, projectId: number, name: string, sessions: Session
         ...task(id, projectId, name, sessions),
         running: [],
         stack: null,
+        browser: false,
         done_at: Math.floor(Date.now() / 1000) - PUT_AWAY_AGO,
         done_why: "merged",
     };
@@ -464,6 +469,18 @@ const SAMPLE_CLEANUP: Cleanup = {
             at_risk: false,
         },
     ],
+    browsers: [
+        {
+            key: "/data/browsers/9",
+            project: "storefront",
+            name: "/data/browsers/9",
+            task: "old-checkout",
+            reason: "its task is gone; it holds what was signed in to in its browser",
+            bytes: 48_000_000,
+            since: NOW_SECONDS - 9 * DAY,
+            at_risk: false,
+        },
+    ],
 };
 
 /**
@@ -501,6 +518,7 @@ const SAMPLE_USAGE: Usage = {
     notes_bytes: 4100,
     images_bytes: 2_300_000,
     checkpoints_bytes: 12_600_000,
+    browsers_bytes: 61_000_000,
     worktrees: [
         {
             project: "storefront",
@@ -3188,6 +3206,8 @@ export function createMockApi(): Api {
         put_away_idle: false,
         put_away_idle_days: 14,
         put_away_closes_sessions: false,
+        browser_program: "",
+        browser_idle_minutes: 30,
     };
     return {
         overview: async () => structuredClone(agent.projects),
@@ -3255,6 +3275,11 @@ export function createMockApi(): Api {
             history: (id) => agent.history(id),
             publish: (id, event) => agent.publish(id, event, null),
             stop: (id) => agent.stopAgent(id),
+        }),
+        ...browserApi({
+            projects: () => agent.projects,
+            settings: () => settings,
+            publish: (id, event) => agent.publish(id, event, null),
         }),
         ...putAwayApi({
             projects: () => agent.projects,

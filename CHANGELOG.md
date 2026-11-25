@@ -17,6 +17,19 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **A Chrome of each task's own, live beside its sessions.** The globe in a session's header
+  opens the **Browser** pane: the task's page, drawn live, with tabs, an address bar, back,
+  forward, reload and its console. Click, scroll and type in it as in any browser, paste with
+  ⌘V; a dialog the page opens is answered there. It runs on the Google Chrome, Chromium,
+  Microsoft Edge or Brave you have, without a window, on a profile of the task's own, so a
+  login there stays with the task across restarts and never mixes with your own browser's or
+  another task's. It opens on the task's dev server when that runs, and stops when the task is
+  put away or removed, when Swarmed quits, and after 30 minutes unused (a setting). A task
+  whose browser runs is marked in the sidebar. No browser installed: the pane offers to
+  install Google Chrome with Homebrew, showing the command first. `swarmed task browser`
+  starts it and prints where its DevTools endpoint answers, for tools that drive a browser.
+  See [The task's browser](docs/configuration.md#the-tasks-browser).
+
 - **See the images a tool returns.** A screenshot from a browser tool, or an image file the
   agent read, used to show as `[image]`; it now shows under the call, large when pressed, with
   **Open** to see it in your system's viewer. The last image of a turn also stands at the end

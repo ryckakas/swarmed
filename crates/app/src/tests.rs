@@ -53,6 +53,11 @@ fn app() -> App {
 
 /// The same app, looking for new versions of itself at `endpoint`.
 fn app_updating_from(endpoint: &str) -> App {
+    app_built(endpoint, |_| {})
+}
+
+/// The app, its core changed by `change` first.
+fn app_built(endpoint: &str, change: impl FnOnce(&mut Core)) -> App {
     let dir = TempDir::new().expect("temp dir");
     let root = dir.path().canonicalize().expect("temp dir resolves");
     let repo = root.join("demo");
@@ -72,7 +77,8 @@ fn app_updating_from(endpoint: &str) -> App {
         codex_config: root.join("codex.toml"),
         opencode_config_dir: root.join("opencode"),
     };
-    let core = Core::with_backend(paths, Arc::new(FakeBackend::default())).expect("core opens");
+    let mut core = Core::with_backend(paths, Arc::new(FakeBackend::default())).expect("core opens");
+    change(&mut core);
     let mut context = mock_context(noop_assets());
     let updater = json!({ "pubkey": "none", "endpoints": [endpoint] });
     context
@@ -1047,6 +1053,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
             "status_command": "", "rules": "", "updates": "automatic", "branch_prefix": "",
             "put_away_merged": false, "put_away_merged_days": 1, "put_away_idle": false,
             "put_away_idle_days": 14, "put_away_closes_sessions": false,
+            "browser_program": "", "browser_idle_minutes": 30,
         })
     );
 
@@ -2297,4 +2304,127 @@ fn the_one_capability_is_the_main_windows_and_names_no_page_from_elsewhere() {
         "windows",
     ];
     assert_eq!(keys, known);
+}
+
+/// The stand-in Chrome of the core's tests, installed beside the repository.
+fn stand_in_chrome(app: &App) -> std::path::PathBuf {
+    let program = app.repo.with_file_name("fake-chrome");
+    let source = app.repo.with_file_name("fake-chrome.py");
+    std::fs::write(
+        &source,
+        include_str!("../../core/tests/fixtures/fake_chrome.py"),
+    )
+    .expect("writes");
+    // Installed by a child process: a file this one held open for writing could be inherited
+    // by a process another test starts, and running it would fail with "Text file busy".
+    let status = Command::new("install")
+        .args(["-m", "755"])
+        .arg(&source)
+        .arg(&program)
+        .status()
+        .expect("install runs");
+    assert!(status.success());
+    program
+}
+
+/// What the tab shown logged, once it has logged anything.
+fn logged(app: &App, which: &Value) -> Value {
+    let deadline = Instant::now() + WAIT_LIMIT;
+    while Instant::now() < deadline {
+        let lines = app.ok("browser_console", which.clone());
+        if lines.as_array().is_some_and(|lines| !lines.is_empty()) {
+            return lines;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    panic!("the tab logged nothing");
+}
+
+#[test]
+fn the_ui_can_open_a_tasks_browser_show_and_drive_a_tab_and_stop_it() {
+    // Without Homebrew, nothing could install a browser: no test installs one for real.
+    let app = app_built("https://127.0.0.1:9/latest.json", |core| {
+        core.set_tool_dirs(vec![]);
+    });
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+    let chrome = stand_in_chrome(&app);
+    app.ok(
+        "set_settings",
+        json!({ "settings": { "browser_program": chrome } }),
+    );
+    let setup = app.ok("browser_setup", json!({}));
+    assert_eq!(
+        (&setup["name"], &setup["chosen"]),
+        (&json!("fake-chrome"), &json!(true))
+    );
+    assert_eq!(setup["install_command"], json!(null));
+    let refused = app.invoke("browser_install", json!({}));
+    let said = refused.expect_err("nothing installs it");
+    assert!(
+        said.as_str().is_some_and(|said| said.contains("Homebrew")),
+        "{said}"
+    );
+
+    let task_id = app.ok("overview", json!({}))[0]["tasks"][0]["id"].clone();
+    let which = json!({ "taskId": task_id });
+    assert_eq!(app.ok("browser_state", which.clone())["running"], false);
+    let opened = app.ok("browser_open", which.clone());
+    assert_eq!(opened["running"], true);
+    assert_eq!(
+        app.ok("overview", json!({}))[0]["tasks"][0]["browser"],
+        true
+    );
+    let view = json!({ "width": 640, "height": 480, "scale": 2.0 });
+    let shown = app.ok(
+        "browser_show",
+        json!({ "taskId": task_id, "tab": null, "viewport": view }),
+    );
+    let tab = shown["shown"].clone();
+    assert_eq!(tab, opened["tabs"][0]["id"]);
+
+    let held = json!({ "alt": false, "ctrl": false, "meta": false, "shift": false });
+    let click = json!({ "kind": "down", "x": 1.5, "y": 2.0, "button": "left", "buttons": 1,
+        "click_count": 1, "delta_x": 0.0, "delta_y": 0.0, "modifiers": held });
+    app.ok(
+        "browser_mouse",
+        json!({ "taskId": task_id, "input": click }),
+    );
+    let key = json!({ "kind": "down", "key": "a", "code": "KeyA", "key_code": 65,
+        "modifiers": held, "repeat": false });
+    app.ok("browser_key", json!({ "taskId": task_id, "input": key }));
+    app.ok(
+        "browser_text",
+        json!({ "taskId": task_id, "text": "pasted" }),
+    );
+
+    let address = json!({ "address": "localhost:3000/console" });
+    app.ok(
+        "browser_go",
+        json!({ "taskId": task_id, "tab": tab, "go": address }),
+    );
+    app.ok(
+        "browser_go",
+        json!({ "taskId": task_id, "tab": tab, "go": "back" }),
+    );
+    let lines = logged(&app, &json!({ "taskId": task_id, "tab": tab }));
+    assert_eq!(lines[0]["text"], "hello from http://localhost:3000/console");
+    assert_eq!(lines[0]["level"], "info");
+
+    let opened = app.ok(
+        "browser_tab_new",
+        json!({ "taskId": task_id, "url": "example.com" }),
+    );
+    app.ok(
+        "browser_tab_close",
+        json!({ "taskId": task_id, "tab": opened }),
+    );
+    let answer = json!({ "taskId": task_id, "tab": tab, "accept": true, "text": null });
+    app.ok("browser_dialog", answer);
+    app.ok("browser_hide", which.clone());
+    app.ok("browser_stop", which.clone());
+    assert_eq!(app.ok("browser_state", which.clone())["running"], false);
+    let gone = app.invoke("browser_text", json!({ "taskId": task_id, "text": "late" }));
+    assert!(gone.is_err(), "nothing runs to type into");
 }

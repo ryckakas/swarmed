@@ -390,6 +390,23 @@ pub enum Error {
          that Swarmed has quit"
     )]
     RunsElsewhere(i64),
+    /// No browser that speaks Chrome's DevTools protocol is on this machine.
+    #[error(
+        "no Google Chrome, Chromium, Microsoft Edge or Brave was found: install one, or set \
+         the browser's program in Settings"
+    )]
+    BrowserMissing,
+    /// A task's browser could not do what was asked; Chrome's own words where it gave any.
+    #[error("the browser of `{task}`: {reason}")]
+    Browser {
+        /// The task whose browser it is.
+        task: String,
+        /// Why not.
+        reason: String,
+    },
+    /// The task's browser does not run, or runs where this Swarmed is not connected to it.
+    #[error("the browser of `{0}` is not running: open it first")]
+    BrowserNotRunning(String),
     /// A stored or outgoing event could not be converted to or from JSON.
     #[error(transparent)]
     Json(#[from] serde_json::Error),

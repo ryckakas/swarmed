@@ -8,11 +8,16 @@ import type {
     BackgroundOutput,
     BackgroundTask,
     BranchChoices,
+    BrowserEvent,
+    BrowserGo,
+    BrowserSetup,
+    BrowserState,
     Cleaned,
     Cleanup,
     CleanupKind,
     CloudProvider,
     CloudTask,
+    ConsoleLine,
     Costs,
     CustomLayout,
     Environment,
@@ -27,6 +32,7 @@ import type {
     IssueDetail,
     IssueFilter,
     IssueList,
+    KeyInput,
     MarkColour,
     McpServerInput,
     McpServerView,
@@ -34,6 +40,7 @@ import type {
     MergeReport,
     MergeRules,
     MergeWhen,
+    MouseInput,
     Project,
     Pull,
     PullDraft,
@@ -65,6 +72,7 @@ import type {
     Unpublished,
     UpdateState,
     Usage,
+    Viewport,
 } from "./types";
 
 /** Stops a subscription. */
@@ -594,6 +602,40 @@ export interface Api {
     terminalResize(id: number, cols: number, rows: number): Promise<void>;
     /** Calls `listener` for everything any session's terminal prints, from now on. */
     onTerminalOutput(listener: (output: TerminalOutput) => void): Promise<Unsubscribe>;
+    /** The browser a task's Chrome runs on, or what would install one. */
+    browserSetup(): Promise<BrowserSetup>;
+    /** Installs Google Chrome with Homebrew, by the command `browserSetup` gives. */
+    browserInstall(): Promise<BrowserSetup>;
+    /** A task's browser as the pane shows it, without starting it. */
+    browserState(taskId: number): Promise<BrowserState>;
+    /** Starts the task's Chrome, or connects to the one that runs. */
+    browserOpen(taskId: number): Promise<BrowserState>;
+    /** Stops the task's Chrome. Its profile, with what was signed in to there, stays. */
+    browserStop(taskId: number): Promise<void>;
+    /**
+     * Shows `tab` (the one shown, else the first, for `null`) at the room the pane gives it,
+     * starting the task's Chrome if it does not run. Its pictures come from now on.
+     */
+    browserShow(taskId: number, tab: string | null, viewport: Viewport): Promise<BrowserState>;
+    /** The pane is off screen: no more pictures. */
+    browserHide(taskId: number): Promise<void>;
+    /** What the mouse did on the picture, passed on to the tab shown. */
+    browserMouse(taskId: number, input: MouseInput): Promise<void>;
+    /** A key on the picture, passed on to the tab shown. */
+    browserKey(taskId: number, input: KeyInput): Promise<void>;
+    /** Text pasted or composed on the picture, typed into the tab shown. */
+    browserText(taskId: number, text: string): Promise<void>;
+    /** Sends a tab to an address typed, back, forward, again, or stops it loading. */
+    browserGo(taskId: number, tab: string, go: BrowserGo): Promise<void>;
+    /** Opens a tab, on an address or empty, and returns its id. */
+    browserTabNew(taskId: number, url: string | null): Promise<string>;
+    browserTabClose(taskId: number, tab: string): Promise<void>;
+    /** Answers the dialog a tab opened, with the text a `prompt` asks for. */
+    browserDialog(taskId: number, tab: string, accept: boolean, text: string | null): Promise<void>;
+    /** What a tab logged that is kept, oldest first. */
+    browserConsole(taskId: number, tab: string): Promise<ConsoleLine[]>;
+    /** Calls `listener` for the pictures, tabs and console lines of every task's browser. */
+    onBrowserEvent(listener: (event: BrowserEvent) => void): Promise<Unsubscribe>;
     /**
      * Opens Claude Code on the screen of `command`, named without its slash, in a terminal of
      * the session's own apart from its shell, or shows the one that runs on it. Nothing it

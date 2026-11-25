@@ -31,12 +31,16 @@ export function formatBytes(bytes: number): string {
 
 /**
  * Everything Swarmed keeps on disk: its database, the notes, the sessions' images, the turns'
- * checkpoints, every measured worktree, and what is left of removed ones.
+ * checkpoints, the tasks' browsers, every measured worktree, and what is left of removed ones.
  */
 export function totalBytes(usage: Usage): number {
     const worktrees = usage.worktrees.reduce((sum, worktree) => sum + (worktree.bytes ?? 0), 0);
     const kept =
-        usage.database_bytes + usage.notes_bytes + usage.images_bytes + usage.checkpoints_bytes;
+        usage.database_bytes +
+        usage.notes_bytes +
+        usage.images_bytes +
+        usage.checkpoints_bytes +
+        usage.browsers_bytes;
     return kept + worktrees + usage.removed_bytes;
 }
 

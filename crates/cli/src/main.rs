@@ -1,6 +1,7 @@
 //! The `swarmed` command: a thin front end over `swarmed-core`.
 
 mod action;
+mod browser;
 mod cleanup;
 mod events;
 mod issue;
@@ -432,6 +433,10 @@ enum TaskCommand {
         #[arg(long)]
         browser: bool,
     },
+    /// Start the task's own Chrome, or find the one that runs, and print where its DevTools
+    /// endpoint answers, for tools that drive a browser. It runs on after this command ends,
+    /// until it is stopped, its task is put away or removed, or the app stops it unused.
+    Browser(browser::BrowserArgs),
 }
 
 /// Writes a line to stdout. A closed pipe (`swarmed task list | head`) is not an error worth
@@ -1018,6 +1023,7 @@ async fn usage(core: &Core) -> Result<()> {
     say(&format!("notes\t{}", bytes(usage.notes_bytes)));
     say(&format!("images\t{}", bytes(usage.images_bytes)));
     say(&format!("checkpoints\t{}", bytes(usage.checkpoints_bytes)));
+    say(&format!("browsers\t{}", bytes(usage.browsers_bytes)));
     for worktree in &usage.worktrees {
         let size = worktree
             .bytes
@@ -1317,6 +1323,7 @@ async fn task(core: &Arc<Core>, command: TaskCommand) -> Result<()> {
             browser: true,
         } => core.task_open_url(&project, &name)?,
         TaskCommand::Open { project, name, .. } => core.task_open_editor(&project, &name)?,
+        TaskCommand::Browser(args) => browser::run(core, &args).await?,
     }
     Ok(())
 }

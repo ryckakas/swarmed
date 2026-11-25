@@ -2271,6 +2271,12 @@ code {
     color: var(--clay);
 }
 
+.icon-button:disabled {
+    background: none;
+    color: var(--faint);
+    opacity: 0.5;
+}
+
 /* Status marks: a shape per status, so colour is never the only signal. */
 
 .mark {
@@ -6910,4 +6916,331 @@ kbd {
 
 .setup-line .incubating {
     flex: none;
+}
+
+/* The conversation, and beside it the task's browser when that is open. */
+.main-body {
+    flex: 1;
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+}
+
+.main-column {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+}
+
+/* The browser's edge is in the flow, between the conversation and the browser. */
+.resizer.resizer-browser {
+    position: relative;
+    flex: none;
+    margin: calc(var(--titlebar-height) * -1) -4px 0 -3px;
+}
+
+.browser-pane {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    /* As wide as asked for, as long as the conversation keeps a readable width. */
+    width: max(320px, min(var(--browser-width), 100% - 360px));
+    min-height: 0;
+    margin-top: calc(var(--titlebar-height) * -1);
+    border-left: 1px solid var(--line);
+    background: var(--panel);
+}
+
+.browser-head {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-height: var(--titlebar-height);
+    padding: var(--space-1) var(--space-2) 0;
+}
+
+.browser-tabs {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.browser-tab {
+    flex: 0 1 180px;
+    display: flex;
+    align-items: center;
+    min-width: 72px;
+    border-radius: 6px 6px 0 0;
+    color: var(--muted);
+}
+
+.browser-tab[data-shown="true"] {
+    background: var(--raised);
+    color: var(--text);
+}
+
+.browser-tab > button:first-child {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+    padding: var(--space-1) var(--space-2);
+    overflow: hidden;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-size: var(--text-sm);
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.browser-tab .icon-button {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    opacity: 0.6;
+}
+
+.browser-loading {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--busy);
+    animation: browser-loading 900ms ease-in-out infinite alternate;
+}
+
+@keyframes browser-loading {
+    from {
+        opacity: 0.3;
+    }
+}
+
+.browser-bar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: var(--space-1) var(--space-2);
+    border-bottom: 1px solid var(--line);
+    background: var(--raised);
+}
+
+.browser-address {
+    flex: 1;
+    min-width: 0;
+    margin: 0 var(--space-1);
+    padding: 3px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--text);
+    font-size: var(--text-sm);
+}
+
+.browser-problem,
+.browser-dialog {
+    flex: none;
+    margin: 0;
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--line);
+    font-size: var(--text-sm);
+}
+
+.browser-problem {
+    color: var(--clay);
+}
+
+.browser-dialog {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    background: var(--pollen-wash);
+}
+
+.browser-dialog-message {
+    flex: 1 1 100%;
+    margin: 0;
+    white-space: pre-wrap;
+}
+
+.browser-dialog-buttons {
+    display: flex;
+    gap: var(--space-2);
+    margin-left: auto;
+}
+
+/* The page itself: a picture Chrome sent, which the pointer and keys act on. */
+.browser-page {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    background: #ffffff;
+    cursor: default;
+    touch-action: none;
+}
+
+.browser-page[data-empty="true"] {
+    background: var(--panel);
+}
+
+.browser-page img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: top left;
+    user-select: none;
+    pointer-events: none;
+}
+
+/* Takes the keys and what is pasted or composed for the page, out of sight. */
+.browser-keys {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    border: 0;
+    opacity: 0;
+    resize: none;
+    pointer-events: none;
+}
+
+.browser-page:has(.browser-keys:focus-visible) {
+    outline: 2px solid var(--focus);
+    outline-offset: -2px;
+}
+
+.browser-standing {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: var(--space-3);
+    margin: 0;
+    padding: var(--space-6);
+    background: var(--panel);
+    color: var(--muted);
+    user-select: text;
+}
+
+.browser-said {
+    margin: 0;
+}
+
+.browser-console {
+    flex: none;
+    max-height: 40%;
+    overflow: auto;
+    border-top: 1px solid var(--line);
+    font-size: var(--text-sm);
+}
+
+.browser-console summary {
+    position: sticky;
+    top: 0;
+    display: flex;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-3);
+    background: var(--panel);
+    color: var(--muted);
+    cursor: default;
+}
+
+.browser-console-count {
+    color: var(--clay);
+}
+
+.browser-console > .aside {
+    margin: 0;
+    padding: var(--space-1) var(--space-3) var(--space-2);
+}
+
+.browser-console-lines {
+    margin: 0;
+    padding: 0 0 var(--space-2);
+    list-style: none;
+    font-size: var(--text-xs);
+    user-select: text;
+}
+
+.browser-console-line {
+    display: flex;
+    gap: var(--space-2);
+    padding: 1px var(--space-3);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.browser-console-time {
+    flex: none;
+    color: var(--faint);
+}
+
+.browser-console-line[data-level="warning"] {
+    color: var(--pollen);
+}
+
+.browser-console-line[data-level="error"] {
+    color: var(--clay);
+}
+
+.browser-console-line[data-level="debug"] {
+    color: var(--faint);
+}
+
+.browser-foot {
+    flex: none;
+    margin: 0;
+    padding: var(--space-1) var(--space-3) var(--space-2);
+    border-top: 1px solid var(--line);
+    color: var(--faint);
+    font-size: var(--text-xs);
+    overflow-wrap: anywhere;
+}
+
+/* The session's browser button is marked while the task's browser runs. */
+.browser-button {
+    position: relative;
+    display: inline-grid;
+}
+
+.browser-button[data-running="true"]::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--busy);
+    pointer-events: none;
+}
+
+.browser-button[data-open="true"] .icon-button {
+    color: var(--text);
+}
+
+.browser-badge:disabled {
+    opacity: 1;
+}
+
+.browser-program {
+    width: min(28ch, 100%);
 }

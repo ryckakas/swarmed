@@ -149,6 +149,39 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   asked of `ps` with `LC_ALL=C` and `TZ=UTC`, so it reads the same to every Swarmed. A stack is
   refused (`start_stack`) while as many of the project's stacks run as `max_stacks` allows: the
   task's environment's, if it sets one, else the project's.
+- **Each task can have a Chrome of its own** (`browser.rs`, `BrowserPane.tsx`, `browser.ts`,
+  #382), shown live in the Browser pane beside the conversation.
+  - **One process per task**, on the Chrome, Chromium, Edge or Brave found (`browser/find.rs`)
+    or `Settings::browser_program`, headless, on `browsers/<task>/profile` (0700), so logins
+    outlast restarts and stay the task's. Deleted with the task (`browser_forget`), listed by
+    the clean-up when its task is gone. A missing browser is `Error::BrowserMissing`, and the
+    pane offers Homebrew's `google-chrome` cask (Chromium's was disabled on 2026-09-01).
+  - **Swarmed's connection is a WebSocket to the port** Chrome writes into
+    `DevToolsActivePort` (`--remote-debugging-port=0`, on 127.0.0.1), with a client written
+    here for loopback only (`browser/ws.rs`), not a pipe: agents' tools need the port anyway
+    (#384), and a Chrome an earlier Swarmed started can only be reached by it. Never pass
+    `--remote-allow-origins`. Over it, the DevTools protocol (`browser/cdp.rs`): commands with
+    numbers, events, one session per page (`flatten`).
+  - **What the pane shows is pure** (`browser/page.rs`: tabs, console, dialogs from events;
+    `browser/input.rs`: clicks, keys, the address bar), tested against made-up events; the rest
+    against a stand-in Chrome (`tests/fixtures/fake_chrome.py`), and against a real one with
+    `cargo test --test browser -- --ignored`.
+  - **Pictures** (`Page.startScreencast`) are asked for only while the pane shows a tab, at
+    most `FRAMES_A_SECOND`, acknowledged at that pace, and published on their own channel
+    (`Core::subscribe_browsers`, `BrowserEvent`), never stored. A page's script can change its
+    title without Chrome saying so, so the shown tab's info is read again with its pictures,
+    at most once a second.
+  - **Input goes in order**: the mouse, keys and text commands are not `async` in the app and
+    send without waiting (`Cdp::send`). ⌘V is the window's: Chrome's clipboard is its own.
+  - **Remembered on disk** as a stack is (`run/browsers/<task>.pid`), counted in
+    `TaskOverview::browser` (the sidebar's mark: never hide running work) and watched by
+    `elsewhere.rs`. A start takes `run/browsers/<task>.lock`, so two Swarmeds connect to one
+    Chrome rather than start two. **Stopped** with `Browser.close`, then its process group as a
+    stack's: when its task is put away or removed, by `leave` (the first Swarmed every one,
+    any other those it started), and by `follow_browsers` (the house only) after
+    `browser_idle_minutes` unused, not while the pane shows it. The house also connects to one
+    another Swarmed left, so that its unused time counts. The command line's runs on after it.
+  - **Which session drives it** is for #384, which points agents' browser tools at it.
 - **Two Swarmeds can run on one data directory** (`presence.rs`): the installed app beside a
   development build, or the app beside a command. Only the first to arrive, known by a lock on
   `run/first.lock`, settles sessions when it starts and ends stacks it did not start when it
@@ -221,7 +254,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **What removed tasks leave behind is cleaned up on request** (`cleanup.rs`): removed
   worktrees not deleted yet (in `.removed`), the branches of removed tasks, stale worktrees
   (folders in a project's place under the worktrees root that no task owns, and git's records
-  of worktrees whose folder is gone) and snapshots. `Core::cleanup` lists them, each with a
+  of worktrees whose folder is gone), snapshots, and the checkpoints and browser profiles of
+  tasks that are gone. `Core::cleanup` lists them, each with a
   key; `cleanup_clean` deletes one kind, by keys or every item not at risk, after listing again,
   so only what is still listed goes. A record is listed only while nothing is at its path:
   git calls one prunable when the folder's `.git` file is missing, which a folder made again
@@ -473,7 +507,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   (`mockSetups.ts`). Storefront and bonsai-lint have GitHub issues, `shop-142` was started for
   #142, #428's text holds HTML GitHub draws (`<details>`, `<kbd>`) and HTML it does not, an
   HTML comment, an image and a view's block, and one of its comments is hidden on GitHub, and
-  fsum is not on GitHub, so its list says why (`mockIssues.ts`). The README's
+  fsum is not on GitHub, so its list says why (`mockIssues.ts`). The task whose stack runs has
+  its browser running too (`mockBrowser.ts`), drawn on a canvas as a made-up shop that shows
+  clicks and typing; an address with `console` logs a line, `alert` opens a dialog, `refused`
+  fails, and a browser program with `missing` in it shows the offer to install one. The README's
   screenshot and GIF are of this sample data, never of anyone's real projects.
 - **MCP servers are one pool for every agent** (`mcp_pool.rs`). When a session starts, each
   agent's servers are read from its own configuration (`mcp.rs` and `mcp_plugins.rs` for

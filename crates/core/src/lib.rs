@@ -18,6 +18,7 @@ mod analytics;
 mod asking;
 mod attach;
 mod background;
+mod browser;
 mod changes;
 mod chats;
 mod checkpoints;
@@ -105,6 +106,11 @@ pub use agents::{AgentInfo, CLAUDE};
 pub use analytics::TurnStats;
 pub use attach::{ATTACHED_FILES, Attached, with_files};
 pub use background::{BackgroundOutput, BackgroundTask};
+pub use browser::{
+    BrowserEvent, BrowserGo, BrowserSetup, BrowserState, BrowserTab, ConsoleLevel, ConsoleLine,
+    FRAMES_A_SECOND, KeyInput, KeyKind, Modifiers, MouseInput, MouseKind, PageDialog, Viewport,
+    follow_browsers,
+};
 pub use shellenv::learn_shell_path;
 
 pub use changes::{ChangeKind, FileChange, FileDiff};
@@ -220,6 +226,8 @@ pub struct Core {
     following: following::Following,
     /// What GitHub said each repository allows for merging (`merging.rs`).
     merging: merging::Merging,
+    /// The tasks' browsers this process is connected to (`browser.rs`).
+    browsers: Arc<browser::Browsers>,
 }
 
 /// The store is only ever locked for one short query, never across an `.await`. A panic while
@@ -266,6 +274,7 @@ impl Core {
             elsewhere: elsewhere::Elsewhere::default(),
             following: following::Following::default(),
             merging: merging::Merging::default(),
+            browsers: Arc::default(),
         })
     }
 

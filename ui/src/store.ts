@@ -222,6 +222,10 @@ interface State {
     /** Whether the task panel on the right is shown. */
     panelOpen: boolean;
     togglePanel(): void;
+    /** Whether the Browser pane is shown beside the conversation, with its task's Chrome. */
+    browserOpen: boolean;
+    /** Shows the Browser pane, or hides it; `open` says which, else it is turned over. */
+    toggleBrowser(open?: boolean): void;
     /** Changes some of the user's preferences and keeps the rest. */
     changeSettings(api: Api, change: Partial<Settings>): Promise<void>;
     /** The user's configuration of the terminal, once read. */
@@ -555,6 +559,7 @@ function countEdit(state: State, published: SessionEvent): Record<number, number
 }
 
 const PANEL_OPEN = "swarmed.panel-open";
+const BROWSER_OPEN = "swarmed.browser-open";
 const STATUS_OPEN = "swarmed.status-open";
 const FOLDED = "swarmed.folded-projects";
 const FOLDED_TASKS = "swarmed.folded-tasks";
@@ -939,6 +944,12 @@ export const useStore = create<State>((set, get) => ({
         const panelOpen = !get().panelOpen;
         writeFlag(PANEL_OPEN, panelOpen);
         set({ panelOpen });
+    },
+    browserOpen: readFlag(BROWSER_OPEN, false),
+    toggleBrowser: (open) => {
+        const browserOpen = open ?? !get().browserOpen;
+        writeFlag(BROWSER_OPEN, browserOpen);
+        set({ browserOpen });
     },
     changeSettings: (api, change) =>
         reporting(async () => {

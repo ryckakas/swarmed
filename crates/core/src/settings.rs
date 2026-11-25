@@ -5,6 +5,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::Supervision;
+use crate::browser::MAX_IDLE_MINUTES;
 use crate::error::{Error, Result};
 use crate::lenient::{self, Problems};
 use crate::put_away::MAX_DAYS;
@@ -80,6 +81,12 @@ pub struct Settings {
     /// Whether putting a task away also closes its sessions. Without it they stay open, with
     /// their agents stopped.
     pub put_away_closes_sessions: bool,
+    /// The program a task's browser runs, such as Chrome Canary's. Empty to use the first of
+    /// Google Chrome, Chromium, Microsoft Edge and Brave that is installed.
+    pub browser_program: String,
+    /// How many minutes a task's browser may sit unused before it is stopped, up to a day; 0
+    /// to leave it running until its task is put away or Swarmed quits.
+    pub browser_idle_minutes: u32,
 }
 
 /// The longest the user's rules may be, in bytes: they travel with every session's
@@ -225,6 +232,8 @@ impl Default for Settings {
             put_away_idle: false,
             put_away_idle_days: 14,
             put_away_closes_sessions: false,
+            browser_program: String::new(),
+            browser_idle_minutes: 30,
         }
     }
 }
@@ -270,6 +279,7 @@ impl Settings {
         self.text_scale = self.text_scale.clamp(smallest, largest);
         self.put_away_merged_days = self.put_away_merged_days.min(MAX_DAYS);
         self.put_away_idle_days = self.put_away_idle_days.clamp(1, MAX_DAYS);
+        self.browser_idle_minutes = self.browser_idle_minutes.min(MAX_IDLE_MINUTES);
         self.branch_prefix = crate::prefix::trimmed(&self.branch_prefix).to_string();
         self
     }
@@ -366,6 +376,8 @@ mod tests {
             put_away_idle: true,
             put_away_idle_days: 30,
             put_away_closes_sessions: true,
+            browser_program: "/Applications/Chromium.app/Contents/MacOS/Chromium".to_string(),
+            browser_idle_minutes: 90,
         };
         chosen.save(&path).expect("saves");
         assert_eq!(Settings::load(&path).expect("loads"), chosen);
@@ -521,6 +533,11 @@ mod tests {
         assert_eq!(
             Settings::load(&path).expect("loads").put_away_idle_days,
             365
+        );
+        std::fs::write(&path, "browser_idle_minutes = 100000\n").expect("writes");
+        assert_eq!(
+            Settings::load(&path).expect("loads").browser_idle_minutes,
+            MAX_IDLE_MINUTES
         );
     }
 
