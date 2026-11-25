@@ -231,6 +231,16 @@ export function addressOf(tab: BrowserTab | null): string {
     return tab.url;
 }
 
+/**
+ * What tells one dialog of a page from another: its tab, its kind and what it says. The bar
+ * that answers it is made anew for each, so that the text typed for one `prompt`, or its
+ * default, is never sent as the answer to the next.
+ */
+export function dialogKey(tab: BrowserTab): string {
+    const { kind, message, default_prompt } = tab.dialog ?? {};
+    return JSON.stringify([tab.id, kind, message, default_prompt]);
+}
+
 /** What stands in the address bar: what the user is typing, else where the tab is. */
 export function shownAddress(typed: string | null, tab: BrowserTab | null): string {
     return typed ?? addressOf(tab);

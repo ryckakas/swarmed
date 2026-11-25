@@ -6,6 +6,7 @@ import {
     askedToShow,
     consoleCounts,
     consoleMerged,
+    dialogKey,
     endsPick,
     isMissing,
     keyInput,
@@ -81,6 +82,16 @@ describe("where a click on the picture lands on the page", () => {
         expect(pickAsked(null, { kind: "stopped" })).toBe("drop");
         expect(pickAsked(null, { kind: "missing", setup: null })).toBe("drop");
         expect(pickAsked(null, { kind: "failed", problem: "it would not start" })).toBe("drop");
+    });
+
+    it("tells one dialog of a page from the next, and one tab's from another's", () => {
+        const asks = (id: string, message: string): BrowserTab => ({
+            ...tab(id, "about:blank"),
+            dialog: { kind: "prompt", message, default_prompt: "" },
+        });
+        expect(dialogKey(asks("a", "Name?"))).toBe(dialogKey(asks("a", "Name?")));
+        expect(dialogKey(asks("a", "Name?"))).not.toBe(dialogKey(asks("a", "Age?")));
+        expect(dialogKey(asks("a", "Name?"))).not.toBe(dialogKey(asks("b", "Name?")));
     });
 
     it("keeps what is typed in the address bar over where the tab is", () => {

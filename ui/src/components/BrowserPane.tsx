@@ -30,6 +30,7 @@ import {
     BROWSER_WIDTH,
     consoleCounts,
     consoleMerged,
+    dialogKey,
     endsPick,
     isMissing,
     keyInput,
@@ -154,7 +155,10 @@ function BrowserPane({ task }: { task: Task }) {
                     The browser tools of <strong>{actor}</strong> acted in this tab last.
                 </p>
             )}
-            {tab?.dialog && <PageDialogBar task={task.id} tab={tab} />}
+            {tab?.dialog && (
+                // Each dialog its own: a prompt's answer is not the one before's.
+                <PageDialogBar key={dialogKey(tab)} task={task.id} tab={tab} />
+            )}
             <Picture task={task.id} tab={tab?.id ?? null} onViewport={show} pick={pick}>
                 <StandingIn standing={standing} retry={retry} task={task} />
             </Picture>
