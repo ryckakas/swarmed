@@ -10,6 +10,10 @@ Started as Swarmed starts Chrome. It listens on a port of 127.0.0.1 it picks, wr
 - pictures of the page shown once asked for, one more after each acknowledgement;
 - tabs opened and closed, dialogs answered, `Browser.close`.
 
+Over HTTP it answers `/json/version` and `/json/list` as Chrome does, with addresses built from
+the `Host` the client sent. Every connection that asked to discover targets hears of tabs opened,
+changed and closed, whichever connection did it, as with Chrome.
+
 What it is told to do with the mouse and the keys is written into `fake-input` in its profile,
 one JSON line each, and what it was given to download into, into `fake-downloads`. A file
 `fake-fail` in its profile has it end at once, saying why, as a Chrome that cannot start does.
@@ -44,6 +48,7 @@ if os.path.exists(os.path.join(profile, "fake-fail")):
     sys.exit(21)
 
 lock = threading.Lock()
+discovering = []
 pages = {}
 order = []
 counter = [0]
@@ -115,6 +120,14 @@ class Connection:
         return payload.decode()
 
 
+def broadcast(method, params):
+    for listener in list(discovering):
+        try:
+            listener.event(method, params)
+        except OSError:
+            discovering.remove(listener)
+
+
 def frame(conn, page_id, session):
     page = pages[page_id]
     if not page["casting"] or page["frames"] >= 40:
@@ -134,7 +147,7 @@ def navigated(conn, page_id, session):
     page = pages[page_id]
     url = page["history"][page["current"]]
     conn.event("Page.frameStartedLoading", {"frameId": page_id}, session)
-    conn.event("Target.targetInfoChanged", {"targetInfo": info(page_id)})
+    broadcast("Target.targetInfoChanged", {"targetInfo": info(page_id)})
     conn.event("Page.frameNavigated", {"frame": {"id": page_id, "url": url}}, session)
     if "console" in url:
         args = [{"type": "string", "value": "hello from"}, {"type": "string", "value": url}]
@@ -156,6 +169,7 @@ def answer(conn, method, params, session):
     if method == "Target.setDiscoverTargets":
         for known in list(order):
             conn.event("Target.targetCreated", {"targetInfo": info(known)})
+        discovering.append(conn)
         return {}
     if method == "Target.getTargets":
         return {"targetInfos": [info(known) for known in order]}
@@ -171,14 +185,14 @@ def answer(conn, method, params, session):
         return {}
     if method == "Target.createTarget":
         created = new_page(params.get("url", "about:blank"))
-        conn.event("Target.targetCreated", {"targetInfo": info(created)})
+        broadcast("Target.targetCreated", {"targetInfo": info(created)})
         return {"targetId": created}
     if method == "Target.closeTarget":
         closed = params["targetId"]
         if closed in pages:
             del pages[closed]
             order.remove(closed)
-            conn.event("Target.targetDestroyed", {"targetId": closed})
+            broadcast("Target.targetDestroyed", {"targetId": closed})
         return {"success": True}
     if method == "Browser.close":
         return {}
@@ -225,6 +239,26 @@ def answer_on_page(conn, method, params, session, page_id, page):
     raise KeyError("'%s' wasn't found" % method)
 
 
+def answer_http(sock, path, host):
+    """What Chrome answers over plain HTTP, its addresses built from the `Host` asked for."""
+    path = path.rstrip("/")
+    if path == "/json/version":
+        body = {"Browser": "FakeChrome/1.0", "Protocol-Version": "1.3",
+                "webSocketDebuggerUrl": "ws://%s/devtools/browser/fake-%d" % (host, os.getpid())}
+    elif path in ("/json", "/json/list"):
+        with lock:
+            body = [dict(info(known), webSocketDebuggerUrl="ws://%s/devtools/page/%s" % (host, known))
+                    for known in order]
+    else:
+        sock.sendall(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+        sock.close()
+        return
+    data = json.dumps(body).encode()
+    sock.sendall(("HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=UTF-8\r\n"
+                  "Content-Length: %d\r\nConnection: close\r\n\r\n" % len(data)).encode() + data)
+    sock.close()
+
+
 def serve(sock):
     request = b""
     while b"\r\n\r\n" not in request:
@@ -233,9 +267,18 @@ def serve(sock):
             return
         request += chunk
     key = ""
-    for line in request.decode().split("\r\n"):
+    host = ""
+    upgrade = False
+    lines = request.decode().split("\r\n")
+    for line in lines:
         if line.lower().startswith("sec-websocket-key:"):
             key = line.split(":", 1)[1].strip()
+        if line.lower().startswith("host:"):
+            host = line.split(":", 1)[1].strip()
+        if line.lower().startswith("upgrade:") and "websocket" in line.lower():
+            upgrade = True
+    if not upgrade:
+        return answer_http(sock, lines[0].split(" ")[1], host)
     accept = base64.b64encode(hashlib.sha1((key + GUID).encode()).digest()).decode()
     sock.sendall(("HTTP/1.1 101 WebSocket Protocol Handshake\r\nUpgrade: websocket\r\n"
                   "Connection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n" % accept).encode())

@@ -331,6 +331,66 @@ stay in view under its line. With tool calls hidden, their images are hidden too
   it is never logged, nor handed to another session, a fork, the cloud or search. A fork
   carries what was said, not what tools returned.
 
+## The task's browser and your browser tools
+
+Agents look at pages with the browser tools they already know: Playwright MCP, Chrome DevTools
+MCP, or a script. Each of those launches a Chrome of its own, a window that takes your focus or
+a headless one nobody sees, on a fresh profile signed in nowhere. In Swarmed they act in the
+task's own browser instead ([The task's browser](configuration.md#the-tasks-browser)), which you
+watch beside the conversation, on the task's profile, where what you signed in to stays signed
+in. Swarmed adds no browser server you did not set up, and no browser tool of its own.
+
+- **An address per session.** Each session's agent is started with `SWARMED_BROWSER`, an
+  address on `127.0.0.1` that Swarmed listens at. The task's Chrome starts when a tool first
+  connects to it, so a session that never browses starts nothing. A script connects with
+  `chromium.connectOverCDP(process.env.SWARMED_BROWSER)` in Playwright, or
+  `puppeteer.connect({ browserURL: process.env.SWARMED_BROWSER })`.
+- **Your browser servers are pointed at it**, recognised by what they run, never by the name
+  you gave them: Playwright MCP (`@playwright/mcp`, `playwright-mcp`, `mcp-server-playwright`)
+  is given `--cdp-endpoint` with the address, Chrome DevTools MCP (`chrome-devtools-mcp`)
+  `--browser-url`, and loses `--channel`, `--executable-path` and `--user-data-dir`, which it
+  refuses beside it. Nothing else about them changes, and nothing is written into your
+  configuration.
+- **Every agent is told** that the task has a browser you see, to use it and never launch one
+  of its own, to open a tab of its own rather than act in one already open, and which of its
+  servers already act on it.
+- **`show_browser`**, on Swarmed's own server, opens the Browser pane on an address, or on the
+  task's running app, in a tab of the session's own, starting the browser if need be. It
+  answers with the address, the tabs and which of them is the session's. It only shows:
+  clicking, typing, reading and screenshots stay with the agent's own tools. The pane opens
+  when the session on screen works in that task.
+- **The pane follows the agents.** Each tab says which session's tools last acted in it, and
+  when a session's tools go to work in another tab than the one shown, the pane goes there. A
+  tab you went to yourself is left shown while the tools go on in the same one. Screenshots
+  they take show in the conversation as any tool's images do.
+
+Which servers are pointed:
+
+| Where the server is set up | Claude Code | Codex, OpenCode, Antigravity and other ACP agents |
+| --- | --- | --- |
+| Claude Code: your servers, yours for the repository, the repository's `.mcp.json` ones you approved, your plugins' | pointed: Swarmed hands Claude Code a pointed copy under the same name, which takes the place of its own | pointed, as Swarmed hands them over |
+| Codex's or OpenCode's own configuration | pointed, as Swarmed hands them over | for that agent itself: not pointed |
+| Swarmed's own, in Settings → MCP servers | pointed | pointed |
+
+- **Not pointed, left as they are:** a server that already says where its browser is
+  (`--cdp-endpoint`, `--extension`, `--browser-url`, `--ws-endpoint`, `--auto-connect`, or
+  `PLAYWRIGHT_MCP_CDP_ENDPOINT` in its variables); Playwright MCP on Firefox or WebKit; a
+  server reached over HTTP, which runs apart and takes no argument from Swarmed; other browser
+  servers, such as Puppeteer's or Browserbase's; and a server of the repository's `.mcp.json`
+  that Claude Code has not been allowed to start, which would start unasked if Swarmed handed
+  it over.
+- **An agent's own server stays its own.** Codex keeps a server of its own configuration even
+  when Swarmed hands it one of the same name, so its own Playwright MCP opens its own browser.
+  To have Codex act in the task's browser, take the server out of `~/.codex/config.toml` and
+  keep it in Claude Code's configuration or in Swarmed's: Swarmed then hands Codex a pointed
+  copy. The same holds for OpenCode.
+- **Tried with** Claude Code 2.1.332, Playwright MCP 0.0.85 and Chrome DevTools MCP 1.12.0,
+  Antigravity with the Playwright MCP Swarmed handed it, and codex-acp 2.7.0.
+
+What a page says is data: browser tools hand page text to the agent as they always do, and
+Swarmed adds nothing to it and logs none of it. A login you made in the task's browser can be
+used by the task's agents; that is what lets them check pages behind it.
+
 ## MCP servers: one pool
 
 When a session starts, Swarmed reads the MCP servers set up for Claude Code, Codex and OpenCode,
@@ -391,7 +451,8 @@ its own worktree as a must can still stop the agent or make it argue. What to do
 A skill can tell that it runs in a Swarmed task. Every agent is started with the task's
 variables, as hooks are, among them `SWARMED_TASK`, `SWARMED_BRANCH` and `SWARMED_WORKTREE` (see
 [Variables](configuration.md#variables)), so a skill of your own can skip its worktree step when
-`SWARMED_TASK` is set.
+`SWARMED_TASK` is set. `SWARMED_BROWSER` is the address of the task's browser, which a skill
+that checks pages can connect to instead of launching a browser.
 
 ## What Swarmed gives every agent
 
@@ -400,6 +461,7 @@ Every session gets an MCP server named `swarmed`, with these tools:
 | Tool | What it does |
 | --- | --- |
 | `show_html` | shows HTML in the conversation, in a sandboxed frame |
+| `show_browser` | opens the task's browser beside the conversation, on an address, in a tab of the session's own; see [The task's browser and your browser tools](#the-tasks-browser-and-your-browser-tools) |
 | `list_sessions`, `read_session` | see and read the other open sessions of the same project; from a chat, every open session. `read_session` reads the latest messages, or from one it is given (`from`), so a long conversation can be read from its start |
 | `send_message` | write to another session it can read, or to a chat, so that one a chat wrote to can answer it; queued if it is busy |
 | `spawn_session`, `close_session` | start a session in the same task, up to six, and close the idle ones it started |

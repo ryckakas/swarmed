@@ -34,6 +34,8 @@ pub struct BrowserTab {
     pub can_go_forward: bool,
     /// A dialog the page opened (`alert`, `confirm`, `prompt`), which holds it until answered.
     pub dialog: Option<PageDialog>,
+    /// The session whose browser tools last acted in it, through the session's address.
+    pub acted_by: Option<i64>,
 }
 
 /// A dialog a page opened, waiting for an answer.
@@ -118,6 +120,8 @@ pub(crate) struct Pane {
     sessions: HashMap<String, String>,
     shown: Option<String>,
     lines: u64,
+    /// The session that last acted in each tab, kept for a tab Chrome has not told of yet.
+    actors: HashMap<String, i64>,
 }
 
 impl Pane {
@@ -157,6 +161,28 @@ impl Pane {
         if self.has(tab) {
             self.sessions.insert(tab.to_string(), session.to_string());
         }
+    }
+
+    /// Notes that session `session`'s tools acted in `tab`. Says whether that changed what
+    /// the pane shows of it.
+    pub(crate) fn acted(&mut self, tab: &str, session: i64) -> bool {
+        if self.actors.get(tab) == Some(&session) {
+            return false;
+        }
+        self.actors.insert(tab.to_string(), session);
+        match self.tab_mut(tab) {
+            Some(found) => {
+                found.acted_by = Some(session);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The tabs session `session`'s tools last acted in, latest opened last.
+    pub(crate) fn tabs_of(&self, session: i64) -> Vec<BrowserTab> {
+        let own = |tab: &&BrowserTab| tab.acted_by == Some(session);
+        self.tabs.iter().filter(own).cloned().collect()
     }
 
     /// The lines `tab` logged that are kept, oldest first.
@@ -242,6 +268,7 @@ impl Pane {
             can_go_back: false,
             can_go_forward: false,
             dialog: None,
+            acted_by: self.actors.get(id).copied(),
         });
         vec![Change::Tabs, Change::Attach(id.to_string()), Change::Used]
     }
@@ -266,6 +293,7 @@ impl Pane {
         self.tabs.retain(|tab| tab.id != id);
         self.console.remove(id);
         self.sessions.remove(id);
+        self.actors.remove(id);
         if self.shown.as_deref() == Some(id) {
             self.shown = None;
         }
@@ -654,6 +682,21 @@ mod tests {
         // An event of a session nobody attached to belongs to no tab.
         let stray = json!({ "data": "", "sessionId": 1, "metadata": {} });
         assert_eq!(pane.apply(&on("X", "Page.screencastFrame", stray)), NONE);
+    }
+
+    #[test]
+    fn a_tab_says_which_session_acted_in_it_last_even_one_told_of_late() {
+        let mut pane = one_tab();
+        assert!(pane.acted("T", 4));
+        assert!(!pane.acted("T", 4));
+        assert_eq!(pane.tabs()[0].acted_by, Some(4));
+        // A tab a tool opened, acted in before Chrome tells Swarmed of it.
+        assert!(!pane.acted("U", 5));
+        pane.apply(&event("Target.targetCreated", page("U", "about:blank", "")));
+        assert_eq!(pane.tabs_of(5).len(), 1);
+        assert!(pane.acted("U", 4));
+        let ids: Vec<String> = pane.tabs_of(4).into_iter().map(|tab| tab.id).collect();
+        assert_eq!(ids, ["T", "U"]);
     }
 
     #[test]

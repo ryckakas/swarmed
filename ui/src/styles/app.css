@@ -7020,6 +7020,25 @@ kbd {
     animation: browser-loading 900ms ease-in-out infinite alternate;
 }
 
+/* A tab an agent's browser tools acted in. */
+.browser-agent {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--sky);
+}
+
+.browser-actor {
+    flex: none;
+    margin: 0;
+    padding: var(--space-1) var(--space-3);
+    border-bottom: 1px solid var(--line);
+    color: var(--muted);
+    font-size: var(--text-xs);
+    overflow-wrap: anywhere;
+}
+
 @keyframes browser-loading {
     from {
         opacity: 0.3;

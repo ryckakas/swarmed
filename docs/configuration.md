@@ -190,7 +190,7 @@ and a branch's name is never read as a command. The same values are exported to 
 `SWARMED_WORKTREE`, `SWARMED_REPO` and `SWARMED_PORT_<NAME>`.
 
 The task's agents get `env` and the same `SWARMED_*` variables, so a skill can tell that it runs
-in a task's own worktree. Claude Code gets no variable whose name starts with `ANTHROPIC_` or
+in a task's own worktree, and `SWARMED_BROWSER`, the address of the task's browser. Claude Code gets no variable whose name starts with `ANTHROPIC_` or
 `CLAUDE`.
 
 ## Ports
@@ -399,10 +399,15 @@ runs has a globe in the sidebar as well.
   composed with an input method arrives when it is done. Chrome's own clipboard is not yours,
   so ⌘C copies within the page only. **Open in browser** opens the address in your own
   browser, whose cookies are not the task's.
-- **Started when used**, when the pane opens or by `swarmed task browser <repository> <task>`,
-  which prints where its DevTools endpoint answers (`http://127.0.0.1:<port>`, and the
-  browser's WebSocket), for tools that drive a browser. It opens on the task's stack when that
-  answers. One Chrome serves all of a task's sessions.
+- **Started when used**, when the pane opens, when an agent's browser tools first connect to
+  its session's address, or by `swarmed task browser <repository> <task>`, which prints where
+  its DevTools endpoint answers (`http://127.0.0.1:<port>`, and the browser's WebSocket), for
+  tools that drive a browser. It opens on the task's stack when that answers. One Chrome serves
+  all of a task's sessions.
+- **Agents act in it** with their own browser tools, which Swarmed points at it: Playwright MCP
+  and Chrome DevTools MCP, or a script that connects to `SWARMED_BROWSER`. Each tab says which
+  session last acted in it, and the pane goes to the tab an agent works in. See
+  [The task's browser and your browser tools](coding-agents.md#the-tasks-browser-and-your-browser-tools).
 - **Stopped** when its task is put away or removed, when Swarmed quits, and after it sat
   unused for `browser_idle_minutes`; the power button in the pane, or `swarmed task browser
   --stop`, stops it at once. A browser the command line started runs on after the command

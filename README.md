@@ -48,7 +48,9 @@ once: each has its own worktree and ports, so they don't step on each other. A d
   network.
 - **A browser per task.** Each task can have a Chrome of its own, shown live beside its
   sessions: click and type in its page, read its console. Its profile is the task's own, so
-  what you sign in to there stays with the task and never reaches another's.
+  what you sign in to there stays with the task and never reaches another's. Agents' own
+  browser tools, Playwright MCP and Chrome DevTools MCP, act in it instead of opening windows,
+  so you watch them work.
 - **From issue to pull request.** A task started from one of the repository's GitHub issues,
   the task's diff, comments on lines sent back to the agent, commit, push, a pull request with
   its checks that closes the issue, and merging it, now or once its checks pass.

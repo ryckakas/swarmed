@@ -51,6 +51,14 @@ advisory is published with credit to you, unless you'd rather not be named.
   in (`--remote-allow-origins`). Its profile, which holds what you signed in to there, is the
   task's own, readable by you alone and deleted with the task. What a page shows or logs is
   shown to you and never logged.
+- **Agents' browser tools reach the task's browser through an address of their session's
+  own.** Swarmed listens at it on `127.0.0.1` only, on a port the system picks, and passes what
+  comes on to Chrome unchanged. A request a web page made is refused before Chrome is even
+  started: one with an `Origin`, one a browser marks as coming from a site, or one that names a
+  host other than this machine. On the way Swarmed reads only which tab a tool acts in, and
+  keeps or logs nothing of what passes. A login you made in the task's browser can be used by
+  the task's agents, as anything else in its profile can: that is what lets them check pages
+  behind it. Agents cannot change any of this through `configure`.
 - **An agent's HTML cannot reach the app.** Views are shown in a sandboxed frame on an origin of
   their own, under a policy that lets them make no request. A link in a view opens only when you
   press Open.

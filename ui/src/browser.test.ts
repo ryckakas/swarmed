@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserState, BrowserTab, ConsoleLine, Task } from "./api/types";
 import {
+    actorOf,
     addressOf,
+    askedToShow,
     consoleCounts,
     consoleMerged,
     isMissing,
     keyInput,
     minutesWithin,
     mouseInput,
+    openedBy,
     pagePoint,
     sameViewport,
     sessionForBrowser,
@@ -34,6 +37,7 @@ function tab(id: string, url: string, title = ""): BrowserTab {
         can_go_back: false,
         can_go_forward: false,
         dialog: null,
+        acted_by: null,
     };
 }
 
@@ -186,5 +190,28 @@ describe("the minutes an unused browser runs on", () => {
             45, 0, 1440,
         ]);
         expect(minutesWithin("soon")).toBe(30);
+    });
+});
+
+describe("an agent's acting in the task's browser", () => {
+    it("opens the pane only for the task on screen", () => {
+        const asked = { kind: "show", task_id: 4, session_id: 9, tab: "T2" } as const;
+        expect(askedToShow(asked, 4)).toEqual({ task: 4, tab: "T2" });
+        expect(askedToShow(asked, 5)).toBeNull();
+        expect(askedToShow(asked, null)).toBeNull();
+        const console = { kind: "console", task_id: 4, tab: "T2", line: line(1) } as const;
+        expect(askedToShow(console, 4)).toBeNull();
+        // Asked, the pane opens; forgetting the asking leaves it as it is.
+        expect(openedBy({ task: 4, tab: null }, false)).toBe(true);
+        expect(openedBy(null, false)).toBe(false);
+        expect(openedBy(null, true)).toBe(true);
+    });
+
+    it("names the session that acted in a tab, by its title or its number", () => {
+        const acted = { ...tab("T", "http://localhost:3000/"), acted_by: 7 };
+        expect(actorOf(acted, () => "Fix the cart")).toBe("Fix the cart");
+        expect(actorOf(acted, () => null)).toBe("session 7");
+        expect(actorOf(acted, () => "  ")).toBe("session 7");
+        expect(actorOf(tab("U", "about:blank"), () => "never asked")).toBeNull();
     });
 });

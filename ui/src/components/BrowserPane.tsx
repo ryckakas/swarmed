@@ -23,7 +23,9 @@ import type {
     Viewport,
 } from "../api/types";
 import {
+    actorOf,
     addressOf,
+    askedToShow,
     type Box,
     BROWSER_WIDTH,
     consoleCounts,
@@ -73,6 +75,26 @@ function useBrowserTask(): Task | null {
 }
 
 /**
+ * Opens the pane when an agent of the task on screen asks to show its browser
+ * (`show_browser`), on the tab it asked for. Mounted with the window, so that a closed pane
+ * opens too.
+ */
+export function useBrowserAsked() {
+    useEffect(() => {
+        const subscription = api.onBrowserEvent((event) => {
+            const { projects, selectedSessionId, askBrowser } = useStore.getState();
+            const session = findSession(projects, selectedSessionId);
+            const home = session && findSessionHome(projects, session);
+            const asked = askedToShow(event, home ? home.task.id : null);
+            if (asked !== null) {
+                askBrowser(asked);
+            }
+        });
+        return () => void subscription.then((unsubscribe) => unsubscribe());
+    }, []);
+}
+
+/**
  * The Browser pane beside the conversation: the task's own Chrome, live. Shown while it is
  * open and a session is on screen; its edge widens it.
  */
@@ -117,6 +139,7 @@ function BrowserPane({ task }: { task: Task }) {
     const { standing, show, retry } = useBrowser(task.id);
     const state = standing.kind === "running" ? standing.state : null;
     const tab = shownTab(state);
+    const actor = useActor(tab);
     return (
         <aside className="browser-pane" aria-label={`The browser of ${task.name}`}>
             <div className="browser-head">
@@ -126,6 +149,11 @@ function BrowserPane({ task }: { task: Task }) {
                 </IconButton>
             </div>
             {state && <Toolbar task={task.id} tab={tab} />}
+            {actor && (
+                <p className="browser-actor">
+                    The browser tools of <strong>{actor}</strong> acted in this tab last.
+                </p>
+            )}
             {tab?.dialog && <PageDialogBar task={task.id} tab={tab} />}
             <Picture task={task.id} tab={tab?.id ?? null} onViewport={show}>
                 <Standing standing={standing} retry={retry} task={task} />
@@ -142,9 +170,19 @@ function BrowserPane({ task }: { task: Task }) {
     );
 }
 
+/** Who last acted in `tab`, by their session's title. */
+function useActor(tab: BrowserTab | null): string | null {
+    const projects = useStore((state) => state.projects);
+    if (tab === null) {
+        return null;
+    }
+    return actorOf(tab, (id) => findSession(projects, id)?.title ?? null);
+}
+
 /**
  * Starts the task's browser as the pane opens, follows what it says, and shows its tab at the
- * pane's size. The pane going off screen asks for no more pictures.
+ * pane's size, or the tab an agent asked to show. The pane going off screen asks for no more
+ * pictures.
  */
 function useBrowser(task: number) {
     const [standing, setStanding] = useState<Standing>({ kind: "starting" });
@@ -157,30 +195,70 @@ function useBrowser(task: number) {
         setStanding(next);
     }, []);
     useStandingHeard(task, settle);
-    const again = () => {
-        if (active.current && viewport.current) {
-            void showing(task, null, viewport.current, settle);
-        }
-    };
-    useHiddenWithWindow(task, again);
-    const show = (wanted: Viewport | string) => {
-        const tab = typeof wanted === "string" ? wanted : null;
-        if (tab === null) {
-            const view = wanted as Viewport;
-            if (sameViewport(viewport.current, view)) {
-                return;
-            }
-            viewport.current = view;
-        }
+    const showTab = (tab: string | null) => {
         if (active.current && viewport.current) {
             void showing(task, tab, viewport.current, settle);
         }
     };
+    useHiddenWithWindow(task, () => showTab(null));
+    // Asked for by an agent, the browser starts again even where the user had stopped it.
+    const resized = useRoomAndAsking(task, viewport, showTab, () => {
+        active.current = true;
+    });
+    const show = (wanted: Viewport | string) =>
+        typeof wanted === "string" ? showTab(wanted) : resized(wanted);
     const retry = () => {
         settle({ kind: "starting" });
-        again();
+        showTab(null);
     };
     return { standing, show, retry };
+}
+
+/**
+ * Shows the page again when the pane's room is first known or changes, and the tab an agent
+ * asked for: at once, or once the room is known. Returns what to call with the room.
+ */
+function useRoomAndAsking(
+    task: number,
+    viewport: RefObject<Viewport | null>,
+    showTab: (tab: string | null) => void,
+    wake: () => void,
+) {
+    const waiting = useRef<string | null>(null);
+    useAskedTab(task, (tab) => {
+        wake();
+        if (viewport.current) {
+            showTab(tab);
+        } else {
+            waiting.current = tab;
+        }
+    });
+    return (view: Viewport) => {
+        const tab = waiting.current;
+        waiting.current = null;
+        if (sameViewport(viewport.current, view) && tab === null) {
+            return;
+        }
+        viewport.current = view;
+        showTab(tab);
+    };
+}
+
+/** Goes to the tab an agent asked to show in this task, once, and forgets the asking. */
+function useAskedTab(task: number, go: (tab: string) => void) {
+    const asked = useStore((state) => state.browserAsked);
+    const askBrowser = useStore((state) => state.askBrowser);
+    const going = useRef(go);
+    going.current = go;
+    useEffect(() => {
+        if (asked === null || asked.task !== task) {
+            return;
+        }
+        askBrowser(null);
+        if (asked.tab !== null) {
+            going.current(asked.tab);
+        }
+    }, [asked, task, askBrowser]);
 }
 
 /** Follows what the core says of the task's browser: its tabs, and whether it runs. */
@@ -355,7 +433,12 @@ function Tabs({
     return (
         <div className="browser-tabs" role="tablist" aria-label="Tabs">
             {state.tabs.map((tab) => (
-                <div key={tab.id} className="browser-tab" data-shown={tab.id === state.shown}>
+                <div
+                    key={tab.id}
+                    className="browser-tab"
+                    data-shown={tab.id === state.shown}
+                    data-agent={tab.acted_by !== null}
+                >
                     <button
                         type="button"
                         role="tab"
@@ -364,6 +447,9 @@ function Tabs({
                         onClick={() => show(tab.id)}
                     >
                         {tab.loading && <span className="browser-loading" title="Loading" />}
+                        {tab.acted_by !== null && !tab.loading && (
+                            <span className="browser-agent" title="An agent acted in it" />
+                        )}
                         {tabLabel(tab)}
                     </button>
                     <IconButton

@@ -20,24 +20,32 @@
 //!   published on a channel of their own ([`Core::subscribe_browsers`]) and never stored. The
 //!   user's clicks and keys go back as input events. No page ever runs in Swarmed's window.
 //! - **What a page shows or logs** is the user's: shown in the pane, never logged.
+//! - **Agents act on it with their own browser tools** (#384), through an address of their
+//!   session's own that starts it on the first connection (`address.rs`, `agents.rs`). The pane
+//!   names the session that last acted in each tab, and follows the tab acted in.
 
+mod address;
+mod agents;
 mod cdp;
 mod find;
 mod input;
 mod page;
 mod process;
+mod servers;
+mod watch;
 mod ws;
 
 use std::collections::HashMap;
 use std::fs::{File, TryLockError};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::{broadcast, mpsc};
 
+pub(crate) use agents::{AgentBrowser, BROWSER_ENV, instructions};
 pub use find::BrowserSetup;
 pub use input::{KeyInput, KeyKind, Modifiers, MouseInput, MouseKind};
 pub use page::{BrowserTab, ConsoleLevel, ConsoleLine, PageDialog};
@@ -130,6 +138,16 @@ pub enum BrowserEvent {
         /// The line.
         line: ConsoleLine,
     },
+    /// A session's agent asked for the browser to be shown to the user (`show_browser`): on
+    /// this tab, the session's own, if it has one.
+    Show {
+        /// The task whose browser it is.
+        task_id: i64,
+        /// The session that asked.
+        session_id: i64,
+        /// The tab to show.
+        tab: Option<String>,
+    },
 }
 
 /// The room the pane gives a page.
@@ -191,6 +209,11 @@ pub(crate) struct Browsers {
     /// One start at a time per task, in this process.
     gates: Mutex<HashMap<i64, Arc<tokio::sync::Mutex<()>>>>,
     bus: broadcast::Sender<BrowserEvent>,
+    /// The sessions' addresses this process listens at, by session.
+    addresses: Mutex<HashMap<i64, address::Address>>,
+    /// The core a connection to an address starts a browser with, once a front end serves
+    /// agents' tools; until then sessions get no address.
+    home: OnceLock<Weak<Core>>,
 }
 
 impl Default for Browsers {
@@ -199,6 +222,8 @@ impl Default for Browsers {
             connected: Mutex::default(),
             gates: Mutex::default(),
             bus: broadcast::Sender::new(BUFFER),
+            addresses: Mutex::default(),
+            home: OnceLock::new(),
         }
     }
 }
@@ -259,6 +284,8 @@ struct Browser {
     next_frame: Mutex<Instant>,
     /// When the shown tab's title was last read again.
     title_read: Mutex<Instant>,
+    /// The tab a session's tools last acted in, which the pane on screen goes to.
+    followed: Mutex<Option<String>>,
 }
 
 /// A Chrome that runs, as it is connected to.
@@ -287,6 +314,7 @@ impl Browser {
             viewport: Mutex::default(),
             next_frame: Mutex::new(Instant::now()),
             title_read: Mutex::new(Instant::now()),
+            followed: Mutex::default(),
         }
     }
 
@@ -405,6 +433,37 @@ impl Browser {
 }
 
 impl Browser {
+    /// Session `session`'s tools acted in `tab`: the tab says so, and the pane, while it is on
+    /// screen, goes to it if another tab was acted in before. A tab the user went to since is
+    /// left shown while the tools go on acting in the same one.
+    fn acted(self: &Arc<Self>, browsers: &Arc<Browsers>, tab: &str, session: i64) {
+        self.touch();
+        if lock(&self.pane).acted(tab, session) {
+            browsers.publish(BrowserEvent::State(self.state()));
+        }
+        let moved = {
+            let mut followed = lock(&self.followed);
+            let moved = followed.as_deref() != Some(tab);
+            *followed = Some(tab.to_string());
+            moved
+        };
+        if moved {
+            self.follow(browsers, tab);
+        }
+    }
+
+    /// Shows `tab` in the pane, if the pane is on screen on another tab and Chrome has told
+    /// of this one; a tab told of later is gone to as it is attached to.
+    fn follow(self: &Arc<Self>, browsers: &Arc<Browsers>, tab: &str) {
+        let shown = self.shown();
+        let has = lock(&self.pane).has(tab);
+        if shown.is_none() || shown.as_deref() == Some(tab) || !has {
+            return;
+        }
+        let going = go_to(Arc::clone(self), Arc::clone(browsers), tab.to_string());
+        drop(tokio::spawn(going));
+    }
+
     /// Whether the shown tab's title is to be read again now, which it then counts as.
     fn title_due(&self) -> bool {
         let mut read = lock(&self.title_read);
@@ -414,6 +473,18 @@ impl Browser {
         }
         due
     }
+}
+
+/// Shows `tab` in the pane in place of the tab shown, and says so.
+async fn go_to(browser: Arc<Browser>, browsers: Arc<Browsers>, tab: String) {
+    let Some((before, now)) = browser.shows(Some(&tab)) else {
+        return;
+    };
+    if let Some(before) = before.filter(|before| Some(before) != now.as_ref()) {
+        browser.uncast(&before).await;
+    }
+    browser.cast(&tab).await.ok();
+    browsers.publish(BrowserEvent::State(browser.state()));
 }
 
 /// Reads a tab's title and address again, as if Chrome had said they changed.
@@ -496,6 +567,9 @@ async fn attach(browser: Arc<Browser>, browsers: Arc<Browsers>, tab: String) {
     history(&browser, &browsers, &tab).await;
     if browser.shown().as_deref() == Some(tab.as_str()) {
         browser.cast(&tab).await.ok();
+    } else if lock(&browser.followed).as_deref() == Some(tab.as_str()) {
+        // A session's tools acted in it before Chrome told of it.
+        browser.follow(&browsers, &tab);
     }
 }
 
@@ -786,6 +860,7 @@ impl Core {
     /// Stops the task's Chrome and deletes its profile, for a task that goes. Returns what did
     /// not work, to be said.
     pub(crate) async fn browser_forget(&self, task: i64) -> Vec<String> {
+        lock(&self.browsers.addresses).retain(|_, address| address.task != task);
         let mut notes: Vec<String> = self.stop_browser(task).await.into_iter().collect();
         let folder = self.paths.browser(task);
         if let Err(error) = std::fs::remove_dir_all(&folder)

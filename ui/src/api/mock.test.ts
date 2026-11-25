@@ -413,6 +413,34 @@ describe("the mock's browsers", () => {
         await expect(api.browserText(idle.id, "late")).rejects.toThrow("not running");
     });
 
+    it("are acted in by the agent's tools on `browse`, in a tab the pane follows", async () => {
+        const api = createMockApi();
+        const session = 3;
+        const task = (await api.overview())
+            .flatMap((project) => project.tasks)
+            .find((one) => one.sessions.some((known) => known.id === session));
+        if (!task) {
+            throw new Error("the sample session has a task");
+        }
+        const heard: BrowserEvent[] = [];
+        await api.onBrowserEvent((event) => heard.push(event));
+        const said: SessionEvent["event"][] = [];
+        await api.onSessionEvent((published) => said.push(published.event));
+        await api.browserShow(task.id, null, view);
+        await api.sessionSend(session, "browse");
+        await expect
+            .poll(() => said.some((event) => event.type === "turn_done"), { timeout: 5000 })
+            .toBe(true);
+        const asked = heard.find((event) => event.kind === "show");
+        expect(asked?.kind === "show" && asked.session_id).toBe(session);
+        const state = await api.browserState(task.id);
+        const own = state.tabs.filter((tab) => tab.acted_by === session);
+        expect(own.map((tab) => tab.url)).toEqual(["http://localhost:5173/products"]);
+        expect(state.shown).toBe(own[0]?.id);
+        const failed = said.some((event) => event.type === "tool_result" && event.is_error);
+        expect(failed).toBe(false);
+    });
+
     it("offer to install one when the program set is missing", async () => {
         const api = createMockApi();
         const settings = await api.settings();

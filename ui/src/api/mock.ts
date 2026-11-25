@@ -5,7 +5,7 @@ import { calledCommand } from "../slash";
 import { PLAN_TOOL } from "../transcript";
 import { titleFrom } from "../tree";
 import type { Api } from "./client";
-import { browserApi } from "./mockBrowser";
+import { browserApi, MockBrowsers } from "./mockBrowser";
 import { MOCK_COMMANDS, mockQuestions, mockSaid, mockScreen, mockScreenOnly } from "./mockCommands";
 import {
     CONTINUE_MESSAGE,
@@ -79,7 +79,8 @@ import type {
 // that full (`warn <percent> <seconds>`: one that resets that soon), `limit <seconds>` ends its
 // turn refused by a 5-hour limit that resets that soon, `slow` runs until interrupted,
 // `long: <command>` runs a command the turn waits on until it is sent to the background or
-// stopped, and `screenshot` checks a page in a browser, whose last call returns an image.
+// stopped, `screenshot` checks a page in a browser, whose last call returns an image, and
+// `browse` opens the task's browser with `show_browser` and acts in its own tab there.
 
 // `show` answers with this view: a chart in the app's colours, with buttons that redraw it.
 const SAMPLE_VIEW = `<style>
@@ -1837,6 +1838,8 @@ class MockAgent {
     private nextId = 100;
     /** The images the agent's tools returned, by path, as the core keeps them. */
     readonly returned = new Map<string, string>();
+    /** The tasks' browsers, which `browse` acts in as an agent's browser tools would. */
+    browsers: MockBrowsers | null = null;
 
     constructor() {
         // The core follows pull requests and says what changed; here, one check fails.
@@ -2257,6 +2260,8 @@ class MockAgent {
             this.showView(id, done);
         } else if (text === "screenshot") {
             this.checkInBrowser(id, done);
+        } else if (text === "browse") {
+            this.browse(id, done);
         } else if (text.startsWith("switch ")) {
             this.switchWorktree(id, text.slice(7).trim(), done);
         } else if (text.startsWith("elsewhere:")) {
@@ -2442,6 +2447,64 @@ class MockAgent {
             "The settings page saves: the form shows the new values, with a notice under it.";
         this.later(id, { type: "text", text: said }, "working", check.events.length + 1);
         this.later(id, done, "idle", check.events.length + 2);
+    }
+
+    /**
+     * Looks at the shop in the task's browser as an agent with Playwright MCP does: opens it
+     * with `show_browser`, in a tab of its own that the pane goes to, then types and clicks
+     * there through its own browser tools.
+     */
+    private browse(id: number, done: AgentEvent) {
+        const task = (this.configure(id, {}) as Session).task_id;
+        const url = "localhost:5173/products";
+        const steps: [string, Record<string, unknown>, () => string][] = [
+            [
+                "mcp__swarmed__show_browser",
+                { url },
+                () => {
+                    const tab = this.browsers?.shownFor(task, id, url) ?? "";
+                    return `The task's browser is open beside the conversation, where the user sees it, on http://${url} (tab ${tab}).`;
+                },
+            ],
+            [
+                "mcp__playwright__browser_type",
+                { element: "Search products", text: "linen" },
+                () => {
+                    this.browsers?.actedFor(task, id, { type: "linen" });
+                    return "Typed into the search field.";
+                },
+            ],
+            [
+                "mcp__playwright__browser_click",
+                { element: "Linen shirt: 49 €" },
+                () => {
+                    this.browsers?.actedFor(task, id, { click: { x: 140, y: 182 } });
+                    return "Clicked the product.";
+                },
+            ],
+        ];
+        steps.forEach(([name, input, act], at) => {
+            const call = `browse-${this.nextId++}`;
+            this.later(id, { type: "tool_use", id: call, name, input }, "working", 2 * at + 1);
+            setTimeout(() => this.acted(id, call, act), PACE * (2 * at + 2));
+        });
+        const said =
+            "Searching the shop for linen finds the linen shirt, and its page opens. I did it in the task's browser beside us.";
+        this.later(id, { type: "text", text: said }, "working", 2 * steps.length + 1);
+        this.later(id, done, "idle", 2 * steps.length + 2);
+    }
+
+    /** What a browser tool did, as its call's result: what it says, or why it could not. */
+    private acted(id: number, call: string, act: () => string) {
+        let content: string;
+        let is_error = false;
+        try {
+            content = act();
+        } catch (error) {
+            content = String(error);
+            is_error = true;
+        }
+        this.publish(id, { type: "tool_result", tool_use_id: call, content, is_error }, "working");
     }
 
     private showView(id: number, done: AgentEvent) {
@@ -3209,6 +3272,13 @@ export function createMockApi(): Api {
         browser_program: "",
         browser_idle_minutes: 30,
     };
+    const browserHost = {
+        projects: () => agent.projects,
+        settings: () => settings,
+        publish: (id: number, event: AgentEvent) => agent.publish(id, event, null),
+    };
+    const browsers = new MockBrowsers(browserHost);
+    agent.browsers = browsers;
     return {
         overview: async () => structuredClone(agent.projects),
         ...images,
@@ -3276,11 +3346,7 @@ export function createMockApi(): Api {
             publish: (id, event) => agent.publish(id, event, null),
             stop: (id) => agent.stopAgent(id),
         }),
-        ...browserApi({
-            projects: () => agent.projects,
-            settings: () => settings,
-            publish: (id, event) => agent.publish(id, event, null),
-        }),
+        ...browserApi(browsers, browserHost),
         ...putAwayApi({
             projects: () => agent.projects,
             settings: () => settings,

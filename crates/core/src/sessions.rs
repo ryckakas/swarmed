@@ -19,6 +19,7 @@ use crate::agent::{
     SessionSpec, Supervision,
 };
 use crate::agents::CLAUDE;
+use crate::browser::{self, AgentBrowser};
 use crate::chats;
 use crate::checkpoints;
 use crate::commands::SlashCommand;
@@ -1042,6 +1043,9 @@ impl Core {
         // One set up here goes before another agent's of the same name.
         mcp_servers.retain(|shared| own.iter().all(|server| server.name != shared.name));
         mcp_servers.extend(own);
+        // The user's own browser servers act on the task's browser, through the session's
+        // address, which its agent and what it runs also find in a variable.
+        let browser = self.browser_for_agent(&session, &task, &mut mcp_servers);
         mcp_servers.extend(self.own_tools(session.id, spool));
         let mut env = if session.agent == CLAUDE {
             SecretEnv::default()
@@ -1050,11 +1054,16 @@ impl Core {
         };
         // What the task's environment sets for its hooks, the agent working in it gets too.
         env.0.extend(self.task_env(&task)?);
+        if let Some(browser) = &browser {
+            env.0
+                .push((browser::BROWSER_ENV.to_string(), browser.endpoint.clone()));
+        }
+        let guidance = self.guidance(&settings, &session.agent, &task, browser.as_ref());
         Ok(SessionSpec {
             mcp_servers,
             skills: self.skills_had(&session.agent, &task.worktree_path),
             env,
-            append_system_prompt: Some(self.guidance(&settings, &session.agent, &task)),
+            append_system_prompt: Some(guidance),
             cwd: task.worktree_path,
             model: session.model,
             supervision: session.supervision,
@@ -1079,8 +1088,15 @@ impl Core {
     /// What every agent is told by Swarmed, on top of what it knows by itself: the user's own
     /// rules, if they wrote any; to keep to its task's branch and worktree, or in a chat that
     /// it has neither; about the other sessions, when there is a tool server to reach them
-    /// through; and about showing views, when the user has those switched on.
-    fn guidance(&self, settings: &Settings, agent: &str, task: &Task) -> String {
+    /// through; about the task's browser, when the session has an address of it; and about
+    /// showing views, when the user has those switched on.
+    fn guidance(
+        &self,
+        settings: &Settings,
+        agent: &str,
+        task: &Task,
+        browser: Option<&AgentBrowser>,
+    ) -> String {
         let rules = settings.rules.trim();
         let rules = (!rules.is_empty()).then(|| format!("{RULES_HEADING}\n{rules}"));
         let branch = if self.is_chat(task) {
@@ -1092,11 +1108,13 @@ impl Core {
         // Handed over through the tool server, so only worth naming when there is one.
         let skills = sessions.and_then(|_| self.skills_guidance(agent, &task.worktree_path));
         let views = settings.html_views.then_some(views::INSTRUCTIONS);
+        let browser = browser.map(browser::instructions);
         let parts = [
             rules.as_deref(),
             Some(branch.as_str()),
             sessions,
             skills.as_deref(),
+            browser.as_deref(),
             views,
         ];
         let parts: Vec<&str> = parts.into_iter().flatten().collect();
@@ -1516,6 +1534,7 @@ impl Core {
         std::fs::remove_dir_all(self.private_dir(id)).ok();
         self.forget_images(id);
         self.forget_run_lock(id);
+        self.browser_address_forget(id);
         self.store().session_delete(id)?;
         // Only told, not recorded: there is no session left to record it in.
         self.live.note(&self.store, id, AgentEvent::Deleted)

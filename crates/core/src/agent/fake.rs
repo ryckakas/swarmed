@@ -11,10 +11,25 @@ use super::{
     RemoteState, ScreenKind, ScreenRow, ScreenSection, SessionSpec, Supervision, UsageLimit,
 };
 use crate::error::Result;
+use crate::mcp::McpTransport;
 use crate::returned::Taking;
 
 /// What `screenshot` returns: a PNG of two by two pixels.
 const SCREENSHOT: &str = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAE0lEQVR42mPQiDoBRAxA/OHDBwAlUgav0sDuFwAAAABJRU5ErkJggg==";
+
+/// What an MCP server runs, or where it is reached: never what its variables hold.
+fn run_by(server: &crate::mcp::McpServer) -> String {
+    match &server.transport {
+        McpTransport::Stdio { command, args, .. } => {
+            let words: Vec<&str> = std::iter::once(command)
+                .chain(args)
+                .map(String::as_str)
+                .collect();
+            words.join(" ")
+        }
+        McpTransport::Http { url, .. } => url.clone(),
+    }
+}
 
 /// A stand-in agent whose replies depend only on the user's message.
 ///
@@ -22,6 +37,8 @@ const SCREENSHOT: &str = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAE0lEQV
 /// - `run: <command>`: asks permission for a `Bash` tool call, then reports the outcome; a stop
 ///   meanwhile takes the request back and ends the turn;
 /// - `env: <NAME>`: replies with the value of that variable as given for the session, or `unset`;
+/// - `mcp: <name>`: replies with the command and arguments of the MCP server of that name it
+///   was given, or `none`; never what the server's variables hold;
 /// - `write: <path> = <text>`: writes `<text>` and a line end into the file at `<path>` in the
 ///   session's folder, says so and ends the turn;
 /// - `slow`: starts a turn that only ends when interrupted;
@@ -394,6 +411,16 @@ impl Script {
                     .map_or("unset", |(_, value)| value.as_str())
                     .to_string(),
             );
+            self.emit(done(false, None));
+            return Next::Continue;
+        }
+        if let Some(name) = message.strip_prefix("mcp:") {
+            let given = self
+                .spec
+                .mcp_servers
+                .iter()
+                .find(|server| server.name == name.trim());
+            self.text(given.map_or_else(|| "none".to_string(), run_by));
             self.emit(done(false, None));
             return Next::Continue;
         }

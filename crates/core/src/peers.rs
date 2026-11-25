@@ -21,7 +21,7 @@ use crate::error::{Error, Result};
 use crate::paths::SOCKET_PREFIX;
 use crate::sessions::{Session, SessionOptions, SessionStatus};
 use crate::store::Project;
-use crate::toolserver::DELEGATE_TO_CLOUD;
+use crate::toolserver::{DELEGATE_TO_CLOUD, SHOW_BROWSER};
 use crate::{Core, Task, rewind};
 
 /// How many sessions one session may have started that are still open. A runaway agent stops
@@ -658,10 +658,10 @@ async fn answer(core: Arc<Core>, stream: UnixStream) -> std::io::Result<()> {
         .and_then(Value::as_str)
         .unwrap_or_default();
     let arguments = request.get("arguments").unwrap_or(&Value::Null);
-    let called = if tool == DELEGATE_TO_CLOUD {
-        core.peer_delegate(from, arguments).await
-    } else {
-        core.peer_call(from, tool, arguments)
+    let called = match tool {
+        DELEGATE_TO_CLOUD => core.peer_delegate(from, arguments).await,
+        SHOW_BROWSER => core.browser_show_for(from, arguments).await,
+        _ => core.peer_call(from, tool, arguments),
     };
     let reply = match called {
         Ok(text) => json!({ "ok": true, "text": text }),
@@ -696,8 +696,11 @@ async fn sweep(folder: &Path) {
 /// Listens for the tool servers of this core's sessions until the core's front end exits.
 ///
 /// A front end runs this next to its sessions. Without it the session tools answer that they
-/// are not available; showing views does not depend on it.
+/// are not available; showing views does not depend on it. From when it runs, each session
+/// that starts is also given an address of the task's browser, which Swarmed listens at
+/// (`browser/address.rs`).
 pub async fn serve_session_tools(core: Arc<Core>) -> Result<()> {
+    core.browsers_listen();
     let socket = core.paths().tools_socket();
     if let Some(folder) = socket.parent() {
         tokio::fs::create_dir_all(folder).await?;

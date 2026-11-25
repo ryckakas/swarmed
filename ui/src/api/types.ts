@@ -1475,6 +1475,8 @@ export interface BrowserTab {
     can_go_back: boolean;
     can_go_forward: boolean;
     dialog: PageDialog | null;
+    /** The session whose browser tools last acted in it. */
+    acted_by: number | null;
 }
 
 /** What the Browser pane shows of a task's Chrome. */
@@ -1520,7 +1522,9 @@ export type BrowserEvent =
           height: number;
       }
     | ({ kind: "state" } & BrowserState)
-    | { kind: "console"; task_id: number; tab: string; line: ConsoleLine };
+    | { kind: "console"; task_id: number; tab: string; line: ConsoleLine }
+    /** A session's agent asked for the browser to be shown (`show_browser`), on its tab. */
+    | { kind: "show"; task_id: number; session_id: number; tab: string | null };
 
 /** The room the pane gives a page: CSS pixels, and screen pixels per CSS pixel. */
 export interface Viewport {

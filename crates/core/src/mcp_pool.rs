@@ -69,6 +69,19 @@ impl Paths {
         pooled(agent, sources, &has)
     }
 
+    /// Claude Code's own servers for a session in `worktree` of the repository at `repo`, by
+    /// the names it starts them under: the user's, those of the repository's it was allowed
+    /// to start, and its plugins'. One it would ask about first is not among them: handed
+    /// over under its name, it would start without that question.
+    pub(crate) fn claude_code_own_servers(&self, repo: &Path, worktree: &Path) -> Vec<McpServer> {
+        let mut own = mcp::claude_code_servers_to_share(&self.claude_config, repo, worktree);
+        let home = self.claude_config.parent().map(|home| home.join(".claude"));
+        if let Some(home) = home {
+            own.extend(mcp_plugins::plugin_servers_as_claude_code_names_them(&home));
+        }
+        own
+    }
+
     /// Claude Code's servers: the ones its plugins bring, and the ones `configured`, which
     /// go before a plugin's of the same name.
     fn claude_code_servers(&self, configured: Vec<McpServer>) -> Vec<McpServer> {

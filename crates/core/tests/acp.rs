@@ -10,7 +10,7 @@ use serde_json::json;
 use swarmed_core::agent::{AcpBackend, AgentEvent, Auth, Effort, FakeBackend, Supervision};
 use swarmed_core::{
     AgentInfo, Core, Error, McpServerInput, NewTaskOptions, RemoveOptions, SessionEvent,
-    SessionOptions, SessionSettings, SessionStatus, hooks,
+    SessionOptions, SessionSettings, SessionStatus, hooks, serve_session_tools,
 };
 use tokio::sync::broadcast::Receiver;
 
@@ -930,6 +930,42 @@ async fn an_acp_agent_is_given_swarmeds_guidance_once_with_its_first_message() {
     core.session_send(id, "guidance").expect("sends");
     let second = turn(&mut bus, id).await;
     assert!(second.contains(&text("guidance: none")), "{second:?}");
+}
+
+/// The words of the agent's replies in `events`.
+fn words(events: &[AgentEvent]) -> String {
+    let said = events.iter().filter_map(|event| match event {
+        AgentEvent::Text { text } => Some(text.as_str()),
+        _ => None,
+    });
+    said.collect()
+}
+
+#[tokio::test]
+async fn an_acp_agent_is_given_the_users_browser_servers_pointed_and_told_of_the_browser() {
+    let fx = fixture();
+    let config = json!({ "mcpServers": {
+        "playwright": { "command": "npx", "args": ["@playwright/mcp@latest"] },
+    }});
+    std::fs::write(&fx.paths.claude_config, config.to_string()).expect("writes");
+    let core = Arc::new(core_with(&fx, scripted_agent(&[])).await);
+    drop(tokio::spawn(serve_session_tools(Arc::clone(&core))));
+    let socket = core.paths().tools_socket();
+    while !socket.exists() {
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+
+    core.session_send(id, "guidance browser").expect("sends");
+    let told = turn(&mut bus, id).await;
+    assert!(told.contains(&text("browser: yes")), "{told:?}");
+    core.session_send(id, "mcp args").expect("sends");
+    let said = words(&turn(&mut bus, id).await);
+    assert!(
+        said.contains("playwright: npx @playwright/mcp@latest --cdp-endpoint http://127.0.0.1:"),
+        "{said}"
+    );
 }
 
 #[tokio::test]

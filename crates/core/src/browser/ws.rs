@@ -331,6 +331,150 @@ fn masked(bytes: &mut [u8], mask: [u8; 4]) {
     }
 }
 
+/// The largest message [`Unframer`] reads; a larger one passes unread. What it looks for is
+/// a few hundred bytes, and a picture of a page is megabytes.
+pub(crate) const MAX_READ: usize = 256 * 1024;
+
+/// Reads the text messages out of one direction of a WebSocket connection as it passes,
+/// without changing what passes: a client's frames, masked, or a server's.
+///
+/// Only what is short enough is read; a longer message is passed over, frame by frame, and
+/// never held. With `after_head`, the server's answer to the handshake comes first and is
+/// passed over too.
+#[derive(Debug, Default)]
+pub(crate) struct Unframer {
+    buffer: Vec<u8>,
+    /// Whether the answer to the handshake is still to be passed over.
+    in_head: bool,
+    /// How much of a frame too long to read is still to come.
+    passing: usize,
+    /// The message being put together from its frames, while it is short enough.
+    gathering: Option<Vec<u8>>,
+}
+
+impl Unframer {
+    /// Reads a server's side, which starts with its answer to the handshake.
+    pub(crate) fn after_head() -> Self {
+        Self {
+            in_head: true,
+            ..Self::default()
+        }
+    }
+
+    /// Takes in what passed next, and returns the text messages it completed.
+    pub(crate) fn push(&mut self, bytes: &[u8]) -> Vec<Vec<u8>> {
+        let passed = self.passing.min(bytes.len());
+        self.passing -= passed;
+        self.buffer.extend_from_slice(&bytes[passed..]);
+        let mut read = Vec::new();
+        if !self.past_head() {
+            return read;
+        }
+        loop {
+            match self.next_frame() {
+                Step::Wait => return read,
+                Step::Read(message) => read.extend(message),
+            }
+        }
+    }
+
+    /// Passes over the answer to the handshake, if it is still to come. Says whether it has
+    /// been.
+    fn past_head(&mut self) -> bool {
+        if !self.in_head {
+            return true;
+        }
+        let Some(end) = find(&self.buffer, b"\r\n\r\n") else {
+            return false;
+        };
+        self.buffer.drain(..end + 4);
+        self.in_head = false;
+        true
+    }
+
+    /// Takes the next whole frame off the buffer, with the message it completed if any.
+    fn next_frame(&mut self) -> Step {
+        let Some((head, length, mask)) = frame_head(&self.buffer) else {
+            return Step::Wait;
+        };
+        let (fin, opcode) = (self.buffer[0] & 0x80 != 0, self.buffer[0] & 0x0F);
+        if length > MAX_READ {
+            self.pass_over(head, length, opcode);
+            return Step::Read(None);
+        }
+        if self.buffer.len() < head + length {
+            return Step::Wait;
+        }
+        let mut payload: Vec<u8> = self.buffer.drain(..head + length).skip(head).collect();
+        if let Some(mask) = mask {
+            masked(&mut payload, mask);
+        }
+        Step::Read(self.gathered(opcode, fin, payload))
+    }
+
+    /// Passes over a frame too long to read, and the message it belongs to.
+    fn pass_over(&mut self, head: usize, length: usize, opcode: u8) {
+        let here = self.buffer.len().saturating_sub(head).min(length);
+        self.buffer.drain(..head + here);
+        self.passing = length - here;
+        let control = matches!(opcode, PING | PONG | CLOSE);
+        if !control {
+            self.gathering = None;
+        }
+    }
+
+    /// Adds a frame's payload to the message it belongs to, and returns the message once it
+    /// is whole.
+    fn gathered(&mut self, opcode: u8, fin: bool, payload: Vec<u8>) -> Option<Vec<u8>> {
+        match opcode {
+            TEXT => self.gathering = Some(payload),
+            CONTINUATION => self.gathering.as_mut()?.extend_from_slice(&payload),
+            BINARY => self.gathering = None,
+            _ => {}
+        }
+        let long = self
+            .gathering
+            .as_ref()
+            .is_some_and(|so_far| so_far.len() > MAX_READ);
+        if long {
+            self.gathering = None;
+        }
+        let ends = fin && matches!(opcode, TEXT | CONTINUATION);
+        if ends { self.gathering.take() } else { None }
+    }
+}
+
+/// What reading the next frame came to.
+enum Step {
+    /// The frame is not whole yet.
+    Wait,
+    /// It was taken off, with the message it completed, if any.
+    Read(Option<Vec<u8>>),
+}
+
+/// A frame's head at the start of `bytes`: its length, the length of its payload and its
+/// mask; `None` until the whole head is there.
+fn frame_head(bytes: &[u8]) -> Option<(usize, usize, Option<[u8; 4]>)> {
+    let second = *bytes.get(1)?;
+    let (mut head, length) = match second & 0x7F {
+        126 => (
+            4,
+            u64::from(u16::from_be_bytes(bytes.get(2..4)?.try_into().ok()?)),
+        ),
+        127 => (10, u64::from_be_bytes(bytes.get(2..10)?.try_into().ok()?)),
+        short => (2, u64::from(short)),
+    };
+    let mask = if second & 0x80 == 0 {
+        None
+    } else {
+        let mask: [u8; 4] = bytes.get(head..head + 4)?.try_into().ok()?;
+        head += 4;
+        Some(mask)
+    };
+    let length = usize::try_from(length).unwrap_or(usize::MAX);
+    Some((head, length, mask))
+}
+
 /// The server's side of the protocol, for the stand-in Chrome the tests talk to.
 #[cfg(test)]
 pub(crate) mod serving {
@@ -439,6 +583,54 @@ mod tests {
         assert_ne!(payload, b"Hello");
         masked(&mut payload, mask);
         assert_eq!(payload, b"Hello");
+    }
+
+    /// A frame as a server sends it, unmasked.
+    fn unmasked(first: u8, payload: &[u8]) -> Vec<u8> {
+        let mut sent = frame(first & 0x0F, payload, [0; 4]);
+        sent[0] = first;
+        // The same frame with no mask: the bit off, and the four bytes of the key gone.
+        let at = sent.len() - payload.len() - 4;
+        sent[1] &= 0x7F;
+        sent.drain(at..at + 4);
+        sent
+    }
+
+    #[test]
+    fn messages_are_read_as_they_pass_however_the_bytes_are_cut() {
+        let mut sent = frame(TEXT, br#"{"id":1}"#, [9, 8, 7, 6]);
+        sent.extend(frame(TEXT, &[b'x'; 300], [1, 2, 3, 4]));
+        let mut unframer = Unframer::default();
+        let mut read = Vec::new();
+        for byte in &sent {
+            read.extend(unframer.push(std::slice::from_ref(byte)));
+        }
+        assert_eq!(read, [br#"{"id":1}"#.to_vec(), vec![b'x'; 300]]);
+    }
+
+    #[test]
+    fn a_servers_side_starts_after_its_answer_and_puts_pieces_together() {
+        let mut passed = b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\n".to_vec();
+        passed.extend(unmasked(TEXT, b"{\"method\":"));
+        passed.extend(unmasked(0x80 | PING, b"hi"));
+        passed.extend(unmasked(0x80 | CONTINUATION, b"\"x\"}"));
+        let mut unframer = Unframer::after_head();
+        let (head, rest) = passed.split_at(20);
+        assert_eq!(unframer.push(head), Vec::<Vec<u8>>::new());
+        assert_eq!(unframer.push(rest), [br#"{"method":"x"}"#.to_vec()]);
+    }
+
+    #[test]
+    fn a_message_too_long_to_read_passes_and_the_next_is_read() {
+        let mut passed = unmasked(0x80 | TEXT, &vec![b'p'; MAX_READ + 10]);
+        passed.extend(unmasked(0x80 | TEXT, b"next"));
+        let mut unframer = Unframer::default();
+        let mut read = Vec::new();
+        for piece in passed.chunks(4096) {
+            read.extend(unframer.push(piece));
+        }
+        assert_eq!(read, [b"next".to_vec()]);
+        assert!(unframer.buffer.len() < 4096);
     }
 
     #[test]

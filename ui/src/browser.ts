@@ -267,3 +267,40 @@ export function sessionForBrowser(task: Task, selected: number | null): number |
     }
     return task.sessions.at(-1)?.id ?? null;
 }
+
+/** A tab an agent asked to show, for the pane of its task. */
+export interface BrowserAsked {
+    task: number;
+    tab: string | null;
+}
+
+/**
+ * What an agent's `show_browser` opens: the pane, on its tab, when the session on screen works
+ * in the same task; nothing otherwise, since the pane shows the browser of the task on screen.
+ */
+export function askedToShow(event: BrowserEvent, shownTask: number | null): BrowserAsked | null {
+    if (event.kind !== "show" || event.task_id !== shownTask) {
+        return null;
+    }
+    return { task: event.task_id, tab: event.tab };
+}
+
+/**
+ * Who last acted in a tab, as the pane names them: the title of the session whose browser
+ * tools did, `null` for a tab none did. A session gone since is named by its number.
+ */
+export function actorOf(
+    tab: BrowserTab,
+    titleOf: (session: number) => string | null,
+): string | null {
+    if (tab.acted_by === null) {
+        return null;
+    }
+    const title = titleOf(tab.acted_by)?.trim();
+    return title || `session ${tab.acted_by}`;
+}
+
+/** Whether the pane is open once an agent asked for it (`asked`), or the asking is forgotten. */
+export function openedBy(asked: BrowserAsked | null, open: boolean): boolean {
+    return asked !== null || open;
+}

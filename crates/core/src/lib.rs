@@ -183,7 +183,7 @@ pub use templates::Template;
 pub use termconfig::{Cursor, TerminalColour, TerminalColours, TerminalConfig, terminal_schema};
 use terminal::Terminals;
 pub use terminal::{TerminalOpened, TerminalOutput};
-pub use toolserver::{SERVER_NAME, SHOW_HTML, TOOL_SERVER_ARG, serve_tools};
+pub use toolserver::{SERVER_NAME, SHOW_BROWSER, SHOW_HTML, TOOL_SERVER_ARG, serve_tools};
 pub use usage::{ProcessUsage, SessionUsage, Usage, WorktreeUsage};
 pub use views::VIEW_POLICY;
 use views::ViewStore;

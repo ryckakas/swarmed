@@ -4,7 +4,7 @@ import { applyAppearance, customCss, drawCustom } from "./appearance";
 import icon from "./assets/icon.jpg";
 import { BROWSER_WIDTH } from "./browser";
 import { BannerDialog } from "./components/BannerDialog";
-import { BrowserColumn } from "./components/BrowserPane";
+import { BrowserColumn, useBrowserAsked } from "./components/BrowserPane";
 import { CloseSessionDialog } from "./components/CloseSessionDialog";
 import { CloudDialog } from "./components/CloudDialog";
 import { CloudDiffDialog } from "./components/CloudDiffDialog";
@@ -31,6 +31,7 @@ import { useHotkeys } from "./useHotkeys";
 export function App() {
     useEffect(() => connect(api), []);
     useHotkeys();
+    useBrowserAsked();
     const load = useStore((state) => state.load);
     const settings = useStore((state) => state.settings);
     const customLayout = useStore((state) => state.customLayout);

@@ -3,7 +3,8 @@
 // follows the address, the clicks and what is typed, so that the pane can be tried in a plain
 // browser. An address with `console` in it logs a line, one with `alert` opens a dialog, one
 // with `refused` fails as Chrome does. A browser program in the settings with `missing` in it
-// is not found, so that the offer to install one shows.
+// is not found, so that the offer to install one shows. The mock agent acts in it as an
+// agent's browser tools would (`browse`): in a tab of its session's own, which the pane follows.
 
 import type { Api } from "./client";
 import { MOCK_SCREENSHOT } from "./mockScreenshot";
@@ -40,6 +41,8 @@ interface Page {
     click: { x: number; y: number } | null;
     console: ConsoleLine[];
     dialog: PageDialog | null;
+    /** The session whose browser tools last acted in it. */
+    actedBy: number | null;
 }
 
 interface Browser {
@@ -93,7 +96,7 @@ function titleOf(url: string): string {
 }
 
 /** The sample tasks' browsers, kept as the core keeps them. */
-class MockBrowsers {
+export class MockBrowsers {
     private browsers = new Map<number, Browser>();
     private listeners = new Set<(event: BrowserEvent) => void>();
     private pages = 0;
@@ -142,6 +145,7 @@ class MockBrowsers {
             click: null,
             console: [],
             dialog: null,
+            actedBy: null,
         };
     }
 
@@ -270,7 +274,7 @@ class MockBrowsers {
         this.arrived(id, page);
     }
 
-    private goTo(id: number, page: Page, url: string) {
+    goTo(id: number, page: Page, url: string) {
         if (url.includes("refused")) {
             throw new Error(
                 `the browser of \`${this.task(id).name}\`: net::ERR_CONNECTION_REFUSED`,
@@ -297,6 +301,54 @@ class MockBrowsers {
             browser.shown = null;
         }
         this.told(id);
+    }
+
+    /**
+     * What `show_browser` does for session `session`: the task's browser on `url`, in a tab of
+     * the session's own, and the pane asked to show it. Returns the tab.
+     */
+    shownFor(id: number, session: number, url: string): string {
+        const browser = this.start(id);
+        const address = mockAddress(url);
+        const own = browser.pages.findLast((page) => page.actedBy === session);
+        const free = browser.pages.find(
+            (page) => page.actedBy === null && page.history[page.current] === "about:blank",
+        );
+        const page = own ?? free ?? this.page(address);
+        if (!browser.pages.includes(page)) {
+            browser.pages.push(page);
+        }
+        if (page.history[page.current] !== address) {
+            this.goTo(id, page, address);
+        }
+        this.actedIn(id, session, page);
+        this.emit({ kind: "show", task_id: id, session_id: session, tab: page.id });
+        return page.id;
+    }
+
+    /** What a session's browser tools do in its tab: a click where it points, or text typed. */
+    actedFor(
+        id: number,
+        session: number,
+        act: { click?: { x: number; y: number }; type?: string },
+    ) {
+        const page = this.running(id).pages.findLast((one) => one.actedBy === session);
+        if (!page) {
+            return;
+        }
+        page.click = act.click ?? page.click;
+        page.typed += act.type ?? "";
+        this.actedIn(id, session, page);
+    }
+
+    /** The session acted in `page`: the tab says so, and a pane on screen goes to it. */
+    private actedIn(id: number, session: number, page: Page) {
+        const browser = this.running(id);
+        page.actedBy = session;
+        if (browser.shown !== null) {
+            browser.shown = page.id;
+        }
+        this.arrived(id, page);
     }
 
     console(id: number, tab: string): ConsoleLine[] {
@@ -331,6 +383,7 @@ function tabOf(page: Page): BrowserTab {
         can_go_back: page.current > 0,
         can_go_forward: page.current < page.history.length - 1,
         dialog: page.dialog,
+        acted_by: page.actedBy,
     };
 }
 
@@ -349,8 +402,7 @@ function keyed(page: Page, input: KeyInput) {
 const MISSING =
     "no Google Chrome, Chromium, Microsoft Edge or Brave was found: install one, or set the browser's program in Settings";
 
-export function browserApi(host: BrowserHost): BrowserApi {
-    const browsers = new MockBrowsers(host);
+export function browserApi(browsers: MockBrowsers, host: BrowserHost): BrowserApi {
     return {
         browserSetup: async () => {
             const missing = browsers.missing();

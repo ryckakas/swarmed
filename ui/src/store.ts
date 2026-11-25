@@ -18,6 +18,7 @@ import type {
     TerminalConfig,
     UpdateState,
 } from "./api/types";
+import { type BrowserAsked, openedBy } from "./browser";
 import { CHATS } from "./chats";
 import type { CloudTarget } from "./cloud";
 import type { Comparison } from "./components/CompareDialog";
@@ -226,6 +227,10 @@ interface State {
     browserOpen: boolean;
     /** Shows the Browser pane, or hides it; `open` says which, else it is turned over. */
     toggleBrowser(open?: boolean): void;
+    /** A tab an agent asked to show (`show_browser`), for the pane of its task to go to. */
+    browserAsked: BrowserAsked | null;
+    /** Opens the pane on what an agent asked to show, or forgets it once gone to (`null`). */
+    askBrowser(asked: BrowserAsked | null): void;
     /** Changes some of the user's preferences and keeps the rest. */
     changeSettings(api: Api, change: Partial<Settings>): Promise<void>;
     /** The user's configuration of the terminal, once read. */
@@ -950,6 +955,12 @@ export const useStore = create<State>((set, get) => ({
         const browserOpen = open ?? !get().browserOpen;
         writeFlag(BROWSER_OPEN, browserOpen);
         set({ browserOpen });
+    },
+    browserAsked: null,
+    askBrowser: (asked) => {
+        const browserOpen = openedBy(asked, get().browserOpen);
+        writeFlag(BROWSER_OPEN, browserOpen);
+        set({ browserOpen, browserAsked: asked });
     },
     changeSettings: (api, change) =>
         reporting(async () => {

@@ -17,6 +17,18 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **Agents browse in the task's browser, where you watch them.** Your own Playwright MCP and
+  Chrome DevTools MCP servers are pointed at the task's Chrome, so an agent that checks a page,
+  or a skill that says to use them, acts in the Browser pane beside the conversation, on the
+  task's profile, instead of opening a window or a fresh profile of its own. Each session has
+  an address of the task's browser in `SWARMED_BROWSER`, which also starts it, so a session
+  that never browses starts nothing. Every agent is told to use it, and the new
+  `show_browser` tool opens the pane on an address, in a tab of the session's own. The pane
+  marks the tabs agents acted in, says which session acted last, and goes to the tab an agent
+  works in. Claude Code's own servers and those Swarmed hands other agents are covered; a
+  server another agent keeps in its own configuration is not. See
+  [The task's browser and your browser tools](docs/coding-agents.md#the-tasks-browser-and-your-browser-tools).
+
 - **A Chrome of each task's own, live beside its sessions.** The globe in a session's header
   opens the **Browser** pane: the task's page, drawn live, with tabs, an address bar, back,
   forward, reload and its console. Click, scroll and type in it as in any browser, paste with

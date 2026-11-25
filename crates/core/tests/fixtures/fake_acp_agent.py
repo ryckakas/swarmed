@@ -6,7 +6,8 @@
 - "slow": works until the turn is cancelled;
 - "guidance": says whether Swarmed's guidance came along with the message;
 - "fail": answers the prompt with an error;
-- "mcp": names the MCP servers it was given;
+- "mcp": names the MCP servers it was given; "mcp args" says what each runs;
+- "guidance browser": says whether Swarmed's guidance told it of the task's browser;
 - "model": names the model it was put on, or "fake/default" if none;
 - "wake": ends its turn, then carries on by itself, as an agent whose timer went off does;
 - "linger": ends its turn, then starts a tool and never says another word;
@@ -249,6 +250,16 @@ def on_prompt(request_id, params):
     elif text == "mcp":
         chunk(session, "servers: " + ", ".join(state.get("servers", [])))
         finish()
+    elif text == "mcp args":
+        # What each server runs, never what its variables hold.
+        runs = ["%s: %s" % (server["name"], " ".join([server.get("command", "")] + server.get("args", [])))
+                for server in state.get("given", [])]
+        chunk(session, "; ".join(runs))
+        finish()
+    elif text == "guidance browser":
+        extra = [block["text"] for block in params["prompt"][1:]]
+        chunk(session, "browser: " + ("yes" if any("SWARMED_BROWSER" in e for e in extra) else "none"))
+        finish()
     elif text == "model":
         chunk(session, "model: " + state.get("model", "fake/default"))
         finish()
@@ -335,6 +346,7 @@ def describe(server):
 
 def open_session(request_id, method, params):
     state["servers"] = [describe(server) for server in params.get("mcpServers", [])]
+    state["given"] = params.get("mcpServers", [])
     if method == "session/new":
         if not os.path.isdir(params["cwd"]):
             return send({"id": request_id, "error": {"code": -32602, "message": "no such directory"}})
