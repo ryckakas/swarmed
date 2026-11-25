@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { GitHubItem, GitHubItems } from "../api/types";
-import { asksGitHub, githubMatches, githubQuery, githubSaid, withGitHub } from "../githubMentions";
+import {
+    asksGitHub,
+    githubMatches,
+    githubOffered,
+    githubQuery,
+    githubSaid,
+    withGitHub,
+} from "../githubMentions";
 import { useStore } from "../store";
 import { usePicking } from "../usePicking";
 
@@ -70,7 +77,7 @@ export function useGitHubMenu(
     const local = typed && recent ? githubMatches(recent.items, query) : [];
     const searching = recent !== null && typed !== null && asksGitHub(query, local);
     const searched = useGitHubAnswer(project, searching ? query.trim() : null, SEARCH_AFTER);
-    const matches = searching ? (searched?.items ?? []) : local;
+    const matches = searching ? githubOffered(local, searched?.items ?? null) : local;
     const note = typed === null ? null : noteFor(recent, searching, searched, matches);
     const choose = (item: GitHubItem) => {
         if (!typed) {

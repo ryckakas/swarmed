@@ -8,6 +8,7 @@ import {
     githubIn,
     githubMatches,
     githubOf,
+    githubOffered,
     githubQuery,
     githubSaid,
     githubSpans,
@@ -115,6 +116,23 @@ describe("matching", () => {
         expect(asksGitHub("", [])).toBe(false);
         expect(asksGitHub("999", [])).toBe(true);
         expect(asksGitHub("login", [pull(142, "Fix the login form")])).toBe(false);
+    });
+
+    it("asks GitHub for a number that only longer ones among the latest start with", () => {
+        const latest = [issue(420, "a"), issue(42, "b"), issue(426, "c")];
+        expect(githubMatches(latest, "42").map((item) => item.number)).toEqual([42, 420, 426]);
+        expect(asksGitHub("42", githubMatches(latest, "42"))).toBe(false);
+        const longer = [issue(420, "a"), issue(426, "c")];
+        expect(asksGitHub("42", githubMatches(longer, "42"))).toBe(true);
+    });
+
+    it("shows what GitHub found first, then the latest, and only the first few", () => {
+        const local = [issue(420, "a"), issue(426, "c")];
+        expect(githubOffered(local, null).map((item) => item.number)).toEqual([420, 426]);
+        const found = [issue(42, "b"), issue(420, "a")];
+        expect(githubOffered(local, found).map((item) => item.number)).toEqual([42, 420, 426]);
+        const many = Array.from({ length: 60 }, (_, at) => issue(at + 1, "x"));
+        expect(githubOffered([], many)).toHaveLength(GITHUB_LIMIT);
     });
 });
 

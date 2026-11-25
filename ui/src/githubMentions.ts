@@ -89,13 +89,17 @@ function matchedOn(item: GitHubItem): string {
 
 /**
  * The pull requests and issues a query offers, in the order the core gives them (the latest
- * changed first): with nothing typed, the first few; digits, those whose number starts so;
- * words, those with every word in their title, number, branch or kind.
+ * changed first): with nothing typed, the first few; digits, the one with that very number and
+ * then those whose number starts so; words, those with every word in their title, number,
+ * branch or kind.
  */
 export function githubMatches(items: GitHubItem[], query: string): GitHubItem[] {
     const typed = query.trim().toLowerCase();
     if (/^\d+$/.test(typed)) {
-        return items.filter((item) => String(item.number).startsWith(typed)).slice(0, GITHUB_LIMIT);
+        const starting = items.filter((item) => String(item.number).startsWith(typed));
+        const exact = starting.filter((item) => String(item.number) === typed);
+        const longer = starting.filter((item) => String(item.number) !== typed);
+        return [...exact, ...longer].slice(0, GITHUB_LIMIT);
     }
     const words = typed.split(/\s+/).filter(Boolean);
     const found = items.filter((item) => words.every((word) => matchedOn(item).includes(word)));
@@ -103,11 +107,26 @@ export function githubMatches(items: GitHubItem[], query: string): GitHubItem[] 
 }
 
 /**
- * Whether the core is to be asked for `query` itself, as the recent ones it gave hold no
- * match: a number further back, or words GitHub's search may find.
+ * Whether the core is to be asked for `query` itself, as the recent ones it gave do not hold
+ * it: a number that is not among them, even where longer numbers start with it, or words none
+ * of them matches, which GitHub's search may find.
  */
 export function asksGitHub(query: string, matches: GitHubItem[]): boolean {
-    return query.trim() !== "" && matches.length === 0;
+    const typed = query.trim();
+    if (/^\d+$/.test(typed)) {
+        return !matches.some((item) => String(item.number) === typed);
+    }
+    return typed !== "" && matches.length === 0;
+}
+
+/**
+ * What the list shows while GitHub is asked too: what it found first, then the latest that
+ * match and are not among that, the first few of them all. `found` is `null` until it answers.
+ */
+export function githubOffered(local: GitHubItem[], found: GitHubItem[] | null): GitHubItem[] {
+    const first = found ?? [];
+    const had = new Set(first.map((item) => item.number));
+    return [...first, ...local.filter((item) => !had.has(item.number))].slice(0, GITHUB_LIMIT);
 }
 
 /**
