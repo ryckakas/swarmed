@@ -56,6 +56,11 @@ function RewindAsked({ rewinding }: { rewinding: Rewinding }) {
     // Files a message cannot take back are not taken back, whatever was ticked before it.
     const withFiles = files && check?.files_refused === null;
     const close = () => askToRewind(null);
+    // Why one message was refused says nothing of another.
+    const choose = (number: number) => {
+        setProblem(null);
+        setMessage(number);
+    };
     const go = () => {
         if (message === null) {
             return;
@@ -94,7 +99,7 @@ function RewindAsked({ rewinding }: { rewinding: Rewinding }) {
             }
         >
             {rewinding.message === null && (
-                <MessagePicker choices={choices} message={message} onMessage={setMessage} />
+                <MessagePicker choices={choices} message={message} onMessage={choose} />
             )}
             {rewinding.message !== null && (
                 <p className="dialog-subject">
