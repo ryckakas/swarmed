@@ -215,6 +215,16 @@ export function consoleCounts(lines: ConsoleLine[]): { errors: number; warnings:
     };
 }
 
+/** The console's heading count, in words: `1 error`, `3 warnings`; nothing for none. */
+export function consoleCounted(lines: ConsoleLine[]): string[] {
+    const { errors, warnings } = consoleCounts(lines);
+    const said = (count: number, one: string) => `${count} ${one}${count === 1 ? "" : "s"}`;
+    return [
+        ...(errors > 0 ? [said(errors, "error")] : []),
+        ...(warnings > 0 ? [said(warnings, "warning")] : []),
+    ];
+}
+
 /** What a tab is called in the strip. */
 export function tabLabel(tab: BrowserTab): string {
     if (tab.url === "about:blank" || tab.url === "") {

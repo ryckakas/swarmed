@@ -4,6 +4,7 @@ import {
     actorOf,
     addressOf,
     askedToShow,
+    consoleCounted,
     consoleCounts,
     consoleMerged,
     dialogKey,
@@ -208,6 +209,12 @@ describe("the console", () => {
             errors: 1,
             warnings: 1,
         });
+        expect(consoleCounted([line(1, "error"), line(2, "warning"), line(3)])).toEqual([
+            "1 error",
+            "1 warning",
+        ]);
+        expect(consoleCounted([line(1, "error"), line(2, "error")])).toEqual(["2 errors"]);
+        expect(consoleCounted([line(1)])).toEqual([]);
     });
 });
 

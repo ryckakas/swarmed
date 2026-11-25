@@ -26,7 +26,7 @@ import {
     askedToShow,
     type Box,
     BROWSER_WIDTH,
-    consoleCounts,
+    consoleCounted,
     consoleMerged,
     dialogKey,
     endsPick,
@@ -700,10 +700,7 @@ function Console({ task, tab }: { task: number; tab: string }) {
         api.browserConsole(task, tab).then(take, () => {});
         return () => void subscription.then((unsubscribe) => unsubscribe());
     }, [task, tab]);
-    const { errors, warnings } = consoleCounts(lines);
-    const counted = [errors && `${errors} errors`, warnings && `${warnings} warnings`].filter(
-        Boolean,
-    );
+    const counted = consoleCounted(lines);
     return (
         <details className="browser-console">
             <summary>
