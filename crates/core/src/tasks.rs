@@ -277,8 +277,10 @@ impl Core {
         if self.setup_runs_elsewhere(&task) {
             return Err(Error::SetupRunning(task.name));
         }
-        // What a restart took out of the queues, so that the setup holds it and sends it.
-        for session in self.store().sessions(task.id)? {
+        // What a restart took out of the queues, so that the setup holds it and sends it. Read
+        // first: the store is let go before the loop, which reads it again.
+        let sessions = self.store().sessions(task.id)?;
+        for session in sessions {
             self.queue_kept_again(session.id)?;
         }
         let run = self.setup_begin(&task)?;

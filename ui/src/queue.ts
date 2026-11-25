@@ -27,3 +27,31 @@ export function editingAfter(was: number | null, id: number, open: boolean): num
     }
     return was === id ? null : was;
 }
+
+/** How many changes of session `sessionId`'s queue were heard, by session. */
+export function changesHeard(heard: Record<number, number>, sessionId: number): number {
+    return heard[sessionId] ?? 0;
+}
+
+/** `heard`, with one more change of session `sessionId`'s queue heard. */
+export function oneMoreHeard(
+    heard: Record<number, number>,
+    sessionId: number,
+): Record<number, number> {
+    return { ...heard, [sessionId]: changesHeard(heard, sessionId) + 1 };
+}
+
+/**
+ * The queues once the core answered that session `sessionId`'s queue holds `messages`, asked
+ * when `asked` changes of it had been heard: as they were if one was heard since. Every change
+ * is published, so that one is as new as the answer or newer, and an answer can reach the
+ * window after an event published later.
+ */
+export function queuesAnswered(
+    queues: Record<number, QueuedMessage[]>,
+    heard: Record<number, number>,
+    answer: { sessionId: number; messages: QueuedMessage[]; asked: number },
+): Record<number, QueuedMessage[]> {
+    const { sessionId, messages, asked } = answer;
+    return changesHeard(heard, sessionId) === asked ? { ...queues, [sessionId]: messages } : queues;
+}

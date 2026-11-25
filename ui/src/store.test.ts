@@ -363,6 +363,48 @@ describe("the session on screen going", () => {
     });
 });
 
+describe("a session's queue", () => {
+    const waiting = [{ id: 1, text: "/code-review #411" }];
+    const answered = () => {
+        let answer: (messages: typeof waiting) => void = () => undefined;
+        const promise = new Promise<typeof waiting>((resolve) => {
+            answer = resolve;
+        });
+        return { promise, answer };
+    };
+
+    beforeEach(() => {
+        useStore.setState({ queues: {}, queuesHeard: {} });
+    });
+
+    it("takes what the core answers it holds", async () => {
+        const read = answered();
+        const taking = useStore.getState().queueAnswer(7, read.promise);
+        read.answer(waiting);
+        await taking;
+        expect(useStore.getState().queues[7]).toEqual(waiting);
+    });
+
+    it("keeps a change heard before the answer came, which is as new or newer", async () => {
+        // Read as the session opens, while its task's setup sends the prompt that waited.
+        const read = answered();
+        const taking = useStore.getState().queueAnswer(7, read.promise);
+        useStore.getState().apply(published(7, { type: "queue", messages: [] }));
+        read.answer(waiting);
+        await taking;
+        expect(useStore.getState().queues[7]).toEqual([]);
+    });
+
+    it("is weighed against changes of its own session only", async () => {
+        const read = answered();
+        const taking = useStore.getState().queueAnswer(7, read.promise);
+        useStore.getState().apply(published(8, { type: "queue", messages: [] }));
+        read.answer(waiting);
+        await taking;
+        expect(useStore.getState().queues[7]).toEqual(waiting);
+    });
+});
+
 describe("unsent messages", () => {
     const drafts = () => useStore.getState().drafts;
     beforeEach(() => useStore.setState({ drafts: {}, newTaskDrafts: {}, recalls: {} }));

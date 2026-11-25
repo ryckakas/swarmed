@@ -61,6 +61,14 @@ notice adds its line under Unreleased.
   pull request open is not asked at all. A task whose pull request is not on that list (merged,
   closed or someone else's) is asked about once when the app starts.
 
+### Fixed
+
+- **A task's first prompt no longer shows as waiting after it was sent.** In a repository with
+  no setup, or a quick one, the prompt went to the agent and also stood first in the session's
+  queue, to be sent a second time when the turn ended.
+- **Run setup again no longer freezes Swarmed after a restart** when the task's first prompt was
+  still waiting for it.
+
 ## [0.4.3] - 2026-11-24
 
 ### Added

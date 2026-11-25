@@ -4,6 +4,7 @@ mod common;
 
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use common::{core_with_project, fixture, turn, write_config};
@@ -202,6 +203,74 @@ async fn setting_up_again_sends_what_waits_once_it_finishes_well() {
     assert_eq!((task.setup, task.setup_reason), (SetupStatus::Ok, None));
     let events = turn(&mut bus, session).await;
     assert_eq!(said_by_user(&events), ["carry on, carefully"]);
+}
+
+#[tokio::test]
+async fn setting_up_again_after_a_restart_sends_what_waits() {
+    let fx = fixture();
+    write_config(&fx, "[hooks]\nsetup = \"test -f go\"\n");
+    let core = Arc::new(core_with_project(&fx).await);
+    let (started, going) = started(&core, "one", "carry on").await;
+    assert!(going.finished().await.is_err());
+
+    // Swarmed quits, and the setup is run again once it has started: the prompt was only in
+    // the database, and goes once.
+    drop(core);
+    let core = Core::with_backend(
+        fx.paths.clone(),
+        Arc::new(swarmed_core::agent::FakeBackend::default()),
+    )
+    .expect("reopens");
+    let mut bus = core.subscribe();
+    std::fs::write(started.task.worktree_path.join("go"), "").expect("test setup");
+    let task = core
+        .task_setup("demo", "one", Some(Auth::default()), &hooks::discard)
+        .await
+        .expect("sets up");
+    assert_eq!(task.setup, SetupStatus::Ok);
+    let session = started.session.id;
+    let events = turn(&mut bus, session).await;
+    assert_eq!(said_by_user(&events), ["carry on"]);
+    assert_eq!(core.session_queue(session).expect("reads"), vec![]);
+}
+
+/// A task with no setup sends its prompt at once, while the window opens its session and
+/// reads its queue. That read must not find the prompt as it goes and put it back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_look_at_the_queue_as_the_prompt_goes_does_not_put_it_back() {
+    let fx = fixture();
+    let core = Arc::new(core_with_project(&fx).await);
+    let mut bus = core.subscribe();
+    // When the prompt goes is a matter of timing: tried a few times, with the queue read over
+    // and over meanwhile.
+    for round in 0..10 {
+        let (started, going) = started(&core, &format!("task-{round}"), "fix the login").await;
+        let session = started.session.id;
+        let looking = Arc::new(AtomicBool::new(true));
+        let looker = look_at_queue(&core, session, &looking);
+        going.finished().await.expect("sets up");
+        turn(&mut bus, session).await;
+        looking.store(false, Ordering::Relaxed);
+        looker.join().expect("stops looking");
+        let queue = core.session_queue(session).expect("reads");
+        assert_eq!(queue, vec![], "round {round}");
+        let said = said_by_user(&core.session_events(session).expect("reads"));
+        assert_eq!(said, ["fix the login"], "round {round}");
+    }
+}
+
+/// Reads session `id`'s queue over and over on a thread of its own while `looking` holds.
+fn look_at_queue(
+    core: &Arc<Core>,
+    id: i64,
+    looking: &Arc<AtomicBool>,
+) -> std::thread::JoinHandle<()> {
+    let (core, looking) = (Arc::clone(core), Arc::clone(looking));
+    std::thread::spawn(move || {
+        while looking.load(Ordering::Relaxed) {
+            core.session_queue(id).ok();
+        }
+    })
 }
 
 #[tokio::test]
