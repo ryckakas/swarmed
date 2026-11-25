@@ -16,6 +16,7 @@ import {
     pagePoint,
     sameViewport,
     sessionForBrowser,
+    shownAddress,
     shownTab,
     stateOf,
     tabLabel,
@@ -58,6 +59,15 @@ describe("where a click on the picture lands on the page", () => {
         // A flat page in a tall box: drawn at the box's width, 100 high at the top.
         const flat = { width: 1200, height: 300 };
         expect(pagePoint(500, 150, box, flat)).toEqual({ x: 1200, y: 300 });
+    });
+
+    it("keeps what is typed in the address bar over where the tab is", () => {
+        const there = tab("a", "https://example.com/");
+        expect(shownAddress(null, there)).toBe("https://example.com/");
+        expect(shownAddress("local", there)).toBe("local");
+        // Emptied by the user, it stays empty: the address does not come back mid-typing.
+        expect(shownAddress("", there)).toBe("");
+        expect(shownAddress(null, tab("b", "about:blank"))).toBe("");
     });
 
     it("has a tab to show where a browser runs with tabs and shows none", () => {

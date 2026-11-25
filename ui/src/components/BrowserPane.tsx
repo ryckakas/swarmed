@@ -25,7 +25,6 @@ import type {
 } from "../api/types";
 import {
     actorOf,
-    addressOf,
     askedToShow,
     type Box,
     BROWSER_WIDTH,
@@ -39,6 +38,7 @@ import {
     mouseInput,
     type PageSize,
     sameViewport,
+    shownAddress,
     shownTab,
     stateOf,
     tabLabel,
@@ -591,17 +591,8 @@ function Toolbar({ task, tab, pick }: { task: number; tab: BrowserTab | null; pi
                         <ReloadIcon />
                     </IconButton>
                 )}
-                <input
-                    // A new address shown whenever the tab goes somewhere.
-                    key={`${tab.id} ${tab.url}`}
-                    name="address"
-                    className="browser-address mono"
-                    aria-label="Address"
-                    defaultValue={addressOf(tab)}
-                    placeholder="An address, such as localhost:3000"
-                    spellCheck={false}
-                    autoComplete="off"
-                />
+                {/* Each tab its own: what is typed for one is not another's. */}
+                <Address key={tab.id} tab={tab} />
                 <IconButton
                     label={
                         pick.picking
@@ -634,6 +625,51 @@ function Toolbar({ task, tab, pick }: { task: number; tab: BrowserTab | null; pi
                 </p>
             )}
         </>
+    );
+}
+
+/**
+ * The address bar: where the tab is, until the user types. What is typed then stays, wherever
+ * the tab goes meanwhile (a redirect ending, a page changing its own address, an agent sending
+ * it on), until it is sent with Enter, given up with Esc, or left alone: the tab's address is
+ * taken again only when it changes while the bar does not have the keyboard.
+ */
+function Address({ tab }: { tab: BrowserTab }) {
+    const [typed, setTyped] = useState<string | null>(null);
+    const focused = useRef(false);
+    const url = tab.url;
+    // biome-ignore lint/correctness/useExhaustiveDependencies: the tab going somewhere is what lets go of what was typed.
+    useEffect(() => {
+        if (!focused.current) {
+            setTyped(null);
+        }
+    }, [url]);
+    return (
+        <input
+            name="address"
+            className="browser-address mono"
+            aria-label="Address"
+            value={shownAddress(typed, tab)}
+            placeholder="An address, such as localhost:3000"
+            spellCheck={false}
+            autoComplete="off"
+            onChange={(event) => setTyped(event.target.value)}
+            onFocus={() => {
+                focused.current = true;
+            }}
+            onBlur={() => {
+                focused.current = false;
+            }}
+            onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                    setTyped(null);
+                } else if (event.key === "Enter") {
+                    // Sent by the form; from here on the bar follows the tab again.
+                    focused.current = false;
+                    event.currentTarget.blur();
+                }
+            }}
+        />
     );
 }
 

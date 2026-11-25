@@ -230,6 +230,11 @@ export function addressOf(tab: BrowserTab | null): string {
     return tab.url;
 }
 
+/** What stands in the address bar: what the user is typing, else where the tab is. */
+export function shownAddress(typed: string | null, tab: BrowserTab | null): string {
+    return typed ?? addressOf(tab);
+}
+
 /** The tab the pane shows. */
 export function shownTab(state: BrowserState | null): BrowserTab | null {
     if (state === null) {
