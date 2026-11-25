@@ -269,6 +269,8 @@ fn look_at_queue(
     std::thread::spawn(move || {
         while looking.load(Ordering::Relaxed) {
             core.session_queue(id).ok();
+            // Lets the sender have the store between two looks.
+            std::thread::yield_now();
         }
     })
 }
