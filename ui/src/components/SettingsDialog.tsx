@@ -619,7 +619,7 @@ function FinishedTasks({ settings }: { settings: Settings }) {
             <h3>Finished {tasks}</h3>
             <Row
                 label="Put away once merged"
-                hint={`A ${words.terms.task} whose ${words.terms.pullRequest} merged is put away this many days after the merge: its ${words.terms.agent}s and its stack are stopped and it is listed under Done, with nothing deleted. Never while one of its sessions is at work or waits for you. A ${words.terms.task} you bring back stays.`}
+                hint={`A ${words.terms.task} whose ${words.terms.pullRequest} merged is put away this many days after the merge: its ${words.terms.agent}s and its stack are stopped and it is listed under Done, with nothing deleted. Never while one of its sessions is at work or waits for you, but work in it after the merge does not put that off. A ${words.terms.task} you bring back stays.`}
             >
                 <RuleDays
                     label={`Put away ${tasks} whose ${words.terms.pullRequest} merged`}

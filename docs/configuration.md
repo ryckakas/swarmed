@@ -325,7 +325,7 @@ Nothing is put away by itself unless you turn a rule on, each with its own numbe
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `put_away_merged` | `false` | put a task away `put_away_merged_days` after its pull request merged (GitHub's merge time). A task you brought back after the merge stays |
+| `put_away_merged` | `false` | put a task away `put_away_merged_days` after its pull request merged (GitHub's merge time). Work in it after the merge does not put that off, beyond a turn under way. A task you brought back after the merge stays |
 | `put_away_merged_days` | `1` | 0 to 365 |
 | `put_away_idle` | `false` | put a task away once none of its sessions recorded anything for `put_away_idle_days`, counted from when it was made or last brought back if that is later. A terminal or a running stack is not activity |
 | `put_away_idle_days` | `14` | 1 to 365 |
