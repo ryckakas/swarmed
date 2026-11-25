@@ -20,6 +20,7 @@ use crate::agent::{
 };
 use crate::agents::CLAUDE;
 use crate::chats;
+use crate::checkpoints;
 use crate::commands::SlashCommand;
 use crate::continuation;
 use crate::error::{Error, Result};
@@ -722,7 +723,7 @@ pub(crate) fn event_from_json(text: &str) -> AgentEvent {
 
 /// A session's first title: the start of what the user typed. What they pasted large, which a
 /// front end sends wrapped in `<pasted_text_N>` tags, is not what the session is called after.
-fn title_from(message: &str) -> String {
+pub(crate) fn title_from(message: &str) -> String {
     let title = shortened(&without_pastes(message), TITLE_CHARS);
     if title.is_empty() && message.contains("<pasted_text_") {
         return "Pasted text".to_string();
@@ -1466,7 +1467,14 @@ pub(crate) fn send_text(
     // A fork's agent has not heard the conversation it starts from: it is told with the first
     // message. Looked up before the message is recorded, and the user's own words are
     // recorded as they typed them.
-    let earlier = fork::carried(&lock(store).events(id)?);
+    let events = lock(store).events(id)?;
+    let earlier = fork::carried(&events);
+    // The message's number, counted as a fork counts them: every message recorded before it.
+    let number = events
+        .iter()
+        .filter(|event| matches!(event, AgentEvent::UserMessage { .. }))
+        .count();
+    drop(events);
     let event = AgentEvent::UserMessage {
         text: text.to_string(),
         remote: false,
@@ -1475,6 +1483,7 @@ pub(crate) fn send_text(
     live.note(store, id, event)?;
     let shared = terminals.take_unshared(id);
     let moved = moved_since(store, live, id);
+    let typed = text;
     let text = called.as_deref().unwrap_or(text);
     let text = &earlier.map_or_else(
         || text.to_string(),
@@ -1512,6 +1521,8 @@ pub(crate) fn send_text(
         }
         None => message,
     };
+    // The worktree as it stands before the agent can write to it.
+    checkpoints::before_message((store, live, paths), id, (number, typed));
     live.sent(id, &message);
     commands
         .send(AgentCommand::UserMessage(message))
@@ -1749,6 +1760,8 @@ pub(crate) struct Live {
     sending: Mutex<HashMap<i64, Vec<Sending>>>,
     /// The account's usage as any Claude Code session last heard it.
     pub(crate) usage: UsageHeard,
+    /// The turns whose worktree was checkpointed before they began (`checkpoints.rs`).
+    pub(crate) checkpoints: checkpoints::Checkpoints,
     /// The lock on each session whose agent runs in this process, held until the agent has
     /// gone, so that no other Swarmed starts it meanwhile (`elsewhere.rs`).
     pub(crate) runs_held: Mutex<HashMap<i64, File>>,
@@ -1779,6 +1792,7 @@ impl Default for Live {
             remote: Mutex::default(),
             sending: Mutex::default(),
             usage: UsageHeard::default(),
+            checkpoints: checkpoints::Checkpoints::default(),
             runs_held: Mutex::default(),
             shows_notices: AtomicBool::new(false),
             runs: AtomicU64::new(0),
@@ -2530,6 +2544,10 @@ fn on_event(shared: &Shared, id: i64, event: AgentEvent) {
         &event,
         AgentEvent::ToolResult { .. } | AgentEvent::TurnDone { .. }
     ) || matches!(&event, AgentEvent::Sub { event, .. } if matches!(**event, AgentEvent::ToolResult { .. }));
+    // Kept before the end is told: a message sent the moment it is begins a turn of its own.
+    if turn_over {
+        checkpoints::after_turn((store, live, &shared.paths), id);
+    }
     // A full disk must not cut the user off from a running agent: the event is published
     // even if storing it failed.
     live.note(store, id, event).ok();
@@ -2546,6 +2564,7 @@ fn on_event(shared: &Shared, id: i64, event: AgentEvent) {
     if gone {
         // An agent that went in the middle of a turn the user stopped never ends it.
         live.queues.pressing().remove(&id);
+        live.checkpoints.forget(id);
         remote::paused(store, live, id);
     }
 }

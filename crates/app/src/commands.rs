@@ -19,7 +19,8 @@ use swarmed_core::{
     MergeMethod, MergeReport, MergeRules, MergeWhen, NewTaskOptions, Project, ProjectOverview,
     Pull, PullDraft, QueuedMessage, RemoveOptions, SearchHit, Session, SessionOptions,
     SessionSettings, Settings, SetupLog, Skill, SlashCommand, Snapshot, Task, TaskNaming,
-    TaskStarted, Template, TerminalConfig, TerminalOpened, TurnStats, Unpublished, Usage, hooks,
+    TaskStarted, Template, TerminalConfig, TerminalOpened, Turn, TurnChanges, TurnStats,
+    Unpublished, Usage, hooks,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -947,6 +948,34 @@ pub(crate) async fn task_diff(
     path: String,
 ) -> Command<FileDiff> {
     Ok(core.task_diff(&project, &name, &path).await?)
+}
+
+/// The turns of a session whose checkpoints are kept, oldest first. Off the main thread: it
+/// reads the task's checkpoints.
+#[tauri::command(async)]
+pub(crate) fn session_turns(core: CoreState<'_>, id: i64) -> Command<Vec<Turn>> {
+    Ok(core.session_turns(id)?)
+}
+
+/// What one turn of a session changed in its worktree.
+#[tauri::command]
+pub(crate) async fn session_turn_changes(
+    core: CoreState<'_>,
+    id: i64,
+    message: usize,
+) -> Command<TurnChanges> {
+    Ok(core.session_turn_changes(id, message).await?)
+}
+
+/// How one file changed in one turn of a session.
+#[tauri::command]
+pub(crate) async fn session_turn_diff(
+    core: CoreState<'_>,
+    id: i64,
+    message: usize,
+    path: String,
+) -> Command<FileDiff> {
+    Ok(core.session_turn_diff(id, message, &path).await?)
 }
 
 #[tauri::command(async)]

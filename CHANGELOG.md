@@ -15,6 +15,16 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Added
+
+- **See what one turn changed.** Swarmed now keeps the task's worktree as it was before each
+  message went to the agent and when its turn ended. The Changes tab can show the whole task,
+  as before, or one turn of the session on screen: the files it changed, edits made by shell
+  commands included, each with its diff, and the other sessions that were at work at the same
+  time. `swarmed session turns` and `swarmed session turn-diff` show the same in the terminal.
+  The latest 50 turns of each session are kept, outside your repository and without the files
+  it ignores; see [What a turn changed](docs/configuration.md#what-a-turn-changed).
+
 ## [0.4.4] - 2026-11-25
 
 ### Added

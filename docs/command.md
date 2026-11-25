@@ -22,6 +22,8 @@ swarmed issue show shop 12                            # one whole, with its comm
 swarmed task new shop fix-login --issue 12            # branch, worktree, setup hook; for issue #12
 swarmed session run shop fix-login "Fix the login form's error message"
 swarmed session send 12 "Add a test for it"           # the id `session run` printed
+swarmed session turns 12                              # each turn with the files it changed
+swarmed session turn-diff 12 1                        # what the second message's turn changed
 swarmed task commit shop fix-login -m "Fix the login form's error message"
 swarmed task push shop fix-login
 swarmed task switch shop fix-login                    # back to its own branch, or to one named
@@ -79,7 +81,7 @@ swarmed session fork 14 --into shop monads            # the whole conversation, 
 kind, size, key, task and why it is there. `swarmed cleanup branches --delete` deletes every
 branch of a removed task that loses no work; one marked `at risk` goes only when its key is
 given, as in `swarmed cleanup branches --delete shop:jd/spike`. The kinds are `removed`,
-`branches`, `stale` and `snapshots`.
+`branches`, `stale`, `snapshots` and `checkpoints`.
 
 `session run` and `session send` print the conversation as it happens and ask on the terminal
 when the agent wants permission (`[y/N]`). Ctrl-C stops the turn, not the session. Typing `bg`
@@ -98,7 +100,7 @@ applies. `SWARMED_FAKE_AGENT=1` swaps in a scripted agent that spends no tokens.
 | `project` | add, list, remove, move and pin repositories; `project config` prints the path of a project's config file |
 | `task` | create, remove, move and pin tasks, rerun `setup`, run the `start` command, see changes, commit, push, open a pull request, follow it (`task pull --follow`) and merge it (`task merge`) |
 | `issue` | list a repository's GitHub issues with filters, or print one with its comments, through your own `gh` |
-| `session` | run, continue, list, show, fork, rename, mark, move, pin, close, reopen and delete sessions; change a session's model or supervision; let a Claude Code session be reached from claude.ai (`remote-control`); let one a usage limit stopped go on by itself when the limit resets (`continue-at-reset`, which the app sends) |
+| `session` | run, continue, list, show, fork, rename, mark, move, pin, close, reopen and delete sessions; list a session's turns with the files each changed (`turns`) and print one turn's diff (`turn-diff`); change a session's model or supervision; let a Claude Code session be reached from claude.ai (`remote-control`); let one a usage limit stopped go on by itself when the limit resets (`continue-at-reset`, which the app sends) |
 | `environment` | list a project's environments; choose the default one new tasks are set up in |
 | `snapshot` | keep the files git ignores in a set-up task, for new tasks to start from |
 | `agents`, `agent` | list the agents sessions can run on; install and configure the others |
@@ -112,7 +114,7 @@ applies. `SWARMED_FAKE_AGENT=1` swaps in a scripted agent that spends no tokens.
 | `events` | print what happens in every session as it happens, whichever Swarmed does it, until Ctrl-C |
 | `costs`, `analytics`, `usage` | what agents report their work cost, turns by day and model, what Swarmed takes up |
 | `limits` | your plan's usage limits and extra usage as Claude Code last reported them in any session, with how old each figure is; asks nothing |
-| `cleanup` | list or delete what removed tasks left behind, and snapshots: removed worktrees, branches of removed tasks, stale worktrees |
+| `cleanup` | list or delete what removed tasks left behind, and snapshots: removed worktrees, branches of removed tasks, stale worktrees, checkpoints of tasks that are gone |
 | `editor`, `auto-title`, `branch-prefix`, `layout`, `terminal` | settings: the editor, naming sessions by a model, what new tasks' branches start with, the custom layout, the terminal |
 
 Commands that take a secret or a long text, `key set`, `note --set` and `rules --set`, read it

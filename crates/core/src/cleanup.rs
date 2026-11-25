@@ -1,11 +1,12 @@
 //! Clean-up: what removed tasks left behind, and the snapshots, listed and deleted on request.
 //!
-//! Four kinds of thing are listed:
+//! Five kinds of thing are listed:
 //! - removed tasks' worktrees that are not deleted yet, in each project's [`REMOVED`] folder;
 //! - the branches of removed tasks that Swarmed made for them and that are still there;
 //! - stale worktrees: folders beside the tasks' own that no task owns, and git's records of
 //!   worktrees whose folder is gone;
-//! - snapshots, one per environment.
+//! - snapshots, one per environment;
+//! - the checkpoints of tasks that are gone, which their removal did not delete.
 //!
 //! Nothing of a current task, no remote branch, no branch Swarmed did not make and no
 //! repository's own checkout is ever listed. What would lose work found nowhere else is
@@ -21,7 +22,7 @@ use tokio::process::Command;
 
 use crate::error::{Error, Result};
 use crate::snapshots::SnapshotFolders;
-use crate::store::{Project, RemovedBranch};
+use crate::store::{Project, RemovedBranch, Task};
 use crate::tasks::REMOVED;
 use crate::usage::folder_bytes;
 use crate::{Core, git, lock};
@@ -39,11 +40,19 @@ pub enum CleanupKind {
     Stale,
     /// Snapshots: what new tasks of each environment start from.
     Snapshots,
+    /// The checkpoints of tasks that are gone: their turns' trees (`checkpoints.rs`).
+    Checkpoints,
 }
 
 impl CleanupKind {
     /// Every kind, in the order they are shown.
-    pub const ALL: [Self; 4] = [Self::Removed, Self::Branches, Self::Stale, Self::Snapshots];
+    pub const ALL: [Self; 5] = [
+        Self::Removed,
+        Self::Branches,
+        Self::Stale,
+        Self::Snapshots,
+        Self::Checkpoints,
+    ];
 }
 
 /// One thing a clean-up can delete.
@@ -87,6 +96,8 @@ pub struct Cleanup {
     pub stale: Vec<CleanupItem>,
     /// Snapshots.
     pub snapshots: Vec<CleanupItem>,
+    /// Checkpoints of tasks that are gone.
+    pub checkpoints: Vec<CleanupItem>,
 }
 
 /// Something a clean-up was asked to delete and did not.
@@ -113,17 +124,19 @@ impl Core {
     /// What can be cleaned up, every kind of it. Measures folders and asks git, so this can
     /// take a few seconds.
     pub async fn cleanup(&self) -> Result<Cleanup> {
-        let (removed, branches, stale, snapshots) = tokio::join!(
+        let (removed, branches, stale, snapshots, checkpoints) = tokio::join!(
             self.cleanup_items(CleanupKind::Removed),
             self.cleanup_items(CleanupKind::Branches),
             self.cleanup_items(CleanupKind::Stale),
             self.cleanup_items(CleanupKind::Snapshots),
+            self.cleanup_items(CleanupKind::Checkpoints),
         );
         Ok(Cleanup {
             removed: removed?,
             branches: branches?,
             stale: stale?,
             snapshots: snapshots?,
+            checkpoints: checkpoints?,
         })
     }
 
@@ -173,6 +186,7 @@ impl Core {
             CleanupKind::Branches => self.branch_items().await,
             CleanupKind::Stale => self.stale_items().await,
             CleanupKind::Snapshots => self.snapshot_items(),
+            CleanupKind::Checkpoints => self.checkpoint_items(),
         }
     }
 
@@ -187,6 +201,7 @@ impl Core {
             CleanupKind::Branches => self.delete_branch(item).await,
             CleanupKind::Stale => self.delete_stale(item).await,
             CleanupKind::Snapshots => self.forget_snapshot(item),
+            CleanupKind::Checkpoints => self.delete_checkpoints(item).await,
         }
     }
 
@@ -370,6 +385,53 @@ impl Core {
             );
         }
         Ok(items)
+    }
+
+    /// The checkpoint stores whose task is removed or unknown: a removal deletes its task's,
+    /// but one cut short, or made by a Swarmed that did not know of them, leaves it.
+    fn checkpoint_items(&self) -> Result<Vec<Measured>> {
+        let Ok(stores) = std::fs::read_dir(self.paths.checkpoints_root()) else {
+            return Ok(vec![]);
+        };
+        let mut items = vec![];
+        for path in stores.flatten().map(|store| store.path()) {
+            items.extend(self.checkpoint_item_of(path)?);
+        }
+        Ok(items)
+    }
+
+    /// The store at `path` as an item, if its task is removed or unknown; nothing for a
+    /// current task's, or a folder that is no task's store.
+    fn checkpoint_item_of(&self, path: PathBuf) -> Result<Option<Measured>> {
+        let Some(id) = path
+            .file_name()
+            .and_then(|name| name.to_str()?.parse().ok())
+        else {
+            return Ok(None);
+        };
+        let task = self.store().task_by_id(id)?;
+        if task.as_ref().is_some_and(|task| !task.archived) {
+            return Ok(None);
+        }
+        let project = task
+            .as_ref()
+            .and_then(|task| self.store().project_by_id(task.project_id).ok().flatten());
+        let name = project.map(|project| project.name);
+        Ok(Some(checkpoint_item(name, task, path)))
+    }
+
+    /// Deletes a listed checkpoint store, and whatever rows of its task are left.
+    async fn delete_checkpoints(&self, item: &CleanupItem) -> std::result::Result<(), String> {
+        let path = item_path(item)?;
+        let task = path
+            .file_name()
+            .and_then(|name| name.to_str()?.parse().ok());
+        if let Some(task) = task {
+            self.store()
+                .checkpoints_forget_task(task)
+                .map_err(|error| error.to_string())?;
+        }
+        delete_folder(path).await
     }
 
     /// Forgets a listed snapshot, as the environments dialog does: refused while one is being
@@ -773,6 +835,24 @@ fn snapshot_item(project: &str, found: SnapshotFolders) -> Measured {
         record: false,
     };
     (item, found.folders)
+}
+
+/// A checkpoint store of a task that is gone, by its project's and its own name where they
+/// are still known.
+fn checkpoint_item(project: Option<String>, task: Option<Task>, path: PathBuf) -> Measured {
+    let item = CleanupItem {
+        key: path.to_string_lossy().into_owned(),
+        project: project.unwrap_or_default(),
+        name: path.to_string_lossy().into_owned(),
+        task: task.map(|task| task.name),
+        reason: "its task is gone, and nothing reads what its turns changed".to_string(),
+        bytes: None,
+        since: changed_at(&path),
+        at_risk: false,
+        path: Some(path.clone()),
+        record: false,
+    };
+    (item, vec![path])
 }
 
 /// The folder or record an item of a kind on disk stands for.

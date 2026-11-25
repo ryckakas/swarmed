@@ -873,6 +873,49 @@ fn the_ui_can_set_a_branch_prefix_and_see_the_branch_it_gives() {
 }
 
 #[test]
+fn the_ui_can_list_a_sessions_turns_and_read_what_one_changed() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    app.ok(
+        "task_new",
+        json!({ "project": "demo", "name": "one", "branch": null }),
+    );
+    let session = app.ok(
+        "session_new",
+        json!({ "project": "demo", "task": "one", "agent": null, "how": { "model": null, "supervision": "auto", "effort": null } }),
+    );
+    let id = &session["id"];
+    app.ok(
+        "session_send",
+        json!({ "id": id, "text": "write: notes.txt = one" }),
+    );
+    app.wait_for_event(id, "turn_done");
+
+    let turns = app.ok("session_turns", json!({ "id": id }));
+    assert_eq!(turns[0]["message"], 0);
+    assert_eq!(turns[0]["words"], "write: notes.txt = one");
+    assert_eq!(turns[0]["ended"], true);
+    assert_eq!(turns[0]["beside"], json!([]));
+    let changes = app.ok("session_turn_changes", json!({ "id": id, "message": 0 }));
+    assert_eq!(
+        changes,
+        json!({
+            "files": [{ "path": "notes.txt", "kind": "added", "added": 1, "removed": 0 }],
+            "skipped": [],
+            "ended": true,
+        })
+    );
+    let file = json!({ "id": id, "message": 0, "path": "notes.txt" });
+    let diff = app.ok("session_turn_diff", file);
+    assert!(
+        diff["text"]
+            .as_str()
+            .is_some_and(|text| text.ends_with("+one\n")),
+        "{diff}"
+    );
+}
+
+#[test]
 fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));

@@ -59,8 +59,9 @@ enum Command {
     /// any session, with how old each figure is. Nothing is asked: `/usage` in a session asks.
     Limits,
     /// List what removed tasks left behind, and the snapshots, or delete them: removed
-    /// worktrees not deleted yet, branches of removed tasks, stale worktrees and snapshots.
-    /// Nothing of a current task, no remote branch and no repository's own checkout is listed.
+    /// worktrees not deleted yet, branches of removed tasks, stale worktrees, snapshots, and
+    /// the checkpoints of tasks that are gone. Nothing of a current task, no remote branch and
+    /// no repository's own checkout is listed.
     Cleanup(cleanup::CleanupArgs),
     /// Keep what a task's setup produced, for new tasks of its environment to start from.
     Snapshot {
@@ -1007,6 +1008,7 @@ async fn usage(core: &Core) -> Result<()> {
     let database = bytes(usage.database_bytes);
     say(&format!("database\t{database}\t{} events", usage.events));
     say(&format!("notes\t{}", bytes(usage.notes_bytes)));
+    say(&format!("checkpoints\t{}", bytes(usage.checkpoints_bytes)));
     for worktree in &usage.worktrees {
         let size = worktree
             .bytes

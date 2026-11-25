@@ -92,6 +92,11 @@ describe("items", () => {
         );
         expect(itemTitle("snapshots", item("shop:", { name: "staging" }))).toBe("shop / staging");
         expect(itemTitle("branches", item("shop:ada/x", { name: "ada/x" }))).toBe("ada/x");
+        const store = "/data/checkpoints/9";
+        expect(itemTitle("checkpoints", item(store, { task: "fix-login" }))).toBe(
+            "shop / fix-login",
+        );
+        expect(itemTitle("checkpoints", item(store, { project: "" }))).toBe(store);
     });
 
     it("says whose it was, why it is there, since when and its size", () => {
@@ -132,5 +137,8 @@ describe("kindWording", () => {
         expect(kindWording("branches", wordsFor("plain")).label).toBe("Branches of removed tasks");
         expect(kindWording("removed", wordsFor("colony")).label).toBe("Removed cells");
         expect(kindWording("snapshots", wordsFor("colony")).title).toBe("Forget cocoons?");
+        expect(kindWording("checkpoints", wordsFor("plain")).label).toBe(
+            "Checkpoints of removed tasks",
+        );
     });
 });

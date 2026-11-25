@@ -54,6 +54,8 @@ import type {
     TerminalConfig,
     TerminalOpened,
     TerminalOutput,
+    Turn,
+    TurnChanges,
     TurnStats,
     Unpublished,
     UpdateState,
@@ -325,6 +327,12 @@ export interface Api {
     taskChanges(project: string, name: string): Promise<FileChange[]>;
     /** One changed file's diff. */
     taskDiff(project: string, name: string, path: string): Promise<FileDiff>;
+    /** The turns of a session whose checkpoints are kept, oldest first. */
+    sessionTurns(id: number): Promise<Turn[]>;
+    /** What one turn of a session changed, by the number of the message that began it. */
+    sessionTurnChanges(id: number, message: number): Promise<TurnChanges>;
+    /** How one file changed in one turn of a session. */
+    sessionTurnDiff(id: number, message: number, path: string): Promise<FileDiff>;
     /** Opens the task's worktree, with its branch checked out, in the user's editor. */
     taskOpenEditor(project: string, name: string): Promise<void>;
     /** What the folder `dir` of a task's worktree holds; the worktree itself for an empty `dir`. */

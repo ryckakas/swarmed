@@ -44,6 +44,8 @@ import type {
     Template,
     TerminalOpened,
     TerminalOutput,
+    Turn,
+    TurnChanges,
     Unpublished,
     UpdateState,
     Usage,
@@ -164,6 +166,11 @@ export const tauriApi: Api = {
         invoke<MergeReport>("task_pull_auto_merge_off", { project, name }),
     taskChanges: (project, name) => invoke<FileChange[]>("task_changes", { project, name }),
     taskDiff: (project, name, path) => invoke<FileDiff>("task_diff", { project, name, path }),
+    sessionTurns: (id) => invoke<Turn[]>("session_turns", { id }),
+    sessionTurnChanges: (id, message) =>
+        invoke<TurnChanges>("session_turn_changes", { id, message }),
+    sessionTurnDiff: (id, message, path) =>
+        invoke<FileDiff>("session_turn_diff", { id, message, path }),
     taskFiles: (project, name, dir) => invoke("task_files", { project, name, dir }),
     taskOpenFile: (project, name, path) => invoke("task_open_file", { project, name, path }),
     taskOpenTerminal: (project, name) => invoke("task_open_terminal", { project, name }),

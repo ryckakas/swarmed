@@ -17,6 +17,7 @@ import { issuesApi } from "./mockIssues";
 import { mergeApi } from "./mockMerging";
 import { bringBack, putAwayApi } from "./mockPutAway";
 import { MockSetups, taskSetupApi } from "./mockSetups";
+import { turnsApi } from "./mockTurns";
 import { heardUsage, sampleAccountUsage } from "./mockUsage";
 import type {
     AccountUsage,
@@ -447,6 +448,18 @@ const SAMPLE_CLEANUP: Cleanup = {
             at_risk: false,
         },
     ],
+    checkpoints: [
+        {
+            key: "/data/checkpoints/9",
+            project: "storefront",
+            name: "/data/checkpoints/9",
+            task: "old-checkout",
+            reason: "its task is gone, and nothing reads what its turns changed",
+            bytes: 3_400_000,
+            since: NOW_SECONDS - 9 * DAY,
+            at_risk: false,
+        },
+    ],
 };
 
 /**
@@ -482,6 +495,7 @@ const SAMPLE_USAGE: Usage = {
     database_bytes: 4_700_000,
     events: 576,
     notes_bytes: 4100,
+    checkpoints_bytes: 12_600_000,
     worktrees: [
         {
             project: "storefront",
@@ -3290,6 +3304,7 @@ export function createMockApi(): Api {
         ...mergeApi(agent),
         taskChanges: sampleChanges,
         taskDiff: sampleDiff,
+        ...turnsApi(),
         taskOpenEditor: async () => undefined,
         taskOpenTerminal: async () => undefined,
         taskFiles: async (_project, _name, dir) => sampleFiles(dir),

@@ -485,6 +485,38 @@ export interface FileDiff {
     truncated: boolean;
 }
 
+/**
+ * One turn of a session whose checkpoints are kept: a message sent to its agent, and what came
+ * of it. The core keeps the latest 50 of each session.
+ */
+export interface Turn {
+    /** The message that began it, counting from 0 every message sent into the session. */
+    message: number;
+    /** The start of that message. */
+    words: string;
+    /** When the message went, in milliseconds since 1970. */
+    at_ms: number;
+    /** Whether its end was recorded; without one, its changes are counted up to now. */
+    ended: boolean;
+    /** The titles of the task's other sessions at work while it was: their changes are in it too. */
+    beside: string[];
+}
+
+/** A file git does not track that was too large to keep in a checkpoint. */
+export interface SkippedFile {
+    path: string;
+    bytes: number;
+}
+
+/** What one turn changed in the worktree. */
+export interface TurnChanges {
+    files: FileChange[];
+    /** Files left out at either end: what became of them is not known. */
+    skipped: SkippedFile[];
+    /** Whether the turn's end was recorded; without one, this is up to now. */
+    ended: boolean;
+}
+
 /** One provider an API key can be stored for. The key itself never reaches the UI. */
 export interface ApiKeyInfo {
     /** The environment variable agents read the key from. */
@@ -785,6 +817,8 @@ export interface Usage {
     database_bytes: number;
     events: number;
     notes_bytes: number;
+    /** The checkpoints of every task's turns. */
+    checkpoints_bytes: number;
     /** Every active task's worktree, largest first; `bytes` is `null` if it was not measured. */
     worktrees: { project: string; task: string; path: string; bytes: number | null }[];
     /** Removed tasks' worktrees that are not deleted yet, or could not be. */
@@ -797,9 +831,9 @@ export interface Usage {
 
 /**
  * A kind of thing a clean-up deletes: removed tasks' worktrees not deleted yet, branches of
- * removed tasks, stale worktrees, and snapshots.
+ * removed tasks, stale worktrees, snapshots, and the checkpoints of tasks that are gone.
  */
-export type CleanupKind = "removed" | "branches" | "stale" | "snapshots";
+export type CleanupKind = "removed" | "branches" | "stale" | "snapshots" | "checkpoints";
 
 /** One thing a clean-up can delete, as the core lists it. */
 export interface CleanupItem {

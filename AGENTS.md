@@ -1005,6 +1005,26 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **A task's changes are read from git on demand** (`changes.rs`): everything that differs from
   the merge base with the task's base ref, uncommitted and untracked files included. The view is
   read-only. The UI reads again when one of the task's agents finishes a tool call or a turn.
+- **What one turn changed is read from checkpoints** (`checkpoints.rs`, `checkpoints/trees.rs`,
+  `turnChanges.ts`, #363). A checkpoint is the worktree as a git tree, kept in a bare repository
+  of the task's own under the data directory (`Paths::checkpoints`, by task id), named by a row
+  of `checkpoints` (session, message number as a fork counts them, `before` or `after`).
+  - **Taken** in `send_text` once the message is recorded and before it goes (every path but a
+    message told mid-turn, which joins the turn), and in `on_event` on `TurnDone` before the end
+    is told, for the turn whose `before` this process took (`Checkpoints::under_way`). A failed
+    one keeps nothing back: that turn is only not listed. Chats take none.
+  - **Nothing is written into the repository.** Git runs on a copy of the worktree's index with
+    `GIT_OBJECT_DIRECTORY` on the store and the repository's objects as an alternate; hooks,
+    filters (Git LFS writes into `.git/lfs` when it cleans), the file-system monitor and a split
+    index are switched off through `GIT_CONFIG_*`. A test holds the repository's `.git` to the
+    byte. An untracked file over `MAX_UNTRACKED_BYTES` is left out by literal pathspec and said.
+    Every git call has `LIMIT`, after which it is killed: a message never waits longer.
+  - **Kept:** the latest `KEPT_TURNS` turns per session; older rows are dropped as a `before` is
+    kept, and the store pruned on a thread of its own (`git prune` with the kept trees as heads,
+    `GRACE` for objects a checkpoint being taken has not named yet). A task's removal deletes
+    them; usage counts them, and a clean-up lists a store whose task is gone.
+  - **Read:** a turn ends at its `after`, else the next turn's `before`, else now (a tree taken
+    and not kept). Who else was at work is the task's other sessions whose turns overlap.
 - **A task's pull request and checks are asked of the user's own `gh`** (`pulls.rs`), in the
   task's worktree. Swarmed holds no GitHub token. No `gh`, no pull request, or a
   repository that is not on GitHub all mean the same: the task has none, which is not an error.

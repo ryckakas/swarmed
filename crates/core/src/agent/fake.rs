@@ -18,6 +18,8 @@ use crate::error::Result;
 /// - `run: <command>`: asks permission for a `Bash` tool call, then reports the outcome; a stop
 ///   meanwhile takes the request back and ends the turn;
 /// - `env: <NAME>`: replies with the value of that variable as given for the session, or `unset`;
+/// - `write: <path> = <text>`: writes `<text>` and a line end into the file at `<path>` in the
+///   session's folder, says so and ends the turn;
 /// - `slow`: starts a turn that only ends when interrupted;
 /// - `fail`: ends the turn with an error;
 /// - `suggest: <text>`: replies as to plain text, then offers `<text>` as the next message;
@@ -377,6 +379,10 @@ impl Script {
             self.emit(done(false, None));
             return Next::Continue;
         }
+        if let Some(what) = message.strip_prefix("write:") {
+            self.write(what);
+            return Next::Continue;
+        }
         if let Some(seconds) = message.strip_prefix("refuse ") {
             self.refuse(seconds.trim().parse().unwrap_or(0));
             return Next::Continue;
@@ -455,6 +461,16 @@ impl Script {
         });
         self.text("You've hit your limit.");
         self.emit(done(true, Some("usage limit reached")));
+    }
+
+    /// Writes the file `write: <path> = <text>` names in the session's folder, and ends the
+    /// turn, with an error if it could not.
+    fn write(&self, what: &str) {
+        let (path, text) = what.split_once('=').unwrap_or((what, ""));
+        let file = self.spec.cwd.join(path.trim());
+        let written = std::fs::write(&file, format!("{}\n", text.trim()));
+        self.text(format!("wrote {}", path.trim()));
+        self.emit(done(written.is_err(), None));
     }
 
     /// Offers what follows `suggest:` as the user's next message.

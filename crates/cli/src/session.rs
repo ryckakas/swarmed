@@ -66,6 +66,17 @@ pub(crate) enum SessionCommand {
     List { project: String, task: String },
     /// Print everything a session has said and been told.
     Show { id: i64 },
+    /// List the turns of a session whose checkpoints are kept, each with the files it changed:
+    /// the worktree as it was before its message went, against when it ended.
+    Turns { id: i64 },
+    /// Print what one turn changed as a diff: of one file, or of every file it changed.
+    TurnDiff {
+        id: i64,
+        /// The message that began the turn, counting the messages sent into the session from 0.
+        message: usize,
+        /// The file, relative to the worktree; without it, every file the turn changed.
+        path: Option<String>,
+    },
     /// Start a new session from what was said in this one. Its agent is given that
     /// conversation with the first message sent to it.
     Fork {
@@ -273,6 +284,8 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             into,
         } => fork(core, id, (from, agent.as_deref()), into.as_deref()),
         SessionCommand::Show { id } => show(core, id),
+        SessionCommand::Turns { id } => turns(core, id).await,
+        SessionCommand::TurnDiff { id, message, path } => turn_diff(core, id, message, path).await,
         SessionCommand::Set {
             id,
             model,
@@ -315,6 +328,67 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
         SessionCommand::Delete { id } => Ok(core.session_delete(id)?),
         SessionCommand::Reopen { id } => reopened(core, id),
     }
+}
+
+/// Prints each kept turn of a session, oldest first: its message's number and first words,
+/// whether its end was recorded, who else was at work meanwhile, and the files it changed.
+async fn turns(core: &Core, id: i64) -> Result<()> {
+    for turn in core.session_turns(id)? {
+        let open = if turn.ended {
+            ""
+        } else {
+            "\t(no end yet: up to now)"
+        };
+        say(&format!("{}\t{}{open}", turn.message, turn.words));
+        if !turn.beside.is_empty() {
+            say(&format!("\talso at work: {}", turn.beside.join(", ")));
+        }
+        let changes = core.session_turn_changes(id, turn.message).await?;
+        for file in &changes.files {
+            let counts = file.added.zip(file.removed).map_or_else(
+                || "binary".to_string(),
+                |(added, removed)| format!("+{added} -{removed}"),
+            );
+            say(&format!(
+                "\t{}\t{counts}\t{}",
+                kind_mark(file.kind),
+                file.path
+            ));
+        }
+        for file in &changes.skipped {
+            say(&format!(
+                "\tnot kept, {} bytes, over the limit for files git does not track\t{}",
+                file.bytes, file.path
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn kind_mark(kind: swarmed_core::ChangeKind) -> &'static str {
+    match kind {
+        swarmed_core::ChangeKind::Added => "A",
+        swarmed_core::ChangeKind::Modified => "M",
+        swarmed_core::ChangeKind::Deleted => "D",
+    }
+}
+
+/// Prints the diff of one turn: of `path`, or of every file the turn changed.
+async fn turn_diff(core: &Core, id: i64, message: usize, path: Option<String>) -> Result<()> {
+    let paths = if let Some(path) = path {
+        vec![path]
+    } else {
+        let changes = core.session_turn_changes(id, message).await?;
+        changes.files.into_iter().map(|file| file.path).collect()
+    };
+    for path in paths {
+        let diff = core.session_turn_diff(id, message, &path).await?;
+        say(diff.text.trim_end());
+        if diff.truncated {
+            say("[the diff is longer; the rest is not shown]");
+        }
+    }
+    Ok(())
 }
 
 /// Puts a closed session back in the lists and prints its title.

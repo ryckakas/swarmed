@@ -334,6 +334,15 @@ pub enum Error {
     /// No session has this id.
     #[error("session {0} not found")]
     SessionNotFound(i64),
+    /// The session has no checkpoints of the turn of this message: it began before they were
+    /// taken, it is older than the turns kept, or a checkpoint could not be taken.
+    #[error("session {session} keeps no checkpoints of the turn of its message {message}")]
+    TurnNotKept {
+        /// The session.
+        session: i64,
+        /// The message that began the turn, counting from 0.
+        message: usize,
+    },
     /// The session has talked to its agent, which holds the conversation from then on.
     #[error("session {0} has begun: another agent would not know what was said")]
     SessionBegun(i64),

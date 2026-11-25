@@ -6,7 +6,13 @@ import { formatBytes } from "./usage";
 import { capitalized, type Words } from "./wording";
 
 /** Every kind, in the order the settings list them. */
-export const CLEANUP_KINDS: CleanupKind[] = ["removed", "branches", "stale", "snapshots"];
+export const CLEANUP_KINDS: CleanupKind[] = [
+    "removed",
+    "branches",
+    "stale",
+    "snapshots",
+    "checkpoints",
+];
 
 /** How a kind is named in its line, and in the dialog that asks before deleting it. */
 export interface KindWording {
@@ -51,6 +57,13 @@ export function kindWording(kind: CleanupKind, words: Words): KindWording {
                 detail: `what new ${tasks} start from`,
                 title: `Forget ${words.snapshots.toLowerCase()}?`,
                 what: `Without one, a new ${task}'s setup does all the work again, and the first one set up well is kept in its place. Sizes count what may be shared with the ${worktrees} started from them, so less may be freed.`,
+            };
+        case "checkpoints":
+            return {
+                label: `Checkpoints of removed ${tasks}`,
+                detail: "what their turns changed",
+                title: `Delete checkpoints of removed ${tasks}?`,
+                what: `Swarmed kept these to show what each turn changed. Their ${tasks} are gone, so nothing shows them any more. ${FOR_GOOD}`,
             };
     }
 }
@@ -111,6 +124,8 @@ export function itemTitle(kind: CleanupKind, item: CleanupItem): string {
             return `${item.project} / ${item.task ?? item.name}`;
         case "snapshots":
             return `${item.project} / ${item.name}`;
+        case "checkpoints":
+            return item.task === null ? item.name : `${item.project} / ${item.task}`;
         default:
             return item.name;
     }
@@ -130,11 +145,12 @@ const SINCE: Record<CleanupKind, string> = {
     branches: "removed",
     stale: "changed",
     snapshots: "taken",
+    checkpoints: "changed",
 };
 
 /** The task an item was, or was taken from. */
 function origin(kind: CleanupKind, item: CleanupItem): string | null {
-    if (item.task === null || kind === "removed") {
+    if (item.task === null || kind === "removed" || kind === "checkpoints") {
         return null;
     }
     return kind === "snapshots" ? `from ${item.task}` : `of ${item.task}`;

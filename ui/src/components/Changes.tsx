@@ -1,31 +1,62 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import { sendOrQueue } from "../actions";
 import { api } from "../api";
-import type { FileChange, FileDiff, Project, Task } from "../api/types";
+import type { FileChange, FileDiff, Project, SkippedFile, Task, Turn } from "../api/types";
 import { type DiffLine, parseDiff, splitPath } from "../diff";
 import { commentKey, type ReviewComment, reviewMessage } from "../review";
 import { useStore } from "../store";
+import {
+    choiceOf,
+    chosenTurn,
+    type TurnChoice,
+    turnNotes,
+    turnOptions,
+    WHOLE,
+} from "../turnChanges";
 import { useWords } from "../useWords";
+import { Picker } from "./Picker";
 
 interface Props {
     project: Project;
     task: Task;
 }
 
-/** The files a task has changed, each opening into its diff. Read-only. */
+/**
+ * The files a task has changed, each opening into its diff, or those one turn of the session on
+ * screen changed: the worktree before its message went, against when it ended. Read-only.
+ */
 export function Changes({ project, task }: Props) {
     // Goes up when one of the task's agents finishes a tool call, which is when files change.
     const edits = useStore((state) => state.edits[task.id] ?? 0);
+    const sessionId = useStore((state) => state.selectedSessionId);
     const [manual, setManual] = useState(0);
     const version = edits + manual;
-    const changes = useChanges(project.name, task.name, version);
+    const turns = useTurns(sessionId, version);
+    const [choice, setChoice] = useState<TurnChoice | null>(null);
+    const turn = chosenTurn(choice, sessionId, turns);
+    const source: Source =
+        turn && sessionId !== null
+            ? { kind: "turn", session: sessionId, message: turn.message }
+            : { kind: "task", project: project.name, task: task.name };
+    const read = useChanges(source, version);
     const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+    const changes = typeof read === "object" && read !== null ? read.files : read;
     const files = Array.isArray(changes) ? changes : [];
     const toggle = (path: string) => setOpen((current) => toggled(current, path));
     const words = useWords();
 
     return (
         <section className="changes" aria-label={words.changes}>
+            {turns.length > 0 && (
+                <div className="changes-pick">
+                    <Picker
+                        label="Show the changes of"
+                        value={turn ? String(turn.message) : WHOLE}
+                        onChange={(value) => setChoice(choiceOf(value, sessionId))}
+                        options={turnOptions(turns, words.terms.task)}
+                    />
+                </div>
+            )}
             <div className="changes-head">
                 {Array.isArray(changes) && <Totals changes={changes} />}
                 {files.length > 0 && (
@@ -56,12 +87,17 @@ export function Changes({ project, task }: Props) {
             </div>
             <ReviewBar taskId={task.id} />
             <div className="changes-scroll">
+                {turn && typeof read === "object" && read !== null && (
+                    <TurnNotes turn={turn} skipped={read.skipped} ended={read.ended} />
+                )}
                 {changes === null && <p className="changes-note">{words.readingChanges}</p>}
                 {typeof changes === "string" && (
                     <p className="changes-note changes-error">{changes}</p>
                 )}
                 {Array.isArray(changes) && changes.length === 0 && (
-                    <p className="changes-note">{words.noChanges(task.base_ref)}</p>
+                    <p className="changes-note">
+                        {turn ? "This turn changed no files." : words.noChanges(task.base_ref)}
+                    </p>
                 )}
                 {Array.isArray(changes) &&
                     changes.map((change) => (
@@ -70,16 +106,32 @@ export function Changes({ project, task }: Props) {
                             change={change}
                             open={open.has(change.path)}
                             onToggle={() => toggle(change.path)}
-                            target={{
-                                project: project.name,
-                                task: task.name,
-                                taskId: task.id,
-                                version,
-                            }}
+                            target={{ source, taskId: task.id, version }}
                         />
                     ))}
             </div>
         </section>
+    );
+}
+
+/** What is said of a turn before its files: who else was at work, and what is not known. */
+function TurnNotes({
+    turn,
+    skipped,
+    ended,
+}: {
+    turn: Turn;
+    skipped: SkippedFile[];
+    ended: boolean;
+}) {
+    return (
+        <>
+            {turnNotes(turn, skipped, ended).map((note) => (
+                <p key={note} className="changes-note changes-turn-note">
+                    {note}
+                </p>
+            ))}
+        </>
     );
 }
 
@@ -92,20 +144,68 @@ function toggled(open: ReadonlySet<string>, path: string): ReadonlySet<string> {
     return next;
 }
 
-/** The task's changed files: `null` while first reading, a message if that failed. */
-function useChanges(project: string, task: string, version: number) {
-    const [changes, setChanges] = useState<FileChange[] | string | null>(null);
-    // biome-ignore lint/correctness/useExhaustiveDependencies: a new version means read again
+/** Whose changes are read: the whole task's, or one turn's of a session. */
+type Source =
+    | { kind: "task"; project: string; task: string }
+    | { kind: "turn"; session: number; message: number };
+
+/** The files changed, with what a turn left out and whether its end is known. */
+interface Read {
+    files: FileChange[];
+    skipped: SkippedFile[];
+    ended: boolean;
+}
+
+/** The files `source` changed: `null` while first reading, a message if that failed. */
+function useChanges(source: Source, version: number) {
+    const [read, setRead] = useState<Read | string | null>(null);
+    const key = sourceKey(source);
+    // biome-ignore lint/correctness/useExhaustiveDependencies: the key stands for the source; a new version means read again
     useEffect(() => {
         let current = true;
-        api.taskChanges(project, task)
-            .then((read) => current && setChanges(read))
-            .catch((error: unknown) => current && setChanges(String(error)));
+        readChanges(source)
+            .then((files) => current && setRead(files))
+            .catch((error: unknown) => current && setRead(String(error)));
         return () => {
             current = false;
         };
-    }, [project, task, version]);
-    return changes;
+    }, [key, version]);
+    return read;
+}
+
+function sourceKey(source: Source): string {
+    return source.kind === "task"
+        ? `task:${source.project}/${source.task}`
+        : `turn:${source.session}/${source.message}`;
+}
+
+async function readChanges(source: Source): Promise<Read> {
+    if (source.kind === "task") {
+        const files = await api.taskChanges(source.project, source.task);
+        return { files, skipped: [], ended: true };
+    }
+    return api.sessionTurnChanges(source.session, source.message);
+}
+
+/** The turns of the session on screen whose checkpoints are kept; none while reading. */
+function useTurns(sessionId: number | null, version: number): Turn[] {
+    const [turns, setTurns] = useState<Turn[]>([]);
+    // biome-ignore lint/correctness/useExhaustiveDependencies: a new version means read again
+    useEffect(() => {
+        let current = true;
+        if (sessionId === null) {
+            setTurns([]);
+            return;
+        }
+        api.sessionTurns(sessionId)
+            .then((read) => current && setTurns(read))
+            // Without its turns the tab still shows the whole task.
+            .catch(() => current && setTurns([]));
+        return () => {
+            current = false;
+        };
+    }, [sessionId, version]);
+    return turns;
 }
 
 function Totals({ changes }: { changes: FileChange[] }) {
@@ -132,8 +232,7 @@ function Counts({ added, removed }: { added: number | null; removed: number | nu
 }
 
 interface Target {
-    project: string;
-    task: string;
+    source: Source;
     taskId: number;
     version: number;
 }
@@ -208,8 +307,15 @@ function FileRow({ change, open, onToggle, target }: FileRowProps) {
 /** A reference that stays the same, so a file without comments is not drawn again. */
 const NO_COMMENTS: ReviewComment[] = [];
 
+function readDiff(source: Source, path: string): Promise<FileDiff> {
+    return source.kind === "task"
+        ? api.taskDiff(source.project, source.task, path)
+        : api.sessionTurnDiff(source.session, source.message, path);
+}
+
 function Diff({ path, target }: { path: string; target: Target }) {
-    const { project, task, taskId, version } = target;
+    const { source, taskId, version } = target;
+    const key = sourceKey(source);
     const all = useStore((state) => state.reviews[taskId]);
     const comments = useMemo(
         () => all?.filter((comment) => comment.path === path) ?? NO_COMMENTS,
@@ -217,16 +323,16 @@ function Diff({ path, target }: { path: string; target: Target }) {
     );
     const comment = useStore((state) => state.comment);
     const [diff, setDiff] = useState<FileDiff | string | null>(null);
-    // biome-ignore lint/correctness/useExhaustiveDependencies: a new version means read again
+    // biome-ignore lint/correctness/useExhaustiveDependencies: the key stands for the source; a new version means read again
     useEffect(() => {
         let current = true;
-        api.taskDiff(project, task, path)
+        readDiff(source, path)
             .then((read) => current && setDiff(read))
             .catch((error: unknown) => current && setDiff(String(error)));
         return () => {
             current = false;
         };
-    }, [project, task, path, version]);
+    }, [key, path, version]);
 
     if (diff === null) {
         return <p className="changes-note">Reading the diff…</p>;

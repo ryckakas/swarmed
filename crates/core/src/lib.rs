@@ -20,6 +20,7 @@ mod attach;
 mod background;
 mod changes;
 mod chats;
+mod checkpoints;
 mod cleanup;
 mod clone;
 mod cloud;
@@ -104,6 +105,7 @@ pub use shellenv::learn_shell_path;
 
 pub use changes::{ChangeKind, FileChange, FileDiff};
 pub use chats::CHATS;
+pub use checkpoints::{KEPT_TURNS, MAX_UNTRACKED_BYTES, SkippedFile, Turn, TurnChanges};
 pub use cleanup::{Cleaned, Cleanup, CleanupItem, CleanupKind, NotCleaned};
 pub use cloud::{CloudOrigin, CloudProvider, CloudTask, MAX_DELEGATED};
 pub use commands::{CommandKind, SlashCommand};

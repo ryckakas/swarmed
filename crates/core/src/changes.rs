@@ -89,7 +89,9 @@ impl Core {
     }
 }
 
-fn file_change((path, (kind, counts)): (String, (ChangeKind, Option<(u32, u32)>))) -> FileChange {
+pub(crate) fn file_change(
+    (path, (kind, counts)): (String, (ChangeKind, Option<(u32, u32)>)),
+) -> FileChange {
     FileChange {
         path,
         kind,
@@ -126,11 +128,11 @@ pub(crate) fn nul_separated(text: &str) -> impl Iterator<Item = &str> {
     text.split('\0').filter(|part| !part.is_empty())
 }
 
-type Tracked = BTreeMap<String, (ChangeKind, Option<(u32, u32)>)>;
+pub(crate) type Tracked = BTreeMap<String, (ChangeKind, Option<(u32, u32)>)>;
 
 /// Joins git's two views of the same changes: `--name-status -z` (`M\0path\0…`) and
 /// `--numstat -z` (`added\tremoved\tpath\0…`, with `-` for a binary file's counts).
-fn tracked_changes(kinds: &str, counts: &str) -> Tracked {
+pub(crate) fn tracked_changes(kinds: &str, counts: &str) -> Tracked {
     let mut files = Tracked::new();
     let mut parts = nul_separated(kinds);
     while let (Some(status), Some(path)) = (parts.next(), parts.next()) {
@@ -192,7 +194,7 @@ fn new_file_diff(path: &str, file: &Path) -> String {
 }
 
 /// Cuts an overlong diff at a line end.
-fn cut(text: String) -> FileDiff {
+pub(crate) fn cut(text: String) -> FileDiff {
     if text.len() <= MAX_DIFF_BYTES {
         return FileDiff {
             text,
