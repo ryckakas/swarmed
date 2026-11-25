@@ -6,11 +6,13 @@ import {
     type Asked,
     answerHeard,
     answerWait,
+    askedDetail,
     askedLine,
     figuresKey,
     NO_FIGURES,
     underWay,
     usageFigures,
+    waitedShare,
 } from "../usageAsk";
 import { useAccountUsage } from "../useAccountUsage";
 import { useWords } from "../useWords";
@@ -83,9 +85,11 @@ export function UsageButton({ session, events }: { session: Session; events: Age
 
 /**
  * The overview the coins open: where asking stands, the figures, and a button to ask again.
- * Asking shows at every step: a pulsing dot and dimmed figures while the question goes or is
- * held back, a count of the seconds left while held back, and, once answered, the time to the
- * second, whether the figures are new or the same, and a moment's light on them.
+ * Asking shows at every step: while the question is held back or goes, a pulsing dot, a bar
+ * and a line that say it is refreshing, in how many seconds while held back, and that the
+ * figures shown until then are the latest heard; once answered, the time to the second,
+ * whether the figures are new or the same, and a moment's light on them. The figures are
+ * drawn as they are throughout, never dimmed.
  */
 function UsageOverview({
     session,
@@ -104,17 +108,19 @@ function UsageOverview({
     const now = useClock(asked.state === "waiting");
     const busy = underWay(asked);
     const answered = asked.state === "asked" ? asked.at.getTime() : null;
+    const detail = askedDetail(asked, now);
     return (
         <div className="usage-overview" role="dialog" aria-label={words.usage}>
-            <p className="usage-overview-title">
-                {words.usage}
-                <span data-asking={busy}>{askedLine(asked, now, same)}</span>
-            </p>
+            <p className="usage-overview-title">{words.usage}</p>
+            <div className="usage-asked" data-busy={busy}>
+                <p className="usage-asked-line">{askedLine(asked, now, same)}</p>
+                {busy && <RefreshBar share={waitedShare(asked, now)} />}
+                {detail && <p className="usage-asked-detail">{detail}</p>}
+            </div>
             <div
                 // A new answer draws the figures anew, which lights them up once.
                 key={answered ?? "figures"}
                 className="usage-overview-figures"
-                data-asking={busy}
                 data-fresh={answered !== null}
             >
                 <UsageSections agent={session.agent} events={events} look="overview" />
@@ -124,6 +130,31 @@ function UsageOverview({
                     {busy ? words.asking : words.askAgain}
                 </button>
             </div>
+        </div>
+    );
+}
+
+/**
+ * A thin bar under the line that says the overview is refreshing: filled as far as the wait
+ * for Claude Code's copy to run out has come (`share`), or moving to and fro while the question
+ * is asked and there is no telling how long the answer takes (`null`).
+ */
+function RefreshBar({ share }: { share: number | null }) {
+    const measured = share !== null;
+    return (
+        <div
+            className="usage-refresh"
+            role="progressbar"
+            aria-label="Refreshing"
+            aria-valuemin={measured ? 0 : undefined}
+            aria-valuemax={measured ? 100 : undefined}
+            aria-valuenow={measured ? Math.round(share * 100) : undefined}
+            data-measured={measured}
+        >
+            <span
+                className="usage-refresh-fill"
+                style={measured ? { width: `${share * 100}%` } : undefined}
+            />
         </div>
     );
 }

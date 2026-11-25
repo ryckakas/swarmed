@@ -1,13 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { answerHeard, answerWait, askedLine, figuresKey, underWay, usageFigures } from "./usageAsk";
+import {
+    answerHeard,
+    answerWait,
+    askedDetail,
+    askedLine,
+    figuresKey,
+    underWay,
+    usageFigures,
+    waitedShare,
+} from "./usageAsk";
 
 describe("askedLine", () => {
     const second = (d: Date) =>
         d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     const now = new Date(2026, 10, 25, 16, 33, 23);
 
-    it("says the figures are being asked for, when they came, or why they did not", () => {
-        expect(askedLine({ state: "asking" }, now, false)).toBe("Asking Claude Code…");
+    it("says the figures are being refreshed, when they came, or why they did not", () => {
+        expect(askedLine({ state: "asking" }, now, false)).toBe("Refreshing now…");
         // To the second, so that asking again within the minute still shows it came, and
         // whether it changed anything.
         const at = new Date(2026, 10, 21, 18, 5, 42);
@@ -39,15 +48,61 @@ describe("askedLine", () => {
         const copyFrom = new Date(2026, 10, 25, 16, 32, 34);
         const goesAt = new Date(2026, 10, 25, 16, 33, 35);
         const waiting = { state: "waiting", goesAt, copyFrom } as const;
-        expect(askedLine(waiting, now, false)).toBe(
-            `Claude Code reuses the figures it fetched at ${second(copyFrom)} for a minute: asking it in 12 s…`,
-        );
+        expect(askedLine(waiting, now, false)).toBe("Refreshing in 12 s");
         // Part of a second left is a second.
-        expect(askedLine(waiting, new Date(goesAt.getTime() - 300), false)).toContain(
-            "asking it in 1 s…",
+        expect(askedLine(waiting, new Date(goesAt.getTime() - 300), false)).toBe(
+            "Refreshing in 1 s",
         );
         // Once it went, it is being asked.
-        expect(askedLine(waiting, goesAt, false)).toBe("Asking Claude Code…");
+        expect(askedLine(waiting, goesAt, false)).toBe("Refreshing now…");
+    });
+});
+
+describe("askedDetail", () => {
+    const second = (d: Date) =>
+        d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const now = new Date(2026, 10, 25, 16, 33, 23);
+    const copyFrom = new Date(2026, 10, 25, 16, 32, 34);
+    const goesAt = new Date(2026, 10, 25, 16, 33, 35);
+    const waiting = { state: "waiting", goesAt, copyFrom } as const;
+
+    it("says why the overview refreshes, and that the figures shown are the latest heard", () => {
+        expect(askedDetail(waiting, now)).toBe(
+            `Claude Code reuses the figures it fetched at ${second(copyFrom)} for a minute. Until it fetches them again, these are the latest heard.`,
+        );
+        const asking =
+            "Asking Claude Code for the figures as they are now. Until it answers, these are the latest heard.";
+        expect(askedDetail({ state: "asking" }, now)).toBe(asking);
+        // Once the question went, it says what is under way now.
+        expect(askedDetail(waiting, goesAt)).toBe(asking);
+    });
+
+    it("says nothing more once the overview is not refreshing", () => {
+        expect(askedDetail({ state: "asked", at: now }, now)).toBeNull();
+        expect(askedDetail({ state: "failed", error: "No answer." }, now)).toBeNull();
+    });
+});
+
+describe("waitedShare", () => {
+    const copyFrom = new Date(2026, 10, 25, 16, 32, 0);
+    const goesAt = new Date(2026, 10, 25, 16, 33, 1);
+    const waiting = { state: "waiting", goesAt, copyFrom } as const;
+    const at = (ms: number) => new Date(copyFrom.getTime() + ms);
+
+    it("measures the wait from when Claude Code fetched its copy to when the question goes", () => {
+        expect(waitedShare(waiting, at(0))).toBe(0);
+        expect(waitedShare(waiting, at(30_500))).toBeCloseTo(0.5);
+        expect(waitedShare(waiting, at(60_000))).toBeCloseTo(60 / 61);
+        // A clock read before the copy's time counts as none of it passed.
+        expect(waitedShare(waiting, at(-5_000))).toBe(0);
+    });
+
+    it("has no measure while the question is asked, or once it is over", () => {
+        // Gone: the answer is under way, and how long it takes is not known.
+        expect(waitedShare(waiting, goesAt)).toBeNull();
+        expect(waitedShare({ state: "asking" }, goesAt)).toBeNull();
+        expect(waitedShare({ state: "asked", at: goesAt }, goesAt)).toBeNull();
+        expect(waitedShare({ state: "failed", error: "No answer." }, goesAt)).toBeNull();
     });
 });
 

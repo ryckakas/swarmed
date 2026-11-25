@@ -70,8 +70,9 @@ notice adds its line under Unreleased.
   machine, so opening the coins or pressing Ask again in that minute changed nothing, even
   right after your usage was reset. The question now waits until Claude Code fetches the
   figures again, and the overview counts down to it. Every step shows: the coins pulse and the
-  figures dim while Claude Code is asked, and the answer lights them up and says when it
-  came, to the second, and whether anything changed.
+  overview says it is refreshing, with a bar, while the figures last heard stay in full colour,
+  and the answer lights them up and says when it came, to the second, and whether anything
+  changed.
 - **The usage notice no longer says requests are refused when they are not.** With extra
   usage turned on and under its cap, a limit reached is billed, not refused, even before a turn
   has been billed: the notice said refused whenever the latest turn had not run on extra
