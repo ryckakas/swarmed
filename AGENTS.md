@@ -920,7 +920,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   the first one when a turn ends well or the user stops it (`session_interrupt`), as if it had
   just been typed; a turn that failed, or an agent that was stopped, leaves the queue standing.
   The queue lives in memory, and its changes are published as `Queue` events that are never
-  stored, like the pieces of a reply.
+  stored, like the pieces of a reply. An answer about a queue (the read when a session opens,
+  the answer to an edit) can reach the window after an event published later, so the UI takes
+  it through `queueAnswer` in the store, never `setQueue`: it is passed over if a queue event
+  of the session was heard since it was asked for (`queuesHeard`, `queuesAnswered` in
+  `queue.ts`).
 - **A waiting message open for editing is held** (`session_queue_hold`), and the edit box
   renews the hold every few seconds. While the first message is held, nothing sends from the
   queue by itself, whatever the path (a turn's end, Stop, Send now, Send the next one): the
@@ -1212,7 +1216,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   `Auth` sends them (`send_waiting`); one that does not leaves them, for `task_setup` with an
   `Auth` or `task_start_anyway`. The UI queues what is typed in such a session (`standing`).
   A kept prompt another Swarmed sent meanwhile is dropped from this one's queue when its turn
-  comes, not sent again (`went_elsewhere`).
+  comes, not sent again (`kept_went_elsewhere`). The kept prompt is in memory and in the
+  database, and is changed and looked at only through the `Queues` methods that hold the lock
+  on `kept` around both (`keep`, `keep_again`, `unkeep`, `kept_went_elsewhere`, `kept_edited`):
+  a look between the two would put a prompt that has gone back in the queue. The lock on `kept`
+  is taken before the store's and the queue lists', never after.
   The new-task view only names the task and shows fetching and making the worktree
   (`creating` in the store, by repository); the session's `SetupPanel` shows the rest.
 - **Opening things elsewhere** (`open.rs`) starts the user's editor (`settings.toml`, VS Code by
