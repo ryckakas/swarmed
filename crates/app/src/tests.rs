@@ -222,6 +222,25 @@ fn remote_control(app: &App, id: &Value) {
     wait_for(app, id, "Remote Control off", off);
 }
 
+/// Waits until the turn in which session `id`'s agent said `text` has ended. A message sent
+/// before that goes into a turn under way, which the window never does: it queues it.
+fn wait_for_end_of(app: &App, id: &Value, text: &str) {
+    let deadline = Instant::now() + WAIT_LIMIT;
+    while Instant::now() < deadline {
+        let events = app.ok("session_events", json!({ "id": id }));
+        let events = events.as_array().cloned().unwrap_or_default();
+        let said = events
+            .iter()
+            .rposition(|e| e["type"] == "text" && e["text"] == text);
+        let ended = said.is_some_and(|at| events[at..].iter().any(|e| e["type"] == "turn_done"));
+        if ended {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("the turn of session {id} that said `{text}` never ended");
+}
+
 fn wait_for(app: &App, id: &Value, what: &str, wanted: impl Fn(&Value) -> bool) -> Value {
     let deadline = Instant::now() + WAIT_LIMIT;
     while Instant::now() < deadline {
@@ -1120,6 +1139,90 @@ fn the_ui_can_remove_a_repository_with_its_tasks() {
 }
 
 #[test]
+fn the_ui_lists_the_sessions_a_message_can_mention_and_sends_them_checked() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+    let how = json!({ "model": null, "supervision": "ask", "effort": null });
+    let new = json!({ "project": "demo", "task": "one", "agent": null, "how": how });
+    let here = app.ok("session_new", new.clone());
+    let found = app.ok("session_new", new);
+    let (id, other) = (&here["id"], &found["id"]);
+
+    // The list leaves the session itself out; a new task's has every one of the repository.
+    let listed = app.ok("session_reachable", json!({ "id": id }));
+    assert_eq!(listed[0]["id"], *other);
+    assert_eq!(listed[0]["same_task"], true);
+    assert_eq!(listed.as_array().map(Vec::len), Some(1));
+    let for_new_task = app.ok("project_reachable", json!({ "project": "demo" }));
+    assert_eq!(for_new_task.as_array().map(Vec::len), Some(2));
+
+    // A session that is not there, or not to be read from here, is refused before anything goes.
+    let refused = app.invoke(
+        "session_send",
+        json!({ "id": id, "text": "look", "files": [], "sessions": [404] }),
+    );
+    assert_eq!(
+        refused,
+        Err(json!(
+            "session 404 cannot be mentioned here: it is not another open session this one can read"
+        ))
+    );
+    let mentioned = json!({ "id": id, "text": "look", "files": [], "sessions": [other] });
+    app.ok("session_send", mentioned);
+    let message = app.wait_for_event(id, "user_message");
+    let text = message["text"].as_str().unwrap_or_default();
+    assert!(text.starts_with("look\n\nSessions mentioned"), "{text}");
+    assert!(text.contains(&format!("- session {other} (")), "{text}");
+
+    // Queued and edited with the mention, and sent now with one.
+    app.ok("session_send", json!({ "id": id, "text": "slow" }));
+    let queue = app.ok(
+        "session_enqueue",
+        json!({ "id": id, "text": "later", "files": [], "sessions": [other] }),
+    );
+    assert!(
+        queue[0]["text"]
+            .as_str()
+            .is_some_and(|text| text.contains("Sessions mentioned"))
+    );
+    let edited = app.ok(
+        "session_queue_edit",
+        json!({ "id": id, "message": queue[0]["id"], "text": "then", "files": [], "sessions": [other] }),
+    );
+    assert!(
+        edited[0]["text"]
+            .as_str()
+            .is_some_and(|text| text.starts_with("then\n\nSessions"))
+    );
+    app.ok(
+        "session_message_now",
+        json!({ "id": id, "text": "now", "files": [], "sessions": [other] }),
+    );
+    wait_for(&app, id, "the message sent now", |e| {
+        e["type"] == "user_message" && e["text"].as_str().is_some_and(|t| t.starts_with("now\n\n"))
+    });
+
+    // A new task's first message mentions as well.
+    let start = json!({
+        "branch": null, "environment": null, "agent": null,
+        "how": { "model": null, "supervision": "auto", "effort": null, "fast": false },
+        "title": null, "prompt": "carry on", "files": [], "sessions": [other], "images": [],
+    });
+    let started = app.ok(
+        "task_start",
+        json!({ "project": "demo", "name": "carry", "start": start }),
+    );
+    let first = app.wait_for_event(&started["session"]["id"], "user_message");
+    assert!(
+        first["text"]
+            .as_str()
+            .is_some_and(|text| text.starts_with("carry on\n\nSessions"))
+    );
+}
+
+#[test]
 fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
@@ -1153,6 +1256,7 @@ fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
     // When the turn ends the waiting message goes out by itself.
     let sent = app.wait_for_text(id, "echo: next");
     assert_eq!(sent["type"], "text");
+    wait_for_end_of(&app, id, "echo: next");
     assert_eq!(app.ok("session_queue", json!({ "id": id })), json!([]));
     // With nothing waiting, sending the next one is not an error.
     app.ok("session_send_queued", json!({ "id": id }));
@@ -1167,6 +1271,7 @@ fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
     );
     app.wait_for_text(id, "echo: now");
     app.wait_for_text(id, "echo: later");
+    wait_for_end_of(&app, id, "echo: later");
 
     // What is typed can be sent now too, without waiting in the queue first.
     app.ok("session_send", json!({ "id": id, "text": "slow" }));

@@ -5,7 +5,7 @@ mod common;
 
 use common::{core_with_project, fixture, turn};
 use swarmed_core::agent::{AgentEvent, Auth};
-use swarmed_core::{Core, Error, MarkColour, NewTaskOptions, SessionOptions, hooks};
+use swarmed_core::{Attached, Core, Error, MarkColour, NewTaskOptions, SessionOptions, hooks};
 
 /// A core with one task and one session in it whose agent has not been started.
 async fn core_with_session(fx: &common::Fixture) -> (Core, i64) {
@@ -37,25 +37,30 @@ async fn a_message_starts_the_agent_and_is_sent_with_its_files() {
     // A file that is not there is refused before the agent is started.
     let missing = fx.repo.join("nope.txt");
     assert!(matches!(
-        core.session_message(id, "look", &[missing], Auth::Subscription),
+        core.session_message(id, "look", &Attached::files(&[missing]), Auth::Subscription),
         Err(Error::NoSuchAttachment(_))
     ));
     assert!(matches!(
-        core.session_message(id, "  ", &[], Auth::Subscription),
+        core.session_message(id, "  ", &Attached::default(), Auth::Subscription),
         Err(Error::EmptyMessage)
     ));
     assert_eq!(core.running_sessions(), Vec::<i64>::new());
 
     let files = std::slice::from_ref(&readme);
-    core.session_message(id, "what is this?", files, Auth::Subscription)
-        .expect("sends");
+    core.session_message(
+        id,
+        "what is this?",
+        &Attached::files(files),
+        Auth::Subscription,
+    )
+    .expect("sends");
     assert_eq!(core.running_sessions(), [id]);
     let events = turn(&mut bus, id).await;
     let sent = format!("what is this?\n\nAttached files:\n- {}", readme.display());
     assert_eq!(events.first(), Some(&user_message(sent)));
 
     // Running already, the agent is not started a second time: the next message is a turn.
-    core.session_message(id, "and this?", &[], Auth::Subscription)
+    core.session_message(id, "and this?", &Attached::default(), Auth::Subscription)
         .expect("sends");
     let events = turn(&mut bus, id).await;
     assert_eq!(events.first(), Some(&user_message("and this?".into())));
@@ -71,11 +76,15 @@ async fn a_message_waits_in_the_queue_with_its_files_and_is_sent_to_an_agent_sta
 
     let missing = fx.repo.join("nope.txt");
     assert!(matches!(
-        core.session_enqueue_message(id, "later", &[missing]),
+        core.session_enqueue_message(id, "later", &Attached::files(&[missing])),
         Err(Error::NoSuchAttachment(_))
     ));
     let queue = core
-        .session_enqueue_message(id, " later ", std::slice::from_ref(&readme))
+        .session_enqueue_message(
+            id,
+            " later ",
+            &Attached::files(std::slice::from_ref(&readme)),
+        )
         .expect("queues");
     let waiting = format!("later\n\nAttached files:\n- {}", readme.display());
     assert_eq!(queue.len(), 1);

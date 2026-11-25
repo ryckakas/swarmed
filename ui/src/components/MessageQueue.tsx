@@ -2,11 +2,12 @@ import { type ClipboardEvent, type KeyboardEvent, useEffect, useRef, useState } 
 import { api } from "../api";
 import type { QueuedMessage } from "../api/types";
 import { editFor } from "../editing";
+import { mentionedIn, mentionsAgain } from "../mentions";
 import { expandTokens, forgetTokens, nothingWritten, tokensAgain, withToken } from "../pastes";
 import { editingAfter, queueHeading } from "../queue";
 import { type Draft, filesWith } from "../sending";
 import { useStore } from "../store";
-import { splitFiles, withFiles } from "../transcript";
+import { splitFiles } from "../transcript";
 import { usePastedImages } from "../usePastedImages";
 import { useWords } from "../useWords";
 import { FileChips } from "./FileChips";
@@ -49,8 +50,10 @@ export function MessageQueue({ sessionId, busy, hearsMidTurn }: Props) {
     if (queue.length === 0) {
         return null;
     }
-    const save = (message: QueuedMessage, text: string) => {
-        queueAnswer(sessionId, api.sessionQueueEdit(sessionId, message.id, text)).catch(report);
+    const save = (message: QueuedMessage, edited: Edited) => {
+        const { text, files, sessions } = edited;
+        const answer = api.sessionQueueEdit(sessionId, message.id, text, files, sessions);
+        queueAnswer(sessionId, answer).catch(report);
     };
     const sendNow = (message: QueuedMessage) => {
         api.sessionSendNow(sessionId, message.id).catch(report);
@@ -82,7 +85,7 @@ export function MessageQueue({ sessionId, busy, hearsMidTurn }: Props) {
                             sessionId={sessionId}
                             message={message}
                             sendNowLabel={sendNowLabel}
-                            onSave={(text) => save(message, text)}
+                            onSave={(edited) => save(message, edited)}
                             onSendNow={() => sendNow(message)}
                             onTellNow={tells ? () => tellNow(message) : undefined}
                             onEditing={(open) =>
@@ -96,12 +99,22 @@ export function MessageQueue({ sessionId, busy, hearsMidTurn }: Props) {
     );
 }
 
+/** A waiting message as it is to be sent now: its words, its files and the sessions it mentions. */
+interface Edited {
+    text: string;
+    files: string[];
+    sessions: number[];
+}
+
+/** No words and nothing attached: what takes a message out of the queue. */
+const TAKEN_OUT: Edited = { text: "", files: [], sessions: [] };
+
 interface RowProps {
     sessionId: number;
     message: QueuedMessage;
     /** What sending the message at once does, which depends on whether the agent is busy. */
     sendNowLabel: string;
-    onSave(text: string): void;
+    onSave(edited: Edited): void;
     onSendNow(): void;
     /** Tells the message to the agent without stopping its turn; absent where it cannot. */
     onTellNow: (() => void) | undefined;
@@ -139,7 +152,11 @@ function QueuedRow(props: RowProps) {
     const [draft, setDraft] = useState<Draft | null>(null);
     const open = draft !== null;
     useHold(sessionId, message.id, open);
-    const said = splitFiles(message.text);
+    // What it was opened with, to tell an edit that changed nothing.
+    const opened = useRef<Draft | null>(null);
+    const split = splitFiles(message.text);
+    // The sessions it mentions stand as their tokens again, as typed.
+    const said = { ...split, text: mentionsAgain(split.text) };
     if (draft === null) {
         // Shown as it was typed: its pastes and quotes as tokens, not in full.
         const shown = tokensAgain(said.text, nothingWritten());
@@ -152,7 +169,9 @@ function QueuedRow(props: RowProps) {
                         title="Edit this message"
                         onClick={() => {
                             // Its pastes and quotes behind tokens again, sent in full once saved.
-                            setDraft({ ...said, text: tokensAgain(said.text), images: [] });
+                            const editing = { ...said, text: tokensAgain(said.text), images: [] };
+                            opened.current = editing;
+                            setDraft(editing);
                             onEditing(true);
                         }}
                     >
@@ -177,7 +196,7 @@ function QueuedRow(props: RowProps) {
                     className="queue-remove"
                     aria-label="Remove this message from the queue"
                     title="Remove from the queue"
-                    onClick={() => onSave("")}
+                    onClick={() => onSave(TAKEN_OUT)}
                 >
                     ×
                 </button>
@@ -193,10 +212,10 @@ function QueuedRow(props: RowProps) {
             sessionId={sessionId}
             draft={draft}
             onChange={setDraft}
-            onDone={(text) => {
+            onDone={(edited) => {
                 close();
-                if (text !== message.text) {
-                    onSave(text);
+                if (!(opened.current && unchanged(opened.current, edited))) {
+                    onSave(edited);
                 }
             }}
             onCancel={close}
@@ -204,12 +223,21 @@ function QueuedRow(props: RowProps) {
     );
 }
 
+/** Whether an edit left the message as it was opened: the same words, and the same files. */
+function unchanged(opened: Draft, edited: Edited): boolean {
+    const files = opened.files;
+    const sameFiles =
+        files.length === edited.files.length &&
+        files.every((file, at) => edited.files[at] === file);
+    return expandTokens(opened.text) === edited.text && sameFiles;
+}
+
 interface EditProps {
     sessionId: number;
     draft: Draft;
     onChange(draft: Draft): void;
     /** The edit is over, with the message as it is to be sent now. */
-    onDone(text: string): void;
+    onDone(edited: Edited): void;
     onCancel(): void;
 }
 
@@ -230,7 +258,9 @@ function QueueEdit({ sessionId, draft, onChange, onDone, onCancel }: EditProps) 
         finishing.current = true;
         filesWith(api, sessionId, draft)
             .then((files) => {
-                onDone(withFiles(expandTokens(draft.text), files));
+                // The core lists the files and the sessions under the words, as it did before.
+                const text = expandTokens(draft.text.trim());
+                onDone({ text, files, sessions: mentionedIn(draft.text) });
                 forgetTokens(draft.text);
             })
             .catch((error: unknown) => {

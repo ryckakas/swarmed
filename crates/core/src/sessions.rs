@@ -417,6 +417,23 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// The id of the latest event of each open session that has any: the later, the more
+    /// lately it was at work. One look up the index per session, never a scan of the events.
+    pub(crate) fn sessions_last_active(&self) -> Result<HashMap<i64, i64>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT s.id, (SELECT MAX(e.id) FROM session_events e WHERE e.session_id = s.id) \
+             FROM sessions s WHERE s.closed_at IS NULL",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?))
+        })?;
+        let rows: Vec<(i64, Option<i64>)> = rows.collect::<rusqlite::Result<_>>()?;
+        let active = rows
+            .into_iter()
+            .filter_map(|(id, latest)| latest.map(|latest| (id, latest)));
+        Ok(active.collect())
+    }
+
     fn session_configure(&self, id: i64, settings: &SessionSettings) -> Result<()> {
         self.conn.execute(
             "UPDATE sessions SET model = ?2, supervision = ?3, effort = ?4, fast = ?5 \
@@ -722,13 +739,49 @@ pub(crate) fn event_from_json(text: &str) -> AgentEvent {
 }
 
 /// A session's first title: the start of what the user typed. What they pasted large, which a
-/// front end sends wrapped in `<pasted_text_N>` tags, is not what the session is called after.
+/// front end sends wrapped in `<pasted_text_N>` tags, is not what the session is called after,
+/// and a session it mentions, `[@42 Fix the login form]`, is read as the words of its title.
 pub(crate) fn title_from(message: &str) -> String {
-    let title = shortened(&without_pastes(message), TITLE_CHARS);
+    let title = shortened(&mentions_as_words(&without_pastes(message)), TITLE_CHARS);
     if title.is_empty() && message.contains("<pasted_text_") {
         return "Pasted text".to_string();
     }
     title
+}
+
+/// `message` with each session it mentions by a token, `[@42 Fix the login form]`, as the words
+/// of the token's title, or `session 42` where it shows none.
+fn mentions_as_words(message: &str) -> String {
+    let mut words = String::new();
+    let mut rest = message;
+    while let Some((before, token)) = rest.split_once("[@") {
+        words.push_str(before);
+        // Anything that is not a token is only text.
+        let (said, after) = token_words(token).unwrap_or_else(|| ("[@".to_string(), token));
+        words.push_str(&said);
+        rest = after;
+    }
+    words.push_str(rest);
+    words
+}
+
+/// What a mention's token stands for in words, for `token`, the text right after its `[@`,
+/// and what follows the token; `None` if it is no token.
+fn token_words(token: &str) -> Option<(String, &str)> {
+    let digits = token.len() - token.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+    let (id, after) = token.split_at(digits);
+    let (shown, after) = after.split_once(']')?;
+    let fits = !id.is_empty() && (shown.is_empty() || shown.starts_with(' '));
+    if !fits || shown.contains('\n') {
+        return None;
+    }
+    let shown = shown.trim();
+    let said = if shown.is_empty() {
+        format!("session {id}")
+    } else {
+        shown.to_string()
+    };
+    Some((said, after))
 }
 
 /// `message` without the large pastes in it.
@@ -2679,6 +2732,17 @@ mod tests {
             title_from("what is <pasted_text_1> for?"),
             "what is <pasted_text_1> for?"
         );
+    }
+
+    #[test]
+    fn a_session_mentioned_is_read_as_its_title_in_a_title() {
+        assert_eq!(
+            title_from("carry on from [@42 Fix the login form] and more"),
+            "carry on from Fix the login form and more"
+        );
+        assert_eq!(title_from("ask [@7] about it"), "ask session 7 about it");
+        // What only looks like one stays as it was typed.
+        assert_eq!(title_from("a [@x] and [@3no]"), "a [@x] and [@3no]");
     }
 
     #[test]

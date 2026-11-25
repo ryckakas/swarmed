@@ -47,6 +47,7 @@ pub(crate) async fn start(
         },
         prompt: prompted.prompt,
         files: vec![],
+        sessions: vec![],
         images: vec![],
     };
     // Before anything is made, so that nothing it says is missed.

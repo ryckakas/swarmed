@@ -3,11 +3,12 @@ import { sendOrQueue } from "../actions";
 import { api } from "../api";
 import type { AgentEvent, Session } from "../api/types";
 import { noteCommandSent } from "../commandSent";
+import { mentionedIn } from "../mentions";
 import { expandTokens, forgetTokens, quoteTokenFor, tokensAgain } from "../pastes";
 import { withQuote } from "../quotes";
 import { browse, type Direction, sentMessages } from "../recall";
 import { type Draft, filesWith, NO_DRAFT, waitsItsTurn } from "../sending";
-import { takenBySwarmed } from "../slash";
+import { goesAtOnce } from "../slash";
 import { appliedEffort } from "../statusline";
 import { useStore } from "../store";
 import { suggestionOf } from "../suggestion";
@@ -134,8 +135,9 @@ export function Composer({ session }: { session: Session }) {
         // What was pasted large or quoted goes out in full, in place of the token for it.
         // A busy agent is not interrupted: the message waits its turn, and can still be changed.
         const message = expandTokens(text.trim());
-        const atOnce =
-            files.length === 0 && images.length === 0 && takenBySwarmed(message, commands);
+        // The sessions its tokens name, as typed: not a token that is only words of a paste.
+        const sessions = mentionedIn(text);
+        const atOnce = goesAtOnce(message, { ...draft, sessions }, commands);
         if (atOnce) {
             noteCommandSent(id);
         }
@@ -144,7 +146,7 @@ export function Composer({ session }: { session: Session }) {
             .then((attached) => {
                 // Kept now: a message that comes back has them as files, not to be kept twice.
                 unsent = { ...draft, files: attached, images: [] };
-                return sendOrQueue(id, message, attached, atOnce, now);
+                return sendOrQueue(id, message, { files: attached, sessions }, atOnce, now);
             })
             // Pastes and quotes are only forgotten once they are sent: a message that comes
             // back still has their tokens in it.
@@ -181,6 +183,7 @@ export function Composer({ session }: { session: Session }) {
                         inputRef={input}
                         commands={commands}
                         onRecall={recalling.recall}
+                        mentionFrom={{ session: id }}
                     >
                         <SessionPickers session={session} />
                         <button

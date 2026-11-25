@@ -36,6 +36,7 @@ import type {
     Pull,
     PullDraft,
     QueuedMessage,
+    Reachable,
     SearchHit,
     Session,
     SessionEvent,
@@ -409,8 +410,19 @@ export interface Api {
     sessionForkInto(id: number, project: string, task: string): Promise<Session>;
     /** Everything the session has said and been told, oldest first. */
     sessionEvents(id: number): Promise<AgentEvent[]>;
-    /** Starts a turn, starting the session's agent first if it is not running. */
-    sessionSend(id: number, text: string, files?: string[]): Promise<void>;
+    /**
+     * Starts a turn, starting the session's agent first if it is not running. `files` are
+     * listed under the message by their paths, and `sessions` it mentions under the words
+     * before them; one the session cannot read is refused before anything is sent.
+     */
+    sessionSend(id: number, text: string, files?: string[], sessions?: number[]): Promise<void>;
+    /**
+     * The sessions session `id` can mention with `@`: those its agent can read, those of its
+     * own task first, then the latest at work.
+     */
+    sessionReachable(id: number): Promise<Reachable[]>;
+    /** The sessions a new task's first message in `project` can mention, the latest at work first. */
+    projectReachable(project: string): Promise<Reachable[]>;
     /**
      * Keeps images pasted into a message to the session, each in base64, as files of the
      * session's own, and resolves to their paths, to attach to the message like any file.
@@ -429,16 +441,35 @@ export interface Api {
      */
     sessionTellNow(id: number, message: number): Promise<void>;
     /** Sends a message now: a turn under way is stopped, and it goes ahead of anything waiting. */
-    sessionMessageNow(id: number, text: string, files?: string[]): Promise<void>;
+    sessionMessageNow(
+        id: number,
+        text: string,
+        files?: string[],
+        sessions?: number[],
+    ): Promise<void>;
     /** The messages waiting for the session's agent to finish, first to be sent first. */
     sessionQueue(id: number): Promise<QueuedMessage[]>;
     /**
      * Adds a message to the queue: it is sent by itself when the agent's turn ends well or is
      * stopped.
      */
-    sessionEnqueue(id: number, text: string, files?: string[]): Promise<QueuedMessage[]>;
-    /** Rewrites a waiting message; empty text takes it out of the queue. */
-    sessionQueueEdit(id: number, message: number, text: string): Promise<QueuedMessage[]>;
+    sessionEnqueue(
+        id: number,
+        text: string,
+        files?: string[],
+        sessions?: number[],
+    ): Promise<QueuedMessage[]>;
+    /**
+     * Rewrites a waiting message, with its files and the sessions it mentions listed under it
+     * as when it was queued; no text and nothing attached take it out of the queue.
+     */
+    sessionQueueEdit(
+        id: number,
+        message: number,
+        text: string,
+        files?: string[],
+        sessions?: number[],
+    ): Promise<QueuedMessage[]>;
     /**
      * Holds a waiting message while it is edited, or renews the hold: while the first one is
      * held the queue sends nothing by itself. `false` once the message no longer waits.

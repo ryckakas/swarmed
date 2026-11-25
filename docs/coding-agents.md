@@ -329,7 +329,7 @@ Every session gets an MCP server named `swarmed`, with these tools:
 | Tool | What it does |
 | --- | --- |
 | `show_html` | shows HTML in the conversation, in a sandboxed frame |
-| `list_sessions`, `read_session` | see and read the other open sessions of the same project; from a chat, every open session |
+| `list_sessions`, `read_session` | see and read the other open sessions of the same project; from a chat, every open session. `read_session` reads the latest messages, or from one it is given (`from`), so a long conversation can be read from its start |
 | `send_message` | write to another session it can read, or to a chat, so that one a chat wrote to can answer it; queued if it is busy |
 | `spawn_session`, `close_session` | start a session in the same task, up to six, and close the idle ones it started |
 | `delegate_to_cloud` | hand work to a Codex cloud agent or a Claude Code cloud session |
@@ -346,6 +346,32 @@ settings, and removing an action, a prompt or the status line's script. Adding a
 line script, or hiding tool calls it can only propose: the change is shown in the conversation and made when you
 accept it. API keys, MCP servers, sign-ins, supervision, notes and the branch prefix are out of its reach, and it
 tells an agent the names of an environment's variables, never their values.
+
+### Mentioning another session
+
+Type `@` in a session's message box to point its agent at another session: the list shows the
+other sessions of the same task, and typing a few words of a title, a task or a repository finds
+the rest. It offers exactly the sessions the agent's `read_session` can read: those of the same
+repository, or from a chat every open session. A repository's session never reads a chat, which
+may hold what it read of another repository. In the new-task view the list is the repository's,
+latest at work first. The session you pick stands in the box as one token, `[@42 Fix the login
+form]`; Backspace takes it out whole.
+
+The agent is sent only a reference, never the other conversation. The token stays where you
+typed it, and under your words Swarmed lists each session it names by id and title:
+
+```
+Sessions mentioned, to read with the read_session tool:
+- session 42 ("Fix the login form")
+```
+
+The agent reads as much of it as it needs with `read_session`. A session that is closed, out of
+reach or the one you write to is refused before anything is sent, and the message stays in the
+box. If no Swarmed tool server is running for the agent, as with the scripted agent, it is given
+the session's latest four messages instead, at most 2,000 characters. In the transcript a
+mention shows as a chip with the session's current title; pressing it opens that session. ↑ and
+editing a waiting message bring it back as a token. On the command line,
+`swarmed session send 7 "..." --session 42` does the same.
 
 Every agent is also told that it works in its task's own worktree and is to keep the work on the
 task's branch: to make no other branch, worktree or clone, and to ask you for a new task when

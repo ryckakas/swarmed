@@ -3,6 +3,7 @@ import type { SlashCommand } from "./api/types";
 import {
     calledCommand,
     firstPlaceholder,
+    goesAtOnce,
     kindLabel,
     SUGGESTION_LIMIT,
     sentOn,
@@ -110,6 +111,14 @@ describe("what becomes of a command", () => {
         expect(takenBySwarmed("/review this", commands)).toBe(false);
         expect(takenBySwarmed("/my-skill", commands)).toBe(false);
         expect(takenBySwarmed("hello", commands)).toBe(false);
+    });
+
+    it("waits its turn when it goes with files, images or sessions, which only the agent takes", () => {
+        const alone = { files: [], images: [], sessions: [] };
+        expect(goesAtOnce("/usage", alone, commands)).toBe(true);
+        expect(goesAtOnce("/usage", { ...alone, sessions: [4] }, commands)).toBe(false);
+        expect(goesAtOnce("/usage", { ...alone, files: ["/a"] }, commands)).toBe(false);
+        expect(goesAtOnce("hello", alone, commands)).toBe(false);
     });
 
     it("leaves a first message only what is sent to the agent", () => {

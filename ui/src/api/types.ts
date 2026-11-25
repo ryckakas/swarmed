@@ -160,6 +160,8 @@ export interface TaskStart {
     title: string | null;
     prompt: string;
     files: string[];
+    /** The sessions the prompt mentions, by id: each one the new session could read. */
+    sessions: number[];
     /** Images pasted into the prompt, each in base64: the session's own once it is made. */
     images: string[];
     /** The number of the repository's GitHub issue the task is for, which it records. */
@@ -721,6 +723,24 @@ export interface Project {
     cloud: CloudTask[];
     /** Whether the user pinned it above the repositories that are not. */
     pinned: boolean;
+}
+
+/**
+ * A session another can point its agent at with `@`: an open one the other's agent can read,
+ * under the same rules as its `read_session` tool.
+ */
+export interface Reachable {
+    id: number;
+    /** Empty while it has none. */
+    title: string;
+    /** The task it works in; for a chat, the chat's name. */
+    task: string;
+    /** The repository of its task; for a chat, the home of the chats. */
+    project: string;
+    chat: boolean;
+    /** Whether it works in the same task as the session that would point at it. */
+    same_task: boolean;
+    status: SessionStatus;
 }
 
 /** A set of instructions for one kind of task, kept by an agent or by Swarmed itself. */

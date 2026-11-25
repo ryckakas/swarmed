@@ -13,6 +13,7 @@ use serde::Serialize;
 use tokio::task::JoinHandle;
 
 use crate::agent::Auth;
+use crate::attach::Attached;
 use crate::chats::CHATS;
 use crate::error::{Error, Result};
 use crate::hooks::{self, OutputSink};
@@ -32,6 +33,9 @@ pub struct FirstSession {
     pub prompt: String,
     /// The files the prompt points the agent at, listed under it.
     pub files: Vec<PathBuf>,
+    /// The sessions the prompt mentions, listed under it before the files: each one a session
+    /// of the task's repository could read (`mentions.rs`).
+    pub sessions: Vec<i64>,
     /// Images pasted into the prompt, each in base64: kept as the session's own, as
     /// [`Core::session_images_keep`] keeps them, and listed after the files.
     pub images: Vec<String>,
@@ -93,10 +97,12 @@ impl Core {
         sink: OutputSink<'_>,
     ) -> Result<(TaskStarted, SetupGoing)> {
         paths::validate_name(name)?;
-        let message = with_files(&first.prompt, &first.files)?;
         if first.prompt.trim().is_empty() {
             return Err(Error::EmptyMessage);
         }
+        // Checked as the session will be once it is there, before anything is made.
+        let prompt = self.mentioned_from(project, &first.prompt, &first.sessions)?;
+        let message = with_files(&prompt, &first.files)?;
         let images = Pasted::all(&first.images)?;
         if let Some(agent) = &first.options.agent {
             self.agents_now().backend(agent)?;
@@ -108,7 +114,7 @@ impl Core {
         let run = self.setup_begin(&made.task)?;
         let session = self.session_for_prompt(&made.task, &first.options, &message)?;
         let files = self.with_images(session.id, &first.files, &images)?;
-        let message = with_files(&first.prompt, &files)?;
+        let message = with_files(&prompt, &files)?;
         self.keep_for_setup(made.task.id, session.id, &message)?;
         let started = TaskStarted {
             task: made.task.clone(),
@@ -134,8 +140,11 @@ impl Core {
         let task = self.chat_new(name, options).await?;
         let message = with_files(&first.prompt, &first.files)?;
         let session = self.session_for_prompt(&task, &first.options, &message)?;
-        let files = self.with_images(session.id, &first.files, images)?;
-        self.session_message(session.id, &first.prompt, &files, auth)?;
+        let attached = Attached {
+            files: self.with_images(session.id, &first.files, images)?,
+            sessions: first.sessions.clone(),
+        };
+        self.session_message(session.id, &first.prompt, &attached, auth)?;
         let started = TaskStarted {
             task: task.clone(),
             session,

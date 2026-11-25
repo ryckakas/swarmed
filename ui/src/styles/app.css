@@ -4516,6 +4516,64 @@ code {
     color: var(--text);
 }
 
+/* Sessions to mention for an `@` being typed: by title, in the interface's own font. */
+.mention-menu .slash-option {
+    overflow: hidden;
+    font-family: var(--font-ui);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mention-at {
+    margin-right: 1px;
+    color: var(--faint);
+}
+
+.mention-hint {
+    padding: 4px var(--space-2);
+    color: var(--faint);
+    font-size: var(--text-xs);
+}
+
+/* A session a sent message mentions, where its token stood: pressing it opens the session. */
+.mention-chip {
+    display: inline-block;
+    max-width: 32ch;
+    overflow: hidden;
+    padding: 0 var(--space-1);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--text-sm);
+    line-height: 1.4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+    cursor: pointer;
+}
+
+.mention-chip:hover,
+.mention-chip:focus-visible {
+    border-color: var(--sky);
+}
+
+.mention-chip:disabled {
+    color: var(--muted);
+    cursor: default;
+}
+
+/* Sessions a message mentions that its words do not name, as on the command line: under it. */
+.mention-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    margin: var(--space-2) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
 .composer-options {
     flex: 1;
     min-width: 0;

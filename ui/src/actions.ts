@@ -8,7 +8,7 @@ import {
     pinTarget,
     targetOf,
 } from "./ordering";
-import { delivered } from "./sending";
+import { type Attached, delivered, NOTHING_ATTACHED } from "./sending";
 import { standing } from "./setup";
 import { useStore } from "./store";
 import { messageNumber } from "./transcript";
@@ -26,7 +26,7 @@ import { findSession, findSessionHome } from "./tree";
 export function sendOrQueue(
     id: number,
     text: string,
-    files: string[] = [],
+    attached: Attached = NOTHING_ATTACHED,
     atOnce = false,
     now = false,
 ): Promise<void> {
@@ -34,7 +34,7 @@ export function sendOrQueue(
     const session = findSession(projects, id);
     const task = session && findSessionHome(projects, session)?.task;
     // While its task is set up, a session waits as a busy one does: what is typed goes after.
-    return delivered(api, standing(session?.status, task), id, text, files, atOnce, now);
+    return delivered(api, standing(session?.status, task), id, text, attached, atOnce, now);
 }
 
 /** Moves a row of the sidebar `by` places among its siblings, then reads the tree again. */

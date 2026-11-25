@@ -2,6 +2,7 @@ import { memo, useMemo, useRef, useState } from "react";
 import { forkFromMessage } from "../actions";
 import { api } from "../api";
 import type { AgentEvent } from "../api/types";
+import { type Mentioned, mentionedApart } from "../mentions";
 import { type MessagePart, messageParts } from "../pastes";
 import { failedChecks, pullChangeSaid } from "../pulls";
 import { offersPutAway } from "../putAway";
@@ -36,6 +37,7 @@ import { ConfigProposal } from "./ConfigProposal";
 import { FileChips } from "./FileChips";
 import { HtmlView } from "./HtmlView";
 import { Markdown } from "./Markdown";
+import { MentionList, WithMentions } from "./MentionChips";
 import { PermissionPrompt } from "./PermissionPrompt";
 import { SendFailure } from "./PullRequest";
 import { PutAwayButton } from "./PutAway";
@@ -150,18 +152,20 @@ function ToLatest({ onPress }: { onPress: () => void }) {
 
 /**
  * What the user wrote: words they quoted from a reply as a quote, with what they wrote about
- * them around it, and anything they pasted large folded away under a line that says how much
- * there is of it.
+ * them around it, anything they pasted large folded away under a line that says how much there
+ * is of it, and the sessions it mentions where their tokens stand.
  */
-function Said({ text }: { text: string }) {
-    // biome-ignore lint/suspicious/noArrayIndexKey: the parts of a sent message never change
-    return messageParts(text).map((part, index) => <SaidPart key={index} part={part} />);
+function Said({ text, sessions }: { text: string; sessions: Mentioned[] }) {
+    return messageParts(text).map((part, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: the parts of a sent message never change
+        <SaidPart key={index} part={part} sessions={sessions} />
+    ));
 }
 
-function SaidPart({ part }: { part: MessagePart }) {
+function SaidPart({ part, sessions }: { part: MessagePart; sessions: Mentioned[] }) {
     switch (part.kind) {
         case "text":
-            return <span>{part.text}</span>;
+            return <WithMentions text={part.text} sessions={sessions} />;
         case "quote":
             return <blockquote className="said-quote">{part.text}</blockquote>;
         case "paste":
@@ -198,7 +202,8 @@ function ItemView({ item, sessionId, latest, sendsFrom }: ItemProps) {
                     {item.atReset && (
                         <p className="said-from">Sent by itself when the usage limit reset</p>
                     )}
-                    <Said text={item.text} />
+                    <Said text={item.text} sessions={item.sessions} />
+                    <MentionList sessions={mentionedApart(item.text, item.sessions)} />
                     <FileChips files={item.files} sessionId={sessionId} />
                     <button
                         type="button"

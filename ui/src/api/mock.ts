@@ -2,7 +2,7 @@ import { lastDays } from "../analytics";
 import { CHATS } from "../chats";
 import { movedAmong, pinnedAmong, starterHere } from "../ordering";
 import { calledCommand } from "../slash";
-import { PLAN_TOOL, withFiles } from "../transcript";
+import { PLAN_TOOL } from "../transcript";
 import { titleFrom } from "../tree";
 import type { Api } from "./client";
 import { MOCK_COMMANDS, mockQuestions, mockSaid, mockScreen, mockScreenOnly } from "./mockCommands";
@@ -14,6 +14,7 @@ import {
 } from "./mockContinuation";
 import { mockImagesApi } from "./mockImages";
 import { issuesApi } from "./mockIssues";
+import { mentionsApi, messageFor } from "./mockMentions";
 import { mergeApi } from "./mockMerging";
 import { bringBack, putAwayApi } from "./mockPutAway";
 import { MockSetups, taskSetupApi } from "./mockSetups";
@@ -3362,13 +3363,18 @@ export function createMockApi(): Api {
         sessionForkInto: async (id, projectName, taskName) =>
             sampleForkInto(agent, tasks(), id, projectName, taskName),
         sessionEvents: async (id) => [...agent.history(id)],
-        sessionSend: async (id, text, files) => agent.send(id, withFiles(text, files ?? [])),
-        sessionMessageNow: async (id, text, files) =>
-            agent.sendTypedNow(id, withFiles(text, files ?? [])),
+        sessionSend: async (id, text, files, sessions) =>
+            agent.send(id, messageFor(agent.projects, id, text, files, sessions)),
+        ...mentionsApi(() => agent.projects),
+        sessionMessageNow: async (id, text, files, sessions) =>
+            agent.sendTypedNow(id, messageFor(agent.projects, id, text, files, sessions)),
         sessionTellNow: async (id, message) => agent.tellNow(id, message),
         sessionQueue: async (id) => agent.queue(id),
-        sessionEnqueue: async (id, text, files) => agent.enqueue(id, withFiles(text, files ?? [])),
-        sessionQueueEdit: async (id, message, text) => agent.editQueued(id, message, text),
+        sessionEnqueue: async (id, text, files, sessions) =>
+            agent.enqueue(id, messageFor(agent.projects, id, text, files, sessions)),
+        // Nothing at all comes out empty, which takes the message out.
+        sessionQueueEdit: async (id, message, text, files, sessions) =>
+            agent.editQueued(id, message, messageFor(agent.projects, id, text, files, sessions)),
         sessionQueueHold: async (id, message) => agent.holdQueued(id, message),
         sessionQueueLetGo: async (id, message) => agent.letGoQueued(id, message),
         sessionSendQueued: async (id) => agent.sendQueued(id),

@@ -22,6 +22,7 @@ swarmed issue show shop 12                            # one whole, with its comm
 swarmed task new shop fix-login --issue 12            # branch, worktree, setup hook; for issue #12
 swarmed session run shop fix-login "Fix the login form's error message"
 swarmed session send 12 "Add a test for it"           # the id `session run` printed
+swarmed session send 12 "Do as it did" --session 9    # points the agent at session 9 to read
 swarmed session turns 12                              # each turn with the files it changed
 swarmed session turn-diff 12 1                        # what the second message's turn changed
 swarmed task commit shop fix-login -m "Fix the login form's error message"

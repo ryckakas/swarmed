@@ -851,6 +851,7 @@ describe("going on when a usage limit resets", () => {
         key,
         text: "go on",
         files: [],
+        sessions: [],
         remote: false,
         atReset: false,
     });

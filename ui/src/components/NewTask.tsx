@@ -25,6 +25,7 @@ import {
     environmentShown,
     OWN_SETUP,
 } from "../environments";
+import { mentionedIn, mentionsAsWords } from "../mentions";
 import { expandTokens, forgetTokens } from "../pastes";
 import { removedWhileSetUp } from "../removal";
 import { NO_DRAFT } from "../sending";
@@ -108,7 +109,8 @@ export function NewTask({ projects }: { projects: Project[] }) {
     // A removed task's name too, since its branch may still be there. The core has the last
     // word: it steps past branches here and on a remote, and the task it makes says its name.
     const from = branchAsked(repository, branch, NEW_BRANCH);
-    const base = from === null ? taskNameForPrompt(prompt) : taskNameFrom(from);
+    // A session the prompt mentions is named by its title's words, not by its token.
+    const base = from === null ? taskNameForPrompt(mentionsAsWords(prompt)) : taskNameFrom(from);
     const name = uniqueTaskName(base || "task", taken);
     const canSend = prompt.trim() !== "" && creating === null;
 
@@ -120,7 +122,8 @@ export function NewTask({ projects }: { projects: Project[] }) {
         try {
             // A task on a new branch is named for what it is about; one on an existing branch
             // keeps that branch's name.
-            const naming = from === null ? await named(home, prompt.trim()) : null;
+            const asked = mentionsAsWords(prompt.trim());
+            const naming = from === null ? await named(home, asked) : null;
             const chosen = naming ? uniqueTaskName(naming.name, taken) : name;
             useStore.getState().forgetHookLine(hookKey(home, chosen));
             noteCreating(home, chosen);
@@ -133,6 +136,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 setup: setupFor(agentId, model, supervision, effort, fast),
                 prompt: expandTokens(prompt.trim()),
                 files,
+                sessions: mentionedIn(prompt),
                 // Kept by the core as the session's own, once there is a session.
                 images: images.map((image) => image.data),
                 issue: issue?.number ?? null,
@@ -168,6 +172,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 disabled={creating !== null}
                 autoFocus
                 commands={commands}
+                mentionFrom={{ project: home }}
             >
                 {issue && (
                     <button
@@ -318,6 +323,8 @@ interface Start {
     prompt: string;
     /** The files the first message points the agent at. */
     files: string[];
+    /** The sessions the first message mentions. */
+    sessions: number[];
     /** Images pasted into the first message, in base64. */
     images: string[];
     /** The number of the repository's issue the task is for, if any. */
@@ -367,10 +374,11 @@ function reportStartFailed(error: unknown) {
  * `name-2` and so on.
  */
 async function startTask(start: Start, show: boolean) {
-    const { project, name, title, setup, prompt, files, images, issue } = start;
+    const { project, name, title, setup, prompt, files, sessions, images, issue } = start;
     const { refresh, open } = useStore.getState();
     const environment = start.environment;
-    const begun = { branch: start.branch, environment, setup, title, prompt, files, images, issue };
+    const how = { branch: start.branch, environment, setup, title };
+    const begun = { ...how, prompt, files, sessions, images, issue };
     const { session } = await api.taskStart(project, name, begun);
     await refresh(api);
     if (show) {

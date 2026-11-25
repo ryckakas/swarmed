@@ -78,15 +78,18 @@ async fn sessions_see_each_other_and_read_what_was_said() {
     );
     assert!(lines[2].ends_with("hello"), "{listed}");
 
-    let digest = core.peer_digest(first.id, second.id, None).expect("reads");
+    let digest = core
+        .peer_digest(first.id, second.id, None, None)
+        .expect("reads");
     assert_eq!(digest, "User: hello\n\nAgent: echo: hello");
+    // Where that is not all of it, it says which messages these are, and how to read others.
     assert_eq!(
-        core.peer_digest(first.id, second.id, Some(1))
+        core.peer_digest(first.id, second.id, Some(1), None)
             .expect("reads"),
-        "Agent: echo: hello"
+        "(Messages 2 to 2 of 2; earlier ones are read with `from`.)\n\nAgent: echo: hello"
     );
     assert!(
-        core.peer_digest(second.id, first.id, None)
+        core.peer_digest(second.id, first.id, None, None)
             .expect("reads")
             .starts_with("Nothing")
     );
@@ -94,6 +97,53 @@ async fn sessions_see_each_other_and_read_what_was_said() {
         core.peer_sessions(404),
         Err(Error::SessionNotFound(404))
     ));
+}
+
+#[tokio::test]
+async fn a_long_conversation_is_read_from_where_the_reader_asks() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let (reader, long) = (new_session(&core), new_session(&core));
+    core.session_start(long.id, Auth::Subscription)
+        .expect("starts");
+    for said in ["one", "two", "three"] {
+        core.session_send(long.id, said).expect("sends");
+        turn(&mut bus, long.id).await;
+    }
+
+    // From its start, a few at a time, saying where to read on.
+    let start = core
+        .peer_digest(reader.id, long.id, Some(2), Some(1))
+        .expect("reads");
+    assert_eq!(
+        start,
+        "(Messages 1 to 2 of 6; read on with `from` 3.)\n\nUser: one\n\nAgent: echo: one"
+    );
+    let middle = core
+        .peer_digest(reader.id, long.id, Some(2), Some(3))
+        .expect("reads");
+    assert!(
+        middle.starts_with(
+            "(Messages 3 to 4 of 6; earlier ones are read with `from`; read on with `from` 5.)"
+        ),
+        "{middle}"
+    );
+    assert!(
+        middle.ends_with("User: two\n\nAgent: echo: two"),
+        "{middle}"
+    );
+    // To its end, all of it from there.
+    let end = core
+        .peer_digest(reader.id, long.id, None, Some(5))
+        .expect("reads");
+    assert!(end.ends_with("User: three\n\nAgent: echo: three"), "{end}");
+    // Past its end, it says so.
+    assert_eq!(
+        core.peer_digest(reader.id, long.id, None, Some(9))
+            .expect("reads"),
+        "That session has fewer than 9 messages."
+    );
 }
 
 #[tokio::test]
@@ -205,7 +255,9 @@ async fn a_closed_session_is_neither_read_nor_brought_back_by_a_message() {
     assert!(out_of_reach(
         core.peer_message(parent.id, child.id, "wake up")
     ));
-    assert!(out_of_reach(core.peer_digest(parent.id, child.id, None)));
+    assert!(out_of_reach(
+        core.peer_digest(parent.id, child.id, None, None)
+    ));
     assert!(matches!(
         core.session_start(child.id, Auth::Subscription),
         Err(Error::SessionClosed(id)) if id == child.id
@@ -264,15 +316,19 @@ async fn sessions_of_another_project_are_out_of_reach() {
     // It is not in the list, and neither reading it nor writing to it gets around that.
     let listed = core.peer_sessions(here.id).expect("lists");
     assert_eq!(listed.lines().count(), 2, "{listed}");
-    assert!(out_of_reach(core.peer_digest(here.id, there.id, None)));
+    assert!(out_of_reach(
+        core.peer_digest(here.id, there.id, None, None)
+    ));
     assert!(out_of_reach(core.peer_message(here.id, there.id, "hello")));
-    assert!(out_of_reach(core.peer_digest(here.id, 404, None)));
+    assert!(out_of_reach(core.peer_digest(here.id, 404, None, None)));
     let said = core.session_events(there.id).expect("reads").len();
     assert_eq!(core.session_queue(there.id).expect("reads"), vec![]);
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     assert_eq!(core.session_events(there.id).expect("reads").len(), said);
     // Within its own project it is read like any other.
-    let own = core.peer_digest(there.id, there.id, None).expect("reads");
+    let own = core
+        .peer_digest(there.id, there.id, None, None)
+        .expect("reads");
     assert!(own.contains("swordfish"), "{own}");
 }
 
@@ -296,7 +352,7 @@ async fn a_chat_reaches_every_repository_and_each_can_answer_but_not_read_it() {
     let listed = core.peer_sessions(chat.id).expect("lists");
     assert!(listed.contains("task demo/one"), "{listed}");
     assert!(listed.contains("chat question"), "{listed}");
-    core.peer_digest(chat.id, in_repository.id, None)
+    core.peer_digest(chat.id, in_repository.id, None, None)
         .expect("reads a repository's session");
     // A session in a repository can answer the chat that wrote to it.
     let answered = core
@@ -308,7 +364,7 @@ async fn a_chat_reaches_every_repository_and_each_can_answer_but_not_read_it() {
     assert!(!back.contains("chat question"), "{back}");
     assert!(back.contains("task one"), "{back}");
     let refusal = core
-        .peer_digest(in_repository.id, chat.id, None)
+        .peer_digest(in_repository.id, chat.id, None, None)
         .expect_err("a chat is not read from a repository");
     assert!(matches!(refusal, Error::Peers(_)), "{refusal}");
 }

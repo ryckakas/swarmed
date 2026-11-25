@@ -113,6 +113,38 @@ describe("the mock's queue of waiting messages", () => {
     });
 });
 
+describe("the mock's mentions", () => {
+    it("lists what a session can read, and sends a mention checked and listed", async () => {
+        const api = createMockApi();
+        const projects = await api.overview();
+        const homeOf = (id: number) =>
+            projects.find((project) =>
+                project.tasks.some((task) => task.sessions.some((session) => session.id === id)),
+            );
+        const listed = await api.sessionReachable(3);
+        expect(listed.map((session) => session.id)).not.toContain(3);
+        expect(listed.length).toBeGreaterThan(0);
+        // A repository's session reads only its own repository's.
+        const home = homeOf(3)?.name;
+        expect(listed.every((session) => session.project === home)).toBe(true);
+        const other = listed[0]?.id ?? 0;
+        await api.sessionSend(3, `see [@${other} it]`, [], [other]);
+        const said = (await api.sessionEvents(3)).find(
+            (event) => event.type === "user_message" && event.text.startsWith("see "),
+        );
+        expect(said).toMatchObject({ text: expect.stringContaining(`- session ${other} (`) });
+
+        // One of another repository is refused before anything goes.
+        const elsewhere = projects
+            .filter((project) => project.name !== home && !project.chats)
+            .flatMap((project) => project.tasks.flatMap((task) => task.sessions))[0];
+        const away = elsewhere?.id ?? 0;
+        await expect(api.sessionSend(3, "look", [], [away])).rejects.toThrow(
+            `session ${away} cannot be mentioned here`,
+        );
+    });
+});
+
 describe("the mock's agent setup", () => {
     it("installs an agent, then lets its models be chosen", async () => {
         const api = createMockApi();

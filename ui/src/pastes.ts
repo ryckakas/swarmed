@@ -4,6 +4,8 @@
 // agent reads as what they are and the transcript finds again. Pure, except for the store that
 // remembers what each token stands for until its message is sent.
 
+import { mentionSpans } from "./mentions";
+
 /** From how many lines, or how many characters, a paste is put away behind a token. */
 const LARGE_LINES = 8;
 const LARGE_CHARS = 1000;
@@ -118,8 +120,9 @@ function tokensIn(value: string) {
 }
 
 /**
- * The token a deleting key takes out whole: the one that ends at the caret for Backspace, the
- * one that starts there for Delete. `null` if the caret is not at a token, or text is selected.
+ * The token a deleting key takes out whole, a paste's, a quote's or a mentioned session's: the
+ * one that ends at the caret for Backspace, the one that starts there for Delete. `null` if the
+ * caret is not at a token, or text is selected.
  */
 export function tokenToRemove(
     key: string,
@@ -130,7 +133,8 @@ export function tokenToRemove(
     if (start !== end || (key !== "Backspace" && key !== "Delete")) {
         return null;
     }
-    const touched = tokensIn(value).find((token) =>
+    const tokens = [...tokensIn(value), ...mentionSpans(value)];
+    const touched = tokens.find((token) =>
         key === "Backspace" ? token.end === start : token.start === start,
     );
     return touched ? { start: touched.start, end: touched.end } : null;

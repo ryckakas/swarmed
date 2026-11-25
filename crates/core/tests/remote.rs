@@ -8,7 +8,7 @@ use std::sync::Arc;
 use common::{core_with_project, fixture, next, turn};
 use swarmed_core::agent::{AgentEvent, Auth, FakeBackend, RemoteState};
 use swarmed_core::{
-    AgentInfo, Core, Error, NewTaskOptions, RemoveOptions, SessionEvent, SessionOptions,
+    AgentInfo, Attached, Core, Error, NewTaskOptions, RemoveOptions, SessionEvent, SessionOptions,
     SessionStatus, hooks,
 };
 use tokio::sync::broadcast::Receiver;
@@ -327,7 +327,7 @@ async fn rc_turns_it_on_and_off_at_once_and_never_waits_in_the_queue() {
     let core = core_with_task(&fx).await;
     let id = new_session(&core);
     let mut bus = core.subscribe();
-    core.session_message(id, "/rc", &[], Auth::Subscription)
+    core.session_message(id, "/rc", &Attached::default(), Auth::Subscription)
         .expect("turns it on");
     while remote(&mut bus, id).await.0 != RemoteState::On {}
     // Nothing was said: it is Swarmed's to do, not the agent's.

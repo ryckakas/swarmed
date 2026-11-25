@@ -8,7 +8,8 @@ use std::collections::BTreeMap;
 use common::{core_with_project, fixture, next, turn};
 use swarmed_core::agent::{AgentEvent, Asked, Auth, Effort};
 use swarmed_core::{
-    CommandKind, Core, Error, NewTaskOptions, Session, SessionOptions, SessionStatus, hooks,
+    Attached, CommandKind, Core, Error, NewTaskOptions, Session, SessionOptions, SessionStatus,
+    hooks,
 };
 use tokio::sync::broadcast::Receiver;
 
@@ -79,8 +80,13 @@ async fn a_screen_command_starts_the_agent_asks_it_and_sends_no_message() {
     let mut bus = core.subscribe();
     assert_eq!(core.running_sessions(), [0_i64; 0]);
 
-    core.session_message(session.id, " /usage ", &[], Auth::Subscription)
-        .expect("is shown");
+    core.session_message(
+        session.id,
+        " /usage ",
+        &Attached::default(),
+        Auth::Subscription,
+    )
+    .expect("is shown");
     let published = next(&mut bus).await;
     let AgentEvent::Screen {
         command,
@@ -116,7 +122,7 @@ async fn a_screen_command_with_words_after_it_and_a_skill_are_sent_as_typed() {
     let (core, session) = core_with_session(&fx).await;
     let mut bus = core.subscribe();
     for typed in ["/mcp reconnect docs", "/review this", "/no-such-command"] {
-        core.session_message(session.id, typed, &[], Auth::Subscription)
+        core.session_message(session.id, typed, &Attached::default(), Auth::Subscription)
             .expect("sends");
         let events = turn(&mut bus, session.id).await;
         let echoed = AgentEvent::Text {
@@ -138,7 +144,7 @@ async fn a_skill_of_the_users_named_like_a_command_is_what_is_called() {
     }
     let mut bus = core.subscribe();
     for typed in ["/status", "/login"] {
-        core.session_message(session.id, typed, &[], Auth::Subscription)
+        core.session_message(session.id, typed, &Attached::default(), Auth::Subscription)
             .expect("sends");
         let events = turn(&mut bus, session.id).await;
         let shown = |event: &AgentEvent| matches!(event, AgentEvent::Screen { .. });
@@ -152,10 +158,15 @@ async fn a_config_answer_given_while_the_agent_works_says_that_it_waits() {
     let fx = fixture();
     let (core, session) = core_with_session(&fx).await;
     let mut bus = core.subscribe();
-    core.session_message(session.id, "/config", &[], Auth::Subscription)
-        .expect("asks");
+    core.session_message(
+        session.id,
+        "/config",
+        &Attached::default(),
+        Auth::Subscription,
+    )
+    .expect("asks");
     let (request_id, questions) = asked(&mut bus).await;
-    core.session_message(session.id, "slow", &[], Auth::Subscription)
+    core.session_message(session.id, "slow", &Attached::default(), Auth::Subscription)
         .expect("sends");
     until(&mut bus, |event| matches!(event, AgentEvent::Text { .. })).await;
     let chosen = [(questions[0].question.as_str(), first_off(0))];
@@ -179,7 +190,12 @@ async fn a_config_answer_given_while_the_agent_works_says_that_it_waits() {
 async fn a_terminal_command_is_refused_before_anything_is_started_or_said() {
     let fx = fixture();
     let (core, session) = core_with_session(&fx).await;
-    let refused = core.session_message(session.id, "/login", &[], Auth::Subscription);
+    let refused = core.session_message(
+        session.id,
+        "/login",
+        &Attached::default(),
+        Auth::Subscription,
+    );
     let Err(Error::TerminalOnly { command, instead }) = &refused else {
         panic!("not refused: {refused:?}");
     };
@@ -189,7 +205,7 @@ async fn a_terminal_command_is_refused_before_anything_is_started_or_said() {
     assert!(told.starts_with("/login is not sent. "), "{told}");
     // By another of its names as well: `/new` empties the conversation as `/clear` does.
     let cleared = core
-        .session_message(session.id, "/new", &[], Auth::Subscription)
+        .session_message(session.id, "/new", &Attached::default(), Auth::Subscription)
         .expect_err("refused")
         .to_string();
     assert!(
@@ -235,8 +251,13 @@ async fn the_model_command_asks_and_the_answer_is_set_without_a_message() {
     let fx = fixture();
     let (core, session) = core_with_session(&fx).await;
     let mut bus = core.subscribe();
-    core.session_message(session.id, "/model", &[], Auth::Subscription)
-        .expect("asks");
+    core.session_message(
+        session.id,
+        "/model",
+        &Attached::default(),
+        Auth::Subscription,
+    )
+    .expect("asks");
     let (request_id, questions) = asked(&mut bus).await;
     let [question] = &questions[..] else {
         panic!("one question: {questions:?}");
@@ -276,20 +297,35 @@ async fn a_setting_named_with_its_command_is_set_at_once_and_one_put_aside_chang
     let fx = fixture();
     let (core, session) = core_with_session(&fx).await;
     let mut bus = core.subscribe();
-    core.session_message(session.id, "/effort High", &[], Auth::Subscription)
-        .expect("is set");
+    core.session_message(
+        session.id,
+        "/effort High",
+        &Attached::default(),
+        Auth::Subscription,
+    )
+    .expect("is set");
     let (_, what) = answered(&mut bus).await;
     assert_eq!(what, "This session's effort is now High.");
     let stored = core.session(session.id).expect("exists");
     assert_eq!(stored.effort, Some(Effort::High));
 
-    core.session_message(session.id, "/model default", &[], Auth::Subscription)
-        .expect("is set");
+    core.session_message(
+        session.id,
+        "/model default",
+        &Attached::default(),
+        Auth::Subscription,
+    )
+    .expect("is set");
     let (_, what) = answered(&mut bus).await;
     assert_eq!(what, "This session's model is now the default.");
     assert_eq!(core.session(session.id).expect("exists").model, None);
 
-    let wrong = core.session_message(session.id, "/effort enormous", &[], Auth::Subscription);
+    let wrong = core.session_message(
+        session.id,
+        "/effort enormous",
+        &Attached::default(),
+        Auth::Subscription,
+    );
     assert!(
         matches!(&wrong, Err(Error::NotAChoice { command, answer }) if command == "effort" && answer == "enormous"),
         "{wrong:?}"
@@ -299,8 +335,13 @@ async fn a_setting_named_with_its_command_is_set_at_once_and_one_put_aside_chang
         Some(Effort::High)
     );
 
-    core.session_message(session.id, "/effort", &[], Auth::Subscription)
-        .expect("asks");
+    core.session_message(
+        session.id,
+        "/effort",
+        &Attached::default(),
+        Auth::Subscription,
+    )
+    .expect("asks");
     let (request_id, _) = asked(&mut bus).await;
     core.session_command_answer(session.id, &request_id, None, Auth::Subscription)
         .expect("is put aside");
@@ -317,8 +358,13 @@ async fn config_asks_about_claude_codes_settings_and_tells_it_only_what_changes(
     let fx = fixture();
     let (core, session) = core_with_session(&fx).await;
     let mut bus = core.subscribe();
-    core.session_message(session.id, "/config", &[], Auth::Subscription)
-        .expect("asks");
+    core.session_message(
+        session.id,
+        "/config",
+        &Attached::default(),
+        Auth::Subscription,
+    )
+    .expect("asks");
     let (request_id, questions) = asked(&mut bus).await;
     assert!(questions.len() > 1);
     let chosen: Vec<(&str, &str)> = questions
@@ -344,8 +390,13 @@ async fn config_asks_about_claude_codes_settings_and_tells_it_only_what_changes(
     assert_eq!(said(&core, session.id), ["/config autoCompact=false"]);
 
     // Everything left as it is sends nothing.
-    core.session_message(session.id, "/config", &[], Auth::Subscription)
-        .expect("asks");
+    core.session_message(
+        session.id,
+        "/config",
+        &Attached::default(),
+        Auth::Subscription,
+    )
+    .expect("asks");
     let (request_id, questions) = asked(&mut bus).await;
     let unchanged: Vec<(&str, &str)> = questions
         .iter()
@@ -366,7 +417,7 @@ async fn config_asks_about_claude_codes_settings_and_tells_it_only_what_changes(
     core.session_message(
         session.id,
         "/config thinking=false",
-        &[],
+        &Attached::default(),
         Auth::Subscription,
     )
     .expect("sends");
@@ -379,11 +430,16 @@ async fn a_command_passed_on_while_the_agent_works_waits_its_turn() {
     let fx = fixture();
     let (core, session) = core_with_session(&fx).await;
     let mut bus = core.subscribe();
-    core.session_message(session.id, "slow", &[], Auth::Subscription)
+    core.session_message(session.id, "slow", &Attached::default(), Auth::Subscription)
         .expect("sends");
     until(&mut bus, |event| matches!(event, AgentEvent::Text { .. })).await;
-    core.session_message(session.id, "/mcp reconnect docs", &[], Auth::Subscription)
-        .expect("waits");
+    core.session_message(
+        session.id,
+        "/mcp reconnect docs",
+        &Attached::default(),
+        Auth::Subscription,
+    )
+    .expect("waits");
     let waiting = core.session_queue(session.id).expect("reads");
     assert_eq!(waiting.len(), 1);
     assert_eq!(waiting[0].text, "/mcp reconnect docs");
@@ -416,13 +472,23 @@ async fn a_skipped_setting_is_left_as_it_is() {
     let fx = fixture();
     let (core, session) = core_with_session(&fx).await;
     let mut bus = core.subscribe();
-    core.session_message(session.id, "/effort High", &[], Auth::Subscription)
-        .expect("is set");
+    core.session_message(
+        session.id,
+        "/effort High",
+        &Attached::default(),
+        Auth::Subscription,
+    )
+    .expect("is set");
     answered(&mut bus).await;
 
     // Asked again, its one question skipped: the answers leave it out.
-    core.session_message(session.id, "/effort", &[], Auth::Subscription)
-        .expect("asks");
+    core.session_message(
+        session.id,
+        "/effort",
+        &Attached::default(),
+        Auth::Subscription,
+    )
+    .expect("asks");
     let (request_id, _) = asked(&mut bus).await;
     core.session_command_answer(
         session.id,
@@ -439,8 +505,13 @@ async fn a_skipped_setting_is_left_as_it_is() {
     );
 
     // Of Claude Code's settings, one skipped is not told, and the one answered is.
-    core.session_message(session.id, "/config", &[], Auth::Subscription)
-        .expect("asks");
+    core.session_message(
+        session.id,
+        "/config",
+        &Attached::default(),
+        Auth::Subscription,
+    )
+    .expect("asks");
     let (request_id, questions) = asked(&mut bus).await;
     let chosen = [(questions[0].question.as_str(), first_off(0))];
     core.session_command_answer(

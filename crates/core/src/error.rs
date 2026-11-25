@@ -301,6 +301,12 @@ pub enum Error {
     /// A message with nothing in it.
     #[error("a message cannot be empty")]
     EmptyMessage,
+    /// A session a message mentions is not another open session that the session the message
+    /// goes to can read.
+    #[error(
+        "session {0} cannot be mentioned here: it is not another open session this one can read"
+    )]
+    CannotMention(i64),
     /// A pasted image in a format agents do not read, or something that is no image at all.
     /// Says which, when the format is known.
     #[error("{0} cannot be attached: agents read only PNG, JPEG, GIF and WebP images")]

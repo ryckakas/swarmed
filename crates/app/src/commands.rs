@@ -12,15 +12,15 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
-    AccountUsage, Action, AgentInfo, AgentSetup, ApiKeyInfo, BackgroundOutput, BackgroundTask,
-    BranchChoices, Cleaned, Cleanup, CleanupKind, CloudOrigin, CloudProvider, CloudTask, Core,
-    Costs, CustomLayout, Environment, EnvironmentChoice, FileChange, FileDiff, FileListing,
-    FirstSession, Issue, IssueDetail, IssueFilter, IssueList, McpServerInput, McpServerView,
-    MergeMethod, MergeReport, MergeRules, MergeWhen, NewTaskOptions, Project, ProjectOverview,
-    Pull, PullDraft, QueuedMessage, RemoveOptions, SearchHit, Session, SessionOptions,
-    SessionSettings, Settings, SetupLog, Skill, SlashCommand, Snapshot, Task, TaskNaming,
-    TaskStarted, Template, TerminalConfig, TerminalOpened, Turn, TurnChanges, TurnStats,
-    Unpublished, Usage, hooks,
+    AccountUsage, Action, AgentInfo, AgentSetup, ApiKeyInfo, Attached, BackgroundOutput,
+    BackgroundTask, BranchChoices, Cleaned, Cleanup, CleanupKind, CloudOrigin, CloudProvider,
+    CloudTask, Core, Costs, CustomLayout, Environment, EnvironmentChoice, FileChange, FileDiff,
+    FileListing, FirstSession, Issue, IssueDetail, IssueFilter, IssueList, McpServerInput,
+    McpServerView, MergeMethod, MergeReport, MergeRules, MergeWhen, NewTaskOptions, Project,
+    ProjectOverview, Pull, PullDraft, QueuedMessage, Reachable, RemoveOptions, SearchHit, Session,
+    SessionOptions, SessionSettings, Settings, SetupLog, Skill, SlashCommand, Snapshot, Task,
+    TaskNaming, TaskStarted, Template, TerminalConfig, TerminalOpened, Turn, TurnChanges,
+    TurnStats, Unpublished, Usage, hooks,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -245,6 +245,9 @@ pub(crate) struct Start {
     /// Images pasted into the prompt, each in base64.
     #[serde(default)]
     images: Vec<String>,
+    /// The sessions the prompt mentions, by id.
+    #[serde(default)]
+    sessions: Vec<i64>,
     /// The number of the repository's GitHub issue the task is started for, if any.
     #[serde(default)]
     issue: Option<u64>,
@@ -279,6 +282,7 @@ pub(crate) async fn task_start<R: Runtime>(
         },
         prompt: start.prompt,
         files: start.files,
+        sessions: start.sessions,
         images: start.images,
     };
     let sink = hook_sink(&app, &project, &name);
@@ -1102,9 +1106,32 @@ pub(crate) async fn session_send(
     id: i64,
     text: String,
     files: Option<Vec<PathBuf>>,
+    sessions: Option<Vec<i64>>,
 ) -> Command<()> {
-    let files = files.unwrap_or_default();
-    Ok(core.session_message(id, &text, &files, Auth::default())?)
+    let attached = attached(files, sessions);
+    Ok(core.session_message(id, &text, &attached, Auth::default())?)
+}
+
+/// What a message points the agent at besides its words, as the window sends it: the files
+/// attached and the sessions mentioned, either left out for none.
+fn attached(files: Option<Vec<PathBuf>>, sessions: Option<Vec<i64>>) -> Attached {
+    Attached {
+        files: files.unwrap_or_default(),
+        sessions: sessions.unwrap_or_default(),
+    }
+}
+
+/// The sessions a session can mention with `@`: those its agent can read, its own task's
+/// first. Off the main thread: it looks at every open session.
+#[tauri::command(async)]
+pub(crate) fn session_reachable(core: CoreState<'_>, id: i64) -> Command<Vec<Reachable>> {
+    Ok(core.session_reachable(id)?)
+}
+
+/// The sessions a new task's first message in `project` can mention, before it has a session.
+#[tauri::command(async)]
+pub(crate) fn project_reachable(core: CoreState<'_>, project: String) -> Command<Vec<Reachable>> {
+    Ok(core.project_reachable(&project)?)
 }
 
 /// Keeps images pasted into a message to a session, each in base64, as files of the session's
@@ -1151,9 +1178,10 @@ pub(crate) async fn session_message_now(
     id: i64,
     text: String,
     files: Option<Vec<PathBuf>>,
+    sessions: Option<Vec<i64>>,
 ) -> Command<()> {
-    let files = files.unwrap_or_default();
-    Ok(core.session_message_now(id, &text, &files, Auth::default())?)
+    let attached = attached(files, sessions);
+    Ok(core.session_message_now(id, &text, &attached, Auth::default())?)
 }
 
 #[tauri::command(async)]
@@ -1167,9 +1195,10 @@ pub(crate) fn session_enqueue(
     id: i64,
     text: String,
     files: Option<Vec<PathBuf>>,
+    sessions: Option<Vec<i64>>,
 ) -> Command<Vec<QueuedMessage>> {
-    let files = files.unwrap_or_default();
-    Ok(core.session_enqueue_message(id, &text, &files)?)
+    let attached = attached(files, sessions);
+    Ok(core.session_enqueue_message(id, &text, &attached)?)
 }
 
 #[tauri::command]
@@ -1178,8 +1207,11 @@ pub(crate) fn session_queue_edit(
     id: i64,
     message: u64,
     text: String,
+    files: Option<Vec<PathBuf>>,
+    sessions: Option<Vec<i64>>,
 ) -> Command<Vec<QueuedMessage>> {
-    Ok(core.session_queue_edit(id, message, &text)?)
+    let attached = attached(files, sessions);
+    Ok(core.session_queue_edit_message(id, message, &text, &attached)?)
 }
 
 /// Holds a waiting message while the user edits it, or renews the hold.

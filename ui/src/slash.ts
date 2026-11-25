@@ -79,6 +79,20 @@ export function takenBySwarmed(text: string, commands: SlashCommand[]): boolean 
     return command !== null && command.kind !== "prompt";
 }
 
+/**
+ * Whether a message is handed over at once, never queued: one of the agent's own commands
+ * Swarmed does itself (`takenBySwarmed`), with no files, images or sessions to go with it,
+ * which only a message to the agent can take.
+ */
+export function goesAtOnce(
+    message: string,
+    going: { files: unknown[]; images: unknown[]; sessions: unknown[] },
+    commands: SlashCommand[],
+): boolean {
+    const alone = [going.files, going.images, going.sessions].every((list) => list.length === 0);
+    return alone && takenBySwarmed(message, commands);
+}
+
 /** The commands that are messages to the agent: all a first message can start with. */
 export function sentOn(commands: SlashCommand[]): SlashCommand[] {
     return commands.filter((command) => command.kind === "prompt");

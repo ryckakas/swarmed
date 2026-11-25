@@ -24,6 +24,13 @@ notice adds its line under Unreleased.
   time. `swarmed session turns` and `swarmed session turn-diff` show the same in the terminal.
   The latest 50 turns of each session are kept, outside your repository and without the files
   it ignores; see [What a turn changed](docs/configuration.md#what-a-turn-changed).
+- **Mention another session with `@`.** Type `@` in the message box to point the agent at
+  another session: the list shows the sessions of the same task, and typing finds the rest it
+  can read. The agent is given the session's id and title and reads what it needs with
+  `read_session`, which can now also read a long conversation from its start. A session it
+  cannot read is refused before anything is sent. A sent mention shows as a chip that opens the
+  session, and `swarmed session send --session <id>` does the same from the terminal; see
+  [Mentioning another session](docs/coding-agents.md#mentioning-another-session).
 
 ## [0.4.4] - 2026-11-25
 

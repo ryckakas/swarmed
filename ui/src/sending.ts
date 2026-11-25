@@ -14,6 +14,15 @@ export function waitsItsTurn(status: SessionStatus | undefined): boolean {
     return status === "working" || status === "waiting";
 }
 
+/** What a message points the agent at besides its words: files, and sessions to read. */
+export interface Attached {
+    files: string[];
+    sessions: number[];
+}
+
+/** A message that points at nothing. */
+export const NOTHING_ATTACHED: Attached = { files: [], sessions: [] };
+
 /**
  * Sends a message to a session, or puts it in the session's queue while its agent is busy.
  * With `atOnce` it is handed over whatever the agent is doing: one of the agent's own
@@ -25,17 +34,18 @@ export async function delivered(
     status: SessionStatus | undefined,
     id: number,
     text: string,
-    files: string[] = [],
+    attached: Attached = NOTHING_ATTACHED,
     atOnce = false,
     now = false,
 ): Promise<void> {
+    const { files, sessions } = attached;
     if (!waitsItsTurn(status) || atOnce) {
-        await api.sessionSend(id, text, files);
+        await api.sessionSend(id, text, files, sessions);
     } else if (now) {
         // Asked for now: the turn under way is stopped, and it goes ahead of what waits.
-        await api.sessionMessageNow(id, text, files);
+        await api.sessionMessageNow(id, text, files, sessions);
     } else {
-        await api.sessionEnqueue(id, text, files);
+        await api.sessionEnqueue(id, text, files, sessions);
     }
 }
 

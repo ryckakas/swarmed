@@ -1,4 +1,5 @@
-//! Files the user points an agent at with a message.
+//! Files the user points an agent at with a message, and the message that carries them and the
+//! sessions it mentions (`mentions.rs`).
 //!
 //! Nothing is uploaded or copied: the agent runs on this machine and can read the files where
 //! they are. Attaching one is telling the agent its path, in a form every front end writes the
@@ -46,20 +47,48 @@ pub fn with_files(text: &str, files: &[PathBuf]) -> Result<String> {
     Ok(message)
 }
 
+/// What a message points the agent at besides its words.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Attached {
+    /// Files and folders, each by its whole path, listed under the message.
+    pub files: Vec<PathBuf>,
+    /// Sessions the agent is to read what it needs of, by id, listed under the words and
+    /// before the files (`mentions.rs`).
+    pub sessions: Vec<i64>,
+}
+
+impl Attached {
+    /// `files` and nothing else.
+    #[must_use]
+    pub fn files(files: &[PathBuf]) -> Self {
+        Self {
+            files: files.to_vec(),
+            sessions: Vec::new(),
+        }
+    }
+
+    /// Whether the message points at nothing.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty() && self.sessions.is_empty()
+    }
+}
+
 impl Core {
-    /// Sends `text`, with `files` listed under it, to a session, starting its agent first if
-    /// it is not running.
+    /// Sends `text`, with what is `attached` listed under it, to a session, starting its agent
+    /// first if it is not running.
     ///
-    /// A message that cannot be sent as it is, such as one naming a file that is not there, is
-    /// refused before the agent is started. Must be called from within a tokio runtime.
+    /// A message that cannot be sent as it is, such as one naming a file that is not there or a
+    /// session this one cannot read, is refused before the agent is started. Must be called
+    /// from within a tokio runtime.
     pub fn session_message(
         &self,
         id: i64,
         text: &str,
-        files: &[PathBuf],
+        attached: &Attached,
         auth: Auth,
     ) -> Result<()> {
-        let message = with_files(text, files)?;
+        let message = self.message_for(id, text, attached)?;
         // One of the agent's own commands that Swarmed shows, asks about or refuses is not
         // a message to it, and most need no agent started.
         if self.command_taken(id, &message, Some(auth.clone()))? {
@@ -69,28 +98,52 @@ impl Core {
         self.session_send_as_typed(id, &message)
     }
 
-    /// Sends `text`, with `files` listed under it, now: a turn under way is stopped and it goes
-    /// when that turn has ended, ahead of anything waiting. Must be called from within a tokio
-    /// runtime.
+    /// Sends `text`, with what is `attached` listed under it, now: a turn under way is stopped
+    /// and it goes when that turn has ended, ahead of anything waiting. Must be called from
+    /// within a tokio runtime.
     pub fn session_message_now(
         &self,
         id: i64,
         text: &str,
-        files: &[PathBuf],
+        attached: &Attached,
         auth: Auth,
     ) -> Result<()> {
-        self.session_send_text_now(id, &with_files(text, files)?, auth)
+        self.session_send_text_now(id, &self.message_for(id, text, attached)?, auth)
     }
 
-    /// Adds `text`, with `files` listed under it, to the end of the session's queue and
-    /// returns the queue.
+    /// Adds `text`, with what is `attached` listed under it, to the end of the session's queue
+    /// and returns the queue.
     pub fn session_enqueue_message(
         &self,
         id: i64,
         text: &str,
-        files: &[PathBuf],
+        attached: &Attached,
     ) -> Result<Vec<QueuedMessage>> {
-        self.session_enqueue(id, &with_files(text, files)?)
+        self.session_enqueue(id, &self.message_for(id, text, attached)?)
+    }
+
+    /// Gives a waiting message new words and what is `attached`, listed under them as when it
+    /// was queued, and returns the queue. No words and nothing attached take the message out.
+    /// A message that cannot be sent as it is ends the edit as it was, as
+    /// [`Core::session_queue_edit`] does with a refused command.
+    pub fn session_queue_edit_message(
+        &self,
+        id: i64,
+        message: u64,
+        text: &str,
+        attached: &Attached,
+    ) -> Result<Vec<QueuedMessage>> {
+        if text.trim().is_empty() && attached.is_empty() {
+            return self.session_queue_edit(id, message, "");
+        }
+        match self.message_for(id, text, attached) {
+            Ok(composed) => self.session_queue_edit(id, message, &composed),
+            Err(error) => {
+                // As an edit that is refused: over, and a send owed meanwhile goes now.
+                self.session_queue_let_go(id, message).ok();
+                Err(error)
+            }
+        }
     }
 }
 

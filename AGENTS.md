@@ -673,6 +673,19 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   under the message in one fixed form, which the UI reads back (`splitFiles`) to show them as
   files. The front end gets paths from the system's file picker and from files dropped on the
   window, never file contents.
+- **A message can mention another session** (`mentions.rs`, `ui/src/mentions.ts`, #380). `@`
+  in the message box opens a list read from the core (`session_reachable`, or
+  `project_reachable` in the new-task view), which is what `read_session` can read: the reach
+  rules stay in `peers.rs` alone (`Reach`, `in_reach`). The choice stands in the box as a token,
+  `[@42 Fix the login form]`, which stays in the text as typed, so the draft, the queue and recall
+  carry it as text. The front end sends the ids its tokens name beside the files (`Attached`);
+  the core refuses one out of reach, closed or the session itself (`Error::CannotMention`)
+  before anything is sent, and lists the rest under the words and before the files in a fixed
+  form (`MENTIONED_SESSIONS`), which `splitMentions` reads back for chips and `mentionsAgain`
+  for tokens. Only a reference is sent; with no tool server (`tool_server` unset) a short
+  digest of each takes its place. A waiting message is edited with its files and sessions
+  apart (`session_queue_edit_message`), so the core writes the list again. The pattern (a menu
+  opened by a sign, a token, a list under the message, read back) is meant to be reused.
 - **A pasted image is the one part of a message Swarmed keeps** (`pasted.rs`, `images.ts`,
   #378), since it has no path to name. Until the message goes it is in the draft, in the
   window's memory (`images` of the `Draft`, in base64). Sending, queueing, saving an edited

@@ -1,7 +1,9 @@
 import { CHATS } from "../chats";
+import { mentionsAsWords } from "../mentions";
 import { withFiles } from "../transcript";
 import { titleFrom } from "../tree";
 import type { Api } from "./client";
+import { firstMessageIn } from "./mockMentions";
 import type {
     AgentEvent,
     EnvironmentChoice,
@@ -250,6 +252,8 @@ export function taskSetupApi(
             return project === CHATS ? task : setUp(project, task);
         },
         taskStart: async (project, name, start) => {
+            // Checked before anything is made, as the core does.
+            const said = firstMessageIn(deps.projects(), project, start.prompt, start.sessions);
             const task = await deps.make(project, name, start.branch, start.environment);
             // A chat has no repository, and so no issue.
             task.issue = project === CHATS ? null : start.issue;
@@ -258,11 +262,11 @@ export function taskSetupApi(
                 ...start.setup,
                 agent: start.setup.agent ?? "claude",
                 fast: start.setup.fast ?? false,
-                title: start.title ?? titleFrom(start.prompt),
+                title: start.title ?? titleFrom(mentionsAsWords(start.prompt)),
                 waits_for_setup: project !== CHATS,
             };
             const kept = await deps.keepImages(session.id, start.images);
-            const prompt = withFiles(start.prompt, [...start.files, ...kept]);
+            const prompt = withFiles(said, [...start.files, ...kept]);
             task.sessions.push(session);
             if (project === CHATS) {
                 deps.send(session.id, prompt);

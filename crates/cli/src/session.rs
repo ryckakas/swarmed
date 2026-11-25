@@ -10,7 +10,7 @@ use swarmed_core::agent::{
     AgentEvent, Asked, Auth, Effort, McpServerInfo, PLAN_TOOL, RemoteState, ScreenRow,
     ScreenSection, Supervision,
 };
-use swarmed_core::{Core, Session, SessionEvent, SessionOptions, SessionSettings};
+use swarmed_core::{Attached, Core, Session, SessionEvent, SessionOptions, SessionSettings};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
@@ -59,6 +59,10 @@ pub(crate) enum SessionCommand {
         /// A file or folder to point the agent at; may be given more than once.
         #[arg(long = "file")]
         files: Vec<PathBuf>,
+        /// Another session for the agent to read, by id: one this session's agent can reach
+        /// with `read_session`. May be given more than once.
+        #[arg(long = "session")]
+        sessions: Vec<i64>,
         #[arg(long, value_enum, default_value_t)]
         auth: AuthMode,
     },
@@ -254,20 +258,17 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             };
             let session = core.session_new(&project, &task, &options)?;
             say(&format!("session {}", session.id));
-            run_turn(core, session.id, &prompt, &[], auth.resolve()?).await
+            run_turn(core, session.id, &prompt, &[], &[], auth.resolve()?).await
         }
         SessionCommand::Send {
             id,
             prompt,
             files,
+            sessions,
             auth,
         } => {
-            // A path typed in a terminal is meant from where the terminal is.
-            let files: Vec<PathBuf> = files
-                .iter()
-                .map(std::path::absolute)
-                .collect::<std::io::Result<_>>()?;
-            run_turn(core, id, &prompt, &files, auth.resolve()?).await
+            let files = from_here(&files)?;
+            run_turn(core, id, &prompt, &files, &sessions, auth.resolve()?).await
         }
         SessionCommand::List { project, task } => {
             for s in core.sessions(&project, &task)? {
@@ -576,12 +577,29 @@ fn pass_on_stdin(typed: &UnboundedSender<std::io::Result<String>>) {
     }
 }
 
-/// Sends `prompt`, with `files` listed under it, and shows the session's events until the
-/// turn ends. Permission requests are answered from stdin, and `bg` there sends what the agent
-/// waits on to the background; Ctrl-C interrupts the turn instead of killing the session.
-async fn run_turn(core: &Core, id: i64, prompt: &str, files: &[PathBuf], auth: Auth) -> Result<()> {
+/// `files` as typed in a terminal, which means them from where the terminal is.
+fn from_here(files: &[PathBuf]) -> Result<Vec<PathBuf>> {
+    let files = files.iter().map(std::path::absolute);
+    Ok(files.collect::<std::io::Result<_>>()?)
+}
+
+/// Sends `prompt`, with `files` and the `sessions` it mentions listed under it, and shows the
+/// session's events until the turn ends. Permission requests are answered from stdin, and `bg` there sends what the
+/// agent waits on to the background; Ctrl-C interrupts the turn instead of killing the session.
+async fn run_turn(
+    core: &Core,
+    id: i64,
+    prompt: &str,
+    files: &[PathBuf],
+    sessions: &[i64],
+    auth: Auth,
+) -> Result<()> {
     let mut bus = core.subscribe();
-    core.session_message(id, prompt, files, auth)?;
+    let attached = Attached {
+        files: files.to_vec(),
+        sessions: sessions.to_vec(),
+    };
+    core.session_message(id, prompt, &attached, auth)?;
     follow_turn(core, id, &mut bus).await
 }
 
