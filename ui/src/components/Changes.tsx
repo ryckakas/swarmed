@@ -3,7 +3,7 @@ import { sendOrQueue } from "../actions";
 import { api } from "../api";
 import type { FileChange, FileDiff, Project, SkippedFile, Task, Turn } from "../api/types";
 import { type DiffLine, parseDiff, splitPath } from "../diff";
-import { commentKey, type ReviewComment, reviewMessage } from "../review";
+import { commentKey, madeOn, type ReviewComment, reviewMessage } from "../review";
 import { useStore } from "../store";
 import {
     choiceOf,
@@ -399,7 +399,7 @@ const DiffLines = memo(function DiffLines({ text, path, comments, onComment }: D
                             // biome-ignore lint/suspicious/noArrayIndexKey: the lines of one diff never reorder
                             key={index}
                             line={line}
-                            comment={key ? made.get(key) : undefined}
+                            comment={key ? madeOn(made.get(key), line.text) : undefined}
                             writing={key !== null && key === writing}
                             onWrite={() => setWriting(key === writing ? null : key)}
                             onSave={(said) => {
