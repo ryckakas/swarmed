@@ -259,10 +259,12 @@ fn told(address: &str, state: &BrowserState, from: i64, tab: Option<&str>) -> St
         .collect();
     format!(
         "{opening}\n\nIts address: {address}, also in ${BROWSER_ENV}.\n\nTabs:\n{}\n\nAct in your \
-         own tab: browser tools that list tabs (Playwright MCP's browser_tabs, Chrome DevTools \
-         MCP's list_pages) show it by its address; select it before you act. Clicking, typing, \
-         reading the page and screenshots are for your browser tools; from a script, connect \
-         with chromium.connectOverCDP(process.env.{BROWSER_ENV}).",
+         own tab: browser tools connected to this address list it among their tabs (Playwright \
+         MCP's browser_tabs, Chrome DevTools MCP's list_pages), by where it is; select it \
+         before you act. A browser tool that lists other tabs is not connected to this browser \
+         and acts on one of its own, which the user does not see: use a script instead, \
+         connected with chromium.connectOverCDP(process.env.{BROWSER_ENV}). Clicking, typing, \
+         reading the page and screenshots are for those tools or that script.",
         if tabs.is_empty() {
             "- none".to_string()
         } else {

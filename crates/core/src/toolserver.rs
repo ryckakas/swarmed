@@ -169,9 +169,9 @@ fn show_browser_tool() -> Value {
             running app. It opens in a tab of yours, starting the browser if it is not running, \
             and answers with its address for browser tools, its tabs, and how to act in yours. \
             Use it instead of launching a browser or opening a window of your own. It only \
-            shows: clicking, typing, reading the page and screenshots are for your browser tools \
-            (Playwright MCP, Chrome DevTools MCP), which act on this same browser, or for a \
-            script that connects to the address in SWARMED_BROWSER.",
+            shows: clicking, typing, reading the page and screenshots are for browser tools \
+            connected to its address (Playwright MCP, Chrome DevTools MCP), or for a script \
+            that connects to it; the address is in SWARMED_BROWSER.",
         "inputSchema": {
             "type": "object",
             "properties": {
