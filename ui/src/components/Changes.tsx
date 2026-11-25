@@ -156,21 +156,26 @@ interface Read {
     ended: boolean;
 }
 
-/** The files `source` changed: `null` while first reading, a message if that failed. */
+/**
+ * The files `source` changed: `null` while first reading, a message if that failed. What was
+ * read of another source is not shown in its place: under a turn's heading the whole task's
+ * files would look like that turn's. A new version of the same source keeps what is shown
+ * until it is read again.
+ */
 function useChanges(source: Source, version: number) {
-    const [read, setRead] = useState<Read | string | null>(null);
+    const [read, setRead] = useState<{ key: string; said: Read | string } | null>(null);
     const key = sourceKey(source);
     // biome-ignore lint/correctness/useExhaustiveDependencies: the key stands for the source; a new version means read again
     useEffect(() => {
         let current = true;
         readChanges(source)
-            .then((files) => current && setRead(files))
-            .catch((error: unknown) => current && setRead(String(error)));
+            .then((said) => current && setRead({ key, said }))
+            .catch((error: unknown) => current && setRead({ key, said: String(error) }));
         return () => {
             current = false;
         };
     }, [key, version]);
-    return read;
+    return read?.key === key ? read.said : null;
 }
 
 function sourceKey(source: Source): string {
