@@ -6,7 +6,8 @@
 //! with it, and never logged. Used up as they are read: only a Swarmed connected to the Chrome
 //! keeps them as it stops it, so one stopped otherwise must not bring back an older stop's.
 
-use std::os::unix::fs::PermissionsExt;
+use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::time::Duration;
 
@@ -47,8 +48,12 @@ pub(super) fn keep(path: &Path, tabs: &[BrowserTab]) {
     let Ok(text) = serde_json::to_string(&urls) else {
         return;
     };
-    if std::fs::write(path, text).is_ok() {
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).ok();
+    // Created for the user alone, never first as the umask has it: an address can carry a
+    // token.
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true).mode(0o600);
+    if let Ok(mut file) = options.open(path) {
+        file.write_all(text.as_bytes()).ok();
     }
 }
 
