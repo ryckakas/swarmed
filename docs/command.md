@@ -17,15 +17,41 @@ every session, whichever Swarmed does it.
 
 ```sh
 swarmed project add ~/code/shop                       # register a git repository
-swarmed task new shop fix-login                       # branch, worktree, setup hook
+swarmed issue list shop --mine                        # its GitHub issues assigned to you
+swarmed issue show shop 12                            # one whole, with its comments
+swarmed task new shop fix-login --issue 12            # branch, worktree, setup hook; for issue #12
 swarmed session run shop fix-login "Fix the login form's error message"
 swarmed session send 12 "Add a test for it"           # the id `session run` printed
 swarmed task commit shop fix-login -m "Fix the login form's error message"
 swarmed task push shop fix-login
 swarmed task switch shop fix-login                    # back to its own branch, or to one named
 swarmed task pr shop fix-login                        # through your own gh
+swarmed task pull shop fix-login --follow             # its checks, reviews and merge as they come
+swarmed task merge shop fix-login --squash            # or --auto, to merge once checks pass
+swarmed task done shop fix-login                      # put away: agents and stack stopped, nothing deleted
+swarmed task undone shop fix-login                    # back with the others
 swarmed task rm shop fix-login                        # teardown hook, worktree removed
 ```
+
+`issue list` lists a repository's open issues through your own `gh`, the latest changed first:
+`--mine` those assigned to you, `--created` those you opened, `--mentioned` those that mention
+you, `--closed` closed ones, `--search` words in GitHub's search syntax (`label:bug login`) and
+`--limit` how many. Without `gh`, or for a repository that is not on GitHub, it lists nothing and
+says why. `issue show` prints one whole, with its comments, leaving out those GitHub hides.
+`task new --issue 12` records that the task is for issue #12: the pull request text `task pr`
+and `task pr-message` write ends with `Closes #12`, so merging it closes the issue.
+
+`task merge` merges the pull request at the commit it just read: one pushed since is refused.
+Without a method it takes the one last used for the repository. It refuses while a check failed;
+`--force` merges anyway where no rule of the repository requires that check, `--admin` merges
+past the repository's requirements, as only its admins can, and `--auto` has GitHub merge it
+once they are met (`--cancel-auto` takes that back). No branch is deleted: the task's goes with
+`task rm --delete-branch`.
+
+`task done` puts a finished task away: its agents and its stack are stopped and `task list`
+says `done`; its sessions are closed too if `put_away_closes_sessions` is set. Starting one of
+its agents, reopening one of its sessions or starting its stack brings it back, as `task undone`
+does. The rules that put tasks away by themselves run in the app only.
 
 `task rm` refuses while the worktree has uncommitted changes or unpushed commits, or is one git
 no longer knows; `--force` removes it anyway. A failing `teardown` does not stop it: what it had
@@ -70,7 +96,8 @@ applies. `SWARMED_FAKE_AGENT=1` swaps in a scripted agent that spends no tokens.
 | Command | What it does |
 | --- | --- |
 | `project` | add, list, remove, move and pin repositories; `project config` prints the path of a project's config file |
-| `task` | create, remove, move and pin tasks, rerun `setup`, run the `start` command, see changes, commit, push, open a pull request |
+| `task` | create, remove, move and pin tasks, rerun `setup`, run the `start` command, see changes, commit, push, open a pull request, follow it (`task pull --follow`) and merge it (`task merge`) |
+| `issue` | list a repository's GitHub issues with filters, or print one with its comments, through your own `gh` |
 | `session` | run, continue, list, show, fork, rename, mark, move, pin, close, reopen and delete sessions; change a session's model or supervision; let a Claude Code session be reached from claude.ai (`remote-control`); let one a usage limit stopped go on by itself when the limit resets (`continue-at-reset`, which the app sends) |
 | `environment` | list a project's environments; choose the default one new tasks are set up in |
 | `snapshot` | keep the files git ignores in a set-up task, for new tasks to start from |

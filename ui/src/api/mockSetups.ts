@@ -251,6 +251,8 @@ export function taskSetupApi(
         },
         taskStart: async (project, name, start) => {
             const task = await deps.make(project, name, start.branch, start.environment);
+            // A chat has no repository, and so no issue.
+            task.issue = project === CHATS ? null : start.issue;
             const session: Session = {
                 ...deps.newSession(task.id),
                 ...start.setup,

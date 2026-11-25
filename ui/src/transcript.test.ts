@@ -5,7 +5,9 @@ import {
     continueOffer,
     fileName,
     type LimitItem,
+    latestFailure,
     latestLimit,
+    latestMerge,
     latestMove,
     mayGoToBackground,
     messageNumber,
@@ -614,6 +616,33 @@ describe("a worktree that moved to another branch", () => {
         expect(movedSaid("second", "you/one", true, words)).toBe(
             "The worktree was moved from second to you/one since the last turn, and the agent was told with this message.",
         );
+    });
+});
+
+describe("a change of the pull request", () => {
+    const words = wordsFor("plain");
+    const changed = (change: Extract<AgentEvent, { type: "pull_changed" }>["change"]) =>
+        ({
+            type: "pull_changed",
+            number: 412,
+            url: "https://github.com/o/r/pull/412",
+            change,
+        }) as AgentEvent;
+
+    it("is one line, and only the latest failure offers to send it", () => {
+        const failed = changed({ kind: "checks_failed", checks: ["Unit tests"] });
+        const events = [failed, changed({ kind: "commented", by: ["alice"] }), failed];
+        const items = toItems(events, words);
+        expect(items.map((item) => item.kind)).toEqual(["pull", "pull", "pull"]);
+        expect(latestFailure(items)).toBe(2);
+        expect(latestFailure(toItems([changed({ kind: "merged" })], words))).toBeNull();
+    });
+
+    it("offers putting the task away from the latest merge only", () => {
+        const merged = changed({ kind: "merged" });
+        const items = toItems([merged, changed({ kind: "approved", by: ["bob"] }), merged], words);
+        expect(latestMerge(items)).toBe(2);
+        expect(latestMerge(toItems([changed({ kind: "closed" })], words))).toBeNull();
     });
 });
 

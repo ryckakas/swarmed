@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { api } from "../api";
-import type { Project, RemoveTarget } from "../api/types";
+import type { Project, RemoveTarget, Task } from "../api/types";
+import { putAwayDoes } from "../putAway";
 import { anywayHelps, refusalSaid } from "../removal";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
 import type { Words } from "../wording";
 import { Dialog } from "./Dialog";
+import { PutAwayButton } from "./PutAway";
 
 /** Asks before a repository or a task is removed from Swarmed, and says what goes with it. */
 export function RemoveDialog() {
@@ -68,6 +70,8 @@ function Question({ target, project }: { target: RemoveTarget; project: Project 
     const [problem, setProblem] = useState<string | null>(null);
     const anyway = problem !== null && anywayHelps(problem);
     const { title, what, action } = wording(target, project, words);
+    // Not offered once the removal is under way.
+    const instead = busy ? null : lighterWay(target, project);
 
     // Closing the dialog does not stop a removal: what comes of it is then said elsewhere.
     const stillAsked = () => useStore.getState().removing === target;
@@ -112,16 +116,24 @@ function Question({ target, project }: { target: RemoveTarget; project: Project 
             problem={problem && refusalSaid(problem)}
             busy={busy}
             actions={
-                <button
-                    type="button"
-                    className="button button-danger"
-                    onClick={() => void remove()}
-                >
-                    {buttonLabel(busy, anyway, action)}
-                </button>
+                <>
+                    <PutAwayInstead
+                        project={target.project}
+                        task={instead}
+                        onDone={() => askToRemove(null)}
+                    />
+                    <button
+                        type="button"
+                        className="button button-danger"
+                        onClick={() => void remove()}
+                    >
+                        {buttonLabel(busy, anyway, action)}
+                    </button>
+                </>
             }
         >
             <p>{what}</p>
+            <PutAwayInsteadSaid task={instead} />
             {busy && (
                 <p>
                     Agents and stacks are stopped first, which can take a while. Closing this does
@@ -130,6 +142,40 @@ function Question({ target, project }: { target: RemoveTarget; project: Project 
             )}
         </Dialog>
     );
+}
+
+/** Puts the task away in place of removing it, where that is offered. */
+function PutAwayInstead(props: { project: string; task: Task | null; onDone(): void }) {
+    const { project, task, onDone } = props;
+    if (task === null) {
+        return null;
+    }
+    return <PutAwayButton project={project} task={task} label="Put away instead" onDone={onDone} />;
+}
+
+/** What putting the task away would do instead, where that is offered. */
+function PutAwayInsteadSaid({ task }: { task: Task | null }) {
+    const settings = useStore((state) => state.settings);
+    if (task === null) {
+        return null;
+    }
+    return (
+        <p className="put-away-said">
+            Putting it away instead deletes nothing. {putAwayDoes(settings)}
+        </p>
+    );
+}
+
+/**
+ * The task a removal asks about, when putting it away would do instead: one of a repository's
+ * that is not put away already. A repository or a chat has no such way.
+ */
+function lighterWay(target: RemoveTarget, project: Project): Task | null {
+    if (target.task === null || project.chats) {
+        return null;
+    }
+    const task = project.tasks.find((one) => one.name === target.task && !one.archived);
+    return task && task.done_at === null ? task : null;
 }
 
 /** The ids of the tasks a removal of `target` takes away: all of a repository's, or one. */

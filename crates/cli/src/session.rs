@@ -786,10 +786,21 @@ pub(crate) fn describe(event: &AgentEvent) -> Option<String> {
         AgentEvent::CommandAsked {
             command, questions, ..
         } => Some(asked(command, questions)),
+        _ => described_by_core(event),
+    }
+}
+
+/// The line of an event the core records by itself or answers for, or `None` for events not
+/// worth a line.
+fn described_by_core(event: &AgentEvent) -> Option<String> {
+    match event {
         AgentEvent::CommandAnswered { said, .. } => Some(said.clone()),
         AgentEvent::TerminalOnly { command } => Some(format!(
             "/{command} only works in Claude Code's own terminal"
         )),
+        AgentEvent::PullChanged { number, change, .. } => {
+            Some(crate::pull::changed(*number, change))
+        }
         _ => None,
     }
 }

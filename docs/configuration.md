@@ -239,6 +239,103 @@ take it again from a task set up since, in the app's Environments dialog or with
 instead. Settings' **Clean up** lists every repository's snapshots with their size and age, to
 forget them all at once.
 
+## Pull requests
+
+Swarmed asks GitHub through your own `gh`, signed in as you; it holds no token of its own. While
+the app runs, it follows the pull requests of your tasks and says what changed: checks that
+failed, all checks passing, a review or a comment from someone else (who, never what they
+wrote), a branch that conflicts with its base, a merge and a close. Each is one line in the
+conversation of the task you wrote to last, and a notification while you look elsewhere.
+Your own reviews and comments are not news to you. Where checks failed, **Send the failure to
+the agent** puts their names and the last 150 lines of each failed job's log
+(`gh run view --log-failed`) into the message box, for you to read and send.
+
+What it asks, and how often:
+
+| | |
+| --- | --- |
+| Each repository with a pull request open | `gh pr list --state open --author @me` once a round: every 20 seconds while checks run, every 90 seconds otherwise, every 5 minutes once nothing moved for 30 minutes |
+| A pull request whose `updatedAt` moved | its reviews and comments, once (`gh pr view --json reviews,comments`); who wrote them is kept, never what |
+| One you followed that left the list | read on its own: merged, closed, or opened by someone else |
+| A repository none of whose tasks has one open | listed when the app starts, and when a turn ends or a worktree moves in one of its tasks; otherwise not at all |
+| When `gh` fails, a rate limit included | asked again after 30 seconds, then twice as long each time, up to 10 minutes |
+| Your GitHub login | once, so that your own reviews are not news to you (`gh api user`) |
+
+Only the first Swarmed to arrive on the data directory asks; a second one shows what the first
+read. Opening a task's panel asks once for its pull request, and `swarmed task pull --follow`
+follows one task's from the terminal. A pull request is matched to a task by the branch its
+worktree is on; following stops once it is merged or closed, when its task is removed, and
+when the worktree leaves the branch.
+
+**Merge…** in a task's panel merges its open pull request, as you, through the same `gh`. The
+dialog shows where it goes, the commit it is at, its checks and its review, and offers the
+methods the repository allows, starting on the one you used there last. Its button merges the
+way its menu chose: **Merge**, which waits while a check failed; **Force merge**, which merges
+anyway where no rule requires that check; and, if you administer the repository, **Bypass
+requirements**. **Enable auto-merge** turns on GitHub's own auto-merge, which merges once the
+requirements are met, where the repository allows it. Only the commit you saw is merged: if
+someone pushed since, the merge is refused and the pull request read again. No branch is
+deleted; a merge queue is named as one.
+
+| | |
+| --- | --- |
+| What the repository allows | once per repository while the app runs (`gh api graphql`: its merge methods, auto-merge, whether you administer it, your default method) |
+| A merge | `gh pr merge <number> --merge\|--squash\|--rebase --match-head-commit <commit>`, with `--admin` or `--auto` as chosen, then the pull request read once |
+
+## Issues
+
+A repository's GitHub issues are read through the same `gh`, only when you ask: the issue
+button on the repository's row, or ⌘⇧I, lists them; picking one reads it whole, with its
+comments. What an issue says is shown as text, never as HTML, and an image in it as a link:
+anyone can write one. A comment GitHub hides, as spam say, is left out. **Start a task** opens
+New task with a prompt naming the issue and asking the agent to read it with `gh`; nothing of
+what the issue says is pasted in, and nothing is sent until you send it.
+
+The task records the issue. Its number shows beside the task in the sidebar, and its panel says
+whether it is still open; the pull request title and description Swarmed writes for it end with
+`Closes #N`, which you can take out before opening it. Nothing reads an issue on a timer: a task
+learns that its issue was closed elsewhere when its panel next opens.
+
+| | |
+| --- | --- |
+| The list, when it opens, a filter changes or you refresh | `gh issue list --json number,title,state,labels,assignees,author,updatedAt,url --state open\|closed --limit 50`, with `--assignee @me`, `--author @me` or `--mention @me`, and `--search=<words>` |
+| An issue you pick | `gh issue view <number> --json` with its body and comments as well |
+| A task's issue, when its panel opens | `gh issue view <number> --json` with the fields of the list |
+
+Without `gh`, or for a repository that is not on GitHub or has issues turned off, the list is
+empty and says why, in `gh`'s words.
+
+## Finished tasks
+
+A task you are done with can be put away, without removing it: **Put away** in its panel, **Put
+away instead** when you remove it, or `swarmed task done <repository> <task>`. Its agents and
+its stack are stopped and it is listed in a folded **Done** group at the end of its repository.
+Nothing is deleted: the worktree, the branch, your notes and every conversation stay, and its
+sessions stay open unless `put_away_closes_sessions` says otherwise. Remote Control is turned
+off for them, and a session set to go on when a usage limit resets no longer does.
+
+Once a task's pull request merged, its panel, the line in its conversation that says so and
+the merge dialog offer to put it away; none of them does it unasked. **Bring back** (the arrow
+on its row, or `swarmed task undone`) lists it with the others again, and so does anything
+that works on it: reopening one of its sessions, starting one of its agents (sending a message
+does), or starting its stack. Removing a done task is **Remove…** as for any other, with its
+rules; the clean-up never offers one.
+
+Nothing is put away by itself unless you turn a rule on, each with its own number of days:
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `put_away_merged` | `false` | put a task away `put_away_merged_days` after its pull request merged (GitHub's merge time). Work in it after the merge does not put that off, beyond a turn under way. A task you brought back after the merge stays |
+| `put_away_merged_days` | `1` | 0 to 365 |
+| `put_away_idle` | `false` | put a task away once none of its sessions recorded anything for `put_away_idle_days`, counted from when it was made or last brought back if that is later. A terminal or a running stack is not activity |
+| `put_away_idle_days` | `14` | 1 to 365 |
+| `put_away_closes_sessions` | `false` | putting a task away, by hand or by a rule, also closes its sessions, which keep their conversations and can be reopened |
+
+A rule never puts away a task while work goes on in it: a session at work or waiting for you,
+something an agent left running in the background, a session another Swarmed runs, a session
+set to go on when a usage limit resets, or its setup. It tries again a minute later. Only the
+first Swarmed to arrive on the data directory applies the rules, while the app runs.
+
 ## Settings
 
 Set in the app's Settings, kept in `settings.toml`.
@@ -250,11 +347,12 @@ Set in the app's Settings, kept in `settings.toml`.
 | `default_supervision` | `auto` | how new sessions are supervised: `ask`, `auto` or `plan`; `bypass`, which allows everything, is not offered in Settings |
 | `auto_title` | `true` | a model names each new session after its first message |
 | `branch_prefix` | empty | what a new task's branch starts with, before `/` and the task's name; empty is your login. See [A task's branch](#a-tasks-branch) |
-| `notifications` | `true` | notify when a session needs you, finishes, fails or moves its worktree to another branch |
+| `notifications` | `true` | notify when a session needs you, finishes, fails or moves its worktree to another branch, and when a task's pull request changed (see [Pull requests](#pull-requests)) |
 | `updates` | `automatic` | how Swarmed updates itself: `automatic` looks at launch and every few hours, downloads a new version and installs it when you quit; `when_asked` fetches nothing until About opens and installs only when you ask |
 | `html_views` | `true` | agents may answer with HTML views |
 | `tool_calls` | `folded` | how agents' tool calls show in a conversation: `all`, each on its own line; `folded`, the calls that follow each other in one line that counts them and names the last; `hidden`, none, with a larger animation while the agent works. Permission requests, questions, plans and views always show |
 | `turn_end_lines` | `true` | whether a conversation draws a line where each turn ends, with how long it took and what was spent so far. A turn with nothing in it that spent nothing more has none either way, and a turn that failed or was stopped keeps its line even when this is `false`. What the agent loaded is said once, at the top, whatever this is |
+| `put_away_merged`, `put_away_idle` and their days, `put_away_closes_sessions` | off, 1, 14, `false` | putting finished tasks away by themselves; see [Finished tasks](#finished-tasks) |
 | `continue_after_limit` | `false` | whether a Claude Code session a usage limit stopped goes on by itself when the limit resets, for every refused turn, without being asked each time: it is sent "Continue where you stopped." then. Without it, the limit's line in the conversation offers it each time |
 | `limit_warnings` | `frequent` | which levels of the account's usage the notice at the top of the window says, in Claude Code sessions: `frequent`, every level (50%, 75% and 90% of a window used, a limit reached with extra usage paying, a limit that stops requests); `rare`, from 90% used; `none`, only requests stopped. Dismissed, the notice stays away until a higher level, until its window resets, or until a window first reported since, such as one model's weekly limit, reaches a level. The conversation says only a turn a limit stopped, and the usage coins show the same whatever it is |
 | `rules` | none | rules every agent is given, in every session |

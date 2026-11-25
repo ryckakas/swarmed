@@ -756,6 +756,9 @@ mod tests {
             archived: false,
             environment: None,
             pinned: false,
+            done_at: None,
+            done_why: None,
+            issue: None,
         }
     }
 

@@ -85,6 +85,8 @@ impl Core {
             slot: 0,
             environment: None,
             branch_made: false,
+            // A chat has no repository to have issues.
+            issue: None,
         };
         let task = match self.insert_in_free_slot(new) {
             Ok(task) => task,

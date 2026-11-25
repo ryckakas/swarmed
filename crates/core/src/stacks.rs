@@ -76,10 +76,15 @@ pub(crate) struct Reach {
 impl Core {
     /// Starts the task's stack with its `start` command, unless it is running already. Says
     /// whether there is a stack at all: a task whose project has no `start` command has none.
+    /// A put away task comes back once its stack starts.
     pub fn stack_start(&self, project: &str, task: &str) -> Result<bool> {
         let (project, task) = self.repo_task(project, task)?;
         let config = self.config_in(&project.name, task.environment.as_deref())?;
-        self.start_stack(&project, &config, &task)
+        let started = self.start_stack(&project, &config, &task)?;
+        if started {
+            self.bring_back(task.id)?;
+        }
+        Ok(started)
     }
 
     pub(crate) fn start_stack(

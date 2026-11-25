@@ -457,10 +457,16 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   command its turn waits on for `long: <command>`, until it is sent to the background or
   stopped, and renames the session as another Swarmed would for `elsewhere: <title>`, saying
   only `tree_changed`; one sample session has 2,000 messages for checking scroll speed.
+  The pull request of `fix-login-redirect` has a check running that fails 15 seconds after the
+  window opens, as the core's follower would say it (`pull_read`, `pull_changed`). Its
+  required check holds a merge back (`mockMerging.ts`): Force merge is refused in GitHub's
+  words, auto-merge can be turned on, and Bypass requirements merges it.
   Removing the sample task `invoice-export` is refused over unsaved work, and `shop-142` over
   a session another Swarmed runs. A new task's setup is quick in storefront, takes half a
   minute in bonsai-lint, and in fsum is killed the first time and succeeds when run again
-  (`mockSetups.ts`). The README's
+  (`mockSetups.ts`). Storefront and bonsai-lint have GitHub issues, `shop-142` was started for
+  #142, #428's text holds HTML, an image and a hidden comment, and fsum is not on GitHub, so its
+  list says why (`mockIssues.ts`). The README's
   screenshot and GIF are of this sample data, never of anyone's real projects.
 - **MCP servers are one pool for every agent** (`mcp_pool.rs`). When a session starts, each
   agent's servers are read from its own configuration (`mcp.rs` and `mcp_plugins.rs` for
@@ -950,7 +956,7 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   (`Error::HearsNoMessageMidTurn`); between turns it is sent as any message.
 - **What is worth interrupting the user for is decided in the core** (`notices.rs`): a session
   that asks for a decision, finishes a turn, fails, or moves its task's worktree to another
-  branch. A front end shows it only while the user
+  branch, and a task's pull request that changed (`PullChanged`, named by task and number). A front end shows it only while the user
   looks elsewhere; the app does so as a macOS notification (`crates/app/src/notify.rs`) and
   counts what waits on its icon. A notice names the tool and the agent's own summary, never the
   tool's arguments, which may hold anything.
@@ -995,7 +1001,7 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   the merge base with the task's base ref, uncommitted and untracked files included. The view is
   read-only. The UI reads again when one of the task's agents finishes a tool call or a turn.
 - **A task's pull request and checks are asked of the user's own `gh`** (`pulls.rs`), in the
-  task's worktree, on demand. Swarmed holds no GitHub token. No `gh`, no pull request, or a
+  task's worktree. Swarmed holds no GitHub token. No `gh`, no pull request, or a
   repository that is not on GitHub all mean the same: the task has none, which is not an error.
   `gh pr view` reports every check run on the head commit, runs a newer one replaced included,
   so only each check's latest run is kept (`latest`, by workflow and job name), as GitHub's own
@@ -1003,6 +1009,94 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   finished, or when it was cancelled. What `gh pr view` prints has no event, so a job run for
   both `push` and `pull_request` on one commit, under way at the same time, shows twice:
   folded into one, a run that passed would hide one that failed.
+- **The core follows the pull requests of tasks, and says what changed once** (`following.rs`,
+  #366). The window never asks `gh` on a timer: badges and the panel show `pulls` in the store,
+  filled from the tree (`TaskOverview::pull`) and from `AgentEvent::PullRead` (session id 0,
+  never stored); opening the task panel asks once (`task_pull`).
+  - **One list per repository per round** (`follow_pulls`, `Core::pulls_follow`), by the
+    Swarmed that keeps house only: `gh pr list --author @me`, matched to tasks by the branch
+    their worktree is on. A followed one off the list (merged, closed, someone else's) is read
+    on its own; reviews and comments only when `updatedAt` moved. Paced by `RUNNING`, `OPEN`
+    and `QUIET`; a repository with nothing open is listed at the first round and when a turn
+    ends or a worktree moves in one of its tasks (`wake_on_turns`). A failing `gh` backs off.
+  - **The last reading is kept with the task** (`tasks.pull`, JSON of `Seen`, fields only
+    added) and compared with by the pure `step`: the first reading of a pull request takes
+    stock and says nothing. A reading replaces only the one it was compared with
+    (`task_pull_swap`), so two processes say a change once. Every way of reading
+    (`task_pull`, `task_pull_look`, the follower) goes through `pull_take_in`.
+  - **What changed is `AgentEvent::PullChanged`** with a `PullChange`, recorded in the open
+    session the user wrote to last, else the latest (`session_for_news`), and worded by
+    `notice_for`. A review or comment is told by who, never what: the bodies are never read
+    into anything, and the user's own (their `gh api user` login, or `viewerDidAuthor`) are
+    not news.
+  - **Stops** once merged or closed (kept, so the badge says so), for a removed task, and when
+    the worktree is on another branch (the reading is let go). On no branch it is left as is.
+  - **Send the failure to the agent** (`task_pull_failure`) builds a message with the tail of
+    each failed Actions job's log (`gh run view --log-failed`) in tags marked as output, which
+    the UI puts into the message box (`draftFailure`). Nothing reaches an agent unasked.
+- **A task's pull request is merged by the user's `gh`, at the head they saw** (`merging.rs`,
+  #367, `MergeDialog.tsx`, `merging.ts`).
+  - **`task_pull_merge`** reads the pull request again and refuses one that is not open, a
+    draft, or whose head is not the one the front end passes; then `gh pr merge` with the
+    method and `--match-head-commit`. Never `--delete-branch`: `gh` would delete the local
+    branch and move the worktree off it. The reading after it goes through `pull_take_in`, so
+    the merge is recorded once and no follower says it again.
+  - **Ways** (`MergeWhen`): `now` is refused while a check failed and points to `force`, which
+    leaves it to GitHub's rules; `bypass` is `--admin`, which the UI offers to admins only;
+    `auto` is GitHub's own auto-merge, refused where `merge_state` says GitHub would merge it
+    now, since `gh --auto` then merges at once. `task_pull_auto_merge_off` takes it back.
+  - **What came of it** is read from the pull request after: merged, `queued` (still open after
+    a merge that is not auto-merge: a merge queue took it), auto-merge on, or `asked` when it
+    could not be read back. GitHub's refusals are given in its words (`gh_words`); the UI names
+    `gh`'s `--auto` and `--admin` hints as its own controls (`mergeProblem`).
+  - **Rules** (`project_merge_rules`): one GraphQL query per repository per process, kept in
+    memory, since `gh repo view` cannot say whether auto-merge is allowed. The method last
+    merged with is kept in `projects.merge_method`, as the default environment is.
+- **A finished task is put away, not removed** (`put_away.rs`, #375). `task_done` stops its
+  agents and its stack, closes its sessions only with `Settings::put_away_closes_sessions`, and
+  marks it done (`tasks.done_at`, `done_why`), which front ends list in a folded Done group
+  (`putAway.ts`). Nothing is deleted. Sessions left open get Remote Control turned off and
+  their continuation cancelled, since either would start the agent again by itself.
+  - **Coming back.** `task_undone`, and anything that works on it: `session_reopen`,
+    `session_start` (which a message does) and `stack_start` call `bring_back`, which keeps
+    when (`tasks.back_at`). Both ways publish `AgentEvent::TreeChanged`.
+  - **By itself only where the user turned a rule on** (`put_away_merged`, `put_away_idle`,
+    each with its days; off by default). The house looks once a minute (`follow_put_away`,
+    `tasks_put_away_due`); the decision is the pure `due`. Merged counts from GitHub's
+    `mergedAt` (`Pull::merged_at`), idle from the latest of creation, the task's last event
+    and `back_at`; a task brought back after its merge is not put away for it again. Never
+    while work goes on (`works_on`): a session busy, waiting, run elsewhere or with a
+    continuation, work left running in the background, or a setup. Agents cannot turn a rule
+    on through `configure`: it stops agents by itself.
+  - **Offered, never done unasked,** once its pull request merged: in the panel
+    (`PutAwayPart`), on the latest merged line of the conversation, and in the merge dialog's
+    done view. The Remove dialog offers it instead of removal.
+  - **Not the clean-up's.** A done task is a current task to `cleanup.rs`; removal stays
+    `task_remove`'s.
+- **A repository's GitHub issues are read through the user's `gh`, only when asked**
+  (`issues.rs`, #370, `IssuesDialog.tsx`, `issues.ts`).
+  - **Listed** by `project_issues` with an `IssueFilter` (whose, open or closed, GitHub search
+    words, a limit), made into `gh issue list` arguments by the pure `list_args` (the words as
+    one `--search=` argument, so a leading dash is never an option) and put in order by
+    `ordered`, the latest changed first. No `gh`, no GitHub remote, issues turned off or no
+    sign-in is an empty `IssueList` whose `unavailable` says why in `gh`'s words, never an
+    error, as a task without a pull request is none. `project_issue` reads one whole.
+  - **What an issue says is anyone's to write:** the core hands it on as text and leaves out
+    the words of a comment GitHub hides (`hidden`). The window draws it with
+    `UntrustedMarkdown` only: never a view, raw HTML stays text, and an image is a link rather
+    than loaded from wherever it points. The command line strips control characters before
+    printing it (`printable`).
+  - **Start a task** fills the new-task view of the repository with `issuePrompt` (title and
+    number first, the address, and a line asking the agent to read it with `gh`; never the
+    body) and links it there (`newTaskIssues` in the store, a chip that takes it off). Sent,
+    `TaskStart::issue` reaches `NewTaskOptions::issue`, which the task records in
+    `tasks.issue` (`Task::issue`); a chat never has one.
+  - **Linked:** the sidebar shows the number beside the task, which opens the Issues view on
+    it; the panel reads the issue when it opens (`task_issue`), never on a timer.
+    `task_pull_draft` and `task_pull_message` end the description with `Closes #N`
+    (`with_closes`, kept when the text closes it already); the writer is told the branch
+    closes it among what it is shown. Opening the pull request adds nothing, so the user can
+    take the line out.
 - **A task's work leaves its worktree only when asked** (`publish.rs`): commit everything, push
   the branch, open a pull request, each a step of its own behind a button. Commits are made by
   the user's git as them, the pull request by their `gh`; nothing is added to either.

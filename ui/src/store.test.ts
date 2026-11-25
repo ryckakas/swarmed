@@ -482,6 +482,32 @@ describe("unsent messages", () => {
         editNewTaskDraft("storefront", { text: "" });
         expect(useStore.getState().newTaskDrafts).toEqual({});
     });
+
+    it("are filled from an issue, which the new task is linked to until it is taken off", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        useStore.setState({ newTaskIssues: {}, issuesOf: { project: "storefront", issue: null } });
+        const { editNewTaskDraft, startFromIssue, linkIssue } = useStore.getState();
+        editNewTaskDraft("storefront", { text: "also on Safari" });
+        const url = "https://github.com/example/storefront/issues/428";
+        startFromIssue("storefront", { number: 428, title: "Login loops", url });
+        const state = useStore.getState();
+        // The issues are put away and the new-task view of the repository is on screen.
+        expect(state.issuesOf).toBeNull();
+        expect(state.selectedSessionId).toBeNull();
+        expect(state.draftProject).toBe("storefront");
+        const link = state.newTaskIssues.storefront;
+        expect(link?.number).toBe(428);
+        // What was typed stays, under the issue's prompt.
+        expect(state.newTaskDrafts.storefront?.text).toBe(`${link?.prompt}\n\nalso on Safari`);
+        // Taken off by hand, and gone with its repository.
+        linkIssue("storefront", null);
+        expect(useStore.getState().newTaskIssues).toEqual({});
+        startFromIssue("bonsai-lint", { number: 88, title: "Support Rust", url });
+        await api.projectRemove("bonsai-lint", false);
+        await useStore.getState().refresh(api);
+        expect(useStore.getState().newTaskIssues).toEqual({});
+    });
 });
 
 describe("what a task's panel holds", () => {

@@ -466,6 +466,27 @@ fn the_ui_can_pin_projects_tasks_and_sessions() {
 }
 
 #[test]
+fn the_ui_can_put_a_task_away_and_bring_it_back() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+    let which = json!({ "project": "demo", "name": "one" });
+    assert_eq!(app.ok("task_done", which.clone()), json!([]));
+    let one = &app.ok("overview", json!({}))[0]["tasks"][0];
+    assert!(one["done_at"].is_i64(), "{one}");
+    assert_eq!(one["done_why"], json!("hand"));
+    app.ok("task_undone", which);
+    let one = &app.ok("overview", json!({}))[0]["tasks"][0];
+    assert_eq!(
+        (&one["done_at"], &one["done_why"]),
+        (&json!(null), &json!(null))
+    );
+    app.invoke("task_done", json!({ "project": "demo", "name": "nope" }))
+        .expect_err("no such task");
+}
+
+#[test]
 fn the_ui_can_deny_interrupt_and_remove() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
@@ -614,6 +635,46 @@ fn the_ui_can_start_a_task_from_a_prompt_and_act_on_its_setup() {
 }
 
 #[test]
+fn the_ui_can_list_issues_and_start_a_task_for_one() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    // The test repository has no remote: whether `gh` is installed or not, the list is empty
+    // and says why, rather than failing. The filter is the one the window sends.
+    let filter = json!({ "who": "assigned", "state": "open", "search": "login", "limit": 50 });
+    let listed = app.ok(
+        "project_issues",
+        json!({ "project": "demo", "filter": filter }),
+    );
+    assert_eq!(listed["issues"], json!([]));
+    assert!(listed["unavailable"].is_string(), "{listed}");
+    let unread = app
+        .invoke("project_issue", json!({ "project": "demo", "number": 12 }))
+        .expect_err("nothing on GitHub to read");
+    assert!(!unread.to_string().contains("invalid args"), "{unread}");
+
+    // A task started for an issue records it, and the tree says so.
+    let start = json!({
+        "branch": null, "environment": null, "agent": null,
+        "how": { "model": null, "supervision": "auto", "effort": null, "fast": false },
+        "title": null, "prompt": "Work on issue #12", "files": [], "images": [], "issue": 12,
+    });
+    let started = app.ok(
+        "task_start",
+        json!({ "project": "demo", "name": "login", "start": start }),
+    );
+    assert_eq!(started["task"]["issue"], 12);
+    assert_eq!(app.ok("overview", json!({}))[0]["tasks"][0]["issue"], 12);
+    let target = json!({ "project": "demo", "name": "login" });
+    let issue = app.invoke("task_issue", target).expect_err("not on GitHub");
+    assert!(!issue.to_string().contains("invalid args"), "{issue}");
+    // A task started for none has none, and nothing is asked.
+    let task = json!({ "project": "demo", "name": "other", "branch": null });
+    assert_eq!(app.ok("task_new", task)["issue"], json!(null));
+    let other = json!({ "project": "demo", "name": "other" });
+    assert_eq!(app.ok("task_issue", other), json!(null));
+}
+
+#[test]
 fn the_ui_can_commit_a_tasks_work_and_is_told_what_cannot_be_published() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
@@ -638,6 +699,10 @@ fn the_ui_can_commit_a_tasks_work_and_is_told_what_cannot_be_published() {
         .invoke("task_pull_open", opening)
         .expect_err("nothing to open");
     assert_eq!(refused, json!("`one` has no pull request"));
+    let failure = app
+        .invoke("task_pull_failure", target.clone())
+        .expect_err("no checks to send");
+    assert_eq!(failure, json!("`one` has no pull request"));
     // The file written above is not committed yet; committing it leaves one commit to push.
     assert_eq!(
         app.ok("task_unpublished", target.clone()),
@@ -689,6 +754,31 @@ fn the_ui_can_commit_a_tasks_work_and_is_told_what_cannot_be_published() {
     });
     let untitled = app.invoke("task_pull_create", create).expect_err("refused");
     assert_eq!(untitled, json!("a pull request needs a title"));
+}
+
+#[test]
+fn the_ui_can_ask_to_merge_a_tasks_pull_request() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+    let target = json!({ "project": "demo", "name": "one" });
+    // With no remote there is nothing on GitHub to merge, whether `gh` is installed or not;
+    // the arguments are the ones the window sends.
+    let merge = json!({
+        "project": "demo", "name": "one", "method": "squash", "when": "now",
+        "head": "0123456789abcdef",
+    });
+    let unmerged = app
+        .invoke("task_pull_merge", merge)
+        .expect_err("no pull request");
+    assert!(!unmerged.to_string().contains("invalid args"), "{unmerged}");
+    let off = app.invoke("task_pull_auto_merge_off", target.clone());
+    let off = off.expect_err("no pull request");
+    assert!(!off.to_string().contains("invalid args"), "{off}");
+    let rules = app.invoke("project_merge_rules", json!({ "project": "demo" }));
+    let rules = rules.expect_err("no repository on GitHub");
+    assert!(!rules.to_string().contains("invalid args"), "{rules}");
 }
 
 /// A task's files are listed folder by folder, and nothing above its worktree is.
@@ -801,6 +891,8 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
             "html_views": true, "tool_calls": "folded", "turn_end_lines": true, "limit_warnings": "frequent", "continue_after_limit": false, "notifications": true, "default_supervision": "auto",
             "status_items": ["branch", "changes", "model", "context", "cost"],
             "status_command": "", "rules": "", "updates": "automatic", "branch_prefix": "",
+            "put_away_merged": false, "put_away_merged_days": 1, "put_away_idle": false,
+            "put_away_idle_days": 14, "put_away_closes_sessions": false,
         })
     );
 

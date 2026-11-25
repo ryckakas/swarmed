@@ -1,0 +1,64 @@
+// Putting the sample tasks away and bringing them back, as the core does (`put_away.rs`): their
+// agents and stack stopped, their sessions closed only if the settings say so, nothing deleted.
+
+import type { Api } from "./client";
+import type { Project, Settings, Task } from "./types";
+
+/** What putting a sample task away needs of the rest of the mock. */
+export interface PutAwayHost {
+    projects(): Project[];
+    settings(): Settings;
+    /** Stops a session's agent: a turn under way ends, as Stop ends it. */
+    stop(id: number): void;
+    /** Closes a session, keeping its conversation. */
+    close(id: number): void;
+}
+
+/** Seconds since 1970, as the core counts when a task was put away. */
+function secondsNow(): number {
+    return Math.floor(Date.now() / 1000);
+}
+
+/** Brings a put away task back to the others, as anything that works on it again does. */
+export function bringBack(task: Task) {
+    task.done_at = null;
+    task.done_why = null;
+}
+
+export function putAwayApi(host: PutAwayHost): Pick<Api, "taskDone" | "taskUndone"> {
+    const find = (project: string, name: string) => {
+        const tasks = host.projects().find((one) => one.name === project)?.tasks ?? [];
+        const task = tasks.find((one) => one.name === name && !one.archived);
+        if (!task) {
+            throw new Error(`task \`${name}\` not found in project \`${project}\``);
+        }
+        return task;
+    };
+    return {
+        taskDone: async (project, name) => {
+            const task = find(project, name);
+            if (task.done_at !== null) {
+                return [];
+            }
+            const close = host.settings().put_away_closes_sessions;
+            for (const session of [...task.sessions]) {
+                host.stop(session.id);
+                // A stopped agent asks nothing and works on nothing; a failure still shows.
+                if (session.status !== "errored") {
+                    session.status = "idle";
+                }
+                if (close) {
+                    host.close(session.id);
+                }
+            }
+            task.running = [];
+            if (task.stack !== null) {
+                task.stack = "stopped";
+            }
+            task.done_at = secondsNow();
+            task.done_why = "hand";
+            return [];
+        },
+        taskUndone: async (project, name) => bringBack(find(project, name)),
+    };
+}

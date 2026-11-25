@@ -1,4 +1,4 @@
-import type { AgentEvent, ScreenSection, ToolCalls } from "./api/types";
+import type { AgentEvent, PullChange, ScreenSection, ToolCalls } from "./api/types";
 import { shownHtml } from "./htmlview";
 import { QUESTION_TOOL, type Question, questionsOf } from "./questions";
 import { type RateLimit, refusalNotice } from "./rateLimit";
@@ -83,6 +83,8 @@ export type Item =
       }
     /** The task's worktree moved to another branch: during the turn, or since the last one. */
     | { kind: "moved"; key: number; from: string | null; to: string | null; betweenTurns: boolean }
+    /** Something changed on the task's pull request: checks, a review, a comment, a merge. */
+    | { kind: "pull"; key: number; number: number; url: string; change: PullChange }
     /** HTML the agent showed the user through Swarmed's tool. */
     | { kind: "view"; key: number; html: string }
     /** What happened in the terminal, as the agent was told with the message before it. */
@@ -235,6 +237,14 @@ function single(event: AgentEvent, key: number, words: Words): Item | null {
             const { from, to, between_turns } = event;
             return { kind: "moved", key, from, to, betweenTurns: between_turns };
         }
+        case "pull_changed":
+            return {
+                kind: "pull",
+                key,
+                number: event.number,
+                url: event.url,
+                change: event.change,
+            };
         // A view of nothing is not drawn: there is nothing in it to see.
         case "view":
             return event.html.trim() === "" ? null : { kind: "view", key, html: event.html };
@@ -721,6 +731,25 @@ export function messageNumber(events: AgentEvent[], key: number): number {
  */
 export function latestMove(items: Item[]): number | null {
     return items.findLast((item) => item.kind === "moved")?.key ?? null;
+}
+
+/**
+ * The latest line that says checks of the task's pull request failed, by its key, or `null`.
+ * Only that one offers to send the failure to the agent: an earlier one's checks may have run
+ * again since.
+ */
+export function latestFailure(items: Item[]): number | null {
+    const failed = (item: Item) => item.kind === "pull" && item.change.kind === "checks_failed";
+    return items.findLast(failed)?.key ?? null;
+}
+
+/**
+ * The latest line that says the task's pull request merged, by its key, or `null`. Only that
+ * one offers to put the task away.
+ */
+export function latestMerge(items: Item[]): number | null {
+    const merged = (item: Item) => item.kind === "pull" && item.change.kind === "merged";
+    return items.findLast(merged)?.key ?? null;
 }
 
 /**

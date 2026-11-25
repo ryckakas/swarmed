@@ -81,7 +81,18 @@ export interface Task {
     stack: StackState | null;
     /** Whether the user pinned it above its repository's tasks that are not. */
     pinned: boolean;
+    /** The pull request of the branch its worktree is on, as the core last read it; `null` for none. */
+    pull: Pull | null;
+    /** When it was put away, in seconds since 1970; `null` while it is not. */
+    done_at: number | null;
+    /** Why it was put away, while it is. */
+    done_why: DoneWhy | null;
+    /** The number of the repository's GitHub issue it was started for; `null` for none. */
+    issue: number | null;
 }
+
+/** Why a task was put away: by the user, or by their rule for merged or idle tasks. */
+export type DoneWhy = "hand" | "merged" | "idle";
 
 /**
  * Where a task's setup is: making the worktree ready (a snapshot put in place), waiting for a
@@ -151,6 +162,67 @@ export interface TaskStart {
     files: string[];
     /** Images pasted into the prompt, each in base64: the session's own once it is made. */
     images: string[];
+    /** The number of the repository's GitHub issue the task is for, which it records. */
+    issue: number | null;
+}
+
+/** Whose issues a list holds: everyone's, or those assigned to, opened by or mentioning the user. */
+export type IssueWho = "anyone" | "assigned" | "authored" | "mentioned";
+
+/** Whether an issue is open, as GitHub says. */
+export type IssueState = "open" | "closed";
+
+/** Which of a repository's issues to list. */
+export interface IssueFilter {
+    who: IssueWho;
+    state: IssueState;
+    /** Words to look for, in GitHub's search syntax; empty for none. */
+    search: string;
+    /** How many at most, up to 200. */
+    limit: number;
+}
+
+/** One of a repository's issues, as a list shows it. Anyone can write one: drawn as text only. */
+export interface Issue {
+    number: number;
+    title: string;
+    state: IssueState;
+    /** Where it is on GitHub. */
+    url: string;
+    /** The names of its labels. */
+    labels: string[];
+    /** The logins of the people it is assigned to. */
+    assignees: string[];
+    /** The login of whoever opened it; empty for an account that is gone. */
+    author: string;
+    /** When it last changed, as GitHub writes it. */
+    updated_at: string;
+}
+
+/** One comment on an issue. */
+export interface IssueComment {
+    /** The login of whoever wrote it; empty for an account that is gone. */
+    author: string;
+    /** What it says, in Markdown; empty for one GitHub hides. */
+    body: string;
+    created_at: string;
+    /** Why GitHub hides it, such as `spam` or `off topic`, if it does; its words are left out. */
+    hidden: string | null;
+}
+
+/** An issue read whole: what it says, and its comments, oldest first. */
+export interface IssueDetail extends Issue {
+    created_at: string;
+    /** What it says, in Markdown. */
+    body: string;
+    comments: IssueComment[];
+}
+
+/** A repository's issues, the latest changed first, or why none could be listed. */
+export interface IssueList {
+    issues: Issue[];
+    /** Why there are none to show: no `gh`, not on GitHub, no sign-in, in `gh`'s words. */
+    unavailable: string | null;
 }
 
 /**
@@ -284,7 +356,66 @@ export interface Pull {
     /** What its reviewers decided, such as `approved`; `null` if no review is asked for. */
     review: string | null;
     checks: Check[];
+    /** Whether its branch conflicts with its base, as GitHub last worked it out. */
+    conflicts: boolean;
+    /** Its head commit, which a merge names so that only what was read is merged. */
+    head: string;
+    /** The branch it goes into. */
+    base: string;
+    /** The method GitHub merges it with once its requirements are met, while auto-merge is on. */
+    auto_merge: MergeMethod | null;
+    /**
+     * Whether GitHub would merge it now: `clean`, `unstable` (checks no rule requires did not
+     * pass), `has_hooks`, `blocked` (a requirement is not met), `behind`, `dirty` or `draft`;
+     * `null` while GitHub has not worked it out.
+     */
+    merge_state: string | null;
+    /** When it was merged, as GitHub writes it (`2026-11-20T10:00:00Z`), if it was. */
+    merged_at: string | null;
 }
+
+/** How a pull request's commits go into its base. */
+export type MergeMethod = "merge" | "squash" | "rebase";
+
+/**
+ * When, and past what, a pull request is merged: now unless a check failed, now although
+ * checks failed, now past the repository's requirements as its admin, or by GitHub's own
+ * auto-merge once they are met.
+ */
+export type MergeWhen = "now" | "force" | "bypass" | "auto";
+
+/** What a repository allows for merging, and what the user may do there. */
+export interface MergeRules {
+    /** The methods it allows, in the order GitHub lists them. */
+    methods: MergeMethod[];
+    /** The method a merge starts on: the last used there, the user's own default, or the first. */
+    method: MergeMethod | null;
+    /** Whether it allows auto-merge. */
+    auto_merge: boolean;
+    /** Whether the user administers it, which lets them merge past its requirements. */
+    admin: boolean;
+}
+
+/** What came of a merge: merged, taken by a merge queue, auto-merge on or off, or not known yet. */
+export type MergeOutcome = "merged" | "queued" | "auto_merge" | "auto_merge_off" | "asked";
+
+/** What came of a merge, and the pull request as read after it. */
+export interface MergeReport {
+    outcome: MergeOutcome;
+    pull: Pull | null;
+}
+
+/** What changed on a task's pull request: who reviewed or commented, never what they wrote. */
+export type PullChange =
+    | { kind: "checks_failed"; checks: string[] }
+    | { kind: "checks_passed" }
+    | { kind: "changes_requested"; by: string[] }
+    | { kind: "approved"; by: string[] }
+    | { kind: "reviewed"; by: string[] }
+    | { kind: "commented"; by: string[] }
+    | { kind: "conflicts" }
+    | { kind: "merged" }
+    | { kind: "closed" };
 
 /**
  * Which environment a new task is set up in: the project's default one (or its own setup when
@@ -511,6 +642,16 @@ export interface Settings {
      * user's login.
      */
     branch_prefix: string;
+    /** Whether a task whose pull request merged is put away by itself, some days after. */
+    put_away_merged: boolean;
+    /** How many days after the merge, from 0 to 365. */
+    put_away_merged_days: number;
+    /** Whether a task none of whose sessions recorded anything for some days is put away. */
+    put_away_idle: boolean;
+    /** How many days without anything in its sessions, from 1 to 365. */
+    put_away_idle_days: number;
+    /** Whether putting a task away also closes its sessions. */
+    put_away_closes_sessions: boolean;
 }
 
 /**
@@ -1000,6 +1141,10 @@ export type AgentEvent =
      * message.
      */
     | { type: "worktree_moved"; from: string | null; to: string | null; between_turns: boolean }
+    /** The task's pull request changed in a way worth telling, recorded in one of its sessions. */
+    | { type: "pull_changed"; number: number; url: string; change: PullChange }
+    /** A task's pull request as just read; with session id 0, never stored. */
+    | { type: "pull_read"; task_id: number; pull: Pull | null }
     /**
      * Something a sub-agent said or did. `parent` is the tool call that started it, which
      * tells one sub-agent from another.

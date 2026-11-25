@@ -15,6 +15,7 @@ import {
     starterHere,
 } from "../ordering";
 import { agentName, iconForAgent } from "../providerIcons";
+import { doneSaid, doneTasks, openTasks } from "../putAway";
 import { clockTime } from "../rateLimit";
 import { isSettingUp, sidebarSays } from "../setup";
 import { useStore } from "../store";
@@ -165,7 +166,8 @@ function ProjectGroup({ project }: { project: Project }) {
     const startNew = useStore((state) => state.startNew);
     const folded = useStore((state) => state.folded.includes(project.id));
     const toggleFolded = useStore((state) => state.toggleFolded);
-    const tasks = project.tasks.filter((task) => !task.archived);
+    const tasks = openTasks(project);
+    const done = doneTasks(project);
     // A folded repository still shows whether one of its sessions needs something.
     const status = folded ? projectStatus(project) : null;
     const target = { kind: "project", project: project.name } as const;
@@ -191,6 +193,7 @@ function ProjectGroup({ project }: { project: Project }) {
                 </h2>
                 <PinButton target={target} pinned={project.pinned} name={project.name} />
                 <CloudButton project={project.name} task={null} />
+                <IssuesButton project={project.name} />
                 <EnvironmentsButton project={project.name} />
                 <NoteButton project={project.name} task={null} has={project.has_note} />
                 <button
@@ -206,10 +209,15 @@ function ProjectGroup({ project }: { project: Project }) {
                 </button>
                 <RemoveButton project={project.name} task={null} />
             </div>
-            {!folded && tasks.length === 0 && <p className="hint">{words.noTasks}</p>}
+            {!folded && tasks.length === 0 && done.length === 0 && (
+                <p className="hint">{words.noTasks}</p>
+            )}
             {!folded &&
                 tasks.map((task) => <TaskGroup key={task.id} project={project.name} task={task} />)}
             {!folded && <CloudTasks project={project.name} tasks={project.cloud} />}
+            {!folded && done.length > 0 && (
+                <DoneGroup project={project.name} projectId={project.id} tasks={done} />
+            )}
         </section>
     );
 }
@@ -267,6 +275,77 @@ function ChatsGroup({ home }: { home: Project }) {
     );
 }
 
+/**
+ * The tasks put away, folded under the repository's others until the user unfolds them. Each
+ * keeps its sessions, its pull request and its note, and offers the way back and removal.
+ */
+function DoneGroup(props: { project: string; projectId: number; tasks: Task[] }) {
+    const { project, projectId, tasks } = props;
+    const words = useWords();
+    const shown = useStore((state) => state.doneShown.includes(projectId));
+    const toggleDoneShown = useStore((state) => state.toggleDoneShown);
+    return (
+        <div className="done-group">
+            <button
+                type="button"
+                className="closed-toggle done-toggle"
+                aria-expanded={shown}
+                title={
+                    shown
+                        ? `Hide the ${words.terms.tasks} put away`
+                        : `Show the ${words.terms.tasks} put away`
+                }
+                onClick={() => toggleDoneShown(projectId)}
+            >
+                {words.done(tasks.length)}
+            </button>
+            {shown &&
+                tasks.map((task) => <DoneTaskGroup key={task.id} project={project} task={task} />)}
+        </div>
+    );
+}
+
+/** A task put away: no order of its own, and the way back in place of a new session. */
+function DoneTaskGroup({ project, task }: { project: string; task: Task }) {
+    const folded = useStore((state) => state.foldedTasks.includes(task.id));
+    return (
+        <div className="task task-done">
+            <div className="row-head">
+                <TaskHeading task={task} folded={folded} chat={false} />
+                <IssueBadge project={project} task={task} />
+                <PullBadge project={project} task={task} />
+                <NoteButton project={project} task={task.name} has={task.has_note} />
+                <BringBackRow project={project} task={task.name} />
+                <RemoveButton project={project} task={task.name} />
+            </div>
+            {!folded && <TaskSessions project={project} task={task} />}
+        </div>
+    );
+}
+
+/**
+ * Brings a task put away back to the others, in the place where a task listed with them has its
+ * button for a new session. Nothing is started.
+ */
+function BringBackRow({ project, task }: { project: string; task: string }) {
+    const bringBack = useStore((state) => state.bringBack);
+    const report = useStore((state) => state.report);
+    return (
+        <button
+            type="button"
+            className="row-add row-back"
+            aria-label={`Bring ${task} back`}
+            title="Not done: lists it with the others again. Nothing is started."
+            onClick={() => void bringBack(api, project, task).catch(report)}
+        >
+            <ButtonIcon>
+                <path d="M6 3.5 2.5 7 6 10.5" />
+                <path d="M3 7h6.5a3.5 3.5 0 0 1 0 7H8" />
+            </ButtonIcon>
+        </button>
+    );
+}
+
 function TaskGroup({ project, task, chat }: { project: string; task: Task; chat?: boolean }) {
     const words = useStore((state) => wordsFor(state.settings?.style));
     const folded = useStore((state) => state.foldedTasks.includes(task.id));
@@ -278,6 +357,7 @@ function TaskGroup({ project, task, chat }: { project: string; task: Task; chat?
                 <Grip />
                 <TaskHeading task={task} folded={folded} chat={chat === true} />
                 <PinButton target={target} pinned={task.pinned} name={task.name} />
+                {!chat && <IssueBadge project={project} task={task} />}
                 {!chat && <PullBadge project={project} task={task} />}
                 {!chat && <CloudButton project={project} task={task.name} />}
                 <NoteButton project={project} task={task.name} has={task.has_note} />
@@ -309,7 +389,9 @@ function TaskHeading({ task, folded, chat }: { task: Task; folded: boolean; chat
     const toggleTaskFolded = useStore((state) => state.toggleTaskFolded);
     const summary = folded ? foldedSummary(task) : null;
     const fold = folded ? words.showSessions : words.hideSessions;
-    const what = chat ? `A ${words.chat}, in ${task.worktree_path}` : taskTooltip(task, words);
+    const done = doneSaid(task, Date.now() / 1000);
+    const where = chat ? `A ${words.chat}, in ${task.worktree_path}` : taskTooltip(task, words);
+    const what = done === null ? where : `${where}. ${done}`;
     return (
         <h3 className="task-name">
             <button
@@ -526,6 +608,57 @@ function CloudTasks({ project, tasks }: { project: string; tasks: CloudTask[] })
                 ))}
             </ul>
         </>
+    );
+}
+
+/** Opens the repository's GitHub issues, to read them and start a task on one. */
+function IssuesButton({ project }: { project: string }) {
+    const showIssues = useStore((state) => state.showIssues);
+    const label = `Issues of ${project}`;
+    return (
+        <button
+            type="button"
+            className="row-note"
+            aria-label={label}
+            title={`${label}: read them and start a task on one`}
+            onClick={() => showIssues({ project, issue: null })}
+        >
+            <IssueIcon />
+        </button>
+    );
+}
+
+/** An issue as GitHub draws one: a ring with a dot in it. */
+function IssueIcon() {
+    return (
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+            <circle cx="8" cy="8" r="5.5" />
+            <circle cx="8" cy="8" r="1.2" />
+        </svg>
+    );
+}
+
+/**
+ * The issue a task was started for, beside its pull request: pressing it shows the issue in
+ * the repository's Issues view.
+ */
+function IssueBadge({ project, task }: { project: string; task: Task }) {
+    const showIssues = useStore((state) => state.showIssues);
+    if (task.issue === null) {
+        return null;
+    }
+    const label = `For issue #${task.issue}: show it`;
+    return (
+        <button
+            type="button"
+            className="issue-badge"
+            title={label}
+            aria-label={label}
+            onClick={() => showIssues({ project, issue: task.issue })}
+        >
+            <IssueIcon />
+            {task.issue}
+        </button>
     );
 }
 

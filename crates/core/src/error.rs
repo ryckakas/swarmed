@@ -234,6 +234,9 @@ pub enum Error {
     /// A task's work could not be committed, pushed or put in a pull request. Says why.
     #[error("{0}")]
     Pull(String),
+    /// A repository's issue could not be read. Says why.
+    #[error("{0}")]
+    Issue(String),
     /// A prompt could not be kept. Says why.
     #[error("{0}")]
     Template(String),

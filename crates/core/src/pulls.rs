@@ -4,6 +4,7 @@
 //! what that says. Without `gh`, without a pull request, or in a repository that is not on
 //! GitHub, a task simply has none.
 
+use std::path::Path;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -11,16 +12,20 @@ use tokio::process::Command;
 
 use crate::agent_setup::find_program;
 use crate::error::Error;
+use crate::following::Reading;
+use crate::merging::MergeMethod;
 use crate::{Core, Result, git, open};
 
 /// How long `gh` gets to answer. It asks the network, and nothing waits on it.
-const GH_TIMEOUT: Duration = Duration::from_secs(20);
+pub(crate) const GH_TIMEOUT: Duration = Duration::from_secs(20);
 
-/// What `gh pr view` is asked for.
-const FIELDS: &str = "number,title,url,state,isDraft,reviewDecision,statusCheckRollup";
+/// What `gh pr view` and `gh pr list` are asked for: what is shown, and what tells a change.
+pub(crate) const FIELDS: &str = "number,title,url,state,isDraft,reviewDecision,\
+                                 statusCheckRollup,headRefName,headRefOid,updatedAt,mergeable,\
+                                 baseRefName,autoMergeRequest,mergeStateStatus,mergedAt";
 
 /// Where a pull request stands.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PullState {
     /// Open and waiting.
@@ -32,7 +37,7 @@ pub enum PullState {
 }
 
 /// How one check came out.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CheckOutcome {
     /// Finished well.
@@ -46,7 +51,7 @@ pub enum CheckOutcome {
 }
 
 /// One check on a pull request: a CI job, or a status another service reported.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Check {
     /// What the check is called.
     pub name: String,
@@ -59,7 +64,9 @@ pub struct Check {
 }
 
 /// The pull request of a task's branch.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+///
+/// Kept as JSON with the task (`following.rs`), so its fields are only added, never renamed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pull {
     /// Its number in the repository.
     pub number: u64,
@@ -76,6 +83,31 @@ pub struct Pull {
     pub review: Option<String>,
     /// Its checks, in the order GitHub lists them, each check run only as its latest run.
     pub checks: Vec<Check>,
+    /// Whether its branch conflicts with its base, as GitHub last worked it out. Absent from
+    /// what was kept before this.
+    #[serde(default)]
+    pub conflicts: bool,
+    /// Its head commit, which a merge names so that only what was read is merged. Absent
+    /// from what was kept before this.
+    #[serde(default)]
+    pub head: String,
+    /// The branch it goes into. Absent from what was kept before this.
+    #[serde(default)]
+    pub base: String,
+    /// The method GitHub merges it with once its requirements are met, while its auto-merge
+    /// is on.
+    #[serde(default)]
+    pub auto_merge: Option<MergeMethod>,
+    /// Whether GitHub would merge it now, as it last worked it out: `clean`, `unstable`
+    /// (checks no rule requires did not pass), `has_hooks`, `blocked` (a requirement is not
+    /// met), `behind` (its base moved on and a rule wants it up to date), `dirty`
+    /// (conflicts) or `draft`; nothing while GitHub has not worked it out.
+    #[serde(default)]
+    pub merge_state: Option<String>,
+    /// When it was merged, as GitHub writes it (`2026-11-20T10:00:00Z`), if it was. Absent
+    /// from what was kept before this.
+    #[serde(default)]
+    pub merged_at: Option<String>,
 }
 
 /// A check as `gh` prints it: a check run has a status and a conclusion, a commit status only a
@@ -118,6 +150,31 @@ struct RawPull {
     review_decision: String,
     #[serde(default)]
     status_check_rollup: Vec<RawCheck>,
+    #[serde(default)]
+    head_ref_name: String,
+    #[serde(default)]
+    head_ref_oid: String,
+    #[serde(default)]
+    updated_at: String,
+    #[serde(default)]
+    mergeable: String,
+    #[serde(default)]
+    base_ref_name: String,
+    #[serde(default)]
+    auto_merge_request: Option<RawAutoMerge>,
+    #[serde(default)]
+    merge_state_status: String,
+    #[serde(default)]
+    merged_at: Option<String>,
+}
+
+/// A pull request's auto-merge as `gh` prints it. The commit message it would merge with is
+/// in that too, and never read into this.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawAutoMerge {
+    #[serde(default)]
+    merge_method: String,
 }
 
 /// How a check came out, from whichever of its fields says so.
@@ -209,16 +266,30 @@ fn latest(checks: Vec<RawCheck>) -> Vec<RawCheck> {
         .collect()
 }
 
-/// Reads what `gh pr view --json` printed.
-fn parse(json: &str) -> Result<Pull> {
-    let raw: RawPull = serde_json::from_str(json)?;
+/// A pull request as one reading of it: what is shown, and what tells a change.
+fn reading(raw: RawPull) -> Reading {
     let state = match raw.state.as_str() {
         "MERGED" => PullState::Merged,
         "CLOSED" => PullState::Closed,
         _ => PullState::Open,
     };
     let review = (!raw.review_decision.is_empty()).then(|| raw.review_decision.to_lowercase());
-    Ok(Pull {
+    // GitHub works out whether a branch conflicts some time after it moved, and says
+    // `UNKNOWN` meanwhile: that says nothing either way.
+    let conflicts = match raw.mergeable.as_str() {
+        "CONFLICTING" => Some(true),
+        "MERGEABLE" => Some(false),
+        _ => None,
+    };
+    // GitHub merges with no method but these three.
+    let auto_merge = (raw.auto_merge_request)
+        .map(|auto| MergeMethod::of_github(&auto.merge_method).unwrap_or(MergeMethod::Merge));
+    // `UNKNOWN` while GitHub works it out, as for conflicts.
+    let merge_state = match raw.merge_state_status.as_str() {
+        "" | "UNKNOWN" => None,
+        known => Some(known.to_lowercase()),
+    };
+    let pull = Pull {
         number: raw.number,
         title: raw.title,
         url: raw.url,
@@ -229,7 +300,74 @@ fn parse(json: &str) -> Result<Pull> {
             .into_iter()
             .map(check)
             .collect(),
-    })
+        conflicts: conflicts.unwrap_or(false),
+        head: raw.head_ref_oid.clone(),
+        base: raw.base_ref_name,
+        auto_merge,
+        merge_state,
+        // GitHub says no merge with the year 1, or nothing.
+        merged_at: raw
+            .merged_at
+            .filter(|at| crate::put_away::seconds_of(at).is_some()),
+    };
+    Reading {
+        pull,
+        branch: raw.head_ref_name,
+        head: raw.head_ref_oid,
+        updated_at: raw.updated_at,
+        conflicts,
+    }
+}
+
+/// Reads what `gh pr view --json` printed.
+pub(crate) fn parse(json: &str) -> Result<Reading> {
+    Ok(reading(serde_json::from_str(json)?))
+}
+
+/// Reads what `gh pr list --json` printed.
+pub(crate) fn parse_list(json: &str) -> Result<Vec<Reading>> {
+    let raw: Vec<RawPull> = serde_json::from_str(json)?;
+    Ok(raw.into_iter().map(reading).collect())
+}
+
+/// Why `gh` gave no answer: it is not there, took too long, could not be started, or said no,
+/// in its own words.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GhFailed(pub(crate) String);
+
+/// What `gh` printed when asked `args` in `dir`, or why it printed nothing of use. Never
+/// waits longer than [`GH_TIMEOUT`], and never reads from the terminal.
+pub(crate) async fn ask_gh(
+    gh: &Path,
+    dir: &Path,
+    args: &[&str],
+) -> std::result::Result<String, GhFailed> {
+    ask_gh_within(gh, dir, args, GH_TIMEOUT).await
+}
+
+/// What `gh` printed when asked `args` in `dir`, as [`ask_gh`], given `timeout` to answer.
+pub(crate) async fn ask_gh_within(
+    gh: &Path,
+    dir: &Path,
+    args: &[&str],
+    timeout: Duration,
+) -> std::result::Result<String, GhFailed> {
+    let mut command = Command::new(gh);
+    command
+        .args(args)
+        .current_dir(dir)
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+    let output = match tokio::time::timeout(timeout, command.output()).await {
+        Ok(Ok(output)) => output,
+        Ok(Err(error)) => return Err(GhFailed(error.to_string())),
+        Err(_) => return Err(GhFailed("`gh` took too long to answer".to_string())),
+    };
+    if !output.status.success() {
+        let said = String::from_utf8_lossy(&output.stderr);
+        return Err(GhFailed(said.trim().to_string()));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 impl Core {
@@ -237,29 +375,30 @@ impl Core {
     /// that `gh` can see: the task's own branch, unless something switched the worktree.
     ///
     /// Nothing, not an error, when `gh` is not installed, is not signed in, takes too long, or
-    /// finds no pull request: a task without one is the ordinary case.
+    /// finds no pull request: a task without one is the ordinary case. When `gh` gives no
+    /// answer, the pull request as last read is given, if it is the branch's.
+    ///
+    /// What is read is taken in as the follower's readings are (`following.rs`): what changed
+    /// since the last reading is recorded, and every front end hears the reading.
     pub async fn task_pull(&self, project: &str, name: &str) -> Result<Option<Pull>> {
         let (_, task) = self.repo_task(project, name)?;
-        let Some(gh) = find_program("gh", &self.tool_dirs) else {
-            return Ok(None);
-        };
         // On no branch there is none to have a pull request.
         let Ok(Some(branch)) = git::current_branch(&task.worktree_path).await else {
             return Ok(None);
         };
-        let mut command = Command::new(gh);
-        command
-            .args(["pr", "view", &branch, "--json", FIELDS])
-            .current_dir(&task.worktree_path)
-            .stdin(std::process::Stdio::null())
-            .kill_on_drop(true);
-        let Ok(Ok(output)) = tokio::time::timeout(GH_TIMEOUT, command.output()).await else {
-            return Ok(None);
+        let kept = self
+            .pull_kept(task.id)?
+            .filter(|seen| seen.branch == branch);
+        let Some(gh) = find_program("gh", &self.tool_dirs) else {
+            return Ok(kept.map(|seen| seen.pull));
         };
-        if !output.status.success() {
-            return Ok(None);
-        }
-        parse(&String::from_utf8_lossy(&output.stdout)).map(Some)
+        let args = ["pr", "view", &branch, "--json", FIELDS];
+        let Ok(printed) = ask_gh(&gh, &task.worktree_path, &args).await else {
+            return Ok(kept.map(|seen| seen.pull));
+        };
+        let reading = parse(&printed)?;
+        let seen = self.pull_take_in(&task, Some(reading), None)?;
+        Ok(seen.map(|seen| seen.pull))
     }
 
     /// Opens a task's pull request in the browser, or the details of its check named `check`.
@@ -308,7 +447,7 @@ mod tests {
 
     #[test]
     fn what_gh_prints_is_read_whole() {
-        let pull = parse(PRINTED).expect("parses");
+        let pull = parse(PRINTED).expect("parses").pull;
         assert_eq!(pull.number, 115);
         assert_eq!(pull.state, PullState::Open);
         assert!(pull.draft);
@@ -340,7 +479,7 @@ mod tests {
     #[test]
     fn a_pull_request_without_checks_or_review_is_still_one() {
         let printed = r#"{"number": 7, "title": "t", "url": "u", "state": "MERGED"}"#;
-        let pull = parse(printed).expect("parses");
+        let pull = parse(printed).expect("parses").pull;
         assert_eq!(pull.state, PullState::Merged);
         assert_eq!(pull.review, None);
         assert_eq!(pull.checks, []);
@@ -352,7 +491,7 @@ mod tests {
     fn an_outcome_nobody_has_heard_of_counts_as_failed() {
         let printed = r#"{"number": 1, "title": "t", "url": "u", "state": "CLOSED",
             "statusCheckRollup": [{"name": "x", "status": "COMPLETED", "conclusion": "STALE"}]}"#;
-        let pull = parse(printed).expect("parses");
+        let pull = parse(printed).expect("parses").pull;
         assert_eq!(pull.state, PullState::Closed);
         assert_eq!(pull.checks[0].outcome, CheckOutcome::Failed);
     }
@@ -376,7 +515,7 @@ mod tests {
             r#"{{"number": 1, "title": "t", "url": "u", "state": "OPEN", "statusCheckRollup": [{}]}}"#,
             runs.join(",")
         );
-        let pull = parse(&printed).expect("parses");
+        let pull = parse(&printed).expect("parses").pull;
         // Named with the workflow, which tells two jobs of the same name apart.
         let named = |check: Check| {
             let workflow = check.workflow.unwrap_or_default();

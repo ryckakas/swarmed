@@ -15,6 +15,51 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Added
+
+- **Swarmed follows your tasks' pull requests and tells you what changed.** Checks that failed,
+  all checks passing, a review or a comment from someone else (who, never what they wrote), a
+  branch that conflicts with its base, a merge and a close each show as one line in the
+  conversation of the task you wrote to last, and as a notification while you look elsewhere.
+  What changed while Swarmed was closed is said at the next start, once. Where checks failed,
+  **Send the failure to the agent** puts them, with the last lines of each failed job's log,
+  into the message box for you to read and send. `swarmed task pull --follow` prints each change
+  in the terminal. Configuration's [Pull requests](docs/configuration.md#pull-requests) says what
+  Swarmed asks GitHub and how often.
+- **Merge a task's pull request from its panel.** **Merge…** opens a dialog with where it goes,
+  the commit it is at, its checks and its review, and the methods the repository allows, starting
+  on the one you used there last. Its button merges the way its menu chose: **Merge**, which
+  points you to **Force merge** while a check failed, and **Bypass requirements** if you
+  administer the repository. **Enable auto-merge** has GitHub merge it once its requirements are
+  met. Only the commit you saw is merged, no branch is deleted, GitHub's refusals are shown in
+  its words and a merge queue is named as one. `swarmed task merge` does the same in the
+  terminal.
+- **Put finished tasks away.** **Put away** in a task's panel, or **Put away instead** when you
+  remove it, stops its agents and its stack and lists it in a folded **Done** group at the end of
+  its repository, with nothing deleted: the worktree, the branch, your notes and its sessions
+  stay. Once its pull request merged, the panel, the line that says so and the merge dialog
+  offer it. **Bring back** lists it with the others again, and so does working on it.
+  Settings can put tasks away by themselves, each rule off until you turn it on: a set number of
+  days after their pull request merged, or after their sessions sat idle that long, never while
+  one of them is at work. Whether putting away also closes the sessions is a setting of its
+  own. `swarmed task done` and `swarmed task undone` do the same in the terminal.
+- **Start a task from a GitHub issue.** The issue button on a repository's row, or ⌘⇧I, lists
+  its issues through your own `gh`: everyone's or those assigned to you, opened by you or
+  mentioning you, open or closed, and words to look for. Pick one to read it with its comments,
+  drawn as text, never as HTML. **Start a task** opens New task with a prompt that names the
+  issue and asks the agent to read it, for you to read and send. The task remembers its issue:
+  the sidebar shows its number, the panel its title and whether it is still open, and the pull
+  request text Swarmed writes ends with `Closes #N`, so merging closes the issue. Without `gh`,
+  or off GitHub, the list says why. `swarmed issue list`, `swarmed issue show` and
+  `swarmed task new --issue` do the same in the terminal.
+
+### Changed
+
+- **Pull request badges no longer ask GitHub each on a timer.** One list of open pull requests
+  per repository serves every badge and panel, asked only by the first Swarmed on the data
+  directory, sooner while checks run and less often once nothing moves; a repository without a
+  pull request open is not asked at all.
+
 ## [0.4.3] - 2026-11-24
 
 ### Added

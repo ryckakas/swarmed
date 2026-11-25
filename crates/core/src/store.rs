@@ -9,6 +9,7 @@ use serde::Serialize;
 use crate::chats::CHATS;
 use crate::elsewhere::Written;
 use crate::error::{Error, Result};
+use crate::put_away::DoneWhy;
 
 /// A registered git repository, or the home of the chats, which has none ([`CHATS`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -97,6 +98,13 @@ pub struct Task {
     pub environment: Option<String>,
     /// Whether the user pinned it above its repository's tasks that are not pinned.
     pub pinned: bool,
+    /// When it was put away, in seconds since 1970; `None` while it is not (`put_away.rs`).
+    pub done_at: Option<i64>,
+    /// Why it was put away, while it is.
+    pub done_why: Option<DoneWhy>,
+    /// The number of the repository's GitHub issue the task was started for, if it was
+    /// (`issues.rs`).
+    pub issue: Option<u64>,
 }
 
 pub(crate) struct NewTask<'a> {
@@ -109,6 +117,8 @@ pub(crate) struct NewTask<'a> {
     pub(crate) environment: Option<&'a str>,
     /// Whether the branch was made for the task, rather than checked out as it was.
     pub(crate) branch_made: bool,
+    /// The repository's issue the task is for, if any.
+    pub(crate) issue: Option<u64>,
 }
 
 /// A removed task's branch, as the task left it.
@@ -272,6 +282,29 @@ const MIGRATIONS: &[&str] = &[
     "
     ALTER TABLE sessions ADD COLUMN continue_at INTEGER;
 ",
+    // The pull request of a task's branch as Swarmed last read it, as JSON: what the window
+    // shows, and what the next reading is compared with to tell what changed. Kept, so that
+    // a change while no Swarmed ran is told once, at the next start (`following.rs`).
+    "
+    ALTER TABLE tasks ADD COLUMN pull TEXT;
+",
+    // The method a pull request of the project was last merged with from Swarmed, which the
+    // next merge starts on. Here, not in the project's files, for the reason the default
+    // environment is (`merging.rs`).
+    "
+    ALTER TABLE projects ADD COLUMN merge_method TEXT;
+",
+    // When a task was put away, in seconds since 1970, and why; and when it was last brought
+    // back, which the rules that put tasks away by themselves count from (`put_away.rs`).
+    "
+    ALTER TABLE tasks ADD COLUMN done_at INTEGER;
+    ALTER TABLE tasks ADD COLUMN done_why TEXT;
+    ALTER TABLE tasks ADD COLUMN back_at INTEGER;
+",
+    // The number of the repository's GitHub issue a task was started for (`issues.rs`).
+    "
+    ALTER TABLE tasks ADD COLUMN issue INTEGER;
+",
 ];
 
 /// Stands in [`MIGRATIONS`] for the one change SQL in a transaction cannot make: every
@@ -291,7 +324,7 @@ pub(crate) const TASK_ORDER: &str = "pinned DESC, position, created_at, id";
 
 const TASK_SELECT: &str = "SELECT id, project_id, name, branch, base_ref, worktree_path, slot, \
                            setup_status, archived_at IS NOT NULL, environment, setup_reason, \
-                           pinned FROM tasks";
+                           pinned, done_at, done_why, issue FROM tasks";
 
 #[derive(Debug)]
 pub(crate) struct Store {
@@ -388,8 +421,8 @@ impl Store {
         self.conn.execute(
             // At the end of its repository's tasks.
             "INSERT INTO tasks (project_id, name, branch, base_ref, worktree_path, slot, environment,
-                                branch_made, position)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
+                                branch_made, issue, position)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
                      (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks WHERE project_id = ?1))",
             params![
                 new.project_id,
@@ -399,7 +432,8 @@ impl Store {
                 new.worktree_path.to_string_lossy(),
                 new.slot,
                 new.environment,
-                new.branch_made
+                new.branch_made,
+                new.issue.and_then(|number| i64::try_from(number).ok())
             ],
         )?;
         Ok(Task {
@@ -415,6 +449,9 @@ impl Store {
             archived: false,
             environment: new.environment.map(String::from),
             pinned: false,
+            done_at: None,
+            done_why: None,
+            issue: new.issue,
         })
     }
 
@@ -562,6 +599,14 @@ fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
         environment: row.get(9)?,
         setup_reason: row.get(10)?,
         pinned: row.get(11)?,
+        done_at: row.get(12)?,
+        done_why: row
+            .get::<_, Option<String>>(13)?
+            .as_deref()
+            .map(DoneWhy::parse),
+        issue: row
+            .get::<_, Option<i64>>(14)?
+            .and_then(|number| u64::try_from(number).ok()),
     })
 }
 

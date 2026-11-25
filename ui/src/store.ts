@@ -4,6 +4,7 @@ import type {
     AccountUsage,
     AgentEvent,
     CustomLayout,
+    Issue,
     NoteTarget,
     Project,
     Pull,
@@ -20,7 +21,10 @@ import type {
 import { CHATS } from "./chats";
 import type { CloudTarget } from "./cloud";
 import type { Comparison } from "./components/CompareDialog";
+import { type IssueLink, type IssuesTarget, issueLink, withIssuePrompt } from "./issues";
 import { forgetImages } from "./keptImages";
+import { pullsOf, withMessage } from "./pulls";
+import { doneShownFor } from "./putAway";
 import { type Dismissed, readDismissed } from "./rateLimit";
 import type { Browsing } from "./recall";
 import { type ReviewComment, withComment } from "./review";
@@ -111,6 +115,19 @@ interface State {
     newTaskDrafts: Record<string, Draft>;
     /** Changes what the new-task box holds for repository `project`. */
     editNewTaskDraft(project: string, change: Partial<Draft>): void;
+    /** The issue the new task of each repository is for, by the repository's name; in memory. */
+    newTaskIssues: Record<string, IssueLink>;
+    /** Says which issue the new task of repository `project` is for; `null` for none. */
+    linkIssue(project: string, link: IssueLink | null): void;
+    /**
+     * Starts a task on an issue: the new-task view of its repository opens with the issue's
+     * prompt in the box, for the user to read and send, and the task is linked to the issue.
+     */
+    startFromIssue(project: string, issue: Pick<Issue, "number" | "title" | "url">): void;
+    /** The repository whose GitHub issues are listed, and the issue picked there first. */
+    issuesOf: IssuesTarget | null;
+    /** Opens a repository's issues; `null` puts them away. */
+    showIssues(target: IssuesTarget | null): void;
     /** The events of every session whose transcript has been opened. */
     events: Record<number, AgentEvent[]>;
     /** Per task id, a count that goes up whenever its agents may have changed files. */
@@ -222,6 +239,19 @@ interface State {
     /** The ids of the tasks whose sessions are folded away in the sidebar. */
     foldedTasks: number[];
     toggleTaskFolded(taskId: number): void;
+    /**
+     * The ids of the repositories whose Done group, of the tasks put away, is unfolded in the
+     * sidebar. Folded until the user unfolds it, or opens a session of a task in it.
+     */
+    doneShown: number[];
+    toggleDoneShown(projectId: number): void;
+    /**
+     * Puts a task away and reads the tree again. What went wrong on the way, a `stop` that
+     * failed say, is said; a refusal is thrown, for whoever asked to say.
+     */
+    putAway(api: Api, project: string, task: string): Promise<void>;
+    /** Brings a task that was put away back to the others, and reads the tree again. */
+    bringBack(api: Api, project: string, task: string): Promise<void>;
     /** Whether the status line under the message box is shown, or folded away. */
     statusOpen: boolean;
     toggleStatus(): void;
@@ -313,10 +343,19 @@ interface State {
     comment(taskId: number, comment: ReviewComment): void;
     /** Drops a task's comments: they were sent, or are not wanted. */
     clearReview(taskId: number): void;
-    /** Each task's pull request by the task's id, as last heard; `null` for none. */
+    /**
+     * Each task's pull request by the task's id, as the core last read it: from the tree, and
+     * from each reading it publishes since. `null` for none.
+     */
     pulls: Record<number, Pull | null>;
     /** Asks again for a task's pull request. Not hearing back changes nothing. */
     loadPull(api: Api, project: string, task: string, taskId: number): Promise<void>;
+    /**
+     * Puts a message about a task's failed checks, with the last lines of their logs, into
+     * session `sessionId`'s message box after what is typed there, for the user to read and
+     * send. Nothing is sent.
+     */
+    draftFailure(api: Api, project: string, task: string, sessionId: number): Promise<void>;
     /** A task's worktree was put on another branch: whatever reads its files reads again. */
     worktreeMoved(taskId: number): void;
     /** The cloud task whose changes are being looked at, by Swarmed's id for it. */
@@ -387,6 +426,7 @@ const NEVER_STORED = new Set<AgentEvent["type"]>([
     "tree_changed",
     "account_usage",
     "setup",
+    "pull_read",
 ]);
 
 /**
@@ -659,7 +699,9 @@ function readAgain(state: State, projects: Project[]): Partial<State> {
     return {
         projects,
         load: "ready",
+        pulls: pullsOf(projects),
         newTaskDrafts: listedOnly(state.newTaskDrafts, projects),
+        newTaskIssues: listedOnly(state.newTaskIssues, projects),
         foldedTasks: stillFolded(state.foldedTasks, projects),
         ...(gone ? leaving(state, [selected]) : {}),
     };
@@ -691,8 +733,21 @@ function withRecall(
         : { ...recalls, [sessionId]: browsing };
 }
 
-/** The new-task drafts of the repositories still listed: a removed one's goes with it. */
-function listedOnly(drafts: Record<string, Draft>, projects: Project[]): Record<string, Draft> {
+/** Each repository's issue for its new task, with `project`'s now `link`, or none for `null`. */
+function withIssue(
+    links: Record<string, IssueLink>,
+    project: string,
+    link: IssueLink | null,
+): Record<string, IssueLink> {
+    if (link === null) {
+        const { [project]: _gone, ...rest } = links;
+        return rest;
+    }
+    return { ...links, [project]: link };
+}
+
+/** What is kept by repository (new-task drafts, issue links), of those still listed only. */
+function listedOnly<T>(drafts: Record<string, T>, projects: Project[]): Record<string, T> {
     // The chats' draft stays: there is no project to list until the first chat is made.
     const listed = new Set([CHATS, ...projects.map((project) => project.name)]);
     const names = Object.keys(drafts);
@@ -757,6 +812,30 @@ function foldedOnOpening(state: State, sessionId: number): number[] {
         : unfoldedFor(state.foldedTasks, state.projects, sessionId);
 }
 
+/** The Done groups unfolded so that the session on screen has its row in view. */
+function doneInView(state: State): Partial<State> {
+    const id = state.selectedSessionId;
+    return id === null ? {} : { doneShown: doneShownFor(state.doneShown, state.projects, id) };
+}
+
+/**
+ * Puts a task away and reads the tree again; what went wrong on the way is said. The session
+ * on screen keeps its row in view: the Done group it went into unfolds.
+ */
+async function putTaskAway(
+    api: Api,
+    project: string,
+    task: string,
+    store: Pick<State, "refresh" | "report"> & { keepInView(): void },
+) {
+    const passedOver = await api.taskDone(project, task);
+    await store.refresh(api);
+    store.keepInView();
+    if (passedOver.length > 0) {
+        store.report(`Put away, though not everything went as set up: ${passedOver.join("; ")}`);
+    }
+}
+
 export const useStore = create<State>((set, get) => ({
     projects: [],
     load: "loading",
@@ -778,6 +857,25 @@ export const useStore = create<State>((set, get) => ({
     newTaskDrafts: {},
     editNewTaskDraft: (project, change) =>
         set((state) => ({ newTaskDrafts: withDraft(state.newTaskDrafts, project, change) })),
+    newTaskIssues: {},
+    linkIssue: (project, link) =>
+        set((state) => ({ newTaskIssues: withIssue(state.newTaskIssues, project, link) })),
+    startFromIssue: (project, issue) =>
+        set((state) => {
+            const link = issueLink(issue);
+            const draft = state.newTaskDrafts[project] ?? NO_DRAFT;
+            const before = state.newTaskIssues[project] ?? null;
+            const text = withIssuePrompt(draft.text, before, link.prompt);
+            return {
+                newTaskDrafts: withDraft(state.newTaskDrafts, project, { text }),
+                newTaskIssues: withIssue(state.newTaskIssues, project, link),
+                issuesOf: null,
+                selectedSessionId: null,
+                draftProject: project,
+            };
+        }),
+    issuesOf: null,
+    showIssues: (target) => set({ issuesOf: target }),
     events: {},
     subAgents: {},
     subView: null,
@@ -855,6 +953,15 @@ export const useStore = create<State>((set, get) => ({
     foldedTasks: readIds(FOLDED_TASKS),
     toggleTaskFolded: (taskId) =>
         set((state) => ({ foldedTasks: toggledId(state.foldedTasks, taskId) })),
+    doneShown: [],
+    toggleDoneShown: (projectId) =>
+        set((state) => ({ doneShown: toggledId(state.doneShown, projectId) })),
+    putAway: (api, project, task) =>
+        putTaskAway(api, project, task, { ...get(), keepInView: () => set(doneInView) }),
+    bringBack: async (api, project, task) => {
+        await api.taskUndone(project, task);
+        await get().refresh(api);
+    },
     statusOpen: readFlag(STATUS_OPEN, true),
     toggleStatus: () => {
         const statusOpen = !get().statusOpen;
@@ -939,6 +1046,14 @@ export const useStore = create<State>((set, get) => ({
             set((state) => ({ pulls: { ...state.pulls, [taskId]: pull } }));
         }
     },
+    draftFailure: async (api, project, task, sessionId) => {
+        const message = await api.taskPullFailure(project, task);
+        set((state) => {
+            const typed = state.drafts[sessionId]?.text ?? "";
+            const text = withMessage(typed, message);
+            return { drafts: withDraft(state.drafts, sessionId, { text }) };
+        });
+    },
     worktreeMoved: (taskId) =>
         set((state) => ({ edits: { ...state.edits, [taskId]: (state.edits[taskId] ?? 0) + 1 } })),
     cloudDiffOf: null,
@@ -974,6 +1089,8 @@ export const useStore = create<State>((set, get) => ({
             selectedSessionId: sessionId,
             subView: null,
             foldedTasks: foldedOnOpening(state, sessionId),
+            // And the Done group it is in, if its task was put away.
+            doneShown: doneShownFor(state.doneShown, state.projects, sessionId),
         }));
         get().markRead(api, sessionId);
         if (get().events[sessionId] || loading.has(sessionId)) {
@@ -1138,6 +1255,9 @@ function heardApart(api: Api, event: SessionEvent): boolean {
         void useStore.getState().refresh(api);
     } else if (heard.type === "account_usage") {
         useStore.setState({ accountUsage: heard.usage });
+    } else if (heard.type === "pull_read") {
+        const { task_id, pull } = heard;
+        useStore.setState((state) => ({ pulls: { ...state.pulls, [task_id]: pull } }));
     } else if (heard.type === "setup") {
         heardOfSetup(api, heard.progress);
     } else if (heard.type === "config_changed") {

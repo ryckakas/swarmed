@@ -109,5 +109,37 @@ function Link({ href, children, node: _node, ...rest }: ComponentProps<"a"> & { 
     );
 }
 
+/**
+ * An image in text anyone could write: a link to it, with what it says it shows, rather than
+ * loaded from wherever it points, which would tell that address that the text was read.
+ */
+function ImageLink({ src, alt }: ComponentProps<"img"> & { node?: unknown }) {
+    const said = alt?.trim() ? `Image: ${alt.trim()}` : "Image";
+    if (typeof src !== "string" || src === "") {
+        return <span>[{said}]</span>;
+    }
+    return <Link href={src}>[{said}]</Link>;
+}
+
 const COMPONENTS = { a: Link };
 const VIEW_COMPONENTS = { ...COMPONENTS, pre: Pre };
+const UNTRUSTED_COMPONENTS = { ...COMPONENTS, img: ImageLink };
+
+/**
+ * Text anyone could write, such as a GitHub issue and its comments: Markdown drawn as text,
+ * whatever the settings say of views. HTML in it stays the text it is, a view's block stays
+ * code with no way to show it, and an image is a link.
+ */
+export const UntrustedMarkdown = memo(function UntrustedMarkdown({ text }: { text: string }) {
+    return (
+        <div className="prose">
+            <ReactMarkdown
+                remarkPlugins={PLUGINS}
+                rehypePlugins={REHYPE_PLUGINS}
+                components={UNTRUSTED_COMPONENTS}
+            >
+                {text}
+            </ReactMarkdown>
+        </div>
+    );
+});

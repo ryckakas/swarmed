@@ -11,10 +11,12 @@ import { Background, runningCount, useBackground } from "./Background";
 import { Changes } from "./Changes";
 import { Files } from "./Files";
 import { CloseIcon, EditorIcon, IconButton, TerminalIcon } from "./IconButton";
+import { IssuePart } from "./IssuePart";
 import { editorName } from "./options";
 import { Picker } from "./Picker";
 import { Publish } from "./Publish";
 import { PullSection } from "./PullRequest";
+import { PutAwayPart } from "./PutAway";
 import { Resizer } from "./Resizer";
 import { StackControls } from "./StackControls";
 
@@ -162,14 +164,19 @@ function TaskHead({ project, task }: { project: Project; task: Task }) {
     );
 }
 
-/** What only a task in a repository has: its stack, comparing, publishing, its pull request. */
+/**
+ * What only a task in a repository has: the issue it is for, its stack, comparing, publishing,
+ * its pull request, and putting it away.
+ */
 function RepositoryParts({ project, task }: { project: Project; task: Task }) {
     return (
         <>
+            <IssuePart project={project.name} task={task} />
             <StackControls project={project.name} task={task} />
             <CompareWith project={project} task={task} />
             <Publish project={project.name} task={task} />
             <PullSection project={project.name} task={task} />
+            <PutAwayPart project={project.name} task={task} />
         </>
     );
 }

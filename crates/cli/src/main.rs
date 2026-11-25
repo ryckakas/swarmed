@@ -3,8 +3,11 @@
 mod action;
 mod cleanup;
 mod events;
+mod issue;
 mod layout;
 mod limits;
+mod merge;
+mod pull;
 mod session;
 mod setup;
 mod terminal;
@@ -16,6 +19,7 @@ use std::sync::Arc;
 use action::ActionCommand;
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
+use issue::IssueCommand;
 use layout::LayoutCommand;
 use session::SessionCommand;
 use swarmed_core::agent::FakeBackend;
@@ -44,6 +48,9 @@ enum Command {
     /// Run agent sessions in a task's worktree.
     #[command(subcommand)]
     Session(SessionCommand),
+    /// List a repository's GitHub issues, or read one, through your own `gh`.
+    #[command(subcommand)]
+    Issue(IssueCommand),
     /// List the MCP servers agents are given: those set up in Swarmed and Claude Code's own.
     Mcp,
     /// Show what Swarmed takes up on disk, and in memory and processor time right now.
@@ -290,6 +297,10 @@ enum TaskCommand {
         /// The model the first session runs on; defaults to the agent's own default.
         #[arg(long, requires = "prompt")]
         model: Option<String>,
+        /// The number of the repository's GitHub issue the task is for, which it records: its
+        /// pull request text then says `Closes #N`. See `swarmed issue list`.
+        #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
+        issue: Option<u64>,
     },
     /// Suggest a name for a task that starts with PROMPT, as the app names new tasks.
     Name { project: String, prompt: String },
@@ -323,8 +334,16 @@ enum TaskCommand {
         #[arg(long)]
         delete_branch: bool,
     },
+    /// Put a finished task away: stop its agents and its stack, and list it as done. Its
+    /// sessions are closed too if the settings say so. Nothing is deleted.
+    Done { project: String, name: String },
+    /// Bring a task that was put away back to the others. Nothing is started.
+    Undone { project: String, name: String },
     /// Show the pull request of the task's branch and how its checks stand.
-    Pull { project: String, name: String },
+    Pull(pull::PullArgs),
+    /// Merge the pull request of the task's branch as it is now, or have GitHub merge it once
+    /// its requirements are met. No branch is deleted.
+    Merge(merge::MergeArgs),
     /// Move a task among the project's other open tasks, as the app lists them: a pinned one
     /// among the pinned.
     Move {
@@ -413,6 +432,15 @@ pub(crate) fn say(line: &str) {
     writeln!(std::io::stdout().lock(), "{line}").ok();
 }
 
+/// Text someone else wrote on GitHub (an issue, a pull request's title, a check's name),
+/// without the control characters that would make the terminal do something, such as set its
+/// title or the clipboard. Line breaks and tabs stay.
+pub(crate) fn printable(text: &str) -> String {
+    text.chars()
+        .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
+        .collect()
+}
+
 /// Writes a line to stderr, apart from what a command prints: a note on the side, which must
 /// not get into what is piped on. A closed stderr is no reason to fail either.
 pub(crate) fn aside(line: &str) {
@@ -472,6 +500,7 @@ async fn run(core: &Arc<Core>, command: Command) -> Result<()> {
         Command::Project(command) => project(core, command).await,
         Command::Task(command) => task(core, command).await,
         Command::Session(command) => session::session(core, command).await,
+        Command::Issue(command) => issue::run(core, command).await,
         // Answered above, before anything was opened.
         Command::ToolServer => Ok(()),
         Command::Agent(command) => agent(core, command).await,
@@ -746,23 +775,6 @@ async fn open_pull(
     Ok(())
 }
 
-/// Prints a task's pull request and its checks.
-async fn pull(core: &Core, project: &str, name: &str) -> Result<()> {
-    let Some(pull) = core.task_pull(project, name).await? else {
-        say("no pull request");
-        return Ok(());
-    };
-    let draft = if pull.draft { ", draft" } else { "" };
-    say(&format!(
-        "#{} {:?}{draft}  {}\n{}",
-        pull.number, pull.state, pull.title, pull.url
-    ));
-    for check in &pull.checks {
-        say(&format!("{:?}\t{}", check.outcome, check.name));
-    }
-    Ok(())
-}
-
 /// Prints what the task's agents left running, one to a line.
 fn background(core: &Core, project: &str, name: &str) -> Result<()> {
     let tasks = core.task_background(project, name)?;
@@ -847,8 +859,11 @@ pub(crate) fn created(task: &Task) -> String {
         .environment
         .as_ref()
         .map_or_else(String::new, |name| format!(" in environment `{name}`"));
+    let issue = task
+        .issue
+        .map_or_else(String::new, |number| format!(" for issue #{number}"));
     format!(
-        "created task `{}` on branch `{}` (slot {}){set_up_in} at {}",
+        "created task `{}`{issue} on branch `{}` (slot {}){set_up_in} at {}",
         task.name,
         task.branch,
         task.slot,
@@ -1104,8 +1119,9 @@ async fn written(core: &Core, command: TaskCommand) -> Result<Option<TaskCommand
     Ok(None)
 }
 
-/// Does what a command asks of the branch a task's worktree is on, pushing it or putting the
-/// worktree on another, and hands any other command back.
+/// Does what a command asks of a task's branch or of its place among the others: pushing it,
+/// putting the worktree on another, moving or pinning the task, putting it away or bringing it
+/// back. Hands any other command back.
 async fn sent_or_switched(core: &Core, command: TaskCommand) -> Result<Option<TaskCommand>> {
     match command {
         TaskCommand::Push { project, name } => {
@@ -1135,6 +1151,16 @@ async fn sent_or_switched(core: &Core, command: TaskCommand) -> Result<Option<Ta
         TaskCommand::Unpin { project, name } => {
             core.task_pin(&project, &name, false)?;
             tasks_in_order(core, &project)?;
+        }
+        TaskCommand::Done { project, name } => {
+            for note in core.task_done(&project, &name, &hook_line).await? {
+                say(&note);
+            }
+            say(&format!("put away task `{name}`"));
+        }
+        TaskCommand::Undone { project, name } => {
+            core.task_undone(&project, &name)?;
+            say(&format!("brought back task `{name}`"));
         }
         other => return Ok(Some(other)),
     }
@@ -1204,12 +1230,14 @@ async fn task(core: &Arc<Core>, command: TaskCommand) -> Result<()> {
             prompt,
             agent,
             model,
+            issue,
         } => {
             // The name is the user's own: one that is taken is refused, not changed.
             let options = NewTaskOptions {
                 existing_branch: branch.as_deref(),
                 environment: environment_choice(environment, no_environment),
                 free_name: false,
+                issue,
             };
             let prompted = prompt.map(|prompt| setup::Prompted::new(prompt, agent, model));
             new_task(core, (&project, &name), options, prompted).await?;
@@ -1230,15 +1258,10 @@ async fn task(core: &Arc<Core>, command: TaskCommand) -> Result<()> {
                 force,
                 delete_branch,
             };
-            for note in core
-                .task_remove(&project, &name, options, &hook_line)
-                .await?
-            {
-                say(&note);
-            }
-            say(&format!("removed task `{name}`"));
+            remove_task(core, &project, &name, options).await?;
         }
-        TaskCommand::Pull { project, name } => pull(core, &project, &name).await?,
+        TaskCommand::Pull(args) => pull::run(core, &args).await?,
+        TaskCommand::Merge(args) => merge::run(core, &args).await?,
         TaskCommand::Background { project, name } => background(core, &project, &name)?,
         TaskCommand::Commit {
             project,
@@ -1253,6 +1276,8 @@ async fn task(core: &Arc<Core>, command: TaskCommand) -> Result<()> {
         | TaskCommand::Move { .. }
         | TaskCommand::Pin { .. }
         | TaskCommand::Unpin { .. }
+        | TaskCommand::Done { .. }
+        | TaskCommand::Undone { .. }
         | TaskCommand::Setup { .. }
         | TaskCommand::StartAnyway { .. }
         | TaskCommand::SetupLog { .. } => {}
@@ -1285,6 +1310,15 @@ async fn task(core: &Arc<Core>, command: TaskCommand) -> Result<()> {
     Ok(())
 }
 
+/// Removes a task, saying what its removal passed over.
+async fn remove_task(core: &Core, project: &str, name: &str, options: RemoveOptions) -> Result<()> {
+    for note in core.task_remove(project, name, options, &hook_line).await? {
+        say(&note);
+    }
+    say(&format!("removed task `{name}`"));
+    Ok(())
+}
+
 /// The projects' names as the app lists them, each pinned one marked so.
 fn projects_in_order(core: &Core) -> Result<()> {
     for project in core.projects()? {
@@ -1313,6 +1347,7 @@ fn in_order(name: &str, pinned: bool) -> String {
 fn task_row(task: &Task) -> String {
     let state = match (task.archived, task.setup) {
         (true, _) => "archived",
+        _ if task.done_at.is_some() => "done",
         (false, SetupStatus::Ok) => "ready",
         (false, SetupStatus::Failed) => "setup failed",
         (false, SetupStatus::Pending) => "setup pending",

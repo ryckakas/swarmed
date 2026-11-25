@@ -5,6 +5,7 @@ use serde::Serialize;
 use crate::Core;
 use crate::cloud::CloudTask;
 use crate::error::Result;
+use crate::pulls::Pull;
 use crate::sessions::Session;
 use crate::setups::SettingUp;
 use crate::stacks::StackState;
@@ -48,19 +49,23 @@ pub struct TaskOverview {
     /// How its setup stands while it is not over: set up here, by another Swarmed, or cut
     /// short. `None` once it is over, well or not.
     pub setting_up: Option<SettingUp>,
+    /// The pull request of the branch its worktree is on, as Swarmed last read it, if it has
+    /// one (`following.rs`).
+    pub pull: Option<Pull>,
 }
 
 impl Core {
     /// Every project with its tasks and their sessions, archived tasks included.
     pub fn overview(&self) -> Result<Vec<ProjectOverview>> {
-        // Three queries under one lock, so the tree is consistent.
-        let (projects, tasks, sessions, closed) = {
+        // The queries under one lock, so the tree is consistent.
+        let (projects, tasks, sessions, closed, mut pulls) = {
             let store = self.store();
             (
                 store.projects()?,
                 store.tasks_all()?,
                 store.sessions_all()?,
                 store.closed_counts()?,
+                store.pulls_kept()?,
             )
         };
         let running = self.running_sessions();
@@ -84,6 +89,7 @@ impl Core {
                 closed: closed.get(&task.id).copied().unwrap_or(0),
                 stack: None,
                 setting_up: self.setting_up(&task),
+                pull: pulls.remove(&task.id),
                 task,
             }
         };

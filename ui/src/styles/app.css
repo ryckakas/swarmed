@@ -436,6 +436,40 @@ code {
     border-top: 1px solid var(--line);
 }
 
+/* The issue the task was started for, as read when the panel opened. */
+.panel-issue {
+    margin-top: var(--space-3);
+}
+
+.panel-issue-said {
+    margin: 0;
+    color: var(--text);
+    overflow-wrap: anywhere;
+}
+
+.panel-issue[data-state="closed"] .panel-issue-said {
+    color: var(--muted);
+}
+
+.panel-issue-problem {
+    color: var(--faint);
+    font-size: var(--text-sm);
+}
+
+/* Putting the task away from the panel: when and why it was, or the offer once it merged. */
+.put-away {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+}
+
+.put-away-said {
+    margin: 0;
+    color: var(--muted);
+}
+
 .pull-title {
     padding: 0;
     border: 0;
@@ -611,6 +645,132 @@ code {
 
 .pull-check[data-outcome="running"] .pull-check-outcome {
     color: var(--pollen);
+}
+
+.pull-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+/* Merging a pull request: what it is, how it would go, and how GitHub's requirements stand. */
+.merge-title {
+    font-weight: 600;
+}
+
+.merge-facts {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--space-1) var(--space-3);
+    margin: var(--space-3) 0;
+    font-size: var(--text-sm);
+}
+
+.merge-facts dt {
+    color: var(--muted);
+}
+
+.merge-facts dd {
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.merge-note,
+.merge-said {
+    color: var(--muted);
+    font-size: var(--text-sm);
+}
+
+.merge-choices {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-4);
+    margin-top: var(--space-3);
+}
+
+.merge-choices .merge-note {
+    flex-basis: 100%;
+}
+
+.merge-auto {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.merge-said {
+    margin-top: var(--space-3);
+}
+
+.merge-done[data-outcome="merged"] {
+    color: var(--lilac);
+}
+
+/* A button that does what its menu chose, as GitHub's merge button does. */
+.split-button {
+    display: inline-flex;
+}
+
+.split-button > .button:first-child {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+/* The menu's half: a native menu lying unseen over its chevron. */
+.split-button-menu {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    margin-left: -1px;
+    padding: 0;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+}
+
+.split-button-menu svg {
+    width: 9px;
+    height: 9px;
+    fill: none;
+    stroke: currentcolor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.split-button-menu select {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    opacity: 0;
+    appearance: none;
+    cursor: pointer;
+}
+
+.split-button-menu:hover {
+    border-color: var(--faint);
+}
+
+/* The menu itself is unseen, so its half shows where the keyboard is. */
+.split-button-menu:has(select:focus-visible) {
+    outline: 2px solid var(--focus);
+    outline-offset: -2px;
+}
+
+/* Beside a main button that can be pressed, the menu's half looks as it does. */
+.button-primary:not(:disabled) + .split-button-menu {
+    border-color: var(--text);
+    border-left-color: color-mix(in srgb, var(--dusk) 45%, var(--text));
+    background: var(--text);
+    color: var(--dusk);
+}
+
+.split-button-menu:has(select:disabled) {
+    color: var(--faint);
 }
 
 /* What a task keeps running: its state, the button that starts or stops it, and its log. */
@@ -1434,6 +1594,36 @@ code {
     border-style: dashed;
 }
 
+/* The issue a task was started for: GitHub's ring with a dot, and its number. */
+.issue-badge {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 4px 0 2px;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    color: var(--faint);
+    font: inherit;
+    font-size: var(--text-xs);
+    line-height: 1.45;
+}
+
+.issue-badge:hover,
+.issue-badge:focus-visible {
+    background: var(--raised);
+    color: var(--text);
+}
+
+.issue-badge svg {
+    width: 11px;
+    height: 11px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+}
+
 .hint {
     padding: 2px var(--space-4) 2px 49px;
     color: var(--faint);
@@ -1778,6 +1968,20 @@ code {
 .closed-toggle:focus-visible {
     background: var(--raised);
     color: var(--text);
+}
+
+/* A repository's tasks that were put away: one quiet line at its end that unfolds into them,
+   drawn quieter than the others. */
+.done-group {
+    margin-top: 6px;
+}
+
+.done-toggle {
+    margin-left: 22px;
+}
+
+.task-done .task-title {
+    color: var(--muted);
 }
 
 .closed-row {
@@ -4930,6 +5134,142 @@ code {
     font-size: var(--text-sm);
 }
 
+/* A repository's issues: the filters and the list on the left, the issue picked on the right. */
+.issues-main {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+}
+
+.issues-side {
+    flex: none;
+    width: min(56ch, 45%);
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--line);
+    background: var(--panel);
+}
+
+.issues-filters {
+    flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border-bottom: 1px solid var(--line);
+}
+
+.issues-search {
+    flex: 1 1 18ch;
+    min-width: 0;
+    padding: 4px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--dusk);
+    color: var(--text);
+    font: inherit;
+}
+
+.issues-list {
+    flex: 1;
+    min-height: 0;
+    margin: 0;
+    padding: var(--space-2);
+    overflow-y: auto;
+    list-style: none;
+}
+
+.issues-list[aria-busy="true"] {
+    opacity: 0.7;
+}
+
+.issue-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    padding: 6px var(--space-2);
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+}
+
+.issue-row:hover,
+.issue-row:focus-visible {
+    background: color-mix(in srgb, var(--line) 60%, transparent);
+}
+
+.issue-row[aria-current="true"] {
+    background: var(--line);
+}
+
+.issue-row-title {
+    overflow-wrap: anywhere;
+}
+
+.issue-row-line {
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--text-xs);
+}
+
+.dialog .issues-note {
+    margin: 0;
+    padding: var(--space-3);
+}
+
+.issues-detail {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+    padding: var(--space-3) var(--space-6) var(--space-4);
+}
+
+.issues-detail .issues-note {
+    padding: 0;
+}
+
+.issue-detail-title {
+    margin: 0;
+    font-size: var(--text-md);
+    font-weight: 650;
+    overflow-wrap: anywhere;
+}
+
+.issue-detail .issue-row-line {
+    margin-top: var(--space-1);
+}
+
+.issue-comment {
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--line);
+}
+
+.dialog .issue-comment-head {
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--text-sm);
+}
+
+/* With too little room for both, the list goes above the issue. */
+@media (max-width: 720px) {
+    .issues-main {
+        flex-direction: column;
+    }
+
+    .issues-side {
+        width: auto;
+        max-height: 45%;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+    }
+}
+
 /* Two tasks side by side: a head for each, then a row per file, opening into both diffs. */
 .compare-grid {
     display: grid;
@@ -5081,6 +5421,23 @@ code {
 
 .environment-stacks {
     width: 10ch;
+}
+
+/* A rule that puts tasks away by itself: on or off, and after how many days. */
+.rule-days {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.rule-days-count {
+    width: 7ch;
+}
+
+.rule-days-unit {
+    min-width: 4ch;
+    color: var(--muted);
 }
 
 .note-text {

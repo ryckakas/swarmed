@@ -21,9 +21,17 @@ import type {
     FileDiff,
     FileListing,
     HookOutput,
+    Issue,
+    IssueDetail,
+    IssueFilter,
+    IssueList,
     MarkColour,
     McpServerInput,
     McpServerView,
+    MergeMethod,
+    MergeReport,
+    MergeRules,
+    MergeWhen,
     Project,
     Pull,
     PullDraft,
@@ -153,6 +161,14 @@ export interface Api {
      * what it passed over to get there, a teardown that failed say, for the user to read.
      */
     taskRemove(project: string, name: string, force: boolean): Promise<string[]>;
+    /**
+     * Puts a task away: stops its agents and its stack, closes its sessions if the settings say
+     * so, and lists it with the done ones. Nothing is deleted. Resolves to what went wrong on
+     * the way, a `stop` that failed say, for the user to read.
+     */
+    taskDone(project: string, name: string): Promise<string[]>;
+    /** Brings a task that was put away back to the others. Nothing is started. */
+    taskUndone(project: string, name: string): Promise<void>;
     /** What a new task in the project can start from. */
     branchChoices(project: string): Promise<BranchChoices>;
     /**
@@ -275,8 +291,37 @@ export interface Api {
     ): Promise<Pull>;
     /** The pull request of a task's branch with its checks; `null` if it has none. */
     taskPull(project: string, name: string): Promise<Pull | null>;
+    /**
+     * A message about a task's failed checks, with the last lines of their logs, for the user to
+     * read and send to an agent. Refused when none failed.
+     */
+    taskPullFailure(project: string, name: string): Promise<string>;
     /** Opens a task's pull request in the browser, or the details of its check `check`. */
     taskPullOpen(project: string, name: string, check: string | null): Promise<void>;
+    /**
+     * The repository's GitHub issues that `filter` picks, the latest changed first, through the
+     * user's own `gh`. Without `gh`, or off GitHub, the list is empty and says why.
+     */
+    projectIssues(project: string, filter: IssueFilter): Promise<IssueList>;
+    /** One issue read whole, with its comments. Rejects with `gh`'s reason when it cannot be read. */
+    projectIssue(project: string, issue: number): Promise<IssueDetail>;
+    /** The issue a task was started for, read now; `null` for a task that is for none. */
+    taskIssue(project: string, name: string): Promise<Issue | null>;
+    /** What a repository allows for merging its pull requests. GitHub is asked once per run. */
+    projectMergeRules(project: string): Promise<MergeRules>;
+    /**
+     * Merges a task's pull request with `method`, `when` asked, if its head is still `head`, the
+     * one the user saw. No branch is deleted.
+     */
+    taskPullMerge(
+        project: string,
+        name: string,
+        method: MergeMethod,
+        when: MergeWhen,
+        head: string,
+    ): Promise<MergeReport>;
+    /** Turns off the auto-merge of a task's pull request. */
+    taskPullAutoMergeOff(project: string, name: string): Promise<MergeReport>;
     taskChanges(project: string, name: string): Promise<FileChange[]>;
     /** One changed file's diff. */
     taskDiff(project: string, name: string, path: string): Promise<FileDiff>;

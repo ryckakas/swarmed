@@ -33,10 +33,12 @@ mod elsewhere;
 mod environments;
 mod error;
 mod files;
+mod following;
 mod fork;
 mod git;
 mod handoff;
 pub mod hooks;
+mod issues;
 mod layouts;
 mod leftovers;
 mod lenient;
@@ -47,6 +49,7 @@ mod mcp_opencode;
 mod mcp_own;
 mod mcp_plugins;
 mod mcp_pool;
+mod merging;
 mod naming;
 mod notes;
 mod notices;
@@ -60,6 +63,7 @@ mod prefix;
 mod presence;
 mod publish;
 mod pulls;
+mod put_away;
 mod queue;
 mod reach;
 mod remote;
@@ -110,14 +114,23 @@ pub use elsewhere::follow_others;
 pub use environments::{Environment, EnvironmentChoice};
 pub use error::{Error, Result};
 pub use files::{FileEntry, FileListing};
+pub use following::{
+    FIRST_BACKOFF, MAX_BACKOFF, OPEN, PullChange, QUIET, QUIET_AFTER, RUNNING, follow_pulls,
+    pull_wait,
+};
 pub use handoff::MAX_HANDED;
 pub use hooks::OutputSink;
+pub use issues::{
+    ISSUES_LISTED, Issue, IssueComment, IssueDetail, IssueFilter, IssueList, IssueState, IssueWho,
+    MAX_ISSUES_LISTED,
+};
 pub use layouts::{
     Colour, Colours, CustomLayout, LayoutBase, LevelColours, SidebarLevel, SidebarLevels,
     TextSizes, layout_schema,
 };
 pub use marks::{MAX_MARK_LABEL_CHARS, Mark, MarkColour};
 pub use mcp_own::{McpServerInput, McpServerView};
+pub use merging::{MergeMethod, MergeOutcome, MergeReport, MergeRules, MergeWhen};
 pub use naming::TaskNaming;
 pub use notices::Notice;
 pub use open::open_link;
@@ -128,6 +141,7 @@ pub use peers::{Delivery, MAX_SPAWNED, serve_session_tools};
 pub use prefix::{EXAMPLE_TASK, branch_example};
 pub use publish::{PullDraft, Unpublished};
 pub use pulls::{Check, CheckOutcome, Pull, PullState};
+pub use put_away::{DoneWhy, follow_put_away};
 pub use queue::QueuedMessage;
 pub use search::SearchHit;
 pub use secrets::ApiKeyInfo;
@@ -189,6 +203,10 @@ pub struct Core {
     setups: Arc<setups::Setups>,
     /// What this core knows of other Swarmed processes on the same data.
     elsewhere: elsewhere::Elsewhere,
+    /// How the pull requests of tasks are followed (`following.rs`).
+    following: following::Following,
+    /// What GitHub said each repository allows for merging (`merging.rs`).
+    merging: merging::Merging,
 }
 
 /// The store is only ever locked for one short query, never across an `.await`. A panic while
@@ -233,6 +251,8 @@ impl Core {
             names_claimed: Mutex::default(),
             setups: Arc::default(),
             elsewhere: elsewhere::Elsewhere::default(),
+            following: following::Following::default(),
+            merging: merging::Merging::default(),
         })
     }
 

@@ -21,7 +21,12 @@ import type {
     FileChange,
     FileDiff,
     HookOutput,
+    Issue,
+    IssueDetail,
+    IssueList,
     McpServerView,
+    MergeReport,
+    MergeRules,
     Project,
     Pull,
     PullDraft,
@@ -95,6 +100,8 @@ export const tauriApi: Api = {
     taskRemove: (project, name, force) =>
         // Its branch goes too, unless commits on it exist nowhere else: the core keeps it then.
         invoke("task_remove", { project, name, force, deleteBranch: true }),
+    taskDone: (project, name) => invoke<string[]>("task_done", { project, name }),
+    taskUndone: (project, name) => invoke<void>("task_undone", { project, name }),
     branchChoices: (project) => invoke<BranchChoices>("branch_choices", { project }),
     taskNameFor: (project, prompt) =>
         invoke<TaskNaming | null>("task_name_for", { project, prompt }),
@@ -143,8 +150,18 @@ export const tauriApi: Api = {
     taskPullCreate: (project, name, draft, asDraft) =>
         invoke<Pull>("task_pull_create", { project, name, draft, asDraft }),
     taskPull: (project, name) => invoke<Pull | null>("task_pull", { project, name }),
+    taskPullFailure: (project, name) => invoke<string>("task_pull_failure", { project, name }),
     taskPullOpen: (project, name, check) =>
         invoke<void>("task_pull_open", { project, name, check }),
+    projectIssues: (project, filter) => invoke<IssueList>("project_issues", { project, filter }),
+    projectIssue: (project, issue) =>
+        invoke<IssueDetail>("project_issue", { project, number: issue }),
+    taskIssue: (project, name) => invoke<Issue | null>("task_issue", { project, name }),
+    projectMergeRules: (project) => invoke<MergeRules>("project_merge_rules", { project }),
+    taskPullMerge: (project, name, method, when, head) =>
+        invoke<MergeReport>("task_pull_merge", { project, name, method, when, head }),
+    taskPullAutoMergeOff: (project, name) =>
+        invoke<MergeReport>("task_pull_auto_merge_off", { project, name }),
     taskChanges: (project, name) => invoke<FileChange[]>("task_changes", { project, name }),
     taskDiff: (project, name, path) => invoke<FileDiff>("task_diff", { project, name, path }),
     taskFiles: (project, name, dir) => invoke("task_files", { project, name, dir }),
