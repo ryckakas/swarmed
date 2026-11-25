@@ -161,6 +161,12 @@ describe("htmlShown", () => {
             '<a href="https://example.com" href="javascript:x">y</a>',
             '<img src="x" width="3">',
             '<input type="checkbox" disabled>',
+            // A value that is neither drawn nor does anything can say anything unseen.
+            '<details open="words nobody sees">x</details>',
+            '<ol start="words"><li>x</li></ol>',
+            '<table><tr><td colspan="words">x</td></tr></table>',
+            '<table><tr><th rowspan="words">x</th></tr></table>',
+            '<table><tr><td align="words nobody sees">x</td></tr></table>',
         ]) {
             expect(htmlShown(html), html).toBe(false);
         }

@@ -94,6 +94,21 @@ function addressKept(address: string, protocols: readonly string[]): boolean {
     return colon === -1 || protocols.includes(scheme.slice(0, colon));
 }
 
+/**
+ * What the value of an attribute may be where the schema lists no values for it, by the
+ * attribute's name in lower case: only what is drawn or does what it says, since cleaning lets
+ * any value through and none of it is seen. An attribute with no line here keeps no value.
+ */
+const SHAPES: Record<string, RegExp> = {
+    align: /^(?:left|center|right)?$/i,
+    // Drawn as the words of the link an image becomes.
+    alt: /^[\s\S]*$/,
+    colspan: /^\d{0,4}$/,
+    open: /^(?:open)?$/i,
+    rowspan: /^\d{0,4}$/,
+    start: /^\d{0,9}$/,
+};
+
 /** Whether `tag` written as HTML keeps its attribute `name` with `value` once cleaned. */
 function attributeKept(tag: string, name: string, value: string): boolean {
     const rules = ISSUE_SCHEMA.attributes?.[tag] ?? [];
@@ -109,7 +124,10 @@ function attributeKept(tag: string, name: string, value: string): boolean {
         return false;
     }
     const protocols = ISSUE_SCHEMA.protocols?.[property];
-    return protocols == null || addressKept(value, protocols);
+    if (protocols != null) {
+        return addressKept(value, protocols);
+    }
+    return allowed.length > 0 || (SHAPES[property.toLowerCase()]?.test(value) ?? false);
 }
 
 /** Whether every attribute of a start tag of `tag` is kept, none of them given twice. */
