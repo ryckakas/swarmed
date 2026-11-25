@@ -465,8 +465,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   a session another Swarmed runs. A new task's setup is quick in storefront, takes half a
   minute in bonsai-lint, and in fsum is killed the first time and succeeds when run again
   (`mockSetups.ts`). Storefront and bonsai-lint have GitHub issues, `shop-142` was started for
-  #142, #428's text holds HTML, an image and a hidden comment, and fsum is not on GitHub, so its
-  list says why (`mockIssues.ts`). The README's
+  #142, #428's text holds HTML GitHub draws (`<details>`, `<kbd>`) and HTML it does not, an
+  HTML comment, an image and a view's block, and one of its comments is hidden on GitHub, and
+  fsum is not on GitHub, so its list says why (`mockIssues.ts`). The README's
   screenshot and GIF are of this sample data, never of anyone's real projects.
 - **MCP servers are one pool for every agent** (`mcp_pool.rs`). When a session starts, each
   agent's servers are read from its own configuration (`mcp.rs` and `mcp_plugins.rs` for
@@ -1086,9 +1087,20 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     error, as a task without a pull request is none. `project_issue` reads one whole.
   - **What an issue says is anyone's to write:** the core hands it on as text and leaves out
     the words of a comment GitHub hides (`hidden`). The window draws it with
-    `UntrustedMarkdown` only: never a view, raw HTML stays text, and an image is a link rather
-    than loaded from wherever it points. The command line strips control characters before
-    printing it (`printable`).
+    `UntrustedMarkdown` only, in the window and never in a view or a frame, so that it looks
+    as it does on GitHub: its HTML is read (`rehype-raw`), cleaned with `ISSUE_SCHEMA`
+    (`issueHtml.ts`: `rehype-sanitize`'s default, which follows GitHub's, narrowed to what
+    Markdown makes and HTML that only formats, such as `<details>` and `<kbd>`, with no
+    `style`, `class` but a code block's language, `id`, handlers or addresses off the web or
+    mail), and only then coloured, so the colours' classes stay. An image is a link rather
+    than loaded from wherever it points: nothing may make the window fetch an address.
+    The agent reads the whole text, so nothing of it is hidden from the user unsaid: **Show
+    source** shows it as written, and `issueLeavesOut` says when drawing leaves anything out
+    (an HTML comment, which GitHub hides too, what cleaning drops, HTML it cannot read whole,
+    a title, a definition nothing uses). It reads the HTML Markdown leaves as written against
+    the same schema and counts anything it does not read as kept; HTML in code is text and
+    counts for nothing. A change to the schema needs no change there. The command line strips
+    control characters before printing it (`printable`).
   - **Start a task** fills the new-task view of the repository with `issuePrompt` (title and
     number first, the address, and a line asking the agent to read it with `gh`; never the
     body) and links it there (`newTaskIssues` in the store, a chip that takes it off). Sent,

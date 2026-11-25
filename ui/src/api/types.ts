@@ -182,7 +182,7 @@ export interface IssueFilter {
     limit: number;
 }
 
-/** One of a repository's issues, as a list shows it. Anyone can write one: drawn as text only. */
+/** One of a repository's issues, as a list shows it. Anyone can write one: nothing in it is run. */
 export interface Issue {
     number: number;
     title: string;

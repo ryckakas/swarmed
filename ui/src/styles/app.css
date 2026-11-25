@@ -5233,11 +5233,47 @@ code {
     padding: 0;
 }
 
+.issue-detail-head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+}
+
 .issue-detail-title {
+    flex: 1;
+    min-width: 0;
     margin: 0;
     font-size: var(--text-md);
     font-weight: 650;
     overflow-wrap: anywhere;
+}
+
+.issue-detail-head .changes-refresh {
+    flex: none;
+}
+
+/* Said above an issue that drawing it leaves something out of. */
+.dialog .issue-left-out {
+    margin: var(--space-3) 0;
+    padding: var(--space-1) var(--space-2);
+    border-left: 2px solid var(--sand);
+    background: color-mix(in srgb, var(--sand) 12%, transparent);
+    font-size: var(--text-sm);
+}
+
+/* An issue's text as written, which an agent reads: kept whole, wrapped, and selectable. */
+.issue-source {
+    margin: 0;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
 }
 
 .issue-detail .issue-row-line {

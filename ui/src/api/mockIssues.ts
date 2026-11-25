@@ -1,7 +1,8 @@
 // The sample repositories' GitHub issues, as the core reads them through `gh` (`issues.rs`):
 // storefront has a handful, one of them its task `shop-142`'s, bonsai-lint two, and fsum is not
-// on GitHub, so its list is empty and says why. One issue's text holds HTML and an image, to
-// check that issue text is drawn as text.
+// on GitHub, so its list is empty and says why. One issue's text holds HTML GitHub draws, HTML
+// it does not, an HTML comment and an image, to check what the window draws of issue text, and
+// that it says when it leaves something out.
 
 import { shownIssues } from "../issues";
 import type { Api } from "./client";
@@ -44,14 +45,28 @@ function sample(
     };
 }
 
-/** What anyone can write in an issue: HTML, a script and an image, all of it shown as text. */
+/**
+ * What anyone can write in an issue: HTML GitHub draws (a folded part, keys), HTML it does not
+ * (a script, a handler), a comment GitHub hides, an image, and a view's block, which stays code.
+ */
 const UNTRUSTED_BODY = [
+    "<!-- Thanks for the report! Please fill in the steps below. -->",
     "After logging in, the browser goes back to `/login` and loops.",
     "",
     "**Steps**",
     "",
     "1. Open `/login?next=/login`",
-    "2. Log in",
+    "2. Log in, pressing <kbd>⌘</kbd> <kbd>Enter</kbd> to send the form",
+    "",
+    "<details>",
+    "<summary>Server log</summary>",
+    "",
+    "```",
+    "302 /login?next=/login",
+    "302 /login?next=/login",
+    "```",
+    "",
+    "</details>",
     "",
     '<img src="x" onerror="alert(1)"> <script>alert("not run")</script>',
     "",
