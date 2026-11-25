@@ -241,7 +241,7 @@ const SCHEMES: &[&str] = &[
 pub(crate) fn address_of(typed: &str) -> String {
     let typed = typed.trim();
     let lower = typed.to_lowercase();
-    if typed.contains("://") || SCHEMES.iter().any(|scheme| lower.starts_with(scheme)) {
+    if has_scheme(typed) || SCHEMES.iter().any(|scheme| lower.starts_with(scheme)) {
         return typed.to_string();
     }
     let host = lower.split(['/', '?', '#']).next().unwrap_or_default();
@@ -256,6 +256,18 @@ pub(crate) fn address_of(typed: &str) -> String {
     } else {
         format!("https://{typed}")
     }
+}
+
+/// Whether what was typed starts with a scheme and `://`. Only at its start: an address may
+/// hold another further on, as `example.com/go?to=http://x` does, and has none of its own.
+fn has_scheme(typed: &str) -> bool {
+    typed.split_once("://").is_some_and(|(scheme, _)| {
+        let mut letters = scheme.chars();
+        letters
+            .next()
+            .is_some_and(|first| first.is_ascii_alphabetic())
+            && letters.all(|c| c.is_ascii_alphanumeric() || "+.-".contains(c))
+    })
 }
 
 fn is_this_machine(name: &str) -> bool {
@@ -393,5 +405,15 @@ mod tests {
         assert_eq!(address_of("http://example.com"), "http://example.com");
         assert_eq!(address_of("about:blank"), "about:blank");
         assert_eq!(address_of("view-source:http://x"), "view-source:http://x");
+        // A scheme counts only at the start: one further on is part of the address.
+        assert_eq!(
+            address_of("example.com/go?to=http://x"),
+            "https://example.com/go?to=http://x"
+        );
+        assert_eq!(
+            address_of("localhost:3000/?next=https://x"),
+            "http://localhost:3000/?next=https://x"
+        );
+        assert_eq!(address_of("chrome://version"), "chrome://version");
     }
 }
