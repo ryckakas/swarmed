@@ -374,7 +374,10 @@ Which servers are pointed:
 
 - **Not pointed, left as they are:** a server that already says where its browser is
   (`--cdp-endpoint`, `--extension`, `--browser-url`, `--ws-endpoint`, `--auto-connect`, or
-  `PLAYWRIGHT_MCP_CDP_ENDPOINT` in its variables); Playwright MCP on Firefox or WebKit; a
+  `PLAYWRIGHT_MCP_CDP_ENDPOINT` in its variables); Playwright MCP on Firefox or WebKit
+  (`--browser`, or `PLAYWRIGHT_MCP_BROWSER`); Playwright MCP standing in for a device
+  (`--device`, `--mobile`, or their variables), which it refuses to do in a browser it
+  connects to; a
   server reached over HTTP, which runs apart and takes no argument from Swarmed; other browser
   servers, such as Puppeteer's or Browserbase's; and a server of the repository's `.mcp.json`
   that Claude Code has not been allowed to start, which would start unasked if Swarmed handed

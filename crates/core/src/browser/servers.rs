@@ -6,8 +6,11 @@
 //! `--browser-url` for Chrome DevTools MCP. Nothing else about them changes.
 //!
 //! Left as they are: a server that already says where its browser is, one that drives Firefox
-//! or `WebKit`, one that works through the browser extension, one reached over HTTP (it runs
+//! or `WebKit`, one that stands in for a device (Playwright MCP refuses that with a browser to
+//! connect to), one that works through the browser extension, one reached over HTTP (it runs
 //! apart, and cannot be given an argument), and every other kind of browser server.
+
+use std::collections::BTreeMap;
 
 use crate::mcp::{McpServer, McpTransport};
 
@@ -48,6 +51,17 @@ const PLAYWRIGHT_POINTED: [&str; 3] = ["--cdp-endpoint", "--extension", "--endpo
 /// The variables that do the same for Playwright MCP.
 const PLAYWRIGHT_POINTED_ENV: [&str; 2] =
     ["PLAYWRIGHT_MCP_CDP_ENDPOINT", "PLAYWRIGHT_MCP_EXTENSION"];
+
+/// The options that have Playwright MCP stand in for a device. It refuses to start with one
+/// of them and a browser to connect to ("Device emulation is not supported with
+/// cdpEndpoint"), so a server set up with one is left to launch its own.
+const PLAYWRIGHT_DEVICE: [&str; 2] = ["--device", "--mobile"];
+
+/// The variables that do the same.
+const PLAYWRIGHT_DEVICE_ENV: [&str; 2] = ["PLAYWRIGHT_MCP_DEVICE", "PLAYWRIGHT_MCP_MOBILE"];
+
+/// The variable that names Playwright MCP's browser, as `--browser` does.
+const PLAYWRIGHT_BROWSER_ENV: &str = "PLAYWRIGHT_MCP_BROWSER";
 
 /// Which browser server `server` is, by what it runs.
 pub(crate) fn browsing(server: &McpServer) -> Option<Browsing> {
@@ -96,7 +110,7 @@ pub(crate) fn pointed(server: &McpServer, endpoint: &str) -> Option<McpServer> {
         return None;
     };
     let args = match browsing(server)? {
-        Browsing::Playwright => playwright_pointed(args, env.keys(), endpoint)?,
+        Browsing::Playwright => playwright_pointed(args, env, endpoint)?,
         Browsing::DevTools => devtools_pointed(args, endpoint)?,
     };
     Some(McpServer {
@@ -109,16 +123,18 @@ pub(crate) fn pointed(server: &McpServer, endpoint: &str) -> Option<McpServer> {
     })
 }
 
-fn playwright_pointed<'a>(
+fn playwright_pointed(
     args: &[String],
-    mut env: impl Iterator<Item = &'a String>,
+    env: &BTreeMap<String, String>,
     endpoint: &str,
 ) -> Option<Vec<String>> {
-    let pointed = args
-        .iter()
-        .any(|arg| names_one_of(arg, &PLAYWRIGHT_POINTED))
-        || env.any(|name| PLAYWRIGHT_POINTED_ENV.contains(&name.as_str()));
-    if pointed || other_engine(args) {
+    let told = |options: &[&str], names: &[&str]| {
+        args.iter().any(|arg| names_one_of(arg, options))
+            || names.iter().any(|name| env.contains_key(*name))
+    };
+    let pointed = told(&PLAYWRIGHT_POINTED, &PLAYWRIGHT_POINTED_ENV);
+    let device = told(&PLAYWRIGHT_DEVICE, &PLAYWRIGHT_DEVICE_ENV);
+    if pointed || device || other_engine(args, env) {
         return None;
     }
     let mut args = args.to_vec();
@@ -126,13 +142,15 @@ fn playwright_pointed<'a>(
     Some(args)
 }
 
-/// Whether Playwright MCP is told to drive Firefox or `WebKit`, which no Chrome stands in for.
-fn other_engine(args: &[String]) -> bool {
+/// Whether Playwright MCP is told to drive Firefox or `WebKit`, which no Chrome stands in for:
+/// by its option, else by its variable.
+fn other_engine(args: &[String], env: &BTreeMap<String, String>) -> bool {
     let engine = args.iter().enumerate().find_map(|(at, arg)| {
         let value = arg.strip_prefix("--browser=");
         let next = (arg == "--browser").then(|| args.get(at + 1)).flatten();
         value.or_else(|| next.map(String::as_str))
     });
+    let engine = engine.or_else(|| env.get(PLAYWRIGHT_BROWSER_ENV).map(String::as_str));
     engine.is_some_and(|engine| matches!(engine, "firefox" | "webkit"))
 }
 
@@ -162,8 +180,6 @@ fn names_one_of(arg: &str, options: &[&str]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use super::*;
 
     const AT: &str = "http://127.0.0.1:50123";
@@ -279,6 +295,9 @@ mod tests {
             stdio("npx", &["@playwright/mcp", "--extension"]),
             stdio("npx", &["@playwright/mcp", "--browser", "firefox"]),
             stdio("npx", &["@playwright/mcp", "--browser=webkit"]),
+            stdio("npx", &["@playwright/mcp", "--device", "iPhone 15"]),
+            stdio("npx", &["@playwright/mcp", "--device=Pixel 5"]),
+            stdio("npx", &["@playwright/mcp", "--mobile"]),
             stdio(
                 "npx",
                 &["chrome-devtools-mcp", "--browser-url=http://127.0.0.1:9222"],
@@ -304,6 +323,18 @@ mod tests {
             );
         }
         assert_eq!(pointed(&by_env, AT), None);
+        let left_by_env = [
+            ("PLAYWRIGHT_MCP_DEVICE", "iPhone 15"),
+            ("PLAYWRIGHT_MCP_MOBILE", "true"),
+            ("PLAYWRIGHT_MCP_BROWSER", "firefox"),
+        ];
+        for (name, value) in left_by_env {
+            let mut server = stdio("npx", &["@playwright/mcp"]);
+            if let McpTransport::Stdio { env, .. } = &mut server.transport {
+                env.insert(name.into(), value.into());
+            }
+            assert_eq!(pointed(&server, AT), None, "{name}");
+        }
     }
 
     #[test]
