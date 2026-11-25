@@ -485,6 +485,7 @@ impl Core {
         self.store().task_archive(task.id)?;
         self.forget_note(&project.name, &task.name)?;
         self.forget_setup_files(task.id);
+        notes.extend(self.browser_forget(task.id).await);
         // The task is gone by now: what is left of its checkpoints is the clean-up's to list.
         if let Err(error) = self.forget_checkpoints(task.id) {
             notes.push(format!("its checkpoints could not be deleted: {error}"));
@@ -498,8 +499,9 @@ impl Core {
 
     /// Stops what runs for a task that is being removed: its setup first, before anything else
     /// is ended in the worktree, which would find the hook there and kill it, and before the
-    /// stack, which it would start once done; then the stack, and the browser, whose profile
-    /// goes with it. Returns what did not go as it should, to be said.
+    /// stack, which it would start once done; then the stack, and the browser. Its profile
+    /// stays until the task is gone: a removal that fails after this must not have cost what
+    /// was signed in to. Returns what did not go as it should, to be said.
     async fn stop_for_removal(
         &self,
         project: &Project,
@@ -513,7 +515,7 @@ impl Core {
             .into_iter()
             .collect();
         notes.extend(self.stop_stack(project, config, task, sink).await);
-        notes.extend(self.browser_forget(task.id).await);
+        notes.extend(self.stop_browser(task.id).await);
         notes
     }
 

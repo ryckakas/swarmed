@@ -123,7 +123,9 @@ impl Core {
                 reason: "files in its folder".to_string(),
             });
         }
-        let mut notes = self.browser_forget(chat.id).await;
+        // Stopped now, its profile deleted once the chat is gone: a removal that fails in
+        // between must not have cost what was signed in to.
+        let mut notes: Vec<String> = self.stop_browser(chat.id).await.into_iter().collect();
         if exists {
             notes.extend(leftovers::end_in(folder, sink).await);
             match move_aside(folder, chat.id) {
@@ -132,6 +134,7 @@ impl Core {
             }
         }
         self.store().task_archive(chat.id)?;
+        notes.extend(self.browser_forget(chat.id).await);
         self.forget_note(&home.name, &chat.name)?;
         self.sessions_forgotten(chat.id)?;
         Ok(notes)
