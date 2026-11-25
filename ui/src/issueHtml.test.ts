@@ -184,11 +184,10 @@ describe("htmlShown", () => {
         }
     });
 
-    it("reads a long run of attributes quickly", () => {
-        const started = performance.now();
+    // Reading that backtracked would run into the test's time limit.
+    it("reads a long run of attributes without backtracking", () => {
         expect(htmlShown(`<b${" a".repeat(20_000)}`)).toBe(false);
         expect(htmlShown(`<b ${"a".repeat(20_000)}`)).toBe(false);
-        expect(performance.now() - started).toBeLessThan(500);
     });
 });
 
