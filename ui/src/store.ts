@@ -18,7 +18,7 @@ import type {
     TerminalConfig,
     UpdateState,
 } from "./api/types";
-import { type BrowserAsked, openedBy } from "./browser";
+import { type BrowserAsked, openedBy, stillAsked } from "./browser";
 import { CHATS } from "./chats";
 import type { CloudTarget } from "./cloud";
 import type { Comparison } from "./components/CompareDialog";
@@ -992,7 +992,7 @@ export const useStore = create<State>((set, get) => ({
         const browserOpen = open ?? !get().browserOpen;
         writeFlag(BROWSER_OPEN, browserOpen);
         // A pick asked for goes with the pane: it would start by itself when one next opens.
-        set(browserOpen ? { browserOpen } : { browserOpen, pickAsked: false });
+        set({ browserOpen, pickAsked: stillAsked(get().pickAsked, browserOpen) });
     },
     browserAsked: null,
     askBrowser: (asked) => {

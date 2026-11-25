@@ -262,6 +262,16 @@ export type Standing =
     | { kind: "missing"; setup: BrowserSetup | null }
     | { kind: "failed"; problem: string };
 
+/** Whether a pick asked for by shortcut still is, with the pane open or closed. */
+export function stillAsked(asked: boolean, paneOpen: boolean): boolean {
+    return asked && paneOpen;
+}
+
+/** How a browser stands by what the core says of it: running with its tabs, or stopped. */
+export function standingOf(state: BrowserState): Standing {
+    return state.running ? { kind: "running", state } : { kind: "stopped" };
+}
+
 /**
  * What becomes of a pick the shortcut asked for, with `tab` shown and the browser standing so:
  * it starts in the tab, waits while one is on its way (the browser starting, or running with

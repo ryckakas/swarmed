@@ -149,8 +149,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   asked of `ps` with `LC_ALL=C` and `TZ=UTC`, so it reads the same to every Swarmed. A stack is
   refused (`start_stack`) while as many of the project's stacks run as `max_stacks` allows: the
   task's environment's, if it sets one, else the project's.
-- **Each task can have a Chrome of its own** (`browser.rs`, `BrowserPane.tsx`, `browser.ts`,
-  #382), shown live in the Browser pane beside the conversation.
+- **Each task can have a Chrome of its own** (`browser.rs`, `BrowserPane.tsx`, `useBrowser.ts`,
+  `browser.ts`, #382), shown live in the Browser pane beside the conversation. The pane's
+  hooks are in `useBrowser.ts` and only act; what they decide is in `browser.ts`, with tests.
   - **One process per task**, on the Chrome, Chromium, Edge or Brave found (`browser/find.rs`)
     or `Settings::browser_program`, headless, on `browsers/<task>/profile` (0700), so logins
     outlast restarts and stay the task's. Deleted with the task (`browser_forget`), listed by

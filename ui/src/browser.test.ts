@@ -20,6 +20,7 @@ import {
     sessionForBrowser,
     shownAddress,
     shownTab,
+    standingOf,
     stateOf,
     tabLabel,
     viewportOf,
@@ -76,6 +77,8 @@ describe("where a click on the picture lands on the page", () => {
         };
         const some = { ...base, tabs: [tab("a", "about:blank")] };
         expect(pickAsked("a", { kind: "running", state: { ...some, shown: "a" } })).toBe("start");
+        expect(standingOf(some)).toEqual({ kind: "running", state: some });
+        expect(standingOf({ ...some, running: false })).toEqual({ kind: "stopped" });
         expect(pickAsked(null, { kind: "starting" })).toBe("wait");
         expect(pickAsked(null, { kind: "running", state: some })).toBe("wait");
         expect(pickAsked(null, { kind: "running", state: base })).toBe("drop");
