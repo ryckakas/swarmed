@@ -905,22 +905,19 @@ function useInput(
 function Console({ task, tab }: { task: number; tab: string }) {
     const [lines, setLines] = useState<ConsoleLine[]>([]);
     useEffect(() => {
-        const heard: ConsoleLine[] = [];
-        let kept: ConsoleLine[] = [];
+        // Only the lines shown are held: a page that logs for hours costs no more per line.
+        let held: ConsoleLine[] = [];
+        const take = (more: ConsoleLine[]) => {
+            held = consoleMerged(held, more);
+            setLines(held);
+        };
         const subscription = api.onBrowserEvent((event) => {
             if (event.kind === "console" && event.task_id === task && event.tab === tab) {
-                heard.push(event.line);
-                setLines(consoleMerged(kept, heard));
+                take([event.line]);
             }
         });
         // Listening first, then reading: a line logged between the two is in one or the other.
-        api.browserConsole(task, tab).then(
-            (read) => {
-                kept = read;
-                setLines(consoleMerged(kept, heard));
-            },
-            () => {},
-        );
+        api.browserConsole(task, tab).then(take, () => {});
         return () => void subscription.then((unsubscribe) => unsubscribe());
     }, [task, tab]);
     const { errors, warnings } = consoleCounts(lines);
