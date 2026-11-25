@@ -490,14 +490,18 @@ impl Core {
 }
 
 impl Drop for Core {
-    /// A core that goes lets go of the sessions it ran, as its process would by ending: a core
-    /// opened on the same data after it, as a Swarmed started again, may run them. What of its
-    /// agents is still on its way out is no longer any core's.
+    /// A core that goes lets go of the sessions it ran and of the house, as its process would
+    /// by ending: a core opened on the same data after it, as a Swarmed started again, may run
+    /// them and keep house. What of its agents is still on its way out is no longer any core's.
     fn drop(&mut self) {
         let mut held = lock(&self.live.runs_held);
         let ids: Vec<i64> = held.keys().copied().collect();
         for id in ids {
             let_go_run(&mut held, id);
+        }
+        // Unlocked before it is closed, as in `let_go_run`.
+        if let Some(house) = lock(&self.house).take() {
+            house.unlock().ok();
         }
     }
 }
