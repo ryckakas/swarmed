@@ -447,6 +447,79 @@ async fn a_chrome_left_running_is_found_again_by_the_next_swarmed_and_stopped_th
     assert!(!next.browser_state(task).expect("reads").running);
 }
 
+fn another_core(fx: &common::Fixture) -> Core {
+    Core::with_backend(
+        fx.paths.clone(),
+        std::sync::Arc::new(swarmed_core::agent::FakeBackend::default()),
+    )
+    .expect("opens")
+}
+
+#[tokio::test]
+async fn looking_after_the_browsers_starts_none_for_a_chrome_that_went_with_its_swarmed() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    core.arrive().expect("arrives");
+    let task = task_id(&core);
+    // Written down by a Swarmed that crashed, of a Chrome that is no longer there.
+    let written = record(&fx, task);
+    std::fs::create_dir_all(written.parent().expect("has a parent")).expect("test setup");
+    std::fs::write(&written, "999999\nMon Jan  1 00:00:00 2001\n").expect("test setup");
+
+    core.browsers_look().await.expect("looks");
+    assert!(!core.browser_state(task).expect("reads").running);
+    assert!(!written.exists(), "what was written down is forgotten");
+    assert!(
+        !fx.paths.browser(task).join("profile").exists(),
+        "no Chrome was started"
+    );
+}
+
+#[tokio::test]
+async fn looking_after_the_browsers_connects_to_one_left_running_and_stops_none_shown() {
+    let fx = fixture();
+    let first = core_with_task(&fx).await;
+    let task = task_id(&first);
+    first.browser_open(task).await.expect("starts");
+    let process = pid(&fx, task);
+    drop(first);
+
+    let next = another_core(&fx);
+    next.arrive().expect("arrives");
+    let mut bus = next.subscribe_browsers();
+    next.browsers_look().await.expect("looks");
+    // Connected to: its tabs are told of, which only a connection hears.
+    let state = state_where(&mut bus, |state| state.running).await;
+    assert_eq!(state.tabs.len(), 1);
+    assert_eq!(pid(&fx, task), process, "the same Chrome, not a second");
+
+    // Never stopped for sitting unused where the setting is 0.
+    let settings = Settings {
+        browser_idle_minutes: 0,
+        ..next.settings().expect("reads")
+    };
+    next.set_settings(&settings).expect("saves");
+    next.browsers_look().await.expect("looks");
+    assert!(alive(process));
+    next.browser_stop(task).await.expect("stops");
+    assert!(!alive(process));
+}
+
+#[tokio::test]
+async fn two_swarmeds_opening_a_tasks_browser_at_once_start_one_chrome() {
+    let fx = fixture();
+    let one = core_with_task(&fx).await;
+    let two = another_core(&fx);
+    let task = task_id(&one);
+
+    let (first, second) = tokio::join!(one.browser_open(task), two.browser_open(task));
+    let (first, second) = (first.expect("opens"), second.expect("opens"));
+    assert_eq!(first.endpoint, second.endpoint, "the same Chrome");
+    let process = pid(&fx, task);
+    one.browser_stop(task).await.expect("stops");
+    assert!(!alive(process));
+}
+
 #[tokio::test]
 async fn putting_the_task_away_stops_its_chrome_and_keeps_what_was_signed_in_to() {
     let fx = fixture();
