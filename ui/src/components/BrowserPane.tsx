@@ -41,6 +41,7 @@ import {
     viewportOf,
     wheelInput,
 } from "../browser";
+import { writtenHotkey } from "../hotkeys";
 import { hookKey, useStore } from "../store";
 import { findSession, findSessionHome } from "../tree";
 import { type Pick, useBrowser, usePick } from "../useBrowser";
@@ -375,8 +376,8 @@ function Toolbar({ task, tab, pick }: { task: number; tab: BrowserTab | null; pi
                 <IconButton
                     label={
                         pick.picking
-                            ? "Stop picking (⌘⇧C)"
-                            : "Pick an element of the page, to point the agent at it (⌘⇧C)"
+                            ? `Stop picking (${writtenHotkey("pick-element")})`
+                            : `Pick an element of the page, to point the agent at it (${writtenHotkey("pick-element")})`
                     }
                     pressed={pick.picking}
                     onClick={pick.toggle}
