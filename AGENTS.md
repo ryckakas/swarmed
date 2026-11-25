@@ -214,8 +214,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   like Codex. It names its effort `thought_level` and its modes `default`, `auto` and `plan`,
   which `acp.rs` maps supervision onto. What it asks permission for is decided by its own
   settings as well: with `toolPermission` set to `always-proceed` there, it never asks.
-- **What Swarmed takes up** (`usage.rs`) is measured on request: the database and notes by
-  their files, each worktree with `du`, and memory and processor time with `ps`, summed over
+- **What Swarmed takes up** (`usage.rs`) is measured on request: the database, notes and
+  sessions' images by their files, each worktree with `du`, and memory and processor time with `ps`, summed over
   Swarmed's own process and everything started from it. An agent's share is the tree under the
   process its backend reported when it started.
 - **What removed tasks leave behind is cleaned up on request** (`cleanup.rs`): removed
@@ -458,8 +458,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   `warn <percent> <seconds>`), ends its turn refused by a 5-hour limit that resets that many
   seconds later for `limit <seconds>`, runs until stopped for `slow`, runs a
   command its turn waits on for `long: <command>`, until it is sent to the background or
-  stopped, and renames the session as another Swarmed would for `elsewhere: <title>`, saying
-  only `tree_changed`; one sample session has 2,000 messages for checking scroll speed.
+  stopped, renames the session as another Swarmed would for `elsewhere: <title>`, saying
+  only `tree_changed`, and checks a page in a browser for `screenshot`, whose last call returns
+  an image; one sample session has 2,000 messages for checking scroll speed.
   The pull request of `fix-login-redirect` has a check running that fails 15 seconds after the
   window opens, as the core's follower would say it (`pull_read`, `pull_changed`). Its
   required check holds a merge back (`mockMerging.ts`): Force merge is refused in GitHub's
@@ -733,6 +734,16 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   `session_delete`); closing keeps it. A fork copies the images its messages name into its own
   folder and has them name the copies (`images_forked`), so deleting the first session costs it
   nothing.
+- **An image a tool returns is kept beside the pasted ones** (`returned.rs`, `ToolImages.tsx`,
+  #428). A backend reads each image of a tool result (`Taking`: Claude Code's
+  `source.base64`, ACP's `image` content) into `ToolResult::returned`, which is never stored or
+  published and whose `Debug` names no bytes; checked as a pasted one is, at most
+  `MAX_RETURNED_MB` and `MAX_PER_RESULT`, with `[image]` in `content` where it was, or why not.
+  The core writes them into the session's `attachments/` folder as `tool-<call>-<n>.<ext>`
+  before the event is stored (`returned::kept`, from `take` in `sessions.rs`) and lists the
+  paths in `images`. The window reads them through `session_image` and holds only smaller
+  copies (`keptThumbnail`); the turn's last one also stands at the end of its reply
+  (`last-image`), and hidden tool calls hide them. Shown to the user only, like a pasted one.
 - **Each session can have a terminal** (`terminal.rs`): the user's shell on a pseudo-terminal in
   the task's worktree, shown in place of the message box. Its output is published on its own
   channel (`Core::subscribe_terminals`) and not stored. What it printed since the agent's last

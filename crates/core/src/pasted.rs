@@ -5,7 +5,9 @@
 //! it is given one. The core writes it into a folder of the session's own in the data
 //! directory, `attachments/<session>/`, readable by the user alone, and its path is listed under
 //! the message like any file's. Nothing is written into a repository or a worktree. The folder
-//! goes when the session goes for good, and a fork is given copies of its own.
+//! goes when the session goes for good, and a fork is given copies of its own. The images a
+//! session's tools return are kept in the same folder ([`crate::returned`]), and read back
+//! the same way.
 //!
 //! Only the formats agents read are kept, PNG, JPEG, GIF and WebP, told by their first bytes and
 //! not by a name, and only up to [`MAX_IMAGE_MB`]. Nothing is converted: there is no image
@@ -37,7 +39,7 @@ const UNKNOWN: &str = "what was pasted";
 
 /// A format agents read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Format {
+pub(crate) enum Format {
     Png,
     Jpeg,
     Gif,
@@ -45,7 +47,7 @@ enum Format {
 }
 
 impl Format {
-    fn extension(self) -> &'static str {
+    pub(crate) fn extension(self) -> &'static str {
         match self {
             Self::Png => "png",
             Self::Jpeg => "jpg",
@@ -65,7 +67,7 @@ impl Format {
 }
 
 /// The format of an image, told by its first bytes, or why it is not one agents read.
-fn format_of(bytes: &[u8]) -> Result<Format> {
+pub(crate) fn format_of(bytes: &[u8]) -> Result<Format> {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         Ok(Format::Png)
     } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
@@ -129,7 +131,7 @@ impl Pasted {
 }
 
 /// Makes `folder` and the folders above it for the user alone.
-fn private_folder(folder: &Path) -> Result<()> {
+pub(crate) fn private_folder(folder: &Path) -> Result<()> {
     DirBuilder::new()
         .recursive(true)
         .mode(0o700)
@@ -154,7 +156,7 @@ fn next_number(folder: &Path) -> Result<u64> {
 }
 
 /// A new file at `path` for the user alone, or `None` if there is one there already.
-fn created(path: &Path) -> Result<Option<File>> {
+pub(crate) fn created(path: &Path) -> Result<Option<File>> {
     let mut options = OpenOptions::new();
     options.write(true).create_new(true).mode(0o600);
     match options.open(path) {
@@ -181,7 +183,7 @@ fn keep(folder: &Path, image: &Pasted) -> Result<PathBuf> {
 
 /// `path` once `bytes` are written into its `file`. A file only half written is no image, so
 /// it goes again.
-fn written(mut file: File, path: PathBuf, bytes: &[u8]) -> Result<PathBuf> {
+pub(crate) fn written(mut file: File, path: PathBuf, bytes: &[u8]) -> Result<PathBuf> {
     if let Err(error) = file.write_all(bytes) {
         std::fs::remove_file(&path).ok();
         return Err(error.into());
@@ -227,9 +229,10 @@ impl Core {
         images.iter().map(|image| keep(&folder, image)).collect()
     }
 
-    /// An image pasted into session `id`, as a `data:` address the window can show it from,
-    /// since its policy loads images from nowhere else. Only a file right in the session's
-    /// own folder is read, links followed: anything else is [`Error::NotPastedImage`].
+    /// An image kept for session `id`, pasted into it or returned by one of its tools, as a
+    /// `data:` address the window can show it from, since its policy loads images from nowhere
+    /// else. Only a file right in the session's own folder is read, links followed: anything
+    /// else is [`Error::NotPastedImage`].
     pub fn session_image(&self, id: i64, path: &Path) -> Result<String> {
         let real = inside(&self.paths.attachments(id), path)?;
         if std::fs::metadata(&real)?.len() > MAX_IMAGE_BYTES as u64 {
@@ -244,14 +247,14 @@ impl Core {
         ))
     }
 
-    /// Opens an image pasted into session `id` in the system's viewer, Preview on a Mac. Only
-    /// one right in the session's own folder, as [`Core::session_image`] reads.
+    /// Opens an image kept for session `id` in the system's viewer, Preview on a Mac. Only one
+    /// right in the session's own folder, as [`Core::session_image`] reads.
     pub fn session_image_open(&self, id: i64, path: &Path) -> Result<()> {
         open::in_viewer(&inside(&self.paths.attachments(id), path)?)
     }
 
-    /// The folder that holds the pasted images of every session, each in a folder named by
-    /// the session's id. A front end tells a message's pasted images from other files by it.
+    /// The folder that holds the images kept for every session, each in a folder named by the
+    /// session's id. A front end tells a message's pasted images from other files by it.
     #[must_use]
     pub fn attachments_root(&self) -> PathBuf {
         self.paths.attachments_root()
@@ -259,7 +262,8 @@ impl Core {
 
     /// Gives a fork its own copies of the images pasted into session `from` that `events`
     /// name, and has the messages among them name the copies, in session `to`'s folder. The
-    /// fork then loses nothing when the first session is deleted with its folder.
+    /// fork then loses nothing when the first session is deleted with its folder. What the
+    /// first session's tools returned is not named by a message, and stays behind.
     pub(crate) fn images_forked(
         &self,
         from: i64,
@@ -294,8 +298,8 @@ impl Core {
         Ok(())
     }
 
-    /// Deletes the images pasted into session `id`, for when it goes for good. Best effort:
-    /// the session is going, and nothing reads them again.
+    /// Deletes the images kept for session `id`, pasted and returned by its tools, for when it
+    /// goes for good. Best effort: the session is going, and nothing reads them again.
     pub(crate) fn forget_images(&self, id: i64) {
         std::fs::remove_dir_all(self.paths.attachments(id)).ok();
     }

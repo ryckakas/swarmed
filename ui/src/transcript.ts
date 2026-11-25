@@ -94,6 +94,11 @@ export type Item =
     | { kind: "pull"; key: number; number: number; url: string; change: PullChange }
     /** HTML the agent showed the user through Swarmed's tool. */
     | { kind: "view"; key: number; html: string }
+    /**
+     * The last image the agent's tools returned in a turn, again at the end of what it said
+     * then, so that a run of folded calls still shows it. Keyed by the result it came in.
+     */
+    | { kind: "last-image"; key: number; path: string }
     /** What happened in the terminal, as the agent was told with the message before it. */
     | { kind: "terminal"; key: number; text: string }
     | { kind: "session"; key: number; model: string; login: string; mcp: string; skills: number }
@@ -147,6 +152,8 @@ export interface LimitItem {
 export interface ToolResult {
     content: string;
     isError: boolean;
+    /** The images it returned that were kept, as files of the session's own, in order. */
+    images: string[];
 }
 
 /** One tool call, as the transcript holds it. */
@@ -368,6 +375,8 @@ interface Draft {
     messages: { key: number; text: string }[];
     /** The rewinds so far, which a putting back of files marks. */
     rewinds: RewoundItem[];
+    /** The last image a call returned in the turn under way, with the key of its result. */
+    lastImage: { key: number; path: string } | null;
     /** The style's words, for what the items say of their own. */
     words: Words;
 }
@@ -389,6 +398,7 @@ export function toItems(events: AgentEvent[], words: Words = wordsFor("plain")):
         remoteAt: null,
         messages: [],
         rewinds: [],
+        lastImage: null,
         words,
     };
     events.forEach((event, key) => {
@@ -490,7 +500,9 @@ export function shownLines(items: Item[], turnEnds: boolean): Item[] {
 /**
  * The items with the agent's tool calls shown as the setting says: each on its own (`all`),
  * the ones that follow each other folded into one item (`folded`), or none (`hidden`). Calls
- * that talk to the user stay as they are, and so does everything else.
+ * that talk to the user stay as they are, and so does everything else. The images calls
+ * returned stay in view with a folded run; hidden, they go with the calls, the turn's last
+ * one at the end of its reply too.
  */
 export function shownTools(items: Item[], mode: ToolCalls): Item[] {
     if (mode === "all") {
@@ -498,7 +510,7 @@ export function shownTools(items: Item[], mode: ToolCalls): Item[] {
     }
     const atWork = (item: Item): item is ToolItem => item.kind === "tool" && !talksToUser(item);
     if (mode === "hidden") {
-        return items.filter((item) => !atWork(item));
+        return items.filter((item) => !(atWork(item) || item.kind === "last-image"));
     }
     const shown: Item[] = [];
     for (const item of items) {
@@ -575,8 +587,13 @@ export function sameToolCall(a: ToolShown, b: ToolShown): boolean {
         a.input === b.input &&
         a.moved === b.moved &&
         a.result?.content === b.result?.content &&
-        a.result?.isError === b.result?.isError
+        a.result?.isError === b.result?.isError &&
+        sameList(a.result?.images ?? [], b.result?.images ?? [])
     );
+}
+
+function sameList(a: readonly string[], b: readonly string[]): boolean {
+    return a.length === b.length && a.every((item, at) => item === b[at]);
 }
 
 function add(draft: Draft, event: AgentEvent, key: number) {
@@ -591,7 +608,7 @@ function add(draft: Draft, event: AgentEvent, key: number) {
         case "tool_use":
             return addTool(draft, event, key);
         case "tool_result":
-            return attachResult(draft.tools.get(event.tool_use_id), event);
+            return attachResult(draft, event, key);
         case "permission_request":
             return addRequest(draft, event, key);
         case "permission_answered":
@@ -618,7 +635,10 @@ function add(draft: Draft, event: AgentEvent, key: number) {
             return markPutBack(draft, event.to);
         case "user_message":
             draft.messages.push({ key, text: event.text });
+            draft.lastImage = null;
             return addSingle(draft, event, key);
+        case "turn_done":
+            return endTurn(draft, event, key);
         default:
             return addSingle(draft, event, key);
     }
@@ -742,12 +762,34 @@ function markMoved(tool: ToolItem | undefined, event: Extract<AgentEvent, { type
 }
 
 function attachResult(
-    tool: ToolItem | undefined,
+    draft: Draft,
     event: Extract<AgentEvent, { type: "tool_result" }>,
+    key: number,
 ) {
-    if (tool) {
-        tool.result = { content: event.content, isError: event.is_error };
+    const tool = draft.tools.get(event.tool_use_id);
+    if (!tool) {
+        return;
     }
+    const images = event.images ?? [];
+    tool.result = { content: event.content, isError: event.is_error, images };
+    const path = images.at(-1);
+    if (path !== undefined) {
+        draft.lastImage = { key, path };
+    }
+}
+
+/** A turn's end: its last image first, at the end of what the agent said, then its line. */
+function endTurn(draft: Draft, event: Extract<AgentEvent, { type: "turn_done" }>, key: number) {
+    if (draft.lastImage !== null) {
+        draft.items.push({ kind: "last-image", ...draft.lastImage });
+        draft.lastImage = null;
+    }
+    addSingle(draft, event, key);
+}
+
+/** The images a run of calls returned, in the order they came. */
+export function imagesOf(calls: readonly ToolItem[]): string[] {
+    return calls.flatMap((call) => call.result?.images ?? []);
 }
 
 function addRequest(

@@ -317,8 +317,9 @@ pub enum Error {
     /// A pasted image larger than one is kept, in megabytes.
     #[error("an image of more than {0} MB cannot be attached")]
     ImageTooLarge(usize),
-    /// A path that is not an image pasted into the session it was asked of.
-    #[error("{} is not an image pasted into this session", .0.display())]
+    /// A path that is not an image kept for the session it was asked of: one pasted into it, or
+    /// one of its tools returned.
+    #[error("{} is not an image kept for this session", .0.display())]
     NotPastedImage(PathBuf),
     /// A command of the agent's that Swarmed does not send on: it has its own way to do what
     /// the command does in a terminal, or does not leave it to the agent at all.

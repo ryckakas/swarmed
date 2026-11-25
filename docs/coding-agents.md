@@ -311,6 +311,26 @@ sub-agent asking. While a sub-agent works on after its session's turn, the sessi
 tell you it is done until the sub-agent is too. A command left running does not hold it back:
 a dev server may never end. Reading what a command printed is Claude Code's alone.
 
+## Screenshots and other images tools return
+
+When a tool returns an image, such as a screenshot from Playwright MCP's
+`browser_take_screenshot` or Chrome DevTools MCP's `take_screenshot`, or an image file the agent
+read, Swarmed keeps it and shows it under the call. Press it to see it large, and **Open** to
+show it in your system's viewer. The last image of a turn stands again at the end of the
+agent's reply, so a run of folded tool calls still shows it; the images of a folded run also
+stay in view under its line. With tool calls hidden, their images are hidden too.
+
+- **Which agents:** Claude Code, and every ACP agent that puts an image in a tool call's
+  content, as the protocol has it.
+- **What is kept:** PNG, JPEG, GIF and WebP, up to 10 MB each and 8 in one result. Anything
+  else is named in the result, as `[image not shown: …]`, and not kept.
+- **Where:** in `attachments/<session id>/` in the data directory, beside the images pasted into
+  the session, readable by you alone. They are deleted with the session, its task or its
+  repository, and Settings' Storage and activity counts them.
+- **Who sees them:** you. An image can show anything a page showed, a password included, so
+  it is never logged, nor handed to another session, a fork, the cloud or search. A fork
+  carries what was said, not what tools returned.
+
 ## MCP servers: one pool
 
 When a session starts, Swarmed reads the MCP servers set up for Claude Code, Codex and OpenCode,

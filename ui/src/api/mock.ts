@@ -13,12 +13,13 @@ import {
     resetToWaitFor,
 } from "./mockContinuation";
 import { githubApi } from "./mockGithub";
-import { mockImagesApi } from "./mockImages";
+import { MOCK_ATTACHMENTS, mockImagesApi } from "./mockImages";
 import { issuesApi } from "./mockIssues";
 import { mentionsApi, messageFor } from "./mockMentions";
 import { mergeApi } from "./mockMerging";
 import { bringBack, putAwayApi } from "./mockPutAway";
 import { rewindApi } from "./mockRewind";
+import { mockCheck } from "./mockScreenshot";
 import { MockSetups, taskSetupApi } from "./mockSetups";
 import { turnsApi } from "./mockTurns";
 import { heardUsage, sampleAccountUsage } from "./mockUsage";
@@ -75,9 +76,9 @@ import type {
 // asks permission first, `ask` puts questions, `delegate` starts sub-agents, `show` answers
 // with an HTML view, `warn <percent>` ends its turn with a usage warning for the weekly window
 // that full (`warn <percent> <seconds>`: one that resets that soon), `limit <seconds>` ends its
-// turn refused by a 5-hour limit that resets that soon, `slow` runs until interrupted, and
+// turn refused by a 5-hour limit that resets that soon, `slow` runs until interrupted,
 // `long: <command>` runs a command the turn waits on until it is sent to the background or
-// stopped.
+// stopped, and `screenshot` checks a page in a browser, whose last call returns an image.
 
 // `show` answers with this view: a chart in the app's colours, with buttons that redraw it.
 const SAMPLE_VIEW = `<style>
@@ -498,6 +499,7 @@ const SAMPLE_USAGE: Usage = {
     database_bytes: 4_700_000,
     events: 576,
     notes_bytes: 4100,
+    images_bytes: 2_300_000,
     checkpoints_bytes: 12_600_000,
     worktrees: [
         {
@@ -1815,6 +1817,8 @@ class MockAgent {
     continueAfterLimit = false;
     private readonly continuations = new MockContinuations((id) => this.continueNow(id));
     private nextId = 100;
+    /** The images the agent's tools returned, by path, as the core keeps them. */
+    readonly returned = new Map<string, string>();
 
     constructor() {
         // The core follows pull requests and says what changed; here, one check fails.
@@ -2233,6 +2237,8 @@ class MockAgent {
             this.runLong(id, text.slice(5).trim());
         } else if (text.startsWith("show")) {
             this.showView(id, done);
+        } else if (text === "screenshot") {
+            this.checkInBrowser(id, done);
         } else if (text.startsWith("switch ")) {
             this.switchWorktree(id, text.slice(7).trim(), done);
         } else if (text.startsWith("elsewhere:")) {
@@ -2404,6 +2410,22 @@ class MockAgent {
     }
 
     /** Answers with an HTML view, written a line at a time as a real reply arrives. */
+    /**
+     * Checks a page in a browser, as an agent with Playwright MCP does: its last call returns
+     * a screenshot, which shows under the call and again at the end of the reply.
+     */
+    private checkInBrowser(id: number, done: AgentEvent) {
+        const check = mockCheck(`shot-${this.nextId++}`, `${MOCK_ATTACHMENTS}/${id}`);
+        this.returned.set(check.path, check.source);
+        check.events.forEach((event, at) => {
+            this.later(id, event, "working", at + 1);
+        });
+        const said =
+            "The settings page saves: the form shows the new values, with a notice under it.";
+        this.later(id, { type: "text", text: said }, "working", check.events.length + 1);
+        this.later(id, done, "idle", check.events.length + 2);
+    }
+
     private showView(id: number, done: AgentEvent) {
         const reply = `Here is what was invoiced in each of the last six months.\n\n\`\`\`html-view\n${SAMPLE_VIEW}\n\`\`\`\n\nNovember is the highest so far.`;
         const lines = reply.split(/(?<=\n)/);
@@ -3137,7 +3159,7 @@ export function createMockApi(): Api {
         { name: "GEMINI_API_KEY", provider: "Google Gemini", stored: false },
     ];
     const environments = environmentApi();
-    const images = mockImagesApi();
+    const images = mockImagesApi(agent.returned);
     let customLayout: CustomLayout = { base: "classic" };
     let terminalConfig: TerminalConfig = {};
     let settings: Settings = {

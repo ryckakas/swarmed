@@ -2734,6 +2734,75 @@ code {
     border-top: 1px solid var(--line);
 }
 
+/*
+ * The images a tool returned, in a row under its call or its folded run, inside its frame.
+ * Each takes its room at once, so that the transcript does not move once it is read.
+ */
+.tool-images {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0 var(--space-3) var(--space-2);
+    list-style: none;
+}
+
+.tool-image {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 128px;
+    height: 80px;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--dusk);
+    cursor: zoom-in;
+}
+
+.tool-image img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    /* A page is told by its top: its header and what is first on it. */
+    object-position: top;
+}
+
+.tool-image:focus-visible {
+    outline-offset: 2px;
+}
+
+/* The turn's last image, at the end of its reply: larger, and whole. */
+.tool-image-large {
+    width: min(100%, 420px);
+    height: auto;
+    aspect-ratio: 16 / 10;
+}
+
+.tool-image-large img {
+    object-fit: contain;
+}
+
+.tool-image-gone {
+    color: var(--faint);
+    font-size: var(--text-xs);
+    cursor: default;
+}
+
+/* A kept image shown large: whole, as large as the dialog lets it be. */
+.image-large {
+    display: flex;
+    justify-content: center;
+}
+
+.image-large img {
+    max-width: 100%;
+    max-height: 70vh;
+    object-fit: contain;
+}
+
 /* The last line while the agent is busy: proof that the message was taken and work goes on. */
 .activity {
     display: flex;

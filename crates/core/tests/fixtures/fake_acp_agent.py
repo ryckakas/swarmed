@@ -18,7 +18,8 @@
 - "inline": the same, to a client that did not ask: the sub-agent's updates come on the
   agent's own stream, marked as the sub-agent's;
 - "shell": leaves a shell running, as OpenCode does, and wakes when it ends;
-- "printed": runs a command and sends what it printed only in `_meta`, as Codex does.
+- "printed": runs a command and sends what it printed only in `_meta`, as Codex does;
+- "screenshot": calls a browser's screenshot tool, which returns a line of text and a PNG.
 
 Set FAKE_ACP_LOAD_ONLY=1 to offer only session/load, which replays a history first.
 Set FAKE_ACP_EFFORT=1 to have an effort setting, standing at medium.
@@ -211,6 +212,26 @@ def printed(session):
     finish()
 
 
+# A PNG of two by two pixels, in base64.
+SCREENSHOT = ("iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAE0lEQVR42mPQiDoBRAxA/"
+              "OHDBwAlUgav0sDuFwAAAABJRU5ErkJggg==")
+
+
+def screenshot(session):
+    """A tool call whose content holds an image, as an MCP tool's result reaches ACP."""
+    update(session, {"sessionUpdate": "tool_call", "toolCallId": "call_shot",
+                     "title": "browser_take_screenshot", "kind": "other", "status": "in_progress",
+                     "rawInput": {"type": "png"}})
+    update(session, {"sessionUpdate": "tool_call_update", "toolCallId": "call_shot",
+                     "status": "completed", "content": [
+                         {"type": "content", "content": {"type": "text", "text": "Took the screenshot"}},
+                         {"type": "content", "content": {"type": "image", "data": SCREENSHOT,
+                                                          "mimeType": "image/png"}},
+                     ]})
+    chunk(session, "The page looks right.")
+    finish()
+
+
 def finish(stop_reason="end_turn"):
     send({"id": state["pending_prompt"], "result": {"stopReason": stop_reason}})
     state["pending_prompt"] = None
@@ -260,6 +281,8 @@ def on_prompt(request_id, params):
         shell(session)
     elif text == "printed":
         printed(session)
+    elif text == "screenshot":
+        screenshot(session)
     elif text == "fail":
         send({"id": request_id, "error": {"code": -32000, "message": "auth_required"}})
         state["pending_prompt"] = None

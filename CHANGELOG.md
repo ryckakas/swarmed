@@ -17,6 +17,14 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **See the images a tool returns.** A screenshot from a browser tool, or an image file the
+  agent read, used to show as `[image]`; it now shows under the call, large when pressed, with
+  **Open** to see it in your system's viewer. The last image of a turn also stands at the end
+  of the agent's reply, so it shows with folded tool calls. Claude Code and ACP agents that
+  send images in their tool calls are covered; PNG, JPEG, GIF and WebP up to 10 MB, at most 8
+  per result. The images are kept with the session, for you alone, and deleted with it; see
+  [Screenshots and other images tools return](docs/coding-agents.md#screenshots-and-other-images-tools-return).
+
 - **See what one turn changed.** Swarmed now keeps the task's worktree as it was before each
   message went to the agent and when its turn ended. The Changes tab can show the whole task,
   as before, or one turn of the session on screen: the files it changed, edits made by shell

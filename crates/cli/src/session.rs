@@ -1066,6 +1066,8 @@ mod tests {
             tool_use_id: "t".into(),
             content: "fine".into(),
             is_error: false,
+            images: Vec::new(),
+            returned: Vec::new(),
         };
         assert_eq!(describe(&ok), None);
         let allowed = AgentEvent::RateLimit {

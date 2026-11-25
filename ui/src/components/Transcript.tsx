@@ -49,6 +49,7 @@ import { QuestionPrompt } from "./QuestionPrompt";
 import { QuoteButton } from "./QuoteButton";
 import { Spawning, Swarming } from "./Spawning";
 import { ToolCall, ToolRun } from "./ToolCall";
+import { LastImage } from "./ToolImages";
 
 interface Props {
     sessionId: number;
@@ -236,11 +237,14 @@ function ItemView(props: ItemProps) {
                     input={item.input}
                     result={item.result}
                     moved={item.moved}
+                    sessionId={sessionId}
                     sendsFrom={sendsFrom}
                 />
             );
         case "tools":
-            return <ToolRun calls={item.calls} sendsFrom={sendsFrom} />;
+            return <ToolRun calls={item.calls} sessionId={sessionId} sendsFrom={sendsFrom} />;
+        case "last-image":
+            return <LastImage sessionId={sessionId} path={item.path} />;
         case "permission":
             return (
                 <PermissionPrompt

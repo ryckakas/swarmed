@@ -40,7 +40,7 @@ use crate::toolserver::{
     SERVER_NAME, SESSION_ENV, SHOW_HTML_FOR_CLAUDE, SOCKET_ENV, TOOL_SERVER_ARG, VIEW_SPOOL_ENV,
     take_views,
 };
-use crate::{Core, elsewhere, git, lock, peers, publish, remote, views};
+use crate::{Core, elsewhere, git, lock, peers, publish, remote, returned, views};
 
 /// The kinds of things an agent leaves running that are sub-agents, as Claude Code names them.
 const SUB_AGENT_KINDS: [&str; 2] = ["local_agent", "remote_agent"];
@@ -2543,7 +2543,9 @@ fn dropped_when_late(event: &AgentEvent) -> bool {
 
 /// Deals with one event of run number `run` of session `id`, by how that run stands now. An
 /// answer to sending work to the background goes to whoever asked, whichever run gave it, and
-/// nowhere else: the move itself is reported apart.
+/// nowhere else: the move itself is reported apart. The images a tool returned are kept in
+/// the session's folder before the event is stored ([`returned::kept`]), unless the session
+/// is gone.
 fn take(shared: &Shared, (id, run): (i64, u64), ending: &Ending, event: AgentEvent) {
     if let AgentEvent::SentToBackground {
         tool_use_id,
@@ -2555,9 +2557,10 @@ fn take(shared: &Shared, (id, run): (i64, u64), ending: &Ending, event: AgentEve
         shared.live.answer_sent(id, tool_use_id.as_deref(), &answer);
         return;
     }
+    let kept = |event| returned::kept(&shared.paths, id, event);
     match shared.live.standing(id, run, ending) {
-        Standing::Current => on_event(shared, id, event),
-        Standing::Replaced => shared.live.note_late(&shared.store, id, event),
+        Standing::Current => on_event(shared, id, kept(event)),
+        Standing::Replaced => shared.live.note_late(&shared.store, id, kept(event)),
         // Nothing is left to store it in, and front ends have been told the session is gone.
         Standing::Discarded => {}
     }
@@ -2847,6 +2850,8 @@ mod tests {
             tool_use_id: "t1".into(),
             content: String::new(),
             is_error: false,
+            images: Vec::new(),
+            returned: Vec::new(),
         };
         let statuses: Vec<_> = [
             request("a"),

@@ -284,6 +284,23 @@ describe("the mock's agent", () => {
         expect(reply?.type === "text" && reply.text).toContain("```html-view\n<style>");
     });
 
+    it("answers `screenshot` with a browser check whose last call returns an image", async () => {
+        const api = createMockApi();
+        const heard: SessionEvent["event"][] = [];
+        await api.onSessionEvent((published) => heard.push(published.event));
+        await api.sessionSend(3, "screenshot");
+        await expect
+            .poll(() => heard.some((event) => event.type === "turn_done"), { timeout: 5000 })
+            .toBe(true);
+        const images = heard.flatMap((event) =>
+            event.type === "tool_result" ? (event.images ?? []) : [],
+        );
+        expect(images).toEqual([`${await api.attachmentsRoot()}/3/tool-shot-100-3-1.png`]);
+        const [path = ""] = images;
+        expect(await api.sessionImage(3, path)).toMatch(/^data:image\/png;base64,iVBORw0KGgo/);
+        await expect(api.sessionImage(4, path)).rejects.toThrow("not an image kept");
+    });
+
     it("is given a better title while it writes its first reply, and only then", async () => {
         const api = createMockApi();
         const heard: SessionEvent["event"][] = [];
@@ -354,7 +371,7 @@ describe("the mock's pasted images", () => {
         const [path] = await api.sessionImagesKeep(3, [PNG]);
         expect(path).toBe(`${root}/3/pasted-1.png`);
         expect(await api.sessionImage(3, path ?? "")).toBe(`data:image/png;base64,${PNG}`);
-        await expect(api.sessionImage(4, path ?? "")).rejects.toThrow("not an image pasted");
+        await expect(api.sessionImage(4, path ?? "")).rejects.toThrow("not an image kept");
         await expect(api.sessionImagesKeep(3, ["SUkqAA=="])).rejects.toThrow("a TIFF image");
     });
 });

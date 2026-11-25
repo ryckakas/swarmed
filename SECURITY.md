@@ -40,6 +40,10 @@ advisory is published with credit to you, unless you'd rather not be named.
   into `attachments/<session>/` in the data directory, readable by you alone, and its path is
   attached. It is deleted when the session is deleted or its task removed; closing a session
   keeps it. Nothing pasted is written into a repository or a worktree.
+- **An image a tool returns is shown to you and nobody else.** A screenshot can show anything a
+  page showed, a password included. Images a session's tools return are kept beside its pasted
+  images, readable by you alone, deleted with them, and never logged, handed to another
+  session, a fork or a cloud agent, or searched.
 - **An agent's HTML cannot reach the app.** Views are shown in a sandboxed frame on an origin of
   their own, under a policy that lets them make no request. A link in a view opens only when you
   press Open.

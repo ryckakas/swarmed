@@ -26,6 +26,7 @@ use super::{
 };
 use crate::error::{Error, Result};
 use crate::mcp::{McpServer, McpTransport};
+use crate::returned::Taking;
 
 mod children;
 mod printed;
@@ -940,10 +941,14 @@ impl Conversation {
     fn end_tool(&mut self, id: &str, update: &Value, child: Option<&str>) {
         let printed = self.printed.take(id);
         let input = self.voice(child).and_then(|voice| voice.open.remove(id));
+        let mut taking = Taking::default();
+        let content = tool_output(update, printed, &mut taking);
         let result = AgentEvent::ToolResult {
             tool_use_id: id.to_string(),
-            content: tool_output(update, printed),
+            content,
             is_error: str_of(update, "status") == Some("failed"),
+            images: Vec::new(),
+            returned: taking.images(),
         };
         self.emit_by(child, result);
         if child.is_none() {
@@ -1232,17 +1237,18 @@ fn tool_use(update: &Value) -> AgentEvent {
     }
 }
 
-/// What a finished tool call produced: its text content, or else what it printed, as some
-/// agents send apart, or else its raw output.
-fn tool_output(update: &Value, printed: Option<String>) -> String {
+/// What a finished tool call produced: its text and image content, or else what it printed,
+/// as some agents send apart, or else its raw output. An image is taken to be kept apart, with
+/// `[image]` in its place.
+fn tool_output(update: &Value, printed: Option<String>, taking: &mut Taking) -> String {
     let blocks = update.get("content").and_then(Value::as_array);
-    let texts: Vec<&str> = blocks
+    let said: Vec<String> = blocks
         .into_iter()
         .flatten()
-        .filter_map(|block| block.pointer("/content/text").and_then(Value::as_str))
+        .filter_map(|block| block_said(block.get("content")?, taking))
         .collect();
-    if !texts.is_empty() {
-        return texts.join("\n");
+    if !said.is_empty() {
+        return said.join("\n");
     }
     if let Some(printed) = printed {
         return printed;
@@ -1252,6 +1258,17 @@ fn tool_output(update: &Value, printed: Option<String>) -> String {
         Some(Value::String(text)) => text.clone(),
         Some(other) => other.to_string(),
     }
+}
+
+/// What one content block of a tool call says: its text, or for an image,
+/// `{"type": "image", "data": …, "mimeType": …}`, what stands in its place. Anything else, such
+/// as a diff, says nothing here.
+fn block_said(content: &Value, taking: &mut Taking) -> Option<String> {
+    if let Some(text) = str_of(content, "text") {
+        return Some(text.to_string());
+    }
+    let data = str_of(content, "data").filter(|_| str_of(content, "type") == Some("image"))?;
+    Some(taking.image(str_of(content, "mimeType").unwrap_or_default(), data))
 }
 
 fn tail(text: &str, max_chars: usize) -> String {
@@ -1348,19 +1365,52 @@ mod tests {
             "content": [{ "type": "content", "content": { "type": "text", "text": "42 passed" } }],
             "rawOutput": { "exit": 0 },
         });
-        assert_eq!(tool_output(&with_content, None), "42 passed");
-        assert_eq!(tool_output(&json!({ "rawOutput": "plain" }), None), "plain");
+        assert_eq!(output(&with_content, None), "42 passed");
+        assert_eq!(output(&json!({ "rawOutput": "plain" }), None), "plain");
         assert_eq!(
-            tool_output(&json!({ "rawOutput": { "exit": 1 } }), None),
+            output(&json!({ "rawOutput": { "exit": 1 } }), None),
             r#"{"exit":1}"#
         );
-        assert_eq!(tool_output(&json!({}), None), "");
+        assert_eq!(output(&json!({}), None), "");
         // What a command printed apart, as Codex sends it, comes before its exit code.
         let printed = Some("total 8\n".to_string());
         assert_eq!(
-            tool_output(&json!({ "rawOutput": { "exit_code": 0 } }), printed),
+            output(&json!({ "rawOutput": { "exit_code": 0 } }), printed),
             "total 8\n"
         );
+    }
+
+    #[test]
+    fn an_image_a_tool_call_returned_is_taken_with_a_word_in_its_place() {
+        let png = "iVBORw0KGgoAAAANSUhEUg==";
+        let update = json!({
+            "content": [
+                { "type": "content", "content": { "type": "text", "text": "Took a screenshot" } },
+                { "type": "content",
+                  "content": { "type": "image", "data": png, "mimeType": "image/png" } },
+                { "type": "content",
+                  "content": { "type": "image", "data": "PHN2Zz4=", "mimeType": "image/svg+xml" } },
+                { "type": "diff", "path": "a.txt", "oldText": "a", "newText": "b" },
+            ],
+            // Never read for content once there is some: it can hold the image again, whole.
+            "rawOutput": { "content": [{ "type": "image", "data": png }] },
+        });
+        let mut taking = Taking::default();
+        assert_eq!(
+            tool_output(&update, None, &mut taking),
+            "Took a screenshot\n[image]\n[image not shown: image/svg+xml]"
+        );
+        assert_eq!(taking.images().len(), 1);
+        // An image alone is content too.
+        let alone = json!({ "content": [{ "type": "content",
+            "content": { "type": "image", "data": png, "mimeType": "image/png" } }],
+            "rawOutput": "ignored" });
+        assert_eq!(output(&alone, None), "[image]");
+    }
+
+    /// What a finished call produced, with what was taken of its images left aside.
+    fn output(update: &Value, printed: Option<String>) -> String {
+        tool_output(update, printed, &mut Taking::default())
     }
 
     #[test]

@@ -423,6 +423,8 @@ fn made_up(child: &str, one: &mut Child) -> (String, Vec<AgentEvent>) {
         tool_use_id: call.clone(),
         content: STARTED.to_string(),
         is_error: false,
+        images: Vec::new(),
+        returned: Vec::new(),
     };
     (call, vec![started, returned])
 }

@@ -30,7 +30,7 @@ In the data directory:
 | `snapshots/` | snapshots, below, readable by you alone |
 | `checkpoints/<task id>/` | what each turn changed in a task's worktree, below; deleted with the task |
 | `spool/` | HTML views agents hand over through Swarmed's `show_html` tool |
-| `attachments/<session id>/` | images pasted into a session's messages, readable by you alone; deleted with the session |
+| `attachments/<session id>/` | images pasted into a session's messages, and those its tools returned, readable by you alone; deleted with the session |
 | `run/` | stacks' logs and what Swarmed is running |
 
 The app and the `swarmed` command write these. The TOML and JSON files may be edited by hand

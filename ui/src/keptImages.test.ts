@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { forgetImages, keptImage } from "./keptImages";
+import { forgetImages, keptImage, keptThumbnail } from "./keptImages";
 
 describe("keptImage", () => {
     it("reads an image once, however often it is shown", async () => {
@@ -38,5 +38,23 @@ describe("forgetImages", () => {
         await keptImage(6, "/a/pasted-1.png", ask);
         expect(ask).toHaveBeenCalledTimes(3);
         forgetImages([5, 6]);
+    });
+});
+
+describe("keptThumbnail", () => {
+    it("holds the smaller copy, made once for each size", async () => {
+        const ask = vi.fn(async () => "whole");
+        const shrink = vi.fn(async (whole: string, most: number) => `${whole} at ${most}`);
+        expect(await keptThumbnail(7, "/a/tool-t1-1.png", 320, ask, shrink)).toBe("whole at 320");
+        await keptThumbnail(7, "/a/tool-t1-1.png", 320, ask, shrink);
+        expect(await keptThumbnail(7, "/a/tool-t1-1.png", 960, ask, shrink)).toBe("whole at 960");
+        expect(shrink).toHaveBeenCalledTimes(2);
+        // The whole image is not among those held: shown large, it is read again.
+        await keptImage(7, "/a/tool-t1-1.png", ask);
+        expect(ask).toHaveBeenCalledTimes(3);
+        forgetImages([7]);
+        await keptThumbnail(7, "/a/tool-t1-1.png", 320, ask, shrink);
+        expect(shrink).toHaveBeenCalledTimes(3);
+        forgetImages([7]);
     });
 });

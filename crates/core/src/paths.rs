@@ -146,13 +146,15 @@ impl Paths {
         self.data_dir.join("spool").join(session.to_string())
     }
 
-    /// The folder that holds every session's pasted images, one folder per session.
+    /// The folder that holds every session's images, pasted or returned by its tools, one
+    /// folder per session.
     #[must_use]
     pub fn attachments_root(&self) -> PathBuf {
         self.data_dir.join("attachments")
     }
 
-    /// The folder the images pasted into session `session`'s messages are kept in.
+    /// The folder the images pasted into session `session`'s messages are kept in, and those
+    /// its tools returned.
     #[must_use]
     pub fn attachments(&self, session: i64) -> PathBuf {
         self.attachments_root().join(session.to_string())

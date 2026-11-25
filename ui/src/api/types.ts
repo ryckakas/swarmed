@@ -890,6 +890,8 @@ export interface Usage {
     database_bytes: number;
     events: number;
     notes_bytes: number;
+    /** The images kept for sessions: pasted into messages, and returned by tools. */
+    images_bytes: number;
     /** The checkpoints of every task's turns. */
     checkpoints_bytes: number;
     /** Every active task's worktree, largest first; `bytes` is `null` if it was not measured. */
@@ -1105,7 +1107,18 @@ export type AgentEvent =
     /** A piece of a reply still being written; the whole reply follows as `text`. */
     | { type: "text_delta"; text: string }
     | { type: "tool_use"; id: string; name: string; input: unknown }
-    | { type: "tool_result"; tool_use_id: string; content: string; is_error: boolean }
+    | {
+          type: "tool_result";
+          tool_use_id: string;
+          /** The result as text; `[image]` where it held an image, or why one was not kept. */
+          content: string;
+          is_error: boolean;
+          /**
+           * The images it returned that were kept, in order, as files of the session's own:
+           * read with `sessionImage`. Absent where it returned none, and from older results.
+           */
+          images?: string[];
+      }
     | {
           type: "permission_request";
           request_id: string;

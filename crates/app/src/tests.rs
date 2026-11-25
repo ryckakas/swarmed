@@ -379,6 +379,36 @@ fn the_ui_can_paste_an_image_into_a_message_and_show_it_again() {
     assert!(!folder.exists());
 }
 
+#[test]
+fn the_ui_can_show_the_image_a_tool_returned_from_the_path_on_its_result() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    app.ok(
+        "task_new",
+        json!({ "project": "demo", "name": "one", "branch": null }),
+    );
+    let session = app.ok(
+        "session_new",
+        json!({ "project": "demo", "task": "one", "agent": null, "how": { "model": null, "supervision": "auto", "effort": null } }),
+    );
+    let id = &session["id"];
+    app.ok("session_send", json!({ "id": id, "text": "screenshot" }));
+    let result = app.wait_for_event(id, "tool_result");
+    assert_eq!(result["content"], "Took the viewport screenshot\n[image]");
+    // The paths alone: what the image shows never reaches the window but by asking for it.
+    assert_eq!(result.get("returned"), None);
+    let path = result["images"][0].as_str().expect("a path").to_string();
+    let shown = app.ok("session_image", json!({ "id": id, "path": path }));
+    assert!(
+        shown
+            .as_str()
+            .expect("an address")
+            .starts_with("data:image/png;base64,")
+    );
+    let usage = app.ok("usage", json!({}));
+    assert!(usage["images_bytes"].as_u64().expect("a size") > 0);
+}
+
 /// Closed, a session is still kept; deleted, it is gone for good.
 fn deleted_for_good(app: &App, id: &Value) {
     assert_eq!(app.ok("overview", json!({}))[0]["tasks"][0]["closed"], 1);

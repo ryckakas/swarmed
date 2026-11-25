@@ -239,6 +239,8 @@ async fn a_permission_request_is_answered_with_the_matching_option() {
         tool_use_id: "call-1".into(),
         content: "ok".into(),
         is_error: false,
+        images: Vec::new(),
+        returned: Vec::new(),
     };
     assert_eq!(rest.get(1), Some(&ok));
     assert!(rest.contains(&text("ran it")));
@@ -1490,7 +1492,33 @@ async fn what_a_command_printed_beside_its_call_is_its_result() {
             tool_use_id: "call_ls".into(),
             content: "README.md\nsrc\n".into(),
             is_error: false,
+            images: Vec::new(),
+            returned: Vec::new(),
         }),
         "{events:?}"
     );
+}
+
+#[tokio::test]
+async fn an_image_a_tool_call_returned_is_kept_and_listed_on_its_result() {
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Auto);
+
+    core.session_send(id, "screenshot").expect("sends");
+    let events = turn(&mut bus, id).await;
+    let kept = fx.paths.attachments(id).join("tool-call_shot-1.png");
+    assert!(
+        events.contains(&AgentEvent::ToolResult {
+            tool_use_id: "call_shot".into(),
+            content: "Took the screenshot\n[image]".into(),
+            is_error: false,
+            images: vec![kept.clone()],
+            returned: Vec::new(),
+        }),
+        "{events:?}"
+    );
+    let shown = core.session_image(id, &kept).expect("read");
+    assert!(shown.starts_with("data:image/png;base64,iVBORw0KGgo"));
 }

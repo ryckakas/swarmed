@@ -1016,6 +1016,7 @@ async fn usage(core: &Core) -> Result<()> {
     let database = bytes(usage.database_bytes);
     say(&format!("database\t{database}\t{} events", usage.events));
     say(&format!("notes\t{}", bytes(usage.notes_bytes)));
+    say(&format!("images\t{}", bytes(usage.images_bytes)));
     say(&format!("checkpoints\t{}", bytes(usage.checkpoints_bytes)));
     for worktree in &usage.worktrees {
         let size = worktree
