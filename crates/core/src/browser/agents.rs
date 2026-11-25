@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 
 use super::address::{self, endpoint};
 use super::servers::pointed;
-use super::{Browser, BrowserEvent, BrowserState, input};
+use super::{Browser, BrowserEvent, BrowserState, BrowserTab, input};
 use crate::agents::CLAUDE;
 use crate::error::Result;
 use crate::mcp::McpServer;
@@ -162,37 +162,28 @@ impl Core {
     }
 
     /// The tab of session `from`'s own to show, on `wanted` if given: the one it last acted
-    /// in, else one nobody used that is empty or there already, else a new one.
+    /// in, else one nobody used that is empty or there already, else a new one. Never a tab
+    /// another session acts in, nor one of the user's that is somewhere: the session is told
+    /// the tab is its own and to act in it.
     async fn tab_for(
         &self,
         browser: &Arc<Browser>,
         from: i64,
         wanted: Option<&str>,
     ) -> std::result::Result<Option<String>, String> {
-        let (own, free, any) = {
+        let reused = {
             let pane = lock(&browser.pane);
-            let own = pane.tabs_of(from).pop();
             let fits = |url: &str| url == "about:blank" || Some(url) == wanted;
-            let free = pane
-                .tabs()
-                .into_iter()
-                .find(|tab| tab.acted_by.is_none() && fits(&tab.url));
-            (
-                own,
-                free,
-                pane.shown()
-                    .map(String::from)
-                    .or_else(|| pane.tabs().first().map(|tab| tab.id.clone())),
-            )
+            let free = |tab: &BrowserTab| tab.acted_by.is_none() && fits(&tab.url);
+            let own = pane.tabs_of(from).pop();
+            own.or_else(|| pane.tabs().into_iter().find(free))
         };
-        let Some(wanted) = wanted else {
-            return Ok(own.map(|tab| tab.id).or(any));
-        };
-        let reused = own.or(free);
         let Some(tab) = reused else {
-            return open(browser, wanted).await.map(Some);
+            return open(browser, wanted.unwrap_or("about:blank"))
+                .await
+                .map(Some);
         };
-        if tab.url != wanted {
+        if let Some(wanted) = wanted.filter(|wanted| tab.url != *wanted) {
             let session = attached(browser, &tab.id)
                 .await
                 .ok_or("its tab is not ready yet")?;
@@ -285,7 +276,6 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::browser::BrowserTab;
 
     fn tab(id: &str, url: &str, acted_by: Option<i64>) -> BrowserTab {
         BrowserTab {

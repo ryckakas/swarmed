@@ -381,6 +381,22 @@ async fn show_browser_opens_a_tab_of_the_sessions_own_and_says_how_to_act_on_it(
         .filter(|known| known.acted_by == Some(session))
         .count();
     assert_eq!(own, 1, "{state:?}");
+
+    // Another session that names no address gets a tab of its own, never the one shown.
+    let other = started(&core);
+    let (ok, answer) = tool(&socket, other, "show_browser", json!({})).await;
+    assert!(ok, "{answer}");
+    let state = core.browser_state(task_id(&core)).expect("reads");
+    let acts_in = |id: i64| -> Vec<&str> {
+        let own = state.tabs.iter().filter(|tab| tab.acted_by == Some(id));
+        own.map(|tab| tab.id.as_str()).collect()
+    };
+    assert_eq!(acts_in(session), [tab.as_str()], "{state:?}");
+    assert_eq!(acts_in(other).len(), 1, "{state:?}");
+    assert!(
+        answer.contains(&format!("(session {session} acts in it)")),
+        "{answer}"
+    );
     core.browser_stop(task_id(&core)).await.expect("stops");
 }
 
