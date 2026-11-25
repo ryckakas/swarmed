@@ -48,7 +48,10 @@ function Issues({ target }: { target: IssuesTarget }) {
     const detail = useIssueDetail(project, picked);
     // GitHub is asked for the words once typing pauses; the list holds back meanwhile.
     useEffect(() => {
-        const timer = setTimeout(() => setFilter((now) => ({ ...now, search: typed })), PAUSE_MS);
+        // The same words keep the same filter: a new one would ask GitHub again.
+        const settle = () =>
+            setFilter((now) => (now.search === typed ? now : { ...now, search: typed }));
+        const timer = setTimeout(settle, PAUSE_MS);
         return () => clearTimeout(timer);
     }, [typed]);
     const shown = list ? shownIssues(list.issues, typed) : [];
