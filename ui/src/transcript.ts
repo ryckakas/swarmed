@@ -1,6 +1,7 @@
 import type { AgentEvent, PullChange, ScreenSection, ToolCalls } from "./api/types";
+import { type GitHubMentioned, splitMentioned } from "./githubMentions";
 import { shownHtml } from "./htmlview";
-import { type Mentioned, splitMentions } from "./mentions";
+import type { Mentioned } from "./mentions";
 import { QUESTION_TOOL, type Question, questionsOf } from "./questions";
 import { type RateLimit, refusalNotice } from "./rateLimit";
 import { type Words, wordsFor } from "./wording";
@@ -9,9 +10,9 @@ import { type Words, wordsFor } from "./wording";
 
 export type Item =
     /**
-     * What the user wrote, and the files and sessions they pointed the agent at with it;
-     * `remote` for what they typed on claude.ai or in the Claude app, which reached the session
-     * from there.
+     * What the user wrote, and the files, sessions, pull requests and issues they pointed the
+     * agent at with it; `remote` for what they typed on claude.ai or in the Claude app, which
+     * reached the session from there.
      */
     | {
           kind: "user";
@@ -20,6 +21,8 @@ export type Item =
           files: string[];
           /** The sessions listed under the message, which its tokens name. */
           sessions: Mentioned[];
+          /** The pull requests and issues listed under the message, which its tokens name. */
+          github: GitHubMentioned[];
           remote: boolean;
           /** Whether Swarmed sent it by itself, as the usage limit that stopped the session reset. */
           atReset: boolean;
@@ -164,16 +167,17 @@ export function splitFiles(message: string): { text: string; files: string[] } {
 }
 
 /**
- * A message the user sent, taken apart: what they wrote, the sessions listed under it, and the
- * files listed after those.
+ * A message the user sent, taken apart: what they wrote, the sessions listed under it, the pull
+ * requests and issues after those, and the files listed last.
  */
 export function splitSent(message: string): {
     text: string;
     files: string[];
     sessions: Mentioned[];
+    github: GitHubMentioned[];
 } {
     const { text, files } = splitFiles(message);
-    return { ...splitMentions(text), files };
+    return { ...splitMentioned(text), files };
 }
 
 /** The last part of a path: the name a file is known by. */

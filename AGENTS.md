@@ -685,7 +685,33 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   for tokens. Only a reference is sent; with no tool server (`tool_server` unset) a short
   digest of each takes its place. A waiting message is edited with its files and sessions
   apart (`session_queue_edit_message`), so the core writes the list again. The pattern (a menu
-  opened by a sign, a token, a list under the message, read back) is meant to be reused.
+  opened by a sign, a token, a list under the message, read back) is meant to be reused, and
+  `#` reuses it: `mentionQuery` takes the sign, `usePicking` the list's keys, and only the
+  list of the sign nearer the caret opens (`signAt`).
+- **A message can mention a pull request or an issue** (`github_mentions.rs`,
+  `ui/src/githubMentions.ts`, #371), by `#` in a repository's message box. They share
+  GitHub's one count, so a token is `[#142 Fix the login form]` whichever it is.
+  - **Listed** by `project_github_items` through the user's `gh` in the repository: the
+    latest changed of each kind (`GITHUB_LISTED`), one by number (`gh pr view`, else
+    `gh issue view`, which also answers for a pull request but without its branches), or
+    GitHub's search for words. No `gh`, not on GitHub or signed out is an empty
+    list that says why, as `issues.rs` does; issues turned off still lists the pull requests.
+    The UI asks once per opening, filters as the user types (`githubMatches`), and asks again
+    with the query only when that finds nothing, after a pause. Chats have none: `repo()`.
+  - **Sending asks the network nothing.** What was read is kept in `Live::github` (`Known`,
+    by address, with the repositories that asked); `Attached::github` names numbers, and
+    `message_for` lists them from that, after the sessions and before the files, refusing a
+    number not read (`Error::CannotMentionOnGitHub`). A front end calls
+    `project_github_read` first (`githubRead` in `sending.ts`), which reads only what is not
+    from the last minute; the command line's `--pull` and `--issue` do the same.
+  - **A waiting message goes with the state as it is when sent** (the user's choice). While
+    one with a list waits, one follower (`github_follow_waiting`, started by whatever queues
+    such a message) reads each address it names again every `FRESH_EVERY` until none waits;
+    `send_next` and `session_tell_now` write the list again from that (`fresh_list`) as the
+    message goes. The queue's own text is never changed by it.
+  - **Read back** by `splitGitHub` (the list must run to the end of what is left once the files
+    are off), as chips coloured by state that open the address with `open_link`, and as tokens
+    again by `typedAgain`, which handles both lists. A number typed by hand is never looked up.
 - **A pasted image is the one part of a message Swarmed keeps** (`pasted.rs`, `images.ts`,
   #378), since it has no path to name. Until the message goes it is in the draft, in the
   window's memory (`images` of the `Draft`, in base64). Sending, queueing, saving an edited

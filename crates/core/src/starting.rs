@@ -36,6 +36,9 @@ pub struct FirstSession {
     /// The sessions the prompt mentions, listed under it before the files: each one a session
     /// of the task's repository could read (`mentions.rs`).
     pub sessions: Vec<i64>,
+    /// The pull requests and issues of the repository the prompt mentions, by number, listed
+    /// after the sessions: each one read first ([`Core::project_github_read`]).
+    pub github: Vec<u64>,
     /// Images pasted into the prompt, each in base64: kept as the session's own, as
     /// [`Core::session_images_keep`] keeps them, and listed after the files.
     pub images: Vec<String>,
@@ -101,7 +104,7 @@ impl Core {
             return Err(Error::EmptyMessage);
         }
         // Checked as the session will be once it is there, before anything is made.
-        let prompt = self.mentioned_from(project, &first.prompt, &first.sessions)?;
+        let prompt = self.mentioned_from(project, &first.prompt, &first.sessions, &first.github)?;
         let message = with_files(&prompt, &first.files)?;
         let images = Pasted::all(&first.images)?;
         if let Some(agent) = &first.options.agent {
@@ -143,6 +146,7 @@ impl Core {
         let attached = Attached {
             files: self.with_images(session.id, &first.files, images)?,
             sessions: first.sessions.clone(),
+            github: first.github.clone(),
         };
         self.session_message(session.id, &first.prompt, &attached, auth)?;
         let started = TaskStarted {

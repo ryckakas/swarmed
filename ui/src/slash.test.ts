@@ -113,10 +113,11 @@ describe("what becomes of a command", () => {
         expect(takenBySwarmed("hello", commands)).toBe(false);
     });
 
-    it("waits its turn when it goes with files, images or sessions, which only the agent takes", () => {
-        const alone = { files: [], images: [], sessions: [] };
+    it("waits its turn when it goes with files, images, sessions or pull requests, which only the agent takes", () => {
+        const alone = { files: [], images: [], sessions: [], github: [] };
         expect(goesAtOnce("/usage", alone, commands)).toBe(true);
         expect(goesAtOnce("/usage", { ...alone, sessions: [4] }, commands)).toBe(false);
+        expect(goesAtOnce("/usage", { ...alone, github: [142] }, commands)).toBe(false);
         expect(goesAtOnce("/usage", { ...alone, files: ["/a"] }, commands)).toBe(false);
         expect(goesAtOnce("hello", alone, commands)).toBe(false);
     });

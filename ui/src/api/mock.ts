@@ -12,6 +12,7 @@ import {
     mockRefusal,
     resetToWaitFor,
 } from "./mockContinuation";
+import { githubApi } from "./mockGithub";
 import { mockImagesApi } from "./mockImages";
 import { issuesApi } from "./mockIssues";
 import { mentionsApi, messageFor } from "./mockMentions";
@@ -3363,18 +3364,23 @@ export function createMockApi(): Api {
         sessionForkInto: async (id, projectName, taskName) =>
             sampleForkInto(agent, tasks(), id, projectName, taskName),
         sessionEvents: async (id) => [...agent.history(id)],
-        sessionSend: async (id, text, files, sessions) =>
-            agent.send(id, messageFor(agent.projects, id, text, files, sessions)),
+        sessionSend: async (id, text, files, sessions, github) =>
+            agent.send(id, messageFor(agent.projects, id, text, files, sessions, github)),
         ...mentionsApi(() => agent.projects),
-        sessionMessageNow: async (id, text, files, sessions) =>
-            agent.sendTypedNow(id, messageFor(agent.projects, id, text, files, sessions)),
+        ...githubApi(),
+        sessionMessageNow: async (id, text, files, sessions, github) =>
+            agent.sendTypedNow(id, messageFor(agent.projects, id, text, files, sessions, github)),
         sessionTellNow: async (id, message) => agent.tellNow(id, message),
         sessionQueue: async (id) => agent.queue(id),
-        sessionEnqueue: async (id, text, files, sessions) =>
-            agent.enqueue(id, messageFor(agent.projects, id, text, files, sessions)),
+        sessionEnqueue: async (id, text, files, sessions, github) =>
+            agent.enqueue(id, messageFor(agent.projects, id, text, files, sessions, github)),
         // Nothing at all comes out empty, which takes the message out.
-        sessionQueueEdit: async (id, message, text, files, sessions) =>
-            agent.editQueued(id, message, messageFor(agent.projects, id, text, files, sessions)),
+        sessionQueueEdit: async (id, message, text, files, sessions, github) =>
+            agent.editQueued(
+                id,
+                message,
+                messageFor(agent.projects, id, text, files, sessions, github),
+            ),
         sessionQueueHold: async (id, message) => agent.holdQueued(id, message),
         sessionQueueLetGo: async (id, message) => agent.letGoQueued(id, message),
         sessionSendQueued: async (id) => agent.sendQueued(id),

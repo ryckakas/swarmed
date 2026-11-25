@@ -1,5 +1,5 @@
-//! Files the user points an agent at with a message, and the message that carries them and the
-//! sessions it mentions (`mentions.rs`).
+//! Files the user points an agent at with a message, and the message that carries them, the
+//! sessions it mentions (`mentions.rs`) and the pull requests and issues (`github_mentions.rs`).
 //!
 //! Nothing is uploaded or copied: the agent runs on this machine and can read the files where
 //! they are. Attaching one is telling the agent its path, in a form every front end writes the
@@ -55,6 +55,10 @@ pub struct Attached {
     /// Sessions the agent is to read what it needs of, by id, listed under the words and
     /// before the files (`mentions.rs`).
     pub sessions: Vec<i64>,
+    /// Pull requests and issues of the session's repository, by number, listed after the
+    /// sessions and before the files (`github_mentions.rs`). Each has to have been read first
+    /// ([`Core::project_github_read`]), so that sending waits on nothing.
+    pub github: Vec<u64>,
 }
 
 impl Attached {
@@ -63,14 +67,14 @@ impl Attached {
     pub fn files(files: &[PathBuf]) -> Self {
         Self {
             files: files.to_vec(),
-            sessions: Vec::new(),
+            ..Self::default()
         }
     }
 
     /// Whether the message points at nothing.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.files.is_empty() && self.sessions.is_empty()
+        self.files.is_empty() && self.sessions.is_empty() && self.github.is_empty()
     }
 }
 
@@ -78,8 +82,9 @@ impl Core {
     /// Sends `text`, with what is `attached` listed under it, to a session, starting its agent
     /// first if it is not running.
     ///
-    /// A message that cannot be sent as it is, such as one naming a file that is not there or a
-    /// session this one cannot read, is refused before the agent is started. Must be called
+    /// A message that cannot be sent as it is, such as one naming a file that is not there, a
+    /// session this one cannot read or a pull request that was not read, is refused before the
+    /// agent is started. Must be called
     /// from within a tokio runtime.
     pub fn session_message(
         &self,

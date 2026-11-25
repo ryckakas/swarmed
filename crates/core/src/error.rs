@@ -307,6 +307,9 @@ pub enum Error {
         "session {0} cannot be mentioned here: it is not another open session this one can read"
     )]
     CannotMention(i64),
+    /// A pull request or issue a message mentions could not be read from GitHub. Says why.
+    #[error("#{0} cannot be mentioned: {1}")]
+    CannotMentionOnGitHub(u64, String),
     /// A pasted image in a format agents do not read, or something that is no image at all.
     /// Says which, when the format is known.
     #[error("{0} cannot be attached: agents read only PNG, JPEG, GIF and WebP images")]

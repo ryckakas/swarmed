@@ -197,6 +197,7 @@ async fn a_task_started_with_a_pasted_image_attaches_it_to_its_prompt() {
         prompt: "match this design".to_string(),
         files: vec![],
         sessions: vec![],
+        github: vec![],
         images: vec![PNG.to_string()],
     };
     let mut bus = core.subscribe();

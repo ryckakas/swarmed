@@ -220,7 +220,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::session_turn_diff, commands::note, commands::set_note, commands::api_keys,
         commands::set_api_key, commands::delete_api_key, commands::settings,
         commands::config_problems,
-        commands::set_settings, commands::branch_example, commands::custom_layout, commands::custom_layout_save, commands::terminal_config, commands::terminal_config_save, commands::session_new, commands::session_events, commands::session_reachable, commands::project_reachable,
+        commands::set_settings, commands::branch_example, commands::custom_layout, commands::custom_layout_save, commands::terminal_config, commands::terminal_config_save, commands::session_new, commands::session_events, commands::session_reachable, commands::project_reachable, commands::project_github_items, commands::project_github_read,
         commands::session_send, commands::session_images_keep, commands::session_image,
         commands::session_image_open, commands::attachments_root,
         commands::session_mark_read, commands::session_queue,

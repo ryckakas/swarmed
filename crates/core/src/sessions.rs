@@ -26,6 +26,7 @@ use crate::continuation;
 use crate::error::{Error, Result};
 use crate::fork;
 use crate::git::Head;
+use crate::github_mentions;
 use crate::marks::{Mark, MarkColour};
 use crate::mcp::{McpServer, McpTransport};
 use crate::paths::Paths;
@@ -740,24 +741,28 @@ pub(crate) fn event_from_json(text: &str) -> AgentEvent {
 
 /// A session's first title: the start of what the user typed. What they pasted large, which a
 /// front end sends wrapped in `<pasted_text_N>` tags, is not what the session is called after,
-/// and a session it mentions, `[@42 Fix the login form]`, is read as the words of its title.
+/// and a session it mentions, `[@42 Fix the login form]`, or a pull request or issue,
+/// `[#142 Fix the login form]`, is read as the words of its title.
 pub(crate) fn title_from(message: &str) -> String {
-    let title = shortened(&mentions_as_words(&without_pastes(message)), TITLE_CHARS);
+    let title = shortened(&tokens_as_words(&without_pastes(message)), TITLE_CHARS);
     if title.is_empty() && message.contains("<pasted_text_") {
         return "Pasted text".to_string();
     }
     title
 }
 
-/// `message` with each session it mentions by a token, `[@42 Fix the login form]`, as the words
-/// of the token's title, or `session 42` where it shows none.
-fn mentions_as_words(message: &str) -> String {
+/// `message` with each token of a mention, `[@42 Fix the login form]` for a session and
+/// `[#142 Fix the login form]` for a pull request or issue, as the words of its title, or
+/// `session 42` and `#142` where it shows none.
+fn tokens_as_words(message: &str) -> String {
     let mut words = String::new();
     let mut rest = message;
-    while let Some((before, token)) = rest.split_once("[@") {
+    while let Some(at) = rest.find("[@").into_iter().chain(rest.find("[#")).min() {
+        let (before, token) = rest.split_at(at);
         words.push_str(before);
+        let (sign, token) = token.split_at(2);
         // Anything that is not a token is only text.
-        let (said, after) = token_words(token).unwrap_or_else(|| ("[@".to_string(), token));
+        let (said, after) = token_words(sign, token).unwrap_or_else(|| (sign.to_string(), token));
         words.push_str(&said);
         rest = after;
     }
@@ -765,9 +770,9 @@ fn mentions_as_words(message: &str) -> String {
     words
 }
 
-/// What a mention's token stands for in words, for `token`, the text right after its `[@`,
-/// and what follows the token; `None` if it is no token.
-fn token_words(token: &str) -> Option<(String, &str)> {
+/// What a mention's token stands for in words, for `token`, the text right after its `sign`
+/// (`[@` or `[#`), and what follows the token; `None` if it is no token.
+fn token_words<'a>(sign: &str, token: &'a str) -> Option<(String, &'a str)> {
     let digits = token.len() - token.trim_start_matches(|c: char| c.is_ascii_digit()).len();
     let (id, after) = token.split_at(digits);
     let (shown, after) = after.split_once(']')?;
@@ -776,10 +781,10 @@ fn token_words(token: &str) -> Option<(String, &str)> {
         return None;
     }
     let shown = shown.trim();
-    let said = if shown.is_empty() {
-        format!("session {id}")
-    } else {
-        shown.to_string()
+    let said = match (shown.is_empty(), sign) {
+        (false, _) => shown.to_string(),
+        (true, "[#") => format!("#{id}"),
+        (true, _) => format!("session {id}"),
     };
     Some((said, after))
 }
@@ -1815,6 +1820,9 @@ pub(crate) struct Live {
     pub(crate) usage: UsageHeard,
     /// The turns whose worktree was checkpointed before they began (`checkpoints.rs`).
     pub(crate) checkpoints: checkpoints::Checkpoints,
+    /// What was read of the repositories' pull requests and issues, which messages mention
+    /// (`github_mentions.rs`).
+    pub(crate) github: github_mentions::Known,
     /// The lock on each session whose agent runs in this process, held until the agent has
     /// gone, so that no other Swarmed starts it meanwhile (`elsewhere.rs`).
     pub(crate) runs_held: Mutex<HashMap<i64, File>>,
@@ -1846,6 +1854,7 @@ impl Default for Live {
             sending: Mutex::default(),
             usage: UsageHeard::default(),
             checkpoints: checkpoints::Checkpoints::default(),
+            github: github_mentions::Known::default(),
             runs_held: Mutex::default(),
             shows_notices: AtomicBool::new(false),
             runs: AtomicU64::new(0),
@@ -2741,6 +2750,12 @@ mod tests {
             "carry on from Fix the login form and more"
         );
         assert_eq!(title_from("ask [@7] about it"), "ask session 7 about it");
+        // A pull request or an issue the same way.
+        assert_eq!(
+            title_from("review [#142 Fix the login form] and [#12]"),
+            "review Fix the login form and #12"
+        );
+        assert_eq!(title_from("a heading # [#x] [#"), "a heading # [#x] [#");
         // What only looks like one stays as it was typed.
         assert_eq!(title_from("a [@x] and [@3no]"), "a [@x] and [@3no]");
     }

@@ -37,6 +37,7 @@ mod files;
 mod following;
 mod fork;
 mod git;
+mod github_mentions;
 mod handoff;
 pub mod hooks;
 mod issues;
@@ -120,6 +121,10 @@ pub use files::{FileEntry, FileListing};
 pub use following::{
     FIRST_BACKOFF, MAX_BACKOFF, OPEN, PullChange, QUIET, QUIET_AFTER, RUNNING, follow_pulls,
     pull_wait,
+};
+pub use github_mentions::{
+    FRESH_EVERY, GITHUB_LISTED, GitHubItem, GitHubItems, GitHubKind, GitHubState,
+    MENTIONED_ON_GITHUB, with_github,
 };
 pub use handoff::MAX_HANDED;
 pub use hooks::OutputSink;

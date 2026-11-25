@@ -14,6 +14,7 @@ import type { SlashCommand, Template } from "../api/types";
 import { type Edit, editFor } from "../editing";
 import { matchHotkey } from "../hotkeys";
 import type { PastedImage } from "../images";
+import { signAt } from "../mentions";
 import { isLargePaste, tokenFor, withToken } from "../pastes";
 import { caretAfter, type Direction, recallDirection } from "../recall";
 import type { Draft } from "../sending";
@@ -30,6 +31,7 @@ import { takesSuggestion } from "../suggestion";
 import { usePastedImages } from "../usePastedImages";
 import { useWords } from "../useWords";
 import { FileChips } from "./FileChips";
+import { GitHubMenu, useGitHubMenu } from "./GitHubMenu";
 import { type MentionFrom, MentionMenu, useMentionMenu } from "./MentionMenu";
 
 interface Props {
@@ -66,6 +68,11 @@ interface Props {
     onRecall?: (direction: Direction) => Draft | null;
     /** Where `@` finds sessions to mention; without it, `@` is only a character. */
     mentionFrom?: MentionFrom;
+    /**
+     * The repository whose pull requests and issues `#` offers; without one, as in a chat, `#`
+     * is only a character.
+     */
+    githubFrom?: string | undefined;
 }
 
 /** The message box: text that grows with what is typed, options below it, and one round button. */
@@ -82,11 +89,11 @@ export function ComposerBox(props: Props) {
         onChange(text);
     };
     const menu = useSlashMenu(value, props.commands ?? [], templates, changeTo);
-    // Where the caret stands, which is where an `@` being typed ends, with the text it was read
-    // in: a caret read in another session's text says nothing about this one.
+    // Where the caret stands, which is where an `@` or `#` being typed ends, with the text it
+    // was read in: a caret read in another session's text says nothing about this one.
     const [caret, setCaret] = useState<Caret | null>(null);
     const at = caret?.text === value ? caret.at : null;
-    const mentions = useMentionMenu(value, at, props.mentionFrom, changeTo);
+    const { mentions, github } = useMentionLists(value, at, props, changeTo);
     const attach = useAttaching(files, onFiles);
     const takeImages = usePastedImages(images, onImages);
 
@@ -111,6 +118,7 @@ export function ComposerBox(props: Props) {
         const lists = [
             menu.onKeyDown,
             mentions.onKeyDown,
+            github.onKeyDown,
             (key: typeof event) => recalled(key, recalling),
         ];
         if (!lists.some((takes) => takes(event))) {
@@ -155,6 +163,7 @@ export function ComposerBox(props: Props) {
                 </ul>
             )}
             <MentionMenu menu={mentions} />
+            <GitHubMenu menu={github} />
             <FileChips
                 files={files}
                 onRemove={(file) => onFiles(files.filter((other) => other !== file))}
@@ -202,6 +211,22 @@ export function ComposerBox(props: Props) {
             </div>
         </form>
     );
+}
+
+/**
+ * The lists of sessions for `@` and of pull requests and issues for `#`, for a caret at `at`:
+ * only the list of the sign nearer the caret is given it, so that one opens at a time.
+ */
+function useMentionLists(
+    value: string,
+    at: number | null,
+    from: Pick<Props, "mentionFrom" | "githubFrom">,
+    changeTo: (text: string, select: [number, number]) => void,
+) {
+    const sign = at === null ? null : signAt(value, at);
+    const mentions = useMentionMenu(value, sign === "@" ? at : null, from.mentionFrom, changeTo);
+    const github = useGitHubMenu(value, sign === "#" ? at : null, from.githubFrom, changeTo);
+    return { mentions, github };
 }
 
 /** Where the caret stood in the box, and the text it stood in. */

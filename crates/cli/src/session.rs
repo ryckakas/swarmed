@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
-use clap::{Subcommand, ValueEnum};
+use clap::{Args, Subcommand, ValueEnum};
 use serde_json::Value;
 use swarmed_core::agent::{
     AgentEvent, Asked, Auth, Effort, McpServerInfo, PLAN_TOOL, RemoteState, ScreenRow,
@@ -53,19 +53,7 @@ pub(crate) enum SessionCommand {
         auth: AuthMode,
     },
     /// Continue a session with another turn.
-    Send {
-        id: i64,
-        prompt: String,
-        /// A file or folder to point the agent at; may be given more than once.
-        #[arg(long = "file")]
-        files: Vec<PathBuf>,
-        /// Another session for the agent to read, by id: one this session's agent can reach
-        /// with `read_session`. May be given more than once.
-        #[arg(long = "session")]
-        sessions: Vec<i64>,
-        #[arg(long, value_enum, default_value_t)]
-        auth: AuthMode,
-    },
+    Send(SendArgs),
     /// List a task's sessions.
     List { project: String, task: String },
     /// Print everything a session has said and been told.
@@ -182,6 +170,31 @@ pub(crate) enum SessionCommand {
     Delete { id: i64 },
 }
 
+/// What `swarmed session send` is given.
+#[derive(Debug, Args)]
+pub(crate) struct SendArgs {
+    id: i64,
+    prompt: String,
+    /// A file or folder to point the agent at; may be given more than once.
+    #[arg(long = "file")]
+    files: Vec<PathBuf>,
+    /// Another session for the agent to read, by id: one this session's agent can reach
+    /// with `read_session`. May be given more than once.
+    #[arg(long = "session")]
+    sessions: Vec<i64>,
+    /// A pull request of the session's repository for the agent to read, by number; may
+    /// be given more than once. It is read through your `gh` and listed under the message
+    /// with its title, state, branches and address.
+    #[arg(long = "pull")]
+    pulls: Vec<u64>,
+    /// An issue of the session's repository, as `--pull` takes a pull request. GitHub
+    /// counts both alike: the list under the message says which a number is.
+    #[arg(long = "issue")]
+    issues: Vec<u64>,
+    #[arg(long, value_enum, default_value_t)]
+    auth: AuthMode,
+}
+
 /// Where the agent's credentials come from.
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
 pub(crate) enum AuthMode {
@@ -258,18 +271,10 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             };
             let session = core.session_new(&project, &task, &options)?;
             say(&format!("session {}", session.id));
-            run_turn(core, session.id, &prompt, &[], &[], auth.resolve()?).await
+            let nothing = Attached::default();
+            run_turn(core, session.id, &prompt, &nothing, auth.resolve()?).await
         }
-        SessionCommand::Send {
-            id,
-            prompt,
-            files,
-            sessions,
-            auth,
-        } => {
-            let files = from_here(&files)?;
-            run_turn(core, id, &prompt, &files, &sessions, auth.resolve()?).await
-        }
+        SessionCommand::Send(args) => send(core, args).await,
         SessionCommand::List { project, task } => {
             for s in core.sessions(&project, &task)? {
                 let mode = s.supervision.as_str();
@@ -583,23 +588,42 @@ fn from_here(files: &[PathBuf]) -> Result<Vec<PathBuf>> {
     Ok(files.collect::<std::io::Result<_>>()?)
 }
 
-/// Sends `prompt`, with `files` and the `sessions` it mentions listed under it, and shows the
-/// session's events until the turn ends. Permission requests are answered from stdin, and `bg` there sends what the
-/// agent waits on to the background; Ctrl-C interrupts the turn instead of killing the session.
+/// Sends a message as [`run_turn`] does, the pull requests and issues it mentions read first:
+/// the message then waits on nothing.
+async fn send(core: &Core, args: SendArgs) -> Result<()> {
+    let SendArgs {
+        id,
+        prompt,
+        files,
+        sessions,
+        pulls,
+        issues,
+        auth,
+    } = args;
+    let attached = Attached {
+        files: from_here(&files)?,
+        sessions,
+        github: [pulls, issues].concat(),
+    };
+    if !attached.github.is_empty() {
+        core.session_github_read(id, &attached.github).await?;
+    }
+    run_turn(core, id, &prompt, &attached, auth.resolve()?).await
+}
+
+/// Sends `prompt`, with what is `attached` listed under it, and shows the session's events
+/// until the turn ends. Permission requests are answered from stdin, and `bg` there sends what
+/// the agent waits on to the background; Ctrl-C interrupts the turn instead of killing the
+/// session.
 async fn run_turn(
     core: &Core,
     id: i64,
     prompt: &str,
-    files: &[PathBuf],
-    sessions: &[i64],
+    attached: &Attached,
     auth: Auth,
 ) -> Result<()> {
     let mut bus = core.subscribe();
-    let attached = Attached {
-        files: files.to_vec(),
-        sessions: sessions.to_vec(),
-    };
-    core.session_message(id, prompt, &attached, auth)?;
+    core.session_message(id, prompt, attached, auth)?;
     follow_turn(core, id, &mut bus).await
 }
 

@@ -7,6 +7,7 @@ mod issue;
 mod layout;
 mod limits;
 mod merge;
+mod pr;
 mod pull;
 mod session;
 mod setup;
@@ -21,6 +22,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use issue::IssueCommand;
 use layout::LayoutCommand;
+use pr::PrCommand;
 use session::SessionCommand;
 use swarmed_core::agent::FakeBackend;
 use swarmed_core::{
@@ -51,6 +53,10 @@ enum Command {
     /// List a repository's GitHub issues, or read one, through your own `gh`.
     #[command(subcommand)]
     Issue(IssueCommand),
+    /// List a repository's pull requests and issues, as `#` in the message box offers them,
+    /// through your own `gh`.
+    #[command(subcommand)]
+    Pr(PrCommand),
     /// List the MCP servers agents are given: those set up in Swarmed and Claude Code's own.
     Mcp,
     /// Show what Swarmed takes up on disk, and in memory and processor time right now.
@@ -502,6 +508,7 @@ async fn run(core: &Arc<Core>, command: Command) -> Result<()> {
         Command::Task(command) => task(core, command).await,
         Command::Session(command) => session::session(core, command).await,
         Command::Issue(command) => issue::run(core, command).await,
+        Command::Pr(command) => pr::run(core, command).await,
         // Answered above, before anything was opened.
         Command::ToolServer => Ok(()),
         Command::Agent(command) => agent(core, command).await,

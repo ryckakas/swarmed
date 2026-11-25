@@ -81,15 +81,16 @@ export function takenBySwarmed(text: string, commands: SlashCommand[]): boolean 
 
 /**
  * Whether a message is handed over at once, never queued: one of the agent's own commands
- * Swarmed does itself (`takenBySwarmed`), with no files, images or sessions to go with it,
- * which only a message to the agent can take.
+ * Swarmed does itself (`takenBySwarmed`), with no files, images, sessions, pull requests or
+ * issues to go with it, which only a message to the agent can take.
  */
 export function goesAtOnce(
     message: string,
-    going: { files: unknown[]; images: unknown[]; sessions: unknown[] },
+    going: { files: unknown[]; images: unknown[]; sessions: unknown[]; github: unknown[] },
     commands: SlashCommand[],
 ): boolean {
-    const alone = [going.files, going.images, going.sessions].every((list) => list.length === 0);
+    const lists = [going.files, going.images, going.sessions, going.github];
+    const alone = lists.every((list) => list.length === 0);
     return alone && takenBySwarmed(message, commands);
 }
 

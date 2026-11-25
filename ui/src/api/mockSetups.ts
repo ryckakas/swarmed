@@ -253,7 +253,13 @@ export function taskSetupApi(
         },
         taskStart: async (project, name, start) => {
             // Checked before anything is made, as the core does.
-            const said = firstMessageIn(deps.projects(), project, start.prompt, start.sessions);
+            const said = firstMessageIn(
+                deps.projects(),
+                project,
+                start.prompt,
+                start.sessions,
+                start.github,
+            );
             const task = await deps.make(project, name, start.branch, start.environment);
             // A chat has no repository, and so no issue.
             task.issue = project === CHATS ? null : start.issue;

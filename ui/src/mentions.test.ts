@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Reachable } from "./api/types";
+import { mentionedPieces } from "./githubMentions";
 import {
     fromManyRepositories,
     MENTION_LIMIT,
     mentionedApart,
     mentionedIn,
     mentionMatches,
-    mentionPieces,
     mentionQuery,
     mentionSpans,
     mentionsAgain,
@@ -172,6 +172,7 @@ describe("reading a sent message back", () => {
                 { id: 9, title: "Fix login" },
                 { id: 3, title: "untitled" },
             ],
+            github: [],
         });
     });
 
@@ -191,9 +192,9 @@ describe("reading a sent message back", () => {
     it("draws the tokens of listed sessions as sessions, and others as words", () => {
         const sessions = [{ id: 9, title: "Fix login" }];
         const text = "do what [@9 Fix login] did, not [@5 Five]";
-        expect(mentionPieces(text, sessions)).toEqual([
+        expect(mentionedPieces(text, sessions, [])).toEqual([
             "do what ",
-            { id: 9, title: "Fix login" },
+            { session: { id: 9, title: "Fix login" } },
             " did, not [@5 Five]",
         ]);
         expect(mentionedApart(text, [...sessions, { id: 3, title: "Three" }])).toEqual([

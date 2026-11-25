@@ -269,6 +269,11 @@ function notFound(number: number): Error {
     );
 }
 
+/** A sample repository's issues as a list shows them; `undefined` for one not on GitHub. */
+export function sampleIssues(project: string): Issue[] | undefined {
+    return ISSUES[project]?.map(listed);
+}
+
 export function issuesApi(
     projects: () => Project[],
 ): Pick<Api, "projectIssues" | "projectIssue" | "taskIssue"> {

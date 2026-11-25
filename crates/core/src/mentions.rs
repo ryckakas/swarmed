@@ -12,6 +12,7 @@
 use std::fmt::Write;
 
 use crate::attach::{Attached, with_files};
+use crate::chats::CHATS;
 use crate::error::{Error, Result};
 use crate::peers::{Access, Reach};
 use crate::{Core, Session};
@@ -40,7 +41,7 @@ pub struct Mention {
 }
 
 /// A title on one line, as the list gives it.
-fn one_line(title: &str) -> String {
+pub(crate) fn one_line(title: &str) -> String {
     let words: Vec<&str> = title.split_whitespace().collect();
     if words.is_empty() {
         "untitled".to_string()
@@ -93,8 +94,9 @@ fn each_once(ids: &[i64]) -> Vec<i64> {
 
 impl Core {
     /// The message session `id` is sent for `text` with what is `attached`: the words, the
-    /// sessions it mentions listed under them, then the files. Refused, before anything is
-    /// sent, if it names a file that is not there or a session this one cannot read.
+    /// sessions it mentions listed under them, then its pull requests and issues, then the
+    /// files. Refused, before anything is sent, if it names a file that is not there, a session
+    /// this one cannot read, or a pull request or issue that was not read.
     pub(crate) fn message_for(&self, id: i64, text: &str, attached: &Attached) -> Result<String> {
         let mentioned = if attached.sessions.is_empty() {
             text.trim().to_string()
@@ -103,16 +105,39 @@ impl Core {
             let reach = self.reach_of(&own)?;
             self.mentioned(reach, Some(id), text, &attached.sessions)?
         };
-        with_files(&mentioned, &attached.files)
+        let listed = if attached.github.is_empty() {
+            mentioned
+        } else {
+            let project = self.project_of_session(id)?;
+            self.github_listed(project.id, &mentioned, &attached.github)?
+        };
+        with_files(&listed, &attached.files)
     }
 
     /// `text` with the sessions `ids` listed under it, each one a session of a new task of
-    /// `project` could read: the first message of a task, checked before the task is made.
-    pub(crate) fn mentioned_from(&self, project: &str, text: &str, ids: &[i64]) -> Result<String> {
-        if ids.is_empty() {
-            return Ok(text.trim().to_string());
+    /// `project` could read, then the pull requests and issues `numbers` of the repository:
+    /// the first message of a task, checked before the task is made.
+    pub(crate) fn mentioned_from(
+        &self,
+        project: &str,
+        text: &str,
+        ids: &[i64],
+        numbers: &[u64],
+    ) -> Result<String> {
+        let mentioned = if ids.is_empty() {
+            text.trim().to_string()
+        } else {
+            self.mentioned(self.reach_of_project(project)?, None, text, ids)?
+        };
+        if numbers.is_empty() {
+            return Ok(mentioned);
         }
-        self.mentioned(self.reach_of_project(project)?, None, text, ids)
+        // The chats have no repository, and their home need not be there yet.
+        if project == CHATS {
+            return Err(Error::NoRepository);
+        }
+        let home = self.project(project)?;
+        self.github_listed(home.id, &mentioned, numbers)
     }
 
     /// `text` with the sessions `ids` listed under it: each one `reach` can read, and none of

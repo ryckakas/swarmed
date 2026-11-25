@@ -1,7 +1,9 @@
 import { CHATS } from "../chats";
+import { withGitHubList } from "../githubMentions";
 import { type Mentioned, withMentions } from "../mentions";
 import { withFiles } from "../transcript";
 import type { Api } from "./client";
+import { githubFor } from "./mockGithub";
 import type { Project, Reachable, Session, Task } from "./types";
 
 // Which sessions a message can mention in the sample data, and the message it is sent as, as
@@ -77,16 +79,22 @@ function checked(reachable: Reachable[], ids: number[]): Mentioned[] {
     });
 }
 
-/** The message session `id` is sent: the words, the sessions mentioned, then the files. */
+/**
+ * The message session `id` is sent: the words, the sessions mentioned, the pull requests and
+ * issues, then the files.
+ */
 export function messageFor(
     projects: Project[],
     id: number,
     text: string,
     files: string[] = [],
     sessions: number[] = [],
+    github: number[] = [],
 ): string {
     const mentioned = sessions.length === 0 ? [] : checked(reachableBy(projects, id), sessions);
-    return withFiles(withMentions(text, mentioned), files);
+    const home = placed(projects).find((one) => one.session.id === id)?.project.name ?? "";
+    const listed = github.length === 0 ? [] : githubFor(home, github);
+    return withFiles(withGitHubList(withMentions(text, mentioned), listed), files);
 }
 
 /** The first message of a new task in `project`, checked before the task is made. */
@@ -95,10 +103,12 @@ export function firstMessageIn(
     project: string,
     text: string,
     sessions: number[],
+    github: number[] = [],
 ): string {
     const mentioned =
         sessions.length === 0 ? [] : checked(reachableIn(projects, project), sessions);
-    return withMentions(text, mentioned);
+    const listed = github.length === 0 ? [] : githubFor(project, github);
+    return withGitHubList(withMentions(text, mentioned), listed);
 }
 
 /** The two lists, from the sample's tree. */

@@ -24,6 +24,7 @@ fn first(prompt: &str) -> FirstSession {
         prompt: prompt.to_string(),
         files: vec![],
         sessions: vec![],
+        github: vec![],
         images: vec![],
     }
 }

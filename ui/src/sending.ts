@@ -14,14 +14,33 @@ export function waitsItsTurn(status: SessionStatus | undefined): boolean {
     return status === "working" || status === "waiting";
 }
 
-/** What a message points the agent at besides its words: files, and sessions to read. */
+/**
+ * What a message points the agent at besides its words: files, sessions to read, and pull
+ * requests and issues of the session's repository, by number.
+ */
 export interface Attached {
     files: string[];
     sessions: number[];
+    github: number[];
 }
 
 /** A message that points at nothing. */
-export const NOTHING_ATTACHED: Attached = { files: [], sessions: [] };
+export const NOTHING_ATTACHED: Attached = { files: [], sessions: [], github: [] };
+
+/**
+ * Has the core read the pull requests and issues `github` of `project`, unless it did a moment
+ * ago, so that the message naming them waits on nothing: the core lists them from what it read.
+ * Nothing is asked for none.
+ */
+export async function githubRead(
+    api: Pick<Api, "projectGithubRead">,
+    project: string | undefined,
+    github: number[],
+): Promise<void> {
+    if (github.length > 0 && project !== undefined) {
+        await api.projectGithubRead(project, github);
+    }
+}
 
 /**
  * Sends a message to a session, or puts it in the session's queue while its agent is busy.
@@ -38,14 +57,14 @@ export async function delivered(
     atOnce = false,
     now = false,
 ): Promise<void> {
-    const { files, sessions } = attached;
+    const { files, sessions, github } = attached;
     if (!waitsItsTurn(status) || atOnce) {
-        await api.sessionSend(id, text, files, sessions);
+        await api.sessionSend(id, text, files, sessions, github);
     } else if (now) {
         // Asked for now: the turn under way is stopped, and it goes ahead of what waits.
-        await api.sessionMessageNow(id, text, files, sessions);
+        await api.sessionMessageNow(id, text, files, sessions, github);
     } else {
-        await api.sessionEnqueue(id, text, files, sessions);
+        await api.sessionEnqueue(id, text, files, sessions, github);
     }
 }
 

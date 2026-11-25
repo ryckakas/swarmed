@@ -20,6 +20,8 @@ import type {
     FileChange,
     FileDiff,
     FileListing,
+    GitHubItem,
+    GitHubItems,
     HookOutput,
     Issue,
     IssueDetail,
@@ -412,10 +414,18 @@ export interface Api {
     sessionEvents(id: number): Promise<AgentEvent[]>;
     /**
      * Starts a turn, starting the session's agent first if it is not running. `files` are
-     * listed under the message by their paths, and `sessions` it mentions under the words
-     * before them; one the session cannot read is refused before anything is sent.
+     * listed under the message by their paths, and the `sessions` and the pull requests and
+     * issues (`github`, by number) it mentions under the words before them; a session the
+     * session cannot read, or a number nobody read (`projectGithubRead`), is refused before
+     * anything is sent.
      */
-    sessionSend(id: number, text: string, files?: string[], sessions?: number[]): Promise<void>;
+    sessionSend(
+        id: number,
+        text: string,
+        files?: string[],
+        sessions?: number[],
+        github?: number[],
+    ): Promise<void>;
     /**
      * The sessions session `id` can mention with `@`: those its agent can read, those of its
      * own task first, then the latest at work.
@@ -423,6 +433,18 @@ export interface Api {
     sessionReachable(id: number): Promise<Reachable[]>;
     /** The sessions a new task's first message in `project` can mention, the latest at work first. */
     projectReachable(project: string): Promise<Reachable[]>;
+    /**
+     * What `#` offers in a repository for `query`, through the user's `gh`: with nothing typed
+     * its latest changed pull requests and issues, for a number that one, for words those
+     * GitHub's search finds; or why there are none. Kept by the core, so that a message
+     * mentioning one goes without asking again.
+     */
+    projectGithubItems(project: string, query: string): Promise<GitHubItems>;
+    /**
+     * Reads the pull requests and issues `numbers` of a repository unless they were read a
+     * moment ago: asked before a message mentioning them is sent, which then waits on nothing.
+     */
+    projectGithubRead(project: string, numbers: number[]): Promise<GitHubItem[]>;
     /**
      * Keeps images pasted into a message to the session, each in base64, as files of the
      * session's own, and resolves to their paths, to attach to the message like any file.
@@ -446,6 +468,7 @@ export interface Api {
         text: string,
         files?: string[],
         sessions?: number[],
+        github?: number[],
     ): Promise<void>;
     /** The messages waiting for the session's agent to finish, first to be sent first. */
     sessionQueue(id: number): Promise<QueuedMessage[]>;
@@ -458,6 +481,7 @@ export interface Api {
         text: string,
         files?: string[],
         sessions?: number[],
+        github?: number[],
     ): Promise<QueuedMessage[]>;
     /**
      * Rewrites a waiting message, with its files and the sessions it mentions listed under it
@@ -469,6 +493,7 @@ export interface Api {
         text: string,
         files?: string[],
         sessions?: number[],
+        github?: number[],
     ): Promise<QueuedMessage[]>;
     /**
      * Holds a waiting message while it is edited, or renews the hold: while the first one is

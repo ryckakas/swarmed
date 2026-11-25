@@ -373,6 +373,37 @@ mention shows as a chip with the session's current title; pressing it opens that
 editing a waiting message bring it back as a token. On the command line,
 `swarmed session send 7 "..." --session 42` does the same.
 
+### Mentioning a pull request or an issue
+
+Type `#` at the start of a word in a repository's message box to point the agent at one of its
+pull requests or issues. Swarmed asks your `gh` in the repository for the 30 latest changed of
+each, open or not, once each time the list opens; digits narrow it by number, and words narrow
+it by title or branch. What the list does not hold, an older number or other words, is asked of
+GitHub's search once you stop typing. Without `gh`, or in a repository that is not on GitHub, the
+list says why and offers nothing; a chat has no repository and no list. The one you pick stands
+in the box as one token, `[#142 Fix the login form]`. Escape, or a `#` you pick nothing after,
+such as a heading or a number typed by hand, leaves the text as typed: only what you pick is
+listed.
+
+Under your words, and under the sessions it mentions, Swarmed lists each one by kind, number,
+title, state, branches and address, so that the agent knows which repository's it is and can read
+more with `gh pr view` or `gh issue view`:
+
+```
+Pull requests and issues mentioned, to read with gh:
+- pull request #142 ("Fix the login form", open, fix-login into main): https://github.com/o/r/pull/142
+- issue #12 ("Login loops", closed): https://github.com/o/r/issues/12
+```
+
+Sending asks GitHub nothing: the list is written from what the menu read, or from what was read
+in the minute before, and anything older is read again first. A message that waits in the queue
+goes with each one's state as it is when it is sent, not when you typed it: while it waits,
+Swarmed reads what it names again every 30 seconds, and writes the list again as it goes. In the
+transcript each shows as a chip coloured by that state; pressing it opens it on GitHub. ↑ and
+editing a waiting message bring it back as a token. On the command line,
+`swarmed session send 7 "..." --pull 142 --issue 12` does the same, and `swarmed pr list <repo>`
+lists what `#` offers, with a number or words after it as the list takes them.
+
 Every agent is also told that it works in its task's own worktree and is to keep the work on the
 task's branch: to make no other branch, worktree or clone, and to ask you for a new task when
 something needs a branch of its own. A chat's agent is told instead that it has no repository,

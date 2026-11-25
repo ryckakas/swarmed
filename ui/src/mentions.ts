@@ -9,6 +9,7 @@
 //
 // The pattern is meant for more than sessions: a menu opened by a sign typed at a word's start,
 // a token that names one thing by its number, a list under the message, and reading it back.
+// `#` for a pull request or an issue is built on it (`githubMentions.ts`).
 
 import type { Reachable } from "./api/types";
 
@@ -76,17 +77,19 @@ export function mentionSpans(text: string): { start: number; end: number }[] {
 }
 
 /**
- * What has been typed of a mention with the caret at `caret`: from an `@` at the start of the
- * box or of a word, up to the caret, on one line. `null` when the caret is not in one: an `@`
- * inside a word, such as an address, starts none, and neither does one with a space right
- * after it. Words with spaces between them are read, since titles have them.
+ * What has been typed of a mention with the caret at `caret`: from its `sign` (`@` for a
+ * session, `#` for a pull request or issue) at the start of the box or of a word, up to the
+ * caret, on one line. `null` when the caret is not in one: a sign inside a word, such as an
+ * address, starts none, and neither does one with a space right after it, such as a heading.
+ * Words with spaces between them are read, since titles have them.
  */
 export function mentionQuery(
     value: string,
     caret: number,
+    sign: "@" | "#" = "@",
 ): { start: number; query: string } | null {
     const before = value.slice(0, caret);
-    const start = before.lastIndexOf("@");
+    const start = before.lastIndexOf(sign);
     if (start === -1) {
         return null;
     }
@@ -139,6 +142,20 @@ export function fromManyRepositories(sessions: Reachable[]): boolean {
 }
 
 /**
+ * Which list a mention being typed with the caret at `caret` opens: the one whose sign stands
+ * nearer the caret, so that a session's title with a `#` in it, or words after a `#`, never
+ * open both. `null` where neither is being typed.
+ */
+export function signAt(value: string, caret: number): "@" | "#" | null {
+    const session = mentionQuery(value, caret, "@")?.start ?? -1;
+    const github = mentionQuery(value, caret, "#")?.start ?? -1;
+    if (session === -1 && github === -1) {
+        return null;
+    }
+    return session > github ? "@" : "#";
+}
+
+/**
  * `value` with the token for `session` in place of what was typed of it, from the `@` at
  * `start` to `caret`, and a space after it; and where the caret goes, after that space.
  */
@@ -148,7 +165,14 @@ export function withMention(
     caret: number,
     session: { id: number; title: string },
 ) {
-    const token = mentionToken(session.id, session.title);
+    return placeToken(value, start, caret, mentionToken(session.id, session.title));
+}
+
+/**
+ * `value` with `token` in place of what was typed from `start` to `caret`, and a space after it;
+ * and where the caret goes, after that space.
+ */
+export function placeToken(value: string, start: number, caret: number, token: string) {
     const after = value.slice(caret);
     const space = after.startsWith(" ") ? "" : " ";
     return {
@@ -231,41 +255,18 @@ export function mentionsAgain(message: string): string {
 }
 
 /**
- * `text` with each token as the words of its title, or `session 42` where it shows none: what a
- * task or a session is named after, as the core names a session after its first message.
+ * `text` with each token, a session's or a pull request's or issue's, as the words of its title,
+ * or `session 42` and `#142` where it shows none: what a task or a session is named after, as the
+ * core names a session after its first message.
  */
 export function mentionsAsWords(text: string): string {
-    return text.replace(TOKEN, (_token, id: string, shown?: string) =>
-        shown?.trim() ? shown.trim() : `session ${id}`,
-    );
-}
-
-/** A piece of what the user wrote: words, or a session it names. */
-export type MentionPiece = string | Mentioned;
-
-/**
- * `text` in pieces: the tokens of the sessions `listed` under the message as sessions, the
- * rest as it was typed. A token the list does not name was not checked by the core, and stays
- * words.
- */
-export function mentionPieces(text: string, listed: Mentioned[]): MentionPiece[] {
-    const pieces: MentionPiece[] = [];
-    let from = 0;
-    for (const match of text.matchAll(TOKEN)) {
-        const session = listed.find((one) => one.id === Number(match[1]));
-        if (!session) {
-            continue;
+    const anyToken = /\[([@#])(\d+)(?: ([^\]\n]*))?\]/g;
+    return text.replace(anyToken, (_token, sign: string, id: string, shown?: string) => {
+        if (shown?.trim()) {
+            return shown.trim();
         }
-        if (match.index > from) {
-            pieces.push(text.slice(from, match.index));
-        }
-        pieces.push({ id: session.id, title: match[2] ?? session.title });
-        from = match.index + match[0].length;
-    }
-    if (from < text.length) {
-        pieces.push(text.slice(from));
-    }
-    return pieces;
+        return sign === "#" ? `#${id}` : `session ${id}`;
+    });
 }
 
 /** The sessions listed under a message that no token in its words names: shown apart. */

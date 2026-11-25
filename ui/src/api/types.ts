@@ -162,6 +162,8 @@ export interface TaskStart {
     files: string[];
     /** The sessions the prompt mentions, by id: each one the new session could read. */
     sessions: number[];
+    /** The pull requests and issues of the repository the prompt mentions, by number: each read first. */
+    github: number[];
     /** Images pasted into the prompt, each in base64: the session's own once it is made. */
     images: string[];
     /** The number of the repository's GitHub issue the task is for, which it records. */
@@ -741,6 +743,35 @@ export interface Reachable {
     /** Whether it works in the same task as the session that would point at it. */
     same_task: boolean;
     status: SessionStatus;
+}
+
+/** Whether a numbered thing on GitHub is a pull request or an issue: they share one count. */
+export type GitHubKind = "pull" | "issue";
+
+/** Where a pull request or an issue stands; only a pull request is a draft or merged. */
+export type GitHubState = "open" | "draft" | "merged" | "closed";
+
+/** A pull request or an issue of a repository, as the `#` menu offers it and a message names it. */
+export interface GitHubItem {
+    kind: GitHubKind;
+    number: number;
+    title: string;
+    state: GitHubState;
+    /** Where it is on GitHub, which also says the repository. */
+    url: string;
+    /** A pull request's branch and the one it goes into; `null` for an issue. */
+    head: string | null;
+    base: string | null;
+    /** When it last changed, as GitHub writes it. */
+    updated_at: string;
+}
+
+/** What the `#` menu offers, or why it offers nothing. */
+export interface GitHubItems {
+    /** The latest changed first. */
+    items: GitHubItem[];
+    /** Why there are none: no `gh`, not on GitHub, no sign-in, no such number, in `gh`'s words. */
+    unavailable: string | null;
 }
 
 /** A set of instructions for one kind of task, kept by an agent or by Swarmed itself. */

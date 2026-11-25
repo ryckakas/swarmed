@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { Reachable } from "../api/types";
 import {
@@ -9,8 +9,8 @@ import {
     placeOf,
     withMention,
 } from "../mentions";
-import { stepActive } from "../slash";
 import { useStore } from "../store";
+import { usePicking } from "../usePicking";
 
 /**
  * Where `@` finds the sessions to mention: those a session's agent can read, or, in the
@@ -59,8 +59,9 @@ function useReachable(from: MentionFrom | undefined, open: boolean): Reachable[]
 
 /**
  * The list of sessions to mention for an `@` being typed in a box holding `value` with the
- * caret at `caret`, or `null` where it is not known: which to show, which one the arrows are on, and the keys the list takes
- * for itself while it is open. `onChange` is given the box's new text and where its caret goes.
+ * caret at `caret`, or `null` where it is not known or another list has the caret: which to
+ * show, which one the arrows are on, and the keys the list takes for itself while it is open.
+ * `onChange` is given the box's new text and where its caret goes.
  */
 export function useMentionMenu(
     value: string,
@@ -68,49 +69,26 @@ export function useMentionMenu(
     from: MentionFrom | undefined,
     onChange: (value: string, select: [number, number]) => void,
 ) {
-    const [active, setActive] = useState(0);
-    // The text Esc was pressed on; the list stays away until the text changes.
-    const [dismissed, setDismissed] = useState<string | null>(null);
-    const listing = from !== undefined && caret !== null && dismissed !== value;
+    const picking = usePicking(value);
+    const listing = from !== undefined && caret !== null && !picking.away;
     const typed = listing ? mentionQuery(value, caret) : null;
     const sessions = useReachable(from, typed !== null) ?? [];
     const query = typed?.query ?? "";
     const inTask = from !== undefined && "session" in from;
     const matches = typed ? mentionMatches(sessions, query, inTask) : [];
     const hint = typed !== null && moreToFind(sessions, matches, query);
-    const current = Math.min(active, Math.max(matches.length - 1, 0));
     const choose = (session: Reachable) => {
         if (!typed) {
             return;
         }
-        setActive(0);
+        picking.restart();
         const end = typed.start + 1 + typed.query.length;
         const placed = withMention(value, typed.start, end, session);
         onChange(placed.value, [placed.caret, placed.caret]);
     };
-
-    /** Handles the key if the list is open and it is one of the list's; says whether it did. */
-    const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): boolean => {
-        if (event.nativeEvent.isComposing || event.shiftKey || !(matches.length > 0 || hint)) {
-            return false;
-        }
-        const chosen = matches[current];
-        const actions = new Map<string, () => void>([["Escape", () => setDismissed(value)]]);
-        if (chosen) {
-            actions.set("ArrowDown", () => setActive(stepActive(current, 1, matches.length)));
-            actions.set("ArrowUp", () => setActive(stepActive(current, -1, matches.length)));
-            actions.set("Enter", () => choose(chosen));
-            actions.set("Tab", () => choose(chosen));
-        }
-        const action = actions.get(event.key);
-        if (!action) {
-            return false;
-        }
-        event.preventDefault();
-        action();
-        return true;
-    };
-    return { matches, active: current, hint, choose, onKeyDown, all: sessions };
+    const onKeyDown = picking.keysFor(matches, hint, choose);
+    const active = picking.activeOf(matches.length);
+    return { matches, active, hint, choose, onKeyDown, all: sessions };
 }
 
 interface MenuProps {

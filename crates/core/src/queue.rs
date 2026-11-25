@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::{AgentCommand, AgentEvent, Auth};
 use crate::error::{Error, Result};
+use crate::github_mentions::{addresses_in, fresh_list};
 use crate::paths::Paths;
 use crate::sessions::{Live, Told, is_busy_status, send_text, skill_called};
 use crate::store::Store;
@@ -94,6 +95,20 @@ impl Queues {
             .get(&session)
             .cloned()
             .unwrap_or_default()
+    }
+
+    /// The addresses of the pull requests and issues the waiting messages of every session
+    /// mention, each once.
+    pub(crate) fn addresses_waiting(&self) -> Vec<String> {
+        let waiting = lock(&self.waiting);
+        let mut addresses: Vec<String> = waiting
+            .values()
+            .flatten()
+            .flat_map(|message| addresses_in(&message.text))
+            .collect();
+        addresses.sort();
+        addresses.dedup();
+        addresses
     }
 
     /// Whether a message is waiting to be sent to the session.
@@ -418,13 +433,9 @@ pub(crate) fn send_next(outbox: &Outbox, session: i64) -> Result<()> {
     // Whatever was owed is being sent now.
     live.queues.settle(session);
     let with = (&*outbox.terminals, &outbox.paths);
-    let sent = send_text(
-        store,
-        live,
-        with,
-        session,
-        (&message.text, message.at_reset),
-    );
+    // The pull requests and issues it mentions as they are now, not as when it was typed.
+    let text = fresh_list(&message.text, &live.github);
+    let sent = send_text(store, live, with, session, (&text, message.at_reset));
     if sent.is_err() {
         live.queues.put_back(session, message);
     } else {
@@ -492,6 +503,7 @@ impl Core {
     pub(crate) fn keep_for_setup(&self, task: i64, id: i64, text: &str) -> Result<()> {
         self.live.queues.keep(&self.store, id, text)?;
         self.live.queues.hold_too(task, id);
+        self.github_follow_waiting();
         publish(&self.store, &self.live, id)
     }
 
@@ -513,6 +525,7 @@ impl Core {
             return Ok(());
         }
         if self.live.queues.keep_again(&self.store, id)? {
+            self.github_follow_waiting();
             publish(&self.store, &self.live, id)?;
         }
         Ok(())
@@ -527,6 +540,7 @@ impl Core {
         }
         self.live.queues.push(id, text);
         self.queued_for(id);
+        self.github_follow_waiting();
         self.queue_changed(id)
     }
 
@@ -547,6 +561,7 @@ impl Core {
             self.live
                 .queues
                 .kept_edited(&self.store, id, message, text)?;
+            self.github_follow_waiting();
         }
         self.live.queues.let_go(id, message);
         send_owed(&self.outbox(), id).ok();
@@ -657,12 +672,14 @@ impl Core {
         let Some(taken) = self.live.queues.take(id, message) else {
             return Ok(());
         };
+        // The pull requests and issues it mentions as they are now, as when it is sent.
+        let text = fresh_list(&taken.text, &self.live.github);
         // A skill the agent would not know by name is told as what it says, like any message
         // that calls one; what is recorded is what was typed.
-        let called = skill_called(&self.store, &self.paths, id, &taken.text);
+        let called = skill_called(&self.store, &self.paths, id, &text);
         let message = Told {
-            sent: called.unwrap_or_else(|| taken.text.clone()),
-            typed: taken.text.clone(),
+            sent: called.unwrap_or_else(|| text.clone()),
+            typed: text,
         };
         let told = self.live.tell(id, message);
         if told.is_err() {

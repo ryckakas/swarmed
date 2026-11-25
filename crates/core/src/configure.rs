@@ -231,7 +231,7 @@ fn rule_lines(rules: &str) -> Vec<&str> {
 
 impl Core {
     /// The repository that session `from` works in.
-    fn project_of_session(&self, from: i64) -> Result<Project> {
+    pub(crate) fn project_of_session(&self, from: i64) -> Result<Project> {
         let session = self.session(from)?;
         let task = self
             .store()

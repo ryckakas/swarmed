@@ -11,20 +11,32 @@ import {
     withDraft,
 } from "./sending";
 
-/** What a message points at, as a note: its files, then `@` and each session it mentions. */
-function pointed(files: string[] = [], sessions: number[] = []): string {
-    return [...files, ...sessions.map((id) => `@${id}`)].join(",");
+/** What a message points at, as a note: its files, then `@` and each session, `#` and each number. */
+function pointed(files: string[] = [], sessions: number[] = [], github: number[] = []): string {
+    return [...files, ...sessions.map((id) => `@${id}`), ...github.map((n) => `#${n}`)].join(",");
 }
 
 /** An `Api` that only notes how each message was handed over. */
 function noting() {
     const calls: string[] = [];
     const api = {
-        sessionSend: async (id: number, text: string, files?: string[], sessions?: number[]) => {
-            calls.push(`send ${id} ${text} ${pointed(files, sessions)}`);
+        sessionSend: async (
+            id: number,
+            text: string,
+            files?: string[],
+            sessions?: number[],
+            github?: number[],
+        ) => {
+            calls.push(`send ${id} ${text} ${pointed(files, sessions, github)}`);
         },
-        sessionEnqueue: async (id: number, text: string, files?: string[], sessions?: number[]) => {
-            calls.push(`queue ${id} ${text} ${pointed(files, sessions)}`);
+        sessionEnqueue: async (
+            id: number,
+            text: string,
+            files?: string[],
+            sessions?: number[],
+            github?: number[],
+        ) => {
+            calls.push(`queue ${id} ${text} ${pointed(files, sessions, github)}`);
             return [];
         },
         sessionMessageNow: async (
@@ -32,8 +44,9 @@ function noting() {
             text: string,
             files?: string[],
             sessions?: number[],
+            github?: number[],
         ) => {
-            calls.push(`now ${id} ${text} ${pointed(files, sessions)}`);
+            calls.push(`now ${id} ${text} ${pointed(files, sessions, github)}`);
         },
     };
     return { api, calls };
@@ -43,8 +56,9 @@ describe("delivered", () => {
     it("queues for an agent that is working or waiting for an answer", async () => {
         const { api, calls } = noting();
         await delivered(api, "working", 1, "fix it");
-        await delivered(api, "waiting", 1, "and this", { files: ["/a.txt"], sessions: [4] });
-        expect(calls).toEqual(["queue 1 fix it ", "queue 1 and this /a.txt,@4"]);
+        const attached = { files: ["/a.txt"], sessions: [4], github: [142] };
+        await delivered(api, "waiting", 1, "and this", attached);
+        expect(calls).toEqual(["queue 1 fix it ", "queue 1 and this /a.txt,@4,#142"]);
     });
 
     it("sends to one that is idle, stopped with an error, or not known", async () => {
@@ -82,7 +96,7 @@ describe("delivered at once", () => {
 describe("delivered now", () => {
     it("stops a busy agent's turn and sends ahead of what waits, and sends as Enter does to an idle one", async () => {
         const { api, calls } = noting();
-        const attached = { files: ["/a.txt"], sessions: [] };
+        const attached = { files: ["/a.txt"], sessions: [], github: [] };
         await delivered(api, "working", 1, "this instead", attached, false, true);
         await delivered(api, "idle", 1, "hello", NOTHING_ATTACHED, false, true);
         // A command Swarmed does itself goes at once in any case.

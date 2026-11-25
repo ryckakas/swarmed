@@ -4564,6 +4564,32 @@ code {
     cursor: default;
 }
 
+/*
+ * A pull request's or issue's number, in the menu and on its chip, in the colour of its state as
+ * the sidebar's badges draw it: open in moss, merged in lilac, a draft and a closed one faint.
+ */
+.github-number {
+    margin-right: var(--space-1);
+    color: var(--faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.github-number[data-state="open"] {
+    color: var(--moss);
+}
+
+.github-number[data-state="merged"] {
+    color: var(--lilac);
+}
+
+.github-chip .github-number {
+    margin-right: 0;
+}
+
+.github-chip[data-state="closed"] {
+    border-style: dashed;
+}
+
 /* Sessions a message mentions that its words do not name, as on the command line: under it. */
 .mention-chips {
     display: flex;

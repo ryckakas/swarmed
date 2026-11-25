@@ -15,11 +15,11 @@ use swarmed_core::{
     AccountUsage, Action, AgentInfo, AgentSetup, ApiKeyInfo, Attached, BackgroundOutput,
     BackgroundTask, BranchChoices, Cleaned, Cleanup, CleanupKind, CloudOrigin, CloudProvider,
     CloudTask, Core, Costs, CustomLayout, Environment, EnvironmentChoice, FileChange, FileDiff,
-    FileListing, FirstSession, Issue, IssueDetail, IssueFilter, IssueList, McpServerInput,
-    McpServerView, MergeMethod, MergeReport, MergeRules, MergeWhen, NewTaskOptions, Project,
-    ProjectOverview, Pull, PullDraft, QueuedMessage, Reachable, RemoveOptions, SearchHit, Session,
-    SessionOptions, SessionSettings, Settings, SetupLog, Skill, SlashCommand, Snapshot, Task,
-    TaskNaming, TaskStarted, Template, TerminalConfig, TerminalOpened, Turn, TurnChanges,
+    FileListing, FirstSession, GitHubItem, GitHubItems, Issue, IssueDetail, IssueFilter, IssueList,
+    McpServerInput, McpServerView, MergeMethod, MergeReport, MergeRules, MergeWhen, NewTaskOptions,
+    Project, ProjectOverview, Pull, PullDraft, QueuedMessage, Reachable, RemoveOptions, SearchHit,
+    Session, SessionOptions, SessionSettings, Settings, SetupLog, Skill, SlashCommand, Snapshot,
+    Task, TaskNaming, TaskStarted, Template, TerminalConfig, TerminalOpened, Turn, TurnChanges,
     TurnStats, Unpublished, Usage, hooks,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
@@ -248,6 +248,9 @@ pub(crate) struct Start {
     /// The sessions the prompt mentions, by id.
     #[serde(default)]
     sessions: Vec<i64>,
+    /// The pull requests and issues the prompt mentions, by number.
+    #[serde(default)]
+    github: Vec<u64>,
     /// The number of the repository's GitHub issue the task is started for, if any.
     #[serde(default)]
     issue: Option<u64>,
@@ -283,6 +286,7 @@ pub(crate) async fn task_start<R: Runtime>(
         prompt: start.prompt,
         files: start.files,
         sessions: start.sessions,
+        github: start.github,
         images: start.images,
     };
     let sink = hook_sink(&app, &project, &name);
@@ -1107,18 +1111,46 @@ pub(crate) async fn session_send(
     text: String,
     files: Option<Vec<PathBuf>>,
     sessions: Option<Vec<i64>>,
+    github: Option<Vec<u64>>,
 ) -> Command<()> {
-    let attached = attached(files, sessions);
+    let attached = attached(files, sessions, github);
     Ok(core.session_message(id, &text, &attached, Auth::default())?)
 }
 
 /// What a message points the agent at besides its words, as the window sends it: the files
-/// attached and the sessions mentioned, either left out for none.
-fn attached(files: Option<Vec<PathBuf>>, sessions: Option<Vec<i64>>) -> Attached {
+/// attached, the sessions mentioned and the pull requests and issues, any left out for none.
+fn attached(
+    files: Option<Vec<PathBuf>>,
+    sessions: Option<Vec<i64>>,
+    github: Option<Vec<u64>>,
+) -> Attached {
     Attached {
         files: files.unwrap_or_default(),
         sessions: sessions.unwrap_or_default(),
+        github: github.unwrap_or_default(),
     }
+}
+
+/// What the `#` menu offers for `query` in a repository: its latest pull requests and issues,
+/// one by number, or those words find, through the user's `gh`; or why there are none.
+#[tauri::command]
+pub(crate) async fn project_github_items(
+    core: CoreState<'_>,
+    project: String,
+    query: String,
+) -> Command<GitHubItems> {
+    Ok(core.project_github_items(&project, &query).await?)
+}
+
+/// The pull requests and issues `numbers` of a repository, read now unless they were a moment
+/// ago: what a message mentioning them is sent with.
+#[tauri::command]
+pub(crate) async fn project_github_read(
+    core: CoreState<'_>,
+    project: String,
+    numbers: Vec<u64>,
+) -> Command<Vec<GitHubItem>> {
+    Ok(core.project_github_read(&project, &numbers).await?)
 }
 
 /// The sessions a session can mention with `@`: those its agent can read, its own task's
@@ -1179,8 +1211,9 @@ pub(crate) async fn session_message_now(
     text: String,
     files: Option<Vec<PathBuf>>,
     sessions: Option<Vec<i64>>,
+    github: Option<Vec<u64>>,
 ) -> Command<()> {
-    let attached = attached(files, sessions);
+    let attached = attached(files, sessions, github);
     Ok(core.session_message_now(id, &text, &attached, Auth::default())?)
 }
 
@@ -1196,8 +1229,9 @@ pub(crate) fn session_enqueue(
     text: String,
     files: Option<Vec<PathBuf>>,
     sessions: Option<Vec<i64>>,
+    github: Option<Vec<u64>>,
 ) -> Command<Vec<QueuedMessage>> {
-    let attached = attached(files, sessions);
+    let attached = attached(files, sessions, github);
     Ok(core.session_enqueue_message(id, &text, &attached)?)
 }
 
@@ -1209,8 +1243,9 @@ pub(crate) fn session_queue_edit(
     text: String,
     files: Option<Vec<PathBuf>>,
     sessions: Option<Vec<i64>>,
+    github: Option<Vec<u64>>,
 ) -> Command<Vec<QueuedMessage>> {
-    let attached = attached(files, sessions);
+    let attached = attached(files, sessions, github);
     Ok(core.session_queue_edit_message(id, message, &text, &attached)?)
 }
 

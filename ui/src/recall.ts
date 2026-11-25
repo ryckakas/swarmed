@@ -2,7 +2,7 @@
 // Pure, so it can be tested.
 
 import type { AgentEvent } from "./api/types";
-import { mentionsAgain } from "./mentions";
+import { typedAgain } from "./githubMentions";
 import type { Draft } from "./sending";
 import { isFromSession, splitFiles } from "./transcript";
 
@@ -46,7 +46,7 @@ export function recallDirection(
 
 /**
  * The messages the user sent to a session, newest first, as they typed them: a skill's call as
- * `/name …`, not what it expanded to, the sessions it mentions as their tokens, and attached
+ * `/name …`, not what it expanded to, what it mentions as tokens, and attached
  * files apart from the text. A message another
  * session left is not the user's and is left out, and the same message sent again right after
  * itself is offered once. So is the first message of a session another one started (`spawned`):
@@ -60,9 +60,9 @@ export function sentMessages(events: AgentEvent[], spawned = false): Draft[] {
             continue;
         }
         // Images pasted into it are files of the session's by now, and come back as such; the
-        // sessions it mentions come back as their tokens.
+        // sessions, pull requests and issues it mentions come back as their tokens.
         const { text, files } = splitFiles(event.text);
-        const message = { text: mentionsAgain(text), files, images: [] };
+        const message = { text: typedAgain(text), files, images: [] };
         const last = sent.at(-1);
         if (!(last && sameDraft(last, message))) {
             sent.push(message);

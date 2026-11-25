@@ -1223,6 +1223,65 @@ fn the_ui_lists_the_sessions_a_message_can_mention_and_sends_them_checked() {
 }
 
 #[test]
+fn the_ui_lists_pull_requests_and_issues_to_mention_and_sends_only_those_read() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+    let how = json!({ "model": null, "supervision": "ask", "effort": null });
+    let new = json!({ "project": "demo", "task": "one", "agent": null, "how": how });
+    let here = app.ok("session_new", new);
+    let id = &here["id"];
+
+    // The test repository has no remote: whether `gh` is installed or not, the menu is offered
+    // nothing and says why, rather than failing.
+    let listed = app.ok(
+        "project_github_items",
+        json!({ "project": "demo", "query": "" }),
+    );
+    assert_eq!(listed["items"], json!([]));
+    assert!(listed["unavailable"].is_string(), "{listed}");
+    let unread = app
+        .invoke(
+            "project_github_read",
+            json!({ "project": "demo", "numbers": [142] }),
+        )
+        .expect_err("nothing on GitHub to read");
+    assert!(
+        unread
+            .to_string()
+            .starts_with("\"#142 cannot be mentioned: "),
+        "{unread}"
+    );
+
+    // A number nobody read is refused by every way a message goes, before anything goes.
+    let refusal = json!("#142 cannot be mentioned: it was not read from GitHub: pick it with #");
+    let message = json!({ "id": id, "text": "see", "files": [], "sessions": [], "github": [142] });
+    for command in ["session_send", "session_message_now", "session_enqueue"] {
+        assert_eq!(
+            app.invoke(command, message.clone()),
+            Err(refusal.clone()),
+            "{command}"
+        );
+    }
+    let start = json!({
+        "branch": null, "environment": null, "agent": null,
+        "how": { "model": null, "supervision": "auto", "effort": null, "fast": false },
+        "title": null, "prompt": "review", "files": [], "sessions": [], "github": [142],
+        "images": [],
+    });
+    let started = app.invoke(
+        "task_start",
+        json!({ "project": "demo", "name": "review", "start": start }),
+    );
+    assert_eq!(started, Err(refusal));
+    // Nothing at all named goes as before.
+    let plain = json!({ "id": id, "text": "hello", "files": [], "sessions": [], "github": [] });
+    app.ok("session_send", plain);
+    app.wait_for_event(id, "user_message");
+}
+
+#[test]
 fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));

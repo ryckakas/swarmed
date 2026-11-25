@@ -3,6 +3,7 @@ import { sendOrQueue } from "../actions";
 import { api } from "../api";
 import type { AgentEvent, Session } from "../api/types";
 import { noteCommandSent } from "../commandSent";
+import { githubIn } from "../githubMentions";
 import { mentionedIn } from "../mentions";
 import { expandTokens, forgetTokens, quoteTokenFor, tokensAgain } from "../pastes";
 import { withQuote } from "../quotes";
@@ -12,6 +13,7 @@ import { goesAtOnce } from "../slash";
 import { appliedEffort } from "../statusline";
 import { useStore } from "../store";
 import { suggestionOf } from "../suggestion";
+import { repositoryOf } from "../tree";
 import { useWords } from "../useWords";
 import { capitalized } from "../wording";
 import { ComposerBox } from "./ComposerBox";
@@ -114,6 +116,8 @@ export function Composer({ session }: { session: Session }) {
     const suggestion = useStore((state) => suggestionOf(state.events[id]));
     const canSend = text.trim() !== "" || files.length > 0 || images.length > 0;
     const hearsMidTurn = useHearsMidTurn(session.agent);
+    // The repository whose pull requests and issues `#` offers; a chat has none.
+    const repository = useStore((state) => repositoryOf(state.projects, session));
     useQuoteInto(id, input);
 
     // Answering a permission request removes the button that had focus. Bring it back here, so
@@ -135,9 +139,11 @@ export function Composer({ session }: { session: Session }) {
         // What was pasted large or quoted goes out in full, in place of the token for it.
         // A busy agent is not interrupted: the message waits its turn, and can still be changed.
         const message = expandTokens(text.trim());
-        // The sessions its tokens name, as typed: not a token that is only words of a paste.
+        // The sessions, pull requests and issues its tokens name, as typed: not a token that is
+        // only words of a paste.
         const sessions = mentionedIn(text);
-        const atOnce = goesAtOnce(message, { ...draft, sessions }, commands);
+        const github = githubIn(text);
+        const atOnce = goesAtOnce(message, { ...draft, sessions, github }, commands);
         if (atOnce) {
             noteCommandSent(id);
         }
@@ -146,7 +152,8 @@ export function Composer({ session }: { session: Session }) {
             .then((attached) => {
                 // Kept now: a message that comes back has them as files, not to be kept twice.
                 unsent = { ...draft, files: attached, images: [] };
-                return sendOrQueue(id, message, { files: attached, sessions }, atOnce, now);
+                const going = { files: attached, sessions, github };
+                return sendOrQueue(id, message, going, atOnce, now);
             })
             // Pastes and quotes are only forgotten once they are sent: a message that comes
             // back still has their tokens in it.
@@ -184,6 +191,7 @@ export function Composer({ session }: { session: Session }) {
                         commands={commands}
                         onRecall={recalling.recall}
                         mentionFrom={{ session: id }}
+                        githubFrom={repository}
                     >
                         <SessionPickers session={session} />
                         <button

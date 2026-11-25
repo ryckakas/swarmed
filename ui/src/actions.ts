@@ -8,7 +8,7 @@ import {
     pinTarget,
     targetOf,
 } from "./ordering";
-import { type Attached, delivered, NOTHING_ATTACHED } from "./sending";
+import { type Attached, delivered, githubRead, NOTHING_ATTACHED } from "./sending";
 import { standing } from "./setup";
 import { useStore } from "./store";
 import { messageNumber } from "./transcript";
@@ -23,7 +23,7 @@ import { findSession, findSessionHome } from "./tree";
  * Swarmed does itself. With `now` the turn under way is stopped and the message goes ahead of
  * what waits. Rejects if the message could not be handed over.
  */
-export function sendOrQueue(
+export async function sendOrQueue(
     id: number,
     text: string,
     attached: Attached = NOTHING_ATTACHED,
@@ -32,9 +32,11 @@ export function sendOrQueue(
 ): Promise<void> {
     const { projects } = useStore.getState();
     const session = findSession(projects, id);
-    const task = session && findSessionHome(projects, session)?.task;
+    const home = session && findSessionHome(projects, session);
+    // The pull requests and issues it names are read first, so that sending waits on nothing.
+    await githubRead(api, home?.project.name, attached.github);
     // While its task is set up, a session waits as a busy one does: what is typed goes after.
-    return delivered(api, standing(session?.status, task), id, text, attached, atOnce, now);
+    return delivered(api, standing(session?.status, home?.task), id, text, attached, atOnce, now);
 }
 
 /** Moves a row of the sidebar `by` places among its siblings, then reads the tree again. */

@@ -31,6 +31,15 @@ notice adds its line under Unreleased.
   cannot read is refused before anything is sent. A sent mention shows as a chip that opens the
   session, and `swarmed session send --session <id>` does the same from the terminal; see
   [Mentioning another session](docs/coding-agents.md#mentioning-another-session).
+- **Mention a pull request or an issue with `#`.** Type `#` in a repository's message box to
+  pick one of its pull requests or issues: the list shows the latest changed, digits narrow it
+  by number and words search GitHub. The agent is given each one's number, title, state,
+  branches and address, to read more with `gh`. A message waiting in the queue goes with each
+  one's state as it is when it is sent. A sent mention shows as a chip coloured by its state
+  that opens it on GitHub; `#` with nothing picked stays text. From the terminal,
+  `swarmed session send --pull <n>` and `--issue <n>` do the same, and `swarmed pr list` lists
+  what `#` offers; see
+  [Mentioning a pull request or an issue](docs/coding-agents.md#mentioning-a-pull-request-or-an-issue).
 
 ## [0.4.4] - 2026-11-25
 
