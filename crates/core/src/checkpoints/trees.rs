@@ -6,6 +6,7 @@
 //! a copy of the worktree's, whose stat cache spares hashing what did not change. No ref, no
 //! object and no index of the repository's is written.
 
+use std::collections::BTreeSet;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Output, Stdio};
@@ -78,9 +79,9 @@ pub(crate) fn take(worktree: &Path, store: &Path) -> Result<Taken> {
 
 /// Takes the worktree back to tree `to`, a checkpoint of it: what differs from it is written as
 /// it is there, and what it has not got is deleted. What git ignores, and untracked files too
-/// large to keep, are neither written nor deleted: one in the way of a file of `to` makes git
-/// refuse the whole before anything is changed, as it does with what is not committed when it
-/// switches branches. The worktree as it was is taken first and returned, so that it can be
+/// large to keep, are neither written nor deleted: one in the way of a file of `to` refuses the
+/// whole before anything is changed ([`nothing_in_the_way`]), since it is in no tree and could
+/// not be put back. The worktree as it was is taken first and returned, so that it can be
 /// put back. With `only_from`, nothing is done unless the worktree is at that tree now: one
 /// that changed since would lose what changed. Refused in the middle of a rebase or a merge.
 pub(crate) fn restore(
@@ -101,6 +102,7 @@ pub(crate) fn restore(
                 .to_string(),
         ));
     }
+    nothing_in_the_way(&taking.git, &was.tree, to)?;
     // Submodules are left as they are: what is in them is no part of a checkpoint.
     let config = [("submodule.recurse", "false")];
     taking.git.config.extend(
@@ -118,6 +120,51 @@ pub(crate) fn restore(
             other => other,
         })?;
     Ok(was)
+}
+
+/// Refuses if something on disk that tree `was`, the worktree as taken, has not got lies where
+/// going to tree `to` would write: a file git ignores, or an untracked one too large to keep.
+/// Git itself refuses only for the latter, and writes over what it ignores without a word.
+fn nothing_in_the_way(git: &Git<'_>, was: &str, to: &str) -> Result<()> {
+    let kinds = git.text(&["diff", "--no-renames", "--name-status", "-z", was, to])?;
+    let on_disk = |path: &str| {
+        let found = std::fs::symlink_metadata(git.worktree.join(path)).ok()?;
+        Some(found.is_dir())
+    };
+    match in_the_way(&kinds, on_disk) {
+        Some(path) => Err(Error::Rewind(format!(
+            "{path} is in the way of a file that would come back, and is not kept in any \
+             checkpoint (git ignores it, or it is too large): move it away first"
+        ))),
+        None => Ok(()),
+    }
+}
+
+/// The first path that `kinds`, git's `--name-status -z` from one tree to another, adds where
+/// something is on disk already. `on_disk` says of a path whether it is there, and a folder.
+fn in_the_way(kinds: &str, on_disk: impl Fn(&str) -> Option<bool>) -> Option<String> {
+    let mut parts = nul_separated(kinds);
+    let (mut added, mut gone) = (vec![], BTreeSet::new());
+    while let (Some(kind), Some(path)) = (parts.next(), parts.next()) {
+        match kind {
+            "A" => added.push(path),
+            "D" => drop(gone.insert(path.to_lowercase())),
+            _ => {}
+        }
+    }
+    let blocked = |path: &&str| {
+        // The same name in another case is the same file where the file system tells no
+        // case apart: it is in the first tree, and goes with it.
+        if gone.contains(&path.to_lowercase()) {
+            return false;
+        }
+        // A file where a folder of the path has to be, unless the first tree has it.
+        let folders = path.match_indices('/').map(|(at, _)| &path[..at]);
+        let file_above =
+            |folder: &str| on_disk(folder) == Some(false) && !gone.contains(&folder.to_lowercase());
+        on_disk(path).is_some() || { folders }.any(file_above)
+    };
+    added.into_iter().find(blocked).map(str::to_string)
 }
 
 /// Refuses while git is in the middle of something in the worktree, which its files must not
@@ -609,6 +656,34 @@ fn wait_until(child: &mut Child, deadline: Instant) -> Result<ExitStatus> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn what_is_on_disk_where_a_file_would_come_back_is_in_the_way() {
+        let kinds = "A\0.env\0M\0notes.txt\0D\0old.txt\0A\0src/new/a.rs\0";
+        let nothing = |_: &str| None;
+        assert_eq!(in_the_way(kinds, nothing), None);
+        // A file there already, which the tree taken has not got.
+        let env = |path: &str| (path == ".env").then_some(false);
+        assert_eq!(in_the_way(kinds, env), Some(".env".to_string()));
+        // A folder there is none: the file goes into it. A file where a folder has to be is.
+        let folder = |path: &str| (path == "src").then_some(true);
+        assert_eq!(in_the_way(kinds, folder), None);
+        let file = |path: &str| (path == "src").then_some(false);
+        assert_eq!(in_the_way(kinds, file), Some("src/new/a.rs".to_string()));
+        // What is modified or deleted is in the tree taken, and so kept.
+        let known = |path: &str| ["notes.txt", "old.txt"].contains(&path).then_some(false);
+        assert_eq!(in_the_way(kinds, known), None);
+    }
+
+    #[test]
+    fn a_file_that_gives_way_to_what_comes_back_is_not_in_the_way() {
+        // A file that becomes a folder.
+        let file = |path: &str| (path == "docs").then_some(false);
+        assert_eq!(in_the_way("D\0docs\0A\0docs/a.md\0", file), None);
+        // A name whose case changed, where both names find the one file.
+        let there = |_: &str| Some(false);
+        assert_eq!(in_the_way("D\0Readme.md\0A\0README.md\0", there), None);
+    }
 
     #[test]
     fn the_filters_set_up_are_named_once_each() {

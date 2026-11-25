@@ -204,6 +204,44 @@ async fn the_files_go_back_to_before_the_message_and_can_be_put_back() {
     ));
 }
 
+#[tokio::test]
+async fn an_ignored_file_in_the_way_is_never_written_over() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    let task = task(&core).await;
+    let worktree = &task.worktree_path;
+    let mut bus = core.subscribe();
+    let id = started(&core);
+    // Both are in the checkpoint before the second message, then deleted, ignored and made
+    // again by the user: a file, and a folder where a file was.
+    say(&core, &mut bus, id, "write: .env = made up").await;
+    say(&core, &mut bus, id, "write: build = a file").await;
+    say(&core, &mut bus, id, "write: notes.txt = later").await;
+    std::fs::write(fx.repo.join(".git/info/exclude"), ".env\nbuild\n").expect("test setup");
+    std::fs::write(worktree.join(".env"), "the user's own\n").expect("writes");
+
+    refused_for(core.session_rewind(id, 2, true).await, ".env is in the way");
+    assert_eq!(read(worktree, ".env").as_deref(), Some("the user's own\n"));
+    assert_eq!(read(worktree, "notes.txt").as_deref(), Some("later\n"));
+
+    std::fs::remove_file(worktree.join(".env")).expect("removes");
+    std::fs::remove_file(worktree.join("build")).expect("removes");
+    std::fs::create_dir(worktree.join("build")).expect("creates");
+    std::fs::write(worktree.join("build/out.o"), "built\n").expect("writes");
+    refused_for(
+        core.session_rewind(id, 2, true).await,
+        "build is in the way",
+    );
+    assert_eq!(read(worktree, "build/out.o").as_deref(), Some("built\n"));
+    // Nothing was taken back, the conversation neither.
+    let events = core.session_events(id).expect("reads");
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::Rewound { .. }))
+    );
+}
+
 /// Every file under `dir` with its contents, by path.
 fn common_files(dir: &Path) -> Vec<(String, Vec<u8>)> {
     let mut files = vec![];

@@ -847,8 +847,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     no such point after the message before, and for every other agent, `agent_session_id` is
     cleared and the agent is told what was said, as a fork's is (`rewind::starts_anew`).
   - **Files** go back with `checkpoints::restore`: the worktree taken into a scratch index,
-    then `git read-tree -m -u <now> <checkpoint>`, so git itself refuses to overwrite what is
-    untracked or ignored and changes nothing then. The tree taken is kept in `rewinds`, the
+    then `git read-tree -m -u <now> <checkpoint>`. Git refuses to overwrite an untracked file
+    and changes nothing then, but writes over one it ignores without a word, so anything on
+    disk where a file would be added that the tree taken has not got is refused first
+    (`nothing_in_the_way`): it could not be put back. The tree taken is kept in `rewinds`, the
     session's latest only, and `session_files_put_back` restores it only while the worktree is
     still at the tree it was taken back to. Commits stay: `checkpoints.head` says how many
     were made since. Claude Code's own `rewind_files` is never used.
