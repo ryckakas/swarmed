@@ -276,8 +276,15 @@ async fn picking_ends_without_a_pick_when_asked_or_when_another_tab_is_shown() {
     );
 
     // A pick goes only to a session of the task, and only where the browser runs.
-    let refused = core.browser_pick(task, session + 100).await;
-    assert!(refused.is_err());
+    core.task_new("demo", "two", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    let elsewhere = core
+        .session_new("demo", "two", &SessionOptions::default())
+        .expect("creates");
+    let refused = core.browser_pick(task, elsewhere.id).await;
+    let why = refused.expect_err("another task's session").to_string();
+    assert!(why.contains("does not work in its task"), "{why}");
     core.browser_stop(task).await.expect("stops");
     let stopped = core.browser_pick(task, session).await;
     assert!(
