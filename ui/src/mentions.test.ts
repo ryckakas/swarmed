@@ -173,6 +173,7 @@ describe("reading a sent message back", () => {
                 { id: 3, title: "untitled" },
             ],
             github: [],
+            elements: [],
         });
     });
 

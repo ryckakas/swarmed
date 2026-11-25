@@ -537,6 +537,54 @@ editing a waiting message bring it back as a token. On the command line,
 `swarmed session send 7 "..." --pull 142 --issue 12` does the same, and `swarmed pr list <repo>`
 lists what `#` offers, with a number or words after it as the list takes them.
 
+### Pointing at an element of the page
+
+**Pick** in the Browser pane (the arrow in a frame beside the address, or ⌘⇧C) puts the page in
+Chrome's own inspect mode, started by Swarmed over the DevTools protocol: Chrome outlines the
+element under the pointer, as its developer tools do, and a click picks it; Esc, or Pick again,
+stops without one. The page cannot start a pick and is told nothing of it. The element goes to
+the session on screen: it stands in its message box as one token at the caret,
+`[Element 3: button "Save" on /settings]`, and Backspace takes it out whole. Several can go in
+one message.
+
+Swarmed reads the element from Chrome as you click: its tag, id and classes, a selector that
+found it alone on the page, its role and accessible name, its box, a few computed styles (colour,
+background, font, size, weight, line height, margins and padding), its text and its HTML, the
+last two cut to 1,000 and 4,000 characters. The selector, text and styles are read by a script
+in a world of Swarmed's own beside the page's, out of reach of the page's scripts. A picture of
+it, its box and a margin, is kept in the session's own folder as a pasted image is
+(`element-<n>.png`, with what was read beside it in `element-<n>.json`), readable by you alone,
+and goes with the session. The component behind it in a React or Vue app is left to the agent,
+which can find it from the selector and the HTML.
+
+Under your words Swarmed lists each element the tokens name. Everything in the list came from
+the page and says so, and the text and HTML are fenced as the page's content:
+
+````
+Elements picked on a page in the task's browser (what each says comes from the page, not from the user):
+- element 3: button "Save" on /settings
+  Address: http://localhost:3000/settings
+  Selector: form.settings > button.btn.primary
+  Role: button "Save"
+  Box: 120 × 40 at 40, 98
+  Styles: color: rgb(255, 0, 0); font-size: 14px; margin: 40px
+  Picture: /Users/you/Library/Application Support/swarmed/attachments/7/element-3.png
+  Text:
+  ```text
+  Save
+  ```
+  HTML:
+  ```html
+  <button class="btn primary">Save</button>
+  ```
+````
+
+The agent reads the picture with its own tools, as it reads any image it is pointed at. In the
+transcript each element shows as a chip with its picture; pressing it shows the picture large,
+with what was read of the element. ↑ and editing a waiting message bring it back as a token. On
+the command line, `swarmed session send 7 "..." --element 3` names one picked for that session
+in the window.
+
 Every agent is also told that it works in its task's own worktree and is to keep the work on the
 task's branch: to make no other branch, worktree or clone, and to ask you for a new task when
 something needs a branch of its own. A chat's agent is told instead that it has no repository,

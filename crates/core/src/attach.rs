@@ -1,5 +1,6 @@
 //! Files the user points an agent at with a message, and the message that carries them, the
-//! sessions it mentions (`mentions.rs`) and the pull requests and issues (`github_mentions.rs`).
+//! sessions it mentions (`mentions.rs`), the pull requests and issues (`github_mentions.rs`) and
+//! the elements of pages picked in the task's browser (`browser/pick.rs`).
 //!
 //! Nothing is uploaded or copied: the agent runs on this machine and can read the files where
 //! they are. Attaching one is telling the agent its path, in a form every front end writes the
@@ -59,6 +60,9 @@ pub struct Attached {
     /// sessions and before the files (`github_mentions.rs`). Each has to have been read first
     /// ([`Core::project_github_read`]), so that sending waits on nothing.
     pub github: Vec<u64>,
+    /// Elements picked for the session in the task's browser, by number, listed after the
+    /// pull requests and issues and before the files ([`Core::browser_pick`]).
+    pub elements: Vec<u64>,
 }
 
 impl Attached {
@@ -74,7 +78,10 @@ impl Attached {
     /// Whether the message points at nothing.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.files.is_empty() && self.sessions.is_empty() && self.github.is_empty()
+        self.files.is_empty()
+            && self.sessions.is_empty()
+            && self.github.is_empty()
+            && self.elements.is_empty()
     }
 }
 
@@ -83,8 +90,8 @@ impl Core {
     /// first if it is not running.
     ///
     /// A message that cannot be sent as it is, such as one naming a file that is not there, a
-    /// session this one cannot read or a pull request that was not read, is refused before the
-    /// agent is started. Must be called
+    /// session this one cannot read, a pull request that was not read or an element not picked
+    /// for it, is refused before the agent is started. Must be called
     /// from within a tokio runtime.
     pub fn session_message(
         &self,

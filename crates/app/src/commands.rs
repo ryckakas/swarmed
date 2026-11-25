@@ -18,9 +18,9 @@ use swarmed_core::{
     Environment, EnvironmentChoice, FileChange, FileDiff, FileListing, FirstSession, GitHubItem,
     GitHubItems, Issue, IssueDetail, IssueFilter, IssueList, KeyInput, McpServerInput,
     McpServerView, MergeMethod, MergeReport, MergeRules, MergeWhen, MouseInput, NewTaskOptions,
-    Project, ProjectOverview, Pull, PullDraft, QueuedMessage, Reachable, RemoveOptions,
-    RewindCheck, RewindDone, SearchHit, Session, SessionOptions, SessionSettings, Settings,
-    SetupLog, Skill, SlashCommand, Snapshot, Task, TaskNaming, TaskStarted, Template,
+    PickedElement, Project, ProjectOverview, Pull, PullDraft, QueuedMessage, Reachable,
+    RemoveOptions, RewindCheck, RewindDone, SearchHit, Session, SessionOptions, SessionSettings,
+    Settings, SetupLog, Skill, SlashCommand, Snapshot, Task, TaskNaming, TaskStarted, Template,
     TerminalConfig, TerminalOpened, Turn, TurnChanges, TurnStats, Unpublished, Usage, Viewport,
     hooks,
 };
@@ -1141,22 +1141,26 @@ pub(crate) async fn session_send(
     files: Option<Vec<PathBuf>>,
     sessions: Option<Vec<i64>>,
     github: Option<Vec<u64>>,
+    elements: Option<Vec<u64>>,
 ) -> Command<()> {
-    let attached = attached(files, sessions, github);
+    let attached = attached(files, sessions, github, elements);
     Ok(core.session_message(id, &text, &attached, Auth::default())?)
 }
 
 /// What a message points the agent at besides its words, as the window sends it: the files
-/// attached, the sessions mentioned and the pull requests and issues, any left out for none.
+/// attached, the sessions mentioned, the pull requests and issues, and the elements picked in
+/// the task's browser, any left out for none.
 fn attached(
     files: Option<Vec<PathBuf>>,
     sessions: Option<Vec<i64>>,
     github: Option<Vec<u64>>,
+    elements: Option<Vec<u64>>,
 ) -> Attached {
     Attached {
         files: files.unwrap_or_default(),
         sessions: sessions.unwrap_or_default(),
         github: github.unwrap_or_default(),
+        elements: elements.unwrap_or_default(),
     }
 }
 
@@ -1241,8 +1245,9 @@ pub(crate) async fn session_message_now(
     files: Option<Vec<PathBuf>>,
     sessions: Option<Vec<i64>>,
     github: Option<Vec<u64>>,
+    elements: Option<Vec<u64>>,
 ) -> Command<()> {
-    let attached = attached(files, sessions, github);
+    let attached = attached(files, sessions, github, elements);
     Ok(core.session_message_now(id, &text, &attached, Auth::default())?)
 }
 
@@ -1259,12 +1264,17 @@ pub(crate) fn session_enqueue(
     files: Option<Vec<PathBuf>>,
     sessions: Option<Vec<i64>>,
     github: Option<Vec<u64>>,
+    elements: Option<Vec<u64>>,
 ) -> Command<Vec<QueuedMessage>> {
-    let attached = attached(files, sessions, github);
+    let attached = attached(files, sessions, github, elements);
     Ok(core.session_enqueue_message(id, &text, &attached)?)
 }
 
 #[tauri::command]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the window names each list a message points at, as every command that sends one"
+)]
 pub(crate) fn session_queue_edit(
     core: CoreState<'_>,
     id: i64,
@@ -1273,8 +1283,9 @@ pub(crate) fn session_queue_edit(
     files: Option<Vec<PathBuf>>,
     sessions: Option<Vec<i64>>,
     github: Option<Vec<u64>>,
+    elements: Option<Vec<u64>>,
 ) -> Command<Vec<QueuedMessage>> {
-    let attached = attached(files, sessions, github);
+    let attached = attached(files, sessions, github, elements);
     Ok(core.session_queue_edit_message(id, message, &text, &attached)?)
 }
 
@@ -1755,4 +1766,32 @@ pub(crate) fn browser_console(
     tab: String,
 ) -> Command<Vec<ConsoleLine>> {
     Ok(core.browser_console(task_id, &tab)?)
+}
+
+/// Puts the tab the pane shows into Chrome's inspect mode for a pick that goes to session
+/// `session_id`, and waits for the click: the element picked, or nothing if picking ended
+/// without one.
+#[tauri::command]
+pub(crate) async fn browser_pick(
+    core: CoreState<'_>,
+    task_id: i64,
+    session_id: i64,
+) -> Command<Option<PickedElement>> {
+    Ok(core.browser_pick(task_id, session_id).await?)
+}
+
+/// Ends picking in the task's browser without a pick.
+#[tauri::command]
+pub(crate) fn browser_pick_end(core: CoreState<'_>, task_id: i64) -> Command<()> {
+    Ok(core.browser_pick_end(task_id)?)
+}
+
+/// The elements picked for a session, by number, as they were kept: for showing one large.
+#[tauri::command(async)]
+pub(crate) fn session_elements(
+    core: CoreState<'_>,
+    id: i64,
+    numbers: Vec<u64>,
+) -> Command<Vec<PickedElement>> {
+    Ok(core.session_elements(id, &numbers)?)
 }

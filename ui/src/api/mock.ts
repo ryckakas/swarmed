@@ -3226,6 +3226,14 @@ function remoteAsked(name: string, text: string): boolean {
     );
 }
 
+/** What a message points at besides its words, as the window hands it over: any left out. */
+interface Sent {
+    files: string[] | undefined;
+    sessions: number[] | undefined;
+    github: number[] | undefined;
+    elements: number[] | undefined;
+}
+
 export function createMockApi(): Api {
     const agent = new MockAgent();
     const tasks = () => agent.projects.flatMap((project) => project.tasks);
@@ -3276,9 +3284,16 @@ export function createMockApi(): Api {
         projects: () => agent.projects,
         settings: () => settings,
         publish: (id: number, event: AgentEvent) => agent.publish(id, event, null),
+        keepImage: (path: string, source: string) => agent.returned.set(path, source),
     };
     const browsers = new MockBrowsers(browserHost);
     agent.browsers = browsers;
+    /** The message session `id` is sent for `text` with what is attached, as the core composes it. */
+    const composed = (id: number, text: string, attached: Sent) => {
+        const { files, sessions, github, elements } = attached;
+        const picked = browsers.listed(id, elements);
+        return messageFor(agent.projects, id, text, files, sessions, github, picked);
+    };
     return {
         overview: async () => structuredClone(agent.projects),
         ...images,
@@ -3484,22 +3499,22 @@ export function createMockApi(): Api {
         sessionForkInto: async (id, projectName, taskName) =>
             sampleForkInto(agent, tasks(), id, projectName, taskName),
         sessionEvents: async (id) => [...agent.history(id)],
-        sessionSend: async (id, text, files, sessions, github) =>
-            agent.send(id, messageFor(agent.projects, id, text, files, sessions, github)),
+        sessionSend: async (id, text, files, sessions, github, elements) =>
+            agent.send(id, composed(id, text, { files, sessions, github, elements })),
         ...mentionsApi(() => agent.projects),
         ...githubApi(),
-        sessionMessageNow: async (id, text, files, sessions, github) =>
-            agent.sendTypedNow(id, messageFor(agent.projects, id, text, files, sessions, github)),
+        sessionMessageNow: async (id, text, files, sessions, github, elements) =>
+            agent.sendTypedNow(id, composed(id, text, { files, sessions, github, elements })),
         sessionTellNow: async (id, message) => agent.tellNow(id, message),
         sessionQueue: async (id) => agent.queue(id),
-        sessionEnqueue: async (id, text, files, sessions, github) =>
-            agent.enqueue(id, messageFor(agent.projects, id, text, files, sessions, github)),
+        sessionEnqueue: async (id, text, files, sessions, github, elements) =>
+            agent.enqueue(id, composed(id, text, { files, sessions, github, elements })),
         // Nothing at all comes out empty, which takes the message out.
-        sessionQueueEdit: async (id, message, text, files, sessions, github) =>
+        sessionQueueEdit: async (id, message, text, files, sessions, github, elements) =>
             agent.editQueued(
                 id,
                 message,
-                messageFor(agent.projects, id, text, files, sessions, github),
+                composed(id, text, { files, sessions, github, elements }),
             ),
         sessionQueueHold: async (id, message) => agent.holdQueued(id, message),
         sessionQueueLetGo: async (id, message) => agent.letGoQueued(id, message),

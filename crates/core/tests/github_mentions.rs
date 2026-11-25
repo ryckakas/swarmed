@@ -264,6 +264,7 @@ async fn a_mention_is_listed_under_the_message_from_what_the_menu_read() {
         files: vec![readme.clone()],
         sessions: vec![found.id],
         github: vec![142, 12, 142],
+        elements: vec![],
     };
     let mut bus = core.subscribe();
     let typed = "fix what [#142 Fix the login form] left, as [#12 Login loops] says";

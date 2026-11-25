@@ -59,6 +59,13 @@ advisory is published with credit to you, unless you'd rather not be named.
   keeps or logs nothing of what passes. A login you made in the task's browser can be used by
   the task's agents, as anything else in its profile can: that is what lets them check pages
   behind it. Agents cannot change any of this through `configure`.
+- **Picking an element of a page is started by you, and what it reads is the page's.** Chrome's
+  inspect mode is started over Swarmed's own connection when you press Pick, and only a click
+  in it while that pick waits is taken: a page can neither start a pick nor send Swarmed
+  anything. The selector, text and styles are read by a script in a world of Swarmed's own,
+  apart from the page's scripts. What is read goes to the agent marked as the page's content,
+  its text and HTML fenced and cut to a size, and is logged nowhere. Its picture and
+  description are kept in the session's folder, readable by you alone, and deleted with it.
 - **An agent's HTML cannot reach the app.** Views are shown in a sandboxed frame on an origin of
   their own, under a policy that lets them make no request. A link in a view opens only when you
   press Open.

@@ -2261,6 +2261,11 @@ code {
     color: var(--text);
 }
 
+.icon-button[aria-pressed="true"] {
+    background: color-mix(in srgb, var(--sky) 18%, transparent);
+    color: var(--sky);
+}
+
 .icon-button-danger {
     color: var(--clay);
 }
@@ -4725,6 +4730,45 @@ code {
     border-style: dashed;
 }
 
+/* An element picked in the task's browser, where its token stood: its picture, small. */
+.element-chip {
+    max-width: 40ch;
+}
+
+.element-thumb {
+    height: 1.3em;
+    max-width: 5em;
+    margin-right: var(--space-1);
+    border-radius: 3px;
+    object-fit: contain;
+    vertical-align: text-bottom;
+}
+
+/* The same, large, with what was read of it. */
+.element-picture {
+    display: block;
+    max-width: 100%;
+    max-height: 50vh;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+}
+
+.element-said {
+    margin-top: var(--space-3);
+}
+
+.element-html {
+    margin-top: var(--space-3);
+}
+
+.element-html pre {
+    max-height: 30vh;
+    overflow: auto;
+    font-size: var(--text-xs);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
 /* Sessions a message mentions that its words do not name, as on the command line: under it. */
 .mention-chips {
     display: flex;
@@ -7027,6 +7071,29 @@ kbd {
     height: 6px;
     border-radius: 50%;
     background: var(--sky);
+}
+
+/*
+ * While an element is picked: what a click does, and how to stop. Over the page's foot rather
+ * than above it, so that the page does not move under the pointer, and clicks pass through it.
+ */
+.browser-picking {
+    position: absolute;
+    right: var(--space-2);
+    bottom: var(--space-2);
+    left: var(--space-2);
+    margin: 0;
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--panel) 92%, transparent);
+    color: var(--text);
+    font-size: var(--text-xs);
+    pointer-events: none;
+}
+
+.browser-page[data-picking="true"] {
+    cursor: crosshair;
 }
 
 .browser-actor {

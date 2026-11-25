@@ -1479,6 +1479,45 @@ export interface BrowserTab {
     acted_by: number | null;
 }
 
+/** Where an element was on the page's screen, in CSS pixels. */
+export interface ElementBox {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+/** One computed style of an element. */
+export interface ElementStyle {
+    property: string;
+    value: string;
+}
+
+/**
+ * An element of a page the user picked in the Browser pane, as read from Chrome and kept for
+ * the session its message goes to, with its picture. A message names it by its `number`.
+ */
+export interface PickedElement {
+    number: number;
+    /** What its token and its line under the message call it: `button "Save" on /settings`. */
+    label: string;
+    url: string;
+    tag: string;
+    element_id: string | null;
+    classes: string[];
+    /** A selector that found it alone on the page when it was picked. */
+    selector: string;
+    role: string | null;
+    /** Its accessible name. */
+    name: string | null;
+    text: string;
+    html: string;
+    bounds: ElementBox | null;
+    styles: ElementStyle[];
+    /** Its picture in the session's folder, if one could be taken. */
+    picture: string | null;
+}
+
 /** What the Browser pane shows of a task's Chrome. */
 export interface BrowserState {
     task_id: number;

@@ -5,8 +5,13 @@
 // with `refused` fails as Chrome does. A browser program in the settings with `missing` in it
 // is not found, so that the offer to install one shows. The mock agent acts in it as an
 // agent's browser tools would (`browse`): in a tab of its session's own, which the pane follows.
+// Its parts can be picked as Chrome's inspect mode picks an element (`browserPick`): the one
+// under the pointer is outlined, and a click picks it, with a picture cut from the page.
 
+import type { SampleElement } from "../elements";
+import { imageFolder } from "../images";
 import type { Api } from "./client";
+import { MOCK_ATTACHMENTS } from "./mockImages";
 import { MOCK_SCREENSHOT } from "./mockScreenshot";
 import type {
     AgentEvent,
@@ -17,6 +22,7 @@ import type {
     ConsoleLine,
     KeyInput,
     PageDialog,
+    PickedElement,
     Project,
     Settings,
     Task,
@@ -29,6 +35,8 @@ export interface BrowserHost {
     settings(): Settings;
     /** Publishes an event apart from any session, such as that the tree changed. */
     publish(sessionId: number, event: AgentEvent): void;
+    /** Keeps a picture for a session, as a `data:` address, where its images are read from. */
+    keepImage(path: string, source: string): void;
 }
 
 interface Page {
@@ -43,12 +51,74 @@ interface Page {
     dialog: PageDialog | null;
     /** The session whose browser tools last acted in it. */
     actedBy: number | null;
+    /** While an element is picked, the part of the page the pointer is over, outlined. */
+    hover: SamplePart | null;
 }
 
 interface Browser {
     pages: Page[];
     shown: string | null;
     viewport: Viewport | null;
+    /** A pick under way in the tab shown, for a session, and what it resolves. */
+    picking: { session: number; done(element: PickedElement | null): void } | null;
+}
+
+/** A part of the sample site that can be picked, where it is drawn. */
+interface SamplePart {
+    tag: string;
+    selector: string;
+    role: string;
+    name: string;
+    html: string;
+    box: { x: number; y: number; width: number; height: number };
+}
+
+const PRODUCTS = ["Linen shirt: 49 €", "Canvas tote: 25 €", "Wool beanie: 19 €"];
+
+/** The parts of the sample site at `width`, the outermost first, as `sitePainted` draws them. */
+function samplePartsOf(url: string, width: number): SamplePart[] {
+    if (url === "about:blank") {
+        return [];
+    }
+    const across = Math.min(360, width - 32);
+    const header: SamplePart = {
+        tag: "header",
+        selector: "body > header",
+        role: "banner",
+        name: "",
+        html: `<header class="bar"><h1>${titleOf(url)}</h1></header>`,
+        box: { x: 0, y: 0, width, height: 48 },
+    };
+    const search: SamplePart = {
+        tag: "input",
+        selector: "#search",
+        role: "searchbox",
+        name: "Search products",
+        html: `<input id="search" type="search" placeholder="Search products…">`,
+        box: { x: 16, y: 100, width: across, height: 34 },
+    };
+    const products = PRODUCTS.map((item, at) => ({
+        tag: "li",
+        selector: `ul.products > li:nth-of-type(${at + 1})`,
+        role: "listitem",
+        name: item,
+        html: `<li class="product">${item}</li>`,
+        box: { x: 16, y: 156 + at * 64, width: across, height: 52 },
+    }));
+    return [header, search, ...products];
+}
+
+/** The innermost part of the sample site at a point, if any. */
+function partAt(url: string, width: number, x: number, y: number): SamplePart | null {
+    const inside = ({ box }: SamplePart) =>
+        x >= box.x && x <= box.x + box.width && y >= box.y && y <= box.y + box.height;
+    return samplePartsOf(url, width).findLast(inside) ?? null;
+}
+
+/** Where on its site an address is, as a pick's label says it: `/settings`. */
+function placeOf(url: string): string {
+    const path = url.replace(/^\w+:\/\/[^/]+/, "").split(/[?#]/)[0];
+    return url.startsWith("http") ? path || "/" : url;
 }
 
 type BrowserApi = Pick<
@@ -68,6 +138,9 @@ type BrowserApi = Pick<
     | "browserTabClose"
     | "browserDialog"
     | "browserConsole"
+    | "browserPick"
+    | "browserPickEnd"
+    | "sessionElements"
     | "onBrowserEvent"
 >;
 
@@ -146,6 +219,7 @@ export class MockBrowsers {
             console: [],
             dialog: null,
             actedBy: null,
+            hover: null,
         };
     }
 
@@ -205,7 +279,7 @@ export class MockBrowsers {
             return known;
         }
         const first = this.page(task.stack === "running" && task.url ? task.url : "about:blank");
-        const browser: Browser = { pages: [first], shown: null, viewport: null };
+        const browser: Browser = { pages: [first], shown: null, viewport: null, picking: null };
         this.browsers.set(id, browser);
         task.browser = true;
         this.host.publish(0, { type: "tree_changed" });
@@ -248,6 +322,9 @@ export class MockBrowsers {
         if (wanted !== null && !browser.pages.some((page) => page.id === wanted)) {
             throw new Error(`the browser of \`${this.task(id).name}\`: it has no such tab`);
         }
+        if (wanted !== browser.shown) {
+            this.pickEnd(id);
+        }
         browser.shown = wanted;
         browser.viewport = viewport;
         this.told(id);
@@ -258,8 +335,128 @@ export class MockBrowsers {
     hide(id: number) {
         const browser = this.browsers.get(id);
         if (browser) {
+            this.pickEnd(id);
             browser.shown = null;
         }
+    }
+
+    /** The elements picked for each session, as the core keeps them. */
+    private picked = new Map<number, PickedElement[]>();
+
+    /** Starts picking in the tab shown for `session`; resolves once a part is clicked. */
+    pick(id: number, session: number): Promise<PickedElement | null> {
+        const browser = this.running(id);
+        this.shownPage(id);
+        this.pickEnd(id);
+        return new Promise((done) => {
+            browser.picking = { session, done };
+        });
+    }
+
+    /** Ends the pick under way, without one. */
+    pickEnd(id: number) {
+        const browser = this.browsers.get(id);
+        const picking = browser?.picking;
+        if (!(browser && picking)) {
+            return;
+        }
+        browser.picking = null;
+        for (const page of browser.pages) {
+            page.hover = null;
+        }
+        picking.done(null);
+        this.draw(id);
+    }
+
+    /**
+     * What the mouse does on the page while a part is picked: the part under it outlined, and
+     * picked on a press. `false` while nothing is picked, and the mouse acts on the page.
+     */
+    picks(id: number, input: { kind: string; x: number; y: number }): boolean {
+        const browser = this.browsers.get(id);
+        const picking = browser?.picking;
+        if (!(browser?.viewport && picking)) {
+            return false;
+        }
+        const page = this.shownPage(id);
+        const url = page.history[page.current] ?? "about:blank";
+        const part = partAt(url, browser.viewport.width, input.x, input.y);
+        page.hover = part;
+        if (input.kind === "down" && part) {
+            browser.picking = null;
+            page.hover = null;
+            picking.done(this.keepPick(picking.session, page, part, browser.viewport));
+        }
+        this.draw(id);
+        return true;
+    }
+
+    /** Keeps `part` of `page` as a pick of `session`'s, with a picture cut from the page. */
+    private keepPick(
+        session: number,
+        page: Page,
+        part: SamplePart,
+        viewport: Viewport,
+    ): PickedElement {
+        const kept = this.picked.get(session) ?? [];
+        const number = kept.length + 1;
+        const url = page.history[page.current] ?? "about:blank";
+        const path = `${imageFolder(MOCK_ATTACHMENTS, session)}/element-${number}.png`;
+        const picture = cutOut(page, viewport, part.box);
+        if (picture) {
+            this.host.keepImage(path, picture);
+        }
+        const named = part.name ? ` "${part.name}"` : "";
+        const element: PickedElement = {
+            number,
+            label: `${part.tag}${named} on ${placeOf(url)}`,
+            url,
+            tag: part.tag,
+            element_id: part.selector.startsWith("#") ? part.selector.slice(1) : null,
+            classes: [],
+            selector: part.selector,
+            role: part.role,
+            name: part.name || null,
+            text: part.name,
+            html: part.html,
+            bounds: part.box,
+            styles: [
+                { property: "color", value: "rgb(17, 24, 39)" },
+                { property: "font-size", value: "15px" },
+                { property: "margin", value: "0px" },
+            ],
+            picture: picture ? path : null,
+        };
+        this.picked.set(session, [...kept, element]);
+        return element;
+    }
+
+    /** The elements `numbers` picked for `session`, each once; one never picked is refused. */
+    elementsOf(session: number, numbers: number[]): PickedElement[] {
+        const kept = this.picked.get(session) ?? [];
+        return [...new Set(numbers)].map((number) => {
+            const found = kept.find((element) => element.number === number);
+            if (!found) {
+                throw new Error(
+                    `element ${number} was not picked for this session: pick it again in the browser`,
+                );
+            }
+            return found;
+        });
+    }
+
+    /** The same, as the sample lists them under a message. */
+    listed(session: number, numbers: number[] = []): SampleElement[] {
+        return this.elementsOf(session, numbers).map((element) => ({
+            number: element.number,
+            label: element.label,
+            url: element.url,
+            selector: element.selector,
+            role: `${element.role ?? "none"}${element.name ? ` "${element.name}"` : ""}`,
+            text: element.text,
+            html: element.html,
+            picture: element.picture ?? "",
+        }));
     }
 
     go(id: number, tab: string, go: BrowserGo) {
@@ -368,7 +565,7 @@ export class MockBrowsers {
         this.log(page, "info", "[vite] connected.");
         this.log(page, "warning", 'Image with src "/hero.jpg" has no alt text.');
         this.log(page, "error", "TypeError: Cannot read properties of undefined (reading 'price')");
-        this.browsers.set(task.id, { pages: [page], shown: null, viewport: null });
+        this.browsers.set(task.id, { pages: [page], shown: null, viewport: null, picking: null });
     }
 }
 
@@ -430,6 +627,9 @@ export function browserApi(browsers: MockBrowsers, host: BrowserHost): BrowserAp
         browserShow: async (id, tab, viewport) => browsers.show(id, tab, viewport),
         browserHide: async (id) => browsers.hide(id),
         browserMouse: async (id, input) => {
+            if (browsers.picks(id, input)) {
+                return;
+            }
             if (input.kind === "down") {
                 browsers.shownPage(id).click = { x: input.x, y: input.y };
                 browsers.draw(id);
@@ -451,6 +651,9 @@ export function browserApi(browsers: MockBrowsers, host: BrowserHost): BrowserAp
             browsers.told(id);
         },
         browserConsole: async (id, tab) => browsers.console(id, tab),
+        browserPick: async (id, session) => browsers.pick(id, session),
+        browserPickEnd: async (id) => browsers.pickEnd(id),
+        sessionElements: async (session, numbers) => browsers.elementsOf(session, numbers),
         onBrowserEvent: async (listener) => browsers.listen(listener),
     };
 }
@@ -460,6 +663,12 @@ export function browserApi(browsers: MockBrowsers, host: BrowserHost): BrowserAp
  * `null` where there is none, as in the tests: the sample screenshot stands in.
  */
 function drawn(page: Page, viewport: Viewport): string | null {
+    const canvas = painted(page, viewport);
+    return canvas?.toDataURL("image/jpeg", 0.8).split(",")[1] ?? null;
+}
+
+/** The made-up page on a canvas of its own, at the screen's density; `null` without one. */
+function painted(page: Page, viewport: Viewport): HTMLCanvasElement | null {
     const canvas = typeof document === "undefined" ? null : document.createElement("canvas");
     const context = canvas?.getContext("2d");
     if (!(canvas && context)) {
@@ -475,13 +684,54 @@ function drawn(page: Page, viewport: Viewport): string | null {
     if (url !== "about:blank") {
         sitePainted(context, url, page, viewport.width);
     }
+    if (page.hover) {
+        outlined(context, page.hover);
+    }
     if (page.click) {
         context.fillStyle = "rgba(220, 38, 38, 0.6)";
         context.beginPath();
         context.arc(page.click.x, page.click.y, 8, 0, Math.PI * 2);
         context.fill();
     }
-    return canvas.toDataURL("image/jpeg", 0.8).split(",")[1] ?? null;
+    return canvas;
+}
+
+/** A part outlined as Chrome's inspect mode outlines the element under the pointer. */
+function outlined(context: CanvasRenderingContext2D, part: SamplePart) {
+    const { x, y, width, height } = part.box;
+    context.fillStyle = "rgba(111, 168, 220, 0.5)";
+    context.fillRect(x, y, width, height);
+    context.font = "12px sans-serif";
+    const said = `${part.tag}  ${Math.round(width)} × ${Math.round(height)}`;
+    const top = y + height + 6;
+    context.fillStyle = "#ffffff";
+    context.fillRect(x, top, context.measureText(said).width + 12, 22);
+    context.fillStyle = "#881280";
+    context.fillText(said, x + 6, top + 15);
+}
+
+/**
+ * A picture of `box` of the page and a margin around it, as a PNG `data:` address, as the core
+ * cuts one from Chrome's; `null` where there is no canvas, as in the tests.
+ */
+function cutOut(page: Page, viewport: Viewport, box: SamplePart["box"]): string | null {
+    const whole = painted({ ...page, hover: null, click: null }, viewport);
+    const picture = whole && document.createElement("canvas");
+    const context = picture?.getContext("2d");
+    if (!(whole && picture && context)) {
+        return null;
+    }
+    const margin = 12;
+    const scale = Math.max(1, viewport.scale);
+    const left = Math.max(0, box.x - margin);
+    const top = Math.max(0, box.y - margin);
+    const width = Math.min(viewport.width, box.x + box.width + margin) - left;
+    const height = Math.min(viewport.height, box.y + box.height + margin) - top;
+    picture.width = width * scale;
+    picture.height = height * scale;
+    const { width: across, height: down } = picture;
+    context.drawImage(whole, left * scale, top * scale, across, down, 0, 0, across, down);
+    return picture.toDataURL("image/png");
 }
 
 /** The sample site: a bar, a heading, a field that shows what was typed, and a few products. */

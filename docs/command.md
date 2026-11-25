@@ -24,6 +24,7 @@ swarmed session run shop fix-login "Fix the login form's error message"
 swarmed session send 12 "Add a test for it"           # the id `session run` printed
 swarmed session send 12 "Do as it did" --session 9    # points the agent at session 9 to read
 swarmed session send 12 "Review it" --pull 142        # and at pull request #142 (or --issue 12)
+swarmed session send 12 "Make it blue" --element 3    # and at element 3 picked in the task's browser
 swarmed pr list shop login                            # the pull requests and issues # offers
 swarmed session turns 12                              # each turn with the files it changed
 swarmed session turn-diff 12 1                        # what the second message's turn changed

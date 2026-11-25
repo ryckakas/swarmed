@@ -33,6 +33,7 @@ import type {
     McpServerView,
     MergeReport,
     MergeRules,
+    PickedElement,
     Project,
     Pull,
     PullDraft,
@@ -62,8 +63,13 @@ import type {
 
 /** The real app: commands and events of the Tauri shell in crates/app. */
 /** What a message points at besides its words, as the core's commands take it: none for each left out. */
-function attached(files?: string[], sessions?: number[], github?: number[]) {
-    return { files: files ?? [], sessions: sessions ?? [], github: github ?? [] };
+function attached(files?: string[], sessions?: number[], github?: number[], elements?: number[]) {
+    return {
+        files: files ?? [],
+        sessions: sessions ?? [],
+        github: github ?? [],
+        elements: elements ?? [],
+    };
 }
 
 export const tauriApi: Api = {
@@ -225,8 +231,8 @@ export const tauriApi: Api = {
     sessionNew: (project, task, { agent, ...how }) =>
         invoke<Session>("session_new", { project, task, agent, how }),
     sessionEvents: (id) => invoke<AgentEvent[]>("session_events", { id }),
-    sessionSend: (id, text, files, sessions, github) =>
-        invoke("session_send", { id, text, ...attached(files, sessions, github) }),
+    sessionSend: (id, text, files, sessions, github, elements) =>
+        invoke("session_send", { id, text, ...attached(files, sessions, github, elements) }),
     sessionReachable: (id) => invoke<Reachable[]>("session_reachable", { id }),
     projectReachable: (project) => invoke<Reachable[]>("project_reachable", { project }),
     projectGithubItems: (project, query) =>
@@ -238,21 +244,25 @@ export const tauriApi: Api = {
     sessionImageOpen: (id, path) => invoke<void>("session_image_open", { id, path }),
     attachmentsRoot: () => invoke<string>("attachments_root"),
     sessionTellNow: (id, message) => invoke<void>("session_tell_now", { id, message }),
-    sessionMessageNow: (id, text, files, sessions, github) =>
-        invoke("session_message_now", { id, text, ...attached(files, sessions, github) }),
+    sessionMessageNow: (id, text, files, sessions, github, elements) =>
+        invoke("session_message_now", {
+            id,
+            text,
+            ...attached(files, sessions, github, elements),
+        }),
     sessionQueue: (id) => invoke<QueuedMessage[]>("session_queue", { id }),
-    sessionEnqueue: (id, text, files, sessions, github) =>
+    sessionEnqueue: (id, text, files, sessions, github, elements) =>
         invoke<QueuedMessage[]>("session_enqueue", {
             id,
             text,
-            ...attached(files, sessions, github),
+            ...attached(files, sessions, github, elements),
         }),
-    sessionQueueEdit: (id, message, text, files, sessions, github) =>
+    sessionQueueEdit: (id, message, text, files, sessions, github, elements) =>
         invoke<QueuedMessage[]>("session_queue_edit", {
             id,
             message,
             text,
-            ...attached(files, sessions, github),
+            ...attached(files, sessions, github, elements),
         }),
     sessionQueueHold: (id, message) => invoke<boolean>("session_queue_hold", { id, message }),
     sessionQueueLetGo: (id, message) => invoke<void>("session_queue_let_go", { id, message }),
@@ -302,6 +312,10 @@ export const tauriApi: Api = {
     browserDialog: (taskId, tab, accept, text) =>
         invoke("browser_dialog", { taskId, tab, accept, text }),
     browserConsole: (taskId, tab) => invoke<ConsoleLine[]>("browser_console", { taskId, tab }),
+    browserPick: (taskId, sessionId) =>
+        invoke<PickedElement | null>("browser_pick", { taskId, sessionId }),
+    browserPickEnd: (taskId) => invoke("browser_pick_end", { taskId }),
+    sessionElements: (id, numbers) => invoke<PickedElement[]>("session_elements", { id, numbers }),
     onBrowserEvent: (listener) =>
         listen<BrowserEvent>("browser-event", (event) => listener(event.payload)),
     claudeTerminalOpen: (id, command, cols, rows) =>

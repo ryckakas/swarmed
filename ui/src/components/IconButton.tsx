@@ -8,16 +8,19 @@ interface Props {
     danger?: boolean;
     /** A button with nothing to do now, such as Back on the first page. */
     disabled?: boolean;
+    /** For a button that turns something on and off: whether it is on. */
+    pressed?: boolean;
     children: ReactNode;
 }
 
 /** A button that is only an icon. Its label is its tooltip. */
-export function IconButton({ label, onClick, danger = false, disabled, children }: Props) {
+export function IconButton({ label, onClick, danger = false, disabled, pressed, children }: Props) {
     return (
         <button
             type="button"
             className={danger ? "icon-button icon-button-danger" : "icon-button"}
             aria-label={label}
+            aria-pressed={pressed}
             title={label}
             disabled={disabled}
             onClick={onClick}
@@ -145,6 +148,16 @@ export function ReloadIcon() {
 /** An arrow out of a box: opened elsewhere. */
 export function OpenOutIcon() {
     return <path d="M9 3h4v4M13 3L7 9M11 10v3H3V5h3" />;
+}
+
+/** An arrow pointing into a frame: picking something on a page, as developer tools do. */
+export function PickIcon() {
+    return (
+        <>
+            <path d="M6.5 13.5h-3a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v3" />
+            <path d="M8 8l6 2.2-2.6 1-1.1 2.8z" />
+        </>
+    );
 }
 
 /** A power switch: stopping what runs. */

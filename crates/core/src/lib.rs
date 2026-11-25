@@ -108,8 +108,9 @@ pub use attach::{ATTACHED_FILES, Attached, with_files};
 pub use background::{BackgroundOutput, BackgroundTask};
 pub use browser::{
     BrowserEvent, BrowserGo, BrowserSetup, BrowserState, BrowserTab, ConsoleLevel, ConsoleLine,
-    FRAMES_A_SECOND, KeyInput, KeyKind, Modifiers, MouseInput, MouseKind, PageDialog, Viewport,
-    follow_browsers,
+    ELEMENTS_PICKED, ElementBox, ElementStyle, FRAMES_A_SECOND, KeyInput, KeyKind, MAX_HTML_CHARS,
+    MAX_TEXT_CHARS, Modifiers, MouseInput, MouseKind, PageDialog, PickedElement, Viewport,
+    follow_browsers, with_elements,
 };
 pub use shellenv::learn_shell_path;
 

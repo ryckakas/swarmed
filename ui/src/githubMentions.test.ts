@@ -241,6 +241,7 @@ describe("the list under a message", () => {
             text: "just words",
             sessions: [],
             github: [],
+            elements: [],
         });
     });
 });

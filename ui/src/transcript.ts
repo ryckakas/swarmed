@@ -1,4 +1,5 @@
 import type { AgentEvent, PullChange, ScreenSection, ToolCalls } from "./api/types";
+import type { ListedElement } from "./elements";
 import { type GitHubMentioned, splitMentioned } from "./githubMentions";
 import { shownHtml } from "./htmlview";
 import type { Mentioned } from "./mentions";
@@ -23,6 +24,8 @@ export type Item =
           sessions: Mentioned[];
           /** The pull requests and issues listed under the message, which its tokens name. */
           github: GitHubMentioned[];
+          /** The elements picked in the task's browser listed under the message. */
+          elements: ListedElement[];
           remote: boolean;
           /** Whether Swarmed sent it by itself, as the usage limit that stopped the session reset. */
           atReset: boolean;
@@ -197,13 +200,15 @@ export function splitFiles(message: string): { text: string; files: string[] } {
 
 /**
  * A message the user sent, taken apart: what they wrote, the sessions listed under it, the pull
- * requests and issues after those, and the files listed last.
+ * requests and issues after those, then the elements picked in the task's browser, and the
+ * files listed last.
  */
 export function splitSent(message: string): {
     text: string;
     files: string[];
     sessions: Mentioned[];
     github: GitHubMentioned[];
+    elements: ListedElement[];
 } {
     const { text, files } = splitFiles(message);
     return { ...splitMentioned(text), files };

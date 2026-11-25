@@ -30,6 +30,7 @@ mod cdp;
 mod find;
 mod input;
 mod page;
+mod pick;
 mod process;
 mod servers;
 mod watch;
@@ -49,6 +50,11 @@ pub(crate) use agents::{AgentBrowser, BROWSER_ENV, instructions};
 pub use find::BrowserSetup;
 pub use input::{KeyInput, KeyKind, Modifiers, MouseInput, MouseKind};
 pub use page::{BrowserTab, ConsoleLevel, ConsoleLine, PageDialog};
+pub(crate) use pick::descriptions_beside;
+pub use pick::{
+    ELEMENTS_PICKED, ElementBox, ElementStyle, MAX_HTML_CHARS, MAX_TEXT_CHARS, PickedElement,
+    with_elements,
+};
 
 use crate::agent::AgentEvent;
 use crate::error::{Error, Result};
@@ -286,6 +292,8 @@ struct Browser {
     title_read: Mutex<Instant>,
     /// The tab a session's tools last acted in, which the pane on screen goes to.
     followed: Mutex<Option<String>>,
+    /// A pick under way in the tab shown, waiting for the user's click (`pick.rs`).
+    picking: Mutex<Option<pick::Picking>>,
 }
 
 /// A Chrome that runs, as it is connected to.
@@ -315,6 +323,7 @@ impl Browser {
             next_frame: Mutex::new(Instant::now()),
             title_read: Mutex::new(Instant::now()),
             followed: Mutex::default(),
+            picking: Mutex::default(),
         }
     }
 
@@ -481,6 +490,8 @@ async fn go_to(browser: Arc<Browser>, browsers: Arc<Browsers>, tab: String) {
         return;
     };
     if let Some(before) = before.filter(|before| Some(before) != now.as_ref()) {
+        // A pick goes with the tab it was started in.
+        browser.end_pick();
         browser.uncast(&before).await;
     }
     browser.cast(&tab).await.ok();
@@ -526,7 +537,10 @@ fn take_in(browser: &Arc<Browser>, browsers: &Arc<Browsers>, event: &Event) {
 
 fn act(browser: &Arc<Browser>, browsers: &Arc<Browsers>, change: Change) {
     match change {
-        Change::Tabs => browsers.publish(BrowserEvent::State(browser.state())),
+        Change::Tabs => {
+            browser.pick_tab_gone();
+            browsers.publish(BrowserEvent::State(browser.state()));
+        }
         Change::Attach(tab) => {
             let attaching = attach(Arc::clone(browser), Arc::clone(browsers), tab);
             drop(tokio::spawn(attaching));
@@ -543,6 +557,7 @@ fn act(browser: &Arc<Browser>, browsers: &Arc<Browsers>, change: Change) {
             line,
         }),
         Change::Frame(frame) => browser.framed(browsers, frame),
+        Change::Inspected(tab, node) => browser.inspected(&tab, node),
         Change::Used => browser.touch(),
     }
 }
@@ -594,6 +609,7 @@ async fn history(browser: &Browser, browsers: &Browsers, tab: &str) {
 /// The connection ended: the browser is forgotten if Chrome ended with it, and every front end
 /// is told.
 async fn gone(browser: &Arc<Browser>, ends: &Ends) {
+    browser.pick_forget();
     let child = lock(&browser.child).take();
     let ended = process::ended_within(browser.pid, child, ENDING).await;
     if let Some(child) = ended {
@@ -716,6 +732,7 @@ impl Core {
             .shows(tab)
             .ok_or_else(|| self.browser_error(task_id, "it has no such tab".to_string()))?;
         if let Some(before) = before.filter(|before| Some(before) != now.as_ref()) {
+            browser.end_pick();
             browser.uncast(&before).await;
         }
         if let Some(now) = &now {
@@ -732,6 +749,7 @@ impl Core {
         let Some(browser) = self.browsers.get(task_id) else {
             return Ok(());
         };
+        browser.end_pick();
         let shown = browser.shown();
         lock(&browser.pane).show(None);
         if let Some(tab) = shown {

@@ -92,6 +92,8 @@ pub(crate) enum Change {
     Console(String, ConsoleLine),
     /// A picture of this tab, to be published if it is the one shown, then acknowledged.
     Frame(Frame),
+    /// In this tab's inspect mode, the user clicked this node, by its `backendNodeId`.
+    Inspected(String, i64),
     /// Someone used the browser: it does not count as unused.
     Used,
 }
@@ -149,6 +151,12 @@ impl Pane {
     /// Whether there is a tab `id`.
     pub(crate) fn has(&self, id: &str) -> bool {
         self.tabs.iter().any(|tab| tab.id == id)
+    }
+
+    /// Where `tab` is.
+    pub(crate) fn url_of(&self, tab: &str) -> Option<String> {
+        let found = self.tabs.iter().find(|one| one.id == tab)?;
+        Some(found.url.clone())
     }
 
     /// The session commands for `tab` go on, once Swarmed has attached to it.
@@ -242,6 +250,11 @@ impl Pane {
                 vec![Change::History(tab.to_string())]
             }
             "Page.screencastFrame" => frame(tab, event).into_iter().collect(),
+            "Overlay.inspectNodeRequested" => params["backendNodeId"]
+                .as_i64()
+                .map(|node| Change::Inspected(tab.to_string(), node))
+                .into_iter()
+                .collect(),
             "Page.javascriptDialogOpening" => self.dialog(tab, Some(dialog_of(params))),
             "Page.javascriptDialogClosed" => self.dialog(tab, None),
             "Inspector.targetCrashed" => {
@@ -697,6 +710,27 @@ mod tests {
         assert!(pane.acted("U", 4));
         let ids: Vec<String> = pane.tabs_of(4).into_iter().map(|tab| tab.id).collect();
         assert_eq!(ids, ["T", "U"]);
+    }
+
+    #[test]
+    fn a_click_in_inspect_mode_names_its_node_and_its_tab() {
+        let mut pane = one_tab();
+        let clicked = json!({ "backendNodeId": 8 });
+        assert_eq!(
+            pane.apply(&on("S", "Overlay.inspectNodeRequested", clicked.clone())),
+            [Change::Inspected("T".into(), 8)]
+        );
+        // On a session nobody attached to, or without a node, it is nobody's.
+        assert_eq!(
+            pane.apply(&on("X", "Overlay.inspectNodeRequested", clicked)),
+            NONE
+        );
+        assert_eq!(
+            pane.apply(&on("S", "Overlay.inspectNodeRequested", json!({}))),
+            NONE
+        );
+        assert_eq!(pane.url_of("T").as_deref(), Some("about:blank"));
+        assert_eq!(pane.url_of("U"), None);
     }
 
     #[test]

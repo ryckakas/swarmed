@@ -6,6 +6,7 @@ import {
     askedToShow,
     consoleCounts,
     consoleMerged,
+    endsPick,
     isMissing,
     keyInput,
     minutesWithin,
@@ -213,5 +214,13 @@ describe("an agent's acting in the task's browser", () => {
         expect(actorOf(acted, () => null)).toBe("session 7");
         expect(actorOf(acted, () => "  ")).toBe("session 7");
         expect(actorOf(tab("U", "about:blank"), () => "never asked")).toBeNull();
+    });
+});
+
+describe("picking an element", () => {
+    it("is stopped by Esc on the page, which otherwise goes to it", () => {
+        expect(endsPick(true, "Escape")).toBe(true);
+        expect(endsPick(false, "Escape")).toBe(false);
+        expect(endsPick(true, "a")).toBe(false);
     });
 });

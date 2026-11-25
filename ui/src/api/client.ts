@@ -41,6 +41,7 @@ import type {
     MergeRules,
     MergeWhen,
     MouseInput,
+    PickedElement,
     Project,
     Pull,
     PullDraft,
@@ -448,6 +449,7 @@ export interface Api {
         files?: string[],
         sessions?: number[],
         github?: number[],
+        elements?: number[],
     ): Promise<void>;
     /**
      * The sessions session `id` can mention with `@`: those its agent can read, those of its
@@ -492,6 +494,7 @@ export interface Api {
         files?: string[],
         sessions?: number[],
         github?: number[],
+        elements?: number[],
     ): Promise<void>;
     /** The messages waiting for the session's agent to finish, first to be sent first. */
     sessionQueue(id: number): Promise<QueuedMessage[]>;
@@ -505,6 +508,7 @@ export interface Api {
         files?: string[],
         sessions?: number[],
         github?: number[],
+        elements?: number[],
     ): Promise<QueuedMessage[]>;
     /**
      * Rewrites a waiting message, with its files and the sessions it mentions listed under it
@@ -517,6 +521,7 @@ export interface Api {
         files?: string[],
         sessions?: number[],
         github?: number[],
+        elements?: number[],
     ): Promise<QueuedMessage[]>;
     /**
      * Holds a waiting message while it is edited, or renews the hold: while the first one is
@@ -634,6 +639,17 @@ export interface Api {
     browserDialog(taskId: number, tab: string, accept: boolean, text: string | null): Promise<void>;
     /** What a tab logged that is kept, oldest first. */
     browserConsole(taskId: number, tab: string): Promise<ConsoleLine[]>;
+    /**
+     * Puts the tab the pane shows into Chrome's inspect mode for a pick that goes to session
+     * `sessionId`, and resolves once the user clicks an element: the element as read from
+     * Chrome and kept with its picture in the session's folder. `null` when picking ended
+     * without one: `browserPickEnd`, another pick, another tab shown, the browser gone.
+     */
+    browserPick(taskId: number, sessionId: number): Promise<PickedElement | null>;
+    /** Ends picking in the task's browser without a pick. */
+    browserPickEnd(taskId: number): Promise<void>;
+    /** The elements picked for a session, by number, as they were kept. */
+    sessionElements(id: number, numbers: number[]): Promise<PickedElement[]>;
     /** Calls `listener` for the pictures, tabs and console lines of every task's browser. */
     onBrowserEvent(listener: (event: BrowserEvent) => void): Promise<Unsubscribe>;
     /**

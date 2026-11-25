@@ -120,6 +120,22 @@ function showShortcuts() {
     useStore.getState().showBanner("shortcuts");
 }
 
+/**
+ * Starts picking an element on the page of the task on screen, opening the Browser pane for it,
+ * or stops a pick under way.
+ */
+function pickElement() {
+    const { picking, report, toggleBrowser, askToPick } = useStore.getState();
+    if (picking) {
+        void api.browserPickEnd(picking.task).catch(report);
+        return;
+    }
+    if (current()) {
+        toggleBrowser(true);
+        askToPick(true);
+    }
+}
+
 /** What each shortcut does. Those that act on a session do nothing when none is open. */
 const ACTIONS: Partial<Record<HotkeyId, () => void>> = {
     "new-task": () => useStore.getState().startNew(),
@@ -154,6 +170,7 @@ const ACTIONS: Partial<Record<HotkeyId, () => void>> = {
     "toggle-panel": () => useStore.getState().togglePanel(),
     "open-editor": () => openTask("editor"),
     "open-browser": () => openTask("browser"),
+    "pick-element": pickElement,
     "open-note": () => {
         const open = current();
         if (open) {

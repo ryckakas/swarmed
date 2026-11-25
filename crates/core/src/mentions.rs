@@ -95,8 +95,9 @@ fn each_once(ids: &[i64]) -> Vec<i64> {
 impl Core {
     /// The message session `id` is sent for `text` with what is `attached`: the words, the
     /// sessions it mentions listed under them, then its pull requests and issues, then the
-    /// files. Refused, before anything is sent, if it names a file that is not there, a session
-    /// this one cannot read, or a pull request or issue that was not read.
+    /// elements picked in the task's browser, then the files. Refused, before anything is sent,
+    /// if it names a file that is not there, a session this one cannot read, a pull request or
+    /// issue that was not read, or an element not picked for it.
     pub(crate) fn message_for(&self, id: i64, text: &str, attached: &Attached) -> Result<String> {
         let mentioned = if attached.sessions.is_empty() {
             text.trim().to_string()
@@ -111,7 +112,8 @@ impl Core {
             let project = self.project_of_session(id)?;
             self.github_listed(project.id, &mentioned, &attached.github)?
         };
-        with_files(&listed, &attached.files)
+        let picked = self.elements_listed(id, &listed, &attached.elements)?;
+        with_files(&picked, &attached.files)
     }
 
     /// `text` with the sessions `ids` listed under it, each one a session of a new task of

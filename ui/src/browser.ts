@@ -304,3 +304,8 @@ export function actorOf(
 export function openedBy(asked: BrowserAsked | null, open: boolean): boolean {
     return asked !== null || open;
 }
+
+/** Whether a key on the page stops picking an element: Esc, while one is picked. */
+export function endsPick(picking: boolean, key: string): boolean {
+    return picking && key === "Escape";
+}

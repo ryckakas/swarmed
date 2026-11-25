@@ -147,6 +147,7 @@ impl Core {
             files: self.with_images(session.id, &first.files, images)?,
             sessions: first.sessions.clone(),
             github: first.github.clone(),
+            elements: Vec::new(),
         };
         self.session_message(session.id, &first.prompt, &attached, auth)?;
         let started = TaskStarted {

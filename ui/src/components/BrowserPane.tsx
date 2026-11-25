@@ -19,6 +19,7 @@ import type {
     BrowserState,
     BrowserTab,
     ConsoleLine,
+    PickedElement,
     Task,
     Viewport,
 } from "../api/types";
@@ -30,6 +31,7 @@ import {
     BROWSER_WIDTH,
     consoleCounts,
     consoleMerged,
+    endsPick,
     isMissing,
     keyInput,
     lineTime,
@@ -42,6 +44,7 @@ import {
     viewportOf,
     wheelInput,
 } from "../browser";
+import { elementToken } from "../elements";
 import { hookKey, useStore } from "../store";
 import { findSession, findSessionHome } from "../tree";
 import { useWords } from "../useWords";
@@ -52,6 +55,7 @@ import {
     ForwardIcon,
     IconButton,
     OpenOutIcon,
+    PickIcon,
     PlusIcon,
     PowerIcon,
     ReloadIcon,
@@ -140,6 +144,7 @@ function BrowserPane({ task }: { task: Task }) {
     const state = standing.kind === "running" ? standing.state : null;
     const tab = shownTab(state);
     const actor = useActor(tab);
+    const pick = usePick(task.id, tab?.id ?? null);
     return (
         <aside className="browser-pane" aria-label={`The browser of ${task.name}`}>
             <div className="browser-head">
@@ -148,14 +153,14 @@ function BrowserPane({ task }: { task: Task }) {
                     <CloseIcon />
                 </IconButton>
             </div>
-            {state && <Toolbar task={task.id} tab={tab} />}
+            {state && <Toolbar task={task.id} tab={tab} pick={pick} />}
             {actor && (
                 <p className="browser-actor">
                     The browser tools of <strong>{actor}</strong> acted in this tab last.
                 </p>
             )}
             {tab?.dialog && <PageDialogBar task={task.id} tab={tab} />}
-            <Picture task={task.id} tab={tab?.id ?? null} onViewport={show}>
+            <Picture task={task.id} tab={tab?.id ?? null} onViewport={show} pick={pick}>
                 <Standing standing={standing} retry={retry} task={task} />
             </Picture>
             {state && tab && <Console key={tab.id} task={task.id} tab={tab.id} />}
@@ -168,6 +173,74 @@ function BrowserPane({ task }: { task: Task }) {
             )}
         </aside>
     );
+}
+
+/** Picking an element of the page, for the session on screen, as the pane offers it. */
+interface Pick {
+    /** Whether a pick is under way in this pane's browser. */
+    picking: boolean;
+    /** Starts a pick, or ends the one under way. */
+    toggle(): void;
+    /** Ends the pick under way without one. */
+    end(): void;
+}
+
+/**
+ * Picking an element of the tab shown, for the session on screen: started by the Pick button
+ * or the shortcut, ended by a click on the page, which puts the element's token into the
+ * session's message box, or by Esc, the button again, another tab, or the pane going.
+ */
+function usePick(task: number, tab: string | null): Pick {
+    const picking = useStore((state) => state.picking?.task === task);
+    const asked = useStore((state) => state.pickAsked);
+    // Which pick is the latest: one that ends after another began says nothing of it.
+    const runs = useRef(0);
+    const end = useCallback(() => {
+        void api.browserPickEnd(task).catch(useStore.getState().report);
+    }, [task]);
+    const start = useCallback(() => {
+        if (tab !== null) {
+            startPick(task, runs);
+        }
+    }, [task, tab]);
+    // The shortcut asked for a pick: it starts once there is a tab to pick in.
+    useEffect(() => {
+        if (asked && tab !== null) {
+            useStore.getState().askToPick(false);
+            start();
+        }
+    }, [asked, tab, start]);
+    // The pane going ends a pick under way: nothing would show where to click.
+    useEffect(
+        () => () => {
+            if (useStore.getState().picking?.task === task) {
+                void api.browserPickEnd(task).catch(() => {});
+            }
+        },
+        [task],
+    );
+    return { picking, toggle: () => (picking ? end() : start()), end };
+}
+
+/**
+ * Puts the page of `task` into Chrome's inspect mode for the session on screen, and the token
+ * of what is clicked into that session's message box. `runs` counts the picks: one that ends
+ * after another began says nothing of whether a pick is under way.
+ */
+function startPick(task: number, runs: RefObject<number>) {
+    const { selectedSessionId: session, notePicking, report } = useStore.getState();
+    if (session === null) {
+        return;
+    }
+    runs.current += 1;
+    const run = runs.current;
+    notePicking({ task, session });
+    const placed = (element: PickedElement | null) =>
+        element &&
+        useStore.getState().placePick(session, elementToken(element.number, element.label));
+    api.browserPick(task, session)
+        .then(placed, report)
+        .finally(() => runs.current === run && useStore.getState().notePicking(null));
 }
 
 /** Who last acted in `tab`, by their session's title. */
@@ -467,8 +540,8 @@ function Tabs({
     );
 }
 
-/** Back, forward, load again or stop, the address, and the ways out of the pane. */
-function Toolbar({ task, tab }: { task: number; tab: BrowserTab | null }) {
+/** Back, forward, load again or stop, the address, picking, and the ways out of the pane. */
+function Toolbar({ task, tab, pick }: { task: number; tab: BrowserTab | null; pick: Pick }) {
     const report = useStore((state) => state.report);
     const [problem, setProblem] = useState<string | null>(null);
     if (tab === null) {
@@ -519,6 +592,17 @@ function Toolbar({ task, tab }: { task: number; tab: BrowserTab | null }) {
                     spellCheck={false}
                     autoComplete="off"
                 />
+                <IconButton
+                    label={
+                        pick.picking
+                            ? "Stop picking (⌘⇧C)"
+                            : "Pick an element of the page, to point the agent at it (⌘⇧C)"
+                    }
+                    pressed={pick.picking}
+                    onClick={pick.toggle}
+                >
+                    <PickIcon />
+                </IconButton>
                 {web && (
                     <IconButton
                         label="Open in your own browser, whose cookies are not this task's"
@@ -587,23 +671,39 @@ function PageDialogBar({ task, tab }: { task: number; tab: BrowserTab }) {
     );
 }
 
-/** The page, as Chrome's pictures of it, with the user's clicks, wheel and keys passed on. */
+/**
+ * The page, as Chrome's pictures of it, with the user's clicks, wheel and keys passed on. While
+ * an element is picked, Chrome outlines what the pointer is over and takes the click itself,
+ * and the page has the keyboard, so that Esc stops picking rather than the agent.
+ */
 function Picture(props: {
     task: number;
     tab: string | null;
     onViewport(viewport: Viewport): void;
+    pick: Pick;
     children: ReactNode;
 }) {
-    const { task, tab, onViewport } = props;
+    const { task, tab, onViewport, pick } = props;
     const box = useRef<HTMLDivElement>(null);
     const picture = useRef<HTMLImageElement>(null);
     const keys = useRef<HTMLTextAreaElement>(null);
     const page = useRef<PageSize>({ width: 1, height: 1 });
     useSize(box, onViewport);
     useFrames(task, tab, picture, page);
-    const input = useInput(task, box, page, keys);
+    const input = useInput(task, box, page, keys, pick);
+    useEffect(() => {
+        if (pick.picking) {
+            keys.current?.focus();
+        }
+    }, [pick.picking]);
     return (
-        <div ref={box} className="browser-page" data-empty={tab === null} {...input.pointer}>
+        <div
+            ref={box}
+            className="browser-page"
+            data-empty={tab === null}
+            data-picking={pick.picking}
+            {...input.pointer}
+        >
             <img ref={picture} alt="" draggable={false} hidden={tab === null} />
             {tab !== null && (
                 <textarea
@@ -613,8 +713,20 @@ function Picture(props: {
                     {...input.keyboard}
                 />
             )}
+            {pick.picking && <PickingSaid />}
             {props.children}
         </div>
+    );
+}
+
+/** What a click does while an element is picked, and how to stop, over the page's foot. */
+function PickingSaid() {
+    const words = useWords();
+    return (
+        <p className="browser-picking" role="status">
+            Click an element of the page to point the {words.terms.agent} at it. <kbd>Esc</kbd>{" "}
+            stops picking.
+        </p>
     );
 }
 
@@ -665,12 +777,35 @@ function useFrames(
     }, [task, tab, picture, page]);
 }
 
+/**
+ * What a key on the picture does: it goes to the page, unless it is Esc while an element is
+ * picked, which stops picking.
+ */
+function onKey(task: number, pick: Pick, kind: "down" | "up") {
+    return (event: KeyboardEvent<HTMLTextAreaElement>) => {
+        if (endsPick(pick.picking, event.key)) {
+            event.preventDefault();
+            if (kind === "down") {
+                pick.end();
+            }
+            return;
+        }
+        const input = keyInput(kind, event.nativeEvent);
+        if (input === null) {
+            return;
+        }
+        event.preventDefault();
+        void api.browserKey(task, input).catch(() => {});
+    };
+}
+
 /** What the pointer and the keys do on the picture, passed on to the page. */
 function useInput(
     task: number,
     box: RefObject<HTMLDivElement | null>,
     page: RefObject<PageSize>,
     keys: RefObject<HTMLTextAreaElement | null>,
+    pick: Pick,
 ) {
     const moved = useRef(0);
     const where = (): Box => {
@@ -704,14 +839,7 @@ function useInput(
         },
         onContextMenu: (event: MouseEvent<HTMLDivElement>) => event.preventDefault(),
     };
-    const key = (kind: "down" | "up") => (event: KeyboardEvent<HTMLTextAreaElement>) => {
-        const input = keyInput(kind, event.nativeEvent);
-        if (input === null) {
-            return;
-        }
-        event.preventDefault();
-        void api.browserKey(task, input).catch(ignore);
-    };
+    const key = (kind: "down" | "up") => onKey(task, pick, kind);
     const typed = (text: string) => text && void api.browserText(task, text).catch(ignore);
     const keyboard = {
         onKeyDown: key("down"),

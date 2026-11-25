@@ -945,6 +945,7 @@ describe("going on when a usage limit resets", () => {
         files: [],
         sessions: [],
         github: [],
+        elements: [],
         remote: false,
         atReset: false,
     });

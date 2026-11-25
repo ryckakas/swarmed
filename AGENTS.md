@@ -205,6 +205,22 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     session's own tab (the one it acted in last, else an unused empty one, else a new one), and
     publishes `BrowserEvent::Show`, which opens the pane where the session on screen is in
     that task. Not on Claude Code's allow list: it navigates with the task's logins.
+  - **Picking an element** (`browser/pick.rs`, `elements.ts`, #383): `browser_pick` puts the
+    tab shown into Chrome's inspect mode (`Overlay.setInspectMode`) for the session on screen
+    and waits; only an `Overlay.inspectNodeRequested` on Swarmed's own session of that tab,
+    while that pick waits (`Browser::picking`), is taken. `browser_pick_end`, another pick,
+    another tab shown, the pane hidden or the connection gone end it with nothing. What is read
+    (DOM, `Accessibility`, box, and a script in an isolated world for the selector, text and
+    styles) is kept as `attachments/<session>/element-<n>.json` beside its picture
+    (`element-<n>.png`, `Page.captureScreenshot` clipped to the box and a margin, checked as a
+    pasted image is) and never logged. A message names picks by number (`Attached::elements`);
+    `message_for` lists them after the pull requests and before the files (`with_elements`),
+    every line after an entry's first set in by two spaces and its text and HTML fenced with
+    more backticks than they hold, so page content can neither close its fence nor pass for an
+    entry or a field. The UI reads the list back only up to the fenced part (`splitElements`).
+    The token, `[Element 3: label]`, follows the `@` and `#` pattern; the pane puts it at the
+    caret of the session's box through the store (`placePick`, `pickWaiting`). A fork copies a
+    pick's description with its picture. The mock picks from its drawn page.
 - **Two Swarmeds can run on one data directory** (`presence.rs`): the installed app beside a
   development build, or the app beside a command. Only the first to arrive, known by a lock on
   `run/first.lock`, settles sessions when it starts and ends stacks it did not start when it
@@ -534,7 +550,7 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   HTML comment, an image and a view's block, and one of its comments is hidden on GitHub, and
   fsum is not on GitHub, so its list says why (`mockIssues.ts`). The task whose stack runs has
   its browser running too (`mockBrowser.ts`), drawn on a canvas as a made-up shop that shows
-  clicks and typing; an address with `console` logs a line, `alert` opens a dialog, `refused`
+  clicks and typing, and whose parts Pick outlines and picks; an address with `console` logs a line, `alert` opens a dialog, `refused`
   fails, and a browser program with `missing` in it shows the offer to install one. The README's
   screenshot and GIF are of this sample data, never of anyone's real projects.
 - **MCP servers are one pool for every agent** (`mcp_pool.rs`). When a session starts, each

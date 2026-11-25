@@ -263,6 +263,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::browser_hide, commands::browser_mouse, commands::browser_key,
         commands::browser_text, commands::browser_go, commands::browser_tab_new,
         commands::browser_tab_close, commands::browser_dialog, commands::browser_console,
+        commands::browser_pick, commands::browser_pick_end, commands::session_elements,
     ])
 }
 

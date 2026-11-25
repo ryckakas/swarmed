@@ -1,4 +1,5 @@
 import { CHATS } from "../chats";
+import { type SampleElement, withElementList } from "../elements";
 import { withGitHubList } from "../githubMentions";
 import { type Mentioned, withMentions } from "../mentions";
 import { withFiles } from "../transcript";
@@ -81,7 +82,7 @@ function checked(reachable: Reachable[], ids: number[]): Mentioned[] {
 
 /**
  * The message session `id` is sent: the words, the sessions mentioned, the pull requests and
- * issues, then the files.
+ * issues, the elements picked in the task's browser, then the files.
  */
 export function messageFor(
     projects: Project[],
@@ -90,11 +91,13 @@ export function messageFor(
     files: string[] = [],
     sessions: number[] = [],
     github: number[] = [],
+    elements: SampleElement[] = [],
 ): string {
     const mentioned = sessions.length === 0 ? [] : checked(reachableBy(projects, id), sessions);
     const home = placed(projects).find((one) => one.session.id === id)?.project.name ?? "";
     const listed = github.length === 0 ? [] : githubFor(home, github);
-    return withFiles(withGitHubList(withMentions(text, mentioned), listed), files);
+    const words = withGitHubList(withMentions(text, mentioned), listed);
+    return withFiles(withElementList(words, elements), files);
 }
 
 /** The first message of a new task in `project`, checked before the task is made. */

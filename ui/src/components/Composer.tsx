@@ -3,6 +3,7 @@ import { sendOrQueue } from "../actions";
 import { api } from "../api";
 import type { AgentEvent, Session, SlashCommand } from "../api/types";
 import { noteCommandSent } from "../commandSent";
+import { elementsIn, withElementToken } from "../elements";
 import { githubOf } from "../githubMentions";
 import { mentionedIn } from "../mentions";
 import { expandTokens, forgetTokens, quoteTokenFor, tokensAgain } from "../pastes";
@@ -119,6 +120,7 @@ export function Composer({ session }: { session: Session }) {
     // The repository whose pull requests and issues `#` offers; a chat has none.
     const repository = useStore((state) => repositoryOf(state.projects, session));
     useQuoteInto(id, input);
+    usePickInto(id, input);
 
     // Answering a permission request removes the button that had focus. Bring it back here, so
     // the keyboard is never left pointing at nothing.
@@ -143,7 +145,8 @@ export function Composer({ session }: { session: Session }) {
         // only words of a paste.
         const sessions = mentionedIn(text);
         const github = githubOf(text, repository);
-        const atOnce = goesAtOnce(message, { ...draft, sessions, github }, commands);
+        const elements = elementsIn(text);
+        const atOnce = goesAtOnce(message, { ...draft, sessions, github, elements }, commands);
         if (atOnce) {
             noteCommandSent(id);
         }
@@ -152,7 +155,7 @@ export function Composer({ session }: { session: Session }) {
             .then((attached) => {
                 // Kept now: a message that comes back has them as files, not to be kept twice.
                 unsent = { ...draft, files: attached, images: [] };
-                const going = { files: attached, sessions, github };
+                const going = { files: attached, sessions, github, elements };
                 return sendOrQueue(id, message, going, atOnce, now);
             })
             // Pastes and quotes are only forgotten once they are sent: a message that comes
@@ -234,6 +237,33 @@ function useQuoteInto(id: number, input: RefObject<HTMLTextAreaElement | null>) 
         const placed = withQuote(text, at, quoteTokenFor(words));
         editDraft(id, { text: placed.value });
         // Once the box holds its new text.
+        requestAnimationFrame(() => {
+            box?.focus();
+            box?.setSelectionRange(placed.caret, placed.caret);
+        });
+    }, [waiting, id, input]);
+}
+
+/**
+ * Puts the token of an element picked in the task's browser into session `id`'s box, at its
+ * caret, and gives the box the keyboard after it. Taken from the store, as a quote is.
+ */
+function usePickInto(id: number, input: RefObject<HTMLTextAreaElement | null>) {
+    const waiting = useStore((state) => state.pickWaiting);
+    useEffect(() => {
+        if (waiting === null) {
+            return;
+        }
+        const { takePick, drafts, editDraft } = useStore.getState();
+        const token = takePick(id);
+        if (token === null) {
+            return;
+        }
+        const text = drafts[id]?.text ?? "";
+        const box = input.current;
+        const at = Math.min(box?.selectionEnd ?? text.length, text.length);
+        const placed = withElementToken(text, at, token);
+        editDraft(id, { text: placed.value });
         requestAnimationFrame(() => {
             box?.focus();
             box?.setSelectionRange(placed.caret, placed.caret);

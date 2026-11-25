@@ -2,6 +2,7 @@ import { type ClipboardEvent, type KeyboardEvent, useEffect, useRef, useState } 
 import { api } from "../api";
 import type { QueuedMessage } from "../api/types";
 import { editFor } from "../editing";
+import { elementsIn } from "../elements";
 import { githubOf, typedAgain } from "../githubMentions";
 import { mentionedIn } from "../mentions";
 import { expandTokens, forgetTokens, nothingWritten, tokensAgain, withToken } from "../pastes";
@@ -53,8 +54,16 @@ export function MessageQueue({ sessionId, busy, hearsMidTurn }: Props) {
         return null;
     }
     const save = (message: QueuedMessage, edited: Edited) => {
-        const { text, files, sessions, github } = edited;
-        const answer = api.sessionQueueEdit(sessionId, message.id, text, files, sessions, github);
+        const { text, files, sessions, github, elements } = edited;
+        const answer = api.sessionQueueEdit(
+            sessionId,
+            message.id,
+            text,
+            files,
+            sessions,
+            github,
+            elements,
+        );
         queueAnswer(sessionId, answer).catch(report);
     };
     const sendNow = (message: QueuedMessage) => {
@@ -103,17 +112,18 @@ export function MessageQueue({ sessionId, busy, hearsMidTurn }: Props) {
 
 /**
  * A waiting message as it is to be sent now: its words, its files, and the sessions, pull
- * requests and issues it mentions.
+ * requests, issues and picked elements it mentions.
  */
 interface Edited {
     text: string;
     files: string[];
     sessions: number[];
     github: number[];
+    elements: number[];
 }
 
 /** No words and nothing attached: what takes a message out of the queue. */
-const TAKEN_OUT: Edited = { text: "", files: [], sessions: [], github: [] };
+const TAKEN_OUT: Edited = { text: "", files: [], sessions: [], github: [], elements: [] };
 
 interface RowProps {
     sessionId: number;
@@ -274,7 +284,8 @@ function QueueEdit({ sessionId, draft, onChange, onDone, onCancel }: EditProps) 
                 // The core lists the files, the sessions, the pull requests and the issues under
                 // the words, as it did before.
                 const text = expandTokens(draft.text.trim());
-                onDone({ text, files, sessions: mentionedIn(draft.text), github });
+                const elements = elementsIn(draft.text);
+                onDone({ text, files, sessions: mentionedIn(draft.text), github, elements });
                 forgetTokens(draft.text);
             })
             .catch((error: unknown) => {

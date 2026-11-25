@@ -310,6 +310,10 @@ pub enum Error {
     /// A pull request or issue a message mentions could not be read from GitHub. Says why.
     #[error("#{0} cannot be mentioned: {1}")]
     CannotMentionOnGitHub(u64, String),
+    /// An element a message names that was not picked for its session, or whose description
+    /// is gone.
+    #[error("element {0} was not picked for this session: pick it again in the browser")]
+    NoSuchElement(u64),
     /// A pasted image in a format agents do not read, or something that is no image at all.
     /// Says which, when the format is known.
     #[error("{0} cannot be attached: agents read only PNG, JPEG, GIF and WebP images")]

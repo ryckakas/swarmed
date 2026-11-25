@@ -441,6 +441,51 @@ describe("the mock's browsers", () => {
         expect(failed).toBe(false);
     });
 
+    it("pick a part of the page with a click and list it under a message to the session", async () => {
+        const api = createMockApi();
+        const session = 3;
+        const task = (await api.overview())
+            .flatMap((project) => project.tasks)
+            .find((one) => one.sessions.some((known) => known.id === session));
+        if (!task) {
+            throw new Error("the sample session has a task");
+        }
+        const state = await api.browserShow(task.id, null, view);
+        await api.browserGo(task.id, state.shown ?? "", { address: "localhost:3000/shop" });
+        const ended = api.browserPick(task.id, session);
+        await api.browserPickEnd(task.id);
+        expect(await ended).toBeNull();
+
+        const picking = api.browserPick(task.id, session);
+        const move = { kind: "move" as const, button: "none" as const, buttons: 0, click_count: 0 };
+        const held = { alt: false, ctrl: false, meta: false, shift: false };
+        const at = { x: 40, y: 180, delta_x: 0, delta_y: 0, modifiers: held };
+        await api.browserMouse(task.id, { ...at, ...move });
+        await api.browserMouse(task.id, {
+            ...at,
+            kind: "down",
+            button: "left",
+            buttons: 1,
+            click_count: 1,
+        });
+        const element = await picking;
+        expect(element).toMatchObject({
+            number: 1,
+            tag: "li",
+            label: 'li "Linen shirt: 49 €" on /shop',
+        });
+        expect(await api.sessionElements(session, [1])).toEqual([element]);
+        await expect(api.sessionElements(session, [2])).rejects.toThrow("element 2 was not picked");
+
+        const said: SessionEvent["event"][] = [];
+        await api.onSessionEvent((published) => said.push(published.event));
+        await api.sessionSend(session, "make it blue [Element 1: li]", [], [], [], [1]);
+        const sent = said.find((event) => event.type === "user_message");
+        expect(sent?.type === "user_message" && sent.text).toContain(
+            '- element 1: li "Linen shirt',
+        );
+    });
+
     it("offer to install one when the program set is missing", async () => {
         const api = createMockApi();
         const settings = await api.settings();

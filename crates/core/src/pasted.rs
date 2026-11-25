@@ -124,6 +124,11 @@ impl Pasted {
         Ok(Self { bytes, format })
     }
 
+    /// The image's bytes, as checked.
+    pub(crate) fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
     /// Checks every image of a message at once, so that none is kept if one is refused.
     pub(crate) fn all(images: &[String]) -> Result<Vec<Self>> {
         images.iter().map(|data| Self::from_base64(data)).collect()
@@ -261,9 +266,10 @@ impl Core {
     }
 
     /// Gives a fork its own copies of the images pasted into session `from` that `events`
-    /// name, and has the messages among them name the copies, in session `to`'s folder. The
-    /// fork then loses nothing when the first session is deleted with its folder. What the
-    /// first session's tools returned is not named by a message, and stays behind.
+    /// name, and of the elements picked for it whose pictures they name, and has the messages
+    /// among them name the copies, in session `to`'s folder. The fork then loses nothing when
+    /// the first session is deleted with its folder. What the first session's tools returned is
+    /// not named by a message, and stays behind.
     pub(crate) fn images_forked(
         &self,
         from: i64,
@@ -286,10 +292,19 @@ impl Core {
             return Ok(());
         }
         let named = |name: &OsString| messages.contains(&copy.join(name).display().to_string());
-        let images: Vec<OsString> = std::fs::read_dir(&source)?
+        let mut images: Vec<OsString> = std::fs::read_dir(&source)?
             .map(|entry| entry.map(|entry| entry.file_name()))
             .filter(|name| name.as_ref().map_or(true, named))
             .collect::<std::io::Result<_>>()?;
+        // A picked element's description goes with its picture, so that the fork can send it
+        // again.
+        let described: Vec<OsString> = images
+            .iter()
+            .filter_map(|name| crate::browser::descriptions_beside(name.to_str()?))
+            .map(OsString::from)
+            .filter(|name| source.join(name).is_file())
+            .collect();
+        images.extend(described);
         private_folder(&copy)?;
         for name in images {
             // On a Mac's own disk a copy is a clone, which takes no room until one changes.

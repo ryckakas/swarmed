@@ -6,3 +6,6 @@
 
 # The shortcut ⌘⇧Enter, written as "cmd+shift+enter" under `keys`, from before the line was marked.
 4b5e5665c8e189b650ab1c90690f28a043928e40:ui/src/hotkeys.ts:generic-api-key:100
+
+# The WebSocket key RFC 6455 gives as its sample, in a test's handshake inside a string, where no mark fits.
+752d4f6318be0b16b1c9ddf971216c977cb134fe:crates/core/tests/agent_browser.rs:generic-api-key:119

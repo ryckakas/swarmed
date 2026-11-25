@@ -8,14 +8,17 @@ Started as Swarmed starts Chrome. It listens on a port of 127.0.0.1 it picks, wr
 - navigating, with its history; an address with `console` in it logs a line, one with
   `refused` fails as Chrome does;
 - pictures of the page shown once asked for, one more after each acknowledgement;
-- tabs opened and closed, dialogs answered, `Browser.close`.
+- tabs opened and closed, dialogs answered, `Browser.close`;
+- Chrome's inspect mode: while it is on, a press of the mouse picks a `<button id="save">`
+  whose description, box, accessibility, HTML, script and picture it answers for.
 
 Over HTTP it answers `/json/version` and `/json/list` as Chrome does, with addresses built from
 the `Host` the client sent. Every connection that asked to discover targets hears of tabs opened,
 changed and closed, whichever connection did it, as with Chrome.
 
 What it is told to do with the mouse and the keys is written into `fake-input` in its profile,
-one JSON line each, and what it was given to download into, into `fake-downloads`. A file
+one JSON line each, and what it was given to download into, into `fake-downloads`. The inspect
+modes it is put in go into `fake-inspect`, and what a pick read it with into `fake-pick`. A file
 `fake-fail` in its profile has it end at once, saying why, as a Chrome that cannot start does.
 """
 
@@ -57,7 +60,8 @@ counter = [0]
 def new_page(url):
     counter[0] += 1
     page_id = "T%d" % counter[0]
-    pages[page_id] = {"history": [url], "current": 0, "casting": False, "frames": 0, "size": (800, 600)}
+    pages[page_id] = {"history": [url], "current": 0, "casting": False, "frames": 0, "size": (800, 600),
+                      "inspecting": False}
     order.append(page_id)
     return page_id
 
@@ -232,10 +236,63 @@ def answer_on_page(conn, method, params, session, page_id, page):
         return {}
     if method.startswith("Input."):
         note("fake-input", {"method": method, "params": params, "page": page_id})
+        if page["inspecting"] and params.get("type") == "mousePressed":
+            conn.event("Overlay.inspectNodeRequested", {"backendNodeId": PICKED}, session)
         return {}
+    if method.startswith(("Overlay.", "DOM.", "Accessibility.", "Runtime.callFunctionOn",
+                          "Runtime.releaseObject", "Page.createIsolatedWorld",
+                          "Page.getLayoutMetrics", "Page.captureScreenshot")):
+        return inspecting(method, params, page)
     if method == "Page.handleJavaScriptDialog":
         conn.event("Page.javascriptDialogClosed", {"result": params.get("accept", False)}, session)
         return {}
+    raise KeyError("'%s' wasn't found" % method)
+
+
+PICKED = 42
+
+# The smallest start of a PNG: what Chrome's pictures start with.
+PNG = base64.b64encode(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR").decode()
+
+
+def inspecting(method, params, page):
+    """Inspect mode, and what a pick reads of the one element there is to pick."""
+    if method == "Overlay.setInspectMode":
+        page["inspecting"] = params["mode"] == "searchForNode"
+        note("fake-inspect", params["mode"])
+        return {}
+    if method in ("Overlay.enable", "Overlay.disable", "Overlay.hideHighlight", "DOM.enable",
+                  "DOM.disable", "Runtime.releaseObject"):
+        return {}
+    if params.get("backendNodeId", PICKED) != PICKED:
+        raise KeyError("No node with given id found")
+    if method == "DOM.describeNode":
+        return {"node": {"nodeId": 0, "backendNodeId": PICKED, "nodeType": 1, "nodeName": "BUTTON",
+                         "localName": "button", "attributes": ["id", "save", "class", "btn primary"]}}
+    if method == "DOM.getOuterHTML":
+        return {"outerHTML": '<button id="save" class="btn primary">Save</button>'}
+    if method == "Accessibility.getPartialAXTree":
+        return {"nodes": [{"nodeId": "1", "backendDOMNodeId": PICKED, "role": {"type": "role", "value": "button"},
+                           "name": {"type": "computedString", "value": "Save"}}]}
+    if method == "DOM.getBoxModel":
+        return {"model": {"border": [40, 100, 160, 100, 160, 140, 40, 140], "width": 120, "height": 40}}
+    if method == "Page.createIsolatedWorld":
+        note("fake-pick", {"world": params.get("worldName")})
+        return {"executionContextId": 7}
+    if method == "DOM.resolveNode":
+        note("fake-pick", {"resolved in": params.get("executionContextId")})
+        return {"object": {"type": "object", "subtype": "node", "objectId": "object-42"}}
+    if method == "Runtime.callFunctionOn":
+        wanted = params["arguments"][0]["value"]
+        styles = [[name, {"color": "rgb(255, 0, 0)", "font-size": "14px"}.get(name, "")] for name in wanted]
+        value = {"selector": "#save", "text": "Save", "styles": styles}
+        return {"result": {"type": "object", "value": value}}
+    if method == "Page.getLayoutMetrics":
+        view = {"pageX": 0, "pageY": 300, "clientWidth": 800, "clientHeight": 600}
+        return {"cssVisualViewport": view}
+    if method == "Page.captureScreenshot":
+        note("fake-pick", {"clip": params.get("clip")})
+        return {"data": PNG}
     raise KeyError("'%s' wasn't found" % method)
 
 

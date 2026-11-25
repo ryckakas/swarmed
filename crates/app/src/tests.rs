@@ -161,6 +161,31 @@ impl App {
         self.repo.with_file_name("data")
     }
 
+    /// Calls `command` without waiting for its answer, which comes on the receiver: for one that
+    /// waits on what the test does next, as a pick waits for the click.
+    fn invoke_waiting(
+        &self,
+        command: &str,
+        arguments: Value,
+    ) -> std::sync::mpsc::Receiver<Result<Value, Value>> {
+        let request = Self::request(command, arguments, self.origin.clone(), INVOKE_KEY);
+        let (answered, answer) = std::sync::mpsc::channel();
+        let window: &tauri::Webview<MockRuntime> = self.window.as_ref();
+        window.clone().on_message(
+            request,
+            Box::new(move |_webview, _command, response, _callback, _error| {
+                let value = match response {
+                    InvokeResponse::Ok(body) => body
+                        .deserialize::<Value>()
+                        .map_err(|e| json!(e.to_string())),
+                    InvokeResponse::Err(error) => Err(error.0),
+                };
+                answered.send(value).ok();
+            }),
+        );
+        answer
+    }
+
     fn ok(&self, command: &str, arguments: Value) -> Value {
         self.invoke(command, arguments)
             .unwrap_or_else(|error| panic!("`{command}` failed: {error}"))
@@ -2340,6 +2365,70 @@ fn logged(app: &App, which: &Value) -> Value {
     panic!("the tab logged nothing");
 }
 
+/// Waits until the stand-in Chrome of `task_id` has been put into inspect mode `times` times.
+fn inspecting(app: &App, task_id: &Value, times: usize) {
+    let profile = app.ok("browser_state", json!({ "taskId": task_id }))["downloads"]
+        .as_str()
+        .map(|downloads| Path::new(downloads).with_file_name("profile"))
+        .expect("a profile");
+    let deadline = Instant::now() + WAIT_LIMIT;
+    while Instant::now() < deadline {
+        let modes = std::fs::read_to_string(profile.join("fake-inspect")).unwrap_or_default();
+        if modes.lines().count() >= times {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    panic!("the page was not put into inspect mode");
+}
+
+/// Picks an element of the tab shown for a session of the task, as the pane does, and sends
+/// it in a message; then starts a pick and ends it without one.
+fn picked_and_sent(app: &App, task_id: &Value) {
+    let session = app.ok(
+        "session_new",
+        json!({ "project": "demo", "task": "one", "agent": null, "how": { "model": null, "supervision": "ask", "effort": null } }),
+    );
+    let id = &session["id"];
+    let asked = json!({ "taskId": task_id, "sessionId": id });
+    let picking = app.invoke_waiting("browser_pick", asked.clone());
+    inspecting(app, task_id, 1);
+    let held = json!({ "alt": false, "ctrl": false, "meta": false, "shift": false });
+    let click = json!({ "kind": "down", "x": 60.0, "y": 110.0, "button": "left", "buttons": 1,
+        "click_count": 1, "delta_x": 0.0, "delta_y": 0.0, "modifiers": held });
+    app.ok(
+        "browser_mouse",
+        json!({ "taskId": task_id, "input": click }),
+    );
+    let element = picking
+        .recv_timeout(WAIT_LIMIT)
+        .expect("answered")
+        .expect("picked");
+    assert_eq!(element["number"], 1);
+    assert_eq!(element["selector"], "#save");
+    assert!(
+        element["picture"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("element-1.png"))
+    );
+    let kept = app.ok("session_elements", json!({ "id": id, "numbers": [1] }));
+    assert_eq!(kept[0]["label"], element["label"]);
+
+    let queued = app.ok(
+        "session_enqueue",
+        json!({ "id": id, "text": "make it blue", "files": [], "sessions": [], "github": [],
+            "elements": [1] }),
+    );
+    let text = queued[0]["text"].as_str().unwrap_or_default();
+    assert!(text.contains("\n- element 1: button \"Save\""), "{text}");
+
+    let ended = app.invoke_waiting("browser_pick", asked);
+    inspecting(app, task_id, 3);
+    app.ok("browser_pick_end", json!({ "taskId": task_id }));
+    let nothing = ended.recv_timeout(WAIT_LIMIT).expect("answered");
+    assert_eq!(nothing, Ok(Value::Null));
+}
+
 #[test]
 fn the_ui_can_open_a_tasks_browser_show_and_drive_a_tab_and_stop_it() {
     // Without Homebrew, nothing could install a browser: no test installs one for real.
@@ -2422,6 +2511,7 @@ fn the_ui_can_open_a_tasks_browser_show_and_drive_a_tab_and_stop_it() {
     );
     let answer = json!({ "taskId": task_id, "tab": tab, "accept": true, "text": null });
     app.ok("browser_dialog", answer);
+    picked_and_sent(&app, &task_id);
     app.ok("browser_hide", which.clone());
     app.ok("browser_stop", which.clone());
     assert_eq!(app.ok("browser_state", which.clone())["running"], false);

@@ -30,7 +30,7 @@ In the data directory:
 | `snapshots/` | snapshots, below, readable by you alone |
 | `checkpoints/<task id>/` | what each turn changed in a task's worktree, below; deleted with the task |
 | `spool/` | HTML views agents hand over through Swarmed's `show_html` tool |
-| `attachments/<session id>/` | images pasted into a session's messages, and those its tools returned, readable by you alone; deleted with the session |
+| `attachments/<session id>/` | images pasted into a session's messages, those its tools returned, and the elements picked for it in the task's browser with their pictures, readable by you alone; deleted with the session |
 | `browsers/<task id>/` | the task's browser: its Chrome's profile, what its pages downloaded and what Chrome printed, readable by you alone; deleted with the task |
 | `run/` | stacks' logs and what Swarmed is running |
 
@@ -415,6 +415,9 @@ runs has a globe in the sidebar as well.
   app found it.
 - **Its console** lists what the page logged and the errors it did not catch, the latest 500
   lines per tab. Nothing of it is logged by Swarmed.
+- **Pick** points the agent at an element of the page: Chrome's inspect mode outlines what is
+  under the pointer, and a click puts the element into the message box with its picture. See
+  [Pointing at an element of the page](coding-agents.md#pointing-at-an-element-of-the-page).
 
 ## Settings
 

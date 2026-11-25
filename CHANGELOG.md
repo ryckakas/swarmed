@@ -17,6 +17,15 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **Point the agent at an element of the page.** **Pick** in the Browser pane, or ⌘⇧C, puts
+  the page in Chrome's own inspect mode: the element under the pointer is outlined, and a click
+  puts it into the message box as a token, `[Element 3: button "Save" on /settings]`. Sent, the
+  agent gets its address, a selector that finds it, its role and name, a few computed styles,
+  its text and HTML marked as the page's content, and a picture of it kept with the session.
+  Several can go in one message; the transcript shows each with its picture, which opens
+  large. Esc stops picking. See
+  [Pointing at an element of the page](docs/coding-agents.md#pointing-at-an-element-of-the-page).
+
 - **Agents browse in the task's browser, where you watch them.** Your own Playwright MCP and
   Chrome DevTools MCP servers are pointed at the task's Chrome, so an agent that checks a page,
   or a skill that says to use them, acts in the Browser pane beside the conversation, on the
