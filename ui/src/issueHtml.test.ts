@@ -220,6 +220,12 @@ describe("leavesOut", () => {
         expect(leavesOut("[^1]: A note nothing points at.")).toBe(true);
     });
 
+    it("is so for words after a code block's language, which are not drawn", () => {
+        expect(leavesOut("```js these words are not drawn\nconst a = 1;\n```")).toBe(true);
+        expect(leavesOut("~~~ text more words\nx\n~~~")).toBe(true);
+        expect(leavesOut("```js\nconst a = 1;\n```")).toBe(false);
+    });
+
     it("counts nothing written in code", () => {
         expect(leavesOut("`<script>` and `<!-- -->`")).toBe(false);
         expect(leavesOut("```html\n<!-- a comment -->\n<div onclick=x></div>\n```")).toBe(false);

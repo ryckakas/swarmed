@@ -149,6 +149,7 @@ interface Written {
     url?: string;
     title?: string | null | undefined;
     identifier?: string;
+    meta?: string | null | undefined;
     children?: Written[];
 }
 
@@ -173,7 +174,8 @@ function* nodesOf(tree: Written): Generator<Written> {
  * Whether one Markdown node is drawn without leaving anything of it out, given the definitions
  * something uses (as `kind:identifier`). HTML must be drawn whole; a link or an image keeps its
  * address and has no title, which is not drawn; a definition, which is never drawn itself, has
- * to be used.
+ * to be used; a code block has only its language after the fence, since no more of that line
+ * is drawn.
  */
 function nodeShown(node: Written, used: Set<string>): boolean {
     switch (node.type) {
@@ -190,6 +192,8 @@ function nodeShown(node: Written, used: Set<string>): boolean {
         }
         case "footnoteDefinition":
             return used.has(`footnoteDefinition:${node.identifier}`);
+        case "code":
+            return node.meta == null;
         default:
             return true;
     }
