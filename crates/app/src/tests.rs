@@ -2421,6 +2421,27 @@ fn picked_and_sent(app: &App, task_id: &Value) {
     );
     let text = queued[0]["text"].as_str().unwrap_or_default();
     assert!(text.contains("\n- element 1: button \"Save\""), "{text}");
+    // Every way a message goes takes the elements it names, as `tauri.ts` sends them.
+    let listed = |text: &str| text.contains("\n- element 1: button \"Save\"");
+    let edited = app.ok(
+        "session_queue_edit",
+        json!({ "id": id, "message": queued[0]["id"], "text": "make it green", "files": [],
+            "sessions": [], "github": [], "elements": [1] }),
+    );
+    let text = edited[0]["text"].as_str().unwrap_or_default();
+    assert!(text.starts_with("make it green") && listed(text), "{text}");
+    for (command, words) in [
+        ("session_send", "look at it"),
+        ("session_message_now", "now"),
+    ] {
+        let refused = app.invoke(
+            command,
+            json!({ "id": id, "text": words, "files": [], "sessions": [], "github": [],
+                "elements": [404] }),
+        );
+        let why = refused.expect_err("no such element");
+        assert!(why.to_string().contains("404"), "{command}: {why}");
+    }
 
     let ended = app.invoke_waiting("browser_pick", asked);
     inspecting(app, task_id, 3);
