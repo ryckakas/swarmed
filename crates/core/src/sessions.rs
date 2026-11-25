@@ -1533,9 +1533,7 @@ pub(crate) fn send_text(
     (text, at_reset): (&str, bool),
 ) -> Result<()> {
     let commands = live.sender(id)?;
-    if live.is_taking_back(store, id) {
-        return Err(rewind::taking_back_refusal());
-    }
+    let no_rewind = live.not_taking_back(store, id)?;
     // A message that calls a skill the agent would not know by name is sent with what the
     // skill says. Worked out before anything is recorded; what is recorded is what was typed.
     let called = skill_called(store, paths, id, text);
@@ -1556,6 +1554,7 @@ pub(crate) fn send_text(
         at_reset,
     };
     live.note(store, id, event)?;
+    drop(no_rewind);
     let shared = terminals.take_unshared(id);
     let moved = moved_since(store, live, id);
     let typed = text;

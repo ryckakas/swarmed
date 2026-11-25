@@ -11,7 +11,9 @@
 //! cannot be done safely: while any agent could write to the worktree, or a rebase or a merge
 //! is under way in it, it is refused. Commits stay on the branch.
 
+use std::collections::HashSet;
 use std::ops::Range;
+use std::sync::{Mutex, MutexGuard};
 
 use rusqlite::{OptionalExtension, params};
 use serde::Serialize;
@@ -189,13 +191,25 @@ impl Drop for TakingBack<'_> {
 }
 
 impl Live {
-    /// Whether a session of the task session `id` belongs to is being taken back now.
-    pub(crate) fn is_taking_back(&self, store: &std::sync::Mutex<Store>, id: i64) -> bool {
-        if lock(&self.taking_back).is_empty() {
-            return false;
+    /// Refuses a message to session `id` while a session of its task is being taken back.
+    /// Otherwise no rewind begins until what is returned is dropped: held until the message is
+    /// recorded, the rewind that comes next finds the session at work, where one that looked
+    /// in between the check and the record would have found it idle and taken its files back
+    /// under the turn.
+    pub(crate) fn not_taking_back(
+        &self,
+        store: &Mutex<Store>,
+        id: i64,
+    ) -> Result<MutexGuard<'_, HashSet<i64>>> {
+        let taking = lock(&self.taking_back);
+        if taking.is_empty() {
+            return Ok(taking);
         }
         let task = lock(store).session_by_id(id).map(|session| session.task_id);
-        task.is_ok_and(|task| lock(&self.taking_back).contains(&task))
+        if task.is_ok_and(|task| taking.contains(&task)) {
+            return Err(taking_back_refusal());
+        }
+        Ok(taking)
     }
 }
 
