@@ -49,6 +49,16 @@ describe("where a click on the picture lands on the page", () => {
         expect(pagePoint(300, 200, box, { width: 800, height: 600 })).toEqual({ x: 400, y: 300 });
     });
 
+    it("follows the picture's one scale where the page has another shape than its box", () => {
+        // A narrow page in a wide box: drawn 150 wide at the left, at the box's height.
+        const narrow = { width: 300, height: 600 };
+        expect(pagePoint(100, 50, box, narrow)).toEqual({ x: 0, y: 0 });
+        expect(pagePoint(250, 350, box, narrow)).toEqual({ x: 300, y: 600 });
+        // A flat page in a tall box: drawn at the box's width, 100 high at the top.
+        const flat = { width: 1200, height: 300 };
+        expect(pagePoint(500, 150, box, flat)).toEqual({ x: 1200, y: 300 });
+    });
+
     it("says which button, which click in a row, and what was held", () => {
         const event = {
             ...held,

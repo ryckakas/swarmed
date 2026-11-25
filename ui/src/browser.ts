@@ -92,7 +92,12 @@ export function modifiersOf(event: HeldKeys): Modifiers {
 
 const BUTTONS: MouseInput["button"][] = ["left", "middle", "right", "back", "forward"];
 
-/** Where a point on screen is on the page, in its CSS pixels. */
+/**
+ * Where a point on screen is on the page, in its CSS pixels. The picture is drawn whole in its
+ * box from the top left, at one scale both ways (`object-fit: contain`), so a page of another
+ * shape than the box, as one an agent's tool gave a size of its own, leaves room beside or
+ * under it: the point is found by that one scale, never by the box's two.
+ */
 export function pagePoint(
     clientX: number,
     clientY: number,
@@ -101,9 +106,10 @@ export function pagePoint(
 ): { x: number; y: number } {
     const across = box.width > 0 ? page.width / box.width : 1;
     const down = box.height > 0 ? page.height / box.height : 1;
+    const scale = Math.max(across, down);
     return {
-        x: Math.round((clientX - box.left) * across * 10) / 10,
-        y: Math.round((clientY - box.top) * down * 10) / 10,
+        x: Math.round((clientX - box.left) * scale * 10) / 10,
+        y: Math.round((clientY - box.top) * scale * 10) / 10,
     };
 }
 
