@@ -39,9 +39,13 @@ export interface ListedElement {
     picture: string | null;
 }
 
-/** A label as a token shows it: on one line, with no `]` to end it early, cut at a word. */
+/**
+ * A label as a token shows it: on one line, cut at a word, and with no square bracket. A `]`
+ * would end the token early, and a `[` could open another one inside it: a page's own words,
+ * `x [@42 y`, would otherwise read as a mention of a session or of an issue.
+ */
 export function elementLabel(label: string): string {
-    const plain = label.replace(/\s+/g, " ").trim().replaceAll("]", ")");
+    const plain = label.replace(/\s+/g, " ").trim().replaceAll("]", ")").replaceAll("[", "(");
     if (plain.length <= LABEL_CHARS) {
         return plain;
     }

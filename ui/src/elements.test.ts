@@ -50,6 +50,9 @@ describe("an element's token", () => {
             '[Element 3: button "Save" on /settings]',
         );
         expect(elementLabel(" a\nb ] c ")).toBe("a b ) c");
+        // No token of another kind can be opened inside it by what the page says.
+        expect(elementLabel('button "x [@42 y" on /')).toBe('button "x (@42 y" on /');
+        expect(elementLabel("a [#7 b]")).toBe("a (#7 b)");
         const long = elementLabel(`div "${"word ".repeat(20)}" on /`);
         expect(long.length).toBeLessThanOrEqual(61);
         expect(long.endsWith("…")).toBe(true);

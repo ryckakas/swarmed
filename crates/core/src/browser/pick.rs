@@ -526,7 +526,9 @@ fn fallback_selector(tag: &str, id: Option<&str>, classes: &[String]) -> String 
 }
 
 /// What a pick is called: the tag, the accessible name or else the text, and where on the
-/// site: `button "Save" on /settings`. On one line, with no `]` that would end its token.
+/// site: `button "Save" on /settings`. On one line, and with no square bracket: a `]` would
+/// end its token, and a `[` could open a token of another kind inside it, so that what a page
+/// says would read as a mention of a session or of an issue.
 fn label_of(tag: &str, name: Option<&str>, text: &str, url: &str) -> String {
     let named = name.filter(|name| !name.trim().is_empty()).unwrap_or(text);
     let named = one_line(named, MAX_NAME_CHARS).replace('"', "'");
@@ -536,7 +538,7 @@ fn label_of(tag: &str, name: Option<&str>, text: &str, url: &str) -> String {
     } else {
         format!("{tag} \"{named}\" on {place}")
     };
-    label.replace(']', ")")
+    label.replace(']', ")").replace('[', "(")
 }
 
 /// Where on its site an address is: the path of a web address, `/settings`; anything else as
@@ -964,7 +966,7 @@ mod tests {
                 "  Hello\n \"world\" [1] ",
                 "http://localhost:3000"
             ),
-            "div \"Hello 'world' [1)\" on /"
+            "div \"Hello 'world' (1)\" on /"
         );
         assert_eq!(
             label_of("img", Some(" "), "", "about:blank"),
