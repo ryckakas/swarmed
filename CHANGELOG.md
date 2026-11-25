@@ -94,6 +94,13 @@ notice adds its line under Unreleased.
   same from the terminal; see
   [Taking a session back](docs/coding-agents.md#taking-a-session-back-to-before-a-message).
 
+### Fixed
+
+- **Tasks started at once in one repository are all created.** Now and then one of them
+  failed with git's `failed to read .git/worktrees/<name>/commondir`: git writes a new
+  worktree's records one file at a time, and another git reading them meanwhile gave up.
+  Swarmed now runs its worktree commands on a repository one at a time.
+
 ## [0.4.4] - 2026-11-25
 
 ### Added
