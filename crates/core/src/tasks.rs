@@ -440,7 +440,8 @@ impl Core {
 
     /// Removes a task: stops its agents, its setup if that is under way, its stack and its
     /// browser, runs `teardown`, ends whatever still runs in the worktree, takes the worktree
-    /// away and archives the record. The browser's profile goes with it. A setup stopped so ends as [`Error::SetupStopped`], not failed.
+    /// away and archives the record. The browser's profile goes once the task is gone. A
+    /// setup stopped so ends as [`Error::SetupStopped`], not failed.
     ///
     /// Without `force` this refuses when the worktree holds work that would be lost: changes
     /// not committed, commits not pushed, or a worktree git no longer knows, whose work cannot
