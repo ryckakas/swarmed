@@ -281,7 +281,13 @@ export class MockBrowsers {
             return known;
         }
         const first = this.page(task.stack === "running" && task.url ? task.url : "about:blank");
-        const browser: Browser = { pages: [first], shown: null, left: null, viewport: null, picking: null };
+        const browser: Browser = {
+            pages: [first],
+            shown: null,
+            left: null,
+            viewport: null,
+            picking: null,
+        };
         this.browsers.set(id, browser);
         task.browser = true;
         this.host.publish(0, { type: "tree_changed" });
@@ -569,7 +575,13 @@ export class MockBrowsers {
         this.log(page, "info", "[vite] connected.");
         this.log(page, "warning", 'Image with src "/hero.jpg" has no alt text.');
         this.log(page, "error", "TypeError: Cannot read properties of undefined (reading 'price')");
-        this.browsers.set(task.id, { pages: [page], shown: null, left: null, viewport: null, picking: null });
+        this.browsers.set(task.id, {
+            pages: [page],
+            shown: null,
+            left: null,
+            viewport: null,
+            picking: null,
+        });
     }
 }
 
