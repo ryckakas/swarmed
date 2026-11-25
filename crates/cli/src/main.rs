@@ -432,6 +432,15 @@ pub(crate) fn say(line: &str) {
     writeln!(std::io::stdout().lock(), "{line}").ok();
 }
 
+/// Text someone else wrote on GitHub (an issue, a pull request's title, a check's name),
+/// without the control characters that would make the terminal do something, such as set its
+/// title or the clipboard. Line breaks and tabs stay.
+pub(crate) fn printable(text: &str) -> String {
+    text.chars()
+        .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
+        .collect()
+}
+
 /// Writes a line to stderr, apart from what a command prints: a note on the side, which must
 /// not get into what is piped on. A closed stderr is no reason to fail either.
 pub(crate) fn aside(line: &str) {

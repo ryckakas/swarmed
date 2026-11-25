@@ -4,7 +4,7 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 use swarmed_core::{Core, ISSUES_LISTED, Issue, IssueDetail, IssueFilter, IssueState, IssueWho};
 
-use crate::{aside, say};
+use crate::{aside, printable, say};
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum IssueCommand {
@@ -76,15 +76,6 @@ pub(crate) async fn run(core: &Core, command: IssueCommand) -> Result<()> {
             Ok(())
         }
     }
-}
-
-/// Anyone can write an issue: what it says reaches the terminal without the control
-/// characters that would make the terminal do something, such as set its title or the
-/// clipboard. Line breaks and tabs stay.
-fn printable(text: &str) -> String {
-    text.chars()
-        .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
-        .collect()
 }
 
 /// One line for an issue, its fields apart by tabs: number, state, title, labels.

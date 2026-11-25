@@ -5,7 +5,7 @@ use anyhow::{Result, anyhow};
 use clap::Args;
 use swarmed_core::{Core, MergeMethod, MergeOutcome, MergeReport, MergeWhen};
 
-use crate::say;
+use crate::{printable, say};
 
 /// What `swarmed task merge` is given.
 #[derive(Debug, Args)]
@@ -98,7 +98,9 @@ pub(crate) async fn run(core: &Core, args: &MergeArgs) -> Result<()> {
             .method
             .ok_or_else(|| anyhow!("the repository allows no way to merge"))?,
     };
-    say(&format!("#{} {}  {}", pull.number, pull.title, pull.url));
+    // Whoever opened the pull request wrote its title.
+    let title = printable(&pull.title);
+    say(&format!("#{} {title}  {}", pull.number, pull.url));
     // The head just read is the one merged: one pushed since is refused.
     let when = args.when();
     let report = core

@@ -9,13 +9,14 @@ use swarmed_core::{CheckOutcome, Core, Pull, PullChange, SessionEvent, pull_wait
 use tokio::sync::broadcast::error::RecvError;
 use tokio::time::Instant;
 
-use crate::{aside, say};
+use crate::{aside, printable, say};
 
 /// How often what other Swarmed processes wrote is looked for while following, as the app
 /// does: the app may read the pull request first and record what changed.
 const LOOK_EVERY: Duration = Duration::from_secs(1);
 
-/// Prints a pull request and its checks.
+/// Prints a pull request and its checks. Its title is its author's and a check's name the
+/// reporting app's, so neither reaches the terminal as written.
 fn print(pull: &Pull) {
     let draft = if pull.draft { ", draft" } else { "" };
     let conflicts = if pull.conflicts {
@@ -23,12 +24,12 @@ fn print(pull: &Pull) {
     } else {
         ""
     };
-    say(&format!(
+    say(&printable(&format!(
         "#{} {:?}{draft}{conflicts}  {}\n{}",
         pull.number, pull.state, pull.title, pull.url
-    ));
+    )));
     for check in &pull.checks {
-        say(&format!("{:?}\t{}", check.outcome, check.name));
+        say(&printable(&format!("{:?}\t{}", check.outcome, check.name)));
     }
 }
 
@@ -121,7 +122,7 @@ fn heard(core: &Core, task: i64, published: &SessionEvent) {
         AgentEvent::PullChanged { number, change, .. } => {
             let ours = core.session(published.session_id);
             if ours.is_ok_and(|session| session.task_id == task) {
-                say(&changed(*number, change));
+                say(&printable(&changed(*number, change)));
             }
         }
         _ => {}
