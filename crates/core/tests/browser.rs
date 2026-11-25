@@ -23,6 +23,38 @@ const VIEW: Viewport = Viewport {
     scale: 1.0,
 };
 
+/// Ends every browser written down in the fixture's data when dropped: a test that fails
+/// before it stops its browser must leave no Chrome running, since Chrome is in a process
+/// group of its own and outlives the test.
+struct EndsBrowsers(PathBuf);
+
+impl Drop for EndsBrowsers {
+    fn drop(&mut self) {
+        let Ok(records) = std::fs::read_dir(self.0.join("run/browsers")) else {
+            return;
+        };
+        let pid = |path: PathBuf| {
+            std::fs::read_to_string(path)
+                .ok()?
+                .lines()
+                .next()?
+                .parse()
+                .ok()
+        };
+        for leader in records.flatten().filter_map(|record| pid(record.path())) {
+            let group: u32 = leader;
+            let killed = std::process::Command::new("kill")
+                .args(["-KILL", "--", &format!("-{group}")])
+                .status();
+            killed.ok();
+        }
+    }
+}
+
+fn ends_browsers(fx: &common::Fixture) -> EndsBrowsers {
+    EndsBrowsers(fx.paths.data_dir.clone())
+}
+
 /// The stand-in Chrome, installed where the settings point the browser.
 fn chrome(fx: &common::Fixture) -> PathBuf {
     let root = fx.paths.data_dir.parent().expect("has a parent");
@@ -141,6 +173,7 @@ async fn inputs(profile: &Path, count: usize) -> Vec<serde_json::Value> {
 #[tokio::test]
 async fn a_tasks_chrome_starts_on_a_profile_of_its_own_and_says_where_it_listens() {
     let fx = fixture();
+    let _ends = ends_browsers(&fx);
     let core = core_with_task(&fx).await;
     let task = task_id(&core);
     assert!(!core.browser_state(task).expect("reads").running);
@@ -177,6 +210,7 @@ async fn a_tasks_chrome_starts_on_a_profile_of_its_own_and_says_where_it_listens
 #[tokio::test]
 async fn the_pane_gets_pictures_of_the_tab_shown_at_its_size_and_none_once_hidden() {
     let fx = fixture();
+    let _ends = ends_browsers(&fx);
     let core = core_with_task(&fx).await;
     let task = task_id(&core);
     let mut bus = core.subscribe_browsers();
@@ -214,6 +248,7 @@ async fn the_pane_gets_pictures_of_the_tab_shown_at_its_size_and_none_once_hidde
 #[tokio::test]
 async fn clicks_keys_and_text_reach_the_tab_shown_in_the_order_they_came() {
     let fx = fixture();
+    let _ends = ends_browsers(&fx);
     let core = core_with_task(&fx).await;
     let task = task_id(&core);
     let mouse = |kind| MouseInput {
@@ -275,6 +310,7 @@ async fn clicks_keys_and_text_reach_the_tab_shown_in_the_order_they_came() {
 #[tokio::test]
 async fn a_tab_goes_where_it_is_sent_back_again_and_keeps_what_it_logged() {
     let fx = fixture();
+    let _ends = ends_browsers(&fx);
     let core = core_with_task(&fx).await;
     let task = task_id(&core);
     let mut bus = core.subscribe_browsers();
@@ -325,6 +361,7 @@ async fn a_tab_goes_where_it_is_sent_back_again_and_keeps_what_it_logged() {
 #[tokio::test]
 async fn tabs_are_opened_and_closed_and_a_closed_tab_is_no_longer_shown() {
     let fx = fixture();
+    let _ends = ends_browsers(&fx);
     let core = core_with_task(&fx).await;
     let task = task_id(&core);
     let mut bus = core.subscribe_browsers();
@@ -359,6 +396,7 @@ async fn tabs_are_opened_and_closed_and_a_closed_tab_is_no_longer_shown() {
 #[tokio::test]
 async fn a_chrome_that_cannot_start_says_why_and_leaves_nothing_written_down() {
     let fx = fixture();
+    let _ends = ends_browsers(&fx);
     let core = core_with_task(&fx).await;
     let task = task_id(&core);
     let profile = fx.paths.browser(task).join("profile");
@@ -396,6 +434,7 @@ async fn a_chrome_given_up_on_while_it_starts_is_written_down_and_can_be_stopped
 #[tokio::test]
 async fn without_any_browser_the_pane_is_told_none_was_found() {
     let fx = fixture();
+    let _ends = ends_browsers(&fx);
     let core = core_with_task(&fx).await;
     let settings = Settings {
         browser_program: "/nowhere/chrome".into(),
@@ -414,6 +453,7 @@ async fn without_any_browser_the_pane_is_told_none_was_found() {
 #[tokio::test]
 async fn a_chrome_left_running_is_found_again_by_the_next_swarmed_and_stopped_there() {
     let fx = fixture();
+    let _ends = ends_browsers(&fx);
     let first = core_with_task(&fx).await;
     let task = task_id(&first);
     let started = first.browser_open(task).await.expect("starts");
@@ -523,6 +563,7 @@ async fn two_swarmeds_opening_a_tasks_browser_at_once_start_one_chrome() {
 #[tokio::test]
 async fn putting_the_task_away_stops_its_chrome_and_keeps_what_was_signed_in_to() {
     let fx = fixture();
+    let _ends = ends_browsers(&fx);
     let core = core_with_task(&fx).await;
     let task = task_id(&core);
     core.browser_open(task).await.expect("starts");
@@ -539,6 +580,7 @@ async fn putting_the_task_away_stops_its_chrome_and_keeps_what_was_signed_in_to(
 #[tokio::test]
 async fn removing_the_task_stops_its_chrome_and_deletes_its_profile() {
     let fx = fixture();
+    let _ends = ends_browsers(&fx);
     let core = core_with_task(&fx).await;
     let task = task_id(&core);
     core.browser_open(task).await.expect("starts");
@@ -561,6 +603,7 @@ async fn removing_the_task_stops_its_chrome_and_deletes_its_profile() {
 #[tokio::test]
 async fn quitting_stops_every_browser_the_first_swarmed_finds() {
     let fx = fixture();
+    let _ends = ends_browsers(&fx);
     let core = core_with_task(&fx).await;
     core.arrive().expect("arrives");
     let task = task_id(&core);
@@ -574,6 +617,7 @@ async fn quitting_stops_every_browser_the_first_swarmed_finds() {
 #[tokio::test]
 async fn the_cleanup_lists_the_browser_of_a_task_that_is_gone_and_no_other() {
     let fx = fixture();
+    let _ends = ends_browsers(&fx);
     let core = core_with_task(&fx).await;
     let current = fx.paths.browser(task_id(&core));
     std::fs::create_dir_all(current.join("profile")).expect("test setup");
@@ -603,6 +647,7 @@ async fn the_cleanup_lists_the_browser_of_a_task_that_is_gone_and_no_other() {
 #[ignore = "needs a real Chrome on the machine"]
 async fn with_a_real_chrome_a_page_is_drawn_typed_into_and_logs() {
     let fx = fixture();
+    let _ends = ends_browsers(&fx);
     let core = core_with_project(&fx).await;
     core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
         .await
