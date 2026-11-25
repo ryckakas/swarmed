@@ -31,13 +31,20 @@ export async function sendOrQueue(
     atOnce = false,
     now = false,
 ): Promise<void> {
-    const { projects } = useStore.getState();
-    const session = findSession(projects, id);
-    const home = session && findSessionHome(projects, session);
     // The pull requests and issues it names are read first, so that sending waits on nothing.
-    await githubRead(api, home?.project.name, attached.github);
+    await githubRead(api, placeOf(id).home?.project.name, attached.github);
+    // Looked at only now: its agent may have begun a turn while they were read, and a message
+    // sent straight into it would take an open request away.
+    const { session, home } = placeOf(id);
     // While its task is set up, a session waits as a busy one does: what is typed goes after.
     return delivered(api, standing(session?.status, home?.task), id, text, attached, atOnce, now);
+}
+
+/** Session `id` and where it belongs, as the store has them now. */
+function placeOf(id: number) {
+    const { projects } = useStore.getState();
+    const session = findSession(projects, id);
+    return { session, home: session && findSessionHome(projects, session) };
 }
 
 /** Moves a row of the sidebar `by` places among its siblings, then reads the tree again. */
