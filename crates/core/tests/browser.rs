@@ -414,6 +414,7 @@ async fn a_chrome_that_cannot_start_says_why_and_leaves_nothing_written_down() {
 #[tokio::test]
 async fn a_chrome_given_up_on_while_it_starts_is_written_down_and_can_be_stopped() {
     let fx = fixture();
+    let _ends = ends_browsers(&fx);
     let core = core_with_task(&fx).await;
     let task = task_id(&core);
     let profile = fx.paths.browser(task).join("profile");
@@ -498,6 +499,7 @@ fn another_core(fx: &common::Fixture) -> Core {
 #[tokio::test]
 async fn looking_after_the_browsers_starts_none_for_a_chrome_that_went_with_its_swarmed() {
     let fx = fixture();
+    let _ends = ends_browsers(&fx);
     let core = core_with_task(&fx).await;
     core.arrive().expect("arrives");
     let task = task_id(&core);
@@ -518,6 +520,7 @@ async fn looking_after_the_browsers_starts_none_for_a_chrome_that_went_with_its_
 #[tokio::test]
 async fn looking_after_the_browsers_connects_to_one_left_running_and_stops_none_shown() {
     let fx = fixture();
+    let _ends = ends_browsers(&fx);
     let first = core_with_task(&fx).await;
     let task = task_id(&first);
     first.browser_open(task).await.expect("starts");
@@ -548,6 +551,7 @@ async fn looking_after_the_browsers_connects_to_one_left_running_and_stops_none_
 #[tokio::test]
 async fn two_swarmeds_opening_a_tasks_browser_at_once_start_one_chrome() {
     let fx = fixture();
+    let _ends = ends_browsers(&fx);
     let one = core_with_task(&fx).await;
     let two = another_core(&fx);
     let task = task_id(&one);
