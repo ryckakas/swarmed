@@ -177,8 +177,9 @@ struct Said {
     author: Option<Author>,
     #[serde(default)]
     state: String,
+    /// `null` for a review not submitted yet, which `gh` lists among the others.
     #[serde(default)]
-    submitted_at: String,
+    submitted_at: Option<String>,
     #[serde(default)]
     created_at: String,
     #[serde(default)]
@@ -194,10 +195,9 @@ struct Author {
 impl Said {
     /// When it was made: a review is submitted, a comment created.
     fn when(&self) -> &str {
-        if self.submitted_at.is_empty() {
-            &self.created_at
-        } else {
-            &self.submitted_at
+        match self.submitted_at.as_deref() {
+            Some(at) if !at.is_empty() => at,
+            _ => &self.created_at,
         }
     }
 
@@ -1102,11 +1102,7 @@ mod tests {
                 login: login.to_string(),
             }),
             state: state.to_string(),
-            submitted_at: if state.is_empty() {
-                String::new()
-            } else {
-                at.to_string()
-            },
+            submitted_at: (!state.is_empty()).then(|| at.to_string()),
             created_at: if state.is_empty() {
                 at.to_string()
             } else {
@@ -1114,6 +1110,31 @@ mod tests {
             },
             viewer_did_author: mine,
         }
+    }
+
+    #[test]
+    fn a_review_not_submitted_yet_is_read_and_is_no_news() {
+        let printed = r#"{
+            "reviews": [
+                {"author": {"login": "me"}, "state": "PENDING", "submittedAt": null},
+                {"author": {"login": "alice"}, "state": "APPROVED",
+                 "submittedAt": "2026-11-20T10:00:00Z"}
+            ],
+            "comments": [{"author": null, "createdAt": "2026-11-20T11:00:00Z"}]
+        }"#;
+        let remarks: Remarks = serde_json::from_str(printed).expect("gh's reviews are read");
+        assert_eq!(
+            remark_news(&remarks, "", "me"),
+            [
+                PullChange::Approved {
+                    by: vec!["alice".to_string()]
+                },
+                PullChange::Commented {
+                    by: vec!["someone".to_string()]
+                },
+            ]
+        );
+        assert_eq!(latest_said(&remarks, ""), "2026-11-20T11:00:00Z");
     }
 
     #[test]
