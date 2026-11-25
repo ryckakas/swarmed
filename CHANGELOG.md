@@ -15,6 +15,8 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-11-25
+
 ### Added
 
 - **Swarmed follows your tasks' pull requests and tells you what changed.** Checks that failed,
@@ -754,7 +756,8 @@ through Homebrew or a browser.
 - **Installing:** an install script, a Homebrew cask that also puts `swarmed` on the PATH, and
   `cargo install swarmed` for the command alone.
 
-[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.4.4...HEAD
+[0.4.4]: https://github.com/ryckakas/swarmed/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/ryckakas/swarmed/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/ryckakas/swarmed/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/ryckakas/swarmed/compare/v0.4.0...v0.4.1
