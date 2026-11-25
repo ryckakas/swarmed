@@ -260,8 +260,10 @@ before Swarmed noted those points.
   were made since. Nothing outside the worktree comes back either: a push, a pull request, a
   database, a package installed elsewhere.
 - Files git ignores, and new files over 10 MB that checkpoints leave out, are neither restored
-  nor deleted. One in the way of a file that would come back makes git refuse the whole, and
-  nothing is changed.
+  nor deleted. One in the way of a file that would come back refuses the whole, and nothing is
+  changed: it is in no checkpoint, so it could not be put back.
+- If git cannot write a file part-way through (a full disk, a folder that takes no new file),
+  what it had written is put as it was and nothing is taken back.
 - The worktree as it was is kept first: **Put the files back** on the line restores it, as long
   as nothing changed the files since.
 - The other sessions of the task are not told. Their agents find the files as they are when they

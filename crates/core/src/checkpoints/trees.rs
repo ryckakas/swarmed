@@ -27,6 +27,10 @@ pub const MAX_UNTRACKED_BYTES: u64 = 10_000_000;
 /// never waits on one longer.
 const LIMIT: Duration = Duration::from_secs(30);
 
+/// How long git may take to write a worktree's files once it has begun: stopped at it, it
+/// leaves them part-way, so it is given far longer than a reading.
+const WRITE_LIMIT: Duration = Duration::from_secs(600);
+
 /// How often a git that is still at work is looked at.
 const POLL: Duration = Duration::from_millis(2);
 
@@ -89,7 +93,7 @@ pub(crate) fn restore(
     store: &Path,
     to: &str,
     only_from: Option<&str>,
-) -> Result<Taken> {
+) -> std::result::Result<Taken, Stopped> {
     let started = Instant::now();
     let deadline = started + LIMIT;
     let repository = Repository::of(worktree, deadline)?;
@@ -97,29 +101,64 @@ pub(crate) fn restore(
     let mut taking = Taking::begin(worktree, store, &repository, deadline)?;
     let was = taking.taken(started)?;
     if only_from.is_some_and(|tree| tree != was.tree) {
-        return Err(Error::Rewind(
-            "the files changed since they were taken back: putting them back would lose that"
-                .to_string(),
-        ));
+        let changed = "the files changed since they were taken back: putting them back would \
+                       lose that";
+        return Err(Error::Rewind(changed.to_string()).into());
     }
     nothing_in_the_way(&taking.git, &was.tree, to)?;
-    // Submodules are left as they are: what is in them is no part of a checkpoint.
-    let config = [("submodule.recurse", "false")];
-    taking.git.config.extend(
-        config
-            .iter()
-            .map(|(key, value)| ((*key).to_string(), (*value).to_string())),
-    );
-    taking
-        .git
-        .text(&["read-tree", "-m", "-u", &was.tree, to])
-        .map_err(|error| match error {
-            Error::Git { stderr, .. } => {
-                Error::Rewind(format!("git would not take the files back: {stderr}"))
-            }
-            other => other,
-        })?;
-    Ok(was)
+    let Err(why) = taking.write(&was.tree, to) else {
+        return Ok(was);
+    };
+    drop(taking);
+    // Git writes file by file, and may have written some: they are put as they were.
+    let now = left_at(worktree, store, &repository, &was.tree);
+    let left = now.ok().flatten().map(|now| Left { was: was.tree, now });
+    Err(Stopped { why, left })
+}
+
+/// Why a worktree's files were not taken to another tree.
+#[derive(Debug)]
+pub(crate) struct Stopped {
+    /// What refused it, or what git said.
+    pub(crate) why: Error,
+    /// What became of the files, if git gave up part-way and they could not be put as they
+    /// were either. Otherwise they are as they were.
+    pub(crate) left: Option<Left>,
+}
+
+/// A worktree whose files are part-way between two trees.
+#[derive(Debug)]
+pub(crate) struct Left {
+    /// The worktree as it was before, which nothing else names.
+    pub(crate) was: String,
+    /// The worktree as it is left.
+    pub(crate) now: String,
+}
+
+impl From<Error> for Stopped {
+    fn from(why: Error) -> Self {
+        Self { why, left: None }
+    }
+}
+
+/// The tree the worktree is left at after git gave up taking it from tree `was` to another,
+/// once what it wrote by then has been put as it was: `None` when that worked, or git had
+/// written nothing.
+fn left_at(
+    worktree: &Path,
+    store: &Path,
+    repository: &Repository,
+    was: &str,
+) -> Result<Option<String>> {
+    let started = Instant::now();
+    // An index of its own: the one git gave up on may be left locked.
+    let mut taking = Taking::begin(worktree, store, repository, started + LIMIT)?;
+    let now = taking.taken(started)?.tree;
+    if now == was {
+        return Ok(None);
+    }
+    let undone = nothing_in_the_way(&taking.git, &now, was).and_then(|()| taking.write(&now, was));
+    Ok(undone.is_err().then_some(now))
 }
 
 /// Refuses if something on disk that tree `was`, the worktree as taken, has not got lies where
@@ -245,6 +284,23 @@ impl<'a> Taking<'a> {
             skipped,
             head,
             took_ms: u64::try_from(took).unwrap_or(u64::MAX),
+        })
+    }
+
+    /// Takes the worktree's files from tree `from`, which the index holds, to tree `to`. Given
+    /// [`WRITE_LIMIT`] of its own, however long taking the worktree took: a git stopped while
+    /// it writes leaves the files part-way.
+    fn write(&mut self, from: &str, to: &str) -> Result<()> {
+        // Submodules are left as they are: what is in them is no part of a checkpoint.
+        let submodules = ("submodule.recurse".to_string(), "false".to_string());
+        self.git.config.push(submodules);
+        self.git.deadline = Instant::now() + WRITE_LIMIT;
+        let written = self.git.text(&["read-tree", "-m", "-u", from, to]);
+        written.map(drop).map_err(|error| match error {
+            Error::Git { stderr, .. } => {
+                Error::Rewind(format!("git would not take the files back: {stderr}"))
+            }
+            other => other,
         })
     }
 
@@ -645,7 +701,7 @@ fn wait_until(child: &mut Child, deadline: Instant) -> Result<ExitStatus> {
             child.wait().ok();
             let late = std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
-                format!("git took longer than {} seconds", LIMIT.as_secs()),
+                "git took too long, and was stopped",
             );
             return Err(late.into());
         }

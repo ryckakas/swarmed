@@ -242,6 +242,44 @@ async fn an_ignored_file_in_the_way_is_never_written_over() {
     );
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn files_git_could_not_all_take_back_are_put_as_they_were() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    let task = task(&core).await;
+    let worktree = &task.worktree_path;
+    let mut bus = core.subscribe();
+    let id = started(&core);
+    say(&core, &mut bus, id, "write: a.txt = first").await;
+    std::fs::create_dir(worktree.join("z")).expect("creates");
+    std::fs::write(worktree.join("z/b.txt"), "kept\n").expect("writes");
+    say(&core, &mut bus, id, "write: a.txt = second").await;
+    // The file that would come back has nowhere to go: its folder takes no new file.
+    std::fs::remove_file(worktree.join("z/b.txt")).expect("removes");
+    let locked = std::fs::Permissions::from_mode(0o555);
+    std::fs::set_permissions(worktree.join("z"), locked).expect("locks");
+
+    let refused = core.session_rewind(id, 1, true).await;
+    let open = std::fs::Permissions::from_mode(0o755);
+    std::fs::set_permissions(worktree.join("z"), open).expect("unlocks");
+    refused_for(refused, "git would not take the files back");
+    // What git had written by then is as it was, and nothing is recorded as taken back.
+    assert_eq!(read(worktree, "a.txt").as_deref(), Some("second\n"));
+    let events = core.session_events(id).expect("reads");
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::Rewound { .. }))
+    );
+    assert!(matches!(
+        core.session_files_put_back(id).await,
+        Err(Error::Rewind(_))
+    ));
+}
+
 /// Every file under `dir` with its contents, by path.
 fn common_files(dir: &Path) -> Vec<(String, Vec<u8>)> {
     let mut files = vec![];

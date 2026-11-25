@@ -11,7 +11,7 @@
 
 mod trees;
 
-pub(crate) use trees::{Taken, commits_since, restore};
+pub(crate) use trees::{Left, Stopped, commits_since, restore};
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};

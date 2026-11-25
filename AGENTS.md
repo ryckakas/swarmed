@@ -850,7 +850,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     then `git read-tree -m -u <now> <checkpoint>`. Git refuses to overwrite an untracked file
     and changes nothing then, but writes over one it ignores without a word, so anything on
     disk where a file would be added that the tree taken has not got is refused first
-    (`nothing_in_the_way`): it could not be put back. The tree taken is kept in `rewinds`, the
+    (`nothing_in_the_way`): it could not be put back. Git writes file by file under a limit of its own
+    (`WRITE_LIMIT`), and one that gives up part-way has what it wrote put as it was
+    (`left_at`); where that fails too, the tree taken is kept against the tree the files are
+    left at (`Stopped::left`), so that they can still be put back. The tree taken is kept in `rewinds`, the
     session's latest only, and `session_files_put_back` restores it only while the worktree is
     still at the tree it was taken back to. Commits stay: `checkpoints.head` says how many
     were made since. Claude Code's own `rewind_files` is never used.

@@ -18,7 +18,7 @@ use serde::Serialize;
 
 use crate::agent::AgentEvent;
 use crate::changes::FileChange;
-use crate::checkpoints::{self, Taken};
+use crate::checkpoints::{self, Left, Stopped};
 use crate::error::{Error, Result};
 use crate::sessions::{Live, Session, is_busy_status};
 use crate::store::Store;
@@ -312,11 +312,16 @@ impl Core {
         self.task_quiet(&task)?;
         let (worktree, store) = (task.worktree_path.clone(), self.paths.checkpoints(task.id));
         let (was, restored) = (kept.was.clone(), kept.restored.clone());
-        tokio::task::spawn_blocking(move || {
+        let put_back = tokio::task::spawn_blocking(move || {
             checkpoints::restore(&worktree, &store, &was, Some(&restored))
         })
         .await
-        .map_err(|error| Error::Io(std::io::Error::other(error)))??;
+        .map_err(|error| Error::Io(std::io::Error::other(error)))?;
+        if let Err(stopped) = put_back {
+            // Left part-way: what was kept is still what to put back, from where they are now.
+            let kept = (kept.message, kept.was.as_str());
+            return Err(self.stopped(id, kept, stopped));
+        }
         self.store().rewind_forget(id)?;
         let event = AgentEvent::FilesPutBack { to: kept.message };
         self.live.note(&self.store, id, event)
@@ -419,16 +424,45 @@ impl Core {
         let worktree = plan.task.worktree_path.clone();
         let store = self.paths.checkpoints(plan.task.id);
         let to = tree.clone();
-        let (was, commits): (Taken, Option<usize>) = tokio::task::spawn_blocking(move || {
-            let was = checkpoints::restore(&worktree, &store, &to, None)?;
-            let commits = head.and_then(|head| checkpoints::commits_since(&worktree, &head));
-            Ok::<_, Error>((was, commits))
+        let at = worktree.clone();
+        let restored =
+            tokio::task::spawn_blocking(move || checkpoints::restore(&at, &store, &to, None))
+                .await
+                .map_err(|error| Error::Io(std::io::Error::other(error)))?;
+        let session = plan.session.id;
+        let was = match restored {
+            Ok(was) => was,
+            Err(stopped) => {
+                let was = stopped.left.as_ref().map(|left| left.was.clone());
+                let kept = (plan.to, was.as_deref().unwrap_or_default());
+                return Err(self.stopped(session, kept, stopped));
+            }
+        };
+        self.store()
+            .rewind_keep(session, plan.to, &was.tree, &tree)?;
+        let commits = tokio::task::spawn_blocking(move || {
+            head.and_then(|head| checkpoints::commits_since(&worktree, &head))
         })
         .await
-        .map_err(|error| Error::Io(std::io::Error::other(error)))??;
-        self.store()
-            .rewind_keep(plan.session.id, plan.to, &was.tree, &tree)?;
+        .map_err(|error| Error::Io(std::io::Error::other(error)))?;
         Ok(commits)
+    }
+
+    /// Why the files of session `id` were not taken to another tree, after keeping what git
+    /// left part-way: the worktree as it was for message `message`, tree `was`, can then still
+    /// be put back from where the files are now.
+    fn stopped(&self, id: i64, (message, was): (usize, &str), stopped: Stopped) -> Error {
+        let Some(Left { now, .. }) = stopped.left else {
+            return stopped.why;
+        };
+        if let Err(error) = self.store().rewind_keep(id, message, was, &now) {
+            return error;
+        }
+        Error::Rewind(format!(
+            "{}. Some files were changed by then and could not be put as they were: once what \
+             stopped git is put right, `swarmed session put-back {id}` puts them back",
+            stopped.why
+        ))
     }
 
     /// Holds off every message to an agent of task `task` until the hold is dropped. Refused
