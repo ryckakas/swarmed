@@ -27,6 +27,37 @@ const VIEW: Viewport = Viewport {
     scale: 1.0,
 };
 
+/// Ends every browser written down in the fixture's data when dropped: a test that fails
+/// before it stops its browser must leave no Chrome running, since Chrome is in a process
+/// group of its own and outlives the test.
+struct EndsBrowsers(PathBuf);
+
+impl Drop for EndsBrowsers {
+    fn drop(&mut self) {
+        let Ok(records) = std::fs::read_dir(self.0.join("run/browsers")) else {
+            return;
+        };
+        let pid = |path: PathBuf| -> Option<u32> {
+            std::fs::read_to_string(path)
+                .ok()?
+                .lines()
+                .next()?
+                .parse()
+                .ok()
+        };
+        for leader in records.flatten().filter_map(|record| pid(record.path())) {
+            let killed = std::process::Command::new("kill")
+                .args(["-KILL", "--", &format!("-{leader}")])
+                .status();
+            killed.ok();
+        }
+    }
+}
+
+fn ends_browsers(fx: &common::Fixture) -> EndsBrowsers {
+    EndsBrowsers(fx.paths.data_dir.clone())
+}
+
 /// A core with task `one`, whose browser runs on the stand-in, serving agents' tools.
 async fn serving(fx: &common::Fixture) -> Arc<Core> {
     let core = core_with_project(fx).await;
@@ -233,6 +264,7 @@ async fn tool(socket: &PathBuf, session: i64, name: &str, arguments: Value) -> (
 #[tokio::test]
 async fn an_agent_that_never_browses_starts_no_chrome_and_its_address_starts_one() {
     let fx = fixture();
+    let _ends = ends_browsers(&fx);
     let core = serving(&fx).await;
     let session = started(&core);
     let address = said(&core, session, "env: SWARMED_BROWSER").await;
@@ -261,6 +293,7 @@ async fn an_agent_that_never_browses_starts_no_chrome_and_its_address_starts_one
 #[tokio::test]
 async fn the_pane_follows_the_tab_a_sessions_tools_act_in_and_names_the_session() {
     let fx = fixture();
+    let _ends = ends_browsers(&fx);
     let core = serving(&fx).await;
     let session = started(&core);
     let port = port_of(&said(&core, session, "env: SWARMED_BROWSER").await);
@@ -305,6 +338,7 @@ async fn the_pane_follows_the_tab_a_sessions_tools_act_in_and_names_the_session(
 #[tokio::test]
 async fn show_browser_opens_a_tab_of_the_sessions_own_and_says_how_to_act_on_it() {
     let fx = fixture();
+    let _ends = ends_browsers(&fx);
     let core = serving(&fx).await;
     let session = started(&core);
     let address = said(&core, session, "env: SWARMED_BROWSER").await;
@@ -350,6 +384,7 @@ async fn show_browser_opens_a_tab_of_the_sessions_own_and_says_how_to_act_on_it(
 #[tokio::test]
 async fn claude_codes_own_browser_servers_are_handed_back_pointed_at_the_address() {
     let fx = fixture();
+    let _ends = ends_browsers(&fx);
     let config = json!({ "mcpServers": {
         "playwright": { "command": "npx", "args": ["@playwright/mcp@latest"] },
         "devtools": { "command": "npx", "args": ["-y", "chrome-devtools-mcp@latest", "--channel", "canary"] },
