@@ -402,8 +402,10 @@ async fn usage_asked_while_claude_code_answers_from_its_copy_waits_until_it_fetc
     let session = core
         .session_new("demo", "one", &SessionOptions::default())
         .expect("creates");
-    // Claude Code fetched its copy of the figures almost a minute ago, and would answer with it.
-    let fetched = millis_now() - 60_500;
+    // Claude Code fetched its copy of the figures almost a minute ago, and would answer with it
+    // for three seconds more: time for the agent to start before the core reads its clock,
+    // even on a slow runner.
+    let fetched = millis_now() - 58_000;
     let config = serde_json::json!({
         "cachedUsageUtilization": { "fetchedAtMs": fetched, "utilization": {} },
     });
@@ -418,9 +420,13 @@ async fn usage_asked_while_claude_code_answers_from_its_copy_waits_until_it_fetc
         .waits_until
         .expect("waits for the copy to be old enough");
     assert_eq!(until, fetched + 61_000);
-    // The agent is started at once; the question goes once the copy is a minute old.
+    // The agent is started at once; the question goes once the copy is a minute old, some three
+    // seconds on, so the answer is waited for longer than `next` waits.
     assert_eq!(core.running_sessions(), vec![session.id]);
-    let answered = next(&mut bus).await;
+    let answered = tokio::time::timeout(std::time::Duration::from_secs(15), bus.recv())
+        .await
+        .expect("answered once the copy was old enough")
+        .expect("the event stream closed");
     assert!(
         matches!(answered.event, AgentEvent::UsageLimits { .. }),
         "{answered:?}"
