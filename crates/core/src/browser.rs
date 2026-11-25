@@ -971,7 +971,7 @@ impl Core {
     /// now; stops it if its task is gone.
     async fn adopt_browser(&self, task: i64) {
         if self.browser_task(task).is_ok() {
-            self.browser_of(task).await.ok();
+            self.browser_at(task, Absent::Left).await.ok();
         } else {
             self.stop_browser(task).await;
         }
@@ -979,26 +979,37 @@ impl Core {
 
     /// The task's browser, started or connected to if it is not yet.
     async fn browser_of(&self, task_id: i64) -> Result<Arc<Browser>> {
+        self.browser_at(task_id, Absent::Started)
+            .await?
+            .ok_or_else(|| self.browser_error(task_id, "it does not run".to_string()))
+    }
+
+    /// The task's browser, connected to if it runs. One that does not run, or cannot be
+    /// reached, is started only when `absent` says so: looking after the browsers must start
+    /// none, and what a Swarmed that crashed wrote down is of a Chrome that went with it.
+    async fn browser_at(&self, task_id: i64, absent: Absent) -> Result<Option<Arc<Browser>>> {
         if let Some(browser) = self.browsers.get(task_id) {
-            return Ok(browser);
+            return Ok(Some(browser));
         }
         let task = self.browser_task(task_id)?;
         let gate = self.browsers.gate(task.id);
         let _one_at_a_time = gate.lock().await;
         if let Some(browser) = self.browsers.get(task.id) {
-            return Ok(browser);
+            return Ok(Some(browser));
         }
         // Another Swarmed may be starting it too: one waits for the other, then connects.
         let record = self.browser_record(task.id);
         let _starting = start_lock(&record).await?.ok_or_else(|| {
             self.browser_error(task.id, "another Swarmed is still starting it".to_string())
         })?;
-        let browser = match process::kept(&record) {
-            Some(pid) => self.reconnect_or_replace(&task, pid).await?,
-            None => self.launch(&task).await?,
+        let browser = match (process::kept(&record), absent) {
+            (Some(pid), Absent::Started) => self.reconnect_or_replace(&task, pid).await?,
+            (Some(pid), Absent::Left) => self.reconnect(&task, pid).await?,
+            (None, Absent::Started) => self.launch(&task).await?,
+            (None, Absent::Left) => return Ok(None),
         };
         self.live.publish_apart(AgentEvent::TreeChanged);
-        Ok(browser)
+        Ok(Some(browser))
     }
 
     /// Connects to the task's Chrome that runs; one that cannot be reached is no use to anyone,
@@ -1191,6 +1202,15 @@ impl Core {
         };
         entries.flatten().filter_map(task).collect()
     }
+}
+
+/// What to do about a task's browser that does not run.
+#[derive(Clone, Copy)]
+enum Absent {
+    /// Start one: somebody asked for the browser.
+    Started,
+    /// Leave it so: nobody asked.
+    Left,
 }
 
 /// Waits until no other Swarmed is starting the task's Chrome, whose record is `record`, and
