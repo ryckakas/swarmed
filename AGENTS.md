@@ -1016,7 +1016,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   - **One list per repository per round** (`follow_pulls`, `Core::pulls_follow`), by the
     Swarmed that keeps house only: `gh pr list --author @me`, matched to tasks by the branch
     their worktree is on. A followed one off the list (merged, closed, someone else's) is read
-    on its own; reviews and comments only when `updatedAt` moved. Paced by `RUNNING`, `OPEN`
+    on its own; reviews and comments only when `updatedAt` moved. A task with no reading that
+    is not on the list has its branch asked about once per process (`look_at_unlisted`): one
+    merged, closed or someone else's before it was ever read would have no badge until its
+    panel was opened. Paced by `RUNNING`, `OPEN`
     and `QUIET`; a repository with nothing open is listed at the first round and when a turn
     ends or a worktree moves in one of its tasks (`wake_on_turns`). A failing `gh` backs off.
   - **The last reading is kept with the task** (`tasks.pull`, JSON of `Seen`, fields only

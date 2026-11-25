@@ -9,6 +9,9 @@
 //!   branch their worktree is on, as [`Core::task_pull`] does. A followed one that is not on
 //!   the list (merged, closed, or opened by someone else) is read on its own. Who reviewed or
 //!   commented is read only when the pull request's `updatedAt` moved.
+//! - **A task without a reading is asked about once.** The list leaves out a pull request
+//!   that is merged, closed or someone else's, so the branch of a task with nothing kept is
+//!   read on its own (`gh pr view <branch>`), once per branch while this Swarmed runs.
 //! - **Paced by what goes on.** A repository is listed every [`RUNNING`] while checks run,
 //!   every [`OPEN`] while it has a pull request open, every [`QUIET`] once nothing moved for
 //!   [`QUIET_AFTER`], and not at all when none of its tasks has one, until the app starts, a
@@ -75,6 +78,9 @@ pub const MAX_BACKOFF: Duration = Duration::from_mins(10);
 
 /// How many open pull requests of the user's one list reads, at most.
 const LISTED: &str = "100";
+
+/// What `gh pr view` says of a branch without a pull request, which is no failure.
+const NO_PULL: &str = "no pull requests found";
 
 /// How many failed checks' logs a message about them holds, at most.
 const MAX_LOGS: usize = 5;
@@ -487,6 +493,9 @@ pub(crate) struct Following {
     woken: Mutex<HashSet<i64>>,
     /// The user's login on GitHub, once `gh` said it.
     me: Mutex<Option<String>>,
+    /// The tasks whose branch was asked about on its own, with that branch: once is enough
+    /// for one without a pull request.
+    asked: Mutex<HashSet<(i64, String)>>,
 }
 
 impl Following {
@@ -892,7 +901,41 @@ impl Core {
         for task in tasks {
             moved |= self.look_at_task(gh, task, &listed).await?;
         }
+        // After the listed ones, so that what is open shows first.
+        for task in tasks {
+            moved |= self.look_at_unlisted(gh, task, &listed).await?;
+        }
         Ok(moved)
+    }
+
+    /// Asks once about the branch of a task that has no reading and is not on the list: its
+    /// pull request may be merged, closed or someone else's, which the list leaves out, and
+    /// the badge would otherwise wait for the task's panel to be opened. Once per branch
+    /// while this Swarmed runs, since most such tasks have none. What it reads is the first
+    /// reading, which takes stock and says nothing. Says whether anything moved.
+    async fn look_at_unlisted(&self, gh: &Path, task: &Task, listed: &[Reading]) -> Result<bool> {
+        let Ok(Some(branch)) = git::current_branch(&task.worktree_path).await else {
+            return Ok(false);
+        };
+        let key = (task.id, branch);
+        let known = listed.iter().any(|reading| reading.branch == key.1)
+            || lock(&self.following.asked).contains(&key)
+            || self.pull_kept(task.id)?.is_some();
+        if known {
+            return Ok(false);
+        }
+        let args = ["pr", "view", &key.1, "--json", FIELDS];
+        let reading = match ask_gh(gh, &task.worktree_path, &args).await {
+            Ok(printed) => Some(parse(&printed)?),
+            Err(GhFailed(said)) if said.contains(NO_PULL) => None,
+            // Anything else is `gh` failing, and is asked again.
+            Err(GhFailed(said)) => return Err(Error::Pull(said)),
+        };
+        lock(&self.following.asked).insert(key);
+        let Some(reading) = reading else {
+            return Ok(false);
+        };
+        Ok(self.pull_take_in(task, Some(reading), None)?.is_some())
     }
 
     /// Takes in what a task's pull request is now, by the list of its repository's: the one of

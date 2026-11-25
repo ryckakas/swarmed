@@ -58,7 +58,8 @@ notice adds its line under Unreleased.
 - **Pull request badges no longer ask GitHub each on a timer.** One list of open pull requests
   per repository serves every badge and panel, asked only by the first Swarmed on the data
   directory, sooner while checks run and less often once nothing moves; a repository without a
-  pull request open is not asked at all.
+  pull request open is not asked at all. A task whose pull request is not on that list (merged,
+  closed or someone else's) is asked about once when the app starts.
 
 ## [0.4.3] - 2026-11-24
 
