@@ -135,6 +135,9 @@ async fn request(port: u16, headers: &str) -> String {
     answer
 }
 
+/// The key a client's handshake carries: the WebSocket standard's own example, no secret.
+const HANDSHAKE_KEY: &str = "dGhlIHNhbXBsZSBub25jZQ=="; // gitleaks:allow
+
 /// A browser tool's WebSocket to the address, as Playwright's or Puppeteer's is.
 struct Tool {
     stream: TcpStream,
@@ -147,7 +150,7 @@ impl Tool {
             .expect("connects");
         let head = format!(
             "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\n\
-             Connection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+             Connection: Upgrade\r\nSec-WebSocket-Key: {HANDSHAKE_KEY}\r\n\
              Sec-WebSocket-Version: 13\r\nSec-WebSocket-Extensions: permessage-deflate\r\n\r\n"
         );
         stream.write_all(head.as_bytes()).await.expect("writes");
