@@ -688,12 +688,17 @@ mod tests {
 
     const LIMIT: Duration = Duration::from_secs(10);
 
+    /// Takes one connection and says nothing on it, for as long as what it returns is kept.
+    async fn taken_and_held(listener: TcpListener) -> io::Result<TcpStream> {
+        listener.accept().await.map(|(stream, _)| stream)
+    }
+
     #[tokio::test]
     async fn a_server_that_takes_the_connection_and_says_nothing_is_given_up_on() {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("listens");
         let port = listener.local_addr().expect("has an address").port();
         // Held open, never answered: as a Chrome that is stopped or hung.
-        let held = tokio::spawn(async move { listener.accept().await });
+        let held = tokio::spawn(taken_and_held(listener));
         let refused = connect(port, "/devtools/browser/1", Duration::from_millis(50)).await;
         assert_eq!(
             refused.err().map(|error| error.kind()),

@@ -722,9 +722,9 @@ impl Core {
         }
     }
 
-    /// Shows `tab` in the pane (the one shown, else the first, when `None`), at the size of
-    /// `viewport`: its pictures are asked for from now on, and another tab's stop. Starts the
-    /// task's Chrome if it does not run.
+    /// Shows `tab` in the pane (when `None`: the one shown, else the one it was hidden on,
+    /// else the first), at the size of `viewport`: its pictures are asked for from now on, and
+    /// another tab's stop. Starts the task's Chrome if it does not run.
     pub async fn browser_show(
         &self,
         task_id: i64,

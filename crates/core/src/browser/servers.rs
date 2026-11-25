@@ -195,6 +195,13 @@ mod tests {
         }
     }
 
+    fn with_variable(mut server: McpServer, name: &str, value: &str) -> McpServer {
+        if let McpTransport::Stdio { env, .. } = &mut server.transport {
+            env.insert(name.into(), value.into());
+        }
+        server
+    }
+
     fn args_of(server: Option<McpServer>) -> Option<Vec<String>> {
         match server?.transport {
             McpTransport::Stdio { args, .. } => Some(args),
@@ -315,13 +322,11 @@ mod tests {
         // Chrome and Edge are Chromium: told where the task's Chrome is, they use it.
         let chrome = stdio("npx", &["@playwright/mcp", "--browser", "msedge"]);
         assert!(pointed(&chrome, AT).is_some());
-        let mut by_env = stdio("npx", &["@playwright/mcp"]);
-        if let McpTransport::Stdio { env, .. } = &mut by_env.transport {
-            env.insert(
-                "PLAYWRIGHT_MCP_CDP_ENDPOINT".into(),
-                "http://127.0.0.1:9222".into(),
-            );
-        }
+        let by_env = with_variable(
+            stdio("npx", &["@playwright/mcp"]),
+            "PLAYWRIGHT_MCP_CDP_ENDPOINT",
+            "http://127.0.0.1:9222",
+        );
         assert_eq!(pointed(&by_env, AT), None);
         let left_by_env = [
             ("PLAYWRIGHT_MCP_DEVICE", "iPhone 15"),
@@ -329,10 +334,7 @@ mod tests {
             ("PLAYWRIGHT_MCP_BROWSER", "firefox"),
         ];
         for (name, value) in left_by_env {
-            let mut server = stdio("npx", &["@playwright/mcp"]);
-            if let McpTransport::Stdio { env, .. } = &mut server.transport {
-                env.insert(name.into(), value.into());
-            }
+            let server = with_variable(stdio("npx", &["@playwright/mcp"]), name, value);
             assert_eq!(pointed(&server, AT), None, "{name}");
         }
     }

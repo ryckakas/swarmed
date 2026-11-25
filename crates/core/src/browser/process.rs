@@ -104,13 +104,18 @@ pub(crate) async fn start(
             ));
         }
         if Instant::now() >= until {
-            let pid = child.id();
-            if end(pid, Some(child), false).await {
-                std::fs::remove_file(record).ok();
-            }
+            given_up(child, record).await;
             return Err(format!("it did not get ready in time{}", said(output)));
         }
         tokio::time::sleep(POLL).await;
+    }
+}
+
+/// Ends a Chrome that did not get ready, with its helpers, and forgets it once it is gone.
+async fn given_up(child: Child, record: &Path) {
+    let pid = child.id();
+    if end(pid, Some(child), false).await {
+        std::fs::remove_file(record).ok();
     }
 }
 
