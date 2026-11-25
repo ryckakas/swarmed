@@ -113,9 +113,15 @@ const SCRIPT: &str = r##"function (wanted) {
     };
     const style = doc.defaultView.getComputedStyle(target);
     const text = typeof target.innerText === "string" ? target.innerText : target.textContent || "";
+    // Cut by UTF-16 units, the text can end on half of a character that takes two, and a page
+    // can hold such a half anywhere: neither can be sent back as JSON that is read.
+    const whole = (cut) =>
+        typeof cut.toWellFormed === "function"
+            ? cut.toWellFormed()
+            : cut.replace(/[\uD800-\uDBFF]$/, "");
     return {
         selector: selectorOf(),
-        text: text.slice(0, 4000),
+        text: whole(text.slice(0, 4000)),
         styles: wanted.map((name) => [name, style.getPropertyValue(name)]),
     };
 }"##;
