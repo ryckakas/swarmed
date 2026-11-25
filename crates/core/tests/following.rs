@@ -21,7 +21,9 @@ echo "$*" >> "$here/asked"
 case "$*" in
   "pr list --state open --author @me"*) cat "$here/list.json" ;;
   "pr view "*" --json reviews,comments") cat "$here/remarks.json" ;;
-  "pr view "*) cat "$here/view.json" ;;
+  "pr view "*)
+    if [ -f "$here/view.json" ]; then cat "$here/view.json"
+    else echo "no pull requests found for branch \"$3\"" >&2; exit 1; fi ;;
   "api user --jq .login") echo "me" ;;
   "run view 1 --job 2 --log-failed") printf 'Test\tRun tests\t\033[31mexpected 2, got 3\033[0m\n' ;;
   *) echo "unexpected: $*" >&2; exit 2 ;;
@@ -63,6 +65,11 @@ impl Gh {
 
     fn says(&self, file: &str, text: &str) {
         std::fs::write(self.tools.join(file), text).expect("writes");
+    }
+
+    /// Has it answer `file` no more: without `view.json`, a branch has no pull request.
+    fn forgets(&self, file: &str) {
+        std::fs::remove_file(self.tools.join(file)).ok();
     }
 
     fn lists(&self, pulls: &[String]) {
@@ -300,11 +307,43 @@ async fn a_pull_request_is_followed_and_what_changed_is_told_once() {
     );
     assert_eq!(changes(&core, scene.written).len(), told.len());
 
-    // The worktree left the branch: its pull request is let go.
+    // The worktree left the branch: its pull request is let go, and the branch it is on now
+    // is asked about, once.
+    gh.forgets("view.json");
     git(&scene.worktree, &["switch", "--quiet", "-c", "elsewhere"]);
     let core = scene.again(core);
     core.pulls_follow().await.expect("follows");
     assert_eq!(pull_of(&core), None);
+    let views = |asked: Vec<String>| asked.iter().filter(|a| a.starts_with("pr view")).count();
+    assert_eq!(views(gh.asked()), 1);
+}
+
+/// A task whose pull request merged before any Swarmed read it is not on the list of open
+/// ones: its branch is read on its own at the first round, so its badge is there without the
+/// task being opened, and nothing is said of a merge that is no news.
+#[tokio::test]
+async fn a_pull_request_merged_before_it_was_read_shows_at_the_first_round() {
+    let (scene, core) = Scene::new().await;
+    let gh = &scene.gh;
+    let merged = scene.printed("MERGED", "SUCCESS", "2026-11-24T10:09:00Z");
+    gh.says("view.json", &merged);
+    core.pulls_follow().await.expect("follows");
+    let asked = gh.asked();
+    assert_eq!(asked.len(), 2, "{asked:?}");
+    assert!(asked[0].starts_with("pr list --state open"), "{asked:?}");
+    assert!(
+        asked[1].starts_with(&format!("pr view {} --json", scene.branch)),
+        "{asked:?}"
+    );
+    assert_eq!(pull_of(&core).expect("read").state, PullState::Merged);
+    assert_eq!(changes(&core, scene.written), []);
+
+    // Kept: a Swarmed started again shows it and asks about it no more.
+    let core = scene.again(core);
+    assert_eq!(pull_of(&core).expect("kept").state, PullState::Merged);
+    core.pulls_follow().await.expect("follows");
+    let asked = gh.asked();
+    assert!(asked.iter().all(|a| !a.starts_with("pr view")), "{asked:?}");
 }
 
 #[tokio::test]
@@ -326,7 +365,11 @@ async fn only_the_swarmed_that_keeps_house_asks_gh() {
     second.pulls_follow().await.expect("follows");
     assert_eq!(gh.asked(), Vec::<String>::new(), "the second asks nothing");
     first.pulls_follow().await.expect("follows");
-    assert_eq!(gh.asked().len(), 1, "the first lists the repository");
+    let asked = gh.asked();
+    assert_eq!(asked.len(), 2, "the first lists the repository: {asked:?}");
+    assert!(asked[0].starts_with("pr list"), "{asked:?}");
+    // The task is not on the list, so its branch is asked about on its own.
+    assert!(asked[1].starts_with("pr view"), "{asked:?}");
 }
 
 #[tokio::test]

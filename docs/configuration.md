@@ -257,6 +257,7 @@ What it asks, and how often:
 | Each repository with a pull request open | `gh pr list --state open --author @me` once a round: every 20 seconds while checks run, every 90 seconds otherwise, every 5 minutes once nothing moved for 30 minutes |
 | A pull request whose `updatedAt` moved | its reviews and comments, once (`gh pr view --json reviews,comments`); who wrote them is kept, never what |
 | One you followed that left the list | read on its own: merged, closed, or opened by someone else |
+| A task with no pull request read yet that is not on the list | its branch, once while the app runs (`gh pr view <branch>`): one merged, closed or opened by someone else shows without the task being opened |
 | A repository none of whose tasks has one open | listed when the app starts, and when a turn ends or a worktree moves in one of its tasks; otherwise not at all |
 | When `gh` fails, a rate limit included | asked again after 30 seconds, then twice as long each time, up to 10 minutes |
 | Your GitHub login | once, so that your own reviews are not news to you (`gh api user`) |
