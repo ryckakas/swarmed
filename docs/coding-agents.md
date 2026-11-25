@@ -111,6 +111,8 @@ in every session, and it shows one level, the highest any window has reached:
 
 Whether extra usage can pay is what Claude Code last said of it: after a turn, or when asked,
 as extra usage turned on and its monthly cap not reached. It need not have paid for a turn yet.
+Once a turn has said it cannot, out of usage credits for instance, asking does not undo that,
+since what asking gives is your setting: the next turn's word does.
 A limit counts as reached once a report after a turn says so. The figure Claude Code gives when
 asked is a whole percent, so 100% there may be 99.5%: the notice then says the limit is all but
 used up, and nothing is limited yet.

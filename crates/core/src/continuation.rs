@@ -386,15 +386,14 @@ mod tests {
         assert_eq!(refused_until(&usage, now), None);
         // And so it does when the newest word on it says it can, before any turn it paid for.
         usage.billed = None;
-        usage.pays = Some(ExtraPays {
-            can: true,
+        let pays = |can| ExtraPays {
+            can,
             heard_at: 0,
-        });
+            asked: false,
+        };
+        usage.pays = Some(pays(true));
         assert_eq!(refused_until(&usage, now), None);
-        usage.pays = Some(ExtraPays {
-            can: false,
-            heard_at: 0,
-        });
+        usage.pays = Some(pays(false));
         assert_eq!(refused_until(&usage, now), Some(20_000));
     }
 

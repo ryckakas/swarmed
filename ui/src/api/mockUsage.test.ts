@@ -70,4 +70,27 @@ describe("the mock's account usage", () => {
         expect(heardUsage(sampleAccountUsage(), extra)?.extra?.used).toBe(3871);
         expect(heardUsage(sampleAccountUsage(), { type: "text", text: "hi" })).toBeNull();
     });
+
+    it("keeps a report's refusal of extra usage through an answer, as the core does", () => {
+        const report = (overageStatus: string): AgentEvent => ({
+            type: "rate_limit",
+            status: "allowed",
+            resets_at: null,
+            raw: { overageStatus },
+        });
+        const extra: AgentEvent = {
+            type: "extra_usage",
+            enabled: true,
+            used: 3871,
+            limit: 40_000,
+            currency: "USD",
+            decimals: 2,
+            limit_reached: false,
+        };
+        const out = heardUsage(sampleAccountUsage(), report("rejected"));
+        const asked = out && heardUsage(out, extra);
+        expect(asked?.pays?.can).toBe(false);
+        const added = asked && heardUsage(asked, report("allowed"));
+        expect(added?.pays).toMatchObject({ can: true, asked: false });
+    });
 });

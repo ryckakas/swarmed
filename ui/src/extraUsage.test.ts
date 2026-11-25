@@ -62,11 +62,17 @@ describe("extra usage", () => {
     it("can pay past a limit as the newest word on it says, billed yet or not", () => {
         // As on 25 Nov: extra usage turned on and under its cap, and no turn billed since the
         // 5-hour window reset. A limit reached now would go on billed, not be refused.
-        const able = { ...usage(billed(false, 100)), pays: { can: true, heard_at: 100 } };
+        const able = {
+            ...usage(billed(false, 100)),
+            pays: { can: true, heard_at: 100, asked: true },
+        };
         expect(onExtraUsageNow(able, now)).toBe(false);
         expect(extraCanPay(able, now)).toBe(true);
         // Out of credits, or its cap reached: nothing pays, even right after a billed turn.
-        const unable = { ...usage(billed(true, 100)), pays: { can: false, heard_at: 200 } };
+        const unable = {
+            ...usage(billed(true, 100)),
+            pays: { can: false, heard_at: 200, asked: false },
+        };
         expect(extraCanPay(unable, now)).toBe(false);
         // With no word on it, a billed turn says it can until its limit resets.
         expect(extraCanPay(usage(billed(true, 100, now + 60)), now)).toBe(true);

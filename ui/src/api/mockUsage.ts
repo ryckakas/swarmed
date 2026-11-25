@@ -157,7 +157,7 @@ export function heardUsage(usage: AccountUsage, event: AgentEvent): AccountUsage
                 ? { on, resets_at: event.resets_at, heard_at: at }
                 : usage.billed;
         const can = canPay(raw, on);
-        const pays = can === null ? usage.pays : { can, heard_at: at };
+        const pays = can === null ? usage.pays : { can, heard_at: at, asked: false };
         return take({ ...usage, billed, pays }, reported(event.raw, at), false);
     }
     if (event.type === "usage_limits") {
@@ -166,8 +166,14 @@ export function heardUsage(usage: AccountUsage, event: AgentEvent): AccountUsage
     }
     if (event.type === "extra_usage") {
         const { type: _, ...figures } = event;
-        const pays = { can: event.enabled && !event.limit_reached, heard_at: at };
+        const pays = paysAsked(usage.pays, event.enabled && !event.limit_reached, at);
         return { ...usage, extra: { ...figures, heard_at: at }, pays };
     }
     return null;
+}
+
+/** What an answer says of whether extra usage can pay: as in the core, never over a report's refusal. */
+function paysAsked(standing: AccountUsage["pays"], can: boolean, at: number): AccountUsage["pays"] {
+    const refusedByReport = standing?.can === false && !standing.asked;
+    return can && refusedByReport ? standing : { can, heard_at: at, asked: true };
 }

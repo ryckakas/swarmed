@@ -54,13 +54,18 @@ pub struct AccountUsage {
 ///
 /// It is heard from a report after a turn (`overageStatus`, else `overageEnabled`, or a turn it
 /// paid for), or from the extra usage as asked for (turned on, its cap not reached), whichever
-/// came last.
+/// came last, except that an answer never overrules a report's refusal: its `is_enabled` is the
+/// setting, not known to turn off when credits run out (`out_of_credits`), and Claude Code is
+/// asked at every start. A later report, or a turn it paid for, does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtraPays {
     /// Whether it can.
     pub can: bool,
     /// When Swarmed heard it, in seconds since 1970.
     pub heard_at: i64,
+    /// Whether it came from an answer to asking, and not from a report after a turn.
+    #[serde(default)]
+    pub asked: bool,
 }
 
 /// One of the plan's usage windows, as the newest report that gave it said.
@@ -129,7 +134,11 @@ impl AccountUsage {
                 raw,
             } => {
                 self.hear_billed(status, *resets_at, raw, at);
-                let said = extra_can_pay(raw).map(|can| ExtraPays { can, heard_at: at });
+                let said = extra_can_pay(raw).map(|can| ExtraPays {
+                    can,
+                    heard_at: at,
+                    asked: false,
+                });
                 self.pays = said.or(self.pays);
                 self.take(reported(raw, at), false);
             }
@@ -154,8 +163,7 @@ impl AccountUsage {
                     limit_reached: *limit_reached,
                     heard_at: at,
                 });
-                let can = *enabled && !*limit_reached;
-                self.pays = Some(ExtraPays { can, heard_at: at });
+                self.hear_pays_asked(*enabled && !*limit_reached, at);
             }
             _ => return false,
         }
@@ -181,6 +189,20 @@ impl AccountUsage {
     fn billed_until_reset(&self, at: i64) -> bool {
         self.billed
             .is_some_and(|billed| billed.on && billed.resets_at.is_some_and(|reset| reset > at))
+    }
+
+    /// Takes in what an answer heard at `at` says of whether extra usage can pay: anything but
+    /// raising a report's refusal, which only a later report, or a turn it paid for, undoes.
+    fn hear_pays_asked(&mut self, can: bool, at: i64) {
+        let refused_by_report = self.pays.is_some_and(|pays| !pays.can && !pays.asked);
+        if can && refused_by_report {
+            return;
+        }
+        self.pays = Some(ExtraPays {
+            can,
+            heard_at: at,
+            asked: true,
+        });
     }
 
     /// Whether extra usage can pay past a limit reached at `at`: as the newest word on it
@@ -892,7 +914,8 @@ mod tests {
         let out = json!({ "overageStatus": "rejected", "overageDisabledReason": "out_of_credits" });
         usage.hear(&report(out), 200);
         assert!(!usage.extra_can_pay(200));
-        // An answer to asking is newer: turned on, its cap not reached.
+        // An answer to asking, turned on and under its cap, does not overrule that: its
+        // `is_enabled` is the setting, and Claude Code is asked at every start.
         let extra = |enabled, limit_reached| AgentEvent::ExtraUsage {
             enabled,
             used: 15_314,
@@ -902,10 +925,17 @@ mod tests {
             limit_reached,
         };
         usage.hear(&extra(true, false), 300);
-        assert!(usage.extra_can_pay(300));
+        assert!(!usage.extra_can_pay(300));
+        // A later report does, as when credits were added.
+        usage.hear(&report(json!({ "overageStatus": "allowed" })), 350);
+        assert!(usage.extra_can_pay(350));
+        // An answer lowers it, its cap reached, and raises what an answer lowered.
         usage.hear(&extra(true, true), 400);
         assert!(!usage.extra_can_pay(400));
+        usage.hear(&extra(true, false), 450);
+        assert!(usage.extra_can_pay(450));
         // A report that says nothing of it changes nothing; older ones had no `overageEnabled`.
+        usage.hear(&extra(false, false), 480);
         usage.hear(&plan_report(0.5, 1_795_813_200), 500);
         assert!(!usage.extra_can_pay(500));
         usage.hear(&report(json!({ "overageStatus": "allowed" })), 600);

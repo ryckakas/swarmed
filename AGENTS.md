@@ -1051,7 +1051,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   Whether extra usage can pay past a limit reached (`ExtraPays`, `extra_can_pay`, #435) is the
   newest word on it: a report's `overageStatus` (`rejected` when it cannot, such as
   `out_of_credits`), else `overageEnabled`, or the asked extra usage (on, cap not reached);
-  without any, a turn billed until its reset. Billed and stopped follow it, not whether the
+  without any, a turn billed until its reset. An answer never raises a report's refusal
+  (`hear_pays_asked`, `ExtraPays::asked`): its `is_enabled` is the setting, not known to turn
+  off when credits run out, and Claude Code is asked at every start; a later report does. Billed and stopped follow it, not whether the
   latest turn was billed. A window is reached (`window_reached`, `limitLevel`) by a report's
   `rejected` or a report's utilization of 1 or more, never by an answer's percent alone,
   which is rounded; an answer at 100 keeps a report's `rejected` until the reset

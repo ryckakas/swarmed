@@ -1048,10 +1048,10 @@ export interface AccountUsage {
     billed: { on: boolean; resets_at: number | null; heard_at: number } | null;
     /**
      * Whether extra usage can pay past a limit reached, as the newest word on it said: a report
-     * after a turn or the extra usage asked for. Not whether it does: a limit within needs
-     * nothing paid.
+     * after a turn or the extra usage asked for, which never overrules a report's refusal
+     * (`asked` says it came from one). Not whether it does: a limit within needs nothing paid.
      */
-    pays: { can: boolean; heard_at: number } | null;
+    pays: { can: boolean; heard_at: number; asked: boolean } | null;
 }
 
 /**
