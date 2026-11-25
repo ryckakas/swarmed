@@ -1697,6 +1697,16 @@ pub(crate) async fn browser_hide(core: CoreState<'_>, task_id: i64) -> Command<(
     Ok(core.browser_hide(task_id).await?)
 }
 
+/// Brings the window of a task's Chrome forward, on a tab, for one with a window of its own.
+#[tauri::command]
+pub(crate) async fn browser_raise(
+    core: CoreState<'_>,
+    task_id: i64,
+    tab: Option<String>,
+) -> Command<()> {
+    Ok(core.browser_raise(task_id, tab.as_deref()).await?)
+}
+
 /// What the mouse did on the picture. Not `async`: clicks and keys go in the order they came.
 #[tauri::command]
 pub(crate) fn browser_mouse(core: CoreState<'_>, task_id: i64, input: MouseInput) -> Command<()> {

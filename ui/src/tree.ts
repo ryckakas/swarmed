@@ -263,10 +263,11 @@ export function unfoldedFor(folded: number[], projects: Project[], sessionId: nu
 }
 
 /**
- * The folded tasks that are still listed: one removed or archived, here or anywhere else, is
- * forgotten with its fold. The same list if all of them are.
+ * The tasks of `ids` that are still listed, such as the folded ones or those whose Browser
+ * pane is open: one removed or archived, here or anywhere else, is forgotten with what was
+ * remembered of it. The same list if all of them are.
  */
-export function stillFolded(folded: number[], projects: Project[]): number[] {
+export function stillListed(ids: number[], projects: Project[]): number[] {
     const listed = new Set(
         projects
             .flatMap((project) => project.tasks)
@@ -274,8 +275,8 @@ export function stillFolded(folded: number[], projects: Project[]): number[] {
             .map((task) => task.id),
     );
     return withoutIds(
-        folded,
-        folded.filter((id) => !listed.has(id)),
+        ids,
+        ids.filter((id) => !listed.has(id)),
     );
 }
 

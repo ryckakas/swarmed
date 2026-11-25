@@ -154,7 +154,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   hooks are in `useBrowser.ts` and only act; what they decide is in `browser.ts`, with tests.
   - **One process per task**, on the Chrome, Chromium, Edge or Brave found (`browser/find.rs`)
     or `Settings::browser_program`, headless, on `browsers/<task>/profile` (0700), so logins
-    outlast restarts and stay the task's. Deleted with the task (`browser_forget`), listed by
+    outlast restarts and stay the task's. Headless, it draws at `RENDER_SCALE`
+    (`--force-device-scale-factor`, `process.rs`): it draws one pixel to a point whatever
+    device scale is emulated, which a Retina pane enlarged into a blur. Deleted with the task (`browser_forget`), listed by
     the clean-up when its task is gone. A missing browser is `Error::BrowserMissing`, and the
     pane offers Homebrew's `google-chrome` cask (Chromium's was disabled on 2026-09-01).
   - **Swarmed's connection is a WebSocket to the port** Chrome writes into
@@ -171,7 +173,35 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     most `FRAMES_A_SECOND`, acknowledged at that pace, and published on their own channel
     (`Core::subscribe_browsers`, `BrowserEvent`), never stored. A page's script can change its
     title without Chrome saying so, so the shown tab's info is read again with its pictures,
-    at most once a second.
+    at most once a second. Chrome refuses a second start on a session (158 does), so `cast`
+    remembers what it asked (`Cast`), leaves the same asked again alone, and stops before it
+    starts otherwise, under one lock (`casting`).
+  - **Two qualities** (`browser/pace.rs`): `STILL` for a page that stands still, `MOVING`
+    once pictures come close together (`Motion`), and `STILL` again after `SETTLE` without
+    one (`recast`, which starts them again: a start sends one picture, the sharp one). Never
+    a screenshot for it: Chrome draws the page again for one, which reads as moving, and the
+    stills set each other off.
+  - **Or a window of its own** (`Settings::browser_display`, `BrowserDisplay::Window`):
+    started without `--headless`, the forced scale or a window size, so Chrome draws it and
+    keeps where the user put it. Which way a Chrome runs is read from it (`windowed`: a
+    headless one names itself `HeadlessChrome`), so one an earlier Swarmed started counts as
+    it is, and `BrowserState::windowed` says so. A windowed one gets no emulation and no
+    pictures (`cast` does nothing); the pane lists its tabs, runs its toolbar and console,
+    passes on no input, and offers `browser_raise` (`Target.activateTarget`), which only the
+    user asks for: a session's tools acting in a tab never take the focus. It is never
+    stopped for sitting unused (`stopped_unused`). The setting applies as a Chrome starts; the
+    pane offers to start one again that runs the other way (`restartTo`).
+  - **Chrome's blank page is never painted headless**, so its pictures are black: the pane
+    draws a tab on `about:blank` as white (`blankPage`) and no override of the background
+    changes that. A stop keeps the open web pages (`browser/reopen.rs`, `tabs.json`, 0600,
+    at most 20, `http` and `https` only, read back with the same check and used up as they
+    are: only a Swarmed connected to it keeps them, so one stopped otherwise, as the command
+    line's `--stop` does, must not bring back an older stop's) and a start opens
+    them over the connection, never on the command line, then closes the blank tab it
+    started on unless it was used meanwhile (`unused`: the browser can be reached while they
+    open). A stopped Chrome's connection can end after a new one started in its place:
+    `gone` then says nothing, and a record is deleted only for the Chrome it names
+    (`process::forget`).
   - **Input goes in order**: the mouse, keys and text commands are not `async` in the app and
     send without waiting (`Cdp::send`). ⌘V is the window's: Chrome's clipboard is its own.
   - **Remembered on disk** as a stack is (`run/browsers/<task>.pid`), counted in
@@ -552,7 +582,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   fsum is not on GitHub, so its list says why (`mockIssues.ts`). The task whose stack runs has
   its browser running too (`mockBrowser.ts`), drawn on a canvas as a made-up shop that shows
   clicks and typing, and whose parts Pick outlines and picks; an address with `console` logs a line, `alert` opens a dialog, `refused`
-  fails, and a browser program with `missing` in it shows the offer to install one. The README's
+  fails, and a browser program with `missing` in it shows the offer to install one. With
+  `browser_display` set to window, a browser started from then on shows the window panel, and
+  one already running offers to start again in a window. The README's
   screenshot and GIF are of this sample data, never of anyone's real projects.
 - **MCP servers are one pool for every agent** (`mcp_pool.rs`). When a session starts, each
   agent's servers are read from its own configuration (`mcp.rs` and `mcp_plugins.rs` for

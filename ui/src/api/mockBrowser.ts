@@ -8,6 +8,7 @@
 // Its parts can be picked as Chrome's inspect mode picks an element (`browserPick`): the one
 // under the pointer is outlined, and a click picks it, with a picture cut from the page.
 
+import { sameViewport } from "../browser";
 import type { SampleElement } from "../elements";
 import { imageFolder } from "../images";
 import type { Api } from "./client";
@@ -63,6 +64,8 @@ interface Browser {
     viewport: Viewport | null;
     /** A pick under way in the tab shown, for a session, and what it resolves. */
     picking: { session: number; done(element: PickedElement | null): void } | null;
+    /** Started with a window of its own, as the settings said then. */
+    windowed: boolean;
 }
 
 /** A part of the sample site that can be picked, where it is drawn. */
@@ -132,6 +135,7 @@ type BrowserApi = Pick<
     | "browserStop"
     | "browserShow"
     | "browserHide"
+    | "browserRaise"
     | "browserMouse"
     | "browserKey"
     | "browserText"
@@ -238,6 +242,7 @@ export class MockBrowsers {
             tabs: browser?.pages.map(tabOf) ?? [],
             shown: browser?.shown ?? null,
             downloads: DOWNLOADS(id),
+            windowed: browser?.windowed ?? false,
         };
     }
 
@@ -248,7 +253,8 @@ export class MockBrowsers {
     draw(id: number) {
         const browser = this.browsers.get(id);
         const page = browser?.pages.find((one) => one.id === browser.shown);
-        if (!(browser?.viewport && page)) {
+        // One with a window of its own is drawn there, not in the pane.
+        if (!(browser?.viewport && page) || browser.windowed) {
             return;
         }
         const { width, height } = browser.viewport;
@@ -287,6 +293,7 @@ export class MockBrowsers {
             left: null,
             viewport: null,
             picking: null,
+            windowed: this.host.settings().browser_display === "window",
         };
         this.browsers.set(id, browser);
         task.browser = true;
@@ -334,10 +341,15 @@ export class MockBrowsers {
         if (wanted !== browser.shown) {
             this.pickEnd(id);
         }
+        // As the core does: pictures start again only for another tab or size, and Chrome's
+        // first picture can come before the word of the tab shown.
+        const same = wanted === browser.shown && sameViewport(browser.viewport, viewport);
         browser.shown = wanted;
         browser.viewport = viewport;
+        if (!same) {
+            this.draw(id);
+        }
         this.told(id);
-        this.draw(id);
         return this.state(id);
     }
 
@@ -581,6 +593,7 @@ export class MockBrowsers {
             left: null,
             viewport: null,
             picking: null,
+            windowed: false,
         });
     }
 }
@@ -642,6 +655,11 @@ export function browserApi(browsers: MockBrowsers, host: BrowserHost): BrowserAp
         browserStop: async (id) => browsers.stop(id),
         browserShow: async (id, tab, viewport) => browsers.show(id, tab, viewport),
         browserHide: async (id) => browsers.hide(id),
+        // The sample Chrome has no window to bring forward.
+        browserRaise: async (id) => {
+            browsers.start(id);
+            browsers.told(id);
+        },
         browserMouse: async (id, input) => {
             if (browsers.picks(id, input)) {
                 return;

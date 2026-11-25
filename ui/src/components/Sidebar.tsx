@@ -682,7 +682,7 @@ function BrowserBadge({ task }: { task: Task }) {
         if (session !== null && session !== selected) {
             void open(api, session);
         }
-        toggleBrowser(true);
+        toggleBrowser(task.id, true);
     };
     return (
         <button

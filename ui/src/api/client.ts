@@ -625,6 +625,8 @@ export interface Api {
     browserShow(taskId: number, tab: string | null, viewport: Viewport): Promise<BrowserState>;
     /** The pane is off screen: no more pictures. */
     browserHide(taskId: number): Promise<void>;
+    /** Brings the window of a task's Chrome with a window of its own forward, on `tab`. */
+    browserRaise(taskId: number, tab: string | null): Promise<void>;
     /** What the mouse did on the picture, passed on to the tab shown. */
     browserMouse(taskId: number, input: MouseInput): Promise<void>;
     /** A key on the picture, passed on to the tab shown. */

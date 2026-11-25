@@ -380,8 +380,11 @@ first Swarmed to arrive on the data directory applies the rules, while the app r
 ## The task's browser
 
 Each task, and each chat, can have a Chrome of its own. The globe in a session's header shows
-it in the **Browser** pane beside the conversation, whose edge widens it; a task whose browser
-runs has a globe in the sidebar as well.
+it in the **Browser** pane beside the conversation, whose edge widens it. Each task remembers
+whether its pane is open: it stays open in that task's sessions, and going to another task's
+session neither opens that task's pane nor starts its Chrome. A task whose browser runs has a
+globe in the sidebar as well; hiding the pane leaves Chrome running, for an agent that may still
+be browsing, until it sits unused (below) or the power button in the pane stops it.
 
 - **Which browser.** The first of Google Chrome, Chromium, Microsoft Edge and Brave that is
   installed, or the program `browser_program` names. With none, the pane offers to install
@@ -394,11 +397,23 @@ runs has a globe in the sidebar as well.
   outlast restarts and are deleted with the task; the clean-up lists the folder of a task that
   is gone. What its pages download goes to `browsers/<task id>/downloads`, which the pane names.
 - **Without a window.** Chrome runs headless; the pane draws pictures of the page it shows,
-  asked for only while the pane is on screen, at most 15 a second, and never kept. Your clicks,
+  asked for only while the pane is on screen, at most 30 a second, and never kept. Chrome
+  draws pages at two pixels to a point, so the pictures are as sharp as your screen on a
+  Retina display; screenshots your agents' browser tools take are that size too. While the
+  page moves, its pictures are lighter so that they keep up; once it has stood still for a
+  moment, a sharp one takes their place. Your clicks,
   the wheel and your keys go to the page; ⌘V pastes your clipboard's text into it, and text
   composed with an input method arrives when it is done. Chrome's own clipboard is not yours,
   so ⌘C copies within the page only. **Open in browser** opens the address in your own
   browser, whose cookies are not the task's.
+- **Or in a window of its own**, with `browser_display = "window"` (Settings → Sessions →
+  Browser → Show it): Chrome runs as an ordinary Chrome window beside Swarmed, with its own
+  icon in the Dock, and draws the page itself, as sharp and smooth as any Chrome. It is the
+  same Chrome on the same profile, and agents' browser tools act in it there. The pane lists
+  its tabs, runs its address bar and console, and **Show its window** (or choosing a tab)
+  brings the window forward; an agent acting in a tab never does. A browser that runs keeps
+  its way until it starts again: the pane offers to start it again the way the setting says.
+  One in a window is never stopped for sitting unused.
 - **Started when used**, when the pane opens, when an agent's browser tools first connect to
   its session's address, or by `swarmed task browser <repository> <task>`, which prints where
   its DevTools endpoint answers (`http://127.0.0.1:<port>`, and the browser's WebSocket), for
@@ -412,7 +427,11 @@ runs has a globe in the sidebar as well.
   unused for `browser_idle_minutes`; the power button in the pane, or `swarmed task browser
   --stop`, stops it at once. A browser the command line started runs on after the command
   ends, until one of those happens; while the app runs, its unused time counts from when the
-  app found it.
+  app found it. **Started again**, it opens the web pages it had open when the app stopped it
+  (up to 20, kept in `browsers/<task id>/tabs.json`, readable by you alone, until it starts).
+  One stopped by `swarmed task browser --stop`, or that ended some other way, starts with none
+  of them; what was signed in to is kept in its profile anyway. A blank page shows as the
+  white page it is.
 - **Its console** lists what the page logged and the errors it did not catch, the latest 500
   lines per tab. Nothing of it is logged by Swarmed.
 - **Pick** points the agent at an element of the page: Chrome's inspect mode outlines what is
@@ -437,7 +456,8 @@ Set in the app's Settings, kept in `settings.toml`.
 | `turn_end_lines` | `true` | whether a conversation draws a line where each turn ends, with how long it took and what was spent so far. A turn with nothing in it that spent nothing more has none either way, and a turn that failed or was stopped keeps its line even when this is `false`. What the agent loaded is said once, at the top, whatever this is |
 | `put_away_merged`, `put_away_idle` and their days, `put_away_closes_sessions` | off, 1, 14, `false` | putting finished tasks away by themselves; see [Finished tasks](#finished-tasks) |
 | `browser_program` | empty | the program a task's browser runs; empty for the first of Google Chrome, Chromium, Microsoft Edge and Brave installed. See [The task's browser](#the-tasks-browser) |
-| `browser_idle_minutes` | `30` | how long a task's browser may sit unused before it is stopped, up to 1440; 0 to leave it running |
+| `browser_idle_minutes` | `30` | how long a task's browser may sit unused before it is stopped, up to 1440; 0 to leave it running. One in a window of its own is never stopped for this |
+| `browser_display` | `pane` | where a task's browser is shown: `pane`, drawn beside the conversation, or `window`, a Chrome window of its own. See [The task's browser](#the-tasks-browser) |
 | `continue_after_limit` | `false` | whether a Claude Code session a usage limit stopped goes on by itself when the limit resets, for every refused turn, without being asked each time: it is sent "Continue where you stopped." then. Without it, the limit's line in the conversation offers it each time |
 | `limit_warnings` | `frequent` | which levels of the account's usage the notice at the top of the window says, in Claude Code sessions: `frequent`, every level (50%, 75% and 90% of a window used, a limit reached with extra usage paying, a limit that stops requests); `rare`, from 90% used; `none`, only requests stopped. Dismissed, the notice stays away until a higher level, until its window resets, or until a window first reported since, such as one model's weekly limit, reaches a level. The conversation says only a turn a limit stopped, and the usage coins show the same whatever it is |
 | `rules` | none | rules every agent is given, in every session |

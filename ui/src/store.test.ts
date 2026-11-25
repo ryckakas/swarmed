@@ -955,11 +955,27 @@ describe("a picked element's token", () => {
 
     it("is no longer asked for once the Browser pane is closed", () => {
         const { toggleBrowser, askToPick } = useStore.getState();
-        toggleBrowser(true);
+        toggleBrowser(4, true);
         askToPick(true);
-        toggleBrowser(true);
+        toggleBrowser(4, true);
         expect(useStore.getState().pickAsked).toBe(true);
-        toggleBrowser(false);
+        toggleBrowser(4, false);
         expect(useStore.getState().pickAsked).toBe(false);
+    });
+});
+
+describe("the Browser pane", () => {
+    it("is open for the tasks it was opened in only, and goes with its task", () => {
+        useStore.setState({ browserOpen: [] });
+        const { toggleBrowser, askBrowser, forgetTasks } = useStore.getState();
+        toggleBrowser(4);
+        expect(useStore.getState().browserOpen).toEqual([4]);
+        // An agent of another task asking to show its browser opens that task's pane.
+        askBrowser({ task: 7, tab: "T1" });
+        expect(useStore.getState().browserOpen).toEqual([4, 7]);
+        toggleBrowser(4);
+        expect(useStore.getState().browserOpen).toEqual([7]);
+        forgetTasks([7]);
+        expect(useStore.getState().browserOpen).toEqual([]);
     });
 });

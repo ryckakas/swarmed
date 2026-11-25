@@ -29,9 +29,11 @@ mod agents;
 mod cdp;
 mod find;
 mod input;
+mod pace;
 mod page;
 mod pick;
 mod process;
+mod reopen;
 mod servers;
 mod watch;
 mod ws;
@@ -39,6 +41,7 @@ mod ws;
 use std::collections::HashMap;
 use std::fs::{File, TryLockError};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
@@ -60,6 +63,7 @@ use crate::agent::AgentEvent;
 use crate::error::{Error, Result};
 use crate::hooks::{self, OutputSink};
 use crate::sessions::Live;
+use crate::settings::BrowserDisplay;
 use crate::stacks::StackState;
 use crate::store::Task;
 use crate::{Core, lock};
@@ -67,10 +71,7 @@ use cdp::{Cdp, Event};
 use page::{Change, Frame, Pane};
 
 /// The most pictures of a page sent to the window in a second.
-pub const FRAMES_A_SECOND: u32 = 15;
-
-/// The JPEG quality of those pictures, from 0 to 100.
-const QUALITY: u8 = 70;
+pub const FRAMES_A_SECOND: u32 = 30;
 
 /// How many events a slow window may fall behind; pictures it missed are not sent again.
 const BUFFER: usize = 64;
@@ -114,6 +115,9 @@ pub struct BrowserState {
     pub shown: Option<String>,
     /// Where what its pages download goes.
     pub downloads: PathBuf,
+    /// Whether it runs with a window of its own (`browser_display = "window"`), which Chrome
+    /// draws and the pane does not.
+    pub windowed: bool,
 }
 
 /// What front ends follow of the tasks' browsers.
@@ -288,12 +292,30 @@ struct Browser {
     viewport: Mutex<Option<Viewport>>,
     /// When the next picture may be asked for.
     next_frame: Mutex<Instant>,
+    /// How many pictures of the tab shown were published, and when the latest came: the page
+    /// is sent at another quality as it moves or stands still (`pace.rs`).
+    pictures: AtomicU64,
+    motion: Mutex<pace::Motion>,
     /// When the shown tab's title was last read again.
     title_read: Mutex<Instant>,
     /// The tab a session's tools last acted in, which the pane on screen goes to.
     followed: Mutex<Option<String>>,
     /// A pick under way in the tab shown, waiting for the user's click (`pick.rs`).
     picking: Mutex<Option<pick::Picking>>,
+    /// The pictures asked for, if any. Held while pictures are stopped or started, so that two
+    /// never cross between a stop and a start, which Chrome would refuse.
+    casting: tokio::sync::Mutex<Option<Cast>>,
+    /// Whether it runs with a window of its own, as it said when connected to: Chrome draws
+    /// that, so the pane asks for no pictures and sets no size.
+    windowed: bool,
+}
+
+/// Pictures asked of a tab: on which of Swarmed's sessions, at what size and JPEG quality.
+#[derive(Debug, PartialEq)]
+struct Cast {
+    session: String,
+    view: Viewport,
+    quality: u8,
 }
 
 /// A Chrome that runs, as it is connected to.
@@ -307,7 +329,7 @@ struct Found {
 }
 
 impl Browser {
-    fn new(task: i64, found: Found, cdp: Arc<Cdp>) -> Self {
+    fn new(task: i64, found: Found, cdp: Arc<Cdp>, windowed: bool) -> Self {
         Self {
             task,
             pid: found.pid,
@@ -321,9 +343,13 @@ impl Browser {
             used: Mutex::new(Instant::now()),
             viewport: Mutex::default(),
             next_frame: Mutex::new(Instant::now()),
+            pictures: AtomicU64::new(0),
+            motion: Mutex::default(),
             title_read: Mutex::new(Instant::now()),
             followed: Mutex::default(),
             picking: Mutex::default(),
+            casting: tokio::sync::Mutex::default(),
+            windowed,
         }
     }
 
@@ -338,6 +364,7 @@ impl Browser {
             tabs: pane.tabs(),
             shown: pane.shown().map(String::from),
             downloads: self.downloads.clone(),
+            windowed: self.windowed,
         }
     }
 
@@ -374,41 +401,100 @@ impl Browser {
     }
 
     /// Asks the tab for pictures, at the size the pane gives it. Nothing yet for a tab not
-    /// attached to: attaching asks once it is.
+    /// attached to: attaching asks once it is. Pictures asked for already are left as they
+    /// are; any others are stopped first, since Chrome refuses a second start (as 158 does)
+    /// and a start is how a new size is taken.
     async fn cast(&self, tab: &str) -> std::result::Result<(), String> {
+        if self.windowed {
+            return Ok(());
+        }
+        let mut casting = self.casting.lock().await;
         let (Some(session), Some(view)) = (self.session_of(tab), *lock(&self.viewport)) else {
             return Ok(());
         };
+        let asked = |cast: &Cast| cast.session == session && cast.view == view;
+        if casting.as_ref().is_some_and(asked) {
+            return Ok(());
+        }
+        let wanted = Cast {
+            session,
+            view,
+            quality: pace::STILL,
+        };
+        let before = casting.take().map(|before| before.session);
+        if let Some(before) = before.filter(|before| *before != wanted.session) {
+            self.stop_cast(&before).await;
+        }
+        // Even what is not known to cast: stopping what does not cast is no error.
+        self.stop_cast(&wanted.session).await;
+        let on = Some(wanted.session.as_str());
         let metrics = json!({
             "width": view.width,
             "height": view.height,
             "deviceScaleFactor": view.scale,
             "mobile": false,
         });
-        let on = Some(session.as_str());
         self.cdp
             .call(on, "Emulation.setDeviceMetricsOverride", metrics)
             .await?;
         self.cdp.call(on, "Page.bringToFront", json!({})).await?;
+        self.start_cast(&wanted).await?;
+        *casting = Some(wanted);
+        Ok(())
+    }
+
+    /// The tab shown, sent at `quality` from now on (`pace.rs`): its pictures are started again
+    /// at that quality, if that is not the one they have. Nothing for a tab not shown.
+    async fn recast(&self, tab: &str, quality: u8) {
+        let mut casting = self.casting.lock().await;
+        let session = self.session_of(tab);
+        let Some(cast) = casting.as_mut() else {
+            return;
+        };
+        if Some(&cast.session) != session.as_ref() || cast.quality == quality {
+            return;
+        }
+        cast.quality = quality;
+        self.stop_cast(&cast.session).await;
+        // Not started again, the pane shows the last picture until the tab is shown again.
+        if self.start_cast(cast).await.is_err() {
+            *casting = None;
+        }
+    }
+
+    /// Starts `cast`'s pictures, at its size and quality.
+    async fn start_cast(&self, cast: &Cast) -> std::result::Result<(), String> {
+        let view = cast.view;
         let pictures = json!({
             "format": "jpeg",
-            "quality": QUALITY,
+            "quality": cast.quality,
             "maxWidth": view.pixels(view.width),
             "maxHeight": view.pixels(view.height),
             "everyNthFrame": 1,
         });
+        let on = Some(cast.session.as_str());
         self.cdp.call(on, "Page.startScreencast", pictures).await?;
         Ok(())
     }
 
     /// Stops the tab's pictures.
     async fn uncast(&self, tab: &str) {
-        if let Some(session) = self.session_of(tab) {
-            let stop = self
-                .cdp
-                .call(Some(&session), "Page.stopScreencast", json!({}));
-            stop.await.ok();
+        let mut casting = self.casting.lock().await;
+        let Some(session) = self.session_of(tab) else {
+            return;
+        };
+        if casting.as_ref().is_some_and(|cast| cast.session == session) {
+            *casting = None;
         }
+        self.stop_cast(&session).await;
+    }
+
+    /// Stops the pictures asked for on `session`, if any.
+    async fn stop_cast(&self, session: &str) {
+        let stop = self
+            .cdp
+            .call(Some(session), "Page.stopScreencast", json!({}));
+        stop.await.ok();
     }
 
     /// Publishes a picture if its tab is the one shown, and asks for the next one once the
@@ -428,6 +514,7 @@ impl Browser {
             drop(tokio::spawn(read));
         }
         if shown {
+            self.paced(&frame.tab);
             browsers.publish(BrowserEvent::Frame {
                 task_id: self.task,
                 tab: frame.tab,
@@ -477,6 +564,24 @@ impl Browser {
         }
         let going = go_to(Arc::clone(self), Arc::clone(browsers), tab.to_string());
         drop(tokio::spawn(going));
+    }
+
+    /// A picture of `tab`, which the pane shows, came: the page is sent at [`pace::MOVING`]
+    /// while pictures come close together, and at [`pace::STILL`] again once they stop.
+    fn paced(self: &Arc<Self>, tab: &str) {
+        let seen = self.pictures.fetch_add(1, Ordering::SeqCst) + 1;
+        if lock(&self.motion).heard(Instant::now()) {
+            let moving = pace::moving(Arc::clone(self), tab.to_string());
+            drop(tokio::spawn(moving));
+        }
+        let settled = pace::settled(Arc::clone(self), tab.to_string(), seen);
+        drop(tokio::spawn(settled));
+    }
+
+    /// Whether the page in `tab` has stood still since picture `seen`: no picture came after
+    /// it, and the pane still shows that tab.
+    fn still_due(&self, tab: &str, seen: u64) -> bool {
+        self.pictures.load(Ordering::SeqCst) == seen && self.shown().as_deref() == Some(tab)
     }
 
     /// Whether the shown tab's title is to be read again now, which it then counts as.
@@ -623,7 +728,13 @@ async fn gone(browser: &Arc<Browser>, ends: &Ends) {
         *lock(&browser.child) = child;
     } else {
         ends.browsers.forget(browser);
-        std::fs::remove_file(&ends.record).ok();
+        process::forget(&ends.record, browser.pid);
+    }
+    // Stopped and started again, a Chrome can be the task's before this one's connection has
+    // ended: what this one says as it goes is not about that one.
+    let replaced = ends.browsers.get(browser.task);
+    if replaced.is_some_and(|now| !Arc::ptr_eq(&now, browser)) {
+        return;
     }
     let mut state = browser.state();
     state.running = false;
@@ -631,6 +742,17 @@ async fn gone(browser: &Arc<Browser>, ends: &Ends) {
     state.shown = None;
     ends.browsers.publish(BrowserEvent::State(state));
     ends.live.publish_apart(AgentEvent::TreeChanged);
+}
+
+/// Whether the Chrome connected to runs with a window of its own, as it says: one without names
+/// itself `HeadlessChrome`. That holds for a Chrome another Swarmed started, whatever the
+/// settings say now. One that does not say is taken to run without.
+async fn windowed(cdp: &Cdp) -> bool {
+    let version = cdp.call(None, "Browser.getVersion", json!({})).await;
+    version.is_ok_and(|version| {
+        let agent = version["userAgent"].as_str().unwrap_or("HeadlessChrome");
+        !agent.contains("HeadlessChrome")
+    })
 }
 
 /// Goes to `typed`. Chrome's words when it cannot, such as `net::ERR_CONNECTION_REFUSED`.
@@ -748,6 +870,24 @@ impl Core {
         let state = browser.state();
         self.browsers.publish(BrowserEvent::State(state.clone()));
         Ok(state)
+    }
+
+    /// Brings the window of the task's Chrome forward on `tab` (when `None`: the one shown, else
+    /// the first), for a Chrome with a window of its own. Only ever asked by the user: a
+    /// session's tools acting in a tab never take the focus from what the user is doing.
+    pub async fn browser_raise(&self, task_id: i64, tab: Option<&str>) -> Result<()> {
+        let browser = self.browser_of(task_id).await?;
+        browser.touch();
+        let (_, now) = browser
+            .shows(tab)
+            .ok_or_else(|| self.browser_error(task_id, "it has no such tab".to_string()))?;
+        if let Some(now) = &now {
+            let asked = json!({ "targetId": now });
+            let raised = browser.cdp.call(None, "Target.activateTarget", asked).await;
+            raised.map_err(|reason| self.browser_error(task_id, reason))?;
+        }
+        self.browsers.publish(BrowserEvent::State(browser.state()));
+        Ok(())
     }
 
     /// The pane is off screen: no more pictures are asked for.
@@ -903,6 +1043,9 @@ impl Core {
         let record = self.browser_record(task);
         let (pid, child, asked) = match self.browsers.take(task) {
             Some(browser) => {
+                // Its tabs open again when it next starts.
+                let tabs = browser.state().tabs;
+                reopen::keep(&self.paths.browser(task).join(reopen::KEPT), &tabs);
                 browser.cdp.send(None, "Browser.close", json!({}));
                 (browser.pid, lock(&browser.child).take(), true)
             }
@@ -910,10 +1053,12 @@ impl Core {
         };
         let gone = process::end(pid, child, asked).await;
         if gone {
-            std::fs::remove_file(&record).ok();
+            process::forget(&record, pid);
         }
-        self.browsers
-            .publish(BrowserEvent::State(self.stopped_state(task)));
+        if self.browsers.get(task).is_none() {
+            self.browsers
+                .publish(BrowserEvent::State(self.stopped_state(task)));
+        }
         self.live.publish_apart(AgentEvent::TreeChanged);
         (!gone).then(|| format!("its browser (process {pid}) would not end, and is left running"))
     }
@@ -964,7 +1109,10 @@ impl Core {
         let limit = Duration::from_secs(u64::from(minutes) * 60);
         let unused: Vec<i64> = lock(&self.browsers.connected)
             .values()
-            .filter(|browser| browser.shown().is_none() && browser.idle_for() >= limit)
+            .filter(|browser| {
+                let shown = browser.shown().is_some();
+                stopped_unused(browser.windowed, shown, browser.idle_for(), limit)
+            })
             .map(|browser| browser.task)
             .collect();
         for task in unused {
@@ -1028,11 +1176,16 @@ impl Core {
         self.launch(task).await
     }
 
-    /// Starts the task's Chrome.
+    /// Starts the task's Chrome, with a window of its own if the settings say so.
     async fn launch(&self, task: &Task) -> Result<Arc<Browser>> {
-        let chosen = self.settings()?.browser_program;
-        let (name, program) = find::find(&chosen, &find::app_folders(), &self.tool_dirs)
-            .ok_or(Error::BrowserMissing)?;
+        let settings = self.settings()?;
+        let found = find::find(
+            &settings.browser_program,
+            &find::app_folders(),
+            &self.tool_dirs,
+        );
+        let (name, program) = found.ok_or(Error::BrowserMissing)?;
+        let windowed = settings.browser_display == BrowserDisplay::Window;
         let folder = self.paths.browser(task.id);
         let (profile, downloads) = (folder.join("profile"), folder.join("downloads"));
         crate::pasted::private_folder(&profile)?;
@@ -1040,9 +1193,16 @@ impl Core {
         let page = self.start_page(task);
         let output = folder.join(process::OUTPUT);
         let record = self.browser_record(task.id);
-        let started = process::start(&program, &profile, &output, page.as_deref(), &record)
-            .await
-            .map_err(|reason| self.browser_error(task.id, reason))?;
+        let started = process::start(
+            &program,
+            &profile,
+            &output,
+            page.as_deref(),
+            windowed,
+            &record,
+        )
+        .await
+        .map_err(|reason| self.browser_error(task.id, reason))?;
         let pid = started.child.id();
         let found = Found {
             pid,
@@ -1054,7 +1214,9 @@ impl Core {
         };
         // A task that was put away is worked on again.
         self.bring_back(task.id)?;
-        self.connect(task, found).await
+        let browser = self.connect(task, found).await?;
+        reopen::reopen(&browser, &folder.join(reopen::KEPT)).await;
+        Ok(browser)
     }
 
     /// Connects to the task's Chrome that another Swarmed, or an earlier one, started.
@@ -1082,7 +1244,8 @@ impl Core {
         let (cdp, events) = connected.map_err(|error| {
             self.browser_error(task.id, format!("it could not be reached: {error}"))
         })?;
-        let browser = Arc::new(Browser::new(task.id, found, cdp));
+        let windowed = windowed(&cdp).await;
+        let browser = Arc::new(Browser::new(task.id, found, cdp, windowed));
         lock(&self.browsers.connected).insert(task.id, Arc::clone(&browser));
         let ends = Ends {
             browsers: Arc::clone(&self.browsers),
@@ -1175,6 +1338,7 @@ impl Core {
             tabs: vec![],
             shown: None,
             downloads: self.paths.browser(task).join("downloads"),
+            windowed: false,
         }
     }
 
@@ -1247,6 +1411,13 @@ fn holds(file: &File) -> std::io::Result<bool> {
     }
 }
 
+/// Whether a browser that sat unused for `idle` is stopped, with `limit` as the settings say:
+/// never while the pane shows it, nor one with a window of its own, which can be read for longer
+/// than any page takes to load, and only loading counts as use.
+fn stopped_unused(windowed: bool, shown: bool, idle: Duration, limit: Duration) -> bool {
+    !windowed && !shown && idle >= limit
+}
+
 /// Where the record of each running browser is, in the data directory.
 pub(crate) fn records(data_dir: &Path) -> PathBuf {
     data_dir.join("run").join("browsers")
@@ -1270,6 +1441,25 @@ pub async fn follow_browsers(core: Weak<Core>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_browser_without_a_window_that_nobody_looks_at_is_stopped_for_sitting_unused() {
+        let (limit, long, short) = (
+            Duration::from_secs(60),
+            Duration::from_secs(61),
+            Duration::from_secs(5),
+        );
+        assert!(stopped_unused(false, false, long, limit));
+        assert!(!stopped_unused(false, false, short, limit));
+        assert!(
+            !stopped_unused(false, true, long, limit),
+            "the pane shows it"
+        );
+        assert!(
+            !stopped_unused(true, false, long, limit),
+            "a window can be read"
+        );
+    }
 
     #[test]
     fn the_room_the_pane_asks_for_is_kept_within_limits() {

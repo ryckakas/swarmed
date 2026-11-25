@@ -2,6 +2,7 @@
 // the page, how big the page is, and what the console shows. Pure, so it can be tested.
 
 import type {
+    BrowserDisplay,
     BrowserEvent,
     BrowserSetup,
     BrowserState,
@@ -277,6 +278,31 @@ export function stillAsked(asked: boolean, paneOpen: boolean): boolean {
     return asked && paneOpen;
 }
 
+/**
+ * Where to start the task's Chrome again so that it is shown as the settings say, when the one
+ * that runs was started the other way: the setting applies to a Chrome as it starts, and one
+ * that runs keeps its window, or its lack of one, until then. `null` when they agree.
+ */
+export function restartTo(
+    state: BrowserState | null,
+    display: BrowserDisplay,
+): BrowserDisplay | null {
+    if (state === null || !state.running) {
+        return null;
+    }
+    const runs: BrowserDisplay = state.windowed ? "window" : "pane";
+    return runs === display ? null : display;
+}
+
+/**
+ * Whether the tab is Chrome's blank page, which the pane draws as the white page it is rather
+ * than with its pictures: headless, Chrome never paints `about:blank`, and its pictures of it
+ * are black. A new tab and a Chrome started on no page show it.
+ */
+export function blankPage(tab: BrowserTab | null): boolean {
+    return tab?.url === "about:blank";
+}
+
 /** How a browser stands by what the core says of it: running with its tabs, or stopped. */
 export function standingOf(state: BrowserState): Standing {
     return state.running ? { kind: "running", state } : { kind: "stopped" };
@@ -375,9 +401,27 @@ export function actorOf(
     return title || `session ${tab.acted_by}`;
 }
 
-/** Whether the pane is open once an agent asked for it (`asked`), or the asking is forgotten. */
-export function openedBy(asked: BrowserAsked | null, open: boolean): boolean {
-    return asked !== null || open;
+/**
+ * The tasks whose pane is open, with task `task`'s opened (`open`), closed, or turned over when
+ * `open` is left out. Each task has its own: a pane opened in one task's session is not opened
+ * in another task's, where showing it would start that task's Chrome. The same list if nothing
+ * changed.
+ */
+export function paneOpenFor(opened: number[], task: number, open?: boolean): number[] {
+    const was = opened.includes(task);
+    const now = open ?? !was;
+    if (now === was) {
+        return opened;
+    }
+    return now ? [...opened, task] : opened.filter((id) => id !== task);
+}
+
+/**
+ * The tasks whose pane is open once an agent asked to show its task's browser (`asked`), or
+ * the asking is forgotten (`null`), which closes nothing.
+ */
+export function openedBy(asked: BrowserAsked | null, opened: number[]): number[] {
+    return asked === null ? opened : paneOpenFor(opened, asked.task, true);
 }
 
 /** Whether a key on the page stops picking an element: Esc, while one is picked. */

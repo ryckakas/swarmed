@@ -219,7 +219,7 @@ async fn attached(browser: &Browser, tab: &str) -> Option<String> {
 }
 
 /// Opens a tab on `url`, and waits until it is told of, so that it can be shown at once.
-async fn open(browser: &Browser, url: &str) -> std::result::Result<String, String> {
+pub(super) async fn open(browser: &Browser, url: &str) -> std::result::Result<String, String> {
     let created = browser
         .cdp
         .call(None, "Target.createTarget", json!({ "url": url }))
@@ -236,14 +236,23 @@ async fn open(browser: &Browser, url: &str) -> std::result::Result<String, Strin
 /// how to act on it. No page's title: what a page says is for the agent's own tools to read.
 fn told(address: &str, state: &BrowserState, from: i64, tab: Option<&str>) -> String {
     let shown = tab.and_then(|tab| state.tabs.iter().find(|known| known.id == tab));
+    // A Chrome with a window of its own draws its pages there, not in the pane, and is never
+    // brought forward for a session.
+    let (opening, seen) = if state.windowed {
+        (
+            "The task's browser runs in a window of its own",
+            " The user sees it when they bring that window forward; it is not brought forward \
+             for you.",
+        )
+    } else {
+        (
+            "The task's browser is open beside the conversation, where the user sees it",
+            "",
+        )
+    };
     let opening = match shown {
-        Some(tab) => format!(
-            "The task's browser is open beside the conversation, where the user sees it, on {} \
-             (tab {}).",
-            tab.url, tab.id
-        ),
-        None => "The task's browser is open beside the conversation, where the user sees it."
-            .to_string(),
+        Some(tab) => format!("{opening}, on {} (tab {}).{seen}", tab.url, tab.id),
+        None => format!("{opening}.{seen}"),
     };
     let tabs: Vec<String> = state
         .tabs
@@ -307,6 +316,7 @@ mod tests {
             ],
             shown: Some("A".into()),
             downloads: PathBuf::from("/tmp"),
+            windowed: false,
         };
         let said = told("http://127.0.0.1:50123", &state, 7, Some("A"));
         assert!(said.contains("on http://localhost:3000/ (tab A)"), "{said}");
@@ -318,6 +328,27 @@ mod tests {
         assert!(said.contains("- C: about:blank\n"), "{said}");
         assert!(said.contains("http://127.0.0.1:50123, also in $SWARMED_BROWSER"));
         assert!(!said.contains("a title a page chose"), "{said}");
+        assert!(said.contains("beside the conversation"), "{said}");
+
+        // A Chrome with a window of its own is not where the conversation is.
+        let windowed = BrowserState {
+            windowed: true,
+            ..state
+        };
+        let said = told("http://127.0.0.1:50123", &windowed, 7, Some("A"));
+        assert!(
+            said.starts_with(
+                "The task's browser runs in a window of its own, on http://localhost:3000/ (tab \
+                 A). The user sees it when they bring that window forward"
+            ),
+            "{said}"
+        );
+        assert!(!said.contains("beside the conversation"), "{said}");
+        let said = told("http://127.0.0.1:50123", &windowed, 7, None);
+        assert!(
+            said.starts_with("The task's browser runs in a window of its own. The user sees it"),
+            "{said}"
+        );
     }
 
     #[test]

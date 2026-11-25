@@ -49,6 +49,11 @@ notice adds its line under Unreleased.
   whose browser runs is marked in the sidebar. No browser installed: the pane offers to
   install Google Chrome with Homebrew, showing the command first. `swarmed task browser`
   starts it and prints where its DevTools endpoint answers, for tools that drive a browser.
+  The page is drawn at your screen's density, lighter while it scrolls and sharp once it
+  stops; started again, it opens the pages it had open. Each task remembers whether its pane
+  is open, so going to another task's session neither opens its pane nor starts its Chrome.
+  To have Chrome draw the page itself, **Settings → Sessions → Browser → Show it** puts it in
+  a window of its own beside Swarmed, where agents' browser tools act all the same.
   See [The task's browser](docs/configuration.md#the-tasks-browser).
 
 - **See the images a tool returns.** A screenshot from a browser tool, or an image file the

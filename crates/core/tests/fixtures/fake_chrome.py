@@ -17,10 +17,12 @@ the `Host` the client sent. Every connection that asked to discover targets hear
 changed and closed, whichever connection did it, as with Chrome.
 
 What it is told to do with the mouse and the keys is written into `fake-input` in its profile,
-one JSON line each, and what it was given to download into, into `fake-downloads`. The inspect
+one JSON line each, and what it was given to download into, into `fake-downloads`. Each start of
+pictures goes into `fake-cast`, with the number of the picture it sent. The inspect
 modes it is put in go into `fake-inspect`, and what a pick read it with into `fake-pick`. A file
 `fake-fail` in its profile has it end at once, saying why, as a Chrome that cannot start does,
-and a file `fake-slow` has it take two seconds to listen, as one on a busy machine does.
+and a file `fake-slow` has it take two seconds to listen, as one on a busy machine does. A file
+`fake-slow-open` has it take a second to open a tab, answering everything else meanwhile.
 """
 
 import base64
@@ -37,6 +39,9 @@ GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 profile = None
 start = "about:blank"
+# Started without `--headless`, it has a window of its own, and says so as Chrome does: one
+# without names itself HeadlessChrome.
+windowed = "--headless" not in sys.argv[1:]
 for arg in sys.argv[1:]:
     if arg.startswith("--user-data-dir="):
         profile = arg.split("=", 1)[1]
@@ -136,9 +141,12 @@ def broadcast(method, params):
             discovering.remove(listener)
 
 
-def frame(conn, page_id, session):
+def frame(conn, page_id, session, started=False):
+    """The next picture of a page, while it is cast: forty, as fast as they are acknowledged,
+    as a page that moves for a while and then stands still. Starting sends one more, as
+    Chrome does."""
     page = pages[page_id]
-    if not page["casting"] or page["frames"] >= 40:
+    if not page["casting"] or (page["frames"] >= 40 and not started):
         return
     page["frames"] += 1
     width, height = page["size"]
@@ -204,6 +212,14 @@ def answer(conn, method, params, session):
         return {"success": True}
     if method == "Browser.close":
         return {}
+    if method == "Browser.getVersion":
+        agent = "Mozilla/5.0 %sChrome/158.0.0.0 Safari/537.36" % ("" if windowed else "Headless")
+        return {"product": "Chrome/158.0.0.0", "userAgent": agent}
+    if method == "Target.activateTarget":
+        if params["targetId"] not in pages:
+            raise KeyError("No target with given id found")
+        note("fake-activate", params["targetId"])
+        return {}
     if page is None:
         raise KeyError("'%s' wasn't found" % method)
     return answer_on_page(conn, method, params, session, page_id, page)
@@ -229,8 +245,13 @@ def answer_on_page(conn, method, params, session, page_id, page):
         page["size"] = (params["width"], params["height"])
         return {}
     if method == "Page.startScreencast":
+        # As Chrome 158 does: a session casting already is refused, not started again.
+        if page["casting"]:
+            raise KeyError("Screencast is already active")
         page["casting"] = True
-        frame(conn, page_id, session)
+        frame(conn, page_id, session, started=True)
+        note("fake-cast", {"quality": params.get("quality"), "maxWidth": params.get("maxWidth"),
+                           "frame": page["frames"]})
         return {}
     if method == "Page.stopScreencast":
         page["casting"] = False
@@ -320,6 +341,24 @@ def answer_http(sock, path, host):
     sock.close()
 
 
+def reply_to(conn, message):
+    method, session = message["method"], message.get("sessionId")
+    try:
+        with lock:
+            result = answer(conn, method, message.get("params", {}), session)
+        reply = {"id": message["id"], "result": result}
+    except KeyError as refused:
+        reply = {"id": message["id"], "error": {"code": -32000, "message": refused.args[0]}}
+    if session:
+        reply["sessionId"] = session
+    conn.send(reply)
+
+
+def slowly(conn, message):
+    time.sleep(1)
+    reply_to(conn, message)
+
+
 def serve(sock):
     request = b""
     while b"\r\n\r\n" not in request:
@@ -349,16 +388,11 @@ def serve(sock):
             message = json.loads(conn.read())
         except (EOFError, OSError):
             return
-        method, session = message["method"], message.get("sessionId")
-        try:
-            with lock:
-                result = answer(conn, method, message.get("params", {}), session)
-            reply = {"id": message["id"], "result": result}
-        except KeyError as refused:
-            reply = {"id": message["id"], "error": {"code": -32000, "message": refused.args[0]}}
-        if session:
-            reply["sessionId"] = session
-        conn.send(reply)
+        method = message["method"]
+        if method == "Target.createTarget" and os.path.exists(os.path.join(profile, "fake-slow-open")):
+            threading.Thread(target=slowly, args=(conn, message), daemon=True).start()
+            continue
+        reply_to(conn, message)
         if method == "Browser.close":
             sock.close()
             os._exit(0)

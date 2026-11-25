@@ -7302,6 +7302,12 @@ kbd {
     pointer-events: none;
 }
 
+/* `display: block` above outweighs the attribute's own rule: without this, a hidden picture,
+   such as Chrome's black one of a blank page, stays drawn over the white behind it. */
+.browser-page img[hidden] {
+    display: none;
+}
+
 /* Takes the keys and what is pasted or composed for the page, out of sight. */
 .browser-keys {
     position: absolute;

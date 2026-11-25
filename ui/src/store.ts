@@ -18,7 +18,7 @@ import type {
     TerminalConfig,
     UpdateState,
 } from "./api/types";
-import { type BrowserAsked, openedBy, stillAsked } from "./browser";
+import { type BrowserAsked, openedBy, paneOpenFor, stillAsked } from "./browser";
 import { CHATS } from "./chats";
 import type { CloudTarget } from "./cloud";
 import type { Comparison } from "./components/CompareDialog";
@@ -40,7 +40,7 @@ import {
     findSession,
     findSessionHome,
     mayHaveEdited,
-    stillFolded,
+    stillListed,
     taskIdOf,
     toggledId,
     unfoldedFor,
@@ -224,10 +224,14 @@ interface State {
     /** Whether the task panel on the right is shown. */
     panelOpen: boolean;
     togglePanel(): void;
-    /** Whether the Browser pane is shown beside the conversation, with its task's Chrome. */
-    browserOpen: boolean;
-    /** Shows the Browser pane, or hides it; `open` says which, else it is turned over. */
-    toggleBrowser(open?: boolean): void;
+    /**
+     * The tasks whose Browser pane is shown beside their sessions' conversations, each with its
+     * own Chrome. Kept per task, so that going to another task's session neither opens its pane
+     * nor starts its Chrome.
+     */
+    browserOpen: number[];
+    /** Shows task `task`'s Browser pane, or hides it; `open` says which, else it is turned over. */
+    toggleBrowser(task: number, open?: boolean): void;
     /** A tab an agent asked to show (`show_browser`), for the pane of its task to go to. */
     browserAsked: BrowserAsked | null;
     /** Opens the pane on what an agent asked to show, or forgets it once gone to (`null`). */
@@ -583,7 +587,7 @@ function countEdit(state: State, published: SessionEvent): Record<number, number
 }
 
 const PANEL_OPEN = "swarmed.panel-open";
-const BROWSER_OPEN = "swarmed.browser-open";
+const BROWSER_OPEN = "swarmed.browser-open-tasks";
 const STATUS_OPEN = "swarmed.status-open";
 const FOLDED = "swarmed.folded-projects";
 const FOLDED_TASKS = "swarmed.folded-tasks";
@@ -706,6 +710,7 @@ function forgotten(state: State, sessionIds: number[], taskIds: number[]): Parti
         reviews: without(state.reviews, taskIds),
         pulls: without(state.pulls, taskIds),
         foldedTasks: withoutIds(state.foldedTasks, taskIds),
+        browserOpen: withoutIds(state.browserOpen, taskIds),
     };
 }
 
@@ -757,7 +762,8 @@ function readAgain(state: State, projects: Project[]): Partial<State> {
         pulls: pullsOf(projects),
         newTaskDrafts: listedOnly(state.newTaskDrafts, projects),
         newTaskIssues: listedOnly(state.newTaskIssues, projects),
-        foldedTasks: stillFolded(state.foldedTasks, projects),
+        foldedTasks: stillListed(state.foldedTasks, projects),
+        browserOpen: stillListed(state.browserOpen, projects),
         ...(gone ? leaving(state, [selected]) : {}),
     };
 }
@@ -987,19 +993,16 @@ export const useStore = create<State>((set, get) => ({
         writeFlag(PANEL_OPEN, panelOpen);
         set({ panelOpen });
     },
-    browserOpen: readFlag(BROWSER_OPEN, false),
-    toggleBrowser: (open) => {
-        const browserOpen = open ?? !get().browserOpen;
-        writeFlag(BROWSER_OPEN, browserOpen);
+    browserOpen: readIds(BROWSER_OPEN),
+    toggleBrowser: (task, open) => {
+        const browserOpen = paneOpenFor(get().browserOpen, task, open);
         // A pick asked for goes with the pane: it would start by itself when one next opens.
-        set({ browserOpen, pickAsked: stillAsked(get().pickAsked, browserOpen) });
+        const pickAsked = stillAsked(get().pickAsked, browserOpen.includes(task));
+        set({ browserOpen, pickAsked });
     },
     browserAsked: null,
-    askBrowser: (asked) => {
-        const browserOpen = openedBy(asked, get().browserOpen);
-        writeFlag(BROWSER_OPEN, browserOpen);
-        set({ browserOpen, browserAsked: asked });
-    },
+    askBrowser: (asked) =>
+        set({ browserOpen: openedBy(asked, get().browserOpen), browserAsked: asked }),
     changeSettings: (api, change) =>
         reporting(async () => {
             const current = get().settings ?? (await api.settings());
@@ -1267,11 +1270,15 @@ export const useStore = create<State>((set, get) => ({
     dismissProblem: () => set({ problem: null }),
 }));
 
-// Folding, opening a session and a task going all change which tasks are folded. Whichever it
-// was, what is left is remembered on this machine from here.
+// Folding, opening a session and a task going all change which tasks are folded; the pane, an
+// agent asking and a task going, which tasks show their browser. Whichever it was, what is left
+// is remembered on this machine from here.
 useStore.subscribe((state, before) => {
     if (state.foldedTasks !== before.foldedTasks) {
         writeStored(FOLDED_TASKS, JSON.stringify(state.foldedTasks));
+    }
+    if (state.browserOpen !== before.browserOpen) {
+        writeStored(BROWSER_OPEN, JSON.stringify(state.browserOpen));
     }
 });
 
