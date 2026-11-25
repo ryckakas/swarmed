@@ -38,6 +38,10 @@ notice adds its line under Unreleased.
   per result. The images are kept with the session, for you alone, and deleted with it; see
   [Screenshots and other images tools return](docs/coding-agents.md#screenshots-and-other-images-tools-return).
 
+## [0.4.5] - 2026-11-25
+
+### Added
+
 - **See what one turn changed.** Swarmed now keeps the task's worktree as it was before each
   message went to the agent and when its turn ended. The Changes tab can show the whole task,
   as before, or one turn of the session on screen: the files it changed, edits made by shell
@@ -814,7 +818,8 @@ through Homebrew or a browser.
 - **Installing:** an install script, a Homebrew cask that also puts `swarmed` on the PATH, and
   `cargo install swarmed` for the command alone.
 
-[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.4.4...HEAD
+[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.4.5...HEAD
+[0.4.5]: https://github.com/ryckakas/swarmed/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/ryckakas/swarmed/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/ryckakas/swarmed/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/ryckakas/swarmed/compare/v0.4.1...v0.4.2
