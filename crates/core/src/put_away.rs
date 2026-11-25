@@ -121,33 +121,29 @@ impl Rules {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Standing {
     /// When its pull request merged, if it did and GitHub said when.
-    merged_at: Option<i64>,
+    merged: Option<i64>,
     /// The latest of when it was made, when one of its sessions last recorded anything, and
     /// when it was brought back.
-    active_at: i64,
+    active: i64,
     /// When it was last brought back, if ever.
-    back_at: Option<i64>,
-    /// Whether work goes on in it, which no rule puts away.
-    working: bool,
+    back: Option<i64>,
 }
 
-/// Whether a rule puts a task away now, and which. The merge first: it says more.
+/// Whether a rule's days are up for a task now, and which rule's. The merge first: it says
+/// more. Whether work goes on in the task is asked apart, and only of one that is due.
 pub(crate) fn due(rules: Rules, standing: &Standing, now: i64) -> Option<DoneWhy> {
-    if standing.working {
-        return None;
-    }
     let after = |days: u32| i64::from(days) * DAY;
     // Brought back since the merge, it was kept on purpose: that merge puts it away no more.
     let merged = standing
-        .merged_at
-        .filter(|at| standing.back_at.is_none_or(|back| back < *at));
+        .merged
+        .filter(|at| standing.back.is_none_or(|back| back < *at));
     if let (Some(days), Some(at)) = (rules.merged, merged)
         && now >= at + after(days)
     {
         return Some(DoneWhy::Merged);
     }
     let idle = rules.idle?;
-    (now >= standing.active_at + after(idle)).then_some(DoneWhy::Idle)
+    (now >= standing.active + after(idle)).then_some(DoneWhy::Idle)
 }
 
 /// Seconds since 1970 of a time as GitHub writes it, `2026-11-20T10:00:00Z`, with or without
@@ -313,19 +309,18 @@ impl Core {
             .and_then(|pull| pull.merged_at.as_deref().and_then(seconds_of));
         let (back_at, active_at) = self.store().task_activity(task.id)?;
         Ok(Standing {
-            merged_at,
-            active_at,
-            back_at,
-            working: self.works_on(task)?,
+            merged: merged_at,
+            active: active_at,
+            back: back_at,
         })
     }
 
     /// Whether work goes on in `task`: a session at work, waiting for the user, run by another
-    /// Swarmed or going on by itself at a reset, work an agent left running, or its setup.
-    fn works_on(&self, task: &Task) -> Result<bool> {
+    /// Swarmed (those are `elsewhere`) or going on by itself at a reset, work an agent left
+    /// running, or its setup.
+    fn works_on(&self, task: &Task, elsewhere: &[i64]) -> Result<bool> {
         let sessions = self.store().sessions(task.id)?;
-        let elsewhere = self.sessions_run_elsewhere();
-        let busy = sessions.iter().any(|session| works(session, &elsewhere));
+        let busy = sessions.iter().any(|session| works(session, elsewhere));
         let setting_up = matches!(
             self.setting_up(task),
             Some(SettingUp::Here { .. } | SettingUp::Elsewhere)
@@ -345,25 +340,34 @@ impl Core {
         if !rules.any() {
             return Ok(Vec::new());
         }
+        let elsewhere = self.sessions_run_elsewhere();
         let mut put = Vec::new();
         for (project, task) in self.not_done()? {
-            let why = self.put_away_if_due(rules, &project, &task).await?;
+            let why = self
+                .put_away_if_due(rules, &project, &task, &elsewhere)
+                .await?;
             put.extend(why.map(|why| (project.name, task.name, why)));
         }
         Ok(put)
     }
 
-    /// Puts `task` away if a rule says it is due, and says why if it went. One that could not
-    /// go is not an error: the next look tries again.
+    /// Puts `task` away if a rule says it is due and no work goes on in it, and says why if
+    /// it went. One that could not go is not an error: the next look tries again. The days
+    /// are looked at first: whether work goes on reads the sessions' histories, and nearly
+    /// every task of a look is not due.
     async fn put_away_if_due(
         &self,
         rules: Rules,
         project: &Project,
         task: &Task,
+        elsewhere: &[i64],
     ) -> Result<Option<DoneWhy>> {
         let Some(why) = due(rules, &self.standing(task)?, seconds_now()) else {
             return Ok(None);
         };
+        if self.works_on(task, elsewhere)? {
+            return Ok(None);
+        }
         let done = self.put_away(project, task, why, &unsaid).await;
         Ok(done.ok().map(|_| why))
     }
@@ -424,10 +428,9 @@ mod tests {
 
     fn standing(merged_at: Option<i64>, active_at: i64, back_at: Option<i64>) -> Standing {
         Standing {
-            merged_at,
-            active_at,
-            back_at,
-            working: false,
+            merged: merged_at,
+            active: active_at,
+            back: back_at,
         }
     }
 
@@ -477,15 +480,6 @@ mod tests {
             due(BOTH, &standing(None, NOW - 14 * DAY, None), NOW),
             Some(DoneWhy::Idle)
         );
-    }
-
-    #[test]
-    fn nothing_is_put_away_while_work_goes_on() {
-        let working = Standing {
-            working: true,
-            ..standing(Some(NOW - 30 * DAY), NOW - 30 * DAY, None)
-        };
-        assert_eq!(due(BOTH, &working, NOW), None);
     }
 
     #[test]
