@@ -434,15 +434,28 @@ impl Scratch {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let number = NEXT.fetch_add(1, Ordering::Relaxed);
         let path = store.join(format!("index-{}-{number}", std::process::id()));
+        let index = git_dir.join("index");
         // A worktree with no index yet starts from none: every file is then hashed.
-        match std::fs::copy(git_dir.join("index"), &path) {
+        match std::fs::copy(&index, &path) {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
                 return Err(error.into());
             }
-            _ => {}
+            Err(_) => {}
+            Ok(_) => as_old_as(&index, &path)?,
         }
         Ok(Self(path))
     }
+}
+
+/// Gives `copy` the time `index` was last written. Git takes a file as unchanged when its
+/// time and size are as the index has them, unless the file is as new as the index itself,
+/// when it reads it. A copy keeps the time on a Mac and gets a new one on Linux, where a file
+/// changed in the moment the index was written would then be passed over.
+fn as_old_as(index: &Path, copy: &Path) -> Result<()> {
+    let written = std::fs::metadata(index)?.modified()?;
+    let copy = std::fs::File::options().write(true).open(copy)?;
+    copy.set_modified(written)?;
+    Ok(())
 }
 
 impl Drop for Scratch {
@@ -739,6 +752,28 @@ mod tests {
         // A name whose case changed, where both names find the one file.
         let there = |_: &str| Some(false);
         assert_eq!(in_the_way("D\0Readme.md\0A\0README.md\0", there), None);
+    }
+
+    #[test]
+    fn a_copy_of_the_index_is_as_old_as_the_index() {
+        let dir = tempfile::tempdir().expect("test setup");
+        let (git_dir, store) = (dir.path().join("git"), dir.path().join("store"));
+        std::fs::create_dir_all(&git_dir).expect("test setup");
+        std::fs::create_dir_all(&store).expect("test setup");
+        let index = git_dir.join("index");
+        std::fs::write(&index, "an index").expect("test setup");
+        let then = std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let file = std::fs::File::options().write(true).open(&index);
+        file.and_then(|file| file.set_modified(then))
+            .expect("test setup");
+
+        let scratch = Scratch::index(&store, &git_dir).expect("copies");
+        let copied = std::fs::metadata(&scratch.0).and_then(|found| found.modified());
+        assert_eq!(copied.expect("reads"), then);
+        // No index yet is no copy, and no error.
+        std::fs::remove_file(&index).expect("test setup");
+        let none = Scratch::index(&store, &git_dir).expect("starts from none");
+        assert!(!none.0.exists());
     }
 
     #[test]
