@@ -512,7 +512,6 @@ export interface SkippedFile {
     bytes: number;
 }
 
-/** What one turn changed in the worktree. */
 /** What taking a session back to before one of its messages would do now. */
 export interface RewindCheck {
     /** Why it cannot be taken back now, if it cannot. */
@@ -535,6 +534,7 @@ export interface RewindDone {
     commits_since: number | null;
 }
 
+/** What one turn changed in the worktree. */
 export interface TurnChanges {
     files: FileChange[];
     /** Files left out at either end: what became of them is not known. */
