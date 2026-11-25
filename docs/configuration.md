@@ -427,9 +427,11 @@ be browsing, until it sits unused (below) or the power button in the pane stops 
   unused for `browser_idle_minutes`; the power button in the pane, or `swarmed task browser
   --stop`, stops it at once. A browser the command line started runs on after the command
   ends, until one of those happens; while the app runs, its unused time counts from when the
-  app found it. **Started again**, it opens the web pages it had open when Swarmed stopped it
-  (up to 20, kept in `browsers/<task id>/tabs.json`, readable by you alone); what was signed
-  in to is kept in its profile anyway. A blank page shows as the white page it is.
+  app found it. **Started again**, it opens the web pages it had open when the app stopped it
+  (up to 20, kept in `browsers/<task id>/tabs.json`, readable by you alone, until it starts).
+  One stopped by `swarmed task browser --stop`, or that ended some other way, starts with none
+  of them; what was signed in to is kept in its profile anyway. A blank page shows as the
+  white page it is.
 - **Its console** lists what the page logged and the errors it did not catch, the latest 500
   lines per tab. Nothing of it is logged by Swarmed.
 - **Pick** points the agent at an element of the page: Chrome's inspect mode outlines what is

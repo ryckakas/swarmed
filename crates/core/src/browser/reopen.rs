@@ -3,7 +3,8 @@
 //! addresses, checked again as they are read, and opened over the DevTools connection, never
 //! on Chrome's command line, where `ps` would show them and one could be read as a switch.
 //! Kept beside the profile in the task's browser folder, readable by the user alone, deleted
-//! with it, and never logged.
+//! with it, and never logged. Used up as they are read: only a Swarmed connected to the Chrome
+//! keeps them as it stops it, so one stopped otherwise must not bring back an older stop's.
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
@@ -64,6 +65,7 @@ pub(super) fn kept(path: &Path) -> Vec<String> {
 /// of them. A page Chrome started on, such as the task's stack, is not opened twice.
 pub(super) async fn reopen(browser: &Browser, path: &Path) {
     let urls = kept(path);
+    std::fs::remove_file(path).ok();
     if urls.is_empty() {
         return;
     }

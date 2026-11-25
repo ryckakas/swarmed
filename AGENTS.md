@@ -194,7 +194,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   - **Chrome's blank page is never painted headless**, so its pictures are black: the pane
     draws a tab on `about:blank` as white (`blankPage`) and no override of the background
     changes that. A stop keeps the open web pages (`browser/reopen.rs`, `tabs.json`, 0600,
-    at most 20, `http` and `https` only, read back with the same check) and a start opens
+    at most 20, `http` and `https` only, read back with the same check and used up as they
+    are: only a Swarmed connected to it keeps them, so one stopped otherwise, as the command
+    line's `--stop` does, must not bring back an older stop's) and a start opens
     them over the connection, never on the command line, then closes the blank tab it
     started on unless it was used meanwhile (`unused`: the browser can be reached while they
     open). A stopped Chrome's connection can end after a new one started in its place:

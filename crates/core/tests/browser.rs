@@ -365,8 +365,12 @@ async fn a_chrome_started_again_opens_the_tabs_it_had_when_it_was_stopped() {
         .expect("opens a tab");
     state_where(&mut bus, |state| state.tabs.len() == 3).await;
     core.browser_stop(task).await.expect("stops");
+    let kept = fx.paths.browser(task).join("tabs.json");
+    let mode = std::fs::metadata(&kept).expect("kept").permissions().mode();
+    assert_eq!(mode & 0o777, 0o600, "readable by the user alone");
 
-    // Its web pages come back, and the blank page it started on goes.
+    // Its web pages come back, and the blank page it started on goes. What was kept is used
+    // up.
     let state = core
         .browser_show(task, None, VIEW)
         .await
@@ -374,10 +378,16 @@ async fn a_chrome_started_again_opens_the_tabs_it_had_when_it_was_stopped() {
     let urls: Vec<&str> = state.tabs.iter().map(|tab| tab.url.as_str()).collect();
     assert_eq!(urls, ["https://example.com", "http://localhost:3000/cart"]);
     assert_eq!(state.shown.as_ref(), state.tabs.first().map(|tab| &tab.id));
-    let kept = fx.paths.browser(task).join("tabs.json");
-    let mode = std::fs::metadata(&kept).expect("kept").permissions().mode();
-    assert_eq!(mode & 0o777, 0o600, "readable by the user alone");
-    core.browser_stop(task).await.expect("stops");
+    assert!(!kept.exists(), "used up");
+
+    // Stopped by a Swarmed not connected to it, as `swarmed task browser --stop` does, it
+    // keeps nothing, and the pages of the stop before do not come back.
+    let elsewhere = another_core(&fx);
+    elsewhere.browser_stop(task).await.expect("stops");
+    let state = elsewhere.browser_open(task).await.expect("starts again");
+    let urls: Vec<&str> = state.tabs.iter().map(|tab| tab.url.as_str()).collect();
+    assert_eq!(urls, ["about:blank"]);
+    elsewhere.browser_stop(task).await.expect("stops");
 }
 
 #[tokio::test]
