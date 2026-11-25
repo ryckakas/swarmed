@@ -3,6 +3,7 @@
 
 import type {
     BrowserEvent,
+    BrowserSetup,
     BrowserState,
     BrowserTab,
     ConsoleLine,
@@ -241,6 +242,30 @@ export function shownTab(state: BrowserState | null): BrowserTab | null {
         return null;
     }
     return state.tabs.find((tab) => tab.id === state.shown) ?? null;
+}
+
+/** How the pane's browser stands: starting, running, or why not. */
+export type Standing =
+    | { kind: "starting" }
+    | { kind: "stopped" }
+    | { kind: "running"; state: BrowserState }
+    | { kind: "missing"; setup: BrowserSetup | null }
+    | { kind: "failed"; problem: string };
+
+/**
+ * What becomes of a pick the shortcut asked for, with `tab` shown and the browser standing so:
+ * it starts in the tab, waits while one is on its way (the browser starting, or running with
+ * tabs and none shown yet), and is dropped where none is: stopped, missing, failed, or
+ * without a tab.
+ */
+export function pickAsked(tab: string | null, standing: Standing): "start" | "wait" | "drop" {
+    if (tab !== null) {
+        return "start";
+    }
+    const coming =
+        standing.kind === "starting" ||
+        (standing.kind === "running" && leftUnshown(standing.state));
+    return coming ? "wait" : "drop";
 }
 
 /**

@@ -37,6 +37,8 @@ import {
     lineTime,
     mouseInput,
     type PageSize,
+    pickAsked,
+    type Standing,
     sameViewport,
     shownAddress,
     shownTab,
@@ -130,14 +132,6 @@ export function BrowserColumn({
     );
 }
 
-/** How the pane's browser stands: starting, running, or why not. */
-type Standing =
-    | { kind: "starting" }
-    | { kind: "stopped" }
-    | { kind: "running"; state: BrowserState }
-    | { kind: "missing"; setup: BrowserSetup | null }
-    | { kind: "failed"; problem: string };
-
 function BrowserPane({ task }: { task: Task }) {
     const words = useWords();
     const toggleBrowser = useStore((state) => state.toggleBrowser);
@@ -145,7 +139,7 @@ function BrowserPane({ task }: { task: Task }) {
     const state = standing.kind === "running" ? standing.state : null;
     const tab = shownTab(state);
     const actor = useActor(tab);
-    const pick = usePick(task.id, tab?.id ?? null);
+    const pick = usePick(task.id, tab?.id ?? null, standing);
     return (
         <aside className="browser-pane" aria-label={`The browser of ${task.name}`}>
             <div className="browser-head">
@@ -162,7 +156,7 @@ function BrowserPane({ task }: { task: Task }) {
             )}
             {tab?.dialog && <PageDialogBar task={task.id} tab={tab} />}
             <Picture task={task.id} tab={tab?.id ?? null} onViewport={show} pick={pick}>
-                <Standing standing={standing} retry={retry} task={task} />
+                <StandingIn standing={standing} retry={retry} task={task} />
             </Picture>
             {state && tab && <Console key={tab.id} task={task.id} tab={tab.id} />}
             {state && (
@@ -191,7 +185,7 @@ interface Pick {
  * or the shortcut, ended by a click on the page, which puts the element's token into the
  * session's message box, or by Esc, the button again, another tab, or the pane going.
  */
-function usePick(task: number, tab: string | null): Pick {
+function usePick(task: number, tab: string | null, standing: Standing): Pick {
     const picking = useStore((state) => state.picking?.task === task);
     const asked = useStore((state) => state.pickAsked);
     // Which pick is the latest: one that ends after another began says nothing of it.
@@ -204,13 +198,18 @@ function usePick(task: number, tab: string | null): Pick {
             startPick(task, runs);
         }
     }, [task, tab]);
-    // The shortcut asked for a pick: it starts once there is a tab to pick in.
+    // The shortcut asked for a pick: it starts once there is a tab to pick in, and is let go
+    // of where none is coming. Left standing, it would start a pick by itself, in whichever
+    // pane next showed a tab, and take the next click there.
+    const asking = asked ? pickAsked(tab, standing) : "wait";
     useEffect(() => {
-        if (asked && tab !== null) {
+        if (asking !== "wait") {
             useStore.getState().askToPick(false);
+        }
+        if (asking === "start") {
             start();
         }
-    }, [asked, tab, start]);
+    }, [asking, start]);
     // The pane going ends a pick under way: nothing would show where to click.
     useEffect(
         () => () => {
@@ -398,7 +397,7 @@ async function showing(
 }
 
 /** What stands in for the page while there is none to show. */
-function Standing(props: { standing: Standing; retry(): void; task: Task }) {
+function StandingIn(props: { standing: Standing; retry(): void; task: Task }) {
     const { standing, retry } = props;
     switch (standing.kind) {
         case "starting":

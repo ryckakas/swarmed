@@ -991,7 +991,8 @@ export const useStore = create<State>((set, get) => ({
     toggleBrowser: (open) => {
         const browserOpen = open ?? !get().browserOpen;
         writeFlag(BROWSER_OPEN, browserOpen);
-        set({ browserOpen });
+        // A pick asked for goes with the pane: it would start by itself when one next opens.
+        set(browserOpen ? { browserOpen } : { browserOpen, pickAsked: false });
     },
     browserAsked: null,
     askBrowser: (asked) => {

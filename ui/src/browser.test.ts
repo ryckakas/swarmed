@@ -14,6 +14,7 @@ import {
     mouseInput,
     openedBy,
     pagePoint,
+    pickAsked,
     sameViewport,
     sessionForBrowser,
     shownAddress,
@@ -59,6 +60,27 @@ describe("where a click on the picture lands on the page", () => {
         // A flat page in a tall box: drawn at the box's width, 100 high at the top.
         const flat = { width: 1200, height: 300 };
         expect(pagePoint(500, 150, box, flat)).toEqual({ x: 1200, y: 300 });
+    });
+
+    it("starts a pick asked for in the tab shown, waits for one coming, and drops it else", () => {
+        const base: BrowserState = {
+            task_id: 1,
+            running: true,
+            name: "Google Chrome",
+            endpoint: null,
+            websocket: null,
+            tabs: [],
+            shown: null,
+            downloads: "/tmp/downloads",
+        };
+        const some = { ...base, tabs: [tab("a", "about:blank")] };
+        expect(pickAsked("a", { kind: "running", state: { ...some, shown: "a" } })).toBe("start");
+        expect(pickAsked(null, { kind: "starting" })).toBe("wait");
+        expect(pickAsked(null, { kind: "running", state: some })).toBe("wait");
+        expect(pickAsked(null, { kind: "running", state: base })).toBe("drop");
+        expect(pickAsked(null, { kind: "stopped" })).toBe("drop");
+        expect(pickAsked(null, { kind: "missing", setup: null })).toBe("drop");
+        expect(pickAsked(null, { kind: "failed", problem: "it would not start" })).toBe("drop");
     });
 
     it("keeps what is typed in the address bar over where the tab is", () => {

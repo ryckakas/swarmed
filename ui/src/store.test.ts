@@ -951,4 +951,14 @@ describe("a picked element's token", () => {
         placePick(5, "[Element 2: a]");
         expect(useStore.getState().drafts[5]?.text).toBe("see [Element 2: a] ");
     });
+
+    it("is no longer asked for once the Browser pane is closed", () => {
+        const { toggleBrowser, askToPick } = useStore.getState();
+        toggleBrowser(true);
+        askToPick(true);
+        toggleBrowser(true);
+        expect(useStore.getState().pickAsked).toBe(true);
+        toggleBrowser(false);
+        expect(useStore.getState().pickAsked).toBe(false);
+    });
 });
