@@ -1097,9 +1097,13 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     The agent reads the whole text, so nothing of it is hidden from the user unsaid: **Show
     source** shows it as written, and `issueLeavesOut` says when drawing leaves anything out
     (an HTML comment, which GitHub hides too, what cleaning drops, HTML it cannot read whole,
-    a title, a definition nothing uses). It reads the HTML Markdown leaves as written against
+    an attribute's value that is neither drawn nor does anything, a title, a definition
+    nothing uses, words after a code block's language, a table's cells beyond its head's, a
+    link with no words). A link's address and a reference's label are not drawn either and do
+    not count: the link shows that there is one. It reads the HTML Markdown leaves as written against
     the same schema and counts anything it does not read as kept; HTML in code is text and
-    counts for nothing. A change to the schema needs no change there. The command line strips
+    counts for nothing. A change to the schema needs no change there, but for an attribute
+    kept with any value, which gets its line in `SHAPES`: without one it keeps no value. The command line strips
     control characters before printing it (`printable`).
   - **Start a task** fills the new-task view of the repository with `issuePrompt` (title and
     number first, the address, and a line asking the agent to read it with `gh`; never the
