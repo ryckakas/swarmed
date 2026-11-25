@@ -4,7 +4,9 @@
 // answers from its own copy of the figures for a minute after it fetched them, so while that
 // copy is younger the core holds the question back until it is not (`waiting`), and the answer
 // is fetched after the user asked. Each step shows: the question going, the time it goes when
-// held back, counting down, and the answer to the second, new or the same as before.
+// held back, counting down, and the answer to the second, new or the same as before. The
+// figures last heard stay drawn as they are meanwhile, never dimmed: what is refreshing is
+// said beside them.
 
 import type { AccountUsage, AgentEvent } from "./api/types";
 
@@ -33,26 +35,65 @@ function toTheSecond(at: Date): string {
     return at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
+/** Where asking stands at `now`: a question held back until a time now past has gone. */
+function standing(asked: Asked, now: Date): Asked {
+    return asked.state === "waiting" && asked.goesAt.getTime() <= now.getTime()
+        ? { state: "asking" }
+        : asked;
+}
+
 /**
- * What the overview says of its figures at `now`: being asked for, held back with the seconds
- * left, when they were given and whether they are `same` as before asking, or why not.
+ * What the overview says of its figures at `now`: refreshing now, refreshing once held back
+ * with the seconds left, when they were given and whether they are `same` as before asking,
+ * or why not.
  */
 export function askedLine(asked: Asked, now: Date, same: boolean): string {
-    switch (asked.state) {
+    const stands = standing(asked, now);
+    switch (stands.state) {
         case "asking":
-            return "Asking Claude Code…";
+            return "Refreshing now…";
         case "waiting": {
-            const left = Math.ceil((asked.goesAt.getTime() - now.getTime()) / 1000);
-            if (left <= 0) {
-                return "Asking Claude Code…";
-            }
-            return `Claude Code reuses the figures it fetched at ${toTheSecond(asked.copyFrom)} for a minute: asking it in ${left} s…`;
+            const left = Math.ceil((stands.goesAt.getTime() - now.getTime()) / 1000);
+            return `Refreshing in ${left} s`;
         }
         case "asked":
-            return `Claude Code gave ${same ? "the same" : "new"} figures at ${toTheSecond(asked.at)}.`;
+            return `Claude Code gave ${same ? "the same" : "new"} figures at ${toTheSecond(stands.at)}.`;
         case "failed":
-            return `${asked.error.replace(/\.$/, "")}. These are the latest any session heard.`;
+            return `${stands.error.replace(/\.$/, "")}. These are the latest any session heard.`;
     }
+}
+
+/**
+ * Why the overview is refreshing at `now`, and what the figures it shows meanwhile are: the
+ * latest heard, drawn as they are. `null` once it is not refreshing.
+ */
+export function askedDetail(asked: Asked, now: Date): string | null {
+    const stands = standing(asked, now);
+    switch (stands.state) {
+        case "asking":
+            return "Asking Claude Code for the figures as they are now. Until it answers, these are the latest heard.";
+        case "waiting":
+            return `Claude Code reuses the figures it fetched at ${toTheSecond(stands.copyFrom)} for a minute. Until it fetches them again, these are the latest heard.`;
+        case "asked":
+        case "failed":
+            return null;
+    }
+}
+
+/**
+ * How much of the wait for Claude Code's copy of the figures to run out has passed at `now`,
+ * from 0 to 1: the copy's minute, from when it was fetched to when the question goes. `null`
+ * when nothing is held back, while the question is asked and there is no telling how long the
+ * answer takes.
+ */
+export function waitedShare(asked: Asked, now: Date): number | null {
+    const stands = standing(asked, now);
+    if (stands.state !== "waiting") {
+        return null;
+    }
+    const whole = stands.goesAt.getTime() - stands.copyFrom.getTime();
+    const passed = now.getTime() - stands.copyFrom.getTime();
+    return whole > 0 ? Math.min(1, Math.max(0, passed / whole)) : 1;
 }
 
 /**

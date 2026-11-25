@@ -1033,9 +1033,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   `session_usage_refresh` holds the question back until that copy is a minute old
   (`usage_copy.rs`, `UsageAsk`), and the answer is fetched after the user asked. Only
   `fetchedAtMs` is read of that file for it. Asking shows at every step (`UsageOverview`,
-  `askedLine`): a countdown while held back, and the answer's time to the second with whether
-  it changed the figures (`figuresKey`), since an answer the same as before otherwise looks
-  like nothing happened.
+  `askedLine`, `askedDetail`, `waitedShare`): a countdown and a bar while held back, a moving
+  bar while asked, and the answer's time to the second with whether it changed the figures
+  (`figuresKey`), since an answer the same as before otherwise looks like nothing happened.
+  The figures last heard are never dimmed meanwhile (the user's choice): the line above them
+  says they are refreshing and what they are until then.
 - **Usage is the account's, and every Claude Code session shows the same**
   (`account_usage.rs`, `Core::account_usage`, `swarmed limits`). The core folds each
   `RateLimit`, `UsageLimits` and `ExtraUsage` a Claude Code session records into one

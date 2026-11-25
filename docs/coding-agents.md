@@ -82,9 +82,11 @@ Claude Code keeps the figures it fetches from claude.ai for a minute and answers
 every Claude Code on your machine, your terminal's included. So when it fetched them less than a
 minute before you ask, the question waits until it would fetch them again, at most a minute,
 and the overview counts down to it: what you get is fetched after you asked, such as right after
-your usage was reset. While a question is under way the coins pulse and the figures are dimmed;
-the answer lights them up for a moment, and the overview says when it came, to the second, and
-whether the figures are new or the same as before.
+your usage was reset. While a question is under way the coins pulse, and the overview says it is
+refreshing, with a bar that fills as the wait runs out and moves while Claude Code is asked. The
+figures stay in full colour meanwhile: they are the latest any session heard, and the overview
+says so. The answer lights them up for a moment, and the overview says when it came, to the
+second, and whether the figures are new or the same as before.
 Nothing is sent to the model, so it costs nothing, and nothing is added to the conversation.
 Typing `/usage` in the session asks the same and shows the answer in the conversation. Either
 way, what Claude Code answers is kept, and every session's card and coins show it. Other agents
