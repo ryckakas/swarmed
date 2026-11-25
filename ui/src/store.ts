@@ -25,6 +25,7 @@ import { type IssueLink, type IssuesTarget, issueLink, withIssuePrompt } from ".
 import { forgetImages } from "./keptImages";
 import { pullsOf, withMessage } from "./pulls";
 import { doneShownFor } from "./putAway";
+import { changesHeard, oneMoreHeard, queuesAnswered } from "./queue";
 import { type Dismissed, readDismissed } from "./rateLimit";
 import type { Browsing } from "./recall";
 import { type ReviewComment, withComment } from "./review";
@@ -324,7 +325,17 @@ interface State {
     agentsChanged(): void;
     /** Per session, the messages waiting for its agent to finish. */
     queues: Record<number, QueuedMessage[]>;
+    /** Per session, how many changes of its queue were heard: what `queueAnswer` goes by. */
+    queuesHeard: Record<number, number>;
+    /** Takes a change of a session's queue, as the core published it. */
     setQueue(sessionId: number, messages: QueuedMessage[]): void;
+    /**
+     * Takes what the core answers that a session's queue holds, unless a change of it is heard
+     * before the answer comes. Every change is published, so that change is as new as the
+     * answer or newer, and an answer can reach the window after an event published later: the
+     * queue read as a session opens put back a prompt its task's setup had just sent.
+     */
+    queueAnswer(sessionId: number, answer: Promise<QueuedMessage[]>): Promise<void>;
     /** The repository, task or session work is being handed to the cloud from. */
     delegating: CloudTarget | null;
     /** Opens the form that delegates to the cloud; `null` puts it away. */
@@ -640,6 +651,7 @@ function forgotten(state: State, sessionIds: number[], taskIds: number[]): Parti
         turnBegan: without(state.turnBegan, sessionIds),
         claudeTerminals: without(state.claudeTerminals, sessionIds),
         queues: without(state.queues, sessionIds),
+        queuesHeard: without(state.queuesHeard, sessionIds),
         drafts: without(state.drafts, sessionIds),
         recalls: without(state.recalls, sessionIds),
         scrolls: withoutScrolls(state.scrolls, sessionIds),
@@ -1022,8 +1034,19 @@ export const useStore = create<State>((set, get) => ({
     agentsVersion: 0,
     agentsChanged: () => set((state) => ({ agentsVersion: state.agentsVersion + 1 })),
     queues: {},
+    queuesHeard: {},
     setQueue: (sessionId, messages) =>
-        set((state) => ({ queues: { ...state.queues, [sessionId]: messages } })),
+        set((state) => ({
+            queues: { ...state.queues, [sessionId]: messages },
+            queuesHeard: oneMoreHeard(state.queuesHeard, sessionId),
+        })),
+    queueAnswer: async (sessionId, answer) => {
+        const asked = changesHeard(get().queuesHeard, sessionId);
+        const messages = await answer;
+        set((state) => ({
+            queues: queuesAnswered(state.queues, state.queuesHeard, { sessionId, messages, asked }),
+        }));
+    },
     delegating: null,
     askToDelegate: (target) => set({ delegating: target }),
     environmentsOf: null,

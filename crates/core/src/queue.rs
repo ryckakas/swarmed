@@ -282,15 +282,86 @@ impl Queues {
             .push(session);
     }
 
-    /// Notes that message `id` was taken out of the session's queue: `true` if it was the one
-    /// kept for its task's setup, which is no longer kept.
-    fn unkeep(&self, session: i64, id: u64) -> bool {
+    // The message a session keeps for its task's setup is in two places: here, and in the
+    // database, which is where it is found again after a restart. Each change to either is
+    // made under the lock on `kept`, and so is each look at both: a look made between the
+    // two halves of a change found the message in the database and not here, and put it back
+    // in the queue after it had gone to the agent.
+
+    /// Puts `text` last in the session's queue as the message it keeps for its task's setup,
+    /// and keeps it in the database until it goes.
+    fn keep(&self, store: &Mutex<Store>, session: i64, text: &str) -> Result<()> {
         let mut kept = lock(&self.kept);
-        if kept.get(&session) == Some(&id) {
-            kept.remove(&session);
-            return true;
+        lock(store).session_keep_setup_prompt(session, Some(text))?;
+        let message = self.message(text);
+        kept.insert(session, message.id);
+        lock(&self.waiting)
+            .entry(session)
+            .or_default()
+            .push(message);
+        Ok(())
+    }
+
+    /// Puts the message the database keeps for the session's task's setup first in its queue,
+    /// unless it is kept here already. `true` if it was put there.
+    fn keep_again(&self, store: &Mutex<Store>, session: i64) -> Result<bool> {
+        let mut kept = lock(&self.kept);
+        if kept.contains_key(&session) {
+            return Ok(false);
         }
-        false
+        let Some(text) = lock(store).session_setup_prompt(session)? else {
+            return Ok(false);
+        };
+        let message = self.message(&text);
+        kept.insert(session, message.id);
+        lock(&self.waiting)
+            .entry(session)
+            .or_default()
+            .insert(0, message);
+        Ok(true)
+    }
+
+    /// Forgets message `id`, taken out of the session's queue, as the one kept for its task's
+    /// setup, if it is: in the database, then here. `true` if it was. One the database cannot
+    /// forget stays kept here too, so that it is not put back in the queue.
+    fn unkeep(&self, store: &Mutex<Store>, session: i64, id: u64) -> Result<bool> {
+        let mut kept = lock(&self.kept);
+        if kept.get(&session) != Some(&id) {
+            return Ok(false);
+        }
+        lock(store).session_keep_setup_prompt(session, None)?;
+        kept.remove(&session);
+        Ok(true)
+    }
+
+    /// Whether message `id`, taken out of the session's queue, is the one kept for its task's
+    /// setup and the database no longer keeps it: another Swarmed has sent it. It is no longer
+    /// kept here either then.
+    fn kept_went_elsewhere(&self, store: &Mutex<Store>, session: i64, id: u64) -> bool {
+        let mut kept = lock(&self.kept);
+        if kept.get(&session) != Some(&id) {
+            return false;
+        }
+        // One that cannot be read is taken to be kept still: better sent than lost.
+        let gone = matches!(lock(store).session_setup_prompt(session), Ok(None));
+        if gone {
+            kept.remove(&session);
+        }
+        gone
+    }
+
+    /// Keeps the database in step with an edit of message `id`, if it is the one the session
+    /// keeps for its task's setup: its new text, or nothing once text with nothing in it took
+    /// it out.
+    fn kept_edited(&self, store: &Mutex<Store>, session: i64, id: u64, text: &str) -> Result<()> {
+        if text.trim().is_empty() {
+            return self.unkeep(store, session, id).map(drop);
+        }
+        let kept = lock(&self.kept);
+        if kept.get(&session) == Some(&id) {
+            lock(store).session_keep_setup_prompt(session, Some(text))?;
+        }
+        Ok(())
     }
 
     /// The id of the message the session keeps for its task's setup, if it is in the queue.
@@ -341,7 +412,7 @@ pub(crate) fn send_next(outbox: &Outbox, session: i64) -> Result<()> {
     let Some(message) = live.queues.take_first(session) else {
         return Ok(());
     };
-    if went_elsewhere(store, live, session, message.id) {
+    if live.queues.kept_went_elsewhere(store, session, message.id) {
         return publish(store, live, session);
     }
     // Whatever was owed is being sent now.
@@ -356,24 +427,12 @@ pub(crate) fn send_next(outbox: &Outbox, session: i64) -> Result<()> {
     );
     if sent.is_err() {
         live.queues.put_back(session, message);
-    } else if live.queues.unkeep(session, message.id) {
+    } else {
         // An error only means the session is gone, and what it kept with it.
-        lock(store).session_keep_setup_prompt(session, None).ok();
+        live.queues.unkeep(store, session, message.id).ok();
     }
     publish(store, live, session)?;
     sent
-}
-
-/// Whether message `id`, taken out of the session's queue, is the one kept for its task's
-/// setup and another Swarmed has sent it since: the database no longer keeps it, and only
-/// this process's queue still did. It is no longer kept here either, and must not go twice.
-fn went_elsewhere(store: &Mutex<Store>, live: &Live, session: i64, id: u64) -> bool {
-    if live.queues.kept_of(session) != Some(id) {
-        return false;
-    }
-    // One that cannot be read is taken to be kept still: better sent than lost.
-    let gone = matches!(lock(store).session_setup_prompt(session), Ok(None));
-    gone && live.queues.unkeep(session, id)
 }
 
 /// Sends the session's first waiting message, as a turn's end does: not while its task is
@@ -431,13 +490,7 @@ impl Core {
     /// Puts `text`, the message a new session is made with, in its queue to wait for its
     /// task's setup, and keeps it in the database until it goes.
     pub(crate) fn keep_for_setup(&self, task: i64, id: i64, text: &str) -> Result<()> {
-        self.store().session_keep_setup_prompt(id, Some(text))?;
-        let message = self.live.queues.message(text);
-        lock(&self.live.queues.kept).insert(id, message.id);
-        lock(&self.live.queues.waiting)
-            .entry(id)
-            .or_default()
-            .push(message);
+        self.live.queues.keep(&self.store, id, text)?;
         self.live.queues.hold_too(task, id);
         publish(&self.store, &self.live, id)
     }
@@ -446,24 +499,23 @@ impl Core {
     /// a restart or closing the session took it out. Not while another Swarmed sets the task
     /// up: the message waits in that one's queue.
     pub(crate) fn queue_kept_again(&self, id: i64) -> Result<()> {
+        // Looked at first without the lock, since most sessions keep nothing; `keep_again`
+        // looks again under it.
         if self.live.queues.kept_of(id).is_some() {
             return Ok(());
         }
-        let Some(text) = self.store().session_setup_prompt(id)? else {
+        if self.store().session_setup_prompt(id)?.is_none() {
             return Ok(());
-        };
+        }
         let session = self.session(id)?;
         let task = self.store().task_by_id(session.task_id)?;
         if task.is_some_and(|task| self.setup_runs_elsewhere(&task)) {
             return Ok(());
         }
-        let message = self.live.queues.message(&text);
-        lock(&self.live.queues.kept).insert(id, message.id);
-        lock(&self.live.queues.waiting)
-            .entry(id)
-            .or_default()
-            .insert(0, message);
-        publish(&self.store, &self.live, id)
+        if self.live.queues.keep_again(&self.store, id)? {
+            publish(&self.store, &self.live, id)?;
+        }
+        Ok(())
     }
 
     /// Adds a message to the end of the session's queue and returns the queue. A command
@@ -492,25 +544,14 @@ impl Core {
         let edited = self.may_wait(id, text);
         if edited.is_ok() {
             self.live.queues.edit(id, message, text);
-            self.kept_edited(id, message, text)?;
+            self.live
+                .queues
+                .kept_edited(&self.store, id, message, text)?;
         }
         self.live.queues.let_go(id, message);
         send_owed(&self.outbox(), id).ok();
         edited?;
         self.queue_changed(id)
-    }
-
-    /// Keeps the database in step with an edit of the message the session keeps for its
-    /// task's setup: its new text, or nothing once it was taken out.
-    fn kept_edited(&self, id: i64, message: u64, text: &str) -> Result<()> {
-        if self.live.queues.kept_of(id) != Some(message) {
-            return Ok(());
-        }
-        if text.trim().is_empty() {
-            self.live.queues.unkeep(id, message);
-            return self.store().session_keep_setup_prompt(id, None);
-        }
-        self.store().session_keep_setup_prompt(id, Some(text))
     }
 
     /// Holds a waiting message while the user edits it, or renews the hold. While the first
@@ -623,12 +664,11 @@ impl Core {
             sent: called.unwrap_or_else(|| taken.text.clone()),
             typed: taken.text.clone(),
         };
-        let kept = self.live.queues.kept_of(id) == Some(taken.id);
         let told = self.live.tell(id, message);
         if told.is_err() {
             self.live.queues.put_back(id, taken);
-        } else if kept && self.live.queues.unkeep(id, taken.id) {
-            self.store().session_keep_setup_prompt(id, None)?;
+        } else {
+            self.live.queues.unkeep(&self.store, id, taken.id)?;
         }
         publish(&self.store, &self.live, id)?;
         told

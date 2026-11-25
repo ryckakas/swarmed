@@ -38,23 +38,19 @@ export function MessageQueue({ sessionId, busy, hearsMidTurn }: Props) {
     const queue = useStore((state) => state.queues[sessionId] ?? NONE);
     // The message open for editing, which the queue does not send until the edit is over.
     const [editing, setEditing] = useState<number | null>(null);
-    const setQueue = useStore((state) => state.setQueue);
+    const queueAnswer = useStore((state) => state.queueAnswer);
     const report = useStore((state) => state.report);
 
     // Changes arrive as events; this is what was waiting before the session was opened.
     useEffect(() => {
-        api.sessionQueue(sessionId)
-            .then((messages) => setQueue(sessionId, messages))
-            .catch(report);
-    }, [sessionId, setQueue, report]);
+        queueAnswer(sessionId, api.sessionQueue(sessionId)).catch(report);
+    }, [sessionId, queueAnswer, report]);
 
     if (queue.length === 0) {
         return null;
     }
     const save = (message: QueuedMessage, text: string) => {
-        api.sessionQueueEdit(sessionId, message.id, text)
-            .then((messages) => setQueue(sessionId, messages))
-            .catch(report);
+        queueAnswer(sessionId, api.sessionQueueEdit(sessionId, message.id, text)).catch(report);
     };
     const sendNow = (message: QueuedMessage) => {
         api.sessionSendNow(sessionId, message.id).catch(report);
