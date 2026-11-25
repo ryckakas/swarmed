@@ -1237,6 +1237,8 @@ fn the_ui_lists_the_sessions_a_message_can_mention_and_sends_them_checked() {
     let text = message["text"].as_str().unwrap_or_default();
     assert!(text.starts_with("look\n\nSessions mentioned"), "{text}");
     assert!(text.contains(&format!("- session {other} (")), "{text}");
+    // Its turn ends first: ending after "later" is queued, it would send "later" out of the queue.
+    app.wait_for_event(id, "turn_done");
 
     // Queued and edited with the mention, and sent now with one.
     app.ok("session_send", json!({ "id": id, "text": "slow" }));
