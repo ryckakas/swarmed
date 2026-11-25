@@ -62,9 +62,12 @@ be out of date:
 
 - The 5-hour and weekly limits are as Claude Code reported them after the last turn of any
   Claude Code session.
-- A model's own weekly limit, such as Fable's, is only given when Claude Code is asked. It
-  stays as it was then, through later turns, which do not report it, until it resets or
-  Claude Code is asked again.
+- A model's own weekly limit, such as Fable's, is named only when Claude Code is asked. After
+  that, turns that use the model update it too: Claude Code reports it after such a turn
+  without the model's name, and Swarmed shows it on the model's row. Until Claude Code has been
+  asked once, that report shows as **Weekly model**. Turns that do not use the model leave it
+  as it was. It is not extra usage, which is money against your monthly cap, however close
+  the two percentages may be.
 - A window whose reset time has passed is shown as reset, at 0%, until a report says how much
   of the new window is used. The warning on the coins goes at that time, with nothing asked.
 - The extra usage is as it stood when Claude Code last started for a session, or last ran a
@@ -75,6 +78,13 @@ be out of date:
 For figures as they are now, press the coins at the top right of a Claude Code session. They
 open an overview of the same figures, with a larger bar for each, and ask the session's Claude
 Code for them as they open, starting it if it is not running; **Ask again** asks once more.
+Claude Code keeps the figures it fetches from claude.ai for a minute and answers from them, in
+every Claude Code on your machine, your terminal's included. So when it fetched them less than a
+minute before you ask, the question waits until it would fetch them again, at most a minute,
+and the overview counts down to it: what you get is fetched after you asked, such as right after
+your usage was reset. While a question is under way the coins pulse and the figures are dimmed;
+the answer lights them up for a moment, and the overview says when it came, to the second, and
+whether the figures are new or the same as before.
 Nothing is sent to the model, so it costs nothing, and nothing is added to the conversation.
 Typing `/usage` in the session asks the same and shows the answer in the conversation. Either
 way, what Claude Code answers is kept, and every session's card and coins show it. Other agents
@@ -95,8 +105,15 @@ in every session, and it shows one level, the highest any window has reached:
 1. 50% of a window used;
 2. 75% used;
 3. 90% used;
-4. **billed**: a limit is reached and extra usage pays for the work, which goes on;
-5. **stopped**: a limit is reached and nothing pays, so Claude Code's requests are refused.
+4. **billed**: a limit is reached and extra usage can pay for the work, which goes on;
+5. **stopped**: a limit is reached and nothing can pay, so Claude Code's requests are refused.
+   For one model's own weekly limit, such as Fable's, only requests to that model are.
+
+Whether extra usage can pay is what Claude Code last said of it: after a turn, or when asked,
+as extra usage turned on and its monthly cap not reached. It need not have paid for a turn yet.
+A limit counts as reached once a report after a turn says so. The figure Claude Code gives when
+asked is a whole percent, so 100% there may be 99.5%: the notice then says the limit is all but
+used up, and nothing is limited yet.
 
 Claude Code reports one window at a time, after each turn and often several times in one, so
 nothing is said per report: a report only raises or lowers the level. Dismiss the notice and it

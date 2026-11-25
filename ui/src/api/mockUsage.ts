@@ -1,7 +1,8 @@
 import type { AccountUsage, AgentEvent, UsageLimit, UsageWindow } from "./types";
 
 // The account's usage for the sample agent, taken in from its reports as the core takes in
-// Claude Code's (`account_usage.rs`): each window keeps the newest figure any report gave it.
+// Claude Code's (`account_usage.rs`): each window keeps the newest figure any report gave it,
+// and a report's unnamed model limit is the one model's limit known.
 
 const seconds = () => Math.round(Date.now() / 1000);
 
@@ -9,8 +10,14 @@ const seconds = () => Math.round(Date.now() / 1000);
 const NAMES: Record<string, string> = {
     five_hour: "5-hour",
     seven_day: "weekly",
-    seven_day_overage_included: "weekly, extra usage included",
+    seven_day_overage_included: "weekly model",
 };
+
+/** What a report after a turn calls one model's own weekly limit, without naming the model. */
+const MODEL_WEEKLY = "seven_day_overage_included";
+
+const isModel = (window: UsageWindow) =>
+    window.kind.startsWith("seven_day_") && window.kind !== MODEL_WEEKLY;
 
 function windowName(kind: string): string {
     return NAMES[kind] ?? kind.replace(/^seven_day_/, "weekly ").replaceAll("_", " ");
@@ -37,6 +44,7 @@ export function sampleAccountUsage(): AccountUsage {
         ],
         extra: null,
         billed: { on: false, resets_at: now + 2 * 3600, heard_at: heard },
+        pays: null,
     };
 }
 
@@ -92,8 +100,46 @@ function take(usage: AccountUsage, windows: UsageWindow[], fromAnswer: boolean):
     const kept = usage.windows.filter(
         (window) => !(listed.has(window.kind) || (fromAnswer && window.asked)),
     );
-    const all = [...kept, ...windows].sort((a, b) => (a.kind < b.kind ? -1 : 1));
-    return { ...usage, windows: all };
+    const all = foldModelWeekly([...kept, ...windows], listed);
+    return { ...usage, windows: all.sort((a, b) => (a.kind < b.kind ? -1 : 1)) };
+}
+
+/** Whether the report's unnamed model limit is newer than the model's own window. */
+function reportIsNewer(reported: UsageWindow, model: UsageWindow, came: Set<string>): boolean {
+    if (came.has(model.kind)) {
+        return false;
+    }
+    return came.has(MODEL_WEEKLY) || reported.heard_at > model.heard_at;
+}
+
+/**
+ * As in the core: the report's unnamed model limit is folded into the one model's weekly window
+ * known, with the newer figure, and stays apart while there is none or several.
+ */
+function foldModelWeekly(windows: UsageWindow[], came: Set<string>): UsageWindow[] {
+    const models = windows.filter(isModel);
+    const model = models.length === 1 ? models[0] : undefined;
+    const reported = windows.find((window) => window.kind === MODEL_WEEKLY);
+    if (model === undefined || reported === undefined) {
+        return windows;
+    }
+    const folded = reportIsNewer(reported, model, came)
+        ? { ...reported, kind: model.kind, name: model.name }
+        : model;
+    return windows
+        .filter((window) => window !== reported)
+        .map((window) => (window === model ? folded : window));
+}
+
+/** Whether a report says extra usage can pay past a limit reached, as the core reads it. */
+function canPay(raw: Record<string, unknown>, on: boolean): boolean | null {
+    if (on) {
+        return true;
+    }
+    if (typeof raw.overageStatus === "string") {
+        return raw.overageStatus !== "rejected";
+    }
+    return typeof raw.overageEnabled === "boolean" ? raw.overageEnabled : null;
 }
 
 /** The usage after a report of the sample agent's; `null` for an event that is none. */
@@ -110,7 +156,9 @@ export function heardUsage(usage: AccountUsage, event: AgentEvent): AccountUsage
             on || reached || !holds
                 ? { on, resets_at: event.resets_at, heard_at: at }
                 : usage.billed;
-        return take({ ...usage, billed }, reported(event.raw, at), false);
+        const can = canPay(raw, on);
+        const pays = can === null ? usage.pays : { can, heard_at: at };
+        return take({ ...usage, billed, pays }, reported(event.raw, at), false);
     }
     if (event.type === "usage_limits") {
         const windows = event.limits.map((limit) => asked(limit, at));
@@ -118,7 +166,8 @@ export function heardUsage(usage: AccountUsage, event: AgentEvent): AccountUsage
     }
     if (event.type === "extra_usage") {
         const { type: _, ...figures } = event;
-        return { ...usage, extra: { ...figures, heard_at: at } };
+        const pays = { can: event.enabled && !event.limit_reached, heard_at: at };
+        return { ...usage, extra: { ...figures, heard_at: at }, pays };
     }
     return null;
 }

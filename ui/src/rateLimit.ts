@@ -18,7 +18,8 @@ const WINDOWS: Record<string, string> = {
     seven_day: "weekly",
     seven_day_opus: "weekly Opus",
     seven_day_sonnet: "weekly Sonnet",
-    seven_day_overage_included: "weekly, extra usage included",
+    // One model's own weekly limit, which a report after a turn does not name.
+    seven_day_overage_included: "weekly model",
 };
 
 /** What a window is called here, from Claude Code's name for it. */
@@ -112,13 +113,20 @@ export type LimitLevel = "fine" | "warning" | "reached";
 
 /**
  * How a window stands, by how full it is. A report's own word for it is not taken: Claude Code
- * has said `allowed_warning` of a window less than a third full.
+ * has said `allowed_warning` of a window less than a third full. Reached is a report's word for
+ * it, or a report after a turn at 100% or more: an answer to asking gives a whole percent, and
+ * its 100 may be 99.5, as when a report said 99% at that very second.
  */
 export function limitLevel(window: LimitWindow): LimitLevel {
-    if (window.used >= 1 || window.status === "rejected") {
+    if (window.status === "rejected" || (!window.asked && window.used >= 1)) {
         return "reached";
     }
     return window.used >= LIMIT_WARNING ? "warning" : "fine";
+}
+
+/** Whether a window is one model's own weekly limit, which stops that model alone. */
+export function oneModels(window: LimitWindow): boolean {
+    return window.kind.startsWith("seven_day_");
 }
 
 /**
@@ -259,17 +267,24 @@ export function usageNotice(
     );
 }
 
-/** What the usage notice says, in a sentence or two. */
+/**
+ * What the usage notice says, in a sentence or two. A model's own limit stops that model
+ * alone, and an answer's 100% that no report called reached is not used up yet.
+ */
 export function usageNoticeText({ window, level }: UsageNotice, now: Date): string {
     const resets = window.resetsAt === null ? "" : ` It resets ${resetWhen(window.resetsAt, now)}.`;
     if (level === STOPPED) {
-        return `The ${window.name} limit is reached, and nothing pays past it: Claude Code's requests are refused.${resets}`;
+        const refused = oneModels(window)
+            ? "Claude Code's requests to that model are refused, and other models go on"
+            : "Claude Code's requests are refused";
+        return `The ${window.name} limit is reached, and nothing pays past it: ${refused}.${resets}`;
     }
     if (level === BILLED) {
         return `The ${window.name} limit is reached: Claude Code goes on with extra usage, which is billed.${resets}`;
     }
     const share = Math.round(window.used * 100);
-    return `The ${window.name} limit is ${share}% used. Nothing is limited yet.${resets}`;
+    const used = share >= 100 ? "all but used up" : `${share}% used`;
+    return `The ${window.name} limit is ${used}. Nothing is limited yet.${resets}`;
 }
 
 /** A dismissal as it was kept on this machine, or `null` if what is kept is not one. */

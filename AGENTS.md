@@ -936,13 +936,34 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   `docs/coding-agents.md` says how fresh the figures are because of that. It was the user's
   choice, so that looking costs nothing. Keep it so. A UI timer that only draws again at a
   window's reset time asks nothing, and is how a warning goes when its window resets.
+  Claude Code answers `get_usage` from its own copy for a minute after fetching it, shared by
+  every Claude Code on the machine through its config file (`cachedUsageUtilization`), so
+  `session_usage_refresh` holds the question back until that copy is a minute old
+  (`usage_copy.rs`, `UsageAsk`), and the answer is fetched after the user asked. Only
+  `fetchedAtMs` is read of that file for it. Asking shows at every step (`UsageOverview`,
+  `askedLine`): a countdown while held back, and the answer's time to the second with whether
+  it changed the figures (`figuresKey`), since an answer the same as before otherwise looks
+  like nothing happened.
 - **Usage is the account's, and every Claude Code session shows the same**
   (`account_usage.rs`, `Core::account_usage`, `swarmed limits`). The core folds each
   `RateLimit`, `UsageLimits` and `ExtraUsage` a Claude Code session records into one
   `AccountUsage`: each window, by its kind (`session` is `five_hour`, `weekly_all` is
   `seven_day`, one model's weekly limit is `seven_day_<model>`), keeps the newest figure any
   report gave it, since the report after a turn leaves a model's limit out; an answer to
-  asking lists every limit, so one an earlier answer gave that it does not is dropped. It is
+  asking lists every limit, so one an earlier answer gave that it does not is dropped. A
+  report's `seven_day_overage_included` (`MODEL_WEEKLY`, "weekly model") is not extra usage
+  but one model's weekly limit without its name: Claude Code shows it as that model's, and
+  its figures follow the asked `weekly_scoped` one to the percent. It is folded into the one
+  model's window known (`fold_model_weekly`, newer figure wins), stays apart while there is
+  none or several, and like every model's limit refuses that model alone (`one_models`).
+  Whether extra usage can pay past a limit reached (`ExtraPays`, `extra_can_pay`, #435) is the
+  newest word on it: a report's `overageStatus` (`rejected` when it cannot, such as
+  `out_of_credits`), else `overageEnabled`, or the asked extra usage (on, cap not reached);
+  without any, a turn billed until its reset. Billed and stopped follow it, not whether the
+  latest turn was billed. A window is reached (`window_reached`, `limitLevel`) by a report's
+  `rejected` or a report's utilization of 1 or more, never by an answer's percent alone,
+  which is rounded; an answer at 100 keeps a report's `rejected` until the reset
+  (`keep_refusal`). It is
   read lazily from the newest reports in the database, and published apart as
   `AgentEvent::AccountUsage` on session id 0, never stored, whenever it changes. There is one
   for all: `claude` cannot be redefined in `agents.toml` and runs on the user's own sign-in,

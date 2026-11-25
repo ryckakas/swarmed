@@ -4389,6 +4389,55 @@ code {
     font-weight: 400;
 }
 
+/* Asking shows at every step. While the question goes or is held back, a dot pulses before
+   what the overview says, the figures it is to replace are dimmed, and the coins pulse, so
+   that it shows with the overview closed too. An answer lights the figures up for a moment,
+   new or the same, so that it shows it came. */
+.usage-overview-title span[data-asking="true"]::before {
+    content: "";
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-right: 5px;
+    border-radius: 50%;
+    background: var(--moss);
+    vertical-align: middle;
+    animation: pulse 1.2s ease-in-out infinite;
+}
+
+.usage-overview-figures {
+    margin: 0 calc(-1 * var(--space-1));
+    padding: 0 var(--space-1);
+    border-radius: 6px;
+    transition: opacity 0.2s ease;
+}
+
+.usage-overview-figures[data-asking="true"] {
+    opacity: 0.55;
+}
+
+.usage-overview-figures[data-fresh="true"] {
+    animation: usage-fresh 1.4s ease-out;
+}
+
+@keyframes usage-fresh {
+    from {
+        background: color-mix(in srgb, var(--moss) 24%, transparent);
+    }
+}
+
+.usage-coins[data-asking="true"] > svg:first-child {
+    animation: pulse 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .usage-overview-title span[data-asking="true"]::before,
+    .usage-coins[data-asking="true"] > svg:first-child,
+    .usage-overview-figures[data-fresh="true"] {
+        animation: none;
+    }
+}
+
 .usage-window {
     display: grid;
     grid-template-columns: 1fr auto;

@@ -4,7 +4,7 @@
 // Claude Code session heard last is what every one shows.
 
 import type { AccountUsage, ExtraUsageHeard } from "./api/types";
-import { accountWindows, limitLevel } from "./rateLimit";
+import { accountWindows, type LimitWindow, limitLevel } from "./rateLimit";
 
 /** What extra usage stood at when Claude Code was last asked. */
 export type ExtraUsage = ExtraUsageHeard;
@@ -24,7 +24,19 @@ export function onExtraUsageNow(usage: AccountUsage | null, now: number): boolea
     const askedSince = accountWindows(usage, now).filter(
         (window) => window.asked && window.heardAt >= billed.heard_at,
     );
-    return askedSince.length === 0 || askedSince.some((window) => limitLevel(window) === "reached");
+    // After a turn extra usage paid for, an answer's 100% is the limit still reached.
+    const stillUsedUp = (window: LimitWindow) =>
+        window.used >= 1 || limitLevel(window) === "reached";
+    return askedSince.length === 0 || askedSince.some(stillUsedUp);
+}
+
+/**
+ * Whether extra usage can pay past a limit reached, at `now`: as the newest word on it said
+ * (Claude Code's report after a turn, or the extra usage asked for), else as long as a turn it
+ * paid for said. A limit reached while it can goes on billed; while it cannot, requests stop.
+ */
+export function extraCanPay(usage: AccountUsage | null, now: number): boolean {
+    return usage?.pays?.can ?? onExtraUsageNow(usage, now);
 }
 
 /** An amount in minor units, as money in its currency: 3871 cents of euros is €38.71. */

@@ -178,7 +178,9 @@ const WAIT_LIMIT: Duration = Duration::from_secs(10);
 /// Asks session `id`'s agent for the account's usage, as the coins do: the answer is the
 /// session's, and what it says is the account's usage for every session.
 fn usage_asked(app: &App, id: &Value) {
-    app.ok("session_usage_refresh", json!({ "id": id }));
+    // Claude Code keeps no copy of the figures here, so the question goes at once.
+    let ask = app.ok("session_usage_refresh", json!({ "id": id }));
+    assert_eq!(ask, json!({ "waits_until": null, "copy_fetched_at": null }));
     let usage = app.wait_for_event(id, "usage_limits");
     assert_eq!(usage["limits"][0]["kind"], "session");
     let account = app.ok("account_usage", json!({}));

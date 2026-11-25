@@ -987,7 +987,9 @@ export interface UsageLimit {
 export interface UsageWindow {
     /**
      * What tells it apart, as Claude Code's report after a turn names it: `five_hour`,
-     * `seven_day`, `seven_day_overage_included`, or `seven_day_` and a model.
+     * `seven_day`, or `seven_day_` and a model. A report's `seven_day_overage_included` is one
+     * model's own weekly limit without its name, which the core folds into that model's window
+     * once an answer has named the model.
      */
     kind: string;
     /** What it is called here, such as `5-hour` or `weekly Fable`. */
@@ -1027,6 +1029,24 @@ export interface AccountUsage {
      * it resets, says nothing of it.
      */
     billed: { on: boolean; resets_at: number | null; heard_at: number } | null;
+    /**
+     * Whether extra usage can pay past a limit reached, as the newest word on it said: a report
+     * after a turn or the extra usage asked for. Not whether it does: a limit within needs
+     * nothing paid.
+     */
+    pays: { can: boolean; heard_at: number } | null;
+}
+
+/**
+ * When a question for the account's usage goes to Claude Code. Claude Code answers from its own
+ * copy of the figures for a minute after it fetched them, so while that copy is younger, the
+ * question waits until Claude Code would fetch them again.
+ */
+export interface UsageAsk {
+    /** When it goes, in milliseconds since 1970, if it waits; `null` when it went at once. */
+    waits_until: number | null;
+    /** When the copy it waits out was fetched, in milliseconds since 1970. */
+    copy_fetched_at: number | null;
 }
 
 /** One part of what fills an agent's context window. */

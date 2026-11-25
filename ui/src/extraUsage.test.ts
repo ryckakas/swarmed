@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AccountUsage, UsageWindow } from "./api/types";
-import { type ExtraUsage, money, onExtraUsageNow, spentShare } from "./extraUsage";
+import { type ExtraUsage, extraCanPay, money, onExtraUsageNow, spentShare } from "./extraUsage";
 
 // What Claude Code answered for the account behind this change: euros, a cap of 400.
 const extra = (used: number, limit: number | null = 40_000): ExtraUsage => ({
@@ -34,6 +34,7 @@ const usage = (turn: AccountUsage["billed"], ...windows: UsageWindow[]): Account
     windows,
     extra: null,
     billed: turn,
+    pays: null,
 });
 
 describe("extra usage", () => {
@@ -56,6 +57,21 @@ describe("extra usage", () => {
     it("ends when the limit it paid past resets, with nothing heard since", () => {
         expect(onExtraUsageNow(usage(billed(true, 100, now + 60)), now)).toBe(true);
         expect(onExtraUsageNow(usage(billed(true, 100, now - 60)), now)).toBe(false);
+    });
+
+    it("can pay past a limit as the newest word on it says, billed yet or not", () => {
+        // As on 25 Nov: extra usage turned on and under its cap, and no turn billed since the
+        // 5-hour window reset. A limit reached now would go on billed, not be refused.
+        const able = { ...usage(billed(false, 100)), pays: { can: true, heard_at: 100 } };
+        expect(onExtraUsageNow(able, now)).toBe(false);
+        expect(extraCanPay(able, now)).toBe(true);
+        // Out of credits, or its cap reached: nothing pays, even right after a billed turn.
+        const unable = { ...usage(billed(true, 100)), pays: { can: false, heard_at: 200 } };
+        expect(extraCanPay(unable, now)).toBe(false);
+        // With no word on it, a billed turn says it can until its limit resets.
+        expect(extraCanPay(usage(billed(true, 100, now + 60)), now)).toBe(true);
+        expect(extraCanPay(usage(billed(false, 100)), now)).toBe(false);
+        expect(extraCanPay(null, now)).toBe(false);
     });
 
     it("writes minor units as money, with the cap's share", () => {

@@ -1,4 +1,4 @@
-import { onExtraUsageNow } from "../extraUsage";
+import { extraCanPay } from "../extraUsage";
 import { accountWindows, dismissalOf, usageNotice, usageNoticeText } from "../rateLimit";
 import { useStore } from "../store";
 import { findSession } from "../tree";
@@ -22,7 +22,7 @@ export function UsageNotice() {
         return null;
     }
     const windows = accountWindows(usage, now);
-    const paying = onExtraUsageNow(usage, now);
+    const paying = extraCanPay(usage, now);
     const notice = usageNotice(windows, paying, mode, dismissed, now);
     if (notice === null) {
         return null;

@@ -56,6 +56,8 @@ export interface Words {
     usage: string;
     /** Its button that asks Claude Code for the figures again. */
     askAgain: string;
+    /** That button while the figures are being asked for. */
+    asking: string;
     /** The button on a command Claude Code has a screen for only in its own terminal. */
     openInClaude: string;
     /** The button that ends that Claude Code and shows the session's shell again. */
@@ -300,6 +302,7 @@ const PLAIN: Words = {
     extraUsage: "Extra usage",
     usage: "Usage",
     askAgain: "Ask again",
+    asking: "Asking…",
     openInClaude: "Open in Claude Code",
     backToShell: "Back to the shell",
     closeSession: "Close session",
@@ -582,6 +585,7 @@ const COLONY: Words = {
     extraUsage: "Borrowed biomass",
     usage: "Hunger",
     askAgain: "Sniff again",
+    asking: "Sniffing…",
     openInClaude: "Open in Claude Code's lair",
     backToShell: "Back to the burrow",
     newTaskHint: "Lays a brood for this in its own worktree.",

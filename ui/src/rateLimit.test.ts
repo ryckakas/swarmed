@@ -102,6 +102,7 @@ describe("the account's windows", () => {
         windows,
         extra: null,
         billed: null,
+        pays: null,
     });
     const inAnHour = seconds(new Date(2026, 10, 21, 13, 0));
     const anHourAgo = seconds(new Date(2026, 10, 21, 11, 0));
@@ -201,6 +202,13 @@ describe("warning of a limit", () => {
         expect(limitLevel(window("weekly", 0.29, "allowed_warning"))).toBe("fine");
     });
 
+    it("takes an answer's 100% for rounded, reached only when a report said so", () => {
+        // A report after a turn said 99% and `allowed_warning` at the second an answer said 100.
+        const answered = { ...window("weekly", 1, "critical"), asked: true };
+        expect(limitLevel(answered)).toBe("warning");
+        expect(limitLevel({ ...answered, status: "rejected" })).toBe("reached");
+    });
+
     it("names the window most worth it: a used-up one first, then the fullest", () => {
         expect(limitWarning([window("5-hour", 0.3), window("weekly", 0.6)])).toBeNull();
         expect(limitWarning([window("5-hour", 0.78), window("weekly", 0.91)])?.name).toBe("weekly");
@@ -274,6 +282,7 @@ describe("the usage notice", () => {
             ],
             extra: null,
             billed: { on: true, resets_at: friday, heard_at: billedAt },
+            pays: null,
         });
         const after = [kinds(100, 90), kinds(100, 110), kinds(200, 110), kinds(200, 210)];
         const shown = after.map((usage) => {
@@ -290,7 +299,7 @@ describe("the usage notice", () => {
         const billed = {
             kind: "seven_day_overage_included",
             level: BILLED,
-            text: `The weekly, extra usage included limit is reached: Claude Code goes on with extra usage, which is billed. It resets ${resetWhen(friday, now)}.`,
+            text: `The weekly model limit is reached: Claude Code goes on with extra usage, which is billed. It resets ${resetWhen(friday, now)}.`,
         };
         expect(shown).toEqual([billed, billed, billed, billed]);
         expect(resetWhen(friday, now)).toMatch(/^on .*27.* at /);
@@ -382,6 +391,30 @@ describe("the usage notice", () => {
         });
     });
 
+    it("says what it should have said on 25 Nov: all but used up, and billed once reached", () => {
+        // #435: the weekly window at 99% and `allowed_warning` after a turn, 100 when asked
+        // that second, with extra usage turned on and under its cap.
+        const resets = ` It resets ${resetWhen(friday, now)}.`;
+        const answered = { ...window("seven_day", 1, "critical"), name: "weekly", asked: true };
+        const said = notice([answered], "frequent", null, true);
+        expect(said?.level).toBe(3);
+        expect(said && usageNoticeText(said, now)).toBe(
+            `The weekly limit is all but used up. Nothing is limited yet.${resets}`,
+        );
+        // Reached, as a report says: billed while extra usage can pay, refused when it cannot.
+        const reached = { ...window("seven_day", 1.01, "rejected"), name: "weekly" };
+        expect(notice([reached], "frequent", null, true)?.level).toBe(BILLED);
+        expect(notice([reached], "frequent", null, false)?.level).toBe(STOPPED);
+    });
+
+    it("says a model's own limit stops that model alone", () => {
+        const resets = ` It resets ${resetWhen(friday, now)}.`;
+        const fable = { ...window("seven_day_fable", 1, "rejected"), name: "weekly Fable" };
+        expect(usageNoticeText({ window: fable, level: STOPPED }, now)).toBe(
+            `The weekly Fable limit is reached, and nothing pays past it: Claude Code's requests to that model are refused, and other models go on.${resets}`,
+        );
+    });
+
     it("says what it comes to at each level", () => {
         const weekly = window("weekly", 0.874);
         const resets = ` It resets ${resetWhen(friday, now)}.`;
@@ -403,7 +436,7 @@ function usageWindow(kind: string, used: number, status: string, resetsAt: numbe
     const names: Record<string, string> = {
         five_hour: "5-hour",
         seven_day: "weekly",
-        seven_day_overage_included: "weekly, extra usage included",
+        seven_day_overage_included: "weekly model",
     };
     return {
         kind,

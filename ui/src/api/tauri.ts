@@ -54,6 +54,7 @@ import type {
     Unpublished,
     UpdateState,
     Usage,
+    UsageAsk,
 } from "./types";
 
 /** The real app: commands and events of the Tauri shell in crates/app. */
@@ -290,7 +291,7 @@ export const tauriApi: Api = {
         listen<TerminalOutput>("claude-terminal-output", (event) => listener(event.payload)),
     statusLine: (id) => invoke<string | null>("status_line", { id }),
     accountUsage: () => invoke<AccountUsage>("account_usage"),
-    sessionUsageRefresh: (id) => invoke("session_usage_refresh", { id }),
+    sessionUsageRefresh: (id) => invoke<UsageAsk>("session_usage_refresh", { id }),
     sessionRemoteControl: (id, on) => invoke("session_remote_control", { id, on }),
     sessionContinueAtReset: (id) => invoke<number>("session_continue_at_reset", { id }),
     sessionContinueCancel: (id) => invoke("session_continue_cancel", { id }),

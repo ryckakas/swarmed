@@ -15,6 +15,27 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The coins now get your usage as it is when you ask.** Claude Code answers from its own
+  copy of the figures for a minute after it fetched them, in every Claude Code on your
+  machine, so opening the coins or pressing Ask again in that minute changed nothing, even
+  right after your usage was reset. The question now waits until Claude Code fetches the
+  figures again, and the overview counts down to it. Every step shows: the coins pulse and the
+  figures dim while Claude Code is asked, and the answer lights them up and says when it
+  came, to the second, and whether anything changed.
+- **The usage notice no longer says requests are refused when they are not.** With extra
+  usage turned on and under its cap, a limit reached is billed, not refused, even before a turn
+  has been billed: the notice said refused whenever the latest turn had not run on extra
+  usage. A figure of 100% from asking, which may be 99.5%, no longer counts as a limit reached
+  until a turn says so, and a model's own weekly limit says it stops that model alone.
+- **One row per usage limit.** The row called "weekly, extra usage included" was not extra
+  usage: it was a model's own weekly limit, such as Fable's, as Claude Code reports it after a
+  turn, shown beside that model's own row and left behind when the two differed. It is now
+  shown on the model's row. Before Claude Code has named the model, it shows as "Weekly model".
+  That limit used up no longer holds back sessions set to go on when a limit resets, since it
+  stops only that model.
+
 ## [0.4.5] - 2026-11-25
 
 ### Added

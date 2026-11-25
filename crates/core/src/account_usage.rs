@@ -14,8 +14,8 @@
 //! Code is asked, and its answer is recorded in the session, with nothing in the conversation.
 //! Nothing asks on its own, on a timer or when a figure is looked at.
 
-use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -24,8 +24,9 @@ use serde_json::Value;
 use crate::agent::{AgentCommand, AgentEvent, Auth, UsageLimit};
 use crate::agents::CLAUDE;
 use crate::error::{Error, Result};
-use crate::sessions::event_from_json;
+use crate::sessions::{Live, event_from_json};
 use crate::store::Store;
+use crate::usage_copy::{UsageAsk, copy_fetched_at};
 use crate::{Core, lock};
 
 /// How many of the latest reports after a turn are read at start. Each lists the same few
@@ -43,14 +44,32 @@ pub struct AccountUsage {
     /// there was one. A report of a window still within, while extra usage pays for another
     /// window's limit until it resets, says nothing of it.
     pub billed: Option<Billed>,
+    /// Whether extra usage can pay past a limit reached, as the newest word on it said, if
+    /// any did. Not whether it does: a limit within needs nothing paid.
+    #[serde(default)]
+    pub pays: Option<ExtraPays>,
+}
+
+/// Whether extra usage can pay past a limit reached.
+///
+/// It is heard from a report after a turn (`overageStatus`, else `overageEnabled`, or a turn it
+/// paid for), or from the extra usage as asked for (turned on, its cap not reached), whichever
+/// came last.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtraPays {
+    /// Whether it can.
+    pub can: bool,
+    /// When Swarmed heard it, in seconds since 1970.
+    pub heard_at: i64,
 }
 
 /// One of the plan's usage windows, as the newest report that gave it said.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UsageWindow {
     /// What tells it apart, in the words of Claude Code's report after a turn: `five_hour`,
-    /// `seven_day`, `seven_day_overage_included`, or `seven_day_` and the model for one
-    /// model's weekly limit. A limit only an answer lists that is none of these keeps its kind.
+    /// `seven_day`, or `seven_day_` and the model for one model's weekly limit. A report's
+    /// `seven_day_overage_included` is one model's too, folded into that model's window once it
+    /// is known. A limit only an answer lists that is none of these keeps its kind.
     pub kind: String,
     /// What it is called here, such as `5-hour` or `weekly Fable`.
     pub name: String,
@@ -110,6 +129,8 @@ impl AccountUsage {
                 raw,
             } => {
                 self.hear_billed(status, *resets_at, raw, at);
+                let said = extra_can_pay(raw).map(|can| ExtraPays { can, heard_at: at });
+                self.pays = said.or(self.pays);
                 self.take(reported(raw, at), false);
             }
             AgentEvent::UsageLimits { limits } => {
@@ -133,6 +154,8 @@ impl AccountUsage {
                     limit_reached: *limit_reached,
                     heard_at: at,
                 });
+                let can = *enabled && !*limit_reached;
+                self.pays = Some(ExtraPays { can, heard_at: at });
             }
             _ => return false,
         }
@@ -160,6 +183,13 @@ impl AccountUsage {
             .is_some_and(|billed| billed.on && billed.resets_at.is_some_and(|reset| reset > at))
     }
 
+    /// Whether extra usage can pay past a limit reached at `at`: as the newest word on it
+    /// said, else as long as a turn it paid for said, until that limit resets.
+    pub(crate) fn extra_can_pay(&self, at: i64) -> bool {
+        self.pays
+            .map_or_else(|| self.billed_until_reset(at), |pays| pays.can)
+    }
+
     /// Puts `windows` in place of those of the same kind and keeps the rest: a report after a
     /// turn leaves a model's own weekly limit out. An answer to asking lists every limit, so
     /// one an earlier answer gave that it does not list is gone.
@@ -169,14 +199,57 @@ impl AccountUsage {
             self.windows
                 .retain(|window| !window.asked || listed(&window.kind));
         }
+        let came: Vec<String> = windows.iter().map(|window| window.kind.clone()).collect();
         for window in windows {
-            match self.windows.iter_mut().find(|old| old.kind == window.kind) {
-                Some(old) => *old = window,
-                None => self.windows.push(window),
-            }
+            self.put(window);
         }
+        self.fold_model_weekly(&came);
         // By kind, which puts the 5-hour window first and the weekly ones after it.
         self.windows.sort_by(|a, b| a.kind.cmp(&b.kind));
+    }
+
+    /// Puts `window` in place of the one of its kind, if there is one, keeping what a report
+    /// said of that limit reached ([`keep_refusal`]).
+    fn put(&mut self, mut window: UsageWindow) {
+        let Some(old) = self.windows.iter_mut().find(|old| old.kind == window.kind) else {
+            self.windows.push(window);
+            return;
+        };
+        keep_refusal(old, &mut window);
+        *old = window;
+    }
+
+    /// Folds the report's [`MODEL_WEEKLY`] window into the one model's weekly window known,
+    /// so that one limit is one window, with the newer figure: the report's if it is what
+    /// just `came` and the model's own did not, else the model's. With no model's window
+    /// known, or several, there is no telling which it is, and it stays apart.
+    fn fold_model_weekly(&mut self, came: &[String]) {
+        let is_model =
+            |window: &UsageWindow| one_models(&window.kind) && window.kind != MODEL_WEEKLY;
+        let models = self.windows.iter().filter(|window| is_model(window));
+        if models.count() != 1 {
+            return;
+        }
+        let Some(at) = self.windows.iter().position(|w| w.kind == MODEL_WEEKLY) else {
+            return;
+        };
+        let reported = self.windows.remove(at);
+        let Some(model) = self.windows.iter_mut().find(|window| is_model(window)) else {
+            return;
+        };
+        let has_come = |kind: &str| came.iter().any(|one| one == kind);
+        let newer = match (has_come(MODEL_WEEKLY), has_come(&model.kind)) {
+            (true, false) => true,
+            (false, false) => reported.heard_at > model.heard_at,
+            _ => false,
+        };
+        if newer {
+            *model = UsageWindow {
+                kind: model.kind.clone(),
+                name: model.name.clone(),
+                ..reported
+            };
+        }
     }
 
     /// The usage as the sessions' records leave it: the newest answer to asking, the newest
@@ -188,6 +261,53 @@ impl AccountUsage {
         }
         Ok(usage)
     }
+}
+
+/// What Claude Code's report after a turn calls one model's own weekly limit, without naming
+/// the model. Claude Code takes it for the limit of the plan's one model with a weekly limit of
+/// its own, and shows it under that model's name when it cannot ask claude.ai; its figures
+/// follow that model's as an answer to asking gives them (`weekly_scoped`), to the percent.
+/// Despite its name, it is not extra usage, which is money against a monthly cap.
+pub(crate) const MODEL_WEEKLY: &str = "seven_day_overage_included";
+
+/// Whether a usage window of this kind is one model's weekly limit, and not the account's: it
+/// stops requests to that model alone.
+pub(crate) fn one_models(kind: &str) -> bool {
+    kind.starts_with("seven_day_")
+}
+
+/// Whether a window's limit is reached, so that requests to it are refused unless extra usage
+/// pays: a report said so, or a report after a turn gave it at 100% or more. An answer to
+/// asking gives a whole percent, and its 100 may be 99.5: a report after a turn said 99%,
+/// `allowed_warning`, of the weekly limit at the very second an answer gave it as 100%.
+pub(crate) fn window_reached(window: &UsageWindow) -> bool {
+    window.status == "rejected" || (!window.asked && window.used >= 1.0)
+}
+
+/// Keeps what a report said of a limit reached when an answer to asking gives the same window
+/// at 100%, which may be rounded: the answer has no word for a limit reached, and the window
+/// stays reached until it resets.
+fn keep_refusal(old: &UsageWindow, new: &mut UsageWindow) {
+    let same_reset = match (old.resets_at, new.resets_at) {
+        (Some(old), Some(new)) => (old - new).abs() <= 60,
+        _ => false,
+    };
+    if new.asked && new.used >= 1.0 && old.status == "rejected" && same_reset {
+        new.status.clone_from(&old.status);
+    }
+}
+
+/// Whether a report after a turn says extra usage can pay past a limit reached, if it says:
+/// Claude Code's `overageStatus`, which is `rejected` when it cannot (`out_of_credits`, say),
+/// else `overageEnabled`, else a turn it paid for. Older reports have no `overageEnabled`.
+fn extra_can_pay(raw: &Value) -> Option<bool> {
+    if on_extra_usage(raw) {
+        return Some(true);
+    }
+    if let Some(status) = raw.get("overageStatus").and_then(Value::as_str) {
+        return Some(status != "rejected");
+    }
+    raw.get("overageEnabled").and_then(Value::as_bool)
 }
 
 /// Whether a report's own status says a limit is reached, and not only that a window fills up.
@@ -258,7 +378,7 @@ fn name_of(kind: &str) -> String {
     match kind {
         "five_hour" => "5-hour".to_string(),
         "seven_day" => "weekly".to_string(),
-        "seven_day_overage_included" => "weekly, extra usage included".to_string(),
+        MODEL_WEEKLY => "weekly model".to_string(),
         _ => match kind.strip_prefix("seven_day_") {
             Some(model) => format!("weekly {}", capitalised(&model.replace('_', " "))),
             None => kind.replace('_', " "),
@@ -342,6 +462,14 @@ pub(crate) fn seconds_now() -> i64 {
     let since = SystemTime::now().duration_since(UNIX_EPOCH);
     since.map_or(0, |since| {
         i64::try_from(since.as_secs()).unwrap_or(i64::MAX)
+    })
+}
+
+/// Now, in milliseconds since 1970, as Claude Code keeps time in its config file.
+fn millis_now() -> i64 {
+    let since = SystemTime::now().duration_since(UNIX_EPOCH);
+    since.map_or(0, |since| {
+        i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
     })
 }
 
@@ -445,22 +573,48 @@ impl Core {
         self.live.usage.now(&self.store)
     }
 
-    /// Asks the session's Claude Code for the account's usage now, starting it with `auth` if
-    /// it is not running. The answer arrives as the session's events,
-    /// [`crate::agent::AgentEvent::UsageLimits`] and [`crate::agent::AgentEvent::ExtraUsage`],
-    /// and changes [`Core::account_usage`] for every session.
+    /// Asks the session's Claude Code for the account's usage as it is now, starting it with
+    /// `auth` if it is not running, and says when the question goes. The answer arrives as
+    /// the session's events, [`crate::agent::AgentEvent::UsageLimits`] and
+    /// [`crate::agent::AgentEvent::ExtraUsage`], and changes [`Core::account_usage`] for every
+    /// session.
+    ///
+    /// Claude Code answers from its own copy of the figures for a minute after it fetched them
+    /// (`usage_copy`), so while that copy is younger, the question waits until it is not, and
+    /// the answer is fetched after this call. A question that waits is sent by the session's
+    /// agent of that moment, and by none if it no longer runs.
+    ///
     /// Only a Claude Code session can ask: no other agent reports usage. Must be called from
     /// within a tokio runtime.
-    pub fn session_usage_refresh(&self, id: i64, auth: Auth) -> Result<()> {
+    pub fn session_usage_refresh(&self, id: i64, auth: Auth) -> Result<UsageAsk> {
         let session = self.session(id)?;
         if session.agent != CLAUDE {
             return Err(Error::UsageNotReported(session.agent));
         }
         self.session_start(id, auth)?;
-        self.live
-            .sender(id)?
-            .send(AgentCommand::AskUsage)
-            .map_err(|_| Error::SessionNotRunning(id))
+        let now = millis_now();
+        let ask = UsageAsk::at(copy_fetched_at(&self.paths.claude_config), now);
+        let Some(until) = ask.waits_until else {
+            self.live
+                .sender(id)?
+                .send(AgentCommand::AskUsage)
+                .map_err(|_| Error::SessionNotRunning(id))?;
+            return Ok(ask);
+        };
+        let wait = Duration::from_millis(u64::try_from(until - now).unwrap_or(0));
+        tokio::spawn(ask_after(Arc::clone(&self.live), id, wait));
+        Ok(ask)
+    }
+}
+
+/// Asks session `id`'s agent for the account's usage after `wait`, the agent that runs it
+/// then. Its run is looked up when the question goes, not held meanwhile: a sender held would
+/// keep the agent's input open after it was stopped. An agent that ended meanwhile is asked
+/// nothing.
+async fn ask_after(live: Arc<Live>, id: i64, wait: Duration) {
+    tokio::time::sleep(wait).await;
+    if let Ok(sender) = live.sender(id) {
+        sender.send(AgentCommand::AskUsage).ok();
     }
 }
 
@@ -484,6 +638,27 @@ mod tests {
                     "seven_day_overage_included": window,
                 },
             }),
+        }
+    }
+
+    /// A report after a turn of only the account's windows, with no word of a model's own.
+    fn plan_report(used: f64, resets: i64) -> AgentEvent {
+        let window = json!({ "status": "allowed", "utilization": used, "resetsAt": resets });
+        AgentEvent::RateLimit {
+            status: "allowed".to_string(),
+            resets_at: Some(resets),
+            raw: json!({ "unifiedWindows": { "five_hour": window, "seven_day": window } }),
+        }
+    }
+
+    /// A report after a turn of one model's weekly limit, without naming the model, as Claude
+    /// Code gives it, at `used`.
+    fn model_report(used: f64) -> AgentEvent {
+        let window = json!({ "status": "allowed", "utilization": used, "resetsAt": 1_796_061_600 });
+        AgentEvent::RateLimit {
+            status: "allowed".to_string(),
+            resets_at: Some(1_796_061_600),
+            raw: json!({ "unifiedWindows": { MODEL_WEEKLY: window } }),
         }
     }
 
@@ -531,19 +706,13 @@ mod tests {
         let mut usage = AccountUsage::default();
         assert!(usage.hear(&answer(80), 100));
         // The report after the next turn has no word of Fable: its limit stays as it was.
-        assert!(usage.hear(&turn_report(0.88, 2_000_000_000, false), 200));
+        assert!(usage.hear(&plan_report(0.88, 2_000_000_000), 200));
         assert_eq!(
             shown(&usage),
             vec![
                 row("five_hour", "5-hour", "88", false),
                 row("seven_day", "weekly", "88", false),
                 row("seven_day_fable", "weekly Fable", "100", true),
-                row(
-                    "seven_day_overage_included",
-                    "weekly, extra usage included",
-                    "88",
-                    false
-                ),
             ]
         );
         let fable = &usage.windows[2];
@@ -558,8 +727,9 @@ mod tests {
         usage.hear(&turn_report(0.5, 2_000_000_000, false), 100);
         usage.hear(&answer(36), 200);
         let shares: Vec<_> = shown(&usage).into_iter().map(|row| row.2).collect();
-        // The 5-hour and weekly windows are the answer's; the one only reports list stays.
-        assert_eq!(shares, ["36", "36", "100", "50"]);
+        // The 5-hour and weekly windows are the answer's, and so is Fable's, which the report
+        // gave without naming it.
+        assert_eq!(shares, ["36", "36", "100"]);
         assert_eq!(usage.windows[0].status, "allowed");
     }
 
@@ -573,9 +743,67 @@ mod tests {
         };
         usage.hear(&without_fable, 300);
         let kinds: Vec<_> = shown(&usage).into_iter().map(|row| row.0).collect();
-        // The weekly window was heard in the answer before, and is not listed now either; the
-        // one only reports list was never asked for.
-        assert_eq!(kinds, ["five_hour", "seven_day_overage_included"]);
+        // The weekly and Fable's windows were heard in the answer before, and are not listed
+        // now either.
+        assert_eq!(kinds, ["five_hour"]);
+    }
+
+    #[test]
+    fn a_reports_unnamed_model_limit_is_the_one_models_limit_known() {
+        // As Claude Code gave them: Fable's weekly limit at 39% when asked, then the report
+        // after a turn of a model's own limit at 39%, then 40%. One limit, one window.
+        let mut usage = AccountUsage::default();
+        let fable = |percent| AgentEvent::UsageLimits {
+            limits: vec![limit("weekly_scoped", Some("Fable"), percent, "normal")],
+        };
+        usage.hear(&fable(39), 100);
+        usage.hear(&model_report(0.39), 200);
+        assert_eq!(
+            shown(&usage),
+            [row("seven_day_fable", "weekly Fable", "39", false)]
+        );
+        assert_eq!(usage.windows[0].heard_at, 200);
+        usage.hear(&model_report(0.40), 300);
+        assert_eq!(
+            shown(&usage),
+            [row("seven_day_fable", "weekly Fable", "40", false)]
+        );
+        // An answer is newer again.
+        usage.hear(&fable(41), 400);
+        assert_eq!(
+            shown(&usage),
+            [row("seven_day_fable", "weekly Fable", "41", true)]
+        );
+    }
+
+    #[test]
+    fn a_reports_unnamed_model_limit_stays_apart_until_its_model_is_known() {
+        let mut usage = AccountUsage::default();
+        usage.hear(&model_report(0.39), 100);
+        assert_eq!(
+            shown(&usage),
+            [row(MODEL_WEEKLY, "weekly model", "39", false)]
+        );
+        // The answer that names the model is newer, and takes its place.
+        let both = AgentEvent::UsageLimits {
+            limits: vec![
+                limit("weekly_scoped", Some("Fable"), 40, "normal"),
+                limit("weekly_scoped", Some("Opus"), 10, "normal"),
+            ],
+        };
+        let fable = AgentEvent::UsageLimits {
+            limits: vec![limit("weekly_scoped", Some("Fable"), 40, "normal")],
+        };
+        usage.hear(&fable, 200);
+        assert_eq!(
+            shown(&usage),
+            [row("seven_day_fable", "weekly Fable", "40", true)]
+        );
+        // With two models' limits there is no telling which it is.
+        usage.hear(&both, 300);
+        usage.hear(&model_report(0.45), 400);
+        let kinds: Vec<_> = shown(&usage).into_iter().map(|row| row.0).collect();
+        assert_eq!(kinds, ["seven_day_fable", "seven_day_opus", MODEL_WEEKLY]);
     }
 
     #[test]
@@ -645,8 +873,81 @@ mod tests {
     }
 
     #[test]
+    fn whether_extra_usage_can_pay_is_the_newest_word_on_it() {
+        let report = |fields: Value| AgentEvent::RateLimit {
+            status: "allowed_warning".to_string(),
+            resets_at: Some(1_795_813_200),
+            raw: fields,
+        };
+        let mut usage = AccountUsage::default();
+        // Nothing said yet, and no turn it paid for.
+        assert!(!usage.extra_can_pay(100));
+        // As Claude Code reported on 25 Nov, at 99% of the weekly limit: not paying yet, but able.
+        usage.hear(
+            &report(json!({ "isUsingOverage": false, "overageEnabled": true, "overageStatus": "allowed" })),
+            100,
+        );
+        assert!(usage.extra_can_pay(100));
+        // As on 24 Nov, out of credits.
+        let out = json!({ "overageStatus": "rejected", "overageDisabledReason": "out_of_credits" });
+        usage.hear(&report(out), 200);
+        assert!(!usage.extra_can_pay(200));
+        // An answer to asking is newer: turned on, its cap not reached.
+        let extra = |enabled, limit_reached| AgentEvent::ExtraUsage {
+            enabled,
+            used: 15_314,
+            limit: Some(40_000),
+            currency: "EUR".to_string(),
+            decimals: 2,
+            limit_reached,
+        };
+        usage.hear(&extra(true, false), 300);
+        assert!(usage.extra_can_pay(300));
+        usage.hear(&extra(true, true), 400);
+        assert!(!usage.extra_can_pay(400));
+        // A report that says nothing of it changes nothing; older ones had no `overageEnabled`.
+        usage.hear(&plan_report(0.5, 1_795_813_200), 500);
+        assert!(!usage.extra_can_pay(500));
+        usage.hear(&report(json!({ "overageStatus": "allowed" })), 600);
+        assert!(usage.extra_can_pay(600));
+    }
+
+    #[test]
+    fn an_answers_hundred_is_a_limit_reached_only_if_a_report_said_so() {
+        let resets = 1_795_813_200;
+        let weekly = |status: &str, used: f64| AgentEvent::RateLimit {
+            status: status.to_string(),
+            resets_at: Some(resets),
+            raw: json!({ "unifiedWindows": {
+                "seven_day": { "status": status, "utilization": used, "resetsAt": resets },
+            } }),
+        };
+        let asked_at_hundred = AgentEvent::UsageLimits {
+            limits: vec![UsageLimit {
+                kind: "weekly_all".to_string(),
+                model: None,
+                percent: 100,
+                resets_at: Some("2026-11-27T21:00:00.260758+00:00".to_string()),
+                severity: "critical".to_string(),
+            }],
+        };
+        // On 25 Nov: 99% and `allowed_warning` after a turn, 100 when asked that second.
+        let mut usage = AccountUsage::default();
+        usage.hear(&weekly("allowed_warning", 0.99), 100);
+        usage.hear(&asked_at_hundred, 100);
+        assert!(!window_reached(&usage.windows[0]), "only rounded up");
+        // Reached and said so after a turn: an answer at 100 keeps it reached.
+        usage.hear(&weekly("rejected", 1.02), 200);
+        assert!(window_reached(&usage.windows[0]));
+        usage.hear(&asked_at_hundred, 300);
+        assert_eq!(usage.windows[0].status, "rejected");
+        assert!(window_reached(&usage.windows[0]));
+    }
+
+    #[test]
     fn a_windows_name_follows_its_kind() {
         assert_eq!(name_of("seven_day_opus"), "weekly Opus");
+        assert_eq!(name_of(MODEL_WEEKLY), "weekly model");
         assert_eq!(name_of("weekly_scoped"), "weekly scoped");
         let opus = asked(&limit("weekly_scoped", Some("Opus 4"), 10, "normal"), 0);
         assert_eq!(
