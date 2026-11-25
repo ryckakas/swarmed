@@ -88,9 +88,26 @@ describe("figuresKey", () => {
         expect(figuresKey(reset)).not.toBe(figuresKey(usage));
         const spent = { ...usage, extra: { ...extra, used: 15_400 } };
         expect(figuresKey(spent)).not.toBe(figuresKey(usage));
+        const refused = { ...usage, windows: [{ ...window, status: "rejected" }] };
+        expect(figuresKey(refused)).not.toBe(figuresKey(usage));
         expect(figuresKey(null)).toBe(
             figuresKey({ windows: [], extra: null, billed: null, pays: null }),
         );
+    });
+
+    it("takes a report's fraction and an answer's whole percent of the same usage as the same", () => {
+        // Before asking, the window holds a report's figure and word for how near it is; the
+        // answer gives the same usage as a whole percent, in words of its own.
+        const reported = {
+            ...usage,
+            windows: [{ ...window, used: 0.4263, status: "allowed_warning" }],
+        };
+        const answer = { ...window, used: 0.43, status: "warning", heard_at: 200, asked: true };
+        const answered = { ...usage, windows: [answer] };
+        expect(figuresKey(answered)).toBe(figuresKey(reported));
+        // A percent more is a change, as the overview shows it.
+        const more = { ...usage, windows: [{ ...answer, used: 0.44 }] };
+        expect(figuresKey(more)).not.toBe(figuresKey(reported));
     });
 });
 

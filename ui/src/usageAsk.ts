@@ -57,17 +57,21 @@ export function askedLine(asked: Asked, now: Date, same: boolean): string {
 
 /**
  * The account's figures as the overview shows them, in one string to compare: every window and
- * the extra usage, but not when each was heard, which changes with every answer. A reset is
- * taken to the minute: claude.ai gives the same one a fraction of a second either side of it
- * at each fetch, such as 19:59:59.51 and then 20:00:00.09.
+ * the extra usage, but not when each was heard, which changes with every answer. A window is
+ * taken as it is drawn: its share in whole percent, since a report after a turn gives a
+ * fraction and an answer to asking a whole percent of the same usage (0.4263 and 0.43), and
+ * whether a report said it is reached, not the words of either for how near it is
+ * (`allowed_warning` and `warning`). A reset is taken to the minute: claude.ai gives the same
+ * one a fraction of a second either side of it at each fetch, such as 19:59:59.51 and then
+ * 20:00:00.09.
  */
 export function figuresKey(usage: AccountUsage | null): string {
     const minute = (at: number | null) => (at === null ? null : Math.round(at / 60));
     const windows = (usage?.windows ?? []).map(({ kind, used, resets_at, status }) => [
         kind,
-        used,
+        Math.round(used * 100),
         minute(resets_at),
-        status,
+        status === "rejected",
     ]);
     const extra = usage?.extra ?? null;
     const spent = extra && [extra.enabled, extra.used, extra.limit, extra.limit_reached];
