@@ -59,6 +59,8 @@ pub(crate) struct Taken {
     pub(crate) tree: String,
     /// The files left out of it.
     pub(crate) skipped: Vec<SkippedFile>,
+    /// The commit the worktree was on, or `None` on a branch with no commits yet.
+    pub(crate) head: Option<String>,
     /// How long it took, in milliseconds.
     pub(crate) took_ms: u64,
 }
@@ -69,20 +71,148 @@ pub(crate) fn take(worktree: &Path, store: &Path) -> Result<Taken> {
     let started = Instant::now();
     let deadline = started + LIMIT;
     let repository = Repository::of(worktree, deadline)?;
-    open_store(store, deadline)?;
-    let index = Scratch::index(store, &repository.git_dir)?;
-    let mut git = Git::new(worktree, store, &repository, deadline);
-    git.config = settings(worktree, store, deadline)?;
-    git.index = Some(index.0.clone());
-    let skipped = too_large(&git)?;
-    git.add_all(&skipped)?;
-    let tree = git.line(&["write-tree"])?;
-    let took = started.elapsed().as_millis();
-    Ok(Taken {
-        tree,
-        skipped,
-        took_ms: u64::try_from(took).unwrap_or(u64::MAX),
-    })
+    let taking = Taking::begin(worktree, store, &repository, deadline)?;
+    let taken = taking.taken(started)?;
+    Ok(taken)
+}
+
+/// Takes the worktree back to tree `to`, a checkpoint of it: what differs from it is written as
+/// it is there, and what it has not got is deleted. What git ignores, and untracked files too
+/// large to keep, are neither written nor deleted: one in the way of a file of `to` makes git
+/// refuse the whole before anything is changed, as it does with what is not committed when it
+/// switches branches. The worktree as it was is taken first and returned, so that it can be
+/// put back. With `only_from`, nothing is done unless the worktree is at that tree now: one
+/// that changed since would lose what changed. Refused in the middle of a rebase or a merge.
+pub(crate) fn restore(
+    worktree: &Path,
+    store: &Path,
+    to: &str,
+    only_from: Option<&str>,
+) -> Result<Taken> {
+    let started = Instant::now();
+    let deadline = started + LIMIT;
+    let repository = Repository::of(worktree, deadline)?;
+    quiet(&repository)?;
+    let mut taking = Taking::begin(worktree, store, &repository, deadline)?;
+    let was = taking.taken(started)?;
+    if only_from.is_some_and(|tree| tree != was.tree) {
+        return Err(Error::Rewind(
+            "the files changed since they were taken back: putting them back would lose that"
+                .to_string(),
+        ));
+    }
+    // Submodules are left as they are: what is in them is no part of a checkpoint.
+    let config = [("submodule.recurse", "false")];
+    taking.git.config.extend(
+        config
+            .iter()
+            .map(|(key, value)| ((*key).to_string(), (*value).to_string())),
+    );
+    taking
+        .git
+        .text(&["read-tree", "-m", "-u", &was.tree, to])
+        .map_err(|error| match error {
+            Error::Git { stderr, .. } => {
+                Error::Rewind(format!("git would not take the files back: {stderr}"))
+            }
+            other => other,
+        })?;
+    Ok(was)
+}
+
+/// Refuses while git is in the middle of something in the worktree, which its files must not
+/// be changed under.
+pub(crate) fn not_mid_operation(worktree: &Path) -> Result<()> {
+    quiet(&Repository::of(worktree, Instant::now() + LIMIT)?)
+}
+
+fn quiet(repository: &Repository) -> Result<()> {
+    match under_way(&repository.git_dir) {
+        Some(what) => Err(Error::Rewind(format!(
+            "{what} is under way in this worktree: finish it or abort it first"
+        ))),
+        None => Ok(()),
+    }
+}
+
+/// What is under way in the worktree whose own folder in the repository is `git_dir`, if
+/// anything git keeps state for: files must not be changed under it.
+fn under_way(git_dir: &Path) -> Option<&'static str> {
+    let states = [
+        ("rebase-merge", "a rebase"),
+        ("rebase-apply", "a rebase"),
+        ("MERGE_HEAD", "a merge"),
+        ("CHERRY_PICK_HEAD", "a cherry-pick"),
+        ("REVERT_HEAD", "a revert"),
+    ];
+    states
+        .iter()
+        .find(|(file, _)| git_dir.join(file).exists())
+        .map(|(_, what)| *what)
+}
+
+/// How many commits the worktree's branch has that commit `then` had not: those made since.
+/// `None` when it cannot be told, such as for a commit that is gone.
+pub(crate) fn commits_since(worktree: &Path, then: &str) -> Option<usize> {
+    let mut command = Command::new("git");
+    command
+        .arg("-C")
+        .arg(worktree)
+        .args(["rev-list", "--count", &format!("{then}..HEAD"), "--"])
+        .env("GIT_TERMINAL_PROMPT", "0");
+    let output = run(command, None, Instant::now() + LIMIT).ok()?;
+    succeeded("rev-list", &output).ok()?.trim().parse().ok()
+}
+
+/// A tree being taken of a worktree: the index it is built in, and how git is run for it.
+struct Taking<'a> {
+    git: Git<'a>,
+    /// Held while the index is in use, and deleted with it.
+    _index: Scratch,
+}
+
+impl<'a> Taking<'a> {
+    fn begin(
+        worktree: &'a Path,
+        store: &'a Path,
+        repository: &Repository,
+        deadline: Instant,
+    ) -> Result<Self> {
+        open_store(store, deadline)?;
+        let index = Scratch::index(store, &repository.git_dir)?;
+        let mut git = Git::new(worktree, store, repository, deadline);
+        git.config = settings(worktree, store, deadline)?;
+        git.index = Some(index.0.clone());
+        Ok(Self { git, _index: index })
+    }
+
+    /// The worktree's files as a tree, in the index, which then holds them.
+    fn taken(&self, started: Instant) -> Result<Taken> {
+        let skipped = too_large(&self.git)?;
+        self.git.add_all(&skipped)?;
+        let tree = self.git.line(&["write-tree"])?;
+        let head = self.head();
+        let took = started.elapsed().as_millis();
+        Ok(Taken {
+            tree,
+            skipped,
+            head,
+            took_ms: u64::try_from(took).unwrap_or(u64::MAX),
+        })
+    }
+
+    /// The commit the worktree is on; `None` on a branch with no commits yet.
+    fn head(&self) -> Option<String> {
+        let output = run(
+            self.git
+                .command(&["rev-parse", "--quiet", "--verify", "HEAD^{commit}"]),
+            None,
+            self.git.deadline,
+        )
+        .ok()?;
+        let printed = succeeded("rev-parse", &output).ok()?;
+        Some(printed.trim().to_string()).filter(|head| !head.is_empty())
+    }
 }
 
 /// The files that differ from tree `from` to tree `to`, as the task's changes are listed.

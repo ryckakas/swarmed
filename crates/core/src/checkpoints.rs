@@ -11,8 +11,10 @@
 
 mod trees;
 
+pub(crate) use trees::{Taken, commits_since, restore};
+
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -56,6 +58,9 @@ struct Checkpoint {
     side: Side,
     tree: String,
     skipped: Vec<SkippedFile>,
+    /// The commit the worktree was on; `None` on a branch with no commits yet, and for a
+    /// checkpoint from before this was kept.
+    head: Option<String>,
     /// The start of the message, kept with its `before`.
     words: String,
     at_ms: i64,
@@ -149,6 +154,7 @@ pub(crate) fn before_message(
         side: Side::Before,
         tree: taken.tree,
         skipped: taken.skipped,
+        head: taken.head,
         words: title_from(text),
         at_ms: now_ms(),
     };
@@ -184,10 +190,25 @@ pub(crate) fn after_turn((store, live, paths): (&Mutex<Store>, &Live, &Paths), i
         side: Side::After,
         tree: taken.tree,
         skipped: taken.skipped,
+        head: taken.head,
         words: String::new(),
         at_ms: now_ms(),
     };
     lock(store).checkpoint_keep(&checkpoint, taken.took_ms).ok();
+}
+
+/// What differs in the worktree from how it is now to tree `to`, a checkpoint of it: what
+/// taking its files back to `to` would change. Untracked files too large to keep are left out,
+/// as taking files back leaves them.
+pub(crate) fn changed_since(worktree: &Path, store: &Path, to: &str) -> Result<Vec<FileChange>> {
+    trees::not_mid_operation(worktree)?;
+    let now = trees::take(worktree, store)?;
+    let files = trees::changed(worktree, store, (&now.tree, to))?;
+    let left_out: HashSet<&str> = now.skipped.iter().map(|file| file.path.as_str()).collect();
+    Ok(files
+        .into_iter()
+        .filter(|file| !left_out.contains(file.path.as_str()))
+        .collect())
 }
 
 /// Deletes, on a thread of its own, the objects of the task's store that no kept checkpoint
@@ -375,6 +396,22 @@ impl Core {
         })
     }
 
+    /// The checkpoint taken before message `message` of session `id` went to its agent: the
+    /// tree the worktree was at, and the commit it was on, if that was kept.
+    pub(crate) fn checkpoint_before(
+        &self,
+        id: i64,
+        message: usize,
+    ) -> Result<Option<(String, Option<String>)>> {
+        let session = self.session(id)?;
+        let mut by_session = self.store().checkpoints_of_task(session.task_id)?;
+        let own = by_session.remove(&id).unwrap_or_default();
+        let before = own
+            .into_iter()
+            .find(|checkpoint| checkpoint.side == Side::Before && checkpoint.message == message);
+        Ok(before.map(|checkpoint| (checkpoint.tree, checkpoint.head)))
+    }
+
     /// Deletes a task's checkpoints, its store and its rows: the task is going.
     pub(crate) fn forget_checkpoints(&self, task: i64) -> Result<()> {
         self.store().checkpoints_forget_task(task)?;
@@ -433,8 +470,8 @@ impl Store {
     fn checkpoint_keep(&self, checkpoint: &Checkpoint, took_ms: u64) -> Result<()> {
         self.conn.execute(
             "INSERT OR REPLACE INTO checkpoints \
-             (session_id, message, side, tree, skipped, words, took_ms, at_ms) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+             (session_id, message, side, tree, skipped, words, took_ms, at_ms, head) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 checkpoint.session,
                 i64::try_from(checkpoint.message).unwrap_or(i64::MAX),
@@ -444,6 +481,7 @@ impl Store {
                 checkpoint.words,
                 i64::try_from(took_ms).unwrap_or(i64::MAX),
                 checkpoint.at_ms,
+                checkpoint.head,
             ],
         )?;
         Ok(())
@@ -452,7 +490,7 @@ impl Store {
     /// The checkpoints of every session of a task, by session, each sorted by message.
     fn checkpoints_of_task(&self, task: i64) -> Result<BTreeMap<i64, Vec<Checkpoint>>> {
         let mut statement = self.conn.prepare(
-            "SELECT c.session_id, c.message, c.side, c.tree, c.skipped, c.words, c.at_ms \
+            "SELECT c.session_id, c.message, c.side, c.tree, c.skipped, c.words, c.at_ms, c.head \
              FROM checkpoints c JOIN sessions s ON s.id = c.session_id \
              WHERE s.task_id = ?1 ORDER BY c.session_id, c.message, c.side DESC",
         )?;
@@ -468,10 +506,15 @@ impl Store {
         Ok(by_session)
     }
 
-    /// The trees every kept checkpoint of a task's sessions names.
+    /// The trees every kept checkpoint of a task's sessions names, and every rewind of their
+    /// files that can still be put back.
     fn checkpoint_trees(&self, task: i64) -> Result<Vec<String>> {
         let mut statement = self.conn.prepare(
-            "SELECT DISTINCT c.tree FROM checkpoints c JOIN sessions s ON s.id = c.session_id \
+            "SELECT c.tree FROM checkpoints c JOIN sessions s ON s.id = c.session_id \
+             WHERE s.task_id = ?1 \
+             UNION SELECT r.was FROM rewinds r JOIN sessions s ON s.id = r.session_id \
+             WHERE s.task_id = ?1 \
+             UNION SELECT r.restored FROM rewinds r JOIN sessions s ON s.id = r.session_id \
              WHERE s.task_id = ?1",
         )?;
         let rows = statement.query_map(params![task], |row| row.get(0))?;
@@ -491,13 +534,18 @@ impl Store {
         Ok(dropped)
     }
 
-    /// Forgets every checkpoint of a task's sessions.
+    /// Forgets every checkpoint of a task's sessions, and the files their rewinds could put
+    /// back.
     pub(crate) fn checkpoints_forget_task(&self, task: i64) -> Result<()> {
-        self.conn.execute(
-            "DELETE FROM checkpoints WHERE session_id IN \
-             (SELECT id FROM sessions WHERE task_id = ?1)",
-            params![task],
-        )?;
+        for table in ["checkpoints", "rewinds"] {
+            self.conn.execute(
+                &format!(
+                    "DELETE FROM {table} WHERE session_id IN \
+                     (SELECT id FROM sessions WHERE task_id = ?1)"
+                ),
+                params![task],
+            )?;
+        }
         Ok(())
     }
 }
@@ -518,6 +566,7 @@ fn checkpoint_from_row(row: &Row<'_>) -> rusqlite::Result<Checkpoint> {
         skipped: serde_json::from_str(&skipped).unwrap_or_default(),
         words: row.get(5)?,
         at_ms: row.get(6)?,
+        head: row.get(7)?,
     })
 }
 
@@ -532,6 +581,7 @@ mod tests {
             side,
             tree: format!("{message}-{}", side.as_str()),
             skipped: vec![],
+            head: None,
             words: format!("message {message}"),
             at_ms,
         }

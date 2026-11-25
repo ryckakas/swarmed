@@ -78,6 +78,12 @@ export type Banner = "about" | "shortcuts";
 /** What is being done to a task's stack until it is done. */
 export type StackChange = "starting" | "stopping";
 
+/** A session the user asked to take back, and to before which message: `null` to be chosen. */
+export interface Rewinding {
+    sessionId: number;
+    message: number | null;
+}
+
 interface State {
     projects: Project[];
     /** `loading` until the first read finished; an error message if it failed. */
@@ -392,6 +398,13 @@ interface State {
     version: string | null;
     /** Where updating Swarmed stands, as the app last said. */
     update: UpdateState;
+    /**
+     * The session the user asked to take back, and to before which message (`null`: to be
+     * chosen, as `/rewind` asks), until they confirm or change their mind.
+     */
+    rewinding: Rewinding | null;
+    /** Asks before taking a session back: `null` withdraws the question. */
+    askToRewind(rewinding: Rewinding | null): void;
     /** The session the user asked to close, until they confirm or change their mind. */
     closing: number | null;
     /** Asks before closing: `null` withdraws the question. */
@@ -696,6 +709,7 @@ function closed(state: State, sessionId: number): Partial<State> {
         ...leaving(state, [sessionId]),
         // Asked about it, the question goes with it; asked about another, that stays.
         closing: state.closing === sessionId ? null : state.closing,
+        rewinding: state.rewinding?.sessionId === sessionId ? null : state.rewinding,
         projects: withoutSession(state.projects, sessionId),
         // Put away, it cannot be written to; and its task can go while it is put away.
         drafts: without(state.drafts, [sessionId]),
@@ -1093,6 +1107,8 @@ export const useStore = create<State>((set, get) => ({
     showBanner: (banner) => set({ banner }),
     version: null,
     update: { state: "unknown" },
+    rewinding: null,
+    askToRewind: (rewinding) => set({ rewinding }),
     closing: null,
     askToClose: (sessionId) => set({ closing: sessionId }),
     deleting: null,

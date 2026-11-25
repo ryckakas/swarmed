@@ -9,6 +9,7 @@ mod limits;
 mod merge;
 mod pr;
 mod pull;
+mod rewind;
 mod session;
 mod setup;
 mod terminal;

@@ -370,7 +370,7 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   it could not start for one, would end without a word. Held open, that side never reports
   its end, so `feed` waits for the program and tells `pump`, which reads on until nothing
   has come for `LAST_WORDS`.
-- **Claude Code's own `/` commands are each one of five kinds, in one table**
+- **Claude Code's own `/` commands are each one of six kinds, in one table**
   (`commands.rs`, `CLAUDE_COMMANDS`). In a terminal many of them open a screen; run as Swarmed
   runs it, Claude Code has none. A *screen* (`/usage`, `/status`, `/context`, `/cost`,
   `/memory`, `/skills`, `/hooks`, `/mcp`) is asked of Claude Code with one control request
@@ -381,7 +381,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   model and effort with `session_configure`, Claude Code's settings by sending it
   `/config key=value`, which it takes in words. One Swarmed does itself with nothing to ask
   is *own* (`/remote-control`, `/rc`, and `/rc off`): see Remote Control below. It is sent
-  at once, and refused in the queue, where it would reach Claude Code as typed. A command
+  at once, and refused in the queue, where it would reach Claude Code as typed. A *choice*
+  (`/rewind`, `/checkpoint`, `/undo`) is one the window opens a dialog of Swarmed's own for
+  (`CommandKind::Choice`, `opensChoice` in `slash.ts`); as text, from the command line or the
+  queue, it is refused like the next kind, with what to do instead. A command
   Swarmed has its own way to do
   (`/rename`, `/fork`, `/clear`) is refused (`Error::TerminalOnly`) with what to do instead,
   under any of its names (`CLAUDE_ALIASES`: `/new` is `/clear`). So is one that would move
@@ -462,7 +465,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   required check holds a merge back (`mockMerging.ts`): Force merge is refused in GitHub's
   words, auto-merge can be turned on, and Bypass requirements merges it.
   Removing the sample task `invoice-export` is refused over unsaved work, and `shop-142` over
-  a session another Swarmed runs. A new task's setup is quick in storefront, takes half a
+  a session another Swarmed runs. A session can be taken back with Edit from here once idle
+  (`mockRewind.ts`); a busy one is refused, and so are the files of one whose task has a session
+  at work, as in `fix-login-redirect`. A new task's setup is quick in storefront, takes half a
   minute in bonsai-lint, and in fsum is killed the first time and succeeds when run again
   (`mockSetups.ts`). Storefront and bonsai-lint have GitHub issues, `shop-142` was started for
   #142, #428's text holds HTML GitHub draws (`<details>`, `<kbd>`) and HTML it does not, an
@@ -828,6 +833,33 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   be handed another's memory, so the fork's agent is given that conversation as text with the
   first message sent to it, whatever agent it is, and again with each message until a turn in
   the fork has ended well: an agent that died on the first one heard nothing. What is recorded is what the user typed.
+- **A session can be taken back to before one of its messages** (`rewind.rs`, `rewind.ts`,
+  `RewindDialog.tsx`, #364): Edit from here, `/rewind`, `swarmed session rewind`.
+  - **Nothing is deleted.** `AgentEvent::Rewound { to }` says that message `to` (numbered as a
+    fork numbers them, every message ever sent counted) and what followed, up to the event, no
+    longer count (`rewind::dropped`, `counted`); one inside a later one's part goes with it.
+    Forks and carried text read `counted`; costs, search and the event list read everything.
+    The transcript folds the part under the line (`RewoundItem`).
+  - **Claude Code resumes** at its own id of the last message of the turn before
+    (`--resume-session-at`, which takes a message's `uuid`). `claude.rs` reports it at each
+    turn's end, before `TurnDone`, as `AgentEvent::ResumePoint` (stored, never shown), and a
+    launch passes it (`rewind::resume_at`) until a turn after the rewind reports its own. With
+    no such point after the message before, and for every other agent, `agent_session_id` is
+    cleared and the agent is told what was said, as a fork's is (`rewind::starts_anew`).
+  - **Files** go back with `checkpoints::restore`: the worktree taken into a scratch index,
+    then `git read-tree -m -u <now> <checkpoint>`, so git itself refuses to overwrite what is
+    untracked or ignored and changes nothing then. The tree taken is kept in `rewinds`, the
+    session's latest only, and `session_files_put_back` restores it only while the worktree is
+    still at the tree it was taken back to. Commits stay: `checkpoints.head` says how many
+    were made since. Claude Code's own `rewind_files` is never used.
+  - **Refused, not tried**, as `Error::Rewind` with the reason: the session busy, closed, run
+    elsewhere or with work left running; for files also any session of the task busy or run
+    elsewhere, anything left running, its setup, a rebase or merge under way, no checkpoint.
+    While one runs, `Live::taking_back` holds every message to the task's agents
+    (`send_text`), and the agent is stopped and waited for (`session_ended`) before anything is
+    changed.
+  - **The message goes back into the draft** (`rewindSession`, `draftOf`, `withEdited`), with
+    what was typed kept after it, and is never sent by itself.
 - **A closed session is put away, not deleted.** Closing is an event, `Closed`, so every front
   end drops it from its lists. Its task counts its closed sessions, they can be listed
   (`sessions_closed`) and put back (`session_reopen`) with their conversation as it was.

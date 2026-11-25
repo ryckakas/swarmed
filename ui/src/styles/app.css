@@ -2944,10 +2944,16 @@ code {
     position: relative;
 }
 
-.said-fork {
+/* A message's ways to go on from it: shown while it is pointed at, or has the keyboard. */
+.said-actions {
     position: absolute;
     top: 4px;
     right: 6px;
+    display: flex;
+    gap: var(--space-1);
+}
+
+.said-fork {
     padding: 1px var(--space-2);
     border: 1px solid var(--line);
     border-radius: 6px;
@@ -2959,12 +2965,66 @@ code {
 }
 
 .said:hover .said-fork,
-.said-fork:focus-visible {
+.said-actions:focus-within .said-fork {
     opacity: 1;
 }
 
 .said-fork:hover {
     color: var(--text);
+}
+
+/* Where a session was taken back to before a message, with what that dropped folded under it. */
+.rewound {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+    padding: var(--space-2) 0;
+    border-top: 1px dashed var(--line);
+}
+
+.rewound-part {
+    align-self: stretch;
+}
+
+.rewound-part > summary {
+    cursor: pointer;
+    color: var(--faint);
+    font-size: var(--text-sm);
+}
+
+/* What no longer counts reads as set aside: quieter, and set in from the conversation. */
+.rewound-part > .items {
+    margin-top: var(--space-2);
+    padding-left: var(--space-3);
+    border-left: 2px solid var(--line);
+    opacity: 0.75;
+}
+
+.rewind-messages,
+.rewind-ways {
+    display: grid;
+    gap: var(--space-2);
+    margin: var(--space-3) 0;
+    padding: 0;
+    border: 0;
+}
+
+.rewind-messages > legend {
+    margin-bottom: var(--space-2);
+    color: var(--muted);
+}
+
+.rewind-choice {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+}
+
+.rewind-files ul {
+    margin: var(--space-1) 0 0;
+    padding-left: var(--space-4);
+    font-size: var(--text-sm);
 }
 
 /* Where a fork's copy of an earlier conversation ends. */

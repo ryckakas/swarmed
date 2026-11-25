@@ -31,6 +31,7 @@ use crate::marks::{Mark, MarkColour};
 use crate::mcp::{McpServer, McpTransport};
 use crate::paths::Paths;
 use crate::queue::{self, Queues};
+use crate::rewind;
 use crate::secrets::SecretEnv;
 use crate::settings::Settings;
 use crate::store::{Store, Task};
@@ -144,6 +145,9 @@ impl SessionStatus {
             | AgentEvent::ExtraUsage { .. }
             | AgentEvent::UsageLimits { .. }
             | AgentEvent::Forked { .. }
+            | AgentEvent::ResumePoint { .. }
+            | AgentEvent::Rewound { .. }
+            | AgentEvent::FilesPutBack { .. }
             | AgentEvent::Screen { .. }
             | AgentEvent::CommandAsked { .. }
             | AgentEvent::CommandAnswered { .. }
@@ -1057,6 +1061,7 @@ impl Core {
             effort: session.effort,
             fast: session.fast,
             auth,
+            resume_at: rewind::resume_at(&self.session_events(session.id)?),
             resume: session.agent_session_id,
             // Showing a view changes nothing, so it is never worth a question.
             allowed_tools: vec![SHOW_HTML_FOR_CLAUDE.to_string()],
@@ -1396,6 +1401,15 @@ impl Core {
         Ok(())
     }
 
+    /// Stops session `id`'s agent and waits until every run of it has gone: by itself, or
+    /// killed for taking too long.
+    pub(crate) async fn session_ended(&self, id: i64) {
+        self.session_stop(id);
+        for ending in self.live.endings_of(id) {
+            ending.gone().await;
+        }
+    }
+
     /// Deletes what the sessions of a removed task left behind: messages waiting to be sent,
     /// unread views and private files. Only once the task is gone: a removal that was refused
     /// leaves its sessions as they were.
@@ -1519,6 +1533,9 @@ pub(crate) fn send_text(
     (text, at_reset): (&str, bool),
 ) -> Result<()> {
     let commands = live.sender(id)?;
+    if live.is_taking_back(store, id) {
+        return Err(rewind::taking_back_refusal());
+    }
     // A message that calls a skill the agent would not know by name is sent with what the
     // skill says. Worked out before anything is recorded; what is recorded is what was typed.
     let called = skill_called(store, paths, id, text);
@@ -1820,6 +1837,9 @@ pub(crate) struct Live {
     pub(crate) usage: UsageHeard,
     /// The turns whose worktree was checkpointed before they began (`checkpoints.rs`).
     pub(crate) checkpoints: checkpoints::Checkpoints,
+    /// The tasks a session of which is being taken back to an earlier message now, during
+    /// which no message goes to an agent of theirs (`rewind.rs`).
+    pub(crate) taking_back: Mutex<HashSet<i64>>,
     /// What was read of the repositories' pull requests and issues, which messages mention
     /// (`github_mentions.rs`).
     pub(crate) github: github_mentions::Known,
@@ -1854,6 +1874,7 @@ impl Default for Live {
             sending: Mutex::default(),
             usage: UsageHeard::default(),
             checkpoints: checkpoints::Checkpoints::default(),
+            taking_back: Mutex::default(),
             github: github_mentions::Known::default(),
             runs_held: Mutex::default(),
             shows_notices: AtomicBool::new(false),
@@ -2442,6 +2463,7 @@ fn relaunch(shared: &Shared, id: i64) -> Result<()> {
     next.spec.effort = session.effort;
     next.spec.fast = session.fast;
     next.spec.resume = session.agent_session_id;
+    next.spec.resume_at = rewind::resume_at(&lock(&shared.store).events(id)?);
     launch(next, id, Launch::Replacing)
 }
 

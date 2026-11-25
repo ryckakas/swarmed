@@ -5,6 +5,7 @@ import {
     firstPlaceholder,
     goesAtOnce,
     kindLabel,
+    opensChoice,
     SUGGESTION_LIMIT,
     sentOn,
     slashMatches,
@@ -83,6 +84,7 @@ describe("what becomes of a command", () => {
         { name: "review", kind: "prompt", note: "" },
         { name: "rename", kind: "terminal", note: "A session is renamed by pressing its title." },
         { name: "vim", kind: "terminal", note: "" },
+        { name: "rewind", kind: "choice", note: "Use Edit from here." },
     ];
 
     it("is said beside it in the list, unless it is simply sent", () => {
@@ -93,7 +95,16 @@ describe("what becomes of a command", () => {
             "not sent. A session is renamed by pressing its title.",
         );
         expect(kindLabel(commands[4])).toBe("not sent");
+        expect(kindLabel(commands[5])).toBe("opens here");
         expect(kindLabel(undefined)).toBeNull();
+    });
+
+    it("opens a choice of Swarmed's own only when typed alone", () => {
+        expect(opensChoice("/rewind", commands)).toBe(true);
+        expect(opensChoice("  /rewind  ", commands)).toBe(true);
+        expect(opensChoice("/rewind to before the bug", commands)).toBe(false);
+        expect(opensChoice("/usage", commands)).toBe(false);
+        expect(opensChoice("rewind", commands)).toBe(false);
     });
 
     it("is found by the message's first word", () => {

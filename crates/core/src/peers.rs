@@ -267,7 +267,7 @@ pub struct Reachable {
 
 impl Core {
     /// The task a session runs in.
-    fn task_of(&self, session: &Session) -> Result<Task> {
+    pub(crate) fn task_of(&self, session: &Session) -> Result<Task> {
         let task = self.store().task_by_id(session.task_id)?;
         task.ok_or(Error::SessionNotFound(session.id))
     }

@@ -6,6 +6,7 @@
 
 use crate::agent::{AgentEvent, Supervision};
 use crate::agents::CLAUDE;
+use crate::rewind;
 use crate::sessions::{Session, SessionOptions};
 use crate::{Core, Result};
 
@@ -29,11 +30,17 @@ fn start_of(events: &[AgentEvent], from: Option<usize>) -> usize {
 }
 
 /// What of a conversation a fork starts with: what was said and shown from the message it is
-/// forked from to the end, not how it came about, and nothing from before that message.
+/// forked from to the end, not how it came about, and nothing from before that message. What
+/// a rewind took the conversation back from is no part of it.
 fn kept(events: &[AgentEvent], from: Option<usize>) -> Vec<AgentEvent> {
     let start = start_of(events, from);
-    events[start..]
+    let dropped = rewind::dropped(events);
+    events
         .iter()
+        .enumerate()
+        .skip(start)
+        .filter(|(at, _)| !dropped.iter().any(|range| range.contains(at)))
+        .map(|(_, event)| event)
         .filter(|event| {
             matches!(
                 event,
@@ -45,8 +52,8 @@ fn kept(events: &[AgentEvent], from: Option<usize>) -> Vec<AgentEvent> {
 }
 
 /// A conversation as text, each turn under who said it.
-fn transcript(events: &[AgentEvent]) -> String {
-    let turns: Vec<String> = events.iter().filter_map(turn).collect();
+fn transcript<'a>(events: impl IntoIterator<Item = &'a AgentEvent>) -> String {
+    let turns: Vec<String> = events.into_iter().filter_map(turn).collect();
     joined(&turns, MAX_CARRIED)
 }
 
@@ -74,10 +81,10 @@ pub(crate) fn joined(turns: &[String], most: usize) -> String {
 /// What a fork's agent has to be told with the next message: the conversation it was forked
 /// from, until a turn in the fork itself has ended well. A message alone is not enough: an
 /// agent that died on the first one never heard the conversation, and the next try needs it.
+/// So is the agent of a session taken back to an earlier message that started a new
+/// conversation there ([`rewind::starts_anew`]): what was said up to that message.
 pub(crate) fn carried(events: &[AgentEvent]) -> Option<String> {
-    let forked = events
-        .iter()
-        .rposition(|event| matches!(event, AgentEvent::Forked { .. }))?;
+    let forked = events.iter().rposition(rewind::starts_anew)?;
     let ended_well = |event: &AgentEvent| {
         matches!(
             event,
@@ -90,7 +97,8 @@ pub(crate) fn carried(events: &[AgentEvent]) -> Option<String> {
     if events[forked..].iter().any(ended_well) {
         return None;
     }
-    let earlier = transcript(&events[..forked]);
+    // Up to and with the mark, so that what a rewind there dropped is left out.
+    let earlier = transcript(rewind::counted(&events[..=forked]));
     (!earlier.is_empty()).then_some(earlier)
 }
 

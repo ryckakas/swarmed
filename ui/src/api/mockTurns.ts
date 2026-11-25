@@ -95,6 +95,33 @@ function sampleDiff(file: FileChange): string {
     return `${header}--- a/${file.path}\n+++ b/${file.path}\n@@ -${from} +${to} @@\n${[...removed, ...added].join("\n")}\n`;
 }
 
+/** What a sample session has in place of files that went back, for any other session. */
+const SOME_FILES: FileChange[] = [
+    { path: "src/app.ts", kind: "modified", added: 5, removed: 2 },
+    { path: "src/notes.md", kind: "deleted", added: 0, removed: 12 },
+];
+
+/**
+ * What taking a sample session's files back to before its message `message` would change: what
+ * its turns from that one on changed, each file once, the other way round.
+ */
+export function sampleTurnFiles(id: number, message: number): FileChange[] {
+    const turns = SAMPLE_TURNS[id]?.filter((turn) => turn.message >= message) ?? [];
+    // A turn sent in the browser has no sample of its own.
+    if (turns.length === 0) {
+        return SOME_FILES;
+    }
+    const back = (file: FileChange): FileChange => {
+        const kind =
+            file.kind === "added" ? "deleted" : file.kind === "deleted" ? "added" : file.kind;
+        return { ...file, kind, added: file.removed, removed: file.added };
+    };
+    const byPath = new Map(
+        turns.flatMap((turn) => turn.files).map((file) => [file.path, back(file)]),
+    );
+    return [...byPath.values()].sort((a, b) => a.path.localeCompare(b.path));
+}
+
 function turnOf(id: number, message: number): SampleTurn {
     const turn = SAMPLE_TURNS[id]?.find((one) => one.message === message);
     if (!turn) {

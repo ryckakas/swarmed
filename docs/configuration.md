@@ -338,6 +338,9 @@ and `swarmed session turn-diff` show the same from the command line.
   turn under way, or one whose agent went without ending it, is counted up to now. Chats have
   no repository, and no checkpoints.
 
+The same checkpoints are what **Edit from here** takes a session's files back to; see
+[Taking a session back](coding-agents.md#taking-a-session-back-to-before-a-message).
+
 Taking one runs git over the worktree once, so it is quick where `git status` is, and a message
 waits for it before it goes, so that nothing the agent writes slips into the wrong turn. How long
 each took is kept beside it.

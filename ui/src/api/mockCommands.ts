@@ -24,6 +24,11 @@ export const MOCK_COMMANDS: SlashCommand[] = [
     { name: "effort", kind: "setting", note: "" },
     { name: "config", kind: "setting", note: "" },
     { name: "remote-control", kind: "own", note: "" },
+    {
+        name: "rewind",
+        kind: "choice",
+        note: "A session is taken back with Edit from here on one of its messages, or with `swarmed session rewind`.",
+    },
     { name: "rename", kind: "terminal", note: "A session is renamed by pressing its title." },
 ];
 

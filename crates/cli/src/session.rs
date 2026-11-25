@@ -91,6 +91,12 @@ pub(crate) enum SessionCommand {
         )]
         into: Option<Vec<String>>,
     },
+    /// Take a session back to before one of its messages: that message and what followed no
+    /// longer count, and its agent goes on from there with the next message. With `--files`,
+    /// the worktree's files go back to how they were before it too; commits stay.
+    Rewind(crate::rewind::RewindArgs),
+    /// Put back the files a session's latest rewind took back, as they were before it.
+    PutBack { id: i64 },
     /// Change the model and supervision a session runs with from now on. Without `--auto`,
     /// `--ask` or `--plan` the session stays supervised as it is.
     Set {
@@ -292,6 +298,8 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
         SessionCommand::Show { id } => show(core, id),
         SessionCommand::Turns { id } => turns(core, id).await,
         SessionCommand::TurnDiff { id, message, path } => turn_diff(core, id, message, path).await,
+        SessionCommand::Rewind(args) => crate::rewind::rewind(core, args).await,
+        SessionCommand::PutBack { id } => crate::rewind::put_back(core, id).await,
         SessionCommand::Set {
             id,
             model,
@@ -371,7 +379,7 @@ async fn turns(core: &Core, id: i64) -> Result<()> {
     Ok(())
 }
 
-fn kind_mark(kind: swarmed_core::ChangeKind) -> &'static str {
+pub(crate) fn kind_mark(kind: swarmed_core::ChangeKind) -> &'static str {
     match kind {
         swarmed_core::ChangeKind::Added => "A",
         swarmed_core::ChangeKind::Modified => "M",
@@ -917,6 +925,8 @@ fn described_by_core(event: &AgentEvent) -> Option<String> {
         AgentEvent::PullChanged { number, change, .. } => {
             Some(crate::pull::changed(*number, change))
         }
+        AgentEvent::Rewound { to, files, .. } => Some(crate::rewind::rewound(*to, *files)),
+        AgentEvent::FilesPutBack { .. } => Some("— the files were put back".to_string()),
         _ => None,
     }
 }

@@ -34,6 +34,8 @@ import type {
     PullDraft,
     QueuedMessage,
     Reachable,
+    RewindCheck,
+    RewindDone,
     SearchHit,
     Session,
     SessionEvent,
@@ -179,6 +181,11 @@ export const tauriApi: Api = {
         invoke<TurnChanges>("session_turn_changes", { id, message }),
     sessionTurnDiff: (id, message, path) =>
         invoke<FileDiff>("session_turn_diff", { id, message, path }),
+    sessionRewindCheck: (id, message) =>
+        invoke<RewindCheck>("session_rewind_check", { id, message }),
+    sessionRewind: (id, message, files) =>
+        invoke<RewindDone>("session_rewind", { id, message, files }),
+    sessionFilesPutBack: (id) => invoke("session_files_put_back", { id }),
     taskFiles: (project, name, dir) => invoke("task_files", { project, name, dir }),
     taskOpenFile: (project, name, path) => invoke("task_open_file", { project, name, path }),
     taskOpenTerminal: (project, name) => invoke("task_open_terminal", { project, name }),

@@ -17,10 +17,10 @@ use swarmed_core::{
     CloudTask, Core, Costs, CustomLayout, Environment, EnvironmentChoice, FileChange, FileDiff,
     FileListing, FirstSession, GitHubItem, GitHubItems, Issue, IssueDetail, IssueFilter, IssueList,
     McpServerInput, McpServerView, MergeMethod, MergeReport, MergeRules, MergeWhen, NewTaskOptions,
-    Project, ProjectOverview, Pull, PullDraft, QueuedMessage, Reachable, RemoveOptions, SearchHit,
-    Session, SessionOptions, SessionSettings, Settings, SetupLog, Skill, SlashCommand, Snapshot,
-    Task, TaskNaming, TaskStarted, Template, TerminalConfig, TerminalOpened, Turn, TurnChanges,
-    TurnStats, Unpublished, Usage, hooks,
+    Project, ProjectOverview, Pull, PullDraft, QueuedMessage, Reachable, RemoveOptions,
+    RewindCheck, RewindDone, SearchHit, Session, SessionOptions, SessionSettings, Settings,
+    SetupLog, Skill, SlashCommand, Snapshot, Task, TaskNaming, TaskStarted, Template,
+    TerminalConfig, TerminalOpened, Turn, TurnChanges, TurnStats, Unpublished, Usage, hooks,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -973,6 +973,33 @@ pub(crate) async fn session_turn_changes(
     message: usize,
 ) -> Command<TurnChanges> {
     Ok(core.session_turn_changes(id, message).await?)
+}
+
+/// What taking a session back to before its message `message` would do now.
+#[tauri::command]
+pub(crate) async fn session_rewind_check(
+    core: CoreState<'_>,
+    id: i64,
+    message: usize,
+) -> Command<RewindCheck> {
+    Ok(core.session_rewind_check(id, message).await?)
+}
+
+/// Takes a session back to before its message `message`, its files too with `files`.
+#[tauri::command]
+pub(crate) async fn session_rewind(
+    core: CoreState<'_>,
+    id: i64,
+    message: usize,
+    files: bool,
+) -> Command<RewindDone> {
+    Ok(core.session_rewind(id, message, files).await?)
+}
+
+/// Puts back the files a session's latest rewind took back.
+#[tauri::command]
+pub(crate) async fn session_files_put_back(core: CoreState<'_>, id: i64) -> Command<()> {
+    Ok(core.session_files_put_back(id).await?)
 }
 
 /// How one file changed in one turn of a session.

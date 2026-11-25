@@ -40,6 +40,17 @@ notice adds its line under Unreleased.
   `swarmed session send --pull <n>` and `--issue <n>` do the same, and `swarmed pr list` lists
   what `#` offers; see
   [Mentioning a pull request or an issue](docs/coding-agents.md#mentioning-a-pull-request-or-an-issue).
+- **Edit from here: take a session back to before one of your messages.** Beside Fork from here,
+  and as `/rewind` (`/checkpoint`, `/undo`) in a Claude Code session, which no longer refuses
+  it. Choose the conversation only, or the files too: the worktree goes back to the checkpoint
+  taken before that message, and **Put the files back** undoes that while nothing changed them
+  since. The message goes back into the box to edit and send again. Claude Code resumes its own
+  conversation there and forgets what came after; other agents start a new one told what was
+  said up to it. What was taken back stays in the transcript, folded. Commits stay on the
+  branch, and it is refused, with the reason, while an agent could write into the worktree or a
+  rebase or merge is under way. `swarmed session rewind` and `swarmed session put-back` do the
+  same from the terminal; see
+  [Taking a session back](docs/coding-agents.md#taking-a-session-back-to-before-a-message).
 
 ## [0.4.4] - 2026-11-25
 

@@ -56,6 +56,8 @@ export function kindLabel(command: SlashCommand | undefined): string | null {
             return "asks here";
         case "own":
             return "done here";
+        case "choice":
+            return "opens here";
         case "terminal":
             return command.note ? `not sent. ${command.note}` : "not sent";
         default:
@@ -77,6 +79,24 @@ export function calledCommand(text: string, commands: SlashCommand[]): SlashComm
 export function takenBySwarmed(text: string, commands: SlashCommand[]): boolean {
     const command = calledCommand(text, commands);
     return command !== null && command.kind !== "prompt";
+}
+
+/**
+ * Whether a message is one of the agent's own commands for which the window opens a choice of
+ * Swarmed's own, such as `/rewind`, typed alone: it is never sent.
+ */
+export function opensChoice(text: string, commands: SlashCommand[]): boolean {
+    const alone = /^\s*\/\S+\s*$/.test(text);
+    return alone && calledCommand(text, commands)?.kind === "choice";
+}
+
+/** Whether what the message box holds opens a choice of Swarmed's own: such a command alone. */
+export function boxOpensChoice(
+    box: { text: string; files: unknown[]; images: unknown[] },
+    commands: SlashCommand[],
+): boolean {
+    const nothingElse = box.files.length === 0 && box.images.length === 0;
+    return nothingElse && opensChoice(box.text, commands);
 }
 
 /**

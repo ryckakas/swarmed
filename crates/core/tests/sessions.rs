@@ -1084,7 +1084,9 @@ async fn a_closed_session_stops_and_leaves_the_lists_but_keeps_its_history() {
     assert_eq!(core.sessions("demo", "one").expect("lists"), vec![]);
     let overview = core.overview().expect("reads");
     assert_eq!(overview[0].tasks[0].sessions, vec![]);
-    assert_eq!(core.session_events(session.id).expect("kept").len(), 6);
+    // The message, the start, the reply, where the agent's record stood, the turn's end, the
+    // close and the agent's exit.
+    assert_eq!(core.session_events(session.id).expect("kept").len(), 7);
     assert!(matches!(
         core.session_close(404),
         Err(Error::SessionNotFound(404))

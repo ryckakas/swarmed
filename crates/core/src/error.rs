@@ -352,6 +352,10 @@ pub enum Error {
         /// The message that began the turn, counting from 0.
         message: usize,
     },
+    /// A session cannot be taken back to before one of its messages, or its files cannot be
+    /// put back, now: the reason says why, and what to do about it.
+    #[error("{0}")]
+    Rewind(String),
     /// The session has talked to its agent, which holds the conversation from then on.
     #[error("session {0} has begun: another agent would not know what was said")]
     SessionBegun(i64),

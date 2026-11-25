@@ -18,6 +18,7 @@ import { issuesApi } from "./mockIssues";
 import { mentionsApi, messageFor } from "./mockMentions";
 import { mergeApi } from "./mockMerging";
 import { bringBack, putAwayApi } from "./mockPutAway";
+import { rewindApi } from "./mockRewind";
 import { MockSetups, taskSetupApi } from "./mockSetups";
 import { turnsApi } from "./mockTurns";
 import { heardUsage, sampleAccountUsage } from "./mockUsage";
@@ -2146,7 +2147,7 @@ class MockAgent {
     private command(id: number, text: string): boolean {
         const command = calledCommand(text, MOCK_COMMANDS);
         const bare = text.trim() === `/${command?.name}`;
-        if (command?.kind === "terminal") {
+        if (command?.kind === "terminal" || command?.kind === "choice") {
             throw new Error(`/${command.name} is not sent. ${command.note}`);
         }
         if (command?.kind === "own") {
@@ -3227,6 +3228,12 @@ export function createMockApi(): Api {
             (id) => setups.stop(id, "removed"),
         ),
         ...issuesApi(() => agent.projects),
+        ...rewindApi({
+            projects: () => agent.projects,
+            history: (id) => agent.history(id),
+            publish: (id, event) => agent.publish(id, event, null),
+            stop: (id) => agent.stopAgent(id),
+        }),
         ...putAwayApi({
             projects: () => agent.projects,
             settings: () => settings,

@@ -1,7 +1,7 @@
 import { lazy, type RefObject, Suspense, useEffect, useRef } from "react";
 import { sendOrQueue } from "../actions";
 import { api } from "../api";
-import type { AgentEvent, Session } from "../api/types";
+import type { AgentEvent, Session, SlashCommand } from "../api/types";
 import { noteCommandSent } from "../commandSent";
 import { githubIn } from "../githubMentions";
 import { mentionedIn } from "../mentions";
@@ -9,7 +9,7 @@ import { expandTokens, forgetTokens, quoteTokenFor, tokensAgain } from "../paste
 import { withQuote } from "../quotes";
 import { browse, type Direction, sentMessages } from "../recall";
 import { type Draft, filesWith, NO_DRAFT, waitsItsTurn } from "../sending";
-import { goesAtOnce } from "../slash";
+import { boxOpensChoice, goesAtOnce } from "../slash";
 import { appliedEffort } from "../statusline";
 import { useStore } from "../store";
 import { suggestionOf } from "../suggestion";
@@ -129,7 +129,7 @@ export function Composer({ session }: { session: Session }) {
         }
     }, [status]);
 
-    const send = (now = false) => {
+    const sendMessage = (now = false) => {
         if (!canSend) {
             return;
         }
@@ -164,6 +164,7 @@ export function Composer({ session }: { session: Session }) {
                 putDraftBack(id, unsent);
             });
     };
+    const send = useSendOrChoose(id, draft, commands, sendMessage);
     const stop = () => void api.sessionInterrupt(id).catch(report);
 
     return (
@@ -266,6 +267,28 @@ function useRecall(id: number, spawned: boolean, now: Draft) {
         },
         /** A message was sent: ↑ starts again from the newest. */
         forget: () => noteRecall(id, null),
+    };
+}
+
+/**
+ * `send`, unless the box holds a command the window opens a choice for, such as `/rewind`:
+ * then that choice opens, the box is emptied, and nothing is sent.
+ */
+function useSendOrChoose(
+    id: number,
+    draft: Draft,
+    commands: SlashCommand[],
+    send: (now?: boolean) => void,
+): (now?: boolean) => void {
+    const editDraft = useStore((state) => state.editDraft);
+    const askToRewind = useStore((state) => state.askToRewind);
+    return (now = false) => {
+        if (!boxOpensChoice(draft, commands)) {
+            send(now);
+            return;
+        }
+        editDraft(id, NO_DRAFT);
+        askToRewind({ sessionId: id, message: null });
     };
 }
 

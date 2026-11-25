@@ -2,10 +2,11 @@
 //!
 //! In a terminal, many of Claude Code's commands open a screen: `/usage`, `/status`, `/model`.
 //! Run as Swarmed runs it, Claude Code has no screen. Each command it has is therefore one of
-//! five kinds here, in one table: sent on as a message, shown as a screen whose contents
+//! six kinds here, in one table: sent on as a message, shown as a screen whose contents
 //! Claude Code is asked for, put to the user as a question whose answer Swarmed applies, done
-//! by Swarmed itself with nothing to ask (Remote Control), or refused because Swarmed has its
-//! own way to do it. A command the table does not name is
+//! by Swarmed itself with nothing to ask (Remote Control), a choice of Swarmed's own that the
+//! window opens (`/rewind`), or refused because Swarmed has its own way to do it. A command
+//! the table does not name is
 //! sent on: a skill, a command of the user's own, or one that only opens a screen in the
 //! terminal, which Claude Code answers itself, marked as such.
 
@@ -31,6 +32,9 @@ pub enum CommandKind {
     Setting,
     /// Swarmed does it itself, with nothing to ask.
     Own,
+    /// The window opens a choice of Swarmed's own for it, as it does for `/rewind`. It is never
+    /// sent: from anywhere else it is refused, with what to do instead.
+    Choice,
     /// It only means something in the agent's own terminal, and is not sent.
     Terminal,
 }
@@ -64,14 +68,18 @@ enum Handling {
     Ask(Setting),
     /// Remote Control turned on, or off with `off` after it: Swarmed asks Claude Code itself.
     Remote,
+    /// A choice the window opens, never sent: refused anywhere else, with what to do there.
+    Choice(&'static str),
     /// Refused, with what to do in Swarmed instead.
     Terminal(&'static str),
 }
 
-use Handling::{Ask, Remote, Send, Show, Terminal};
+use Handling::{Ask, Choice, Remote, Send, Show, Terminal};
 
 const MODE_MENU: &str = "What an agent may do without asking is chosen in the session's mode menu.";
 const FORK: &str = "A session is forked from one of its messages.";
+const REWIND: &str = "A session is taken back with Edit from here on one of its messages, or with \
+                      `swarmed session rewind`.";
 const SIGN_IN: &str = "Swarmed handles no sign-in: run `claude` in a terminal for it.";
 const CLOSE: &str = "A session is closed with the button in its header.";
 const NEW_SESSION: &str = "For an empty conversation, start a new session in the task.";
@@ -178,7 +186,8 @@ const CLAUDE_COMMANDS: &[(&str, Handling)] = &[
         "resume",
         Terminal("A closed session is reopened from its task."),
     ),
-    ("rewind", Terminal(FORK)),
+    // Opens the choice of a message to take the session back to before, and its files with it.
+    ("rewind", Choice(REWIND)),
     (
         "statusline",
         Terminal("The status line is set in Swarmed's settings."),
@@ -258,6 +267,7 @@ fn kind_of(how: Handling) -> (CommandKind, &'static str) {
         Show(_) => (CommandKind::Screen, ""),
         Ask(_) => (CommandKind::Setting, ""),
         Remote => (CommandKind::Own, ""),
+        Choice(instead) => (CommandKind::Choice, instead),
         Terminal(instead) => (CommandKind::Terminal, instead),
     }
 }
@@ -276,7 +286,7 @@ pub(crate) fn offered(agent: &str, names: Vec<String>) -> Vec<SlashCommand> {
     let own = CLAUDE_COMMANDS
         .iter()
         .filter(|(name, how)| {
-            let own = matches!(how, Show(_) | Ask(_) | Remote);
+            let own = matches!(how, Show(_) | Ask(_) | Remote | Choice(_));
             agent == CLAUDE && own && !listed.contains(*name)
         })
         .map(|(name, how)| entry((*name).to_string(), Some(*how)));
@@ -469,7 +479,7 @@ impl Core {
             return Ok(());
         };
         let instead = match handling(&session.agent, name) {
-            Some(Terminal(instead)) => instead,
+            Some(Terminal(instead) | Choice(instead)) => instead,
             // Sent as typed, Claude Code would only say it cannot do it without its screen.
             Some(Remote) => AT_ONCE,
             _ => return Ok(()),
@@ -497,7 +507,7 @@ impl Core {
             None | Some(Send) => return Ok(false),
             // A skill of the user's by a command's name is what they call: it is sent.
             Some(_) if self.calls_skill(id, text) => return Ok(false),
-            Some(Terminal(instead)) => {
+            Some(Terminal(instead) | Choice(instead)) => {
                 return Err(Error::TerminalOnly {
                     command: name.to_string(),
                     instead: instead.to_string(),
@@ -518,7 +528,7 @@ impl Core {
                 let said = self.set_as_chosen(&session, setting, name, argument)?;
                 self.live.note(&self.store, id, said_plainly(name, said))?;
             }
-            (Send | Terminal(_), _) => return Ok(false),
+            (Send | Choice(_) | Terminal(_), _) => return Ok(false),
         }
         Ok(true)
     }
@@ -757,7 +767,7 @@ mod tests {
         for name in REPORTED {
             assert!(
                 handling(CLAUDE, name).is_some(),
-                "/{name} is in none of the five kinds"
+                "/{name} is in none of the six kinds"
             );
         }
         let mut names: Vec<&str> = CLAUDE_COMMANDS.iter().map(|(name, _)| *name).collect();
@@ -771,7 +781,7 @@ mod tests {
     fn every_refused_command_says_what_to_do_instead() {
         for (name, how) in CLAUDE_COMMANDS {
             assert!(
-                !matches!(how, Terminal(instead) if instead.is_empty()),
+                !matches!(how, Terminal(instead) | Choice(instead) if instead.is_empty()),
                 "/{name}"
             );
         }
@@ -794,6 +804,21 @@ mod tests {
         ] {
             assert_ne!(handling(CLAUDE, screen), Some(Send), "/{screen}");
         }
+    }
+
+    #[test]
+    fn taking_a_session_back_opens_swarmeds_own_choice_under_every_name() {
+        // Never sent: Claude Code would rewind a conversation Swarmed shows whole.
+        for name in ["rewind", "checkpoint", "undo"] {
+            assert_eq!(handling(CLAUDE, name), Some(Choice(REWIND)), "/{name}");
+        }
+        // Offered whether or not Claude Code lists it.
+        let offered = offered(CLAUDE, vec![]);
+        let rewind = offered.iter().find(|command| command.name == "rewind");
+        assert_eq!(
+            rewind.map(|command| command.kind),
+            Some(CommandKind::Choice)
+        );
     }
 
     #[test]

@@ -935,6 +935,68 @@ fn the_ui_can_list_a_sessions_turns_and_read_what_one_changed() {
 }
 
 #[test]
+fn the_ui_can_take_a_session_back_with_its_files_and_put_them_back() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = app.ok(
+        "task_new",
+        json!({ "project": "demo", "name": "one", "branch": null }),
+    );
+    let worktree = std::path::PathBuf::from(task["worktree_path"].as_str().expect("a path"));
+    let session = app.ok(
+        "session_new",
+        json!({ "project": "demo", "task": "one", "agent": null, "how": { "model": null, "supervision": "auto", "effort": null } }),
+    );
+    let id = &session["id"];
+    for (ended, text) in ["write: notes.txt = one", "write: notes.txt = two"]
+        .into_iter()
+        .enumerate()
+    {
+        app.ok("session_send", json!({ "id": id, "text": text }));
+        let turns = |e: &Value| {
+            e.as_array()
+                .map(|all| all.iter().filter(|e| e["type"] == "turn_done").count())
+        };
+        let deadline = Instant::now() + WAIT_LIMIT;
+        while turns(&app.ok("session_events", json!({ "id": id }))) != Some(ended + 1) {
+            assert!(Instant::now() < deadline, "turn {ended} never ended");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    let check = app.ok("session_rewind_check", json!({ "id": id, "message": 1 }));
+    assert_eq!(check["refused"], json!(null));
+    assert_eq!(check["files_refused"], json!(null));
+    assert_eq!(check["resumes"], true);
+    assert_eq!(
+        check["files"],
+        json!([{ "path": "notes.txt", "kind": "modified", "added": 1, "removed": 1 }])
+    );
+    let done = app.ok(
+        "session_rewind",
+        json!({ "id": id, "message": 1, "files": true }),
+    );
+    assert_eq!(
+        done,
+        json!({ "to": 1, "files": true, "resumes": true, "commits_since": 0 })
+    );
+    let notes = || std::fs::read_to_string(worktree.join("notes.txt")).expect("reads");
+    assert_eq!(notes(), "one\n");
+    let events = app.ok("session_events", json!({ "id": id }));
+    let last = events
+        .as_array()
+        .and_then(|events| events.last())
+        .expect("one");
+    assert_eq!(last["type"], "rewound");
+    assert_eq!(last["to"], 1);
+
+    app.ok("session_files_put_back", json!({ "id": id }));
+    assert_eq!(notes(), "two\n");
+    let again = app.invoke("session_files_put_back", json!({ "id": id }));
+    assert!(again.is_err(), "{again:?}");
+}
+
+#[test]
 fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));

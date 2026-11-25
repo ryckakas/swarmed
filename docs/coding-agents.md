@@ -230,6 +230,55 @@ answered in the conversation. Approving a plan moves the
 session to the default supervision from the settings, or to Ask if that default is Plan itself.
 Models and effort are chosen per session, and can change mid-session.
 
+## Taking a session back to before a message
+
+**Edit from here** on a message you sent, or `/rewind` (also `/checkpoint` and `/undo`) in a
+Claude Code session, takes the session back to just before that message and puts the message in
+the box, for you to change and send again. Nothing is sent by itself. You choose:
+
+- **Conversation only:** the files stay as they are now.
+- **Conversation and files:** the worktree goes back to how it was before that message, from the
+  checkpoint taken then (see [What a turn changed](configuration.md#what-a-turn-changed)).
+
+What the message started, and everything after it, stays in the transcript, folded under a line
+that says where the session was taken back to: costs and search still count it. It no longer
+counts as the conversation: a fork of the session leaves it out.
+
+| Agent | What it remembers afterwards |
+| --- | --- |
+| Claude Code | Resumes its own conversation where the turn before the message ended, and does not remember what came after. |
+| Any other agent | Starts a new conversation, and is told what was said up to the message with your next one: what was said, not what it read or ran. |
+
+Claude Code starts a new conversation the same way when there is no point to resume at: before
+the first message, after a turn that failed before its first word, or in a conversation from
+before Swarmed noted those points.
+
+**What goes back with the files, and what does not:**
+
+- Only the files of the worktree. **Commits stay on the branch**: the branch is never moved, so
+  the files then differ from it, and resetting it is yours to do. The line says how many commits
+  were made since. Nothing outside the worktree comes back either: a push, a pull request, a
+  database, a package installed elsewhere.
+- Files git ignores, and new files over 10 MB that checkpoints leave out, are neither restored
+  nor deleted. One in the way of a file that would come back makes git refuse the whole, and
+  nothing is changed.
+- The worktree as it was is kept first: **Put the files back** on the line restores it, as long
+  as nothing changed the files since.
+- The other sessions of the task are not told. Their agents find the files as they are when they
+  next read them.
+
+**Refused, with the reason, rather than tried:** while the session is at work, closed, run by
+another Swarmed, or has something it left running. Taking the files back is refused as well while
+any session of the task is at work or run elsewhere, anything its agents left running still
+runs, its setup runs, or a rebase, merge, cherry-pick or revert is under way in the worktree; and
+for a message no checkpoint was taken before (older than the latest 50 turns, sent before
+checkpoints existed, copied into a fork, or in a chat). The conversation alone can still go back.
+
+Swarmed uses its own checkpoints for every agent, not Claude Code's file checkpointing, which
+does not undo what shell commands changed. From the command line:
+`swarmed session rewind <id> <message> [--files]` (`--check` says what it would do) and
+`swarmed session put-back <id>`.
+
 ## Sub-agents and work left running
 
 Agents can start sub-agents for parts of their work, and leave commands running past a turn.

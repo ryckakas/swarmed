@@ -322,6 +322,21 @@ const MIGRATIONS: &[&str] = &[
         UNIQUE (session_id, message, side)
     );
 ",
+    // The commit a checkpoint's worktree was on, so that taking files back can say which
+    // commits stay on the branch; and the worktree as it stood before a session's files were
+    // taken back to a checkpoint, kept so that they can be put back (`rewind.rs`). `restored`
+    // is the tree they were taken back to, which the worktree must still be at for that.
+    "
+    ALTER TABLE checkpoints ADD COLUMN head TEXT;
+    CREATE TABLE rewinds (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        message    INTEGER NOT NULL,
+        was        TEXT NOT NULL,
+        restored   TEXT NOT NULL,
+        at_ms      INTEGER NOT NULL
+    );
+",
 ];
 
 /// Stands in [`MIGRATIONS`] for the one change SQL in a transaction cannot make: every

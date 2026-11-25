@@ -39,7 +39,12 @@ use crate::error::Result;
 /// - `remote wavers`: replies as to plain text; then, with Remote Control on, reports the
 ///   connection as Claude Code does, without saying where the session is: on once more,
 ///   reconnecting, and on again;
+/// - `resumed`: replies with where it was started to resume its conversation: the session id
+///   and the point in it it was given, or `none`;
 /// - in plan mode, anything: presents a plan and waits for it to be approved.
+///
+/// Each answered turn ends, as Claude Code's do, with where its record of the conversation
+/// stands: `fake-<run>-<turn>`.
 ///
 /// Like Claude Code, it says each message back as it takes it in, and turns Remote Control on
 /// unless it was given an API key, which Remote Control does not take.
@@ -67,6 +72,7 @@ impl AgentBackend for FakeBackend {
             initialised: false,
             told: Vec::new(),
             remote: false,
+            turns: 0,
         };
         let script = tokio::spawn(script.run());
         Ok(AgentHandle {
@@ -99,6 +105,8 @@ struct Script {
     initialised: bool,
     /// Whether Remote Control is on.
     remote: bool,
+    /// How many turns it answered, which names where its conversation stands after each.
+    turns: u64,
 }
 
 impl Script {
@@ -399,6 +407,16 @@ impl Script {
         if let Some(what) = message.strip_prefix("foreground ") {
             return self.foreground(what).await;
         }
+        if message == "resumed" {
+            let at = |what: &Option<String>| what.clone().unwrap_or_else(|| "none".to_string());
+            self.text(format!(
+                "resumed {} at {}",
+                at(&self.spec.resume),
+                at(&self.spec.resume_at)
+            ));
+            self.end_answered();
+            return Next::Continue;
+        }
         if message == "instructions" {
             let told = self.spec.append_system_prompt.clone();
             self.text(told.unwrap_or_else(|| "none".to_string()));
@@ -418,7 +436,7 @@ impl Script {
             None => self.echo(message),
         };
         if next == Next::Continue {
-            self.emit(done(false, None));
+            self.end_answered();
             self.suggest(message);
             self.report_usage(message);
         }
@@ -465,12 +483,26 @@ impl Script {
 
     /// Writes the file `write: <path> = <text>` names in the session's folder, and ends the
     /// turn, with an error if it could not.
-    fn write(&self, what: &str) {
+    fn write(&mut self, what: &str) {
         let (path, text) = what.split_once('=').unwrap_or((what, ""));
         let file = self.spec.cwd.join(path.trim());
         let written = std::fs::write(&file, format!("{}\n", text.trim()));
         self.text(format!("wrote {}", path.trim()));
-        self.emit(done(written.is_err(), None));
+        if written.is_ok() {
+            self.end_answered();
+        } else {
+            self.emit(done(true, None));
+        }
+    }
+
+    /// Ends a turn it answered well, saying first where its conversation stands, as Claude
+    /// Code does.
+    fn end_answered(&mut self) {
+        self.turns += 1;
+        self.emit(AgentEvent::ResumePoint {
+            uuid: format!("fake-{}-{}", self.number, self.turns),
+        });
+        self.emit(done(false, None));
     }
 
     /// Offers what follows `suggest:` as the user's next message.

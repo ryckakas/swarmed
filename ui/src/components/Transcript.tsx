@@ -1,5 +1,5 @@
 import { memo, useMemo, useRef, useState } from "react";
-import { forkFromMessage } from "../actions";
+import { editFromMessage, forkFromMessage } from "../actions";
 import { api } from "../api";
 import type { AgentEvent } from "../api/types";
 import { type GitHubMentioned, githubApart } from "../githubMentions";
@@ -8,6 +8,7 @@ import { type MessagePart, messageParts } from "../pastes";
 import { failedChecks, pullChangeSaid } from "../pulls";
 import { offersPutAway } from "../putAway";
 import { resetWhen } from "../rateLimit";
+import { commitsSaid, messageWords, rewoundSaid } from "../rewind";
 import { screenHtml } from "../screens";
 import { useStore } from "../store";
 import {
@@ -16,11 +17,13 @@ import {
     type Item,
     type LimitItem,
     latestFailure,
+    latestFilesRewind,
     latestLimit,
     latestMerge,
     latestMove,
     movedSaid,
     PLAN_TOOL,
+    type RewoundItem,
     shownLines,
     shownTools,
     summarize,
@@ -79,6 +82,7 @@ export function Transcript(props: Props) {
     const lastFailure = useMemo(() => latestFailure(items), [items]);
     const lastLimit = useMemo(() => latestLimit(items), [items]);
     const lastMerge = useMemo(() => latestMerge(items), [items]);
+    const lastFilesRewind = useMemo(() => latestFilesRewind(items), [items]);
     const sendsFrom = working && sendsToBackground ? sessionId : null;
     const scroller = useRef<HTMLDivElement>(null);
     const frame = useRef<HTMLDivElement>(null);
@@ -103,9 +107,14 @@ export function Transcript(props: Props) {
                             <ItemView
                                 item={item}
                                 sessionId={sessionId}
-                                latest={[lastMove, lastLimit, lastFailure, lastMerge].includes(
-                                    item.key,
-                                )}
+                                latest={[
+                                    lastMove,
+                                    lastLimit,
+                                    lastFailure,
+                                    lastMerge,
+                                    lastFilesRewind,
+                                ].includes(item.key)}
+                                putBackKey={lastFilesRewind}
                                 sendsFrom={sendsFrom}
                             />
                         </li>
@@ -203,34 +212,20 @@ interface ItemProps {
     latest: boolean;
     /** The session whose calls' work can be sent to the background now; `null` for none. */
     sendsFrom: number | null;
+    /** The rewind whose files can be put back, by its key; `null` for none. */
+    putBackKey: number | null;
+    /** Whether it is in a part a rewind took back, which offers nothing. */
+    folded?: boolean;
 }
 
-function ItemView({ item, sessionId, latest, sendsFrom }: ItemProps) {
+function ItemView(props: ItemProps) {
+    const { item, sessionId, latest, sendsFrom, putBackKey, folded = false } = props;
     const words = useWords();
     switch (item.kind) {
         case "user":
-            return (
-                <div className="said">
-                    {item.remote && <p className="said-from">Typed on claude.ai</p>}
-                    {item.atReset && (
-                        <p className="said-from">Sent by itself when the usage limit reset</p>
-                    )}
-                    <Said text={item.text} mentioned={item} />
-                    <MentionList
-                        sessions={mentionedApart(item.text, item.sessions)}
-                        github={githubApart(item.text, item.github)}
-                    />
-                    <FileChips files={item.files} sessionId={sessionId} />
-                    <button
-                        type="button"
-                        className="said-fork"
-                        title={words.forkHereHint}
-                        onClick={() => void forkFromMessage(sessionId, item.key)}
-                    >
-                        {words.forkHere}
-                    </button>
-                </div>
-            );
+            return <UserSaid item={item} sessionId={sessionId} folded={folded} />;
+        case "rewound":
+            return <RewoundLine sessionId={sessionId} item={item} putBackKey={putBackKey} />;
         case "text":
             return <Markdown text={item.text} streaming={item.streaming} />;
         case "tool":
@@ -353,6 +348,117 @@ function ItemView({ item, sessionId, latest, sendsFrom }: ItemProps) {
         case "limit":
             return <LimitLine sessionId={sessionId} item={item} latest={latest} />;
     }
+}
+
+/**
+ * What the user wrote, with the ways to go on from it: a fork from here, and taking the session
+ * back to before it to edit it. A message a rewind took back offers neither.
+ */
+function UserSaid(props: {
+    item: Extract<Item, { kind: "user" }>;
+    sessionId: number;
+    folded: boolean;
+}) {
+    const { item, sessionId, folded } = props;
+    const words = useWords();
+    return (
+        <div className="said">
+            {item.remote && <p className="said-from">Typed on claude.ai</p>}
+            {item.atReset && <p className="said-from">Sent by itself when the usage limit reset</p>}
+            <Said text={item.text} mentioned={item} />
+            <MentionList
+                sessions={mentionedApart(item.text, item.sessions)}
+                github={githubApart(item.text, item.github)}
+            />
+            <FileChips files={item.files} sessionId={sessionId} />
+            {!folded && (
+                <div className="said-actions">
+                    <button
+                        type="button"
+                        className="said-fork"
+                        title={words.editHereHint}
+                        onClick={() => editFromMessage(sessionId, item.key)}
+                    >
+                        {words.editHere}
+                    </button>
+                    <button
+                        type="button"
+                        className="said-fork"
+                        title={words.forkHereHint}
+                        onClick={() => void forkFromMessage(sessionId, item.key)}
+                    >
+                        {words.forkHere}
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+}
+
+/**
+ * Where the session was taken back to before one of its messages, with what that dropped
+ * folded under it, as the transcript showed it. The latest rewind whose files went back
+ * offers to put them back.
+ */
+function RewoundLine(props: { sessionId: number; item: RewoundItem; putBackKey: number | null }) {
+    const { sessionId, item, putBackKey } = props;
+    const toolCalls = useStore((state) => state.settings?.tool_calls ?? "folded");
+    const turnEnds = useStore((state) => state.settings?.turn_end_lines ?? true);
+    const report = useStore((state) => state.report);
+    const [putting, setPutting] = useState(false);
+    const dropped = useMemo(
+        () => shownTools(shownLines(item.dropped, turnEnds), toolCalls),
+        [item.dropped, turnEnds, toolCalls],
+    );
+    const messages = item.dropped.filter((one) => one.kind === "user" || one.kind === "peer");
+    const commits = item.putBack ? null : commitsSaid(item.commitsSince);
+    const putBack = () => {
+        setPutting(true);
+        api.sessionFilesPutBack(sessionId)
+            .catch(report)
+            .finally(() => setPutting(false));
+    };
+    return (
+        <div className="rewound">
+            <p className="asked">
+                {rewoundSaid(messageWords(item.message), item.files, item.putBack)}
+                {commits && ` ${commits}`}
+            </p>
+            {item.key === putBackKey && (
+                <button
+                    type="button"
+                    className="button"
+                    disabled={putting}
+                    title="Puts the files back as they were just before they were taken back, if nothing changed them since."
+                    onClick={putBack}
+                >
+                    Put the files back
+                </button>
+            )}
+            {dropped.length > 0 && (
+                <details className="rewound-part">
+                    <summary>
+                        What was taken back: {messages.length}{" "}
+                        {messages.length === 1 ? "message" : "messages"} and what followed
+                    </summary>
+                    <ol className="items">
+                        {dropped.map((inner) => (
+                            <li key={inner.key} className={`item item-${inner.kind}`}>
+                                <ItemView
+                                    item={inner}
+                                    sessionId={sessionId}
+                                    latest={inner.kind === "rewound" && inner.key === putBackKey}
+                                    sendsFrom={null}
+                                    putBackKey={putBackKey}
+                                    folded={true}
+                                />
+                            </li>
+                        ))}
+                    </ol>
+                </details>
+            )}
+        </div>
+    );
 }
 
 /**

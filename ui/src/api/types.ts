@@ -513,6 +513,28 @@ export interface SkippedFile {
 }
 
 /** What one turn changed in the worktree. */
+/** What taking a session back to before one of its messages would do now. */
+export interface RewindCheck {
+    /** Why it cannot be taken back now, if it cannot. */
+    refused: string | null;
+    /** Why its files cannot go back with it now, if they cannot. */
+    files_refused: string | null;
+    /** Whether the agent resumes its own conversation there; otherwise it starts a new one. */
+    resumes: boolean;
+    /** What taking the files back would change, from now to before the message. */
+    files: FileChange[];
+    /** Commits made since the message, which stay on the branch; `null` when not known. */
+    commits_since: number | null;
+}
+
+/** What came of taking a session back. */
+export interface RewindDone {
+    to: number;
+    files: boolean;
+    resumes: boolean;
+    commits_since: number | null;
+}
+
 export interface TurnChanges {
     files: FileChange[];
     /** Files left out at either end: what became of them is not known. */
@@ -1017,9 +1039,10 @@ export interface ContextCategory {
 
 /**
  * What Swarmed does with a command when it is sent: send it on, show a screen, ask about a
- * setting, do it itself with nothing to ask (`own`, such as Remote Control), or refuse it.
+ * setting, do it itself with nothing to ask (`own`, such as Remote Control), open a choice of
+ * its own in the window (`choice`, such as `/rewind`), or refuse it.
  */
-export type CommandKind = "prompt" | "screen" | "setting" | "own" | "terminal";
+export type CommandKind = "prompt" | "screen" | "setting" | "own" | "choice" | "terminal";
 
 /**
  * How Remote Control of a session stands: asked for, reachable from claude.ai, reconnecting,
@@ -1132,6 +1155,27 @@ export type AgentEvent =
     | { type: "setup"; progress: SetupProgress }
     /** What stands before this is a copy of what was said in the session forked from. */
     | { type: "forked"; from: number }
+    /**
+     * Where Claude Code's own record of the conversation stood as a turn ended, at which a
+     * rewind resumes it. Stored, never shown.
+     */
+    | { type: "resume_point"; uuid: string }
+    /**
+     * The session was taken back to before its message number `to` (counting from 0 every
+     * message sent into it): that message and what followed, up to here, no longer count.
+     * `files` says whether the worktree's files went back too; `resume_at` is where Claude Code
+     * resumes, or `null` when the agent starts a new conversation told what was said;
+     * `commits_since` how many commits made since stay on the branch, if that is known.
+     */
+    | {
+          type: "rewound";
+          to: number;
+          files?: boolean;
+          resume_at?: string | null;
+          commits_since?: number | null;
+      }
+    /** The files a rewind took back were put back as they were before it. */
+    | { type: "files_put_back"; to: number }
     /** HTML the agent showed through Swarmed's own tool, handed over by the tool itself. */
     | { type: "view"; html: string }
     /** What the agent says it actually runs with, defaults resolved. */

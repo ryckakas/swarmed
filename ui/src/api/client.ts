@@ -39,6 +39,8 @@ import type {
     PullDraft,
     QueuedMessage,
     Reachable,
+    RewindCheck,
+    RewindDone,
     SearchHit,
     Session,
     SessionEvent,
@@ -336,6 +338,19 @@ export interface Api {
     sessionTurnChanges(id: number, message: number): Promise<TurnChanges>;
     /** How one file changed in one turn of a session. */
     sessionTurnDiff(id: number, message: number, path: string): Promise<FileDiff>;
+    /**
+     * What taking session `id` back to before its message number `message` would do now:
+     * whether it can, with its files or without, and what would change. Changes nothing.
+     */
+    sessionRewindCheck(id: number, message: number): Promise<RewindCheck>;
+    /**
+     * Takes session `id` back to before its message number `message`: that message and what
+     * followed no longer count, and its agent goes on from there. With `files`, the worktree's
+     * files go back to how they were before it too.
+     */
+    sessionRewind(id: number, message: number, files: boolean): Promise<RewindDone>;
+    /** Puts back the files session `id`'s latest rewind took back. */
+    sessionFilesPutBack(id: number): Promise<void>;
     /** Opens the task's worktree, with its branch checked out, in the user's editor. */
     taskOpenEditor(project: string, name: string): Promise<void>;
     /** What the folder `dir` of a task's worktree holds; the worktree itself for an empty `dir`. */
