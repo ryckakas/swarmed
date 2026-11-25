@@ -27,7 +27,7 @@ use std::time::Duration;
 use rusqlite::params;
 use serde_json::Value;
 
-use crate::account_usage::{on_extra_usage, reached, seconds_now};
+use crate::account_usage::{on_extra_usage, one_models, reached, seconds_now, window_reached};
 use crate::agent::{AgentEvent, Auth};
 use crate::error::{Error, Result};
 use crate::paths::Paths;
@@ -72,31 +72,21 @@ fn reset_of(reports: &[AgentEvent], now: i64) -> Option<i64> {
 }
 
 /// Until when the account's usage, as last heard, says requests are refused: the latest reset
-/// still to come of a window used up, unless extra usage pays past it. `None` for not.
+/// still to come of a window used up, unless extra usage can pay past it. `None` for not.
 fn refused_until(usage: &AccountUsage, now: i64) -> Option<i64> {
-    let to_come = |at: &Option<i64>| at.is_some_and(|at| at > now);
-    if usage
-        .billed
-        .is_some_and(|billed| billed.on && to_come(&billed.resets_at))
-    {
+    if usage.extra_can_pay(now) {
         return None;
     }
-    let used_up = |status: &str, used: f64| status == "rejected" || used >= 1.0;
     // One model's weekly limit refuses that model alone: a session on another goes on.
     let windows = usage
         .windows
         .iter()
         .filter(|window| !one_models(&window.kind));
-    let refusing = windows.filter(|window| used_up(&window.status, window.used));
-    refusing
+    windows
+        .filter(|window| window_reached(window))
         .filter_map(|window| window.resets_at)
         .filter(|at| *at > now)
         .max()
-}
-
-/// Whether a usage window of this kind is one model's weekly limit, and not the account's.
-fn one_models(kind: &str) -> bool {
-    kind.starts_with("seven_day_") && kind != "seven_day_overage_included"
 }
 
 impl Store {
@@ -316,7 +306,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::account_usage::{Billed, UsageWindow};
+    use crate::account_usage::{Billed, ExtraPays, UsageWindow};
 
     fn report(status: &str, resets_at: i64, raw: Value) -> AgentEvent {
         AgentEvent::RateLimit {
@@ -377,9 +367,15 @@ mod tests {
             .windows
             .push(window("seven_day_opus", 1.0, "rejected", 90_000));
         assert_eq!(refused_until(&usage, now), None);
-        usage
-            .windows
-            .push(window("seven_day_overage_included", 1.0, "allowed", 20_000));
+        // So is the one a report after a turn gives without naming its model.
+        usage.windows.push(window(
+            "seven_day_overage_included",
+            1.0,
+            "rejected",
+            30_000,
+        ));
+        assert_eq!(refused_until(&usage, now), None);
+        usage.windows[1] = window("seven_day", 1.0, "allowed", 20_000);
         assert_eq!(refused_until(&usage, now), Some(20_000));
         // Extra usage pays past it until it resets: nothing is refused.
         usage.billed = Some(Billed {
@@ -387,6 +383,30 @@ mod tests {
             resets_at: Some(20_000),
             heard_at: 0,
         });
+        assert_eq!(refused_until(&usage, now), None);
+        // And so it does when the newest word on it says it can, before any turn it paid for.
+        usage.billed = None;
+        let pays = |can| ExtraPays {
+            can,
+            heard_at: 0,
+            asked: false,
+        };
+        usage.pays = Some(pays(true));
+        assert_eq!(refused_until(&usage, now), None);
+        usage.pays = Some(pays(false));
+        assert_eq!(refused_until(&usage, now), Some(20_000));
+    }
+
+    #[test]
+    fn an_answers_rounded_hundred_is_no_limit_reached() {
+        let now = 1_000;
+        // Asked at the second a report after a turn gave it as 99%, `allowed_warning`.
+        let mut weekly = window("seven_day", 1.0, "critical", 20_000);
+        weekly.asked = true;
+        let usage = AccountUsage {
+            windows: vec![weekly],
+            ..AccountUsage::default()
+        };
         assert_eq!(refused_until(&usage, now), None);
     }
 }

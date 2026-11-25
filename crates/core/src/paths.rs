@@ -13,7 +13,8 @@ pub struct Paths {
     pub data_dir: PathBuf,
     /// Parent of all task worktrees: `<worktrees_root>/<project>/<task>`.
     pub worktrees_root: PathBuf,
-    /// Claude Code's own config file, which is only ever read: it lists the user's MCP servers.
+    /// Claude Code's own config file, which is only ever read: it lists the user's MCP servers,
+    /// and says when Claude Code last fetched the account's usage.
     pub claude_config: PathBuf,
     /// Codex's own config file, which is only ever read, to show the MCP servers it lists.
     pub codex_config: PathBuf,

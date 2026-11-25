@@ -73,6 +73,7 @@ import type {
     Unpublished,
     UpdateState,
     Usage,
+    UsageAsk,
     Viewport,
 } from "./types";
 
@@ -681,11 +682,13 @@ export interface Api {
     accountUsage(): Promise<AccountUsage>;
     /**
      * Asks the session's Claude Code for the account's usage now, starting it if it is not
-     * running. Returns once asked; the plan's limits and the extra usage arrive as the
-     * session's events, with nothing in the conversation, and change the account's usage for
-     * every session. Only for a Claude Code session.
+     * running. Returns once asked, or once the question is set to go when Claude Code's own
+     * copy of the figures is old enough for it to fetch them again, and says when; the plan's
+     * limits and the extra usage arrive as the session's events, with nothing in the
+     * conversation, and change the account's usage for every session. Only for a Claude Code
+     * session.
      */
-    sessionUsageRefresh(id: number): Promise<void>;
+    sessionUsageRefresh(id: number): Promise<UsageAsk>;
     /**
      * Turns Remote Control of a Claude Code session on or off: whether it can be reached from
      * claude.ai and the Claude app. How it goes arrives as the session's `remote_control` events.

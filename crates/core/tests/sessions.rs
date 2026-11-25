@@ -387,6 +387,64 @@ async fn usage_asked_for_comes_from_the_sessions_agent_and_stays_out_of_the_conv
     assert_eq!(core.running_sessions(), vec![session.id]);
 }
 
+/// Now, in milliseconds since 1970, as Claude Code keeps time in its config file.
+fn millis_now() -> i64 {
+    let since = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("after 1970");
+    i64::try_from(since.as_millis()).expect("fits")
+}
+
+#[tokio::test]
+async fn usage_asked_while_claude_code_answers_from_its_copy_waits_until_it_fetches_again() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let session = core
+        .session_new("demo", "one", &SessionOptions::default())
+        .expect("creates");
+    // Claude Code fetched its copy of the figures almost a minute ago, and would answer with it
+    // for three seconds more: time for the agent to start before the core reads its clock,
+    // even on a slow runner.
+    let fetched = millis_now() - 58_000;
+    let config = serde_json::json!({
+        "cachedUsageUtilization": { "fetchedAtMs": fetched, "utilization": {} },
+    });
+    std::fs::write(&fx.paths.claude_config, config.to_string()).expect("writes");
+    let mut bus = core.subscribe();
+
+    let ask = core
+        .session_usage_refresh(session.id, Auth::Subscription)
+        .expect("asks");
+    assert_eq!(ask.copy_fetched_at, Some(fetched));
+    let until = ask
+        .waits_until
+        .expect("waits for the copy to be old enough");
+    assert_eq!(until, fetched + 61_000);
+    // The agent is started at once; the question goes once the copy is a minute old, some three
+    // seconds on, so the answer is waited for longer than `next` waits.
+    assert_eq!(core.running_sessions(), vec![session.id]);
+    let answered = tokio::time::timeout(std::time::Duration::from_secs(15), bus.recv())
+        .await
+        .expect("answered once the copy was old enough")
+        .expect("the event stream closed");
+    assert!(
+        matches!(answered.event, AgentEvent::UsageLimits { .. }),
+        "{answered:?}"
+    );
+    assert!(
+        millis_now() >= until,
+        "asked before the copy was old enough"
+    );
+
+    // A copy a minute old or more is not answered from: the question goes at once.
+    let config = serde_json::json!({ "cachedUsageUtilization": { "fetchedAtMs": fetched } });
+    std::fs::write(&fx.paths.claude_config, config.to_string()).expect("writes");
+    let ask = core
+        .session_usage_refresh(session.id, Auth::Subscription)
+        .expect("asks");
+    assert_eq!(ask.waits_until, None);
+}
+
 /// Skips ahead to the next change of the account's usage, which belongs to no session.
 async fn account_usage(bus: &mut Receiver<SessionEvent>) -> AccountUsage {
     loop {

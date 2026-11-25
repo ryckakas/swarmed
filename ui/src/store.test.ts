@@ -674,6 +674,7 @@ describe("the account's usage", () => {
         ],
         extra: null,
         billed: null,
+        pays: null,
     });
 
     it("is read once connected, and follows what any session hears, for every session", async () => {

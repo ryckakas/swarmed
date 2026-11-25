@@ -21,8 +21,8 @@ use swarmed_core::{
     PickedElement, Project, ProjectOverview, Pull, PullDraft, QueuedMessage, Reachable,
     RemoveOptions, RewindCheck, RewindDone, SearchHit, Session, SessionOptions, SessionSettings,
     Settings, SetupLog, Skill, SlashCommand, Snapshot, Task, TaskNaming, TaskStarted, Template,
-    TerminalConfig, TerminalOpened, Turn, TurnChanges, TurnStats, Unpublished, Usage, Viewport,
-    hooks,
+    TerminalConfig, TerminalOpened, Turn, TurnChanges, TurnStats, Unpublished, Usage, UsageAsk,
+    Viewport, hooks,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -1602,9 +1602,11 @@ pub(crate) fn account_usage(core: CoreState<'_>) -> Command<AccountUsage> {
     Ok(core.account_usage()?)
 }
 
-/// Asks the session's Claude Code for the account's usage now; the answer arrives as events.
+/// Asks the session's Claude Code for the account's usage now, and says when the question
+/// goes: it waits while Claude Code would answer from its own copy. The answer arrives as
+/// events.
 #[tauri::command]
-pub(crate) async fn session_usage_refresh(core: CoreState<'_>, id: i64) -> Command<()> {
+pub(crate) async fn session_usage_refresh(core: CoreState<'_>, id: i64) -> Command<UsageAsk> {
     Ok(core.session_usage_refresh(id, Auth::default())?)
 }
 

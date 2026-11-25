@@ -70,6 +70,7 @@ import type {
     Unpublished,
     UpdateState,
     Usage,
+    UsageAsk,
 } from "./types";
 
 // Sample data and a scripted agent, for working on the UI in a browser where there is no Tauri
@@ -1770,9 +1771,15 @@ function sampleLimits(): AgentEvent {
     };
 }
 
-/** The plan's limits as Claude Code answers when asked: one model's weekly limit nearly reached. */
+/** The next whole hour after the sample data was made, from which its usage windows reset. */
+const SAMPLE_HOUR = Math.ceil(Date.now() / 3_600_000) * 3_600_000;
+
+/**
+ * The plan's limits as Claude Code answers when asked: one model's weekly limit nearly reached,
+ * and the same resets every time, as claude.ai gives them.
+ */
 function sampleUsageLimits(): AgentEvent {
-    const at = (hours: number) => new Date(Date.now() + hours * 3_600_000).toISOString();
+    const at = (hours: number) => new Date(SAMPLE_HOUR + hours * 3_600_000).toISOString();
     return {
         type: "usage_limits",
         limits: [
@@ -1834,6 +1841,8 @@ class MockAgent {
     usage: AccountUsage = sampleAccountUsage();
     /** Whether every refused turn goes on by itself when its limit resets, as the setting says. */
     continueAfterLimit = false;
+    /** When Claude Code last fetched the usage, which it answers from for a minute after. */
+    private usageFetchedAt: number | null = null;
     private readonly continuations = new MockContinuations((id) => this.continueNow(id));
     private nextId = 100;
     /** The images the agent's tools returned, by path, as the core keeps them. */
@@ -2799,14 +2808,27 @@ class MockAgent {
         return marked;
     }
 
-    /** Asks for the account's usage: the figures arrive as events a moment later. */
-    refreshUsage(id: number) {
+    /**
+     * Asks for the account's usage: the figures arrive as events a moment later. As the core
+     * does, a question asked within a minute of Claude Code's last fetch waits until a minute
+     * and a second after it, when Claude Code would fetch them again.
+     */
+    refreshUsage(id: number): UsageAsk {
         const asked = this.configure(id, {}) as Session;
         if (asked.agent !== "claude") {
             throw `only Claude Code reports usage, and this session runs \`${asked.agent}\``;
         }
-        this.later(id, sampleUsageLimits(), null, 4);
-        this.later(id, { ...SAMPLE_EXTRA_USAGE, used: 4126 }, null, 4);
+        const now = Date.now();
+        const fetched = this.usageFetchedAt;
+        const goes = fetched === null ? now : Math.max(now, fetched + 61_000);
+        setTimeout(() => {
+            this.usageFetchedAt = Date.now();
+            this.later(id, sampleUsageLimits(), null, 4);
+            this.later(id, { ...SAMPLE_EXTRA_USAGE, used: 4126 }, null, 4);
+        }, goes - now);
+        return goes > now
+            ? { waits_until: goes, copy_fetched_at: fetched }
+            : { waits_until: null, copy_fetched_at: null };
     }
 
     /**

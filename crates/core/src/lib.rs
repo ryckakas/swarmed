@@ -91,13 +91,14 @@ mod termconfig;
 mod terminal;
 mod toolserver;
 mod usage;
+mod usage_copy;
 mod vars;
 mod views;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
 
-pub use account_usage::{AccountUsage, Billed, ExtraUsageHeard, UsageWindow};
+pub use account_usage::{AccountUsage, Billed, ExtraPays, ExtraUsageHeard, UsageWindow};
 pub use actions::Action;
 use agent::{AgentBackend, ClaudeNamer, Namer};
 pub use agent_setup::{AgentSetup, openrouter_models};
@@ -186,6 +187,7 @@ use terminal::Terminals;
 pub use terminal::{TerminalOpened, TerminalOutput};
 pub use toolserver::{SERVER_NAME, SHOW_BROWSER, SHOW_HTML, TOOL_SERVER_ARG, serve_tools};
 pub use usage::{ProcessUsage, SessionUsage, Usage, WorktreeUsage};
+pub use usage_copy::UsageAsk;
 pub use views::VIEW_POLICY;
 use views::ViewStore;
 
