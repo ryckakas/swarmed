@@ -1437,6 +1437,7 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   A command that writes or reads a repository's worktree records (`worktree add`, `remove`,
   `prune`, `list`, `branch -D`) goes through `on_worktrees`, one at a time per repository: git
   writes a new worktree's records file by file, and another git reading them meanwhile dies.
+  A task's `switch` reads them too, and takes the same lock (`git::switch`).
 - **The store is SQLite** (`store.rs`). Schema changes are appended to `MIGRATIONS` and never
   edited afterwards.
 - **No id is given twice: every table's integer id is `INTEGER PRIMARY KEY AUTOINCREMENT`.**

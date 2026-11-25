@@ -49,6 +49,18 @@ async fn on_worktrees(repo: &Path, args: &[&str]) -> Result<String> {
     git(repo, args).await
 }
 
+/// Switches the worktree at `worktree`, of the repository at `repo`, to `branch`. Under the
+/// repository's lock: git reads every worktree's records to refuse a branch that is checked
+/// out in another, as `worktree add` does, and would die on one a task being created is
+/// still writing.
+pub(crate) async fn switch(repo: &Path, worktree: &Path, branch: &str) -> Result<()> {
+    let lock = worktrees_lock(repo);
+    let _one_at_a_time = lock.lock().await;
+    git(worktree, &["switch", "--quiet", branch])
+        .await
+        .map(drop)
+}
+
 /// Where a worktree's `HEAD` is: on a branch, or on none (`None`, a detached `HEAD`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Head(pub(crate) Option<String>);
