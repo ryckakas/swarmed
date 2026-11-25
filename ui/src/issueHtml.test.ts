@@ -226,6 +226,11 @@ describe("leavesOut", () => {
         expect(leavesOut("```js\nconst a = 1;\n```")).toBe(false);
     });
 
+    it("is so for a table's cells beyond its head's, which are not drawn", () => {
+        expect(leavesOut("| a |\n| - |\n| b | a cell too many |")).toBe(true);
+        expect(leavesOut("| a | b |\n| - | - |\n| c | d |\n| e |")).toBe(false);
+    });
+
     it("counts nothing written in code", () => {
         expect(leavesOut("`<script>` and `<!-- -->`")).toBe(false);
         expect(leavesOut("```html\n<!-- a comment -->\n<div onclick=x></div>\n```")).toBe(false);

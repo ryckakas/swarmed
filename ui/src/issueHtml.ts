@@ -145,6 +145,7 @@ export function htmlShown(html: string): boolean {
 /** A Markdown node, as far as finding what drawing it leaves out needs. */
 interface Written {
     type: string;
+    align?: unknown[] | null | undefined;
     value?: string;
     url?: string;
     title?: string | null | undefined;
@@ -175,7 +176,7 @@ function* nodesOf(tree: Written): Generator<Written> {
  * something uses (as `kind:identifier`). HTML must be drawn whole; a link or an image keeps its
  * address and has no title, which is not drawn; a definition, which is never drawn itself, has
  * to be used; a code block has only its language after the fence, since no more of that line
- * is drawn.
+ * is drawn; a table's rows have no more cells than its head, since the others are not drawn.
  */
 function nodeShown(node: Written, used: Set<string>): boolean {
     switch (node.type) {
@@ -194,6 +195,10 @@ function nodeShown(node: Written, used: Set<string>): boolean {
             return used.has(`footnoteDefinition:${node.identifier}`);
         case "code":
             return node.meta == null;
+        case "table": {
+            const columns = node.align?.length ?? 0;
+            return (node.children ?? []).every((row) => (row.children ?? []).length <= columns);
+        }
         default:
             return true;
     }
