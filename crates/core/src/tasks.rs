@@ -438,9 +438,10 @@ impl Core {
         }
     }
 
-    /// Removes a task: stops its agents, its setup if that is under way, and its stack, runs
-    /// `teardown`, ends whatever still runs in the worktree, takes the worktree away and
-    /// archives the record. A setup stopped so ends as [`Error::SetupStopped`], not failed.
+    /// Removes a task: stops its agents, its setup if that is under way, its stack and its
+    /// browser, runs `teardown`, ends whatever still runs in the worktree, takes the worktree
+    /// away and archives the record. The browser's profile goes once the task is gone. A
+    /// setup stopped so ends as [`Error::SetupStopped`], not failed.
     ///
     /// Without `force` this refuses when the worktree holds work that would be lost: changes
     /// not committed, commits not pushed, or a worktree git no longer knows, whose work cannot
@@ -472,10 +473,7 @@ impl Core {
             ensure_removable(&task, known).await?;
         }
         let (config, mut notes) = self.config_for_removal(&project, &task);
-        // Before anything else is ended in the worktree, which would find the hook there and
-        // kill it, and before the stack, which it would start once done.
-        notes.extend(self.setup_stop_for_removal(&task, sink).await);
-        notes.extend(self.stop_stack(&project, &config, &task, sink).await);
+        notes.extend(self.stop_for_removal(&project, &config, &task, sink).await);
         if exists {
             notes.extend(
                 self.remove_worktree(&project, &config, &task, known, sink)
@@ -483,11 +481,12 @@ impl Core {
             );
         } else {
             // The directory was deleted by hand; make git forget it too.
-            git::git(repo, &["worktree", "prune"]).await.ok();
+            git::worktree_prune(repo).await.ok();
         }
         self.store().task_archive(task.id)?;
         self.forget_note(&project.name, &task.name)?;
         self.forget_setup_files(task.id);
+        notes.extend(self.browser_forget(task.id).await);
         // The task is gone by now: what is left of its checkpoints is the clean-up's to list.
         if let Err(error) = self.forget_checkpoints(task.id) {
             notes.push(format!("its checkpoints could not be deleted: {error}"));
@@ -497,6 +496,28 @@ impl Core {
             notes.extend(delete_branch_if_safe(repo, &task).await);
         }
         Ok(notes)
+    }
+
+    /// Stops what runs for a task that is being removed: its setup first, before anything else
+    /// is ended in the worktree, which would find the hook there and kill it, and before the
+    /// stack, which it would start once done; then the stack, and the browser. Its profile
+    /// stays until the task is gone: a removal that fails after this must not have cost what
+    /// was signed in to. Returns what did not go as it should, to be said.
+    async fn stop_for_removal(
+        &self,
+        project: &Project,
+        config: &ProjectConfig,
+        task: &Task,
+        sink: OutputSink<'_>,
+    ) -> Vec<String> {
+        let mut notes: Vec<String> = self
+            .setup_stop_for_removal(task, sink)
+            .await
+            .into_iter()
+            .collect();
+        notes.extend(self.stop_stack(project, config, task, sink).await);
+        notes.extend(self.stop_browser(task.id).await);
+        notes
     }
 
     /// The name a new task gets: `name` itself, or with `free_name` the first of `name`,
@@ -649,7 +670,7 @@ impl Core {
         let path = &task.worktree_path;
         if let Some(aside) = move_aside(path, task.id) {
             // git still has the worktree where it was, which is not there any more.
-            git::git(repo, &["worktree", "prune"]).await.ok();
+            git::worktree_prune(repo).await.ok();
             delete_later(&aside);
             return Ok(());
         }
@@ -657,7 +678,7 @@ impl Core {
             return git::worktree_remove(repo, path).await;
         }
         tokio::fs::remove_dir_all(path).await?;
-        git::git(repo, &["worktree", "prune"]).await.ok();
+        git::worktree_prune(repo).await.ok();
         Ok(())
     }
 

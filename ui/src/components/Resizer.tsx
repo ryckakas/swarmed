@@ -33,11 +33,13 @@ interface Props {
     limits: WidthLimits;
     /** Which side of the window the panel is on; dragging away from it widens the panel. */
     side: "left" | "right";
+    /** Where the edge sits, when it is not at a side of the window. */
+    className?: string;
     onResize(width: number): void;
 }
 
 /** The edge of a panel: drag it or use the arrow keys to resize, double-click to reset. */
-export function Resizer({ label, width, limits, side, onResize }: Props) {
+export function Resizer({ label, width, limits, side, className, onResize }: Props) {
     const drag = useRef<{ startX: number; startWidth: number } | null>(null);
     const direction = side === "left" ? 1 : -1;
 
@@ -66,7 +68,7 @@ export function Resizer({ label, width, limits, side, onResize }: Props) {
     return (
         // biome-ignore lint/a11y/useSemanticElements: an <hr> cannot be dragged or focused
         <div
-            className={`resizer resizer-${side}`}
+            className={`resizer ${className ?? `resizer-${side}`}`}
             role="separator"
             aria-orientation="vertical"
             aria-label={label}

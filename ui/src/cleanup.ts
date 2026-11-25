@@ -12,6 +12,7 @@ export const CLEANUP_KINDS: CleanupKind[] = [
     "stale",
     "snapshots",
     "checkpoints",
+    "browsers",
 ];
 
 /** How a kind is named in its line, and in the dialog that asks before deleting it. */
@@ -64,6 +65,13 @@ export function kindWording(kind: CleanupKind, words: Words): KindWording {
                 detail: "what their turns changed",
                 title: `Delete checkpoints of removed ${tasks}?`,
                 what: `Swarmed kept these to show what each turn changed. Their ${tasks} are gone, so nothing shows them any more. ${FOR_GOOD}`,
+            };
+        case "browsers":
+            return {
+                label: `Browsers of removed ${tasks}`,
+                detail: "what was signed in to there",
+                title: `Delete the browsers of removed ${tasks}?`,
+                what: `Each held the cookies, logins and downloads of a ${task}'s own Chrome. Their ${tasks} are gone, so nothing opens them any more. ${FOR_GOOD}`,
             };
     }
 }
@@ -146,11 +154,12 @@ const SINCE: Record<CleanupKind, string> = {
     stale: "changed",
     snapshots: "taken",
     checkpoints: "changed",
+    browsers: "changed",
 };
 
 /** The task an item was, or was taken from. */
 function origin(kind: CleanupKind, item: CleanupItem): string | null {
-    if (item.task === null || kind === "removed" || kind === "checkpoints") {
+    if (item.task === null || kind === "removed" || kind === "checkpoints" || kind === "browsers") {
         return null;
     }
     return kind === "snapshots" ? `from ${item.task}` : `of ${item.task}`;

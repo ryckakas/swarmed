@@ -11,19 +11,20 @@ function decoded(data: string): Uint8Array {
 
 /**
  * Pasted images as the core keeps them, in memory: each checked, named by a number in the
- * session's own folder, and read back only from there.
+ * session's own folder, and read back only from there, as are those the agent's tools
+ * `returned`.
  */
-export function mockImagesApi(): Pick<
-    Api,
-    "sessionImagesKeep" | "sessionImage" | "sessionImageOpen" | "attachmentsRoot"
-> {
+export function mockImagesApi(
+    returned: ReadonlyMap<string, string> = new Map(),
+): Pick<Api, "sessionImagesKeep" | "sessionImage" | "sessionImageOpen" | "attachmentsRoot"> {
     const kept = new Map<string, string>();
     const counts = new Map<number, number>();
     const shown = (id: number, path: string): string => {
         const folder = imageFolder(MOCK_ATTACHMENTS, id);
-        const image = path.startsWith(`${folder}/`) ? kept.get(path) : undefined;
+        const inside = path.startsWith(`${folder}/`);
+        const image = inside ? (kept.get(path) ?? returned.get(path)) : undefined;
         if (image === undefined) {
-            throw new Error(`${path} is not an image pasted into this session`);
+            throw new Error(`${path} is not an image kept for this session`);
         }
         return image;
     };

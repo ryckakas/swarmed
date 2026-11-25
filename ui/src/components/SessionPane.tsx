@@ -10,7 +10,7 @@ import { useWords } from "../useWords";
 import { capitalized } from "../wording";
 import { CarryOnButton } from "./CarryOnDialog";
 import { Composer } from "./Composer";
-import { CloudIcon, EndIcon, ForkIcon, IconButton, PanelIcon } from "./IconButton";
+import { CloudIcon, EndIcon, ForkIcon, GlobeIcon, IconButton, PanelIcon } from "./IconButton";
 import { NewTask } from "./NewTask";
 import { CLAUDE, useAgents, useSendsToBackground } from "./options";
 import { Picker } from "./Picker";
@@ -92,6 +92,7 @@ export function SessionPane() {
                         <ForkIcon />
                     </IconButton>
                     <HandOn session={session} project={home.project} task={home.task} />
+                    <BrowserButton running={home.task.browser} />
                     {!panelOpen && (
                         <IconButton
                             label={`Show the ${words.terms.task} panel`}
@@ -144,6 +145,22 @@ export function SessionPane() {
                 events={events ?? NO_EVENTS}
             />
         </article>
+    );
+}
+
+/** Shows or hides the task's own browser beside the conversation; marked while it runs. */
+function BrowserButton({ running }: { running: boolean }) {
+    const words = useWords();
+    const open = useStore((state) => state.browserOpen);
+    const toggleBrowser = useStore((state) => state.toggleBrowser);
+    const what = `the ${words.terms.task}'s own browser`;
+    const label = open ? `Hide ${what}` : `Show ${what}${running ? ", which runs" : ""}`;
+    return (
+        <span className="browser-button" data-running={running} data-open={open}>
+            <IconButton label={label} onClick={() => toggleBrowser()}>
+                <GlobeIcon />
+            </IconButton>
+        </span>
     );
 }
 

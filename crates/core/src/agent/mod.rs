@@ -24,6 +24,7 @@ pub use self::fake::FakeBackend;
 use crate::error::Result;
 use crate::mcp::McpServer;
 use crate::queue::QueuedMessage;
+use crate::returned::Returned;
 use crate::secrets::SecretEnv;
 
 /// How much the agent may do without asking.
@@ -398,10 +399,20 @@ pub enum AgentEvent {
     ToolResult {
         /// The [`AgentEvent::ToolUse`] this answers.
         tool_use_id: String,
-        /// The result, flattened to text.
+        /// The result, flattened to text. Where it held an image, this says `[image]`, or why
+        /// the image was not kept.
         content: String,
         /// Whether the tool reported a failure.
         is_error: bool,
+        /// The images it returned that were kept, in order: files in the session's own folder,
+        /// beside its pasted images. Absent from what was recorded before this, and from every
+        /// result that returned none.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<PathBuf>,
+        /// The images it returned, as a backend read them, until the core keeps them and lists
+        /// them in `images`. Never stored or published.
+        #[serde(skip)]
+        returned: Vec<Returned>,
     },
     /// The agent wants to do something that needs a decision.
     PermissionRequest {

@@ -2261,6 +2261,11 @@ code {
     color: var(--text);
 }
 
+.icon-button[aria-pressed="true"] {
+    background: color-mix(in srgb, var(--sky) 18%, transparent);
+    color: var(--sky);
+}
+
 .icon-button-danger {
     color: var(--clay);
 }
@@ -2269,6 +2274,12 @@ code {
 .icon-button-danger:focus-visible {
     background: color-mix(in srgb, var(--clay) 16%, transparent);
     color: var(--clay);
+}
+
+.icon-button:disabled {
+    background: none;
+    color: var(--faint);
+    opacity: 0.5;
 }
 
 /* Status marks: a shape per status, so colour is never the only signal. */
@@ -2732,6 +2743,75 @@ code {
 
 .tool-run-calls > li + li {
     border-top: 1px solid var(--line);
+}
+
+/*
+ * The images a tool returned, in a row under its call or its folded run, inside its frame.
+ * Each takes its room at once, so that the transcript does not move once it is read.
+ */
+.tool-images {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0 var(--space-3) var(--space-2);
+    list-style: none;
+}
+
+.tool-image {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 128px;
+    height: 80px;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--dusk);
+    cursor: zoom-in;
+}
+
+.tool-image img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    /* A page is told by its top: its header and what is first on it. */
+    object-position: top;
+}
+
+.tool-image:focus-visible {
+    outline-offset: 2px;
+}
+
+/* The turn's last image, at the end of its reply: larger, and whole. */
+.tool-image-large {
+    width: min(100%, 420px);
+    height: auto;
+    aspect-ratio: 16 / 10;
+}
+
+.tool-image-large img {
+    object-fit: contain;
+}
+
+.tool-image-gone {
+    color: var(--faint);
+    font-size: var(--text-xs);
+    cursor: default;
+}
+
+/* A kept image shown large: whole, as large as the dialog lets it be. */
+.image-large {
+    display: flex;
+    justify-content: center;
+}
+
+.image-large img {
+    max-width: 100%;
+    max-height: 70vh;
+    object-fit: contain;
 }
 
 /* The last line while the agent is busy: proof that the message was taken and work goes on. */
@@ -4697,6 +4777,45 @@ code {
 
 .github-chip[data-state="closed"] {
     border-style: dashed;
+}
+
+/* An element picked in the task's browser, where its token stood: its picture, small. */
+.element-chip {
+    max-width: 40ch;
+}
+
+.element-thumb {
+    height: 1.3em;
+    max-width: 5em;
+    margin-right: var(--space-1);
+    border-radius: 3px;
+    object-fit: contain;
+    vertical-align: text-bottom;
+}
+
+/* The same, large, with what was read of it. */
+.element-picture {
+    display: block;
+    max-width: 100%;
+    max-height: 50vh;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+}
+
+.element-said {
+    margin-top: var(--space-3);
+}
+
+.element-html {
+    margin-top: var(--space-3);
+}
+
+.element-html pre {
+    max-height: 30vh;
+    overflow: auto;
+    font-size: var(--text-xs);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
 }
 
 /* Sessions a message mentions that its words do not name, as on the command line: under it. */
@@ -6890,4 +7009,373 @@ kbd {
 
 .setup-line .incubating {
     flex: none;
+}
+
+/* The conversation, and beside it the task's browser when that is open. */
+.main-body {
+    flex: 1;
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+}
+
+.main-column {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+}
+
+/* The browser's edge is in the flow, between the conversation and the browser. */
+.resizer.resizer-browser {
+    position: relative;
+    flex: none;
+    margin: calc(var(--titlebar-height) * -1) -4px 0 -3px;
+}
+
+.browser-pane {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    /* As wide as asked for, as long as the conversation keeps a readable width. */
+    width: max(320px, min(var(--browser-width), 100% - 360px));
+    min-height: 0;
+    margin-top: calc(var(--titlebar-height) * -1);
+    border-left: 1px solid var(--line);
+    background: var(--panel);
+}
+
+.browser-head {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-height: var(--titlebar-height);
+    padding: var(--space-1) var(--space-2) 0;
+}
+
+.browser-tabs {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.browser-tab {
+    flex: 0 1 180px;
+    display: flex;
+    align-items: center;
+    min-width: 72px;
+    border-radius: 6px 6px 0 0;
+    color: var(--muted);
+}
+
+.browser-tab[data-shown="true"] {
+    background: var(--raised);
+    color: var(--text);
+}
+
+.browser-tab > button:first-child {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+    padding: var(--space-1) var(--space-2);
+    overflow: hidden;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-size: var(--text-sm);
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.browser-tab .icon-button {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    opacity: 0.6;
+}
+
+.browser-loading {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--busy);
+    animation: browser-loading 900ms ease-in-out infinite alternate;
+}
+
+/* A tab an agent's browser tools acted in. */
+.browser-agent {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--sky);
+}
+
+/*
+ * While an element is picked: what a click does, and how to stop. Over the page's foot rather
+ * than above it, so that the page does not move under the pointer, and clicks pass through it.
+ */
+.browser-picking {
+    position: absolute;
+    right: var(--space-2);
+    bottom: var(--space-2);
+    left: var(--space-2);
+    margin: 0;
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--panel) 92%, transparent);
+    color: var(--text);
+    font-size: var(--text-xs);
+    pointer-events: none;
+}
+
+.browser-page[data-picking="true"] {
+    cursor: crosshair;
+}
+
+.browser-actor {
+    flex: none;
+    margin: 0;
+    padding: var(--space-1) var(--space-3);
+    border-bottom: 1px solid var(--line);
+    color: var(--muted);
+    font-size: var(--text-xs);
+    overflow-wrap: anywhere;
+}
+
+@keyframes browser-loading {
+    from {
+        opacity: 0.3;
+    }
+}
+
+.browser-bar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: var(--space-1) var(--space-2);
+    border-bottom: 1px solid var(--line);
+    background: var(--raised);
+}
+
+.browser-address {
+    flex: 1;
+    min-width: 0;
+    margin: 0 var(--space-1);
+    padding: 3px var(--space-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--text);
+    font-size: var(--text-sm);
+}
+
+.browser-problem,
+.browser-dialog {
+    flex: none;
+    margin: 0;
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--line);
+    font-size: var(--text-sm);
+}
+
+.browser-problem {
+    color: var(--clay);
+}
+
+.browser-dialog {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    background: var(--pollen-wash);
+}
+
+.browser-dialog-message {
+    flex: 1 1 100%;
+    margin: 0;
+    white-space: pre-wrap;
+}
+
+.browser-dialog-buttons {
+    display: flex;
+    gap: var(--space-2);
+    margin-left: auto;
+}
+
+/* The page itself: a picture Chrome sent, which the pointer and keys act on. */
+.browser-page {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    background: #ffffff;
+    cursor: default;
+    touch-action: none;
+}
+
+.browser-page[data-empty="true"] {
+    background: var(--panel);
+}
+
+.browser-page img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: top left;
+    user-select: none;
+    pointer-events: none;
+}
+
+/* Takes the keys and what is pasted or composed for the page, out of sight. */
+.browser-keys {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    border: 0;
+    opacity: 0;
+    resize: none;
+    pointer-events: none;
+}
+
+.browser-page:has(.browser-keys:focus-visible) {
+    outline: 2px solid var(--focus);
+    outline-offset: -2px;
+}
+
+.browser-standing {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: var(--space-3);
+    margin: 0;
+    padding: var(--space-6);
+    background: var(--panel);
+    color: var(--muted);
+    user-select: text;
+}
+
+.browser-said {
+    margin: 0;
+}
+
+.browser-console {
+    flex: none;
+    max-height: 40%;
+    overflow: auto;
+    border-top: 1px solid var(--line);
+    font-size: var(--text-sm);
+}
+
+.browser-console summary {
+    position: sticky;
+    top: 0;
+    display: flex;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-3);
+    background: var(--panel);
+    color: var(--muted);
+    cursor: default;
+}
+
+.browser-console-count {
+    color: var(--clay);
+}
+
+.browser-console > .aside {
+    margin: 0;
+    padding: var(--space-1) var(--space-3) var(--space-2);
+}
+
+.browser-console-lines {
+    margin: 0;
+    padding: 0 0 var(--space-2);
+    list-style: none;
+    font-size: var(--text-xs);
+    user-select: text;
+}
+
+.browser-console-line {
+    display: flex;
+    gap: var(--space-2);
+    padding: 1px var(--space-3);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.browser-console-time {
+    flex: none;
+    color: var(--faint);
+}
+
+.browser-console-line[data-level="warning"] {
+    color: var(--pollen);
+}
+
+.browser-console-line[data-level="error"] {
+    color: var(--clay);
+}
+
+.browser-console-line[data-level="debug"] {
+    color: var(--faint);
+}
+
+.browser-foot {
+    flex: none;
+    margin: 0;
+    padding: var(--space-1) var(--space-3) var(--space-2);
+    border-top: 1px solid var(--line);
+    color: var(--faint);
+    font-size: var(--text-xs);
+    overflow-wrap: anywhere;
+}
+
+/* The session's browser button is marked while the task's browser runs. */
+.browser-button {
+    position: relative;
+    display: inline-grid;
+}
+
+.browser-button[data-running="true"]::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--busy);
+    pointer-events: none;
+}
+
+.browser-button[data-open="true"] .icon-button {
+    color: var(--text);
+}
+
+.browser-badge:disabled {
+    opacity: 1;
+}
+
+.browser-program {
+    width: min(28ch, 100%);
 }

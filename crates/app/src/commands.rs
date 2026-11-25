@@ -13,15 +13,16 @@ use serde::{Deserialize, Serialize};
 use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
     AccountUsage, Action, AgentInfo, AgentSetup, ApiKeyInfo, Attached, BackgroundOutput,
-    BackgroundTask, BranchChoices, Cleaned, Cleanup, CleanupKind, CloudOrigin, CloudProvider,
-    CloudTask, Core, Costs, CustomLayout, Environment, EnvironmentChoice, FileChange, FileDiff,
-    FileListing, FirstSession, GitHubItem, GitHubItems, Issue, IssueDetail, IssueFilter, IssueList,
-    McpServerInput, McpServerView, MergeMethod, MergeReport, MergeRules, MergeWhen, NewTaskOptions,
-    Project, ProjectOverview, Pull, PullDraft, QueuedMessage, Reachable, RemoveOptions,
-    RewindCheck, RewindDone, SearchHit, Session, SessionOptions, SessionSettings, Settings,
-    SetupLog, Skill, SlashCommand, Snapshot, Task, TaskNaming, TaskStarted, Template,
+    BackgroundTask, BranchChoices, BrowserGo, BrowserSetup, BrowserState, Cleaned, Cleanup,
+    CleanupKind, CloudOrigin, CloudProvider, CloudTask, ConsoleLine, Core, Costs, CustomLayout,
+    Environment, EnvironmentChoice, FileChange, FileDiff, FileListing, FirstSession, GitHubItem,
+    GitHubItems, Issue, IssueDetail, IssueFilter, IssueList, KeyInput, McpServerInput,
+    McpServerView, MergeMethod, MergeReport, MergeRules, MergeWhen, MouseInput, NewTaskOptions,
+    PickedElement, Project, ProjectOverview, Pull, PullDraft, QueuedMessage, Reachable,
+    RemoveOptions, RewindCheck, RewindDone, SearchHit, Session, SessionOptions, SessionSettings,
+    Settings, SetupLog, Skill, SlashCommand, Snapshot, Task, TaskNaming, TaskStarted, Template,
     TerminalConfig, TerminalOpened, Turn, TurnChanges, TurnStats, Unpublished, Usage, UsageAsk,
-    hooks,
+    Viewport, hooks,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -1140,22 +1141,26 @@ pub(crate) async fn session_send(
     files: Option<Vec<PathBuf>>,
     sessions: Option<Vec<i64>>,
     github: Option<Vec<u64>>,
+    elements: Option<Vec<u64>>,
 ) -> Command<()> {
-    let attached = attached(files, sessions, github);
+    let attached = attached(files, sessions, github, elements);
     Ok(core.session_message(id, &text, &attached, Auth::default())?)
 }
 
 /// What a message points the agent at besides its words, as the window sends it: the files
-/// attached, the sessions mentioned and the pull requests and issues, any left out for none.
+/// attached, the sessions mentioned, the pull requests and issues, and the elements picked in
+/// the task's browser, any left out for none.
 fn attached(
     files: Option<Vec<PathBuf>>,
     sessions: Option<Vec<i64>>,
     github: Option<Vec<u64>>,
+    elements: Option<Vec<u64>>,
 ) -> Attached {
     Attached {
         files: files.unwrap_or_default(),
         sessions: sessions.unwrap_or_default(),
         github: github.unwrap_or_default(),
+        elements: elements.unwrap_or_default(),
     }
 }
 
@@ -1240,8 +1245,9 @@ pub(crate) async fn session_message_now(
     files: Option<Vec<PathBuf>>,
     sessions: Option<Vec<i64>>,
     github: Option<Vec<u64>>,
+    elements: Option<Vec<u64>>,
 ) -> Command<()> {
-    let attached = attached(files, sessions, github);
+    let attached = attached(files, sessions, github, elements);
     Ok(core.session_message_now(id, &text, &attached, Auth::default())?)
 }
 
@@ -1258,12 +1264,17 @@ pub(crate) fn session_enqueue(
     files: Option<Vec<PathBuf>>,
     sessions: Option<Vec<i64>>,
     github: Option<Vec<u64>>,
+    elements: Option<Vec<u64>>,
 ) -> Command<Vec<QueuedMessage>> {
-    let attached = attached(files, sessions, github);
+    let attached = attached(files, sessions, github, elements);
     Ok(core.session_enqueue_message(id, &text, &attached)?)
 }
 
 #[tauri::command]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the window names each list a message points at, as every command that sends one"
+)]
 pub(crate) fn session_queue_edit(
     core: CoreState<'_>,
     id: i64,
@@ -1272,8 +1283,9 @@ pub(crate) fn session_queue_edit(
     files: Option<Vec<PathBuf>>,
     sessions: Option<Vec<i64>>,
     github: Option<Vec<u64>>,
+    elements: Option<Vec<u64>>,
 ) -> Command<Vec<QueuedMessage>> {
-    let attached = attached(files, sessions, github);
+    let attached = attached(files, sessions, github, elements);
     Ok(core.session_queue_edit_message(id, message, &text, &attached)?)
 }
 
@@ -1631,4 +1643,157 @@ pub(crate) fn session_close(core: CoreState<'_>, id: i64) -> Command<()> {
 #[tauri::command]
 pub(crate) fn session_delete(core: CoreState<'_>, id: i64) -> Command<()> {
     Ok(core.session_delete(id)?)
+}
+
+/// The browser a task's Chrome runs on, or what would install one.
+#[tauri::command(async)]
+pub(crate) fn browser_setup(core: CoreState<'_>) -> Command<BrowserSetup> {
+    Ok(core.browser_setup()?)
+}
+
+/// Installs a browser for the tasks. What the installer prints reaches the UI the way hook
+/// output does.
+#[tauri::command]
+pub(crate) async fn browser_install<R: Runtime>(
+    app: AppHandle<R>,
+    core: CoreState<'_>,
+) -> Command<BrowserSetup> {
+    let sink = hook_sink(&app, "", "browser");
+    Ok(core.browser_install(&sink).await?)
+}
+
+/// A task's browser as the pane shows it, without starting it.
+#[tauri::command(async)]
+pub(crate) fn browser_state(core: CoreState<'_>, task_id: i64) -> Command<BrowserState> {
+    Ok(core.browser_state(task_id)?)
+}
+
+/// Starts a task's browser, or connects to the one that runs.
+#[tauri::command]
+pub(crate) async fn browser_open(core: CoreState<'_>, task_id: i64) -> Command<BrowserState> {
+    Ok(core.browser_open(task_id).await?)
+}
+
+/// Stops a task's browser. Its profile stays.
+#[tauri::command]
+pub(crate) async fn browser_stop(core: CoreState<'_>, task_id: i64) -> Command<()> {
+    Ok(core.browser_stop(task_id).await?)
+}
+
+/// Shows a tab in the pane, at the room the pane gives it: its pictures come from now on.
+#[tauri::command]
+pub(crate) async fn browser_show(
+    core: CoreState<'_>,
+    task_id: i64,
+    tab: Option<String>,
+    viewport: Viewport,
+) -> Command<BrowserState> {
+    Ok(core.browser_show(task_id, tab.as_deref(), viewport).await?)
+}
+
+/// The pane is off screen: no more pictures.
+#[tauri::command]
+pub(crate) async fn browser_hide(core: CoreState<'_>, task_id: i64) -> Command<()> {
+    Ok(core.browser_hide(task_id).await?)
+}
+
+/// What the mouse did on the picture. Not `async`: clicks and keys go in the order they came.
+#[tauri::command]
+pub(crate) fn browser_mouse(core: CoreState<'_>, task_id: i64, input: MouseInput) -> Command<()> {
+    Ok(core.browser_mouse(task_id, &input)?)
+}
+
+/// A key on the picture, in order with the clicks.
+#[tauri::command]
+pub(crate) fn browser_key(core: CoreState<'_>, task_id: i64, input: KeyInput) -> Command<()> {
+    Ok(core.browser_key(task_id, &input)?)
+}
+
+/// Text pasted or composed on the picture, in order with the keys.
+#[tauri::command]
+pub(crate) fn browser_text(core: CoreState<'_>, task_id: i64, text: String) -> Command<()> {
+    Ok(core.browser_text(task_id, &text)?)
+}
+
+/// Sends a tab to an address, back, forward, again, or stops it.
+#[tauri::command]
+pub(crate) async fn browser_go(
+    core: CoreState<'_>,
+    task_id: i64,
+    tab: String,
+    go: BrowserGo,
+) -> Command<()> {
+    Ok(core.browser_go(task_id, &tab, &go).await?)
+}
+
+/// Opens a tab, on an address or empty. Returns its id.
+#[tauri::command]
+pub(crate) async fn browser_tab_new(
+    core: CoreState<'_>,
+    task_id: i64,
+    url: Option<String>,
+) -> Command<String> {
+    Ok(core.browser_tab_new(task_id, url.as_deref()).await?)
+}
+
+/// Closes a tab.
+#[tauri::command]
+pub(crate) async fn browser_tab_close(
+    core: CoreState<'_>,
+    task_id: i64,
+    tab: String,
+) -> Command<()> {
+    Ok(core.browser_tab_close(task_id, &tab).await?)
+}
+
+/// Answers the dialog a tab opened.
+#[tauri::command]
+pub(crate) async fn browser_dialog(
+    core: CoreState<'_>,
+    task_id: i64,
+    tab: String,
+    accept: bool,
+    text: Option<String>,
+) -> Command<()> {
+    Ok(core
+        .browser_dialog(task_id, &tab, accept, text.as_deref())
+        .await?)
+}
+
+/// What a tab logged that is kept, oldest first.
+#[tauri::command(async)]
+pub(crate) fn browser_console(
+    core: CoreState<'_>,
+    task_id: i64,
+    tab: String,
+) -> Command<Vec<ConsoleLine>> {
+    Ok(core.browser_console(task_id, &tab)?)
+}
+
+/// Puts the tab the pane shows into Chrome's inspect mode for a pick that goes to session
+/// `session_id`, and waits for the click: the element picked, or nothing if picking ended
+/// without one.
+#[tauri::command]
+pub(crate) async fn browser_pick(
+    core: CoreState<'_>,
+    task_id: i64,
+    session_id: i64,
+) -> Command<Option<PickedElement>> {
+    Ok(core.browser_pick(task_id, session_id).await?)
+}
+
+/// Ends picking in the task's browser without a pick.
+#[tauri::command]
+pub(crate) fn browser_pick_end(core: CoreState<'_>, task_id: i64) -> Command<()> {
+    Ok(core.browser_pick_end(task_id)?)
+}
+
+/// The elements picked for a session, by number, as they were kept: for showing one large.
+#[tauri::command(async)]
+pub(crate) fn session_elements(
+    core: CoreState<'_>,
+    id: i64,
+    numbers: Vec<u64>,
+) -> Command<Vec<PickedElement>> {
+    Ok(core.session_elements(id, &numbers)?)
 }

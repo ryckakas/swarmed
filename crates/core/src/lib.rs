@@ -18,6 +18,7 @@ mod analytics;
 mod asking;
 mod attach;
 mod background;
+mod browser;
 mod changes;
 mod chats;
 mod checkpoints;
@@ -70,6 +71,7 @@ mod put_away;
 mod queue;
 mod reach;
 mod remote;
+mod returned;
 mod rewind;
 mod search;
 pub mod secrets;
@@ -105,6 +107,12 @@ pub use agents::{AgentInfo, CLAUDE};
 pub use analytics::TurnStats;
 pub use attach::{ATTACHED_FILES, Attached, with_files};
 pub use background::{BackgroundOutput, BackgroundTask};
+pub use browser::{
+    BrowserEvent, BrowserGo, BrowserSetup, BrowserState, BrowserTab, ConsoleLevel, ConsoleLine,
+    ELEMENTS_PICKED, ElementBox, ElementStyle, FRAMES_A_SECOND, KeyInput, KeyKind, MAX_HTML_CHARS,
+    MAX_TEXT_CHARS, Modifiers, MouseInput, MouseKind, PageDialog, PickedElement, Viewport,
+    follow_browsers, with_elements,
+};
 pub use shellenv::learn_shell_path;
 
 pub use changes::{ChangeKind, FileChange, FileDiff};
@@ -154,6 +162,7 @@ pub use publish::{PullDraft, Unpublished};
 pub use pulls::{Check, CheckOutcome, Pull, PullState};
 pub use put_away::{DoneWhy, follow_put_away};
 pub use queue::QueuedMessage;
+pub use returned::{MAX_PER_RESULT, MAX_RETURNED_MB, Returned};
 pub use rewind::{RewindCheck, RewindDone};
 pub use search::SearchHit;
 pub use secrets::ApiKeyInfo;
@@ -176,7 +185,7 @@ pub use templates::Template;
 pub use termconfig::{Cursor, TerminalColour, TerminalColours, TerminalConfig, terminal_schema};
 use terminal::Terminals;
 pub use terminal::{TerminalOpened, TerminalOutput};
-pub use toolserver::{SERVER_NAME, SHOW_HTML, TOOL_SERVER_ARG, serve_tools};
+pub use toolserver::{SERVER_NAME, SHOW_BROWSER, SHOW_HTML, TOOL_SERVER_ARG, serve_tools};
 pub use usage::{ProcessUsage, SessionUsage, Usage, WorktreeUsage};
 pub use usage_copy::UsageAsk;
 pub use views::VIEW_POLICY;
@@ -220,6 +229,8 @@ pub struct Core {
     following: following::Following,
     /// What GitHub said each repository allows for merging (`merging.rs`).
     merging: merging::Merging,
+    /// The tasks' browsers this process is connected to (`browser.rs`).
+    browsers: Arc<browser::Browsers>,
 }
 
 /// The store is only ever locked for one short query, never across an `.await`. A panic while
@@ -266,6 +277,7 @@ impl Core {
             elsewhere: elsewhere::Elsewhere::default(),
             following: following::Following::default(),
             merging: merging::Merging::default(),
+            browsers: Arc::default(),
         })
     }
 

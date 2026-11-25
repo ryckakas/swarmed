@@ -937,3 +937,29 @@ describe("the menu bar", () => {
         stop();
     });
 });
+
+describe("a picked element's token", () => {
+    it("goes to the box of the session on screen, and to another's draft at its end", () => {
+        useStore.setState({
+            selectedSessionId: 4,
+            drafts: { 5: { text: "see", files: [], images: [] } },
+        });
+        const { placePick, takePick } = useStore.getState();
+        placePick(4, "[Element 1: li]");
+        expect(takePick(5)).toBeNull();
+        expect(takePick(4)).toBe("[Element 1: li]");
+        expect(takePick(4)).toBeNull();
+        placePick(5, "[Element 2: a]");
+        expect(useStore.getState().drafts[5]?.text).toBe("see [Element 2: a] ");
+    });
+
+    it("is no longer asked for once the Browser pane is closed", () => {
+        const { toggleBrowser, askToPick } = useStore.getState();
+        toggleBrowser(true);
+        askToPick(true);
+        toggleBrowser(true);
+        expect(useStore.getState().pickAsked).toBe(true);
+        toggleBrowser(false);
+        expect(useStore.getState().pickAsked).toBe(false);
+    });
+});

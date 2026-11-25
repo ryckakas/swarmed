@@ -430,7 +430,7 @@ async fn gone_within(stack: &mut Stack, limit: Duration) -> bool {
 ///
 /// `ps` words a time in the language and the time zone it is run in. Both are fixed here, so
 /// that whoever reads the time back gets the words that were written, whatever it runs in.
-fn started_at(pid: u32) -> Option<String> {
+pub(crate) fn started_at(pid: u32) -> Option<String> {
     let mut ps = Command::new("ps");
     ps.env("LC_ALL", "C").env("TZ", "UTC");
     start_time(ps, pid)
@@ -454,7 +454,7 @@ fn start_time(mut ps: Command, pid: u32) -> Option<String> {
 
 /// Whether there is a process `pid` that still runs. One that has ended and only waits for
 /// whoever started it to take note does not count.
-async fn alive(pid: u32) -> bool {
+pub(crate) async fn alive(pid: u32) -> bool {
     let asked = Signal::new("ps")
         .args(["-o", "stat=", "-p", &pid.to_string()])
         .stderr(Stdio::null())

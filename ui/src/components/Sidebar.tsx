@@ -2,6 +2,7 @@ import { type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
 import { addProject, moveRow, newSession, pinRow } from "../actions";
 import { api } from "../api";
 import type { CloudTask, Mark, Project, Session, Task } from "../api/types";
+import { sessionForBrowser } from "../browser";
 import { CHATS, chatsOf, repositoriesOf } from "../chats";
 import { cloudProvider, cloudTitle, cloudTone, cloudTooltip, isUnfinished } from "../cloud";
 import { taskTooltip } from "../environments";
@@ -34,7 +35,7 @@ import { useNow } from "../useNow";
 import { useWords } from "../useWords";
 import { withArticle, wordsFor } from "../wording";
 import { ForgetCloudDialog } from "./ForgetCloudDialog";
-import { CloseIcon, CloudIcon, PlusIcon, PlusMinusIcon } from "./IconButton";
+import { CloseIcon, CloudIcon, GlobeIcon, PlusIcon, PlusMinusIcon } from "./IconButton";
 import { Incubating } from "./Incubating";
 import { ProviderMark } from "./ProviderMark";
 import { PullBadge } from "./PullRequest";
@@ -357,6 +358,7 @@ function TaskGroup({ project, task, chat }: { project: string; task: Task; chat?
                 <Grip />
                 <TaskHeading task={task} folded={folded} chat={chat === true} />
                 <PinButton target={target} pinned={task.pinned} name={task.name} />
+                <BrowserBadge task={task} />
                 {!chat && <IssueBadge project={project} task={task} />}
                 {!chat && <PullBadge project={project} task={task} />}
                 {!chat && <CloudButton project={project} task={task.name} />}
@@ -658,6 +660,42 @@ function IssueBadge({ project, task }: { project: string; task: Task }) {
         >
             <IssueIcon />
             {task.issue}
+        </button>
+    );
+}
+
+/**
+ * A task whose own browser runs is marked so, as anything left running is: pressing the mark
+ * shows the browser beside one of the task's sessions.
+ */
+function BrowserBadge({ task }: { task: Task }) {
+    const words = useWords();
+    const selected = useStore((state) => state.selectedSessionId);
+    const open = useStore((state) => state.open);
+    const toggleBrowser = useStore((state) => state.toggleBrowser);
+    if (!task.browser) {
+        return null;
+    }
+    const session = sessionForBrowser(task, selected);
+    const label = `Its own browser runs, until it sits unused for a while or the ${words.terms.task} is put away: show it`;
+    const show = () => {
+        if (session !== null && session !== selected) {
+            void open(api, session);
+        }
+        toggleBrowser(true);
+    };
+    return (
+        <button
+            type="button"
+            className="issue-badge browser-badge"
+            title={label}
+            aria-label={label}
+            disabled={session === null}
+            onClick={show}
+        >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+                <GlobeIcon />
+            </svg>
         </button>
     );
 }

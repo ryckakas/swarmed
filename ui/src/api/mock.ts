@@ -5,6 +5,7 @@ import { calledCommand } from "../slash";
 import { PLAN_TOOL } from "../transcript";
 import { titleFrom } from "../tree";
 import type { Api } from "./client";
+import { browserApi, MockBrowsers } from "./mockBrowser";
 import { MOCK_COMMANDS, mockQuestions, mockSaid, mockScreen, mockScreenOnly } from "./mockCommands";
 import {
     CONTINUE_MESSAGE,
@@ -13,12 +14,13 @@ import {
     resetToWaitFor,
 } from "./mockContinuation";
 import { githubApi } from "./mockGithub";
-import { mockImagesApi } from "./mockImages";
+import { MOCK_ATTACHMENTS, mockImagesApi } from "./mockImages";
 import { issuesApi } from "./mockIssues";
 import { mentionsApi, messageFor } from "./mockMentions";
 import { mergeApi } from "./mockMerging";
 import { bringBack, putAwayApi } from "./mockPutAway";
 import { rewindApi } from "./mockRewind";
+import { mockCheck } from "./mockScreenshot";
 import { MockSetups, taskSetupApi } from "./mockSetups";
 import { turnsApi } from "./mockTurns";
 import { heardUsage, sampleAccountUsage } from "./mockUsage";
@@ -76,9 +78,10 @@ import type {
 // asks permission first, `ask` puts questions, `delegate` starts sub-agents, `show` answers
 // with an HTML view, `warn <percent>` ends its turn with a usage warning for the weekly window
 // that full (`warn <percent> <seconds>`: one that resets that soon), `limit <seconds>` ends its
-// turn refused by a 5-hour limit that resets that soon, `slow` runs until interrupted, and
+// turn refused by a 5-hour limit that resets that soon, `slow` runs until interrupted,
 // `long: <command>` runs a command the turn waits on until it is sent to the background or
-// stopped.
+// stopped, `screenshot` checks a page in a browser, whose last call returns an image, and
+// `browse` opens the task's browser with `show_browser` and acts in its own tab there.
 
 // `show` answers with this view: a chart in the app's colours, with buttons that redraw it.
 const SAMPLE_VIEW = `<style>
@@ -209,6 +212,7 @@ function chat(id: number, projectId: number, name: string, sessions: Session[]):
         urls: [],
         has_note: false,
         stack: null,
+        browser: false,
     };
 }
 
@@ -241,6 +245,8 @@ function task(id: number, projectId: number, name: string, sessions: Session[]):
         done_why: null,
         // One sample task was started for one of its repository's issues.
         issue: SAMPLE_ISSUES[name] ?? null,
+        // The task whose stack runs has its browser running too.
+        browser: SAMPLE_STACKS[id] === "running",
     };
 }
 
@@ -256,6 +262,7 @@ function doneTask(id: number, projectId: number, name: string, sessions: Session
         ...task(id, projectId, name, sessions),
         running: [],
         stack: null,
+        browser: false,
         done_at: Math.floor(Date.now() / 1000) - PUT_AWAY_AGO,
         done_why: "merged",
     };
@@ -464,6 +471,18 @@ const SAMPLE_CLEANUP: Cleanup = {
             at_risk: false,
         },
     ],
+    browsers: [
+        {
+            key: "/data/browsers/9",
+            project: "storefront",
+            name: "/data/browsers/9",
+            task: "old-checkout",
+            reason: "its task is gone; it holds what was signed in to in its browser",
+            bytes: 48_000_000,
+            since: NOW_SECONDS - 9 * DAY,
+            at_risk: false,
+        },
+    ],
 };
 
 /**
@@ -499,7 +518,9 @@ const SAMPLE_USAGE: Usage = {
     database_bytes: 4_700_000,
     events: 576,
     notes_bytes: 4100,
+    images_bytes: 2_300_000,
     checkpoints_bytes: 12_600_000,
+    browsers_bytes: 61_000_000,
     worktrees: [
         {
             project: "storefront",
@@ -1824,6 +1845,10 @@ class MockAgent {
     private usageFetchedAt: number | null = null;
     private readonly continuations = new MockContinuations((id) => this.continueNow(id));
     private nextId = 100;
+    /** The images the agent's tools returned, by path, as the core keeps them. */
+    readonly returned = new Map<string, string>();
+    /** The tasks' browsers, which `browse` acts in as an agent's browser tools would. */
+    browsers: MockBrowsers | null = null;
 
     constructor() {
         // The core follows pull requests and says what changed; here, one check fails.
@@ -2242,6 +2267,10 @@ class MockAgent {
             this.runLong(id, text.slice(5).trim());
         } else if (text.startsWith("show")) {
             this.showView(id, done);
+        } else if (text === "screenshot") {
+            this.checkInBrowser(id, done);
+        } else if (text === "browse") {
+            this.browse(id, done);
         } else if (text.startsWith("switch ")) {
             this.switchWorktree(id, text.slice(7).trim(), done);
         } else if (text.startsWith("elsewhere:")) {
@@ -2413,6 +2442,80 @@ class MockAgent {
     }
 
     /** Answers with an HTML view, written a line at a time as a real reply arrives. */
+    /**
+     * Checks a page in a browser, as an agent with Playwright MCP does: its last call returns
+     * a screenshot, which shows under the call and again at the end of the reply.
+     */
+    private checkInBrowser(id: number, done: AgentEvent) {
+        const check = mockCheck(`shot-${this.nextId++}`, `${MOCK_ATTACHMENTS}/${id}`);
+        this.returned.set(check.path, check.source);
+        check.events.forEach((event, at) => {
+            this.later(id, event, "working", at + 1);
+        });
+        const said =
+            "The settings page saves: the form shows the new values, with a notice under it.";
+        this.later(id, { type: "text", text: said }, "working", check.events.length + 1);
+        this.later(id, done, "idle", check.events.length + 2);
+    }
+
+    /**
+     * Looks at the shop in the task's browser as an agent with Playwright MCP does: opens it
+     * with `show_browser`, in a tab of its own that the pane goes to, then types and clicks
+     * there through its own browser tools.
+     */
+    private browse(id: number, done: AgentEvent) {
+        const task = (this.configure(id, {}) as Session).task_id;
+        const url = "localhost:5173/products";
+        const steps: [string, Record<string, unknown>, () => string][] = [
+            [
+                "mcp__swarmed__show_browser",
+                { url },
+                () => {
+                    const tab = this.browsers?.shownFor(task, id, url) ?? "";
+                    return `The task's browser is open beside the conversation, where the user sees it, on http://${url} (tab ${tab}).`;
+                },
+            ],
+            [
+                "mcp__playwright__browser_type",
+                { element: "Search products", text: "linen" },
+                () => {
+                    this.browsers?.actedFor(task, id, { type: "linen" });
+                    return "Typed into the search field.";
+                },
+            ],
+            [
+                "mcp__playwright__browser_click",
+                { element: "Linen shirt: 49 €" },
+                () => {
+                    this.browsers?.actedFor(task, id, { click: { x: 140, y: 182 } });
+                    return "Clicked the product.";
+                },
+            ],
+        ];
+        steps.forEach(([name, input, act], at) => {
+            const call = `browse-${this.nextId++}`;
+            this.later(id, { type: "tool_use", id: call, name, input }, "working", 2 * at + 1);
+            setTimeout(() => this.acted(id, call, act), PACE * (2 * at + 2));
+        });
+        const said =
+            "Searching the shop for linen finds the linen shirt, and its page opens. I did it in the task's browser beside us.";
+        this.later(id, { type: "text", text: said }, "working", 2 * steps.length + 1);
+        this.later(id, done, "idle", 2 * steps.length + 2);
+    }
+
+    /** What a browser tool did, as its call's result: what it says, or why it could not. */
+    private acted(id: number, call: string, act: () => string) {
+        let content: string;
+        let is_error = false;
+        try {
+            content = act();
+        } catch (error) {
+            content = String(error);
+            is_error = true;
+        }
+        this.publish(id, { type: "tool_result", tool_use_id: call, content, is_error }, "working");
+    }
+
     private showView(id: number, done: AgentEvent) {
         const reply = `Here is what was invoiced in each of the last six months.\n\n\`\`\`html-view\n${SAMPLE_VIEW}\n\`\`\`\n\nNovember is the highest so far.`;
         const lines = reply.split(/(?<=\n)/);
@@ -3145,6 +3248,14 @@ function remoteAsked(name: string, text: string): boolean {
     );
 }
 
+/** What a message points at besides its words, as the window hands it over: any left out. */
+interface Sent {
+    files: string[] | undefined;
+    sessions: number[] | undefined;
+    github: number[] | undefined;
+    elements: number[] | undefined;
+}
+
 export function createMockApi(): Api {
     const agent = new MockAgent();
     const tasks = () => agent.projects.flatMap((project) => project.tasks);
@@ -3159,7 +3270,7 @@ export function createMockApi(): Api {
         { name: "GEMINI_API_KEY", provider: "Google Gemini", stored: false },
     ];
     const environments = environmentApi();
-    const images = mockImagesApi();
+    const images = mockImagesApi(agent.returned);
     let customLayout: CustomLayout = { base: "classic" };
     let terminalConfig: TerminalConfig = {};
     let settings: Settings = {
@@ -3188,6 +3299,22 @@ export function createMockApi(): Api {
         put_away_idle: false,
         put_away_idle_days: 14,
         put_away_closes_sessions: false,
+        browser_program: "",
+        browser_idle_minutes: 30,
+    };
+    const browserHost = {
+        projects: () => agent.projects,
+        settings: () => settings,
+        publish: (id: number, event: AgentEvent) => agent.publish(id, event, null),
+        keepImage: (path: string, source: string) => agent.returned.set(path, source),
+    };
+    const browsers = new MockBrowsers(browserHost);
+    agent.browsers = browsers;
+    /** The message session `id` is sent for `text` with what is attached, as the core composes it. */
+    const composed = (id: number, text: string, attached: Sent) => {
+        const { files, sessions, github, elements } = attached;
+        const picked = browsers.listed(id, elements);
+        return messageFor(agent.projects, id, text, files, sessions, github, picked);
     };
     return {
         overview: async () => structuredClone(agent.projects),
@@ -3256,6 +3383,7 @@ export function createMockApi(): Api {
             publish: (id, event) => agent.publish(id, event, null),
             stop: (id) => agent.stopAgent(id),
         }),
+        ...browserApi(browsers, browserHost),
         ...putAwayApi({
             projects: () => agent.projects,
             settings: () => settings,
@@ -3393,22 +3521,22 @@ export function createMockApi(): Api {
         sessionForkInto: async (id, projectName, taskName) =>
             sampleForkInto(agent, tasks(), id, projectName, taskName),
         sessionEvents: async (id) => [...agent.history(id)],
-        sessionSend: async (id, text, files, sessions, github) =>
-            agent.send(id, messageFor(agent.projects, id, text, files, sessions, github)),
+        sessionSend: async (id, text, files, sessions, github, elements) =>
+            agent.send(id, composed(id, text, { files, sessions, github, elements })),
         ...mentionsApi(() => agent.projects),
         ...githubApi(),
-        sessionMessageNow: async (id, text, files, sessions, github) =>
-            agent.sendTypedNow(id, messageFor(agent.projects, id, text, files, sessions, github)),
+        sessionMessageNow: async (id, text, files, sessions, github, elements) =>
+            agent.sendTypedNow(id, composed(id, text, { files, sessions, github, elements })),
         sessionTellNow: async (id, message) => agent.tellNow(id, message),
         sessionQueue: async (id) => agent.queue(id),
-        sessionEnqueue: async (id, text, files, sessions, github) =>
-            agent.enqueue(id, messageFor(agent.projects, id, text, files, sessions, github)),
+        sessionEnqueue: async (id, text, files, sessions, github, elements) =>
+            agent.enqueue(id, composed(id, text, { files, sessions, github, elements })),
         // Nothing at all comes out empty, which takes the message out.
-        sessionQueueEdit: async (id, message, text, files, sessions, github) =>
+        sessionQueueEdit: async (id, message, text, files, sessions, github, elements) =>
             agent.editQueued(
                 id,
                 message,
-                messageFor(agent.projects, id, text, files, sessions, github),
+                composed(id, text, { files, sessions, github, elements }),
             ),
         sessionQueueHold: async (id, message) => agent.holdQueued(id, message),
         sessionQueueLetGo: async (id, message) => agent.letGoQueued(id, message),

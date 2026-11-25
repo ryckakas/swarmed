@@ -2,10 +2,12 @@
 //! output.
 //!
 //! Each front end's executable becomes this server when started with [`TOOL_SERVER_ARG`], and
-//! every agent is given it under the name [`SERVER_NAME`]. The one tool, [`SHOW_HTML`], does
-//! nothing here: its call is part of the conversation, which is where a front end finds the HTML
-//! and shows it. It exists because an agent asked for something visual goes looking for a tool,
-//! and should find one that puts the result in the conversation.
+//! every agent is given it under the name [`SERVER_NAME`]. [`SHOW_HTML`] does nothing here: its
+//! call is part of the conversation, which is where a front end finds the HTML and shows it. It
+//! exists because an agent asked for something visual goes looking for a tool, and should find
+//! one that puts the result in the conversation. [`SHOW_BROWSER`] beside it opens the task's
+//! browser for the user, for the same reason: an agent asked to look at a page should find the
+//! browser the user sees, not launch one. The rest are answered by the core.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
@@ -20,6 +22,9 @@ pub const TOOL_SERVER_ARG: &str = "tool-server";
 pub const SERVER_NAME: &str = "swarmed";
 /// The tool that shows HTML to the user in the conversation. Its input has the HTML as `html`.
 pub const SHOW_HTML: &str = "show_html";
+/// The tool that opens the task's browser beside the conversation. Answered by the core, as the
+/// session tools are, but not at once: the browser may have to start first.
+pub const SHOW_BROWSER: &str = "show_browser";
 /// The tool that hands work to a cloud agent. Answered by the core, as the session tools are,
 /// but not at once: the provider is asked first.
 pub(crate) const DELEGATE_TO_CLOUD: &str = "delegate_to_cloud";
@@ -91,7 +96,9 @@ fn local_tools() -> Value {
             },
             "required": ["html"],
         },
-    }, {
+    },
+    show_browser_tool(),
+    {
         "name": "list_sessions",
         "title": "List the user's other agent sessions",
         "description": "Lists the agent sessions the user has open in this project, yours \
@@ -149,6 +156,33 @@ fn local_tools() -> Value {
             "required": ["session_id"],
         },
     }])
+}
+
+/// The tool that opens the task's browser for the user.
+fn show_browser_tool() -> Value {
+    json!({
+        "name": SHOW_BROWSER,
+        "title": "Show the task's browser beside the conversation",
+        "description": "Opens the task's own browser where the user sees it, beside the \
+            conversation: a Chrome with a profile of the task's own, so what the user signed in \
+            to there stays signed in. Pass an address to open it on, or none for the task's \
+            running app. It opens in a tab of yours, starting the browser if it is not running, \
+            and answers with its address for browser tools, its tabs, and how to act in yours. \
+            Use it instead of launching a browser or opening a window of your own. It only \
+            shows: clicking, typing, reading the page and screenshots are for browser tools \
+            connected to its address (Playwright MCP, Chrome DevTools MCP), or for a script \
+            that connects to it; the address is in SWARMED_BROWSER.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "Where to go, such as http://localhost:3000/cart; the task's \
+                        running app if left out.",
+                },
+            },
+        },
+    })
 }
 
 /// The tool an agent reads another session with: its latest messages, or from one on.
@@ -526,6 +560,7 @@ mod tests {
         assert_eq!(said[0]["result"]["protocolVersion"], "2025-03-26");
         assert_eq!(said[0]["result"]["serverInfo"]["name"], SERVER_NAME);
         assert_eq!(said[1]["result"]["tools"][0]["name"], SHOW_HTML);
+        assert_eq!(said[1]["result"]["tools"][1]["name"], SHOW_BROWSER);
         assert_eq!(
             said[1]["result"]["tools"][0]["inputSchema"]["required"],
             json!(["html"])

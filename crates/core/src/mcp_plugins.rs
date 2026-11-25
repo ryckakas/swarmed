@@ -9,7 +9,7 @@
 //! Only plugins installed for the user count, and not the ones the user switched off.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
@@ -21,6 +21,28 @@ const ROOT: &str = "${CLAUDE_PLUGIN_ROOT}";
 /// The servers of every plugin in use, by name. Where two plugins name a server alike, the
 /// plugin that comes later by its id has it.
 pub(crate) fn plugin_servers(claude_home: &Path) -> Vec<McpServer> {
+    let mut by_name = BTreeMap::new();
+    for (_, root) in in_use(claude_home) {
+        by_name.extend(servers_in(&root));
+    }
+    by_name.into_values().collect()
+}
+
+/// The servers of every plugin in use, each by the name Claude Code starts it under:
+/// `plugin:<plugin>:<server>`.
+pub(crate) fn plugin_servers_as_claude_code_names_them(claude_home: &Path) -> Vec<McpServer> {
+    let mut named = Vec::new();
+    for (plugin, root) in in_use(claude_home) {
+        for (server, mut found) in servers_in(&root) {
+            found.name = format!("plugin:{plugin}:{server}");
+            named.push(found);
+        }
+    }
+    named
+}
+
+/// The plugins in use, each by its name and where it is installed for the user.
+fn in_use(claude_home: &Path) -> Vec<(String, PathBuf)> {
     let installed = read(&claude_home.join("plugins").join("installed_plugins.json"));
     let settings = read(&claude_home.join("settings.json"));
     let off = |id: &str| {
@@ -30,12 +52,22 @@ pub(crate) fn plugin_servers(claude_home: &Path) -> Vec<McpServer> {
             == Some(&Value::Bool(false))
     };
     let plugins = installed.get("plugins").and_then(Value::as_object);
-    let mut by_name = BTreeMap::new();
     let in_use = plugins.into_iter().flatten().filter(|(id, _)| !off(id));
-    for root in in_use.flat_map(|(_, installs)| user_installs(installs)) {
-        by_name.extend(servers_in(Path::new(root)));
+    let mut found = Vec::new();
+    for (id, installs) in in_use {
+        for root in user_installs(installs).map(PathBuf::from) {
+            found.push((plugin_name(id, &root), root));
+        }
     }
-    by_name.into_values().collect()
+    found
+}
+
+/// A plugin's name: as its manifest gives it, else its id without the marketplace.
+fn plugin_name(id: &str, root: &Path) -> String {
+    let manifest = read_in(root, ".claude-plugin/plugin.json");
+    let named = manifest.get("name").and_then(Value::as_str);
+    let short = id.split_once('@').map_or(id, |(name, _)| name);
+    named.unwrap_or(short).to_string()
 }
 
 /// Where a plugin is installed for the user, as against for one project.
@@ -178,6 +210,23 @@ mod tests {
             env: BTreeMap::new(),
         };
         assert_eq!(servers[0].transport, expected);
+    }
+
+    #[test]
+    fn claude_code_names_a_plugins_servers_after_the_plugin() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        home(dir.path());
+        write(
+            &dir.path().join("cache/b/.claude-plugin/plugin.json"),
+            &json!({ "name": "bee", "mcpServers": ["./servers.json"] }),
+        );
+        let servers = plugin_servers_as_claude_code_names_them(dir.path());
+        let mut names: Vec<&str> = servers.iter().map(|server| server.name.as_str()).collect();
+        names.sort_unstable();
+        assert_eq!(
+            names,
+            ["plugin:a:both", "plugin:a:flat", "plugin:bee:named"]
+        );
     }
 
     #[test]

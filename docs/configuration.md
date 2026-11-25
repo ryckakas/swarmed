@@ -30,7 +30,8 @@ In the data directory:
 | `snapshots/` | snapshots, below, readable by you alone |
 | `checkpoints/<task id>/` | what each turn changed in a task's worktree, below; deleted with the task |
 | `spool/` | HTML views agents hand over through Swarmed's `show_html` tool |
-| `attachments/<session id>/` | images pasted into a session's messages, readable by you alone; deleted with the session |
+| `attachments/<session id>/` | images pasted into a session's messages, those its tools returned, and the elements picked for it in the task's browser with their pictures, readable by you alone; deleted with the session |
+| `browsers/<task id>/` | the task's browser: its Chrome's profile, what its pages downloaded and what Chrome printed, readable by you alone; deleted with the task |
 | `run/` | stacks' logs and what Swarmed is running |
 
 The app and the `swarmed` command write these. The TOML and JSON files may be edited by hand
@@ -189,7 +190,7 @@ and a branch's name is never read as a command. The same values are exported to 
 `SWARMED_WORKTREE`, `SWARMED_REPO` and `SWARMED_PORT_<NAME>`.
 
 The task's agents get `env` and the same `SWARMED_*` variables, so a skill can tell that it runs
-in a task's own worktree. Claude Code gets no variable whose name starts with `ANTHROPIC_` or
+in a task's own worktree, and `SWARMED_BROWSER`, the address of the task's browser. Claude Code gets no variable whose name starts with `ANTHROPIC_` or
 `CLAUDE`.
 
 ## Ports
@@ -376,6 +377,48 @@ something an agent left running in the background, a session another Swarmed run
 set to go on when a usage limit resets, or its setup. It tries again a minute later. Only the
 first Swarmed to arrive on the data directory applies the rules, while the app runs.
 
+## The task's browser
+
+Each task, and each chat, can have a Chrome of its own. The globe in a session's header shows
+it in the **Browser** pane beside the conversation, whose edge widens it; a task whose browser
+runs has a globe in the sidebar as well.
+
+- **Which browser.** The first of Google Chrome, Chromium, Microsoft Edge and Brave that is
+  installed, or the program `browser_program` names. With none, the pane offers to install
+  Google Chrome with Homebrew (`brew install --cask google-chrome`), and shows the command
+  before it runs. Homebrew's Chromium is no longer installable: it does not pass the Mac's
+  Gatekeeper.
+- **A profile of its own.** Chrome runs on `browsers/<task id>/profile` in the data
+  directory, not on your own browser's profile, so cookies, storage and logins are the task's:
+  a login on `localhost:3000` in one task is not sent to another's `localhost:3100`. They
+  outlast restarts and are deleted with the task; the clean-up lists the folder of a task that
+  is gone. What its pages download goes to `browsers/<task id>/downloads`, which the pane names.
+- **Without a window.** Chrome runs headless; the pane draws pictures of the page it shows,
+  asked for only while the pane is on screen, at most 15 a second, and never kept. Your clicks,
+  the wheel and your keys go to the page; ⌘V pastes your clipboard's text into it, and text
+  composed with an input method arrives when it is done. Chrome's own clipboard is not yours,
+  so ⌘C copies within the page only. **Open in browser** opens the address in your own
+  browser, whose cookies are not the task's.
+- **Started when used**, when the pane opens, when an agent's browser tools first connect to
+  its session's address, or by `swarmed task browser <repository> <task>`, which prints where
+  its DevTools endpoint answers (`http://127.0.0.1:<port>`, and the browser's WebSocket), for
+  tools that drive a browser. It opens on the task's stack when that answers. One Chrome serves
+  all of a task's sessions.
+- **Agents act in it** with their own browser tools, which Swarmed points at it: Playwright MCP
+  and Chrome DevTools MCP, or a script that connects to `SWARMED_BROWSER`. Each tab says which
+  session last acted in it, and the pane goes to the tab an agent works in. See
+  [The task's browser and your browser tools](coding-agents.md#the-tasks-browser-and-your-browser-tools).
+- **Stopped** when its task is put away or removed, when Swarmed quits, and after it sat
+  unused for `browser_idle_minutes`; the power button in the pane, or `swarmed task browser
+  --stop`, stops it at once. A browser the command line started runs on after the command
+  ends, until one of those happens; while the app runs, its unused time counts from when the
+  app found it.
+- **Its console** lists what the page logged and the errors it did not catch, the latest 500
+  lines per tab. Nothing of it is logged by Swarmed.
+- **Pick** points the agent at an element of the page: Chrome's inspect mode outlines what is
+  under the pointer, and a click puts the element into the message box with its picture. See
+  [Pointing at an element of the page](coding-agents.md#pointing-at-an-element-of-the-page).
+
 ## Settings
 
 Set in the app's Settings, kept in `settings.toml`.
@@ -393,6 +436,8 @@ Set in the app's Settings, kept in `settings.toml`.
 | `tool_calls` | `folded` | how agents' tool calls show in a conversation: `all`, each on its own line; `folded`, the calls that follow each other in one line that counts them and names the last; `hidden`, none, with a larger animation while the agent works. Permission requests, questions, plans and views always show |
 | `turn_end_lines` | `true` | whether a conversation draws a line where each turn ends, with how long it took and what was spent so far. A turn with nothing in it that spent nothing more has none either way, and a turn that failed or was stopped keeps its line even when this is `false`. What the agent loaded is said once, at the top, whatever this is |
 | `put_away_merged`, `put_away_idle` and their days, `put_away_closes_sessions` | off, 1, 14, `false` | putting finished tasks away by themselves; see [Finished tasks](#finished-tasks) |
+| `browser_program` | empty | the program a task's browser runs; empty for the first of Google Chrome, Chromium, Microsoft Edge and Brave installed. See [The task's browser](#the-tasks-browser) |
+| `browser_idle_minutes` | `30` | how long a task's browser may sit unused before it is stopped, up to 1440; 0 to leave it running |
 | `continue_after_limit` | `false` | whether a Claude Code session a usage limit stopped goes on by itself when the limit resets, for every refused turn, without being asked each time: it is sent "Continue where you stopped." then. Without it, the limit's line in the conversation offers it each time |
 | `limit_warnings` | `frequent` | which levels of the account's usage the notice at the top of the window says, in Claude Code sessions: `frequent`, every level (50%, 75% and 90% of a window used, a limit reached with extra usage paying, a limit that stops requests); `rare`, from 90% used; `none`, only requests stopped. Dismissed, the notice stays away until a higher level, until its window resets, or until a window first reported since, such as one model's weekly limit, reaches a level. The conversation says only a turn a limit stopped, and the usage coins show the same whatever it is |
 | `rules` | none | rules every agent is given, in every session |

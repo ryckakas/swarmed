@@ -11,6 +11,25 @@ use super::{
     RemoteState, ScreenKind, ScreenRow, ScreenSection, SessionSpec, Supervision, UsageLimit,
 };
 use crate::error::Result;
+use crate::mcp::McpTransport;
+use crate::returned::Taking;
+
+/// What `screenshot` returns: a PNG of two by two pixels.
+const SCREENSHOT: &str = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAE0lEQVR42mPQiDoBRAxA/OHDBwAlUgav0sDuFwAAAABJRU5ErkJggg==";
+
+/// What an MCP server runs, or where it is reached: never what its variables hold.
+fn run_by(server: &crate::mcp::McpServer) -> String {
+    match &server.transport {
+        McpTransport::Stdio { command, args, .. } => {
+            let words: Vec<&str> = std::iter::once(command)
+                .chain(args)
+                .map(String::as_str)
+                .collect();
+            words.join(" ")
+        }
+        McpTransport::Http { url, .. } => url.clone(),
+    }
+}
 
 /// A stand-in agent whose replies depend only on the user's message.
 ///
@@ -18,6 +37,8 @@ use crate::error::Result;
 /// - `run: <command>`: asks permission for a `Bash` tool call, then reports the outcome; a stop
 ///   meanwhile takes the request back and ends the turn;
 /// - `env: <NAME>`: replies with the value of that variable as given for the session, or `unset`;
+/// - `mcp: <name>`: replies with the command and arguments of the MCP server of that name it
+///   was given, or `none`; never what the server's variables hold;
 /// - `write: <path> = <text>`: writes `<text>` and a line end into the file at `<path>` in the
 ///   session's folder, says so and ends the turn;
 /// - `slow`: starts a turn that only ends when interrupted;
@@ -41,6 +62,8 @@ use crate::error::Result;
 ///   reconnecting, and on again;
 /// - `resumed`: replies with where it was started to resume its conversation: the session id
 ///   and the point in it it was given, or `none`;
+/// - `screenshot`: calls a browser's screenshot tool, which returns a small PNG with a line of
+///   text, as Playwright MCP's does, then replies and ends the turn;
 /// - in plan mode, anything: presents a plan and waits for it to be approved.
 ///
 /// Each answered turn ends, as Claude Code's do, with where its record of the conversation
@@ -150,6 +173,8 @@ impl Script {
             tool_use_id: "tool-bg".to_string(),
             content: "Async agent launched successfully.".to_string(),
             is_error: false,
+            images: Vec::new(),
+            returned: Vec::new(),
         });
         self.emit(done(false, Some("It works in the background.")));
         if what != "agent" {
@@ -207,6 +232,8 @@ impl Script {
             tool_use_id: call.clone(),
             content: format!("Sent to the background with ID: bg-fg-{what}."),
             is_error: false,
+            images: Vec::new(),
+            returned: Vec::new(),
         });
         self.text("It goes on in the background.");
         self.emit(done(false, None));
@@ -387,6 +414,16 @@ impl Script {
             self.emit(done(false, None));
             return Next::Continue;
         }
+        if let Some(name) = message.strip_prefix("mcp:") {
+            let given = self
+                .spec
+                .mcp_servers
+                .iter()
+                .find(|server| server.name == name.trim());
+            self.text(given.map_or_else(|| "none".to_string(), run_by));
+            self.emit(done(false, None));
+            return Next::Continue;
+        }
         if let Some(what) = message.strip_prefix("write:") {
             self.write(what);
             return Next::Continue;
@@ -417,6 +454,10 @@ impl Script {
             self.end_answered();
             return Next::Continue;
         }
+        if message == "screenshot" {
+            self.screenshot();
+            return Next::Continue;
+        }
         if message == "instructions" {
             let told = self.spec.append_system_prompt.clone();
             self.text(told.unwrap_or_else(|| "none".to_string()));
@@ -441,6 +482,27 @@ impl Script {
             self.report_usage(message);
         }
         next
+    }
+
+    /// Takes a screenshot as a browser's tool does: a line of text and the image, in base64.
+    fn screenshot(&mut self) {
+        let call = "tool-shot".to_string();
+        self.emit(AgentEvent::ToolUse {
+            id: call.clone(),
+            name: "mcp__playwright__browser_take_screenshot".to_string(),
+            input: json!({}),
+        });
+        let mut taking = Taking::default();
+        let image = taking.image("image/png", SCREENSHOT);
+        self.emit(AgentEvent::ToolResult {
+            tool_use_id: call,
+            content: format!("Took the viewport screenshot\n{image}"),
+            is_error: false,
+            images: Vec::new(),
+            returned: taking.images(),
+        });
+        self.text("The page looks right.");
+        self.end_answered();
     }
 
     /// Reports the windows as full as `limit <percent>` says, the way Claude Code reports
@@ -587,6 +649,8 @@ impl Script {
             tool_use_id,
             content,
             is_error: !allowed,
+            images: Vec::new(),
+            returned: Vec::new(),
         });
         // What the user wrote meanwhile is taken in now, said back as Claude Code says it.
         for text in std::mem::take(&mut self.told) {

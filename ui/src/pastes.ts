@@ -4,6 +4,7 @@
 // agent reads as what they are and the transcript finds again. Pure, except for the store that
 // remembers what each token stands for until its message is sent.
 
+import { elementSpans } from "./elements";
 import { githubSpans } from "./githubMentions";
 import { mentionSpans } from "./mentions";
 
@@ -121,8 +122,8 @@ function tokensIn(value: string) {
 }
 
 /**
- * The token a deleting key takes out whole, a paste's, a quote's, or a mentioned session's, pull
- * request's or issue's: the one that ends at the caret for Backspace, the one that starts there
+ * The token a deleting key takes out whole, a paste's, a quote's, a mentioned session's, pull
+ * request's or issue's, or a picked element's: the one that ends at the caret for Backspace, the one that starts there
  * for Delete. `null` if the caret is not at a token, or text is selected.
  */
 export function tokenToRemove(
@@ -134,7 +135,12 @@ export function tokenToRemove(
     if (start !== end || (key !== "Backspace" && key !== "Delete")) {
         return null;
     }
-    const tokens = [...tokensIn(value), ...mentionSpans(value), ...githubSpans(value)];
+    const tokens = [
+        ...tokensIn(value),
+        ...mentionSpans(value),
+        ...githubSpans(value),
+        ...elementSpans(value),
+    ];
     const touched = tokens.find((token) =>
         key === "Backspace" ? token.end === start : token.start === start,
     );

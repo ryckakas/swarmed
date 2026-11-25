@@ -6,7 +6,8 @@
 - "slow": works until the turn is cancelled;
 - "guidance": says whether Swarmed's guidance came along with the message;
 - "fail": answers the prompt with an error;
-- "mcp": names the MCP servers it was given;
+- "mcp": names the MCP servers it was given; "mcp args" says what each runs;
+- "guidance browser": says whether Swarmed's guidance told it of the task's browser;
 - "model": names the model it was put on, or "fake/default" if none;
 - "wake": ends its turn, then carries on by itself, as an agent whose timer went off does;
 - "linger": ends its turn, then starts a tool and never says another word;
@@ -18,7 +19,8 @@
 - "inline": the same, to a client that did not ask: the sub-agent's updates come on the
   agent's own stream, marked as the sub-agent's;
 - "shell": leaves a shell running, as OpenCode does, and wakes when it ends;
-- "printed": runs a command and sends what it printed only in `_meta`, as Codex does.
+- "printed": runs a command and sends what it printed only in `_meta`, as Codex does;
+- "screenshot": calls a browser's screenshot tool, which returns a line of text and a PNG.
 
 Set FAKE_ACP_LOAD_ONLY=1 to offer only session/load, which replays a history first.
 Set FAKE_ACP_EFFORT=1 to have an effort setting, standing at medium.
@@ -211,6 +213,26 @@ def printed(session):
     finish()
 
 
+# A PNG of two by two pixels, in base64.
+SCREENSHOT = ("iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAE0lEQVR42mPQiDoBRAxA/"
+              "OHDBwAlUgav0sDuFwAAAABJRU5ErkJggg==")
+
+
+def screenshot(session):
+    """A tool call whose content holds an image, as an MCP tool's result reaches ACP."""
+    update(session, {"sessionUpdate": "tool_call", "toolCallId": "call_shot",
+                     "title": "browser_take_screenshot", "kind": "other", "status": "in_progress",
+                     "rawInput": {"type": "png"}})
+    update(session, {"sessionUpdate": "tool_call_update", "toolCallId": "call_shot",
+                     "status": "completed", "content": [
+                         {"type": "content", "content": {"type": "text", "text": "Took the screenshot"}},
+                         {"type": "content", "content": {"type": "image", "data": SCREENSHOT,
+                                                          "mimeType": "image/png"}},
+                     ]})
+    chunk(session, "The page looks right.")
+    finish()
+
+
 def finish(stop_reason="end_turn"):
     send({"id": state["pending_prompt"], "result": {"stopReason": stop_reason}})
     state["pending_prompt"] = None
@@ -227,6 +249,16 @@ def on_prompt(request_id, params):
         finish()
     elif text == "mcp":
         chunk(session, "servers: " + ", ".join(state.get("servers", [])))
+        finish()
+    elif text == "mcp args":
+        # What each server runs, never what its variables hold.
+        runs = ["%s: %s" % (server["name"], " ".join([server.get("command", "")] + server.get("args", [])))
+                for server in state.get("given", [])]
+        chunk(session, "; ".join(runs))
+        finish()
+    elif text == "guidance browser":
+        extra = [block["text"] for block in params["prompt"][1:]]
+        chunk(session, "browser: " + ("yes" if any("SWARMED_BROWSER" in e for e in extra) else "none"))
         finish()
     elif text == "model":
         chunk(session, "model: " + state.get("model", "fake/default"))
@@ -260,6 +292,8 @@ def on_prompt(request_id, params):
         shell(session)
     elif text == "printed":
         printed(session)
+    elif text == "screenshot":
+        screenshot(session)
     elif text == "fail":
         send({"id": request_id, "error": {"code": -32000, "message": "auth_required"}})
         state["pending_prompt"] = None
@@ -312,6 +346,7 @@ def describe(server):
 
 def open_session(request_id, method, params):
     state["servers"] = [describe(server) for server in params.get("mcpServers", [])]
+    state["given"] = params.get("mcpServers", [])
     if method == "session/new":
         if not os.path.isdir(params["cwd"]):
             return send({"id": request_id, "error": {"code": -32602, "message": "no such directory"}})

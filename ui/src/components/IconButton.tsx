@@ -6,17 +6,23 @@ interface Props {
     onClick(): void;
     /** A button whose action cannot be undone is drawn in the colour of an error. */
     danger?: boolean;
+    /** A button with nothing to do now, such as Back on the first page. */
+    disabled?: boolean;
+    /** For a button that turns something on and off: whether it is on. */
+    pressed?: boolean;
     children: ReactNode;
 }
 
 /** A button that is only an icon. Its label is its tooltip. */
-export function IconButton({ label, onClick, danger = false, children }: Props) {
+export function IconButton({ label, onClick, danger = false, disabled, pressed, children }: Props) {
     return (
         <button
             type="button"
             className={danger ? "icon-button icon-button-danger" : "icon-button"}
             aria-label={label}
+            aria-pressed={pressed}
             title={label}
+            disabled={disabled}
             onClick={onClick}
         >
             <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -112,4 +118,49 @@ export function RemoteIcon() {
 /** A cloud: work handed to an agent that runs in one. */
 export function CloudIcon() {
     return <path d="M4.5 12.5a3 3 0 0 1-.4-5.97 4 4 0 0 1 7.7-.9A3.4 3.4 0 0 1 11.5 12.5z" />;
+}
+
+/** A globe: a web page, the task's own browser. */
+export function GlobeIcon() {
+    return (
+        <>
+            <circle cx="8" cy="8" r="6" />
+            <path d="M2 8h12M8 2c-2 2-2 10 0 12M8 2c2 2 2 10 0 12" />
+        </>
+    );
+}
+
+/** An arrow to the left: back. */
+export function BackIcon() {
+    return <path d="M13 8H3M7 4L3 8l4 4" />;
+}
+
+/** An arrow to the right: forward. */
+export function ForwardIcon() {
+    return <path d="M3 8h10M9 4l4 4-4 4" />;
+}
+
+/** A circling arrow: load again. */
+export function ReloadIcon() {
+    return <path d="M13 8a5 5 0 1 1-1.5-3.5M13 2.5v3h-3" />;
+}
+
+/** An arrow out of a box: opened elsewhere. */
+export function OpenOutIcon() {
+    return <path d="M9 3h4v4M13 3L7 9M11 10v3H3V5h3" />;
+}
+
+/** An arrow pointing into a frame: picking something on a page, as developer tools do. */
+export function PickIcon() {
+    return (
+        <>
+            <path d="M6.5 13.5h-3a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v3" />
+            <path d="M8 8l6 2.2-2.6 1-1.1 2.8z" />
+        </>
+    );
+}
+
+/** A power switch: stopping what runs. */
+export function PowerIcon() {
+    return <path d="M8 2v6M5 4.2a5 5 0 1 0 6 0" />;
 }

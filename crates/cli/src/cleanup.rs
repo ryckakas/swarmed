@@ -20,6 +20,8 @@ pub(crate) enum Kind {
     Snapshots,
     /// The checkpoints of tasks that are gone: what their turns changed.
     Checkpoints,
+    /// The browsers of tasks that are gone: what was signed in to there.
+    Browsers,
 }
 
 impl Kind {
@@ -30,6 +32,7 @@ impl Kind {
             Self::Stale => CleanupKind::Stale,
             Self::Snapshots => CleanupKind::Snapshots,
             Self::Checkpoints => CleanupKind::Checkpoints,
+            Self::Browsers => CleanupKind::Browsers,
         }
     }
 
@@ -40,6 +43,7 @@ impl Kind {
             CleanupKind::Stale => Self::Stale,
             CleanupKind::Snapshots => Self::Snapshots,
             CleanupKind::Checkpoints => Self::Checkpoints,
+            CleanupKind::Browsers => Self::Browsers,
         }
     }
 
@@ -50,6 +54,7 @@ impl Kind {
             Self::Stale => "stale",
             Self::Snapshots => "snapshots",
             Self::Checkpoints => "checkpoints",
+            Self::Browsers => "browsers",
         }
     }
 }

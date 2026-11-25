@@ -131,6 +131,7 @@ async fn a_mention_is_sent_as_a_reference_listed_under_the_message() {
         files: vec![readme.clone()],
         sessions: vec![found.id, found.id],
         github: vec![],
+        elements: vec![],
     };
     let typed = format!("do what [@{} Fix the login form] did", found.id);
     core.session_message(here.id, &typed, &attached, Auth::Subscription)

@@ -18,9 +18,11 @@ import type {
     TerminalConfig,
     UpdateState,
 } from "./api/types";
+import { type BrowserAsked, openedBy, stillAsked } from "./browser";
 import { CHATS } from "./chats";
 import type { CloudTarget } from "./cloud";
 import type { Comparison } from "./components/CompareDialog";
+import { withElementToken } from "./elements";
 import { type IssueLink, type IssuesTarget, issueLink, withIssuePrompt } from "./issues";
 import { forgetImages } from "./keptImages";
 import { pullsOf, withMessage } from "./pulls";
@@ -222,6 +224,14 @@ interface State {
     /** Whether the task panel on the right is shown. */
     panelOpen: boolean;
     togglePanel(): void;
+    /** Whether the Browser pane is shown beside the conversation, with its task's Chrome. */
+    browserOpen: boolean;
+    /** Shows the Browser pane, or hides it; `open` says which, else it is turned over. */
+    toggleBrowser(open?: boolean): void;
+    /** A tab an agent asked to show (`show_browser`), for the pane of its task to go to. */
+    browserAsked: BrowserAsked | null;
+    /** Opens the pane on what an agent asked to show, or forgets it once gone to (`null`). */
+    askBrowser(asked: BrowserAsked | null): void;
     /** Changes some of the user's preferences and keeps the rest. */
     changeSettings(api: Api, change: Partial<Settings>): Promise<void>;
     /** The user's configuration of the terminal, once read. */
@@ -274,6 +284,24 @@ interface State {
     quoteReply(sessionId: number, words: string): void;
     /** The words waiting to be quoted into session `sessionId`'s box, once: `null` if none. */
     takeQuote(sessionId: number): string | null;
+    /**
+     * A pick under way in the Browser pane: the page of `task` in Chrome's inspect mode, for an
+     * element to point session `session`'s agent at. `null` while nothing is picked.
+     */
+    picking: { task: number; session: number } | null;
+    notePicking(picking: { task: number; session: number } | null): void;
+    /** Whether the shortcut asked for a pick, for the pane to start once it shows a tab. */
+    pickAsked: boolean;
+    askToPick(asked: boolean): void;
+    /** The token of a picked element waiting to go into a session's message box, at its caret. */
+    pickWaiting: { sessionId: number; text: string } | null;
+    /**
+     * Puts the token of an element picked for `sessionId` into its message box: at the caret if
+     * the session is on screen, else at the end of its draft.
+     */
+    placePick(sessionId: number, token: string): void;
+    /** The token waiting to go into session `sessionId`'s box, once: `null` if none. */
+    takePick(sessionId: number): string | null;
     /** A command waiting to be typed into a session's terminal, once that is on screen. */
     terminalCommand: { sessionId: number; text: string } | null;
     /**
@@ -555,6 +583,7 @@ function countEdit(state: State, published: SessionEvent): Record<number, number
 }
 
 const PANEL_OPEN = "swarmed.panel-open";
+const BROWSER_OPEN = "swarmed.browser-open";
 const STATUS_OPEN = "swarmed.status-open";
 const FOLDED = "swarmed.folded-projects";
 const FOLDED_TASKS = "swarmed.folded-tasks";
@@ -815,6 +844,24 @@ async function kept<T>(save: () => Promise<T>, taken: (kept: T) => void) {
 }
 
 /** The text of what waits for `sessionId` (a command, a quote), which `forget` then drops. */
+/**
+ * Puts a picked element's token where it goes: into the box of the session on screen, at its
+ * caret, which the box does once it is shown; into another session's draft, at its end.
+ */
+function placedPick(
+    state: Pick<State, "selectedSessionId" | "drafts" | "editDraft">,
+    set: (change: Partial<State>) => void,
+    sessionId: number,
+    token: string,
+) {
+    if (state.selectedSessionId === sessionId) {
+        set({ terminalOpen: false, pickWaiting: { sessionId, text: token } });
+        return;
+    }
+    const text = state.drafts[sessionId]?.text ?? "";
+    state.editDraft(sessionId, { text: withElementToken(text, text.length, token).value });
+}
+
 function taken(
     waiting: { sessionId: number; text: string } | null,
     sessionId: number,
@@ -940,6 +987,19 @@ export const useStore = create<State>((set, get) => ({
         writeFlag(PANEL_OPEN, panelOpen);
         set({ panelOpen });
     },
+    browserOpen: readFlag(BROWSER_OPEN, false),
+    toggleBrowser: (open) => {
+        const browserOpen = open ?? !get().browserOpen;
+        writeFlag(BROWSER_OPEN, browserOpen);
+        // A pick asked for goes with the pane: it would start by itself when one next opens.
+        set({ browserOpen, pickAsked: stillAsked(get().pickAsked, browserOpen) });
+    },
+    browserAsked: null,
+    askBrowser: (asked) => {
+        const browserOpen = openedBy(asked, get().browserOpen);
+        writeFlag(BROWSER_OPEN, browserOpen);
+        set({ browserOpen, browserAsked: asked });
+    },
     changeSettings: (api, change) =>
         reporting(async () => {
             const current = get().settings ?? (await api.settings());
@@ -1001,6 +1061,13 @@ export const useStore = create<State>((set, get) => ({
         set({ terminalOpen: false, quoteWaiting: { sessionId, text: words } }),
     takeQuote: (sessionId) =>
         taken(get().quoteWaiting, sessionId, () => set({ quoteWaiting: null })),
+    picking: null,
+    notePicking: (picking) => set({ picking }),
+    pickAsked: false,
+    askToPick: (asked) => set({ pickAsked: asked }),
+    pickWaiting: null,
+    placePick: (sessionId, token) => placedPick(get(), set, sessionId, token),
+    takePick: (sessionId) => taken(get().pickWaiting, sessionId, () => set({ pickWaiting: null })),
     terminalCommand: null,
     runInTerminal: (sessionId, text) => {
         get().leaveClaudeTerminal(sessionId);

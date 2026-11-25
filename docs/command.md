@@ -24,6 +24,7 @@ swarmed session run shop fix-login "Fix the login form's error message"
 swarmed session send 12 "Add a test for it"           # the id `session run` printed
 swarmed session send 12 "Do as it did" --session 9    # points the agent at session 9 to read
 swarmed session send 12 "Review it" --pull 142        # and at pull request #142 (or --issue 12)
+swarmed session send 12 "Make it blue" --element 3    # and at element 3 picked in the task's browser
 swarmed pr list shop login                            # the pull requests and issues # offers
 swarmed session turns 12                              # each turn with the files it changed
 swarmed session turn-diff 12 1                        # what the second message's turn changed
@@ -33,6 +34,7 @@ swarmed task switch shop fix-login                    # back to its own branch, 
 swarmed task pr shop fix-login                        # through your own gh
 swarmed task pull shop fix-login --follow             # its checks, reviews and merge as they come
 swarmed task merge shop fix-login --squash            # or --auto, to merge once checks pass
+swarmed task browser shop fix-login                   # the task's own Chrome: where its DevTools endpoint answers
 swarmed task done shop fix-login                      # put away: agents and stack stopped, nothing deleted
 swarmed task undone shop fix-login                    # back with the others
 swarmed task rm shop fix-login                        # teardown hook, worktree removed
@@ -52,6 +54,12 @@ Without a method it takes the one last used for the repository. It refuses while
 past the repository's requirements, as only its admins can, and `--auto` has GitHub merge it
 once they are met (`--cancel-auto` takes that back). No branch is deleted: the task's goes with
 `task rm --delete-branch`.
+
+`task browser` starts the task's own Chrome, or finds the one that runs, and prints where its
+DevTools endpoint answers (`http://127.0.0.1:<port>` and the browser's WebSocket), its tabs and
+where its downloads go. It runs on after the command ends, until `--stop`, the task is put away
+or removed, or the app stops it unused; see
+[The task's browser](configuration.md#the-tasks-browser).
 
 `task done` puts a finished task away: its agents and its stack are stopped and `task list`
 says `done`; its sessions are closed too if `put_away_closes_sessions` is set. Starting one of
@@ -84,7 +92,7 @@ swarmed session fork 14 --into shop monads            # the whole conversation, 
 kind, size, key, task and why it is there. `swarmed cleanup branches --delete` deletes every
 branch of a removed task that loses no work; one marked `at risk` goes only when its key is
 given, as in `swarmed cleanup branches --delete shop:jd/spike`. The kinds are `removed`,
-`branches`, `stale`, `snapshots` and `checkpoints`.
+`branches`, `stale`, `snapshots`, `checkpoints` and `browsers`.
 
 `session run` and `session send` print the conversation as it happens and ask on the terminal
 when the agent wants permission (`[y/N]`). Ctrl-C stops the turn, not the session. Typing `bg`
@@ -117,7 +125,7 @@ applies. `SWARMED_FAKE_AGENT=1` swaps in a scripted agent that spends no tokens.
 | `events` | print what happens in every session as it happens, whichever Swarmed does it, until Ctrl-C |
 | `costs`, `analytics`, `usage` | what agents report their work cost, turns by day and model, what Swarmed takes up |
 | `limits` | your plan's usage limits and extra usage as Claude Code last reported them in any session, with how old each figure is; asks nothing |
-| `cleanup` | list or delete what removed tasks left behind, and snapshots: removed worktrees, branches of removed tasks, stale worktrees, checkpoints of tasks that are gone |
+| `cleanup` | list or delete what removed tasks left behind, and snapshots: removed worktrees, branches of removed tasks, stale worktrees, checkpoints and browser profiles of tasks that are gone |
 | `editor`, `auto-title`, `branch-prefix`, `layout`, `terminal` | settings: the editor, naming sessions by a model, what new tasks' branches start with, the custom layout, the terminal |
 
 Commands that take a secret or a long text, `key set`, `note --set` and `rules --set`, read it
