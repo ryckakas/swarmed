@@ -34,6 +34,7 @@ import {
     endsPick,
     isMissing,
     keyInput,
+    leftUnshown,
     lineTime,
     mouseInput,
     type PageSize,
@@ -267,12 +268,19 @@ function useBrowser(task: number) {
         active.current = next.kind === "running" || next.kind === "starting";
         setStanding(next);
     }, []);
-    useStandingHeard(task, settle);
     const showTab = (tab: string | null) => {
         if (active.current && viewport.current) {
             void showing(task, tab, viewport.current, settle);
         }
     };
+    useStandingHeard(task, (state) => {
+        settle(state.running ? { kind: "running", state } : { kind: "stopped" });
+        // Started behind a stopped pane by an agent's tools, or its shown tab closed: it shows
+        // one of the tabs it has. Not while the window is hidden, when no pictures are asked.
+        if (leftUnshown(state) && document.visibilityState === "visible") {
+            showTab(null);
+        }
+    });
     useHiddenWithWindow(task, () => showTab(null));
     // Asked for by an agent, the browser starts again even where the user had stopped it.
     const resized = useRoomAndAsking(task, viewport, showTab, () => {
@@ -335,16 +343,18 @@ function useAskedTab(task: number, go: (tab: string) => void) {
 }
 
 /** Follows what the core says of the task's browser: its tabs, and whether it runs. */
-function useStandingHeard(task: number, setStanding: (standing: Standing) => void) {
+function useStandingHeard(task: number, heard: (state: BrowserState) => void) {
+    const told = useRef(heard);
+    told.current = heard;
     useEffect(() => {
         const subscription = api.onBrowserEvent((event) => {
             const state = stateOf(event, task);
             if (state !== null) {
-                setStanding(state.running ? { kind: "running", state } : { kind: "stopped" });
+                told.current(state);
             }
         });
         return () => void subscription.then((unsubscribe) => unsubscribe());
-    }, [task, setStanding]);
+    }, [task]);
 }
 
 /**
@@ -416,7 +426,7 @@ function Standing(props: { standing: Standing; retry(): void; task: Task }) {
                 </div>
             );
         case "running":
-            return standing.state.shown === null ? <NoTab task={props.task.id} /> : null;
+            return standing.state.tabs.length === 0 ? <NoTab task={props.task.id} /> : null;
     }
 }
 

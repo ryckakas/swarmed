@@ -238,6 +238,15 @@ export function shownTab(state: BrowserState | null): BrowserTab | null {
     return state.tabs.find((tab) => tab.id === state.shown) ?? null;
 }
 
+/**
+ * Whether a browser that runs has tabs and shows none of them: one an agent's tools started
+ * behind a pane that was stopped, or one whose shown tab was closed. The pane then shows one,
+ * rather than say that no tab is open under a strip that lists some.
+ */
+export function leftUnshown(state: BrowserState): boolean {
+    return state.running && state.shown === null && state.tabs.length > 0;
+}
+
 /** The state an event brings for `task`, if it brings one. */
 export function stateOf(event: BrowserEvent, task: number): BrowserState | null {
     if (event.kind !== "state" || event.task_id !== task) {

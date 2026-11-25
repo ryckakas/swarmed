@@ -9,6 +9,7 @@ import {
     endsPick,
     isMissing,
     keyInput,
+    leftUnshown,
     minutesWithin,
     mouseInput,
     openedBy,
@@ -57,6 +58,24 @@ describe("where a click on the picture lands on the page", () => {
         // A flat page in a tall box: drawn at the box's width, 100 high at the top.
         const flat = { width: 1200, height: 300 };
         expect(pagePoint(500, 150, box, flat)).toEqual({ x: 1200, y: 300 });
+    });
+
+    it("has a tab to show where a browser runs with tabs and shows none", () => {
+        const base: BrowserState = {
+            task_id: 1,
+            running: true,
+            name: "Google Chrome",
+            endpoint: null,
+            websocket: null,
+            tabs: [],
+            shown: null,
+            downloads: "/tmp/downloads",
+        };
+        const state = { tabs: [tab("a", "about:blank")] };
+        expect(leftUnshown({ ...base, ...state })).toBe(true);
+        expect(leftUnshown({ ...base, ...state, shown: "a" })).toBe(false);
+        expect(leftUnshown({ ...base, ...state, tabs: [] })).toBe(false);
+        expect(leftUnshown({ ...base, ...state, running: false })).toBe(false);
     });
 
     it("says which button, which click in a row, and what was held", () => {
