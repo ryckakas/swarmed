@@ -107,6 +107,8 @@ or_fun_call = "warn"
 too_long_first_doc_paragraph = "warn"
 
 [profile.release]
+# Fat LTO keeps what is downloaded small. More than one codegen unit lets its last pass use every
+# core instead of one: on the release's 3-core runners, a fifth less time for a tenth more size.
 lto = true
-codegen-units = 1
+codegen-units = 16
 strip = true
