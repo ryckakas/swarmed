@@ -189,10 +189,20 @@ function* nodesOf(tree: Written): Generator<Written> {
     }
 }
 
+/** Whether anything of a link's own words is drawn: text, code, or an image, itself a link. */
+function drawsWords(link: Written): boolean {
+    return [...nodesOf(link)].some((node) =>
+        node.type === "image" || node.type === "imageReference"
+            ? true
+            : (node.type === "text" || node.type === "inlineCode") && node.value?.trim() !== "",
+    );
+}
+
 /**
  * Whether one Markdown node is drawn without leaving anything of it out, given the definitions
  * something uses (as `kind:identifier`). HTML must be drawn whole; a link or an image keeps its
- * address and has no title, which is not drawn; a definition, which is never drawn itself, has
+ * address and has no title, which is not drawn, and a link has words, without which nothing
+ * of it is seen; a definition, which is never drawn itself, has
  * to be used; a code block has only its language after the fence, since no more of that line
  * is drawn; a table's rows have no more cells than its head, since the others are not drawn.
  */
@@ -207,8 +217,11 @@ function nodeShown(node: Written, used: Set<string>): boolean {
             const kept = addressKept(node.url ?? "", protocols ?? []);
             const definitionUsed =
                 node.type !== "definition" || used.has(`definition:${node.identifier}`);
-            return kept && node.title == null && definitionUsed;
+            const seen = node.type !== "link" || drawsWords(node);
+            return kept && node.title == null && definitionUsed && seen;
         }
+        case "linkReference":
+            return drawsWords(node);
         case "footnoteDefinition":
             return used.has(`footnoteDefinition:${node.identifier}`);
         case "code":

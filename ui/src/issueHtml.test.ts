@@ -237,6 +237,15 @@ describe("leavesOut", () => {
         expect(leavesOut("| a | b |\n| - | - |\n| c | d |\n| e |")).toBe(false);
     });
 
+    it("is so for a link with no words, of which nothing is seen", () => {
+        expect(leavesOut("[](https://example.com/words-nobody-sees)")).toBe(true);
+        expect(leavesOut("[ ](https://example.com/words-nobody-sees)")).toBe(true);
+        expect(leavesOut("[][1]\n\n[1]: https://example.com/words-nobody-sees")).toBe(true);
+        expect(leavesOut("[`code`](https://example.com)")).toBe(false);
+        expect(leavesOut("[![A cat](https://example.com/a.png)](https://example.com)")).toBe(false);
+        expect(leavesOut("<https://example.com>")).toBe(false);
+    });
+
     it("counts nothing written in code", () => {
         expect(leavesOut("`<script>` and `<!-- -->`")).toBe(false);
         expect(leavesOut("```html\n<!-- a comment -->\n<div onclick=x></div>\n```")).toBe(false);
