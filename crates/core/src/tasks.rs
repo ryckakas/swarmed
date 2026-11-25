@@ -480,7 +480,7 @@ impl Core {
             );
         } else {
             // The directory was deleted by hand; make git forget it too.
-            git::git(repo, &["worktree", "prune"]).await.ok();
+            git::worktree_prune(repo).await.ok();
         }
         self.store().task_archive(task.id)?;
         self.forget_note(&project.name, &task.name)?;
@@ -667,7 +667,7 @@ impl Core {
         let path = &task.worktree_path;
         if let Some(aside) = move_aside(path, task.id) {
             // git still has the worktree where it was, which is not there any more.
-            git::git(repo, &["worktree", "prune"]).await.ok();
+            git::worktree_prune(repo).await.ok();
             delete_later(&aside);
             return Ok(());
         }
@@ -675,7 +675,7 @@ impl Core {
             return git::worktree_remove(repo, path).await;
         }
         tokio::fs::remove_dir_all(path).await?;
-        git::git(repo, &["worktree", "prune"]).await.ok();
+        git::worktree_prune(repo).await.ok();
         Ok(())
     }
 

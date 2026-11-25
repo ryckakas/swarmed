@@ -1,7 +1,8 @@
 //! Git access by shelling out to the `git` binary.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use tokio::process::Command;
 
@@ -24,6 +25,28 @@ pub(crate) async fn git(dir: &Path, args: &[&str]) -> Result<String> {
             stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
         })
     }
+}
+
+/// The lock that keeps a repository's worktree records to one git at a time in this process.
+///
+/// Git writes a new worktree's records under `.git/worktrees/<name>/` file by file, and a git
+/// that reads them meanwhile, as another `worktree add` does to see which branches are checked
+/// out, dies on one it finds still empty: "failed to read .git/worktrees/<name>/commondir".
+/// Tasks created at once in one repository failed so.
+fn worktrees_lock(repo: &Path) -> Arc<tokio::sync::Mutex<()>> {
+    type Locks = Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>;
+    static LOCKS: OnceLock<Locks> = OnceLock::new();
+    let key = std::fs::canonicalize(repo).unwrap_or_else(|_| repo.to_path_buf());
+    let mut locks = crate::lock(LOCKS.get_or_init(Locks::default));
+    Arc::clone(locks.entry(key).or_default())
+}
+
+/// Runs `git <args>` in the repository at `repo` as [`git`] does, for a command that writes or
+/// reads its worktrees' records: none other of those runs meanwhile in this process.
+async fn on_worktrees(repo: &Path, args: &[&str]) -> Result<String> {
+    let lock = worktrees_lock(repo);
+    let _one_at_a_time = lock.lock().await;
+    git(repo, args).await
 }
 
 /// Where a worktree's `HEAD` is: on a branch, or on none (`None`, a detached `HEAD`).
@@ -220,7 +243,7 @@ pub(crate) async fn worktree_add_new(
     base: &str,
 ) -> Result<()> {
     let path = path.to_string_lossy();
-    git(
+    on_worktrees(
         repo,
         &[
             "worktree",
@@ -240,18 +263,24 @@ pub(crate) async fn worktree_add_new(
 /// Creates a worktree at `path` for a branch that already exists locally or on the remote.
 pub(crate) async fn worktree_add_existing(repo: &Path, path: &Path, branch: &str) -> Result<()> {
     let path = path.to_string_lossy();
-    git(repo, &["worktree", "add", "--quiet", &path, branch]).await?;
+    on_worktrees(repo, &["worktree", "add", "--quiet", &path, branch]).await?;
     Ok(())
 }
 
 /// Removes a worktree. Always forced: `teardown` may leave ignored files behind (dependencies,
 /// build output), and the caller has already checked for real work.
 pub(crate) async fn worktree_remove(repo: &Path, path: &Path) -> Result<()> {
-    git(
+    on_worktrees(
         repo,
         &["worktree", "remove", "--force", &path.to_string_lossy()],
     )
     .await?;
+    Ok(())
+}
+
+/// Has git forget the worktrees whose folder is gone.
+pub(crate) async fn worktree_prune(repo: &Path) -> Result<()> {
+    on_worktrees(repo, &["worktree", "prune"]).await?;
     Ok(())
 }
 
@@ -281,7 +310,7 @@ pub(crate) struct WorktreeRecord {
 
 /// Every worktree of the repository at `repo`, its own checkout first.
 pub(crate) async fn worktree_list(repo: &Path) -> Result<Vec<WorktreeRecord>> {
-    let listed = git(repo, &["worktree", "list", "--porcelain", "-z"]).await?;
+    let listed = on_worktrees(repo, &["worktree", "list", "--porcelain", "-z"]).await?;
     Ok(worktree_records(&listed))
 }
 
@@ -332,9 +361,10 @@ pub(crate) async fn commits_on_no_branch(worktree: &Path) -> Result<u32> {
     Ok(count.trim().parse().unwrap_or(0))
 }
 
-/// Deletes a local branch, merged or not.
+/// Deletes a local branch, merged or not. Git reads the worktrees' records first, to refuse a
+/// branch one of them has checked out.
 pub(crate) async fn branch_delete(repo: &Path, branch: &str) -> Result<()> {
-    git(repo, &["branch", "-D", branch]).await?;
+    on_worktrees(repo, &["branch", "-D", branch]).await?;
     Ok(())
 }
 
@@ -383,7 +413,7 @@ pub(crate) async fn available_branches(repo: &Path) -> Result<Vec<String>> {
         ],
     )
     .await?;
-    let worktrees = git(repo, &["worktree", "list", "--porcelain"]).await?;
+    let worktrees = on_worktrees(repo, &["worktree", "list", "--porcelain"]).await?;
     let taken: Vec<&str> = worktrees
         .lines()
         .filter_map(|line| line.strip_prefix("branch refs/heads/"))

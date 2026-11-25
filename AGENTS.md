@@ -1417,6 +1417,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   anything a shell would read is put in by the name of its `SWARMED_*` variable, never as text,
   so a branch name cannot run. Unknown-length lists from git are read NUL-separated (`-z`).
 - **Git is used by shelling out** to the `git` binary (`git.rs`), not through a library.
+  A command that writes or reads a repository's worktree records (`worktree add`, `remove`,
+  `prune`, `list`, `branch -D`) goes through `on_worktrees`, one at a time per repository: git
+  writes a new worktree's records file by file, and another git reading them meanwhile dies.
 - **The store is SQLite** (`store.rs`). Schema changes are appended to `MIGRATIONS` and never
   edited afterwards.
 - **No id is given twice: every table's integer id is `INTEGER PRIMARY KEY AUTOINCREMENT`.**
