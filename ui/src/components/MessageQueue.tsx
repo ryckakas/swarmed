@@ -2,14 +2,14 @@ import { type ClipboardEvent, type KeyboardEvent, useEffect, useRef, useState } 
 import { api } from "../api";
 import type { QueuedMessage } from "../api/types";
 import { editFor } from "../editing";
-import { githubIn, typedAgain } from "../githubMentions";
+import { githubOf, typedAgain } from "../githubMentions";
 import { mentionedIn } from "../mentions";
 import { expandTokens, forgetTokens, nothingWritten, tokensAgain, withToken } from "../pastes";
 import { editingAfter, queueHeading } from "../queue";
 import { type Draft, filesWith, githubRead } from "../sending";
 import { useStore } from "../store";
 import { splitFiles } from "../transcript";
-import { findSession, findSessionHome } from "../tree";
+import { findSession, repositoryOf } from "../tree";
 import { usePastedImages } from "../usePastedImages";
 import { useWords } from "../useWords";
 import { FileChips } from "./FileChips";
@@ -257,7 +257,7 @@ function QueueEdit({ sessionId, draft, onChange, onDone, onCancel }: EditProps) 
     // The repository whose pull requests and issues the message may name.
     const project = useStore((state) => {
         const session = findSession(state.projects, sessionId);
-        return session && findSessionHome(state.projects, session)?.project.name;
+        return session && repositoryOf(state.projects, session);
     });
     // Keeping images takes a moment: Enter and leaving the box then must not save twice.
     const finishing = useRef(false);
@@ -267,7 +267,7 @@ function QueueEdit({ sessionId, draft, onChange, onDone, onCancel }: EditProps) 
             return;
         }
         finishing.current = true;
-        const github = githubIn(draft.text);
+        const github = githubOf(draft.text, project);
         // What it names on GitHub is read first, as when it was queued.
         Promise.all([filesWith(api, sessionId, draft), githubRead(api, project, github)])
             .then(([files]) => {

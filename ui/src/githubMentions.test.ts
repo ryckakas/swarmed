@@ -7,8 +7,10 @@ import {
     githubApart,
     githubIn,
     githubMatches,
+    githubOf,
     githubQuery,
     githubSaid,
+    githubSpans,
     githubToken,
     MENTIONED_ON_GITHUB,
     mentionedPieces,
@@ -131,6 +133,14 @@ describe("the token", () => {
         const text = "see [#142 Fix] and [@4 Here] and [#12] and [#142 Again] and #9";
         expect(githubIn(text)).toEqual([142, 12]);
         expect(githubIn("[Pasted text #3 +40 lines] [Quote #2: x]")).toEqual([]);
+        // A Markdown link's words are no token: it names its own address.
+        expect(githubIn("Fixed in [#123](https://example.com/pull/123), see [#7]")).toEqual([7]);
+        expect(githubSpans("[#123](https://example.com) [#7]")).toEqual([{ start: 28, end: 32 }]);
+    });
+
+    it("asks nothing of a session with no repository", () => {
+        expect(githubOf("see [#142 Fix]", "storefront")).toEqual([142]);
+        expect(githubOf("see [#142 Fix]", undefined)).toEqual([]);
         expect(tokenToRemove("Backspace", "see [#142 Fix]", 14, 14)).toEqual({ start: 4, end: 14 });
         expect(tokenToRemove("Delete", "[#12] x", 0, 0)).toEqual({ start: 0, end: 5 });
     });

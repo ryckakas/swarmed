@@ -3,7 +3,7 @@ import { sendOrQueue } from "../actions";
 import { api } from "../api";
 import type { AgentEvent, Session, SlashCommand } from "../api/types";
 import { noteCommandSent } from "../commandSent";
-import { githubIn } from "../githubMentions";
+import { githubOf } from "../githubMentions";
 import { mentionedIn } from "../mentions";
 import { expandTokens, forgetTokens, quoteTokenFor, tokensAgain } from "../pastes";
 import { withQuote } from "../quotes";
@@ -142,7 +142,7 @@ export function Composer({ session }: { session: Session }) {
         // The sessions, pull requests and issues its tokens name, as typed: not a token that is
         // only words of a paste.
         const sessions = mentionedIn(text);
-        const github = githubIn(text);
+        const github = githubOf(text, repository);
         const atOnce = goesAtOnce(message, { ...draft, sessions, github }, commands);
         if (atOnce) {
             noteCommandSent(id);

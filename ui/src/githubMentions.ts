@@ -22,8 +22,11 @@ import {
 /** How many the list shows at once. */
 export const GITHUB_LIMIT = 8;
 
-/** A pull request's or issue's token as it stands in the box and in the message. */
-const TOKEN = /\[#(\d+)(?: ([^\]\n]*))?\]/g;
+/**
+ * A pull request's or issue's token as it stands in the box and in the message. Not the words
+ * of a Markdown link, `[#142](address)`, which name their own address.
+ */
+const TOKEN = /\[#(\d+)(?: ([^\]\n]*))?\](?!\()/g;
 
 /** Either kind of token, for taking a message apart where they stand. */
 const ANY_TOKEN = /\[([@#])(\d+)(?: ([^\]\n]*))?\]/g;
@@ -50,6 +53,14 @@ export function githubToken(number: number, title: string): string {
 /** The numbers the tokens in `text` name, in the order they first stand there, each once. */
 export function githubIn(text: string): number[] {
     return [...new Set([...text.matchAll(TOKEN)].map((match) => Number(match[1])))];
+}
+
+/**
+ * The numbers a message typed as `text` asks `repository` for. A session with no repository, a
+ * chat, has no pull requests or issues to name: its tokens stay words.
+ */
+export function githubOf(text: string, repository: string | undefined): number[] {
+    return repository === undefined ? [] : githubIn(text);
 }
 
 /** Where each token in `text` stands, for taking one out whole. */

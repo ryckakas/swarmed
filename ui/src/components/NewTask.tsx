@@ -25,7 +25,7 @@ import {
     environmentShown,
     OWN_SETUP,
 } from "../environments";
-import { githubIn } from "../githubMentions";
+import { githubOf } from "../githubMentions";
 import { mentionedIn, mentionsAsWords } from "../mentions";
 import { expandTokens, forgetTokens } from "../pastes";
 import { removedWhileSetUp } from "../removal";
@@ -138,7 +138,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 prompt: expandTokens(prompt.trim()),
                 files,
                 sessions: mentionedIn(prompt),
-                github: githubIn(prompt),
+                github: githubOf(prompt, repository?.name),
                 // Kept by the core as the session's own, once there is a session.
                 images: images.map((image) => image.data),
                 issue: issue?.number ?? null,
