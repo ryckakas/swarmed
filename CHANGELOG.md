@@ -15,6 +15,8 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-11-25
+
 ### Added
 
 - **Point the agent at an element of the page.** **Pick** in the Browser pane, or ⌘⇧C, puts
@@ -870,7 +872,8 @@ through Homebrew or a browser.
 - **Installing:** an install script, a Homebrew cask that also puts `swarmed` on the PATH, and
   `cargo install swarmed` for the command alone.
 
-[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.4.5...HEAD
+[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.4.6...HEAD
+[0.4.6]: https://github.com/ryckakas/swarmed/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/ryckakas/swarmed/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/ryckakas/swarmed/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/ryckakas/swarmed/compare/v0.4.2...v0.4.3
