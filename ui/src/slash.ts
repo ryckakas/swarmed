@@ -56,6 +56,8 @@ export function kindLabel(command: SlashCommand | undefined): string | null {
             return "asks here";
         case "own":
             return "done here";
+        case "choice":
+            return "opens here";
         case "terminal":
             return command.note ? `not sent. ${command.note}` : "not sent";
         default:
@@ -77,6 +79,39 @@ export function calledCommand(text: string, commands: SlashCommand[]): SlashComm
 export function takenBySwarmed(text: string, commands: SlashCommand[]): boolean {
     const command = calledCommand(text, commands);
     return command !== null && command.kind !== "prompt";
+}
+
+/**
+ * Whether a message is one of the agent's own commands for which the window opens a choice of
+ * Swarmed's own, such as `/rewind`, typed alone: it is never sent.
+ */
+export function opensChoice(text: string, commands: SlashCommand[]): boolean {
+    const alone = /^\s*\/\S+\s*$/.test(text);
+    return alone && calledCommand(text, commands)?.kind === "choice";
+}
+
+/** Whether what the message box holds opens a choice of Swarmed's own: such a command alone. */
+export function boxOpensChoice(
+    box: { text: string; files: unknown[]; images: unknown[] },
+    commands: SlashCommand[],
+): boolean {
+    const nothingElse = box.files.length === 0 && box.images.length === 0;
+    return nothingElse && opensChoice(box.text, commands);
+}
+
+/**
+ * Whether a message is handed over at once, never queued: one of the agent's own commands
+ * Swarmed does itself (`takenBySwarmed`), with no files, images, sessions, pull requests or
+ * issues to go with it, which only a message to the agent can take.
+ */
+export function goesAtOnce(
+    message: string,
+    going: { files: unknown[]; images: unknown[]; sessions: unknown[]; github: unknown[] },
+    commands: SlashCommand[],
+): boolean {
+    const lists = [going.files, going.images, going.sessions, going.github];
+    const alone = lists.every((list) => list.length === 0);
+    return alone && takenBySwarmed(message, commands);
 }
 
 /** The commands that are messages to the agent: all a first message can start with. */

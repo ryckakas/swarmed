@@ -1,16 +1,19 @@
 import { lazy, type RefObject, Suspense, useEffect, useRef } from "react";
 import { sendOrQueue } from "../actions";
 import { api } from "../api";
-import type { AgentEvent, Session } from "../api/types";
+import type { AgentEvent, Session, SlashCommand } from "../api/types";
 import { noteCommandSent } from "../commandSent";
+import { githubOf } from "../githubMentions";
+import { mentionedIn } from "../mentions";
 import { expandTokens, forgetTokens, quoteTokenFor, tokensAgain } from "../pastes";
 import { withQuote } from "../quotes";
 import { browse, type Direction, sentMessages } from "../recall";
 import { type Draft, filesWith, NO_DRAFT, waitsItsTurn } from "../sending";
-import { takenBySwarmed } from "../slash";
+import { boxOpensChoice, goesAtOnce } from "../slash";
 import { appliedEffort } from "../statusline";
 import { useStore } from "../store";
 import { suggestionOf } from "../suggestion";
+import { repositoryOf } from "../tree";
 import { useWords } from "../useWords";
 import { capitalized } from "../wording";
 import { ComposerBox } from "./ComposerBox";
@@ -113,6 +116,8 @@ export function Composer({ session }: { session: Session }) {
     const suggestion = useStore((state) => suggestionOf(state.events[id]));
     const canSend = text.trim() !== "" || files.length > 0 || images.length > 0;
     const hearsMidTurn = useHearsMidTurn(session.agent);
+    // The repository whose pull requests and issues `#` offers; a chat has none.
+    const repository = useStore((state) => repositoryOf(state.projects, session));
     useQuoteInto(id, input);
 
     // Answering a permission request removes the button that had focus. Bring it back here, so
@@ -124,7 +129,7 @@ export function Composer({ session }: { session: Session }) {
         }
     }, [status]);
 
-    const send = (now = false) => {
+    const sendMessage = (now = false) => {
         if (!canSend) {
             return;
         }
@@ -134,8 +139,11 @@ export function Composer({ session }: { session: Session }) {
         // What was pasted large or quoted goes out in full, in place of the token for it.
         // A busy agent is not interrupted: the message waits its turn, and can still be changed.
         const message = expandTokens(text.trim());
-        const atOnce =
-            files.length === 0 && images.length === 0 && takenBySwarmed(message, commands);
+        // The sessions, pull requests and issues its tokens name, as typed: not a token that is
+        // only words of a paste.
+        const sessions = mentionedIn(text);
+        const github = githubOf(text, repository);
+        const atOnce = goesAtOnce(message, { ...draft, sessions, github }, commands);
         if (atOnce) {
             noteCommandSent(id);
         }
@@ -144,7 +152,8 @@ export function Composer({ session }: { session: Session }) {
             .then((attached) => {
                 // Kept now: a message that comes back has them as files, not to be kept twice.
                 unsent = { ...draft, files: attached, images: [] };
-                return sendOrQueue(id, message, attached, atOnce, now);
+                const going = { files: attached, sessions, github };
+                return sendOrQueue(id, message, going, atOnce, now);
             })
             // Pastes and quotes are only forgotten once they are sent: a message that comes
             // back still has their tokens in it.
@@ -155,6 +164,7 @@ export function Composer({ session }: { session: Session }) {
                 putDraftBack(id, unsent);
             });
     };
+    const send = useSendOrChoose(id, draft, commands, sendMessage);
     const stop = () => void api.sessionInterrupt(id).catch(report);
 
     return (
@@ -181,6 +191,8 @@ export function Composer({ session }: { session: Session }) {
                         inputRef={input}
                         commands={commands}
                         onRecall={recalling.recall}
+                        mentionFrom={{ session: id }}
+                        githubFrom={repository}
                     >
                         <SessionPickers session={session} />
                         <button
@@ -255,6 +267,28 @@ function useRecall(id: number, spawned: boolean, now: Draft) {
         },
         /** A message was sent: ↑ starts again from the newest. */
         forget: () => noteRecall(id, null),
+    };
+}
+
+/**
+ * `send`, unless the box holds a command the window opens a choice for, such as `/rewind`:
+ * then that choice opens, the box is emptied, and nothing is sent.
+ */
+function useSendOrChoose(
+    id: number,
+    draft: Draft,
+    commands: SlashCommand[],
+    send: (now?: boolean) => void,
+): (now?: boolean) => void {
+    const editDraft = useStore((state) => state.editDraft);
+    const askToRewind = useStore((state) => state.askToRewind);
+    return (now = false) => {
+        if (!boxOpensChoice(draft, commands)) {
+            send(now);
+            return;
+        }
+        editDraft(id, NO_DRAFT);
+        askToRewind({ sessionId: id, message: null });
     };
 }
 

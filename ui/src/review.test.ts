@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { commentKey, type ReviewComment, reviewMessage, withComment } from "./review";
+import { commentKey, madeOn, type ReviewComment, reviewMessage, withComment } from "./review";
 
 const comment = (path: string, line: number, text: string, more = {}): ReviewComment => ({
     path,
@@ -8,6 +8,16 @@ const comment = (path: string, line: number, text: string, more = {}): ReviewCom
     code: `  line ${line}  `,
     text,
     ...more,
+});
+
+describe("madeOn", () => {
+    it("shows a comment only on the line it was made on", () => {
+        const made = comment("a.ts", 3, "why?");
+        expect(madeOn(made, "  line 3  ")).toBe(made);
+        // The same place in another diff of the file, where other code stands.
+        expect(madeOn(made, "something else")).toBeUndefined();
+        expect(madeOn(undefined, "  line 3  ")).toBeUndefined();
+    });
 });
 
 describe("withComment", () => {

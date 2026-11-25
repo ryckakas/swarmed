@@ -222,6 +222,25 @@ fn remote_control(app: &App, id: &Value) {
     wait_for(app, id, "Remote Control off", off);
 }
 
+/// Waits until the turn in which session `id`'s agent said `text` has ended. A message sent
+/// before that goes into a turn under way, which the window never does: it queues it.
+fn wait_for_end_of(app: &App, id: &Value, text: &str) {
+    let deadline = Instant::now() + WAIT_LIMIT;
+    while Instant::now() < deadline {
+        let events = app.ok("session_events", json!({ "id": id }));
+        let events = events.as_array().cloned().unwrap_or_default();
+        let said = events
+            .iter()
+            .rposition(|e| e["type"] == "text" && e["text"] == text);
+        let ended = said.is_some_and(|at| events[at..].iter().any(|e| e["type"] == "turn_done"));
+        if ended {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("the turn of session {id} that said `{text}` never ended");
+}
+
 fn wait_for(app: &App, id: &Value, what: &str, wanted: impl Fn(&Value) -> bool) -> Value {
     let deadline = Instant::now() + WAIT_LIMIT;
     while Instant::now() < deadline {
@@ -873,6 +892,111 @@ fn the_ui_can_set_a_branch_prefix_and_see_the_branch_it_gives() {
 }
 
 #[test]
+fn the_ui_can_list_a_sessions_turns_and_read_what_one_changed() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    app.ok(
+        "task_new",
+        json!({ "project": "demo", "name": "one", "branch": null }),
+    );
+    let session = app.ok(
+        "session_new",
+        json!({ "project": "demo", "task": "one", "agent": null, "how": { "model": null, "supervision": "auto", "effort": null } }),
+    );
+    let id = &session["id"];
+    app.ok(
+        "session_send",
+        json!({ "id": id, "text": "write: notes.txt = one" }),
+    );
+    app.wait_for_event(id, "turn_done");
+
+    let turns = app.ok("session_turns", json!({ "id": id }));
+    assert_eq!(turns[0]["message"], 0);
+    assert_eq!(turns[0]["words"], "write: notes.txt = one");
+    assert_eq!(turns[0]["ended"], true);
+    assert_eq!(turns[0]["beside"], json!([]));
+    let changes = app.ok("session_turn_changes", json!({ "id": id, "message": 0 }));
+    assert_eq!(
+        changes,
+        json!({
+            "files": [{ "path": "notes.txt", "kind": "added", "added": 1, "removed": 0 }],
+            "skipped": [],
+            "ended": true,
+        })
+    );
+    let file = json!({ "id": id, "message": 0, "path": "notes.txt" });
+    let diff = app.ok("session_turn_diff", file);
+    assert!(
+        diff["text"]
+            .as_str()
+            .is_some_and(|text| text.ends_with("+one\n")),
+        "{diff}"
+    );
+}
+
+#[test]
+fn the_ui_can_take_a_session_back_with_its_files_and_put_them_back() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = app.ok(
+        "task_new",
+        json!({ "project": "demo", "name": "one", "branch": null }),
+    );
+    let worktree = std::path::PathBuf::from(task["worktree_path"].as_str().expect("a path"));
+    let session = app.ok(
+        "session_new",
+        json!({ "project": "demo", "task": "one", "agent": null, "how": { "model": null, "supervision": "auto", "effort": null } }),
+    );
+    let id = &session["id"];
+    for (ended, text) in ["write: notes.txt = one", "write: notes.txt = two"]
+        .into_iter()
+        .enumerate()
+    {
+        app.ok("session_send", json!({ "id": id, "text": text }));
+        let turns = |e: &Value| {
+            e.as_array()
+                .map(|all| all.iter().filter(|e| e["type"] == "turn_done").count())
+        };
+        let deadline = Instant::now() + WAIT_LIMIT;
+        while turns(&app.ok("session_events", json!({ "id": id }))) != Some(ended + 1) {
+            assert!(Instant::now() < deadline, "turn {ended} never ended");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    let check = app.ok("session_rewind_check", json!({ "id": id, "message": 1 }));
+    assert_eq!(check["refused"], json!(null));
+    assert_eq!(check["files_refused"], json!(null));
+    assert_eq!(check["resumes"], true);
+    assert_eq!(
+        check["files"],
+        json!([{ "path": "notes.txt", "kind": "modified", "added": 1, "removed": 1 }])
+    );
+    let done = app.ok(
+        "session_rewind",
+        json!({ "id": id, "message": 1, "files": true }),
+    );
+    assert_eq!(
+        done,
+        json!({ "to": 1, "files": true, "resumes": true, "commits_since": 0 })
+    );
+    let notes = || std::fs::read_to_string(worktree.join("notes.txt")).expect("reads");
+    assert_eq!(notes(), "one\n");
+    let events = app.ok("session_events", json!({ "id": id }));
+    let last = events
+        .as_array()
+        .and_then(|events| events.last())
+        .expect("one");
+    assert_eq!(last["type"], "rewound");
+    assert_eq!(last["to"], 1);
+
+    app.ok("session_files_put_back", json!({ "id": id }));
+    assert_eq!(notes(), "two\n");
+    let again = app.invoke("session_files_put_back", json!({ "id": id }));
+    assert!(again.is_err(), "{again:?}");
+}
+
+#[test]
 fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
@@ -1077,6 +1201,149 @@ fn the_ui_can_remove_a_repository_with_its_tasks() {
 }
 
 #[test]
+fn the_ui_lists_the_sessions_a_message_can_mention_and_sends_them_checked() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+    let how = json!({ "model": null, "supervision": "ask", "effort": null });
+    let new = json!({ "project": "demo", "task": "one", "agent": null, "how": how });
+    let here = app.ok("session_new", new.clone());
+    let found = app.ok("session_new", new);
+    let (id, other) = (&here["id"], &found["id"]);
+
+    // The list leaves the session itself out; a new task's has every one of the repository.
+    let listed = app.ok("session_reachable", json!({ "id": id }));
+    assert_eq!(listed[0]["id"], *other);
+    assert_eq!(listed[0]["same_task"], true);
+    assert_eq!(listed.as_array().map(Vec::len), Some(1));
+    let for_new_task = app.ok("project_reachable", json!({ "project": "demo" }));
+    assert_eq!(for_new_task.as_array().map(Vec::len), Some(2));
+
+    // A session that is not there, or not to be read from here, is refused before anything goes.
+    let refused = app.invoke(
+        "session_send",
+        json!({ "id": id, "text": "look", "files": [], "sessions": [404] }),
+    );
+    assert_eq!(
+        refused,
+        Err(json!(
+            "session 404 cannot be mentioned here: it is not another open session this one can read"
+        ))
+    );
+    let mentioned = json!({ "id": id, "text": "look", "files": [], "sessions": [other] });
+    app.ok("session_send", mentioned);
+    let message = app.wait_for_event(id, "user_message");
+    let text = message["text"].as_str().unwrap_or_default();
+    assert!(text.starts_with("look\n\nSessions mentioned"), "{text}");
+    assert!(text.contains(&format!("- session {other} (")), "{text}");
+
+    // Queued and edited with the mention, and sent now with one.
+    app.ok("session_send", json!({ "id": id, "text": "slow" }));
+    let queue = app.ok(
+        "session_enqueue",
+        json!({ "id": id, "text": "later", "files": [], "sessions": [other] }),
+    );
+    assert!(
+        queue[0]["text"]
+            .as_str()
+            .is_some_and(|text| text.contains("Sessions mentioned"))
+    );
+    let edited = app.ok(
+        "session_queue_edit",
+        json!({ "id": id, "message": queue[0]["id"], "text": "then", "files": [], "sessions": [other] }),
+    );
+    assert!(
+        edited[0]["text"]
+            .as_str()
+            .is_some_and(|text| text.starts_with("then\n\nSessions"))
+    );
+    app.ok(
+        "session_message_now",
+        json!({ "id": id, "text": "now", "files": [], "sessions": [other] }),
+    );
+    wait_for(&app, id, "the message sent now", |e| {
+        e["type"] == "user_message" && e["text"].as_str().is_some_and(|t| t.starts_with("now\n\n"))
+    });
+
+    // A new task's first message mentions as well.
+    let start = json!({
+        "branch": null, "environment": null, "agent": null,
+        "how": { "model": null, "supervision": "auto", "effort": null, "fast": false },
+        "title": null, "prompt": "carry on", "files": [], "sessions": [other], "images": [],
+    });
+    let started = app.ok(
+        "task_start",
+        json!({ "project": "demo", "name": "carry", "start": start }),
+    );
+    let first = app.wait_for_event(&started["session"]["id"], "user_message");
+    assert!(
+        first["text"]
+            .as_str()
+            .is_some_and(|text| text.starts_with("carry on\n\nSessions"))
+    );
+}
+
+#[test]
+fn the_ui_lists_pull_requests_and_issues_to_mention_and_sends_only_those_read() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+    let how = json!({ "model": null, "supervision": "ask", "effort": null });
+    let new = json!({ "project": "demo", "task": "one", "agent": null, "how": how });
+    let here = app.ok("session_new", new);
+    let id = &here["id"];
+
+    // The test repository has no remote: whether `gh` is installed or not, the menu is offered
+    // nothing and says why, rather than failing.
+    let listed = app.ok(
+        "project_github_items",
+        json!({ "project": "demo", "query": "" }),
+    );
+    assert_eq!(listed["items"], json!([]));
+    assert!(listed["unavailable"].is_string(), "{listed}");
+    let unread = app
+        .invoke(
+            "project_github_read",
+            json!({ "project": "demo", "numbers": [142] }),
+        )
+        .expect_err("nothing on GitHub to read");
+    assert!(
+        unread
+            .to_string()
+            .starts_with("\"#142 cannot be mentioned: "),
+        "{unread}"
+    );
+
+    // A number nobody read is refused by every way a message goes, before anything goes.
+    let refusal = json!("#142 cannot be mentioned: it was not read from GitHub: pick it with #");
+    let message = json!({ "id": id, "text": "see", "files": [], "sessions": [], "github": [142] });
+    for command in ["session_send", "session_message_now", "session_enqueue"] {
+        assert_eq!(
+            app.invoke(command, message.clone()),
+            Err(refusal.clone()),
+            "{command}"
+        );
+    }
+    let start = json!({
+        "branch": null, "environment": null, "agent": null,
+        "how": { "model": null, "supervision": "auto", "effort": null, "fast": false },
+        "title": null, "prompt": "review", "files": [], "sessions": [], "github": [142],
+        "images": [],
+    });
+    let started = app.invoke(
+        "task_start",
+        json!({ "project": "demo", "name": "review", "start": start }),
+    );
+    assert_eq!(started, Err(refusal));
+    // Nothing at all named goes as before.
+    let plain = json!({ "id": id, "text": "hello", "files": [], "sessions": [], "github": [] });
+    app.ok("session_send", plain);
+    app.wait_for_event(id, "user_message");
+}
+
+#[test]
 fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
@@ -1110,6 +1377,7 @@ fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
     // When the turn ends the waiting message goes out by itself.
     let sent = app.wait_for_text(id, "echo: next");
     assert_eq!(sent["type"], "text");
+    wait_for_end_of(&app, id, "echo: next");
     assert_eq!(app.ok("session_queue", json!({ "id": id })), json!([]));
     // With nothing waiting, sending the next one is not an error.
     app.ok("session_send_queued", json!({ "id": id }));
@@ -1124,6 +1392,7 @@ fn the_ui_can_queue_messages_and_change_them_while_they_wait() {
     );
     app.wait_for_text(id, "echo: now");
     app.wait_for_text(id, "echo: later");
+    wait_for_end_of(&app, id, "echo: later");
 
     // What is typed can be sent now too, without waiting in the queue first.
     app.ok("session_send", json!({ "id": id, "text": "slow" }));

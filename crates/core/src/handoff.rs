@@ -9,7 +9,7 @@
 use crate::agent::{AgentEvent, PLAN_TOOL};
 use crate::cloud::{CloudOrigin, CloudProvider, CloudTask};
 use crate::error::Error;
-use crate::{Core, Result, fork};
+use crate::{Core, Result, fork, rewind};
 
 /// The most of a conversation a cloud agent is handed, in characters. The prompt goes to the
 /// provider's program as one argument, and this stays far below what a system allows there.
@@ -35,8 +35,7 @@ fn plan(event: &AgentEvent) -> Option<String> {
 
 /// The conversation as a cloud agent is handed it, or `None` if nothing was said in it.
 fn conversation(events: &[AgentEvent]) -> Option<String> {
-    let turns: Vec<String> = events
-        .iter()
+    let turns: Vec<String> = rewind::counted(events)
         .filter_map(|event| fork::turn(event).or_else(|| plan(event)))
         .collect();
     (!turns.is_empty()).then(|| fork::joined(&turns, MAX_HANDED))
@@ -137,6 +136,29 @@ mod tests {
              Plan proposed by the assistant:\n1. Move it."
         );
         assert_eq!(conversation(&[asks("Bash", json!({}))]), None);
+    }
+
+    #[test]
+    fn what_the_session_was_taken_back_from_does_not_go_along() {
+        let rewound = AgentEvent::Rewound {
+            to: 1,
+            files: false,
+            resume_at: None,
+            commits_since: None,
+        };
+        let events = [
+            user("plan the move"),
+            reply("Looking."),
+            user("delete it all"),
+            reply("Deleted."),
+            rewound,
+            user("move it"),
+        ];
+        let said = conversation(&events).expect("something was said");
+        assert_eq!(
+            said,
+            "User:\nplan the move\n\nAssistant:\nLooking.\n\nUser:\nmove it"
+        );
     }
 
     #[test]

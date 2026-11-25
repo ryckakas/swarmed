@@ -158,6 +158,20 @@ impl Paths {
         self.attachments_root().join(session.to_string())
     }
 
+    /// The folder that holds every task's checkpoints, one store each.
+    #[must_use]
+    pub fn checkpoints_root(&self) -> PathBuf {
+        self.data_dir.join("checkpoints")
+    }
+
+    /// The store of the task with id `task`'s checkpoints: a bare git repository of
+    /// Swarmed's own, which holds the trees of its worktree before and after each turn, and
+    /// whatever of their files the task's repository has not got.
+    #[must_use]
+    pub fn checkpoints(&self, task: i64) -> PathBuf {
+        self.checkpoints_root().join(task.to_string())
+    }
+
     /// The worktree directory of `task` in `project`.
     #[must_use]
     pub fn worktree(&self, project: &str, task: &str) -> PathBuf {

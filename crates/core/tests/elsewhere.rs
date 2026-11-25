@@ -9,8 +9,8 @@ use std::time::Duration;
 use common::{core_with_project, fixture, next, turn};
 use swarmed_core::agent::{AgentEvent, Auth, FakeBackend};
 use swarmed_core::{
-    Action, Core, Error, NewTaskOptions, RemoveOptions, Session, SessionEvent, SessionOptions,
-    SessionStatus, hooks,
+    Action, Attached, Core, Error, NewTaskOptions, RemoveOptions, Session, SessionEvent,
+    SessionOptions, SessionStatus, hooks,
 };
 use tokio::sync::broadcast::Receiver;
 
@@ -147,7 +147,12 @@ async fn a_turn_run_elsewhere_follows_here_with_its_status_and_notice() {
 
     let mut theirs = there.subscribe();
     there
-        .session_message(session.id, "hello", &[], Auth::Subscription)
+        .session_message(
+            session.id,
+            "hello",
+            &Attached::default(),
+            Auth::Subscription,
+        )
         .expect("sends");
     turn(&mut theirs, session.id).await;
     let seen = noticed(&here, &mut bus, |event| {
@@ -188,7 +193,12 @@ async fn what_a_swarmed_that_shows_its_own_notices_runs_is_not_shown_here_too() 
     here.notice_others().expect("looks");
     let mut bus = here.subscribe();
     there
-        .session_message(session.id, "run: ls", &[], Auth::Subscription)
+        .session_message(
+            session.id,
+            "run: ls",
+            &Attached::default(),
+            Auth::Subscription,
+        )
         .expect("sends");
     let seen = noticed(&here, &mut bus, |event| {
         matches!(event.event, AgentEvent::PermissionRequest { .. })
@@ -210,7 +220,7 @@ async fn a_session_run_elsewhere_is_not_started_here_and_its_queue_waits_for_tha
     let session = new_session(&here);
     let mut theirs = there.subscribe();
     there
-        .session_message(session.id, "slow", &[], Auth::Subscription)
+        .session_message(session.id, "slow", &Attached::default(), Auth::Subscription)
         .expect("sends");
     // Its turn is under way there.
     while !matches!(
@@ -223,7 +233,7 @@ async fn a_session_run_elsewhere_is_not_started_here_and_its_queue_waits_for_tha
         matches!(refused, Err(Error::RunsElsewhere(id)) if id == session.id),
         "{refused:?}"
     );
-    let sent = here.session_message(session.id, "now", &[], Auth::Subscription);
+    let sent = here.session_message(session.id, "now", &Attached::default(), Auth::Subscription);
     assert!(matches!(sent, Err(Error::RunsElsewhere(_))), "{sent:?}");
     // Stopping is that Swarmed's: here nothing is put right that is not wrong.
     let stopped = here.session_interrupt(session.id);
@@ -323,7 +333,12 @@ async fn a_history_read_while_another_core_writes_holds_each_event_once_with_wha
     // Stored there, and no look here has passed it on yet.
     let mut theirs = there.subscribe();
     there
-        .session_message(session.id, "hello", &[], Auth::Subscription)
+        .session_message(
+            session.id,
+            "hello",
+            &Attached::default(),
+            Auth::Subscription,
+        )
         .expect("sends");
     turn(&mut theirs, session.id).await;
 
@@ -345,7 +360,12 @@ async fn a_history_read_while_another_core_writes_holds_each_event_once_with_wha
 
     // What is stored after the read is published once, and adds to what was read.
     there
-        .session_message(session.id, "again", &[], Auth::Subscription)
+        .session_message(
+            session.id,
+            "again",
+            &Attached::default(),
+            Auth::Subscription,
+        )
         .expect("sends");
     turn(&mut theirs, session.id).await;
     let seen = noticed(
@@ -379,7 +399,12 @@ async fn the_app_left_over_shows_the_notices_once_the_first_has_quit() {
     let mut bus = second.subscribe();
     let mut theirs = command.subscribe();
     command
-        .session_message(session.id, "hello", &[], Auth::Subscription)
+        .session_message(
+            session.id,
+            "hello",
+            &Attached::default(),
+            Auth::Subscription,
+        )
         .expect("sends");
     turn(&mut theirs, session.id).await;
     let seen = noticed(&second, &mut bus, |event| {
@@ -400,7 +425,7 @@ async fn the_app_left_over_shows_the_notices_once_the_first_has_quit() {
 async fn busy_session(core: &Core) -> Session {
     let session = new_session(core);
     let mut bus = core.subscribe();
-    core.session_message(session.id, "slow", &[], Auth::Subscription)
+    core.session_message(session.id, "slow", &Attached::default(), Auth::Subscription)
         .expect("sends");
     loop {
         let event = next(&mut bus).await;

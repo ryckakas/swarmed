@@ -305,6 +305,38 @@ const MIGRATIONS: &[&str] = &[
     "
     ALTER TABLE tasks ADD COLUMN issue INTEGER;
 ",
+    // The worktree as a git tree before each message went to the agent and when its turn
+    // ended, kept in a store of the task's own (`checkpoints.rs`). The message is its number
+    // in the session, counted as a fork counts them; `skipped` is JSON of the files left out.
+    "
+    CREATE TABLE checkpoints (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        message    INTEGER NOT NULL,
+        side       TEXT NOT NULL,
+        tree       TEXT NOT NULL,
+        skipped    TEXT NOT NULL DEFAULT '[]',
+        words      TEXT NOT NULL DEFAULT '',
+        took_ms    INTEGER NOT NULL DEFAULT 0,
+        at_ms      INTEGER NOT NULL,
+        UNIQUE (session_id, message, side)
+    );
+",
+    // The commit a checkpoint's worktree was on, so that taking files back can say which
+    // commits stay on the branch; and the worktree as it stood before a session's files were
+    // taken back to a checkpoint, kept so that they can be put back (`rewind.rs`). `restored`
+    // is the tree they were taken back to, which the worktree must still be at for that.
+    "
+    ALTER TABLE checkpoints ADD COLUMN head TEXT;
+    CREATE TABLE rewinds (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        message    INTEGER NOT NULL,
+        was        TEXT NOT NULL,
+        restored   TEXT NOT NULL,
+        at_ms      INTEGER NOT NULL
+    );
+",
 ];
 
 /// Stands in [`MIGRATIONS`] for the one change SQL in a transaction cannot make: every

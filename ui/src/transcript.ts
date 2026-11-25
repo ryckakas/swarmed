@@ -1,5 +1,7 @@
 import type { AgentEvent, PullChange, ScreenSection, ToolCalls } from "./api/types";
+import { type GitHubMentioned, splitMentioned } from "./githubMentions";
 import { shownHtml } from "./htmlview";
+import type { Mentioned } from "./mentions";
 import { QUESTION_TOOL, type Question, questionsOf } from "./questions";
 import { type RateLimit, refusalNotice } from "./rateLimit";
 import { type Words, wordsFor } from "./wording";
@@ -8,14 +10,19 @@ import { type Words, wordsFor } from "./wording";
 
 export type Item =
     /**
-     * What the user wrote, and the files they pointed the agent at with it; `remote` for what
-     * they typed on claude.ai or in the Claude app, which reached the session from there.
+     * What the user wrote, and the files, sessions, pull requests and issues they pointed the
+     * agent at with it; `remote` for what they typed on claude.ai or in the Claude app, which
+     * reached the session from there.
      */
     | {
           kind: "user";
           key: number;
           text: string;
           files: string[];
+          /** The sessions listed under the message, which its tokens name. */
+          sessions: Mentioned[];
+          /** The pull requests and issues listed under the message, which its tokens name. */
+          github: GitHubMentioned[];
           remote: boolean;
           /** Whether Swarmed sent it by itself, as the usage limit that stopped the session reset. */
           atReset: boolean;
@@ -105,7 +112,29 @@ export type Item =
      */
     | LimitItem
     /** Where the copy of an earlier conversation ends and the fork's own begins. */
-    | { kind: "forked"; key: number; from: number };
+    | { kind: "forked"; key: number; from: number }
+    | RewoundItem;
+
+/**
+ * Where the session was taken back to before one of its messages, with what that dropped
+ * folded under it: still stored, no longer in the conversation.
+ */
+export interface RewoundItem {
+    kind: "rewound";
+    key: number;
+    /** The message it was taken back to before, by its number in the session. */
+    to: number;
+    /** That message as sent, which names it on the line. */
+    message: string;
+    /** Whether the files went back too. */
+    files: boolean;
+    /** Whether those files were put back since. */
+    putBack: boolean;
+    /** Commits made since the message, which stayed on the branch, if that is known. */
+    commitsSince: number | null;
+    /** What it dropped, as the transcript showed it. */
+    dropped: Item[];
+}
 
 /** The line a turn a usage limit refused keeps where it stopped. */
 export interface LimitItem {
@@ -159,6 +188,20 @@ export function splitFiles(message: string): { text: string; files: string[] } {
     return { text, files: listed.map((line) => line.slice(2)) };
 }
 
+/**
+ * A message the user sent, taken apart: what they wrote, the sessions listed under it, the pull
+ * requests and issues after those, and the files listed last.
+ */
+export function splitSent(message: string): {
+    text: string;
+    files: string[];
+    sessions: Mentioned[];
+    github: GitHubMentioned[];
+} {
+    const { text, files } = splitFiles(message);
+    return { ...splitMentioned(text), files };
+}
+
 /** The last part of a path: the name a file is known by. */
 export function fileName(path: string): string {
     return path.replace(/\/+$/, "").split("/").pop() || path;
@@ -181,7 +224,7 @@ function messageItem(
 ): Item {
     const left = FROM_SESSION.exec(text);
     if (!left) {
-        return { kind: "user", key, ...splitFiles(text), remote, atReset };
+        return { kind: "user", key, ...splitSent(text), remote, atReset };
     }
     return { kind: "peer", key, from: Number(left[1]), title: left[2] ?? "", text: left[3] ?? "" };
 }
@@ -321,6 +364,10 @@ interface Draft {
     refused: LimitItem | null;
     /** Where Remote Control was last shown to be on, so that it is said once until it ends. */
     remoteAt: string | null;
+    /** The messages sent so far, by number: where each is, and what it said. */
+    messages: { key: number; text: string }[];
+    /** The rewinds so far, which a putting back of files marks. */
+    rewinds: RewoundItem[];
     /** The style's words, for what the items say of their own. */
     words: Words;
 }
@@ -340,6 +387,8 @@ export function toItems(events: AgentEvent[], words: Words = wordsFor("plain")):
         asked: new Map(),
         refused: null,
         remoteAt: null,
+        messages: [],
+        rewinds: [],
         words,
     };
     events.forEach((event, key) => {
@@ -349,7 +398,45 @@ export function toItems(events: AgentEvent[], words: Words = wordsFor("plain")):
     // drawn as a view where no such handover was recorded, as in conversations from before.
     const handed = new Set(events.flatMap((event) => (event.type === "view" ? [event.html] : [])));
     const shownTwice = (item: Item) => item.kind === "tool" && handedOver(handed, item);
-    return draft.items.filter((item) => !(draft.settled.has(item) || shownTwice(item)));
+    const kept = (items: Item[]): Item[] =>
+        items
+            .filter((item) => !(draft.settled.has(item) || shownTwice(item)))
+            .map((item) =>
+                item.kind === "rewound" ? { ...item, dropped: kept(item.dropped) } : item,
+            );
+    return kept(draft.items);
+}
+
+/**
+ * Folds what a rewind dropped under its line: the items of every event from the message it
+ * took the session back to before, up to the rewind. A rewind's line inside such a part goes
+ * with it, folded in turn.
+ */
+function addRewound(draft: Draft, event: Extract<AgentEvent, { type: "rewound" }>, key: number) {
+    const message = draft.messages[event.to];
+    const start = message?.key ?? key;
+    const at = draft.items.findIndex((item) => item.key >= start);
+    const dropped = at === -1 ? [] : draft.items.splice(at);
+    const item: RewoundItem = {
+        kind: "rewound",
+        key,
+        to: event.to,
+        message: message?.text ?? "",
+        files: event.files === true,
+        putBack: false,
+        commitsSince: event.commits_since ?? null,
+        dropped,
+    };
+    draft.rewinds.push(item);
+    draft.items.push(item);
+}
+
+/** Marks the latest rewind to before message `to` whose files went back as put back. */
+function markPutBack(draft: Draft, to: number) {
+    const rewind = draft.rewinds.findLast((item) => item.files && item.to === to);
+    if (rewind) {
+        rewind.putBack = true;
+    }
 }
 
 /**
@@ -525,6 +612,13 @@ function add(draft: Draft, event: AgentEvent, key: number) {
             return addRemote(draft, event, key);
         case "background":
             return markMoved(draft.tools.get(event.tool_use_id ?? ""), event);
+        case "rewound":
+            return addRewound(draft, event, key);
+        case "files_put_back":
+            return markPutBack(draft, event.to);
+        case "user_message":
+            draft.messages.push({ key, text: event.text });
+            return addSingle(draft, event, key);
         default:
             return addSingle(draft, event, key);
     }
@@ -734,6 +828,27 @@ export function latestMove(items: Item[]): number | null {
 }
 
 /**
+ * The latest rewind whose files went back and were not put back, by its key, or `null`: only
+ * that one offers to put them back, as only its files are kept to. One folded under a later
+ * rewind is found too.
+ */
+export function latestFilesRewind(items: Item[]): number | null {
+    const withFiles = rewindsIn(items).filter((item) => item.files);
+    const latest = withFiles.reduce<RewoundItem | null>(
+        (found, item) => (found === null || item.key > found.key ? item : found),
+        null,
+    );
+    return latest !== null && !latest.putBack ? latest.key : null;
+}
+
+/** Every rewind's line among `items`, those folded under another's included. */
+function rewindsIn(items: Item[]): RewoundItem[] {
+    return items.flatMap((item) =>
+        item.kind === "rewound" ? [item, ...rewindsIn(item.dropped)] : [],
+    );
+}
+
+/**
  * The latest line that says checks of the task's pull request failed, by its key, or `null`.
  * Only that one offers to send the failure to the agent: an earlier one's checks may have run
  * again since.
@@ -759,9 +874,11 @@ export function latestMerge(items: Item[]): number | null {
  */
 export function latestLimit(items: Item[]): number | null {
     const at = items.findLastIndex((item) => item.kind === "limit");
+    // A rewind since took the session back to before something written after it, or to
+    // before the limit's own turn.
     const writtenSince = items
         .slice(at + 1)
-        .some((item) => item.kind === "user" || item.kind === "peer");
+        .some((item) => item.kind === "user" || item.kind === "peer" || item.kind === "rewound");
     return at === -1 || writtenSince ? null : (items[at]?.key ?? null);
 }
 

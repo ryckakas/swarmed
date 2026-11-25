@@ -8,7 +8,8 @@ import {
     pinTarget,
     targetOf,
 } from "./ordering";
-import { delivered } from "./sending";
+import { draftOf, messageSent, withEdited } from "./rewind";
+import { type Attached, delivered, githubRead, NO_DRAFT, NOTHING_ATTACHED } from "./sending";
 import { standing } from "./setup";
 import { useStore } from "./store";
 import { messageNumber } from "./transcript";
@@ -23,18 +24,27 @@ import { findSession, findSessionHome } from "./tree";
  * Swarmed does itself. With `now` the turn under way is stopped and the message goes ahead of
  * what waits. Rejects if the message could not be handed over.
  */
-export function sendOrQueue(
+export async function sendOrQueue(
     id: number,
     text: string,
-    files: string[] = [],
+    attached: Attached = NOTHING_ATTACHED,
     atOnce = false,
     now = false,
 ): Promise<void> {
+    // The pull requests and issues it names are read first, so that sending waits on nothing.
+    await githubRead(api, placeOf(id).home?.project.name, attached.github);
+    // Looked at only now: its agent may have begun a turn while they were read, and a message
+    // sent straight into it would take an open request away.
+    const { session, home } = placeOf(id);
+    // While its task is set up, a session waits as a busy one does: what is typed goes after.
+    return delivered(api, standing(session?.status, home?.task), id, text, attached, atOnce, now);
+}
+
+/** Session `id` and where it belongs, as the store has them now. */
+function placeOf(id: number) {
     const { projects } = useStore.getState();
     const session = findSession(projects, id);
-    const task = session && findSessionHome(projects, session)?.task;
-    // While its task is set up, a session waits as a busy one does: what is typed goes after.
-    return delivered(api, standing(session?.status, task), id, text, files, atOnce, now);
+    return { session, home: session && findSessionHome(projects, session) };
 }
 
 /** Moves a row of the sidebar `by` places among its siblings, then reads the tree again. */
@@ -168,6 +178,29 @@ export async function forkSession(id: number, from: number | null, agent?: strin
 export function forkFromMessage(id: number, key: number) {
     const events = useStore.getState().events[id] ?? [];
     return forkSession(id, messageNumber(events, key));
+}
+
+/**
+ * Asks whether to take session `id` back to before the message shown for its event `key`, and
+ * how: the conversation alone, or its files too.
+ */
+export function editFromMessage(id: number, key: number) {
+    const { events, askToRewind } = useStore.getState();
+    askToRewind({ sessionId: id, message: messageNumber(events[id] ?? [], key) });
+}
+
+/**
+ * Takes session `id` back to before its message number `message`, its files too with `files`,
+ * and puts that message into the session's message box to be edited and sent again: never
+ * sent by itself. Rejects with the core's reason if it was refused.
+ */
+export async function rewindSession(id: number, message: number, files: boolean) {
+    const sent = messageSent(useStore.getState().events[id] ?? [], message);
+    await api.sessionRewind(id, message, files);
+    const { drafts, editDraft } = useStore.getState();
+    if (sent !== null) {
+        editDraft(id, withEdited(drafts[id] ?? NO_DRAFT, draftOf(sent)));
+    }
 }
 
 /** Creates a session in a task, with the defaults from the settings, and opens it. */

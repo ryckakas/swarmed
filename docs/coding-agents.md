@@ -230,6 +230,57 @@ answered in the conversation. Approving a plan moves the
 session to the default supervision from the settings, or to Ask if that default is Plan itself.
 Models and effort are chosen per session, and can change mid-session.
 
+## Taking a session back to before a message
+
+**Edit from here** on a message you sent, or `/rewind` (also `/checkpoint` and `/undo`) in a
+Claude Code session, takes the session back to just before that message and puts the message in
+the box, for you to change and send again. Nothing is sent by itself. You choose:
+
+- **Conversation only:** the files stay as they are now.
+- **Conversation and files:** the worktree goes back to how it was before that message, from the
+  checkpoint taken then (see [What a turn changed](configuration.md#what-a-turn-changed)).
+
+What the message started, and everything after it, stays in the transcript, folded under a line
+that says where the session was taken back to: costs and search still count it. It no longer
+counts as the conversation: a fork of the session leaves it out.
+
+| Agent | What it remembers afterwards |
+| --- | --- |
+| Claude Code | Resumes its own conversation where the turn before the message ended, and does not remember what came after. |
+| Any other agent | Starts a new conversation, and is told what was said up to the message with your next one: what was said, not what it read or ran. |
+
+Claude Code starts a new conversation the same way when there is no point to resume at: before
+the first message, after a turn that failed before its first word, or in a conversation from
+before Swarmed noted those points.
+
+**What goes back with the files, and what does not:**
+
+- Only the files of the worktree. **Commits stay on the branch**: the branch is never moved, so
+  the files then differ from it, and resetting it is yours to do. The line says how many commits
+  were made since. Nothing outside the worktree comes back either: a push, a pull request, a
+  database, a package installed elsewhere.
+- Files git ignores, and new files over 10 MB that checkpoints leave out, are neither restored
+  nor deleted. One in the way of a file that would come back refuses the whole, and nothing is
+  changed: it is in no checkpoint, so it could not be put back.
+- If git cannot write a file part-way through (a full disk, a folder that takes no new file),
+  what it had written is put as it was and nothing is taken back.
+- The worktree as it was is kept first: **Put the files back** on the line restores it, as long
+  as nothing changed the files since.
+- The other sessions of the task are not told. Their agents find the files as they are when they
+  next read them.
+
+**Refused, with the reason, rather than tried:** while the session is at work, closed, run by
+another Swarmed, or has something it left running. Taking the files back is refused as well while
+any session of the task is at work or run elsewhere, anything its agents left running still
+runs, its setup runs, or a rebase, merge, cherry-pick or revert is under way in the worktree; and
+for a message no checkpoint was taken before (older than the latest 50 turns, sent before
+checkpoints existed, copied into a fork, or in a chat). The conversation alone can still go back.
+
+Swarmed uses its own checkpoints for every agent, not Claude Code's file checkpointing, which
+does not undo what shell commands changed. From the command line:
+`swarmed session rewind <id> <message> [--files]` (`--check` says what it would do) and
+`swarmed session put-back <id>`.
+
 ## Sub-agents and work left running
 
 Agents can start sub-agents for parts of their work, and leave commands running past a turn.
@@ -329,7 +380,7 @@ Every session gets an MCP server named `swarmed`, with these tools:
 | Tool | What it does |
 | --- | --- |
 | `show_html` | shows HTML in the conversation, in a sandboxed frame |
-| `list_sessions`, `read_session` | see and read the other open sessions of the same project; from a chat, every open session |
+| `list_sessions`, `read_session` | see and read the other open sessions of the same project; from a chat, every open session. `read_session` reads the latest messages, or from one it is given (`from`), so a long conversation can be read from its start |
 | `send_message` | write to another session it can read, or to a chat, so that one a chat wrote to can answer it; queued if it is busy |
 | `spawn_session`, `close_session` | start a session in the same task, up to six, and close the idle ones it started |
 | `delegate_to_cloud` | hand work to a Codex cloud agent or a Claude Code cloud session |
@@ -346,6 +397,63 @@ settings, and removing an action, a prompt or the status line's script. Adding a
 line script, or hiding tool calls it can only propose: the change is shown in the conversation and made when you
 accept it. API keys, MCP servers, sign-ins, supervision, notes and the branch prefix are out of its reach, and it
 tells an agent the names of an environment's variables, never their values.
+
+### Mentioning another session
+
+Type `@` in a session's message box to point its agent at another session: the list shows the
+other sessions of the same task, and typing a few words of a title, a task or a repository finds
+the rest. It offers exactly the sessions the agent's `read_session` can read: those of the same
+repository, or from a chat every open session. A repository's session never reads a chat, which
+may hold what it read of another repository. In the new-task view the list is the repository's,
+latest at work first. The session you pick stands in the box as one token, `[@42 Fix the login
+form]`; Backspace takes it out whole.
+
+The agent is sent only a reference, never the other conversation. The token stays where you
+typed it, and under your words Swarmed lists each session it names by id and title:
+
+```
+Sessions mentioned, to read with the read_session tool:
+- session 42 ("Fix the login form")
+```
+
+The agent reads as much of it as it needs with `read_session`. A session that is closed, out of
+reach or the one you write to is refused before anything is sent, and the message stays in the
+box. If no Swarmed tool server is running for the agent, as with the scripted agent, it is given
+the session's latest four messages instead, at most 2,000 characters. In the transcript a
+mention shows as a chip with the session's current title; pressing it opens that session. ↑ and
+editing a waiting message bring it back as a token. On the command line,
+`swarmed session send 7 "..." --session 42` does the same.
+
+### Mentioning a pull request or an issue
+
+Type `#` at the start of a word in a repository's message box to point the agent at one of its
+pull requests or issues. Swarmed asks your `gh` in the repository for the 30 latest changed of
+each, open or not, once each time the list opens; digits narrow it by number, and words narrow
+it by title or branch. What the list does not hold, an older number or other words, is asked of
+GitHub's search once you stop typing. Without `gh`, or in a repository that is not on GitHub, the
+list says why and offers nothing; a chat has no repository and no list. The one you pick stands
+in the box as one token, `[#142 Fix the login form]`. Escape, or a `#` you pick nothing after,
+such as a heading or a number typed by hand, leaves the text as typed: only what you pick is
+listed.
+
+Under your words, and under the sessions it mentions, Swarmed lists each one by kind, number,
+title, state, branches and address, so that the agent knows which repository's it is and can read
+more with `gh pr view` or `gh issue view`:
+
+```
+Pull requests and issues mentioned, to read with gh:
+- pull request #142 ("Fix the login form", open, fix-login into main): https://github.com/o/r/pull/142
+- issue #12 ("Login loops", closed): https://github.com/o/r/issues/12
+```
+
+Sending asks GitHub nothing: the list is written from what the menu read, or from what was read
+in the minute before, and anything older is read again first. A message that waits in the queue
+goes with each one's state as it is when it is sent, not when you typed it: while it waits,
+Swarmed reads what it names again every 30 seconds, and writes the list again as it goes. In the
+transcript each shows as a chip coloured by that state; pressing it opens it on GitHub. ↑ and
+editing a waiting message bring it back as a token. On the command line,
+`swarmed session send 7 "..." --pull 142 --issue 12` does the same, and `swarmed pr list <repo>`
+lists what `#` offers, with a number or words after it as the list takes them.
 
 Every agent is also told that it works in its task's own worktree and is to keep the work on the
 task's branch: to make no other branch, worktree or clone, and to ask you for a new task when

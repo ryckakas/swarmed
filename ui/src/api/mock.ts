@@ -2,7 +2,7 @@ import { lastDays } from "../analytics";
 import { CHATS } from "../chats";
 import { movedAmong, pinnedAmong, starterHere } from "../ordering";
 import { calledCommand } from "../slash";
-import { PLAN_TOOL, withFiles } from "../transcript";
+import { PLAN_TOOL } from "../transcript";
 import { titleFrom } from "../tree";
 import type { Api } from "./client";
 import { MOCK_COMMANDS, mockQuestions, mockSaid, mockScreen, mockScreenOnly } from "./mockCommands";
@@ -12,11 +12,15 @@ import {
     mockRefusal,
     resetToWaitFor,
 } from "./mockContinuation";
+import { githubApi } from "./mockGithub";
 import { mockImagesApi } from "./mockImages";
 import { issuesApi } from "./mockIssues";
+import { mentionsApi, messageFor } from "./mockMentions";
 import { mergeApi } from "./mockMerging";
 import { bringBack, putAwayApi } from "./mockPutAway";
+import { rewindApi } from "./mockRewind";
 import { MockSetups, taskSetupApi } from "./mockSetups";
+import { turnsApi } from "./mockTurns";
 import { heardUsage, sampleAccountUsage } from "./mockUsage";
 import type {
     AccountUsage,
@@ -447,6 +451,18 @@ const SAMPLE_CLEANUP: Cleanup = {
             at_risk: false,
         },
     ],
+    checkpoints: [
+        {
+            key: "/data/checkpoints/9",
+            project: "storefront",
+            name: "/data/checkpoints/9",
+            task: "old-checkout",
+            reason: "its task is gone, and nothing reads what its turns changed",
+            bytes: 3_400_000,
+            since: NOW_SECONDS - 9 * DAY,
+            at_risk: false,
+        },
+    ],
 };
 
 /**
@@ -482,6 +498,7 @@ const SAMPLE_USAGE: Usage = {
     database_bytes: 4_700_000,
     events: 576,
     notes_bytes: 4100,
+    checkpoints_bytes: 12_600_000,
     worktrees: [
         {
             project: "storefront",
@@ -2130,7 +2147,7 @@ class MockAgent {
     private command(id: number, text: string): boolean {
         const command = calledCommand(text, MOCK_COMMANDS);
         const bare = text.trim() === `/${command?.name}`;
-        if (command?.kind === "terminal") {
+        if (command?.kind === "terminal" || command?.kind === "choice") {
             throw new Error(`/${command.name} is not sent. ${command.note}`);
         }
         if (command?.kind === "own") {
@@ -3211,6 +3228,12 @@ export function createMockApi(): Api {
             (id) => setups.stop(id, "removed"),
         ),
         ...issuesApi(() => agent.projects),
+        ...rewindApi({
+            projects: () => agent.projects,
+            history: (id) => agent.history(id),
+            publish: (id, event) => agent.publish(id, event, null),
+            stop: (id) => agent.stopAgent(id),
+        }),
         ...putAwayApi({
             projects: () => agent.projects,
             settings: () => settings,
@@ -3290,6 +3313,7 @@ export function createMockApi(): Api {
         ...mergeApi(agent),
         taskChanges: sampleChanges,
         taskDiff: sampleDiff,
+        ...turnsApi(),
         taskOpenEditor: async () => undefined,
         taskOpenTerminal: async () => undefined,
         taskFiles: async (_project, _name, dir) => sampleFiles(dir),
@@ -3347,13 +3371,23 @@ export function createMockApi(): Api {
         sessionForkInto: async (id, projectName, taskName) =>
             sampleForkInto(agent, tasks(), id, projectName, taskName),
         sessionEvents: async (id) => [...agent.history(id)],
-        sessionSend: async (id, text, files) => agent.send(id, withFiles(text, files ?? [])),
-        sessionMessageNow: async (id, text, files) =>
-            agent.sendTypedNow(id, withFiles(text, files ?? [])),
+        sessionSend: async (id, text, files, sessions, github) =>
+            agent.send(id, messageFor(agent.projects, id, text, files, sessions, github)),
+        ...mentionsApi(() => agent.projects),
+        ...githubApi(),
+        sessionMessageNow: async (id, text, files, sessions, github) =>
+            agent.sendTypedNow(id, messageFor(agent.projects, id, text, files, sessions, github)),
         sessionTellNow: async (id, message) => agent.tellNow(id, message),
         sessionQueue: async (id) => agent.queue(id),
-        sessionEnqueue: async (id, text, files) => agent.enqueue(id, withFiles(text, files ?? [])),
-        sessionQueueEdit: async (id, message, text) => agent.editQueued(id, message, text),
+        sessionEnqueue: async (id, text, files, sessions, github) =>
+            agent.enqueue(id, messageFor(agent.projects, id, text, files, sessions, github)),
+        // Nothing at all comes out empty, which takes the message out.
+        sessionQueueEdit: async (id, message, text, files, sessions, github) =>
+            agent.editQueued(
+                id,
+                message,
+                messageFor(agent.projects, id, text, files, sessions, github),
+            ),
         sessionQueueHold: async (id, message) => agent.holdQueued(id, message),
         sessionQueueLetGo: async (id, message) => agent.letGoQueued(id, message),
         sessionSendQueued: async (id) => agent.sendQueued(id),

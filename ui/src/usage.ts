@@ -30,12 +30,13 @@ export function formatBytes(bytes: number): string {
 }
 
 /**
- * Everything Swarmed keeps on disk: its database, the notes, every measured worktree, and
- * what is left of removed ones.
+ * Everything Swarmed keeps on disk: its database, the notes, the turns' checkpoints, every
+ * measured worktree, and what is left of removed ones.
  */
 export function totalBytes(usage: Usage): number {
     const worktrees = usage.worktrees.reduce((sum, worktree) => sum + (worktree.bytes ?? 0), 0);
-    return usage.database_bytes + usage.notes_bytes + worktrees + usage.removed_bytes;
+    const kept = usage.database_bytes + usage.notes_bytes + usage.checkpoints_bytes;
+    return kept + worktrees + usage.removed_bytes;
 }
 
 /** Processor use as a share of one core: 0.4%, 12%, 180%. */

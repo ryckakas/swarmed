@@ -370,7 +370,7 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   it could not start for one, would end without a word. Held open, that side never reports
   its end, so `feed` waits for the program and tells `pump`, which reads on until nothing
   has come for `LAST_WORDS`.
-- **Claude Code's own `/` commands are each one of five kinds, in one table**
+- **Claude Code's own `/` commands are each one of six kinds, in one table**
   (`commands.rs`, `CLAUDE_COMMANDS`). In a terminal many of them open a screen; run as Swarmed
   runs it, Claude Code has none. A *screen* (`/usage`, `/status`, `/context`, `/cost`,
   `/memory`, `/skills`, `/hooks`, `/mcp`) is asked of Claude Code with one control request
@@ -381,7 +381,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   model and effort with `session_configure`, Claude Code's settings by sending it
   `/config key=value`, which it takes in words. One Swarmed does itself with nothing to ask
   is *own* (`/remote-control`, `/rc`, and `/rc off`): see Remote Control below. It is sent
-  at once, and refused in the queue, where it would reach Claude Code as typed. A command
+  at once, and refused in the queue, where it would reach Claude Code as typed. A *choice*
+  (`/rewind`, `/checkpoint`, `/undo`) is one the window opens a dialog of Swarmed's own for
+  (`CommandKind::Choice`, `opensChoice` in `slash.ts`); as text, from the command line or the
+  queue, it is refused like the next kind, with what to do instead. A command
   Swarmed has its own way to do
   (`/rename`, `/fork`, `/clear`) is refused (`Error::TerminalOnly`) with what to do instead,
   under any of its names (`CLAUDE_ALIASES`: `/new` is `/clear`). So is one that would move
@@ -462,7 +465,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   required check holds a merge back (`mockMerging.ts`): Force merge is refused in GitHub's
   words, auto-merge can be turned on, and Bypass requirements merges it.
   Removing the sample task `invoice-export` is refused over unsaved work, and `shop-142` over
-  a session another Swarmed runs. A new task's setup is quick in storefront, takes half a
+  a session another Swarmed runs. A session can be taken back with Edit from here once idle
+  (`mockRewind.ts`); a busy one is refused, and so are the files of one whose task has a session
+  at work, as in `fix-login-redirect`. A new task's setup is quick in storefront, takes half a
   minute in bonsai-lint, and in fsum is killed the first time and succeeds when run again
   (`mockSetups.ts`). Storefront and bonsai-lint have GitHub issues, `shop-142` was started for
   #142, #428's text holds HTML GitHub draws (`<details>`, `<kbd>`) and HTML it does not, an
@@ -673,6 +678,45 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   under the message in one fixed form, which the UI reads back (`splitFiles`) to show them as
   files. The front end gets paths from the system's file picker and from files dropped on the
   window, never file contents.
+- **A message can mention another session** (`mentions.rs`, `ui/src/mentions.ts`, #380). `@`
+  in the message box opens a list read from the core (`session_reachable`, or
+  `project_reachable` in the new-task view), which is what `read_session` can read: the reach
+  rules stay in `peers.rs` alone (`Reach`, `in_reach`). The choice stands in the box as a token,
+  `[@42 Fix the login form]`, which stays in the text as typed, so the draft, the queue and recall
+  carry it as text. The front end sends the ids its tokens name beside the files (`Attached`);
+  the core refuses one out of reach, closed or the session itself (`Error::CannotMention`)
+  before anything is sent, and lists the rest under the words and before the files in a fixed
+  form (`MENTIONED_SESSIONS`), which `splitMentions` reads back for chips and `mentionsAgain`
+  for tokens. Only a reference is sent; with no tool server (`tool_server` unset) a short
+  digest of each takes its place. A waiting message is edited with its files and sessions
+  apart (`session_queue_edit_message`), so the core writes the list again. The pattern (a menu
+  opened by a sign, a token, a list under the message, read back) is meant to be reused, and
+  `#` reuses it: `mentionQuery` takes the sign, `usePicking` the list's keys, and only the
+  list of the sign nearer the caret opens (`signAt`).
+- **A message can mention a pull request or an issue** (`github_mentions.rs`,
+  `ui/src/githubMentions.ts`, #371), by `#` in a repository's message box. They share
+  GitHub's one count, so a token is `[#142 Fix the login form]` whichever it is.
+  - **Listed** by `project_github_items` through the user's `gh` in the repository: the
+    latest changed of each kind (`GITHUB_LISTED`), one by number (`gh pr view`, else
+    `gh issue view`, which also answers for a pull request but without its branches), or
+    GitHub's search for words. No `gh`, not on GitHub or signed out is an empty
+    list that says why, as `issues.rs` does; issues turned off still lists the pull requests.
+    The UI asks once per opening, filters as the user types (`githubMatches`), and asks again
+    with the query only when that finds nothing, after a pause. Chats have none: `repo()`.
+  - **Sending asks the network nothing.** What was read is kept in `Live::github` (`Known`,
+    by address, with the repositories that asked); `Attached::github` names numbers, and
+    `message_for` lists them from that, after the sessions and before the files, refusing a
+    number not read (`Error::CannotMentionOnGitHub`). A front end calls
+    `project_github_read` first (`githubRead` in `sending.ts`), which reads only what is not
+    from the last minute; the command line's `--pull` and `--issue` do the same.
+  - **A waiting message goes with the state as it is when sent** (the user's choice). While
+    one with a list waits, one follower (`github_follow_waiting`, started by whatever queues
+    such a message) reads each address it names again every `FRESH_EVERY` until none waits;
+    `send_next` and `session_tell_now` write the list again from that (`fresh_list`) as the
+    message goes. The queue's own text is never changed by it.
+  - **Read back** by `splitGitHub` (the list must run to the end of what is left once the files
+    are off), as chips coloured by state that open the address with `open_link`, and as tokens
+    again by `typedAgain`, which handles both lists. A number typed by hand is never looked up.
 - **A pasted image is the one part of a message Swarmed keeps** (`pasted.rs`, `images.ts`,
   #378), since it has no path to name. Until the message goes it is in the draft, in the
   window's memory (`images` of the `Draft`, in base64). Sending, queueing, saving an edited
@@ -789,6 +833,39 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   be handed another's memory, so the fork's agent is given that conversation as text with the
   first message sent to it, whatever agent it is, and again with each message until a turn in
   the fork has ended well: an agent that died on the first one heard nothing. What is recorded is what the user typed.
+- **A session can be taken back to before one of its messages** (`rewind.rs`, `rewind.ts`,
+  `RewindDialog.tsx`, #364): Edit from here, `/rewind`, `swarmed session rewind`.
+  - **Nothing is deleted.** `AgentEvent::Rewound { to }` says that message `to` (numbered as a
+    fork numbers them, every message ever sent counted) and what followed, up to the event, no
+    longer count (`rewind::dropped`, `counted`); one inside a later one's part goes with it.
+    Forks, carried text, a hand-over to the cloud and what another session reads of it
+    (`said_in`) read `counted`; costs, search and the event list read everything.
+    The transcript folds the part under the line (`RewoundItem`).
+  - **Claude Code resumes** at its own id of the last message of the turn before
+    (`--resume-session-at`, which takes a message's `uuid`). `claude.rs` reports it at each
+    turn's end, before `TurnDone`, as `AgentEvent::ResumePoint` (stored, never shown), and a
+    launch passes it (`rewind::resume_at`) until a turn after the rewind reports its own. With
+    no such point after the message before, and for every other agent, `agent_session_id` is
+    cleared and the agent is told what was said, as a fork's is (`rewind::starts_anew`).
+  - **Files** go back with `checkpoints::restore`: the worktree taken into a scratch index,
+    then `git read-tree -m -u <now> <checkpoint>`. Git refuses to overwrite an untracked file
+    and changes nothing then, but writes over one it ignores without a word, so anything on
+    disk where a file would be added that the tree taken has not got is refused first
+    (`nothing_in_the_way`): it could not be put back. Git writes file by file under a limit of its own
+    (`WRITE_LIMIT`), and one that gives up part-way has what it wrote put as it was
+    (`left_at`); where that fails too, the tree taken is kept against the tree the files are
+    left at (`Stopped::left`), so that they can still be put back. The tree taken is kept in `rewinds`, the
+    session's latest only, and `session_files_put_back` restores it only while the worktree is
+    still at the tree it was taken back to. Commits stay: `checkpoints.head` says how many
+    were made since. Claude Code's own `rewind_files` is never used.
+  - **Refused, not tried**, as `Error::Rewind` with the reason: the session busy, closed, run
+    elsewhere or with work left running; for files also any session of the task busy or run
+    elsewhere, anything left running, its setup, a rebase or merge under way, no checkpoint.
+    While one runs, `Live::taking_back` holds every message to the task's agents
+    (`send_text`), and the agent is stopped and waited for (`session_ended`) before anything is
+    changed.
+  - **The message goes back into the draft** (`rewindSession`, `draftOf`, `withEdited`), with
+    what was typed kept after it, and is never sent by itself.
 - **A closed session is put away, not deleted.** Closing is an event, `Closed`, so every front
   end drops it from its lists. Its task counts its closed sessions, they can be listed
   (`sessions_closed`) and put back (`session_reopen`) with their conversation as it was.
@@ -1005,6 +1082,26 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **A task's changes are read from git on demand** (`changes.rs`): everything that differs from
   the merge base with the task's base ref, uncommitted and untracked files included. The view is
   read-only. The UI reads again when one of the task's agents finishes a tool call or a turn.
+- **What one turn changed is read from checkpoints** (`checkpoints.rs`, `checkpoints/trees.rs`,
+  `turnChanges.ts`, #363). A checkpoint is the worktree as a git tree, kept in a bare repository
+  of the task's own under the data directory (`Paths::checkpoints`, by task id), named by a row
+  of `checkpoints` (session, message number as a fork counts them, `before` or `after`).
+  - **Taken** in `send_text` once the message is recorded and before it goes (every path but a
+    message told mid-turn, which joins the turn), and in `on_event` on `TurnDone` before the end
+    is told, for the turn whose `before` this process took (`Checkpoints::under_way`). A failed
+    one keeps nothing back: that turn is only not listed. Chats take none.
+  - **Nothing is written into the repository.** Git runs on a copy of the worktree's index with
+    `GIT_OBJECT_DIRECTORY` on the store and the repository's objects as an alternate; hooks,
+    filters (Git LFS writes into `.git/lfs` when it cleans), the file-system monitor and a split
+    index are switched off through `GIT_CONFIG_*`. A test holds the repository's `.git` to the
+    byte. An untracked file over `MAX_UNTRACKED_BYTES` is left out by literal pathspec and said.
+    Every git call has `LIMIT`, after which it is killed: a message never waits longer.
+  - **Kept:** the latest `KEPT_TURNS` turns per session; older rows are dropped as a `before` is
+    kept, and the store pruned on a thread of its own (`git prune` with the kept trees as heads,
+    `GRACE` for objects a checkpoint being taken has not named yet). A task's removal deletes
+    them; usage counts them, and a clean-up lists a store whose task is gone.
+  - **Read:** a turn ends at its `after`, else the next turn's `before`, else now (a tree taken
+    and not kept). Who else was at work is the task's other sessions whose turns overlap.
 - **A task's pull request and checks are asked of the user's own `gh`** (`pulls.rs`), in the
   task's worktree. Swarmed holds no GitHub token. No `gh`, no pull request, or a
   repository that is not on GitHub all mean the same: the task has none, which is not an error.

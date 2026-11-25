@@ -25,6 +25,9 @@ pub struct Usage {
     pub events: u64,
     /// The user's notes, in bytes.
     pub notes_bytes: u64,
+    /// The checkpoints of every task's turns, in bytes: what of the worktrees' files their
+    /// repositories have not got.
+    pub checkpoints_bytes: u64,
     /// Every active task's worktree, largest first.
     pub worktrees: Vec<WorktreeUsage>,
     /// Removed tasks' worktrees that are not deleted yet, or could not be, in bytes.
@@ -161,8 +164,10 @@ impl Core {
             file_bytes(&database) + file_bytes(&beside("-wal")) + file_bytes(&beside("-shm"));
         let events = self.store().event_count()?;
         let notes = self.paths.data_dir.join("notes");
-        let (notes_bytes, worktrees, removed_bytes, processes) = tokio::join!(
+        let checkpoints = self.paths.checkpoints_root();
+        let (notes_bytes, checkpoints_bytes, worktrees, removed_bytes, processes) = tokio::join!(
             folder_bytes(&notes),
+            folder_bytes(&checkpoints),
             self.worktree_sizes(),
             self.removed_bytes(),
             processes()
@@ -171,6 +176,7 @@ impl Core {
             database_bytes,
             events,
             notes_bytes: notes_bytes.unwrap_or(0),
+            checkpoints_bytes: checkpoints_bytes.unwrap_or(0),
             worktrees: worktrees?,
             removed_bytes,
             running: tree_usage(&processes, std::process::id()),

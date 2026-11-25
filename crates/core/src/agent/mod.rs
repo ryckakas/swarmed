@@ -149,6 +149,10 @@ pub struct SessionSpec {
     pub auth: Auth,
     /// The agent's own session id from an earlier run, to continue that conversation.
     pub resume: Option<String>,
+    /// Where in that conversation to continue: the agent's own id of the last message kept,
+    /// after which everything is left out. Only Claude Code takes one, for a session taken
+    /// back to an earlier message ([`AgentEvent::Rewound`]).
+    pub resume_at: Option<String>,
     /// Tool rules that never prompt, in Claude Code's rule syntax.
     pub allowed_tools: Vec<String>,
     /// Tool rules that are always refused.
@@ -638,6 +642,39 @@ pub enum AgentEvent {
     Forked {
         /// The session it was forked from.
         from: i64,
+    },
+    /// Where the agent's own record of the conversation stands as a turn ends: Claude Code's
+    /// id of the last message of the turn that it keeps, at which a session taken back to the
+    /// next message resumes it ([`SessionSpec::resume_at`]). Stored, never shown.
+    ResumePoint {
+        /// The message's id in Claude Code's record of the conversation.
+        uuid: String,
+    },
+    /// The user took the session back to before one of its messages: that message and what
+    /// followed it, up to here, no longer count. They stay stored, for costs and search, and
+    /// front ends show them folded. Recorded by the core, not produced by a backend.
+    Rewound {
+        /// The message it was taken back to before, by its number in the session: counting
+        /// from 0 every message sent into it, as a fork counts them.
+        to: usize,
+        /// Whether the worktree's files were taken back too, to the checkpoint before it.
+        #[serde(default)]
+        files: bool,
+        /// Where Claude Code resumes the conversation: its id of the last message before that
+        /// one. `None` for an agent that starts a new conversation instead, which is told what
+        /// was said up to there with the next message.
+        #[serde(default)]
+        resume_at: Option<String>,
+        /// How many commits were made on the worktree's branch since that message was sent,
+        /// which stay there: taking files back never moves a branch. `None` when not known.
+        #[serde(default)]
+        commits_since: Option<usize>,
+    },
+    /// The files a rewind took back ([`AgentEvent::Rewound`]) were put back as they were
+    /// before it. Recorded by the core.
+    FilesPutBack {
+        /// The message the rewind had taken the session back to before.
+        to: usize,
     },
     /// Something a sub-agent said or did: an agent the session's own agent started for a part
     /// of its work, and whose answer it gets as the result of the tool it started it with.

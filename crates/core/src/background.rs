@@ -101,12 +101,19 @@ impl Core {
 
     /// Whether something a session of task `id` left running still runs.
     pub(crate) fn background_running(&self, id: i64) -> Result<bool> {
-        let reported = self.store().background_reports(id)?;
+        self.background_running_in(id, None)
+    }
+
+    /// Whether something left running by session `session` of task `task`, or with `None` by
+    /// any of its sessions, still runs.
+    pub(crate) fn background_running_in(&self, task: i64, session: Option<i64>) -> Result<bool> {
+        let reported = self.store().background_reports(task)?;
         let alive = self.running_sessions();
         let listed = listed(reported, &alive);
-        Ok(listed
-            .iter()
-            .any(|task| task.state == BackgroundState::Running))
+        Ok(listed.iter().any(|task| {
+            task.state == BackgroundState::Running
+                && session.is_none_or(|session| task.session_id == session)
+        }))
     }
 
     /// What a command session `id`'s agent left running printed: from `from` on if that is

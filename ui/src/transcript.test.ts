@@ -4,8 +4,10 @@ import {
     activity,
     continueOffer,
     fileName,
+    type Item,
     type LimitItem,
     latestFailure,
+    latestFilesRewind,
     latestLimit,
     latestMerge,
     latestMove,
@@ -851,6 +853,8 @@ describe("going on when a usage limit resets", () => {
         key,
         text: "go on",
         files: [],
+        sessions: [],
+        github: [],
         remote: false,
         atReset: false,
     });
@@ -877,5 +881,72 @@ describe("going on when a usage limit resets", () => {
         // Set, the time it goes is the session's, which the core has the last word on.
         expect(continueOffer(limit(1, 200), true, 300, now)).toEqual({ state: "set", at: 300 });
         expect(continueOffer(limit(1, 50), true, 300, now)).toEqual({ state: "set", at: 300 });
+    });
+});
+
+describe("a session taken back", () => {
+    const user = (text: string): AgentEvent => ({ type: "user_message", text });
+    const said = (text: string): AgentEvent => ({ type: "text", text });
+    const rewound = (to: number, files = false): AgentEvent => ({
+        type: "rewound",
+        to,
+        files,
+        resume_at: null,
+        commits_since: files ? 2 : null,
+    });
+    const kinds = (items: Item[]) => items.map((item) => item.kind);
+
+    it("folds what it dropped under its line, and goes on after it", () => {
+        const events = [user("one"), said("1"), user("two"), said("2"), rewound(1), user("again")];
+        const items = toItems(events);
+        expect(kinds(items)).toEqual(["user", "text", "rewound", "user"]);
+        const line = items[2];
+        expect(line?.kind === "rewound" && kinds(line.dropped)).toEqual(["user", "text"]);
+        expect(line?.kind === "rewound" && line.message).toBe("two");
+        // Messages keep the numbers they had: the next is the third sent.
+        expect(messageNumber(events, 5)).toBe(2);
+    });
+
+    it("folds a part dropped earlier with the later part that holds it", () => {
+        const events = [user("one"), user("two"), rewound(1), user("three"), rewound(0)];
+        const items = toItems(events);
+        expect(kinds(items)).toEqual(["rewound"]);
+        const outer = items[0];
+        expect(outer?.kind === "rewound" && kinds(outer.dropped)).toEqual([
+            "user",
+            "rewound",
+            "user",
+        ]);
+    });
+
+    it("offers to put the files back on the latest rewind that took them, until they are", () => {
+        const events = [
+            user("one"),
+            user("two"),
+            user("three"),
+            rewound(2, true),
+            user("four"),
+            rewound(1),
+        ];
+        const items = toItems(events);
+        // Folded under a later rewind of the conversation alone, still the one to put back.
+        expect(latestFilesRewind(items)).toBe(3);
+        const folded = items.find((item) => item.kind === "rewound");
+        const inner = folded?.kind === "rewound" ? folded.dropped[1] : undefined;
+        expect(inner?.kind === "rewound" && inner.commitsSince).toBe(2);
+        const putBack = toItems([...events, { type: "files_put_back", to: 2 }]);
+        expect(latestFilesRewind(putBack)).toBeNull();
+        expect(latestFilesRewind(toItems([user("one"), rewound(0)]))).toBeNull();
+    });
+
+    it("counts as written since a limit's line, which then offers nothing", () => {
+        const limit: AgentEvent = {
+            type: "rate_limit",
+            status: "rejected",
+            resets_at: 2_000_000_000,
+            raw: { status: "rejected", rateLimitType: "five_hour" },
+        };
+        const items = toItems([user("one"), limit, rewound(0)]);
+        expect(latestLimit(items)).toBeNull();
     });
 });

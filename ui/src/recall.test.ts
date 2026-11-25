@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentEvent } from "./api/types";
+import { withMentions } from "./mentions";
 import {
     type Browsing,
     browse,
@@ -69,6 +70,17 @@ describe("sentMessages", () => {
             draft("look at these", ["/tmp/a.png", "/tmp/b.md"]),
             draft("/code-review 123"),
             draft("first"),
+        ]);
+    });
+
+    it("brings the sessions a message mentioned back as their tokens", () => {
+        const sent = withMentions("do what [@9 Fix login] did", [
+            { id: 9, title: "Fix login" },
+            { id: 3, title: "Three" },
+        ]);
+        const message = said(`${sent}\n\nAttached files:\n- /tmp/a.txt`);
+        expect(sentMessages([message])).toEqual([
+            draft("do what [@9 Fix login] did [@3 Three]", ["/tmp/a.txt"]),
         ]);
     });
 

@@ -15,6 +15,43 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Added
+
+- **See what one turn changed.** Swarmed now keeps the task's worktree as it was before each
+  message went to the agent and when its turn ended. The Changes tab can show the whole task,
+  as before, or one turn of the session on screen: the files it changed, edits made by shell
+  commands included, each with its diff, and the other sessions that were at work at the same
+  time. `swarmed session turns` and `swarmed session turn-diff` show the same in the terminal.
+  The latest 50 turns of each session are kept, outside your repository and without the files
+  it ignores; see [What a turn changed](docs/configuration.md#what-a-turn-changed).
+- **Mention another session with `@`.** Type `@` in the message box to point the agent at
+  another session: the list shows the sessions of the same task, and typing finds the rest it
+  can read. The agent is given the session's id and title and reads what it needs with
+  `read_session`, which can now also read a long conversation from its start. A session it
+  cannot read is refused before anything is sent. A sent mention shows as a chip that opens the
+  session, and `swarmed session send --session <id>` does the same from the terminal; see
+  [Mentioning another session](docs/coding-agents.md#mentioning-another-session).
+- **Mention a pull request or an issue with `#`.** Type `#` in a repository's message box to
+  pick one of its pull requests or issues: the list shows the latest changed, digits narrow it
+  by number and words search GitHub. The agent is given each one's number, title, state,
+  branches and address, to read more with `gh`. A message waiting in the queue goes with each
+  one's state as it is when it is sent. A sent mention shows as a chip coloured by its state
+  that opens it on GitHub; `#` with nothing picked stays text. From the terminal,
+  `swarmed session send --pull <n>` and `--issue <n>` do the same, and `swarmed pr list` lists
+  what `#` offers; see
+  [Mentioning a pull request or an issue](docs/coding-agents.md#mentioning-a-pull-request-or-an-issue).
+- **Edit from here: take a session back to before one of your messages.** Beside Fork from here,
+  and as `/rewind` (`/checkpoint`, `/undo`) in a Claude Code session, which no longer refuses
+  it. Choose the conversation only, or the files too: the worktree goes back to the checkpoint
+  taken before that message, and **Put the files back** undoes that while nothing changed them
+  since. The message goes back into the box to edit and send again. Claude Code resumes its own
+  conversation there and forgets what came after; other agents start a new one told what was
+  said up to it. What was taken back stays in the transcript, folded. Commits stay on the
+  branch, and it is refused, with the reason, while an agent could write into the worktree or a
+  rebase or merge is under way. `swarmed session rewind` and `swarmed session put-back` do the
+  same from the terminal; see
+  [Taking a session back](docs/coding-agents.md#taking-a-session-back-to-before-a-message).
+
 ## [0.4.4] - 2026-11-25
 
 ### Added

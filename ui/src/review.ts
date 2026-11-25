@@ -14,6 +14,15 @@ export interface ReviewComment {
     text: string;
 }
 
+/**
+ * `comment`, made at the place of a line that reads `code`, if it was made on that line. One
+ * turn's diff of a file and the whole task's count their lines alike and hold other code
+ * there: a comment shows only where the line it was made on stands.
+ */
+export function madeOn(comment: ReviewComment | undefined, code: string) {
+    return comment?.code === code ? comment : undefined;
+}
+
 /** What tells one commented line from another. */
 export function commentKey(comment: Pick<ReviewComment, "path" | "line" | "side">): string {
     return `${comment.path}:${comment.side}:${comment.line}`;

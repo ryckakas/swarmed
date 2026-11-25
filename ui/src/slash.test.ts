@@ -3,7 +3,9 @@ import type { SlashCommand } from "./api/types";
 import {
     calledCommand,
     firstPlaceholder,
+    goesAtOnce,
     kindLabel,
+    opensChoice,
     SUGGESTION_LIMIT,
     sentOn,
     slashMatches,
@@ -82,6 +84,7 @@ describe("what becomes of a command", () => {
         { name: "review", kind: "prompt", note: "" },
         { name: "rename", kind: "terminal", note: "A session is renamed by pressing its title." },
         { name: "vim", kind: "terminal", note: "" },
+        { name: "rewind", kind: "choice", note: "Use Edit from here." },
     ];
 
     it("is said beside it in the list, unless it is simply sent", () => {
@@ -92,7 +95,16 @@ describe("what becomes of a command", () => {
             "not sent. A session is renamed by pressing its title.",
         );
         expect(kindLabel(commands[4])).toBe("not sent");
+        expect(kindLabel(commands[5])).toBe("opens here");
         expect(kindLabel(undefined)).toBeNull();
+    });
+
+    it("opens a choice of Swarmed's own only when typed alone", () => {
+        expect(opensChoice("/rewind", commands)).toBe(true);
+        expect(opensChoice("  /rewind  ", commands)).toBe(true);
+        expect(opensChoice("/rewind to before the bug", commands)).toBe(false);
+        expect(opensChoice("/usage", commands)).toBe(false);
+        expect(opensChoice("rewind", commands)).toBe(false);
     });
 
     it("is found by the message's first word", () => {
@@ -110,6 +122,15 @@ describe("what becomes of a command", () => {
         expect(takenBySwarmed("/review this", commands)).toBe(false);
         expect(takenBySwarmed("/my-skill", commands)).toBe(false);
         expect(takenBySwarmed("hello", commands)).toBe(false);
+    });
+
+    it("waits its turn when it goes with files, images, sessions or pull requests, which only the agent takes", () => {
+        const alone = { files: [], images: [], sessions: [], github: [] };
+        expect(goesAtOnce("/usage", alone, commands)).toBe(true);
+        expect(goesAtOnce("/usage", { ...alone, sessions: [4] }, commands)).toBe(false);
+        expect(goesAtOnce("/usage", { ...alone, github: [142] }, commands)).toBe(false);
+        expect(goesAtOnce("/usage", { ...alone, files: ["/a"] }, commands)).toBe(false);
+        expect(goesAtOnce("hello", alone, commands)).toBe(false);
     });
 
     it("leaves a first message only what is sent to the agent", () => {

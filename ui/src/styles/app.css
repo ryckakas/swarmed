@@ -955,6 +955,16 @@ code {
     min-height: 0;
 }
 
+/* The choice between the whole task and one turn of the session on screen. */
+.changes-pick {
+    flex: none;
+    padding: var(--space-3) var(--space-3) 0 var(--space-4);
+}
+
+.changes-turn-note {
+    color: var(--muted);
+}
+
 .changes-head {
     flex: none;
     display: flex;
@@ -2934,10 +2944,16 @@ code {
     position: relative;
 }
 
-.said-fork {
+/* A message's ways to go on from it: shown while it is pointed at, or has the keyboard. */
+.said-actions {
     position: absolute;
     top: 4px;
     right: 6px;
+    display: flex;
+    gap: var(--space-1);
+}
+
+.said-fork {
     padding: 1px var(--space-2);
     border: 1px solid var(--line);
     border-radius: 6px;
@@ -2949,12 +2965,66 @@ code {
 }
 
 .said:hover .said-fork,
-.said-fork:focus-visible {
+.said-actions:focus-within .said-fork {
     opacity: 1;
 }
 
 .said-fork:hover {
     color: var(--text);
+}
+
+/* Where a session was taken back to before a message, with what that dropped folded under it. */
+.rewound {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+    padding: var(--space-2) 0;
+    border-top: 1px dashed var(--line);
+}
+
+.rewound-part {
+    align-self: stretch;
+}
+
+.rewound-part > summary {
+    cursor: pointer;
+    color: var(--faint);
+    font-size: var(--text-sm);
+}
+
+/* What no longer counts reads as set aside: quieter, and set in from the conversation. */
+.rewound-part > .items {
+    margin-top: var(--space-2);
+    padding-left: var(--space-3);
+    border-left: 2px solid var(--line);
+    opacity: 0.75;
+}
+
+.rewind-messages,
+.rewind-ways {
+    display: grid;
+    gap: var(--space-2);
+    margin: var(--space-3) 0;
+    padding: 0;
+    border: 0;
+}
+
+.rewind-messages > legend {
+    margin-bottom: var(--space-2);
+    color: var(--muted);
+}
+
+.rewind-choice {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+}
+
+.rewind-files ul {
+    margin: var(--space-1) 0 0;
+    padding-left: var(--space-4);
+    font-size: var(--text-sm);
 }
 
 /* Where a fork's copy of an earlier conversation ends. */
@@ -4506,6 +4576,90 @@ code {
     color: var(--text);
 }
 
+/* Sessions to mention for an `@` being typed: by title, in the interface's own font. */
+.mention-menu .slash-option {
+    overflow: hidden;
+    font-family: var(--font-ui);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mention-at {
+    margin-right: 1px;
+    color: var(--faint);
+}
+
+.mention-hint {
+    padding: 4px var(--space-2);
+    color: var(--faint);
+    font-size: var(--text-xs);
+}
+
+/* A session a sent message mentions, where its token stood: pressing it opens the session. */
+.mention-chip {
+    display: inline-block;
+    max-width: 32ch;
+    overflow: hidden;
+    padding: 0 var(--space-1);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--text-sm);
+    line-height: 1.4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+    cursor: pointer;
+}
+
+.mention-chip:hover,
+.mention-chip:focus-visible {
+    border-color: var(--sky);
+}
+
+.mention-chip:disabled {
+    color: var(--muted);
+    cursor: default;
+}
+
+/*
+ * A pull request's or issue's number, in the menu and on its chip, in the colour of its state as
+ * the sidebar's badges draw it: open in moss, merged in lilac, a draft and a closed one faint.
+ */
+.github-number {
+    margin-right: var(--space-1);
+    color: var(--faint);
+    font-variant-numeric: tabular-nums;
+}
+
+.github-number[data-state="open"] {
+    color: var(--moss);
+}
+
+.github-number[data-state="merged"] {
+    color: var(--lilac);
+}
+
+.github-chip .github-number {
+    margin-right: 0;
+}
+
+.github-chip[data-state="closed"] {
+    border-style: dashed;
+}
+
+/* Sessions a message mentions that its words do not name, as on the command line: under it. */
+.mention-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    margin: var(--space-2) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
 .composer-options {
     flex: 1;
     min-width: 0;
@@ -4598,6 +4752,11 @@ code {
 .picker-plain {
     padding-right: var(--space-2);
     background-image: none;
+}
+
+/* The Changes tab's choice of a turn, whose names are long: as wide as the tab. */
+.changes-pick .picker {
+    max-width: 100%;
 }
 
 /* A chip that shows only an icon: a button, or a menu lying unseen over its own picture. */

@@ -160,6 +160,10 @@ export interface TaskStart {
     title: string | null;
     prompt: string;
     files: string[];
+    /** The sessions the prompt mentions, by id: each one the new session could read. */
+    sessions: number[];
+    /** The pull requests and issues of the repository the prompt mentions, by number: each read first. */
+    github: number[];
     /** Images pasted into the prompt, each in base64: the session's own once it is made. */
     images: string[];
     /** The number of the repository's GitHub issue the task is for, which it records. */
@@ -485,6 +489,60 @@ export interface FileDiff {
     truncated: boolean;
 }
 
+/**
+ * One turn of a session whose checkpoints are kept: a message sent to its agent, and what came
+ * of it. The core keeps the latest 50 of each session.
+ */
+export interface Turn {
+    /** The message that began it, counting from 0 every message sent into the session. */
+    message: number;
+    /** The start of that message. */
+    words: string;
+    /** When the message went, in milliseconds since 1970. */
+    at_ms: number;
+    /** Whether its end was recorded; without one, its changes are counted up to now. */
+    ended: boolean;
+    /** The titles of the task's other sessions at work while it was: their changes are in it too. */
+    beside: string[];
+}
+
+/** A file git does not track that was too large to keep in a checkpoint. */
+export interface SkippedFile {
+    path: string;
+    bytes: number;
+}
+
+/** What taking a session back to before one of its messages would do now. */
+export interface RewindCheck {
+    /** Why it cannot be taken back now, if it cannot. */
+    refused: string | null;
+    /** Why its files cannot go back with it now, if they cannot. */
+    files_refused: string | null;
+    /** Whether the agent resumes its own conversation there; otherwise it starts a new one. */
+    resumes: boolean;
+    /** What taking the files back would change, from now to before the message. */
+    files: FileChange[];
+    /** Commits made since the message, which stay on the branch; `null` when not known. */
+    commits_since: number | null;
+}
+
+/** What came of taking a session back. */
+export interface RewindDone {
+    to: number;
+    files: boolean;
+    resumes: boolean;
+    commits_since: number | null;
+}
+
+/** What one turn changed in the worktree. */
+export interface TurnChanges {
+    files: FileChange[];
+    /** Files left out at either end: what became of them is not known. */
+    skipped: SkippedFile[];
+    /** Whether the turn's end was recorded; without one, this is up to now. */
+    ended: boolean;
+}
+
 /** One provider an API key can be stored for. The key itself never reaches the UI. */
 export interface ApiKeyInfo {
     /** The environment variable agents read the key from. */
@@ -691,6 +749,53 @@ export interface Project {
     pinned: boolean;
 }
 
+/**
+ * A session another can point its agent at with `@`: an open one the other's agent can read,
+ * under the same rules as its `read_session` tool.
+ */
+export interface Reachable {
+    id: number;
+    /** Empty while it has none. */
+    title: string;
+    /** The task it works in; for a chat, the chat's name. */
+    task: string;
+    /** The repository of its task; for a chat, the home of the chats. */
+    project: string;
+    chat: boolean;
+    /** Whether it works in the same task as the session that would point at it. */
+    same_task: boolean;
+    status: SessionStatus;
+}
+
+/** Whether a numbered thing on GitHub is a pull request or an issue: they share one count. */
+export type GitHubKind = "pull" | "issue";
+
+/** Where a pull request or an issue stands; only a pull request is a draft or merged. */
+export type GitHubState = "open" | "draft" | "merged" | "closed";
+
+/** A pull request or an issue of a repository, as the `#` menu offers it and a message names it. */
+export interface GitHubItem {
+    kind: GitHubKind;
+    number: number;
+    title: string;
+    state: GitHubState;
+    /** Where it is on GitHub, which also says the repository. */
+    url: string;
+    /** A pull request's branch and the one it goes into; `null` for an issue. */
+    head: string | null;
+    base: string | null;
+    /** When it last changed, as GitHub writes it. */
+    updated_at: string;
+}
+
+/** What the `#` menu offers, or why it offers nothing. */
+export interface GitHubItems {
+    /** The latest changed first. */
+    items: GitHubItem[];
+    /** Why there are none: no `gh`, not on GitHub, no sign-in, no such number, in `gh`'s words. */
+    unavailable: string | null;
+}
+
 /** A set of instructions for one kind of task, kept by an agent or by Swarmed itself. */
 export interface Skill {
     name: string;
@@ -785,6 +890,8 @@ export interface Usage {
     database_bytes: number;
     events: number;
     notes_bytes: number;
+    /** The checkpoints of every task's turns. */
+    checkpoints_bytes: number;
     /** Every active task's worktree, largest first; `bytes` is `null` if it was not measured. */
     worktrees: { project: string; task: string; path: string; bytes: number | null }[];
     /** Removed tasks' worktrees that are not deleted yet, or could not be. */
@@ -797,9 +904,9 @@ export interface Usage {
 
 /**
  * A kind of thing a clean-up deletes: removed tasks' worktrees not deleted yet, branches of
- * removed tasks, stale worktrees, and snapshots.
+ * removed tasks, stale worktrees, snapshots, and the checkpoints of tasks that are gone.
  */
-export type CleanupKind = "removed" | "branches" | "stale" | "snapshots";
+export type CleanupKind = "removed" | "branches" | "stale" | "snapshots" | "checkpoints";
 
 /** One thing a clean-up can delete, as the core lists it. */
 export interface CleanupItem {
@@ -932,9 +1039,10 @@ export interface ContextCategory {
 
 /**
  * What Swarmed does with a command when it is sent: send it on, show a screen, ask about a
- * setting, do it itself with nothing to ask (`own`, such as Remote Control), or refuse it.
+ * setting, do it itself with nothing to ask (`own`, such as Remote Control), open a choice of
+ * its own in the window (`choice`, such as `/rewind`), or refuse it.
  */
-export type CommandKind = "prompt" | "screen" | "setting" | "own" | "terminal";
+export type CommandKind = "prompt" | "screen" | "setting" | "own" | "choice" | "terminal";
 
 /**
  * How Remote Control of a session stands: asked for, reachable from claude.ai, reconnecting,
@@ -1047,6 +1155,27 @@ export type AgentEvent =
     | { type: "setup"; progress: SetupProgress }
     /** What stands before this is a copy of what was said in the session forked from. */
     | { type: "forked"; from: number }
+    /**
+     * Where Claude Code's own record of the conversation stood as a turn ended, at which a
+     * rewind resumes it. Stored, never shown.
+     */
+    | { type: "resume_point"; uuid: string }
+    /**
+     * The session was taken back to before its message number `to` (counting from 0 every
+     * message sent into it): that message and what followed, up to here, no longer count.
+     * `files` says whether the worktree's files went back too; `resume_at` is where Claude Code
+     * resumes, or `null` when the agent starts a new conversation told what was said;
+     * `commits_since` how many commits made since stay on the branch, if that is known.
+     */
+    | {
+          type: "rewound";
+          to: number;
+          files?: boolean;
+          resume_at?: string | null;
+          commits_since?: number | null;
+      }
+    /** The files a rewind took back were put back as they were before it. */
+    | { type: "files_put_back"; to: number }
     /** HTML the agent showed through Swarmed's own tool, handed over by the tool itself. */
     | { type: "view"; html: string }
     /** What the agent says it actually runs with, defaults resolved. */

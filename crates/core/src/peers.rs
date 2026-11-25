@@ -9,6 +9,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
@@ -21,14 +22,14 @@ use crate::paths::SOCKET_PREFIX;
 use crate::sessions::{Session, SessionOptions, SessionStatus};
 use crate::store::Project;
 use crate::toolserver::DELEGATE_TO_CLOUD;
-use crate::{Core, Task};
+use crate::{Core, Task, rewind};
 
 /// How many sessions one session may have started that are still open. A runaway agent stops
 /// here instead of filling the machine.
 pub const MAX_SPAWNED: usize = 6;
 /// How much of another session's conversation is handed over at most, in characters.
 const DIGEST_CHARS: usize = 8000;
-/// How many of a session's latest messages are read when no number is asked for.
+/// How many of a session's messages are read when no number is asked for.
 const DIGEST_MESSAGES: usize = 12;
 
 /// What agents are told about these tools, as part of Swarmed's guidance.
@@ -100,7 +101,7 @@ fn is_busy(session: &Session) -> bool {
 /// can neither list nor read one: a chat may hold what it read of another repository, and
 /// would hand that on to every repository otherwise.
 #[derive(Debug, Clone, Copy)]
-enum Reach {
+pub(crate) enum Reach {
     Project {
         project: i64,
         /// The home of the chats, once there is one.
@@ -111,7 +112,7 @@ enum Reach {
 
 impl Reach {
     /// Whether a session of `task` is listed and can be read.
-    fn reads(self, task: &Task) -> bool {
+    pub(crate) fn reads(self, task: &Task) -> bool {
         match self {
             Self::Project { project, .. } => task.project_id == project,
             Self::All => true,
@@ -136,7 +137,7 @@ impl Reach {
 
 /// What a session wants of another.
 #[derive(Debug, Clone, Copy)]
-enum Access {
+pub(crate) enum Access {
     Read,
     Write,
 }
@@ -189,22 +190,115 @@ fn tail(text: &str, limit: usize) -> &str {
         .map_or("", |(at, _)| &text[at..])
 }
 
+/// The start of `text`, at most `limit` characters of it, cut at a character boundary.
+fn head(text: &str, limit: usize) -> &str {
+    text.char_indices()
+        .nth(limit)
+        .map_or(text, |(at, _)| &text[..at])
+}
+
+/// Some of what was said in a session, for another session to read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Said {
+    /// The number of the first message given and of the last, counting from 1.
+    pub(crate) first: usize,
+    pub(crate) last: usize,
+    /// How many messages the session has.
+    pub(crate) total: usize,
+    /// The messages, each under who said it, at most as many characters as were asked for.
+    pub(crate) text: String,
+}
+
+/// Which messages of `said` are read: `wanted` of them, the latest unless `first` names the one
+/// to start at, counting from 1. The text is cut to `chars` at the end that matters least: the
+/// start of the latest messages, the end of those read from a start.
+fn read_of(said: &[String], first: Option<usize>, wanted: usize, chars: usize) -> Option<Said> {
+    let total = said.len();
+    let wanted = wanted.max(1);
+    let start = match first {
+        None => total.saturating_sub(wanted),
+        Some(first) => first.max(1) - 1,
+    };
+    if start >= total {
+        return None;
+    }
+    let end = (start + wanted).min(total);
+    let joined = said[start..end].join("\n\n");
+    let text = if first.is_some() {
+        head(&joined, chars)
+    } else {
+        tail(&joined, chars)
+    };
+    Some(Said {
+        first: start + 1,
+        last: end,
+        total,
+        text: text.to_string(),
+    })
+}
+
+/// What a reader is told when there is nothing to read from message `first` on.
+fn nothing_from(first: Option<usize>) -> String {
+    match first {
+        Some(first) if first > 1 => format!("That session has fewer than {first} messages."),
+        _ => "Nothing has been said in that session yet.".to_string(),
+    }
+}
+
+/// A session another session can point its agent at, as a front end lists it: an open one
+/// the other can read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Reachable {
+    /// The session's id.
+    pub id: i64,
+    /// Its title; empty while it has none.
+    pub title: String,
+    /// The task it works in; for a chat, the chat's name.
+    pub task: String,
+    /// The repository of its task; for a chat, the home of the chats.
+    pub project: String,
+    /// Whether it is a chat.
+    pub chat: bool,
+    /// Whether it works in the same task as the session that would point at it.
+    pub same_task: bool,
+    /// What it is doing.
+    pub status: SessionStatus,
+}
+
 impl Core {
     /// The task a session runs in.
-    fn task_of(&self, session: &Session) -> Result<Task> {
+    pub(crate) fn task_of(&self, session: &Session) -> Result<Task> {
         let task = self.store().task_by_id(session.task_id)?;
         task.ok_or(Error::SessionNotFound(session.id))
     }
 
     /// Which sessions session `own` can reach.
-    fn reach_of(&self, own: &Session) -> Result<Reach> {
-        let task = self.task_of(own)?;
-        if self.is_chat(&task) {
+    pub(crate) fn reach_of(&self, own: &Session) -> Result<Reach> {
+        self.reach_of_task(&self.task_of(own)?)
+    }
+
+    /// Which sessions a session of `task` can reach.
+    fn reach_of_task(&self, task: &Task) -> Result<Reach> {
+        if self.is_chat(task) {
             return Ok(Reach::All);
         }
         let chats = self.store().project_by_name(CHATS)?;
         Ok(Reach::Project {
             project: task.project_id,
+            chats: chats.map(|home| home.id),
+        })
+    }
+
+    /// Which sessions a session of a task of `project` would reach, before there is one. The
+    /// home of the chats need not be there yet: it is made with the first chat.
+    pub(crate) fn reach_of_project(&self, project: &str) -> Result<Reach> {
+        if project == CHATS {
+            return Ok(Reach::All);
+        }
+        let project = self.project(project)?;
+        let chats = self.store().project_by_name(CHATS)?;
+        Ok(Reach::Project {
+            project: project.id,
             chats: chats.map(|home| home.id),
         })
     }
@@ -229,6 +323,68 @@ impl Core {
         Ok(lines.join("\n"))
     }
 
+    /// The sessions session `from` can point its agent at: every other one
+    /// [`Core::peer_sessions`] lists, those of its own task first, each part latest active
+    /// first. The reach rules are the agent's own: a front end lists what its tools can read.
+    pub fn session_reachable(&self, from: i64) -> Result<Vec<Reachable>> {
+        let own = self.session(from)?;
+        let reach = self.reach_of(&own)?;
+        self.reachable(reach, Some(&own))
+    }
+
+    /// The sessions a new task's first session in `project` can point its agent at, before
+    /// there is one: those of the repository, or for a chat, every open session. Latest active
+    /// first.
+    pub fn project_reachable(&self, project: &str) -> Result<Vec<Reachable>> {
+        let reach = self.reach_of_project(project)?;
+        self.reachable(reach, None)
+    }
+
+    /// The open sessions `reach` covers, but `own`, those of its task first.
+    fn reachable(&self, reach: Reach, own: Option<&Session>) -> Result<Vec<Reachable>> {
+        let (projects, tasks, sessions, active) = {
+            let store = self.store();
+            let active = store.sessions_last_active()?;
+            (
+                store.projects()?,
+                store.tasks_all()?,
+                store.sessions_all()?,
+                active,
+            )
+        };
+        let listed = |session: Session| {
+            let task = tasks.iter().find(|task| task.id == session.task_id)?;
+            let project = projects.iter().find(|p| p.id == task.project_id)?;
+            let shown = reach.reads(task) && !task.archived;
+            let other = own.is_none_or(|own| own.id != session.id);
+            (shown && other).then(|| Reachable {
+                id: session.id,
+                title: session.title,
+                task: task.name.clone(),
+                project: project.name.clone(),
+                chat: project.chats,
+                same_task: own.is_some_and(|own| own.task_id == task.id),
+                status: session.status,
+            })
+        };
+        let mut found: Vec<Reachable> = sessions.into_iter().filter_map(listed).collect();
+        let latest = |session: &Reachable| active.get(&session.id).copied().unwrap_or(0);
+        found.sort_by_key(|session| {
+            std::cmp::Reverse((session.same_task, latest(session), session.id))
+        });
+        Ok(found)
+    }
+
+    /// Session `id` if `reach` covers it for `what`: an open session in a task that is not
+    /// archived.
+    pub(crate) fn in_reach(&self, reach: Reach, id: i64, what: Access) -> Option<Session> {
+        let other = self.session(id).ok()?;
+        let task = self.task_of(&other).ok()?;
+        let closed = self.store().session_is_closed(id).ok()?;
+        let listed = reach.covers(&task, what) && !task.archived && !closed;
+        listed.then_some(other)
+    }
+
     /// Session `id` as session `from` may reach it: an open session in a task of the project
     /// `from` works in, or from a chat any open session, which is what
     /// [`Core::peer_sessions`] lists; to write to, an open chat as well. Anything else is
@@ -237,14 +393,7 @@ impl Core {
     fn peer_in_reach(&self, from: i64, id: i64, what: Access) -> Result<Session> {
         let own = self.session(from)?;
         let reach = self.reach_of(&own)?;
-        let found = || {
-            let other = self.session(id).ok()?;
-            let task = self.task_of(&other).ok()?;
-            let closed = self.store().session_is_closed(id).ok()?;
-            let listed = reach.covers(&task, what) && !task.archived && !closed;
-            listed.then_some(other)
-        };
-        found().ok_or_else(|| {
+        self.in_reach(reach, id, what).ok_or_else(|| {
             refused(format!(
                 "there is no open session {id} you can reach; `list_sessions` says which there \
                  are"
@@ -252,22 +401,64 @@ impl Core {
         })
     }
 
-    /// The latest `messages` things said in session `id`, by the user and by its agent, oldest
-    /// first, for session `from` to read. Tool calls and their output are left out: they are
-    /// the session's workings, and would drown what it concluded.
+    /// What was said in session `id`, by the user and by its agent: `wanted` messages, the
+    /// latest unless `first` names the one to start at, at most `chars` characters. `None` if
+    /// there is no such message, or nothing has been said. Tool calls and their output are
+    /// left out: they are the session's workings, and would drown what it concluded.
+    pub(crate) fn said_in(
+        &self,
+        id: i64,
+        first: Option<usize>,
+        wanted: usize,
+        chars: usize,
+    ) -> Result<Option<Said>> {
+        let events = self.session_events(id)?;
+        // Not what a rewind dropped: the session's agent no longer knows of it either.
+        let said: Vec<String> = rewind::counted(&events).filter_map(spoken).collect();
+        Ok(read_of(&said, first, wanted, chars))
+    }
+
+    /// What was said in session `id`, by the user and by its agent, oldest first, for session
+    /// `from` to read: `messages` of them, the latest unless `first` names the one to start at,
+    /// counting from 1, so that an agent can read a long conversation from its start or page
+    /// back. Where that is not all of it, it is said which messages these are.
     ///
     /// Only an open session `from` can reach can be read: of its own project, or any from a
     /// chat. A repository's session cannot read a chat, which may hold another repository's.
-    pub fn peer_digest(&self, from: i64, id: i64, messages: Option<usize>) -> Result<String> {
+    pub fn peer_digest(
+        &self,
+        from: i64,
+        id: i64,
+        messages: Option<usize>,
+        first: Option<usize>,
+    ) -> Result<String> {
         self.peer_in_reach(from, id, Access::Read)?;
-        let events = self.session_events(id)?;
-        let said: Vec<String> = events.iter().filter_map(spoken).collect();
-        let wanted = messages.unwrap_or(DIGEST_MESSAGES).max(1);
-        let latest = &said[said.len().saturating_sub(wanted)..];
-        if latest.is_empty() {
-            return Ok("Nothing has been said in that session yet.".to_string());
+        let wanted = messages.unwrap_or(DIGEST_MESSAGES);
+        let Some(said) = self.said_in(id, first, wanted, DIGEST_CHARS)? else {
+            return Ok(nothing_from(first));
+        };
+        let Said {
+            first,
+            last,
+            total,
+            text,
+        } = said;
+        if first == 1 && last == total {
+            return Ok(text);
         }
-        Ok(tail(&latest.join("\n\n"), DIGEST_CHARS).to_string())
+        let more = if last < total {
+            format!("; read on with `from` {}", last + 1)
+        } else {
+            String::new()
+        };
+        let earlier = if first > 1 {
+            "; earlier ones are read with `from`"
+        } else {
+            ""
+        };
+        Ok(format!(
+            "(Messages {first} to {last} of {total}{earlier}{more}.)\n\n{text}"
+        ))
     }
 
     /// Leaves session `to` a message from session `from`. It arrives as a message in the
@@ -419,8 +610,8 @@ impl Core {
         match tool {
             "list_sessions" => self.peer_sessions(from),
             "read_session" => {
-                let messages = number("messages").and_then(|n| usize::try_from(n).ok());
-                self.peer_digest(from, other()?, messages)
+                let count = |key: &str| number(key).and_then(|n| usize::try_from(n).ok());
+                self.peer_digest(from, other()?, count("messages"), count("from"))
             }
             "send_message" => {
                 let text = word("text").unwrap_or_default();

@@ -7,7 +7,9 @@ mod issue;
 mod layout;
 mod limits;
 mod merge;
+mod pr;
 mod pull;
+mod rewind;
 mod session;
 mod setup;
 mod terminal;
@@ -21,6 +23,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use issue::IssueCommand;
 use layout::LayoutCommand;
+use pr::PrCommand;
 use session::SessionCommand;
 use swarmed_core::agent::FakeBackend;
 use swarmed_core::{
@@ -51,6 +54,10 @@ enum Command {
     /// List a repository's GitHub issues, or read one, through your own `gh`.
     #[command(subcommand)]
     Issue(IssueCommand),
+    /// List a repository's pull requests and issues, as `#` in the message box offers them,
+    /// through your own `gh`.
+    #[command(subcommand)]
+    Pr(PrCommand),
     /// List the MCP servers agents are given: those set up in Swarmed and Claude Code's own.
     Mcp,
     /// Show what Swarmed takes up on disk, and in memory and processor time right now.
@@ -59,8 +66,9 @@ enum Command {
     /// any session, with how old each figure is. Nothing is asked: `/usage` in a session asks.
     Limits,
     /// List what removed tasks left behind, and the snapshots, or delete them: removed
-    /// worktrees not deleted yet, branches of removed tasks, stale worktrees and snapshots.
-    /// Nothing of a current task, no remote branch and no repository's own checkout is listed.
+    /// worktrees not deleted yet, branches of removed tasks, stale worktrees, snapshots, and
+    /// the checkpoints of tasks that are gone. Nothing of a current task, no remote branch and
+    /// no repository's own checkout is listed.
     Cleanup(cleanup::CleanupArgs),
     /// Keep what a task's setup produced, for new tasks of its environment to start from.
     Snapshot {
@@ -501,6 +509,7 @@ async fn run(core: &Arc<Core>, command: Command) -> Result<()> {
         Command::Task(command) => task(core, command).await,
         Command::Session(command) => session::session(core, command).await,
         Command::Issue(command) => issue::run(core, command).await,
+        Command::Pr(command) => pr::run(core, command).await,
         // Answered above, before anything was opened.
         Command::ToolServer => Ok(()),
         Command::Agent(command) => agent(core, command).await,
@@ -1007,6 +1016,7 @@ async fn usage(core: &Core) -> Result<()> {
     let database = bytes(usage.database_bytes);
     say(&format!("database\t{database}\t{} events", usage.events));
     say(&format!("notes\t{}", bytes(usage.notes_bytes)));
+    say(&format!("checkpoints\t{}", bytes(usage.checkpoints_bytes)));
     for worktree in &usage.worktrees {
         let size = worktree
             .bytes

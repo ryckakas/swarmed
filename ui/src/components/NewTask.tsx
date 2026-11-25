@@ -25,9 +25,11 @@ import {
     environmentShown,
     OWN_SETUP,
 } from "../environments";
+import { githubOf } from "../githubMentions";
+import { mentionedIn, mentionsAsWords } from "../mentions";
 import { expandTokens, forgetTokens } from "../pastes";
 import { removedWhileSetUp } from "../removal";
-import { NO_DRAFT } from "../sending";
+import { githubRead, NO_DRAFT } from "../sending";
 import { sentOn } from "../slash";
 import { hookKey, useStore } from "../store";
 import { taskNameForPrompt, taskNameFrom, uniqueTaskName } from "../tree";
@@ -108,7 +110,8 @@ export function NewTask({ projects }: { projects: Project[] }) {
     // A removed task's name too, since its branch may still be there. The core has the last
     // word: it steps past branches here and on a remote, and the task it makes says its name.
     const from = branchAsked(repository, branch, NEW_BRANCH);
-    const base = from === null ? taskNameForPrompt(prompt) : taskNameFrom(from);
+    // A session the prompt mentions is named by its title's words, not by its token.
+    const base = from === null ? taskNameForPrompt(mentionsAsWords(prompt)) : taskNameFrom(from);
     const name = uniqueTaskName(base || "task", taken);
     const canSend = prompt.trim() !== "" && creating === null;
 
@@ -120,7 +123,8 @@ export function NewTask({ projects }: { projects: Project[] }) {
         try {
             // A task on a new branch is named for what it is about; one on an existing branch
             // keeps that branch's name.
-            const naming = from === null ? await named(home, prompt.trim()) : null;
+            const asked = mentionsAsWords(prompt.trim());
+            const naming = from === null ? await named(home, asked) : null;
             const chosen = naming ? uniqueTaskName(naming.name, taken) : name;
             useStore.getState().forgetHookLine(hookKey(home, chosen));
             noteCreating(home, chosen);
@@ -133,10 +137,14 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 setup: setupFor(agentId, model, supervision, effort, fast),
                 prompt: expandTokens(prompt.trim()),
                 files,
+                sessions: mentionedIn(prompt),
+                github: githubOf(prompt, repository?.name),
                 // Kept by the core as the session's own, once there is a session.
                 images: images.map((image) => image.data),
                 issue: issue?.number ?? null,
             };
+            // The pull requests and issues it names are read first: the core lists them from that.
+            await githubRead(api, home, start.github);
             await startTask(start, true);
             // It is a task now, with the prompt waiting in its session; one that could not be
             // made leaves the prompt here to try again.
@@ -168,6 +176,8 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 disabled={creating !== null}
                 autoFocus
                 commands={commands}
+                mentionFrom={{ project: home }}
+                githubFrom={repository?.name}
             >
                 {issue && (
                     <button
@@ -318,6 +328,10 @@ interface Start {
     prompt: string;
     /** The files the first message points the agent at. */
     files: string[];
+    /** The sessions the first message mentions. */
+    sessions: number[];
+    /** The pull requests and issues the first message mentions, by number. */
+    github: number[];
     /** Images pasted into the first message, in base64. */
     images: string[];
     /** The number of the repository's issue the task is for, if any. */
@@ -367,10 +381,11 @@ function reportStartFailed(error: unknown) {
  * `name-2` and so on.
  */
 async function startTask(start: Start, show: boolean) {
-    const { project, name, title, setup, prompt, files, images, issue } = start;
+    const { project, name, title, setup, prompt, files, sessions, github, images, issue } = start;
     const { refresh, open } = useStore.getState();
     const environment = start.environment;
-    const begun = { branch: start.branch, environment, setup, title, prompt, files, images, issue };
+    const how = { branch: start.branch, environment, setup, title };
+    const begun = { ...how, prompt, files, sessions, github, images, issue };
     const { session } = await api.taskStart(project, name, begun);
     await refresh(api);
     if (show) {

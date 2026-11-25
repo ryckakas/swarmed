@@ -301,6 +301,15 @@ pub enum Error {
     /// A message with nothing in it.
     #[error("a message cannot be empty")]
     EmptyMessage,
+    /// A session a message mentions is not another open session that the session the message
+    /// goes to can read.
+    #[error(
+        "session {0} cannot be mentioned here: it is not another open session this one can read"
+    )]
+    CannotMention(i64),
+    /// A pull request or issue a message mentions could not be read from GitHub. Says why.
+    #[error("#{0} cannot be mentioned: {1}")]
+    CannotMentionOnGitHub(u64, String),
     /// A pasted image in a format agents do not read, or something that is no image at all.
     /// Says which, when the format is known.
     #[error("{0} cannot be attached: agents read only PNG, JPEG, GIF and WebP images")]
@@ -334,6 +343,19 @@ pub enum Error {
     /// No session has this id.
     #[error("session {0} not found")]
     SessionNotFound(i64),
+    /// The session has no checkpoints of the turn of this message: it began before they were
+    /// taken, it is older than the turns kept, or a checkpoint could not be taken.
+    #[error("session {session} keeps no checkpoints of the turn of its message {message}")]
+    TurnNotKept {
+        /// The session.
+        session: i64,
+        /// The message that began the turn, counting from 0.
+        message: usize,
+    },
+    /// A session cannot be taken back to before one of its messages, or its files cannot be
+    /// put back, now: the reason says why, and what to do about it.
+    #[error("{0}")]
+    Rewind(String),
     /// The session has talked to its agent, which holds the conversation from then on.
     #[error("session {0} has begun: another agent would not know what was said")]
     SessionBegun(i64),

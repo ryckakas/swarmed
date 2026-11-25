@@ -97,6 +97,9 @@ function Figures({ usage }: { usage: Usage }) {
                 {formatBytes(usage.database_bytes)}
             </Figure>
             <Figure name="Notes">{formatBytes(usage.notes_bytes)}</Figure>
+            <Figure name="Checkpoints" detail="what each turn changed">
+                {formatBytes(usage.checkpoints_bytes)}
+            </Figure>
             {listed.map((worktree) => (
                 <Figure
                     key={worktree.path}

@@ -218,6 +218,11 @@ fn args(spec: &SessionSpec, mcp_config: Option<&Path>) -> Vec<String> {
         spec.effort.map(|effort| effort.as_str().to_string()),
     );
     flag("--resume", spec.resume.clone());
+    // Claude Code takes it only with the conversation it is in.
+    flag(
+        "--resume-session-at",
+        spec.resume.as_ref().and_then(|_| spec.resume_at.clone()),
+    );
     flag("--allowedTools", joined(&spec.allowed_tools));
     flag("--disallowedTools", joined(&spec.disallowed_tools));
     flag("--append-system-prompt", spec.append_system_prompt.clone());
@@ -411,12 +416,17 @@ async fn read_events(
         text
     });
     let mut lines = BufReader::new(stdout).lines();
+    let mut point = None;
     while let Ok(Some(line)) = lines.next_line().await {
         let parsed = serde_json::from_str::<Value>(&line).ok();
         for question in parsed.as_ref().map_or_else(Vec::new, questions_after) {
             asks.send(question).ok();
         }
-        let new_events = parsed.map_or_else(Vec::new, |message| parse_message(&message, &pending));
+        let new_events = parsed.as_ref().map_or_else(Vec::new, |message| {
+            let mut said: Vec<AgentEvent> = resume_point(message, &mut point).into_iter().collect();
+            said.extend(parse_message(message, &pending));
+            said
+        });
         if new_events
             .into_iter()
             .any(|event| events.send(event).is_err())
@@ -884,6 +894,26 @@ fn str_of(value: &Value, key: &str) -> String {
 
 fn kind_of<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
+}
+
+/// Where Claude Code's record of the conversation stands as a turn ends. `point` holds the id
+/// of the latest message of the session's own agent in the turn under way: an answer, or the
+/// result of one of its tools. The turn's end says it, before the end itself, so that it is
+/// recorded in the turn it ends and never after a message sent the moment that turn is over.
+/// A turn in which nothing was kept, such as one that failed before a word, says none.
+fn resume_point(message: &Value, point: &mut Option<String>) -> Option<AgentEvent> {
+    let kind = kind_of(message, "type")?;
+    if kind == "result" {
+        return point.take().map(|uuid| AgentEvent::ResumePoint { uuid });
+    }
+    let own = message.get("parent_tool_use_id").is_none_or(Value::is_null);
+    // A message of the user's said back comes before the turn's own, and is not the agent's.
+    let replay = message.get("isReplay").and_then(Value::as_bool) == Some(true);
+    let kept = matches!(kind, "assistant" | "user") && own && !replay;
+    if let Some(uuid) = kind_of(message, "uuid").filter(|_| kept) {
+        *point = Some(uuid.to_string());
+    }
+    None
 }
 
 /// Maps one protocol message to zero or more events.
@@ -1868,6 +1898,54 @@ mod tests {
         );
         assert!(!args.contains("mcpServers"), "{args}");
         assert!(!args.contains("--append-system-prompt"), "{args}");
+    }
+
+    #[test]
+    fn a_session_taken_back_resumes_at_the_message_it_keeps_and_only_in_its_conversation() {
+        let at = |resume: Option<&str>| {
+            let spec = SessionSpec {
+                resume: resume.map(String::from),
+                resume_at: Some("u-7".into()),
+                ..SessionSpec::default()
+            };
+            args(&spec, None).join(" ")
+        };
+        assert!(
+            at(Some("abc")).contains("--resume abc --resume-session-at u-7"),
+            "{}",
+            at(Some("abc"))
+        );
+        // Without the conversation it is in, Claude Code would refuse to start.
+        assert!(!at(None).contains("--resume-session-at"));
+    }
+
+    #[test]
+    fn a_turn_ends_with_where_claude_codes_record_of_it_stands() {
+        let mut point = None;
+        let mut said = |message: Value| resume_point(&message, &mut point);
+        let replayed = json!({ "type": "user", "isReplay": true, "uuid": "u-said-back",
+            "message": { "role": "user", "content": "hi" } });
+        assert_eq!(said(replayed), None);
+        // A turn that kept nothing has nothing to say.
+        assert_eq!(said(json!({ "type": "result", "is_error": true })), None);
+        let answer = json!({ "type": "assistant", "parent_tool_use_id": null, "uuid": "u-1",
+            "message": { "content": [{ "type": "tool_use", "id": "t", "name": "Bash" }] } });
+        let result = json!({ "type": "user", "parent_tool_use_id": null, "uuid": "u-2",
+            "message": { "content": [{ "type": "tool_result", "tool_use_id": "t" }] } });
+        let sub = json!({ "type": "assistant", "parent_tool_use_id": "t", "uuid": "u-sub",
+            "message": { "content": [] } });
+        for message in [answer, result, sub] {
+            assert_eq!(said(message), None);
+        }
+        // The last of the agent's own, not its sub-agent's, and once.
+        let ended = json!({ "type": "result", "is_error": false });
+        assert_eq!(
+            said(ended.clone()),
+            Some(AgentEvent::ResumePoint {
+                uuid: "u-2".to_string()
+            })
+        );
+        assert_eq!(said(ended), None);
     }
 
     /// A stand-in for `claude` in `folder`: it notes its arguments, copies the file it is

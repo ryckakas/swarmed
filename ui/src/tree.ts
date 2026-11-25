@@ -1,4 +1,5 @@
 import type { AgentEvent, Project, Session, SessionEvent, SessionStatus, Task } from "./api/types";
+import { mentionsAsWords } from "./mentions";
 
 // Pure functions over the project tree, kept apart from the store so they can be tested.
 
@@ -28,9 +29,12 @@ export function withoutSession(projects: Project[], sessionId: number): Project[
 /** How long a title taken from a message may be; the same limit the core uses. */
 const TITLE_CHARS = 60;
 
-/** The title the core gives a session from its first message: the first line, shortened. */
+/**
+ * The title the core gives a session from its first message: the first line, shortened, with
+ * what it mentions by a token read as the token's words.
+ */
 export function titleFrom(message: string): string {
-    const line = (message.split("\n")[0] ?? "").trim();
+    const line = (mentionsAsWords(message).split("\n")[0] ?? "").trim();
     return line.length <= TITLE_CHARS ? line : `${line.slice(0, TITLE_CHARS - 1)}…`;
 }
 
@@ -171,6 +175,12 @@ export function mayHaveEdited(event: SessionEvent["event"]): boolean {
     return (
         done.type === "tool_result" || done.type === "turn_done" || done.type === "worktree_moved"
     );
+}
+
+/** The name of the repository a session works in; `undefined` for a chat, which has none. */
+export function repositoryOf(projects: Project[], session: Session): string | undefined {
+    const project = findSessionHome(projects, session)?.project;
+    return project && !project.chats ? project.name : undefined;
 }
 
 /** The task a session belongs to, with its project. */

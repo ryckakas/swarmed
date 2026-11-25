@@ -488,6 +488,10 @@ impl Core {
         self.store().task_archive(task.id)?;
         self.forget_note(&project.name, &task.name)?;
         self.forget_setup_files(task.id);
+        // The task is gone by now: what is left of its checkpoints is the clean-up's to list.
+        if let Err(error) = self.forget_checkpoints(task.id) {
+            notes.push(format!("its checkpoints could not be deleted: {error}"));
+        }
         self.sessions_forgotten(task.id)?;
         if options.delete_branch && git::local_branch_exists(repo, &task.branch).await {
             notes.extend(delete_branch_if_safe(repo, &task).await);

@@ -20,15 +20,18 @@ use crate::agent::{
 };
 use crate::agents::CLAUDE;
 use crate::chats;
+use crate::checkpoints;
 use crate::commands::SlashCommand;
 use crate::continuation;
 use crate::error::{Error, Result};
 use crate::fork;
 use crate::git::Head;
+use crate::github_mentions;
 use crate::marks::{Mark, MarkColour};
 use crate::mcp::{McpServer, McpTransport};
 use crate::paths::Paths;
 use crate::queue::{self, Queues};
+use crate::rewind;
 use crate::secrets::SecretEnv;
 use crate::settings::Settings;
 use crate::store::{Store, Task};
@@ -142,6 +145,9 @@ impl SessionStatus {
             | AgentEvent::ExtraUsage { .. }
             | AgentEvent::UsageLimits { .. }
             | AgentEvent::Forked { .. }
+            | AgentEvent::ResumePoint { .. }
+            | AgentEvent::Rewound { .. }
+            | AgentEvent::FilesPutBack { .. }
             | AgentEvent::Screen { .. }
             | AgentEvent::CommandAsked { .. }
             | AgentEvent::CommandAnswered { .. }
@@ -414,6 +420,23 @@ impl Store {
         ))?;
         let rows = stmt.query_map([], session_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// The id of the latest event of each open session that has any: the later, the more
+    /// lately it was at work. One look up the index per session, never a scan of the events.
+    pub(crate) fn sessions_last_active(&self) -> Result<HashMap<i64, i64>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT s.id, (SELECT MAX(e.id) FROM session_events e WHERE e.session_id = s.id) \
+             FROM sessions s WHERE s.closed_at IS NULL",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?))
+        })?;
+        let rows: Vec<(i64, Option<i64>)> = rows.collect::<rusqlite::Result<_>>()?;
+        let active = rows
+            .into_iter()
+            .filter_map(|(id, latest)| latest.map(|latest| (id, latest)));
+        Ok(active.collect())
     }
 
     fn session_configure(&self, id: i64, settings: &SessionSettings) -> Result<()> {
@@ -721,13 +744,53 @@ pub(crate) fn event_from_json(text: &str) -> AgentEvent {
 }
 
 /// A session's first title: the start of what the user typed. What they pasted large, which a
-/// front end sends wrapped in `<pasted_text_N>` tags, is not what the session is called after.
-fn title_from(message: &str) -> String {
-    let title = shortened(&without_pastes(message), TITLE_CHARS);
+/// front end sends wrapped in `<pasted_text_N>` tags, is not what the session is called after,
+/// and a session it mentions, `[@42 Fix the login form]`, or a pull request or issue,
+/// `[#142 Fix the login form]`, is read as the words of its title.
+pub(crate) fn title_from(message: &str) -> String {
+    let title = shortened(&tokens_as_words(&without_pastes(message)), TITLE_CHARS);
     if title.is_empty() && message.contains("<pasted_text_") {
         return "Pasted text".to_string();
     }
     title
+}
+
+/// `message` with each token of a mention, `[@42 Fix the login form]` for a session and
+/// `[#142 Fix the login form]` for a pull request or issue, as the words of its title, or
+/// `session 42` and `#142` where it shows none.
+fn tokens_as_words(message: &str) -> String {
+    let mut words = String::new();
+    let mut rest = message;
+    while let Some(at) = rest.find("[@").into_iter().chain(rest.find("[#")).min() {
+        let (before, token) = rest.split_at(at);
+        words.push_str(before);
+        let (sign, token) = token.split_at(2);
+        // Anything that is not a token is only text.
+        let (said, after) = token_words(sign, token).unwrap_or_else(|| (sign.to_string(), token));
+        words.push_str(&said);
+        rest = after;
+    }
+    words.push_str(rest);
+    words
+}
+
+/// What a mention's token stands for in words, for `token`, the text right after its `sign`
+/// (`[@` or `[#`), and what follows the token; `None` if it is no token.
+fn token_words<'a>(sign: &str, token: &'a str) -> Option<(String, &'a str)> {
+    let digits = token.len() - token.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+    let (id, after) = token.split_at(digits);
+    let (shown, after) = after.split_once(']')?;
+    let fits = !id.is_empty() && (shown.is_empty() || shown.starts_with(' '));
+    if !fits || shown.contains('\n') {
+        return None;
+    }
+    let shown = shown.trim();
+    let said = match (shown.is_empty(), sign) {
+        (false, _) => shown.to_string(),
+        (true, "[#") => format!("#{id}"),
+        (true, _) => format!("session {id}"),
+    };
+    Some((said, after))
 }
 
 /// `message` without the large pastes in it.
@@ -998,6 +1061,7 @@ impl Core {
             effort: session.effort,
             fast: session.fast,
             auth,
+            resume_at: rewind::resume_at(&self.session_events(session.id)?),
             resume: session.agent_session_id,
             // Showing a view changes nothing, so it is never worth a question.
             allowed_tools: vec![SHOW_HTML_FOR_CLAUDE.to_string()],
@@ -1337,6 +1401,15 @@ impl Core {
         Ok(())
     }
 
+    /// Stops session `id`'s agent and waits until every run of it has gone: by itself, or
+    /// killed for taking too long.
+    pub(crate) async fn session_ended(&self, id: i64) {
+        self.session_stop(id);
+        for ending in self.live.endings_of(id) {
+            ending.gone().await;
+        }
+    }
+
     /// Deletes what the sessions of a removed task left behind: messages waiting to be sent,
     /// unread views and private files. Only once the task is gone: a removal that was refused
     /// leaves its sessions as they were.
@@ -1460,21 +1533,31 @@ pub(crate) fn send_text(
     (text, at_reset): (&str, bool),
 ) -> Result<()> {
     let commands = live.sender(id)?;
+    let no_rewind = live.not_taking_back(store, id)?;
     // A message that calls a skill the agent would not know by name is sent with what the
     // skill says. Worked out before anything is recorded; what is recorded is what was typed.
     let called = skill_called(store, paths, id, text);
     // A fork's agent has not heard the conversation it starts from: it is told with the first
     // message. Looked up before the message is recorded, and the user's own words are
     // recorded as they typed them.
-    let earlier = fork::carried(&lock(store).events(id)?);
+    let events = lock(store).events(id)?;
+    let earlier = fork::carried(&events);
+    // The message's number, counted as a fork counts them: every message recorded before it.
+    let number = events
+        .iter()
+        .filter(|event| matches!(event, AgentEvent::UserMessage { .. }))
+        .count();
+    drop(events);
     let event = AgentEvent::UserMessage {
         text: text.to_string(),
         remote: false,
         at_reset,
     };
     live.note(store, id, event)?;
+    drop(no_rewind);
     let shared = terminals.take_unshared(id);
     let moved = moved_since(store, live, id);
+    let typed = text;
     let text = called.as_deref().unwrap_or(text);
     let text = &earlier.map_or_else(
         || text.to_string(),
@@ -1512,6 +1595,8 @@ pub(crate) fn send_text(
         }
         None => message,
     };
+    // The worktree as it stands before the agent can write to it.
+    checkpoints::before_message((store, live, paths), id, (number, typed));
     live.sent(id, &message);
     commands
         .send(AgentCommand::UserMessage(message))
@@ -1749,6 +1834,14 @@ pub(crate) struct Live {
     sending: Mutex<HashMap<i64, Vec<Sending>>>,
     /// The account's usage as any Claude Code session last heard it.
     pub(crate) usage: UsageHeard,
+    /// The turns whose worktree was checkpointed before they began (`checkpoints.rs`).
+    pub(crate) checkpoints: checkpoints::Checkpoints,
+    /// The tasks a session of which is being taken back to an earlier message now, during
+    /// which no message goes to an agent of theirs (`rewind.rs`).
+    pub(crate) taking_back: Mutex<HashSet<i64>>,
+    /// What was read of the repositories' pull requests and issues, which messages mention
+    /// (`github_mentions.rs`).
+    pub(crate) github: github_mentions::Known,
     /// The lock on each session whose agent runs in this process, held until the agent has
     /// gone, so that no other Swarmed starts it meanwhile (`elsewhere.rs`).
     pub(crate) runs_held: Mutex<HashMap<i64, File>>,
@@ -1779,6 +1872,9 @@ impl Default for Live {
             remote: Mutex::default(),
             sending: Mutex::default(),
             usage: UsageHeard::default(),
+            checkpoints: checkpoints::Checkpoints::default(),
+            taking_back: Mutex::default(),
+            github: github_mentions::Known::default(),
             runs_held: Mutex::default(),
             shows_notices: AtomicBool::new(false),
             runs: AtomicU64::new(0),
@@ -2366,6 +2462,7 @@ fn relaunch(shared: &Shared, id: i64) -> Result<()> {
     next.spec.effort = session.effort;
     next.spec.fast = session.fast;
     next.spec.resume = session.agent_session_id;
+    next.spec.resume_at = rewind::resume_at(&lock(&shared.store).events(id)?);
     launch(next, id, Launch::Replacing)
 }
 
@@ -2530,6 +2627,10 @@ fn on_event(shared: &Shared, id: i64, event: AgentEvent) {
         &event,
         AgentEvent::ToolResult { .. } | AgentEvent::TurnDone { .. }
     ) || matches!(&event, AgentEvent::Sub { event, .. } if matches!(**event, AgentEvent::ToolResult { .. }));
+    // Kept before the end is told: a message sent the moment it is begins a turn of its own.
+    if turn_over {
+        checkpoints::after_turn((store, live, &shared.paths), id);
+    }
     // A full disk must not cut the user off from a running agent: the event is published
     // even if storing it failed.
     live.note(store, id, event).ok();
@@ -2546,6 +2647,7 @@ fn on_event(shared: &Shared, id: i64, event: AgentEvent) {
     if gone {
         // An agent that went in the middle of a turn the user stopped never ends it.
         live.queues.pressing().remove(&id);
+        live.checkpoints.forget(id);
         remote::paused(store, live, id);
     }
 }
@@ -2660,6 +2762,23 @@ mod tests {
             title_from("what is <pasted_text_1> for?"),
             "what is <pasted_text_1> for?"
         );
+    }
+
+    #[test]
+    fn a_session_mentioned_is_read_as_its_title_in_a_title() {
+        assert_eq!(
+            title_from("carry on from [@42 Fix the login form] and more"),
+            "carry on from Fix the login form and more"
+        );
+        assert_eq!(title_from("ask [@7] about it"), "ask session 7 about it");
+        // A pull request or an issue the same way.
+        assert_eq!(
+            title_from("review [#142 Fix the login form] and [#12]"),
+            "review Fix the login form and #12"
+        );
+        assert_eq!(title_from("a heading # [#x] [#"), "a heading # [#x] [#");
+        // What only looks like one stays as it was typed.
+        assert_eq!(title_from("a [@x] and [@3no]"), "a [@x] and [@3no]");
     }
 
     #[test]

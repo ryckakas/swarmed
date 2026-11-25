@@ -20,6 +20,8 @@ import type {
     FileChange,
     FileDiff,
     FileListing,
+    GitHubItem,
+    GitHubItems,
     HookOutput,
     Issue,
     IssueDetail,
@@ -36,6 +38,9 @@ import type {
     Pull,
     PullDraft,
     QueuedMessage,
+    Reachable,
+    RewindCheck,
+    RewindDone,
     SearchHit,
     Session,
     SessionEvent,
@@ -54,6 +59,8 @@ import type {
     TerminalConfig,
     TerminalOpened,
     TerminalOutput,
+    Turn,
+    TurnChanges,
     TurnStats,
     Unpublished,
     UpdateState,
@@ -325,6 +332,25 @@ export interface Api {
     taskChanges(project: string, name: string): Promise<FileChange[]>;
     /** One changed file's diff. */
     taskDiff(project: string, name: string, path: string): Promise<FileDiff>;
+    /** The turns of a session whose checkpoints are kept, oldest first. */
+    sessionTurns(id: number): Promise<Turn[]>;
+    /** What one turn of a session changed, by the number of the message that began it. */
+    sessionTurnChanges(id: number, message: number): Promise<TurnChanges>;
+    /** How one file changed in one turn of a session. */
+    sessionTurnDiff(id: number, message: number, path: string): Promise<FileDiff>;
+    /**
+     * What taking session `id` back to before its message number `message` would do now:
+     * whether it can, with its files or without, and what would change. Changes nothing.
+     */
+    sessionRewindCheck(id: number, message: number): Promise<RewindCheck>;
+    /**
+     * Takes session `id` back to before its message number `message`: that message and what
+     * followed no longer count, and its agent goes on from there. With `files`, the worktree's
+     * files go back to how they were before it too.
+     */
+    sessionRewind(id: number, message: number, files: boolean): Promise<RewindDone>;
+    /** Puts back the files session `id`'s latest rewind took back. */
+    sessionFilesPutBack(id: number): Promise<void>;
     /** Opens the task's worktree, with its branch checked out, in the user's editor. */
     taskOpenEditor(project: string, name: string): Promise<void>;
     /** What the folder `dir` of a task's worktree holds; the worktree itself for an empty `dir`. */
@@ -401,8 +427,39 @@ export interface Api {
     sessionForkInto(id: number, project: string, task: string): Promise<Session>;
     /** Everything the session has said and been told, oldest first. */
     sessionEvents(id: number): Promise<AgentEvent[]>;
-    /** Starts a turn, starting the session's agent first if it is not running. */
-    sessionSend(id: number, text: string, files?: string[]): Promise<void>;
+    /**
+     * Starts a turn, starting the session's agent first if it is not running. `files` are
+     * listed under the message by their paths, and the `sessions` and the pull requests and
+     * issues (`github`, by number) it mentions under the words before them; a session the
+     * session cannot read, or a number nobody read (`projectGithubRead`), is refused before
+     * anything is sent.
+     */
+    sessionSend(
+        id: number,
+        text: string,
+        files?: string[],
+        sessions?: number[],
+        github?: number[],
+    ): Promise<void>;
+    /**
+     * The sessions session `id` can mention with `@`: those its agent can read, those of its
+     * own task first, then the latest at work.
+     */
+    sessionReachable(id: number): Promise<Reachable[]>;
+    /** The sessions a new task's first message in `project` can mention, the latest at work first. */
+    projectReachable(project: string): Promise<Reachable[]>;
+    /**
+     * What `#` offers in a repository for `query`, through the user's `gh`: with nothing typed
+     * its latest changed pull requests and issues, for a number that one, for words those
+     * GitHub's search finds; or why there are none. Kept by the core, so that a message
+     * mentioning one goes without asking again.
+     */
+    projectGithubItems(project: string, query: string): Promise<GitHubItems>;
+    /**
+     * Reads the pull requests and issues `numbers` of a repository unless they were read a
+     * moment ago: asked before a message mentioning them is sent, which then waits on nothing.
+     */
+    projectGithubRead(project: string, numbers: number[]): Promise<GitHubItem[]>;
     /**
      * Keeps images pasted into a message to the session, each in base64, as files of the
      * session's own, and resolves to their paths, to attach to the message like any file.
@@ -421,16 +478,38 @@ export interface Api {
      */
     sessionTellNow(id: number, message: number): Promise<void>;
     /** Sends a message now: a turn under way is stopped, and it goes ahead of anything waiting. */
-    sessionMessageNow(id: number, text: string, files?: string[]): Promise<void>;
+    sessionMessageNow(
+        id: number,
+        text: string,
+        files?: string[],
+        sessions?: number[],
+        github?: number[],
+    ): Promise<void>;
     /** The messages waiting for the session's agent to finish, first to be sent first. */
     sessionQueue(id: number): Promise<QueuedMessage[]>;
     /**
      * Adds a message to the queue: it is sent by itself when the agent's turn ends well or is
      * stopped.
      */
-    sessionEnqueue(id: number, text: string, files?: string[]): Promise<QueuedMessage[]>;
-    /** Rewrites a waiting message; empty text takes it out of the queue. */
-    sessionQueueEdit(id: number, message: number, text: string): Promise<QueuedMessage[]>;
+    sessionEnqueue(
+        id: number,
+        text: string,
+        files?: string[],
+        sessions?: number[],
+        github?: number[],
+    ): Promise<QueuedMessage[]>;
+    /**
+     * Rewrites a waiting message, with its files and the sessions it mentions listed under it
+     * as when it was queued; no text and nothing attached take it out of the queue.
+     */
+    sessionQueueEdit(
+        id: number,
+        message: number,
+        text: string,
+        files?: string[],
+        sessions?: number[],
+        github?: number[],
+    ): Promise<QueuedMessage[]>;
     /**
      * Holds a waiting message while it is edited, or renews the hold: while the first one is
      * held the queue sends nothing by itself. `false` once the message no longer waits.

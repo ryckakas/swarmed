@@ -113,6 +113,76 @@ describe("the mock's queue of waiting messages", () => {
     });
 });
 
+describe("the mock's mentions", () => {
+    it("lists what a session can read, and sends a mention checked and listed", async () => {
+        const api = createMockApi();
+        const projects = await api.overview();
+        const homeOf = (id: number) =>
+            projects.find((project) =>
+                project.tasks.some((task) => task.sessions.some((session) => session.id === id)),
+            );
+        const listed = await api.sessionReachable(3);
+        expect(listed.map((session) => session.id)).not.toContain(3);
+        expect(listed.length).toBeGreaterThan(0);
+        // A repository's session reads only its own repository's.
+        const home = homeOf(3)?.name;
+        expect(listed.every((session) => session.project === home)).toBe(true);
+        const other = listed[0]?.id ?? 0;
+        await api.sessionSend(3, `see [@${other} it]`, [], [other]);
+        const said = (await api.sessionEvents(3)).find(
+            (event) => event.type === "user_message" && event.text.startsWith("see "),
+        );
+        expect(said).toMatchObject({ text: expect.stringContaining(`- session ${other} (`) });
+
+        // One of another repository is refused before anything goes.
+        const elsewhere = projects
+            .filter((project) => project.name !== home && !project.chats)
+            .flatMap((project) => project.tasks.flatMap((task) => task.sessions))[0];
+        const away = elsewhere?.id ?? 0;
+        await expect(api.sessionSend(3, "look", [], [away])).rejects.toThrow(
+            `session ${away} cannot be mentioned here`,
+        );
+    });
+});
+
+describe("the mock's pull requests and issues", () => {
+    it("offers a repository's to # and sends one listed under the message", async () => {
+        const api = createMockApi();
+        const projects = await api.overview();
+        const storefront = projects.find((project) => project.name === "storefront");
+        const session = storefront?.tasks.flatMap((task) => task.sessions)[0];
+        const id = session?.id ?? 0;
+        const listed = await api.projectGithubItems("storefront", "");
+        expect(listed.unavailable).toBeNull();
+        const kinds = new Set(listed.items.map((item) => item.kind));
+        expect(kinds).toEqual(new Set(["pull", "issue"]));
+        // GitHub counts both alike: no number twice.
+        const numbers = listed.items.map((item) => item.number);
+        expect(new Set(numbers).size).toBe(numbers.length);
+        const one = await api.projectGithubItems("storefront", "412");
+        expect(one.items.map((item) => item.title)).toEqual(["Fix the redirect loop after login"]);
+
+        await api.projectGithubRead("storefront", [412]);
+        await api.sessionSend(id, "see [#412 Fix]", [], [], [412]);
+        const said = (await api.sessionEvents(id)).find(
+            (event) => event.type === "user_message" && event.text.startsWith("see [#412"),
+        );
+        expect(said).toMatchObject({
+            text: expect.stringContaining(
+                '- pull request #412 ("Fix the redirect loop after login", open',
+            ),
+        });
+
+        // A repository not on GitHub offers none and says why; a number that is not there is refused.
+        const fsum = await api.projectGithubItems("fsum", "");
+        expect(fsum.items).toEqual([]);
+        expect(fsum.unavailable).toContain("known GitHub host");
+        await expect(api.projectGithubRead("storefront", [9999])).rejects.toThrow(
+            "#9999 cannot be mentioned",
+        );
+    });
+});
+
 describe("the mock's agent setup", () => {
     it("installs an agent, then lets its models be chosen", async () => {
         const api = createMockApi();

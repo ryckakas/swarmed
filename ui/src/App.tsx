@@ -13,6 +13,7 @@ import { IssuesDialog } from "./components/IssuesDialog";
 import { NoteDialog } from "./components/NoteDialog";
 import { RemoveDialog } from "./components/RemoveDialog";
 import { Resizer, useStoredWidth } from "./components/Resizer";
+import { RewindDialog } from "./components/RewindDialog";
 import { SearchDialog } from "./components/SearchDialog";
 import { SessionPane } from "./components/SessionPane";
 import { SettingsDialog } from "./components/SettingsDialog";
@@ -82,6 +83,7 @@ export function App() {
                 }
             />
             <CloseSessionDialog />
+            <RewindDialog />
             <InboxDialog />
             <CompareDialog />
             <CloudDiffDialog />

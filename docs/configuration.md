@@ -28,6 +28,7 @@ In the data directory:
 | `skills/` | skills of Swarmed's own: see [Coding agents](coding-agents.md) |
 | `notes/` | notes on projects and tasks, readable by you alone |
 | `snapshots/` | snapshots, below, readable by you alone |
+| `checkpoints/<task id>/` | what each turn changed in a task's worktree, below; deleted with the task |
 | `spool/` | HTML views agents hand over through Swarmed's `show_html` tool |
 | `attachments/<session id>/` | images pasted into a session's messages, readable by you alone; deleted with the session |
 | `run/` | stacks' logs and what Swarmed is running |
@@ -126,7 +127,8 @@ Each hook runs with `sh -c` in the task's worktree, and an empty one is skipped.
 What removals leave behind can be deleted in Settings, under Storage and activity, in **Clean
 up**: worktrees of removed tasks that were not deleted yet, or could not be; the branches
 Swarmed made for removed tasks and kept; stale worktrees, which are folders beside your tasks'
-worktrees that no task owns and git's records of worktrees whose folder is gone; and snapshots.
+worktrees that no task owns and git's records of worktrees whose folder is gone; snapshots; and
+the checkpoints of tasks that are gone, which a removal cut short can leave.
 Each kind's button lists exactly what it deletes and asks first. A branch with commits on
 neither its base nor a remote, or a folder with changes never committed, is listed apart and
 deleted only if you tick it on its own. Nothing of a current task, no branch on a remote, no
@@ -310,6 +312,38 @@ learns that its issue was closed elsewhere when its panel next opens.
 
 Without `gh`, or for a repository that is not on GitHub or has issues turned off, the list is
 empty and says why, in `gh`'s words.
+
+## What a turn changed
+
+Before each message goes to the agent, and again when its turn ends, Swarmed keeps the task's
+worktree as a git tree: a checkpoint. The Changes tab of the task panel then shows the whole
+task, as before, or one turn of the session on screen, picked by its message: the files that
+differ from where the turn began to where it ended, each with its diff. `swarmed session turns`
+and `swarmed session turn-diff` show the same from the command line.
+
+- **What is kept:** the files git tracks and the new files it does not ignore, as `git add -A`
+  sees them. Files your repository ignores (`node_modules`, `.env`, build output) are never in
+  a checkpoint, and neither is a new file git does not track that is over 10 MB: the turn says
+  which it left out.
+- **Where:** in `checkpoints/<task id>/` in the data directory, a git repository of Swarmed's own
+  that holds the trees and whatever of their files your repository has not got. Nothing is
+  written into your repository: no object, no ref, no change to its index. Git's filters, such
+  as Git LFS's, are not run for a checkpoint, and neither are hooks.
+- **How long:** the latest 50 turns of each session. Removing the task deletes its checkpoints.
+  Settings' Storage and activity counts them.
+- **Who wrote it:** a checkpoint cannot tell. A file another session of the task, or you,
+  changed during a turn is in that turn too; the Changes tab names the sessions that were at
+  work at the same time.
+- **Not counted:** a message told to the agent in the middle of its turn joins that turn, and a
+  turn under way, or one whose agent went without ending it, is counted up to now. Chats have
+  no repository, and no checkpoints.
+
+The same checkpoints are what **Edit from here** takes a session's files back to; see
+[Taking a session back](coding-agents.md#taking-a-session-back-to-before-a-message).
+
+Taking one runs git over the worktree once, so it is quick where `git status` is, and a message
+waits for it before it goes, so that nothing the agent writes slips into the wrong turn. How long
+each took is kept beside it.
 
 ## Finished tasks
 

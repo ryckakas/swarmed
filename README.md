@@ -40,7 +40,9 @@ once: each has its own worktree and ports, so they don't step on each other. A d
   none of them. Write to a session afterwards and its agent carries on where it left off:
   Claude Code, Codex and OpenCode pick up their own conversation, and a turn the restart cut
   short no longer shows as working. For an agent that cannot resume, fork the session: the fork
-  starts with the conversation so far, on the same agent or another.
+  starts with the conversation so far, on the same agent or another. A turn that went the wrong
+  way can be taken back: the session goes back to before your message, its files too if you
+  choose, and the message waits in the box to be changed and sent again.
 - **Answers you can see.** An agent can answer with HTML, such as a chart, a table or a mock-up,
   and Swarmed shows it in the conversation, in a sandbox with no way out to the app or the
   network.

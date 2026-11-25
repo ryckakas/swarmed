@@ -20,6 +20,8 @@ import type {
     Environment,
     FileChange,
     FileDiff,
+    GitHubItem,
+    GitHubItems,
     HookOutput,
     Issue,
     IssueDetail,
@@ -31,6 +33,9 @@ import type {
     Pull,
     PullDraft,
     QueuedMessage,
+    Reachable,
+    RewindCheck,
+    RewindDone,
     SearchHit,
     Session,
     SessionEvent,
@@ -44,12 +49,19 @@ import type {
     Template,
     TerminalOpened,
     TerminalOutput,
+    Turn,
+    TurnChanges,
     Unpublished,
     UpdateState,
     Usage,
 } from "./types";
 
 /** The real app: commands and events of the Tauri shell in crates/app. */
+/** What a message points at besides its words, as the core's commands take it: none for each left out. */
+function attached(files?: string[], sessions?: number[], github?: number[]) {
+    return { files: files ?? [], sessions: sessions ?? [], github: github ?? [] };
+}
+
 export const tauriApi: Api = {
     overview: () => invoke<Project[]>("overview"),
     agents: () => invoke<AgentInfo[]>("agents"),
@@ -164,6 +176,16 @@ export const tauriApi: Api = {
         invoke<MergeReport>("task_pull_auto_merge_off", { project, name }),
     taskChanges: (project, name) => invoke<FileChange[]>("task_changes", { project, name }),
     taskDiff: (project, name, path) => invoke<FileDiff>("task_diff", { project, name, path }),
+    sessionTurns: (id) => invoke<Turn[]>("session_turns", { id }),
+    sessionTurnChanges: (id, message) =>
+        invoke<TurnChanges>("session_turn_changes", { id, message }),
+    sessionTurnDiff: (id, message, path) =>
+        invoke<FileDiff>("session_turn_diff", { id, message, path }),
+    sessionRewindCheck: (id, message) =>
+        invoke<RewindCheck>("session_rewind_check", { id, message }),
+    sessionRewind: (id, message, files) =>
+        invoke<RewindDone>("session_rewind", { id, message, files }),
+    sessionFilesPutBack: (id) => invoke("session_files_put_back", { id }),
     taskFiles: (project, name, dir) => invoke("task_files", { project, name, dir }),
     taskOpenFile: (project, name, path) => invoke("task_open_file", { project, name, path }),
     taskOpenTerminal: (project, name) => invoke("task_open_terminal", { project, name }),
@@ -199,19 +221,35 @@ export const tauriApi: Api = {
     sessionNew: (project, task, { agent, ...how }) =>
         invoke<Session>("session_new", { project, task, agent, how }),
     sessionEvents: (id) => invoke<AgentEvent[]>("session_events", { id }),
-    sessionSend: (id, text, files) => invoke("session_send", { id, text, files: files ?? [] }),
+    sessionSend: (id, text, files, sessions, github) =>
+        invoke("session_send", { id, text, ...attached(files, sessions, github) }),
+    sessionReachable: (id) => invoke<Reachable[]>("session_reachable", { id }),
+    projectReachable: (project) => invoke<Reachable[]>("project_reachable", { project }),
+    projectGithubItems: (project, query) =>
+        invoke<GitHubItems>("project_github_items", { project, query }),
+    projectGithubRead: (project, numbers) =>
+        invoke<GitHubItem[]>("project_github_read", { project, numbers }),
     sessionImagesKeep: (id, images) => invoke<string[]>("session_images_keep", { id, images }),
     sessionImage: (id, path) => invoke<string>("session_image", { id, path }),
     sessionImageOpen: (id, path) => invoke<void>("session_image_open", { id, path }),
     attachmentsRoot: () => invoke<string>("attachments_root"),
     sessionTellNow: (id, message) => invoke<void>("session_tell_now", { id, message }),
-    sessionMessageNow: (id, text, files) =>
-        invoke("session_message_now", { id, text, files: files ?? [] }),
+    sessionMessageNow: (id, text, files, sessions, github) =>
+        invoke("session_message_now", { id, text, ...attached(files, sessions, github) }),
     sessionQueue: (id) => invoke<QueuedMessage[]>("session_queue", { id }),
-    sessionEnqueue: (id, text, files) =>
-        invoke<QueuedMessage[]>("session_enqueue", { id, text, files: files ?? [] }),
-    sessionQueueEdit: (id, message, text) =>
-        invoke<QueuedMessage[]>("session_queue_edit", { id, message, text }),
+    sessionEnqueue: (id, text, files, sessions, github) =>
+        invoke<QueuedMessage[]>("session_enqueue", {
+            id,
+            text,
+            ...attached(files, sessions, github),
+        }),
+    sessionQueueEdit: (id, message, text, files, sessions, github) =>
+        invoke<QueuedMessage[]>("session_queue_edit", {
+            id,
+            message,
+            text,
+            ...attached(files, sessions, github),
+        }),
     sessionQueueHold: (id, message) => invoke<boolean>("session_queue_hold", { id, message }),
     sessionQueueLetGo: (id, message) => invoke<void>("session_queue_let_go", { id, message }),
     sessionSendQueued: (id) => invoke("session_send_queued", { id }),

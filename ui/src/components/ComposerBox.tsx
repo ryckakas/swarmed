@@ -14,6 +14,7 @@ import type { SlashCommand, Template } from "../api/types";
 import { type Edit, editFor } from "../editing";
 import { matchHotkey } from "../hotkeys";
 import type { PastedImage } from "../images";
+import { signAt } from "../mentions";
 import { isLargePaste, tokenFor, withToken } from "../pastes";
 import { caretAfter, type Direction, recallDirection } from "../recall";
 import type { Draft } from "../sending";
@@ -30,6 +31,8 @@ import { takesSuggestion } from "../suggestion";
 import { usePastedImages } from "../usePastedImages";
 import { useWords } from "../useWords";
 import { FileChips } from "./FileChips";
+import { GitHubMenu, useGitHubMenu } from "./GitHubMenu";
+import { type MentionFrom, MentionMenu, useMentionMenu } from "./MentionMenu";
 
 interface Props {
     value: string;
@@ -63,6 +66,13 @@ interface Props {
      * or ↓ at the very end: what the box holds then, or `null` to leave the key to move the caret.
      */
     onRecall?: (direction: Direction) => Draft | null;
+    /** Where `@` finds sessions to mention; without it, `@` is only a character. */
+    mentionFrom?: MentionFrom;
+    /**
+     * The repository whose pull requests and issues `#` offers; without one, as in a chat, `#`
+     * is only a character.
+     */
+    githubFrom?: string | undefined;
 }
 
 /** The message box: text that grows with what is typed, options below it, and one round button. */
@@ -74,10 +84,16 @@ export function ComposerBox(props: Props) {
     // What to select once a kept prompt is in the box: its first place to fill in.
     const toSelect = useRef<[number, number] | null>(null);
     const templates = useStore((state) => state.templates);
-    const menu = useSlashMenu(value, props.commands ?? [], templates, (text, select) => {
+    const changeTo = (text: string, select?: [number, number] | null) => {
         toSelect.current = select ?? null;
         onChange(text);
-    });
+    };
+    const menu = useSlashMenu(value, props.commands ?? [], templates, changeTo);
+    // Where the caret stands, which is where an `@` or `#` being typed ends, with the text it
+    // was read in: a caret read in another session's text says nothing about this one.
+    const [caret, setCaret] = useState<Caret | null>(null);
+    const at = caret?.text === value ? caret.at : null;
+    const { mentions, github } = useMentionLists(value, at, props, changeTo);
     const attach = useAttaching(files, onFiles);
     const takeImages = usePastedImages(images, onImages);
 
@@ -91,14 +107,21 @@ export function ComposerBox(props: Props) {
         }
         if (element && toSelect.current) {
             element.setSelectionRange(...toSelect.current);
+            setCaret({ text: element.value, at: toSelect.current[1] });
             toSelect.current = null;
         }
     }, [value]);
 
     const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-        // The command list goes first: while it is open, ↑ and ↓ move in it.
+        // The lists go first: while one is open, ↑ and ↓ move in it.
         const recalling = { value, onRecall: props.onRecall, dismiss: menu.dismiss, toSelect };
-        if (!(menu.onKeyDown(event) || recalled(event, recalling))) {
+        const lists = [
+            menu.onKeyDown,
+            mentions.onKeyDown,
+            github.onKeyDown,
+            (key: typeof event) => recalled(key, recalling),
+        ];
+        if (!lists.some((takes) => takes(event))) {
             typed(event, {
                 value,
                 offered,
@@ -139,6 +162,8 @@ export function ComposerBox(props: Props) {
                     ))}
                 </ul>
             )}
+            <MentionMenu menu={mentions} />
+            <GitHubMenu menu={github} />
             <FileChips
                 files={files}
                 onRemove={(file) => onFiles(files.filter((other) => other !== file))}
@@ -158,7 +183,11 @@ export function ComposerBox(props: Props) {
                 disabled={props.disabled}
                 // biome-ignore lint/a11y/noAutofocus: the screen exists to type into this box
                 autoFocus={props.autoFocus}
-                onChange={(event) => onChange(event.target.value)}
+                onChange={(event) => {
+                    setCaret(caretIn(event.target));
+                    onChange(event.target.value);
+                }}
+                onSelect={(event) => setCaret(caretIn(event.currentTarget))}
                 onPaste={(event) => onPaste(event, onChange, takeImages)}
                 onKeyDown={onKeyDown}
             />
@@ -182,6 +211,32 @@ export function ComposerBox(props: Props) {
             </div>
         </form>
     );
+}
+
+/**
+ * The lists of sessions for `@` and of pull requests and issues for `#`, for a caret at `at`:
+ * only the list of the sign nearer the caret is given it, so that one opens at a time.
+ */
+function useMentionLists(
+    value: string,
+    at: number | null,
+    from: Pick<Props, "mentionFrom" | "githubFrom">,
+    changeTo: (text: string, select: [number, number]) => void,
+) {
+    const sign = at === null ? null : signAt(value, at);
+    const mentions = useMentionMenu(value, sign === "@" ? at : null, from.mentionFrom, changeTo);
+    const github = useGitHubMenu(value, sign === "#" ? at : null, from.githubFrom, changeTo);
+    return { mentions, github };
+}
+
+/** Where the caret stood in the box, and the text it stood in. */
+interface Caret {
+    text: string;
+    at: number;
+}
+
+function caretIn(box: HTMLTextAreaElement): Caret {
+    return { text: box.value, at: box.selectionStart };
 }
 
 /** What the box knows that bringing back a sent message needs. */

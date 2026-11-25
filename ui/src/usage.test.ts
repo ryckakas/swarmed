@@ -13,18 +13,19 @@ describe("formatBytes", () => {
 });
 
 describe("totalBytes", () => {
-    it("adds up the database, the notes, the measured worktrees and what removals left", () => {
+    it("adds up the database, the notes, the checkpoints, the measured worktrees and what removals left", () => {
         const worktree = (bytes: number | null) => ({ project: "p", task: "t", path: "/w", bytes });
         const usage: Usage = {
             database_bytes: 1000,
             events: 3,
             notes_bytes: 10,
+            checkpoints_bytes: 5,
             worktrees: [worktree(500), worktree(null)],
             removed_bytes: 40,
             running: { processes: 1, memory_bytes: 0, cpu_percent: 0 },
             sessions: [],
         };
-        expect(totalBytes(usage)).toBe(1550);
+        expect(totalBytes(usage)).toBe(1555);
     });
 });
 

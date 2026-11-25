@@ -18,6 +18,8 @@ pub(crate) enum Kind {
     Stale,
     /// Snapshots: what new tasks of each environment start from.
     Snapshots,
+    /// The checkpoints of tasks that are gone: what their turns changed.
+    Checkpoints,
 }
 
 impl Kind {
@@ -27,6 +29,7 @@ impl Kind {
             Self::Branches => CleanupKind::Branches,
             Self::Stale => CleanupKind::Stale,
             Self::Snapshots => CleanupKind::Snapshots,
+            Self::Checkpoints => CleanupKind::Checkpoints,
         }
     }
 
@@ -36,6 +39,7 @@ impl Kind {
             CleanupKind::Branches => Self::Branches,
             CleanupKind::Stale => Self::Stale,
             CleanupKind::Snapshots => Self::Snapshots,
+            CleanupKind::Checkpoints => Self::Checkpoints,
         }
     }
 
@@ -45,6 +49,7 @@ impl Kind {
             Self::Branches => "branches",
             Self::Stale => "stale",
             Self::Snapshots => "snapshots",
+            Self::Checkpoints => "checkpoints",
         }
     }
 }

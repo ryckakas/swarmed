@@ -23,6 +23,8 @@ fn first(prompt: &str) -> FirstSession {
         options: SessionOptions::default(),
         prompt: prompt.to_string(),
         files: vec![],
+        sessions: vec![],
+        github: vec![],
         images: vec![],
     }
 }

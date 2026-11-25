@@ -99,23 +99,9 @@ fn local_tools() -> Value {
             task (worktree) it is in, and its title. Use it to see who else is at work before \
             reading from or writing to another session.",
         "inputSchema": { "type": "object", "properties": {} },
-    }, {
-        "name": "read_session",
-        "title": "Read another session's latest messages",
-        "description": "Returns what was last said in another session, by the user and by \
-            its agent, oldest first. Tool calls and their output are left out.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "session_id": { "type": "integer", "description": "The session to read." },
-                "messages": {
-                    "type": "integer",
-                    "description": "How many of its latest messages; 12 if left out.",
-                },
-            },
-            "required": ["session_id"],
-        },
-    }, {
+    },
+    read_session_tool(),
+    {
         "name": "send_message",
         "title": "Send a message to another session",
         "description": "Leaves another session a message, which arrives in its conversation \
@@ -163,6 +149,32 @@ fn local_tools() -> Value {
             "required": ["session_id"],
         },
     }])
+}
+
+/// The tool an agent reads another session with: its latest messages, or from one on.
+fn read_session_tool() -> Value {
+    json!({
+        "name": "read_session",
+        "title": "Read another session's latest messages",
+        "description": "Returns what was last said in another session, by the user and by \
+            its agent, oldest first. Tool calls and their output are left out.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "session_id": { "type": "integer", "description": "The session to read." },
+                "messages": {
+                    "type": "integer",
+                    "description": "How many messages; 12 if left out.",
+                },
+                "from": {
+                    "type": "integer",
+                    "description": "The message to start at, 1 being the first; the latest \
+                        ones if left out.",
+                },
+            },
+            "required": ["session_id"],
+        },
+    })
 }
 
 /// The tool an agent changes Swarmed's own configuration with.

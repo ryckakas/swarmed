@@ -12,14 +12,15 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
-    AccountUsage, Action, AgentInfo, AgentSetup, ApiKeyInfo, BackgroundOutput, BackgroundTask,
-    BranchChoices, Cleaned, Cleanup, CleanupKind, CloudOrigin, CloudProvider, CloudTask, Core,
-    Costs, CustomLayout, Environment, EnvironmentChoice, FileChange, FileDiff, FileListing,
-    FirstSession, Issue, IssueDetail, IssueFilter, IssueList, McpServerInput, McpServerView,
-    MergeMethod, MergeReport, MergeRules, MergeWhen, NewTaskOptions, Project, ProjectOverview,
-    Pull, PullDraft, QueuedMessage, RemoveOptions, SearchHit, Session, SessionOptions,
-    SessionSettings, Settings, SetupLog, Skill, SlashCommand, Snapshot, Task, TaskNaming,
-    TaskStarted, Template, TerminalConfig, TerminalOpened, TurnStats, Unpublished, Usage, hooks,
+    AccountUsage, Action, AgentInfo, AgentSetup, ApiKeyInfo, Attached, BackgroundOutput,
+    BackgroundTask, BranchChoices, Cleaned, Cleanup, CleanupKind, CloudOrigin, CloudProvider,
+    CloudTask, Core, Costs, CustomLayout, Environment, EnvironmentChoice, FileChange, FileDiff,
+    FileListing, FirstSession, GitHubItem, GitHubItems, Issue, IssueDetail, IssueFilter, IssueList,
+    McpServerInput, McpServerView, MergeMethod, MergeReport, MergeRules, MergeWhen, NewTaskOptions,
+    Project, ProjectOverview, Pull, PullDraft, QueuedMessage, Reachable, RemoveOptions,
+    RewindCheck, RewindDone, SearchHit, Session, SessionOptions, SessionSettings, Settings,
+    SetupLog, Skill, SlashCommand, Snapshot, Task, TaskNaming, TaskStarted, Template,
+    TerminalConfig, TerminalOpened, Turn, TurnChanges, TurnStats, Unpublished, Usage, hooks,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -244,6 +245,12 @@ pub(crate) struct Start {
     /// Images pasted into the prompt, each in base64.
     #[serde(default)]
     images: Vec<String>,
+    /// The sessions the prompt mentions, by id.
+    #[serde(default)]
+    sessions: Vec<i64>,
+    /// The pull requests and issues the prompt mentions, by number.
+    #[serde(default)]
+    github: Vec<u64>,
     /// The number of the repository's GitHub issue the task is started for, if any.
     #[serde(default)]
     issue: Option<u64>,
@@ -278,6 +285,8 @@ pub(crate) async fn task_start<R: Runtime>(
         },
         prompt: start.prompt,
         files: start.files,
+        sessions: start.sessions,
+        github: start.github,
         images: start.images,
     };
     let sink = hook_sink(&app, &project, &name);
@@ -949,6 +958,61 @@ pub(crate) async fn task_diff(
     Ok(core.task_diff(&project, &name, &path).await?)
 }
 
+/// The turns of a session whose checkpoints are kept, oldest first. Off the main thread: it
+/// reads the task's checkpoints.
+#[tauri::command(async)]
+pub(crate) fn session_turns(core: CoreState<'_>, id: i64) -> Command<Vec<Turn>> {
+    Ok(core.session_turns(id)?)
+}
+
+/// What one turn of a session changed in its worktree.
+#[tauri::command]
+pub(crate) async fn session_turn_changes(
+    core: CoreState<'_>,
+    id: i64,
+    message: usize,
+) -> Command<TurnChanges> {
+    Ok(core.session_turn_changes(id, message).await?)
+}
+
+/// What taking a session back to before its message `message` would do now.
+#[tauri::command]
+pub(crate) async fn session_rewind_check(
+    core: CoreState<'_>,
+    id: i64,
+    message: usize,
+) -> Command<RewindCheck> {
+    Ok(core.session_rewind_check(id, message).await?)
+}
+
+/// Takes a session back to before its message `message`, its files too with `files`.
+#[tauri::command]
+pub(crate) async fn session_rewind(
+    core: CoreState<'_>,
+    id: i64,
+    message: usize,
+    files: bool,
+) -> Command<RewindDone> {
+    Ok(core.session_rewind(id, message, files).await?)
+}
+
+/// Puts back the files a session's latest rewind took back.
+#[tauri::command]
+pub(crate) async fn session_files_put_back(core: CoreState<'_>, id: i64) -> Command<()> {
+    Ok(core.session_files_put_back(id).await?)
+}
+
+/// How one file changed in one turn of a session.
+#[tauri::command]
+pub(crate) async fn session_turn_diff(
+    core: CoreState<'_>,
+    id: i64,
+    message: usize,
+    path: String,
+) -> Command<FileDiff> {
+    Ok(core.session_turn_diff(id, message, &path).await?)
+}
+
 #[tauri::command(async)]
 pub(crate) fn settings(core: CoreState<'_>) -> Command<Settings> {
     Ok(core.settings()?)
@@ -1073,9 +1137,60 @@ pub(crate) async fn session_send(
     id: i64,
     text: String,
     files: Option<Vec<PathBuf>>,
+    sessions: Option<Vec<i64>>,
+    github: Option<Vec<u64>>,
 ) -> Command<()> {
-    let files = files.unwrap_or_default();
-    Ok(core.session_message(id, &text, &files, Auth::default())?)
+    let attached = attached(files, sessions, github);
+    Ok(core.session_message(id, &text, &attached, Auth::default())?)
+}
+
+/// What a message points the agent at besides its words, as the window sends it: the files
+/// attached, the sessions mentioned and the pull requests and issues, any left out for none.
+fn attached(
+    files: Option<Vec<PathBuf>>,
+    sessions: Option<Vec<i64>>,
+    github: Option<Vec<u64>>,
+) -> Attached {
+    Attached {
+        files: files.unwrap_or_default(),
+        sessions: sessions.unwrap_or_default(),
+        github: github.unwrap_or_default(),
+    }
+}
+
+/// What the `#` menu offers for `query` in a repository: its latest pull requests and issues,
+/// one by number, or those words find, through the user's `gh`; or why there are none.
+#[tauri::command]
+pub(crate) async fn project_github_items(
+    core: CoreState<'_>,
+    project: String,
+    query: String,
+) -> Command<GitHubItems> {
+    Ok(core.project_github_items(&project, &query).await?)
+}
+
+/// The pull requests and issues `numbers` of a repository, read now unless they were a moment
+/// ago: what a message mentioning them is sent with.
+#[tauri::command]
+pub(crate) async fn project_github_read(
+    core: CoreState<'_>,
+    project: String,
+    numbers: Vec<u64>,
+) -> Command<Vec<GitHubItem>> {
+    Ok(core.project_github_read(&project, &numbers).await?)
+}
+
+/// The sessions a session can mention with `@`: those its agent can read, its own task's
+/// first. Off the main thread: it looks at every open session.
+#[tauri::command(async)]
+pub(crate) fn session_reachable(core: CoreState<'_>, id: i64) -> Command<Vec<Reachable>> {
+    Ok(core.session_reachable(id)?)
+}
+
+/// The sessions a new task's first message in `project` can mention, before it has a session.
+#[tauri::command(async)]
+pub(crate) fn project_reachable(core: CoreState<'_>, project: String) -> Command<Vec<Reachable>> {
+    Ok(core.project_reachable(&project)?)
 }
 
 /// Keeps images pasted into a message to a session, each in base64, as files of the session's
@@ -1122,9 +1237,11 @@ pub(crate) async fn session_message_now(
     id: i64,
     text: String,
     files: Option<Vec<PathBuf>>,
+    sessions: Option<Vec<i64>>,
+    github: Option<Vec<u64>>,
 ) -> Command<()> {
-    let files = files.unwrap_or_default();
-    Ok(core.session_message_now(id, &text, &files, Auth::default())?)
+    let attached = attached(files, sessions, github);
+    Ok(core.session_message_now(id, &text, &attached, Auth::default())?)
 }
 
 #[tauri::command(async)]
@@ -1138,9 +1255,11 @@ pub(crate) fn session_enqueue(
     id: i64,
     text: String,
     files: Option<Vec<PathBuf>>,
+    sessions: Option<Vec<i64>>,
+    github: Option<Vec<u64>>,
 ) -> Command<Vec<QueuedMessage>> {
-    let files = files.unwrap_or_default();
-    Ok(core.session_enqueue_message(id, &text, &files)?)
+    let attached = attached(files, sessions, github);
+    Ok(core.session_enqueue_message(id, &text, &attached)?)
 }
 
 #[tauri::command]
@@ -1149,8 +1268,12 @@ pub(crate) fn session_queue_edit(
     id: i64,
     message: u64,
     text: String,
+    files: Option<Vec<PathBuf>>,
+    sessions: Option<Vec<i64>>,
+    github: Option<Vec<u64>>,
 ) -> Command<Vec<QueuedMessage>> {
-    Ok(core.session_queue_edit(id, message, &text)?)
+    let attached = attached(files, sessions, github);
+    Ok(core.session_queue_edit_message(id, message, &text, &attached)?)
 }
 
 /// Holds a waiting message while the user edits it, or renews the hold.

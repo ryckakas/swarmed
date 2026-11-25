@@ -158,6 +158,12 @@ export interface Words {
     forkHereHint: string;
     /** What a session started from part of another says at its top. */
     forkedFrom: (id: number) => string;
+    /**
+     * The transcript's button that takes the session back to before a message to edit it, and
+     * what it does.
+     */
+    editHere: string;
+    editHereHint: string;
     /** A message another session sent, by that session's number. */
     fromSession: (id: number) => string;
     /** While a session's conversation is read. */
@@ -361,6 +367,9 @@ const PLAIN: Words = {
         "Starts a new session with this message and everything said after it, and nothing from before",
     forkedFrom: (id) =>
         `Forked from session ${id}. What stands above was said there; this session's agent is given it with your first message.`,
+    editHere: "Edit from here",
+    editHereHint:
+        "Takes this session back to before this message, its files too if you choose, and puts the message in the box to edit and send again",
     fromSession: (id) => `From session ${id}`,
     loadingConversation: "Loading the conversation…",
     emptySession: "Nothing has been said yet. The agent starts with your first message.",
@@ -525,6 +534,9 @@ const SWARM: Words = {
         "Spawns from this message: everything said after it comes along, and nothing from before",
     forkedFrom: (id) =>
         `Split from spawn ${id}. What stands above was said there; this spawn's agent is given it with your first message.`,
+    editHere: "Rewind to here",
+    editHereHint:
+        "Takes this spawn back to before this message, its files too if you choose, and puts the message back in the box to send again",
     fromSession: (id) => `From spawn ${id}`,
     loadingConversation: "Waking the spawn…",
     emptySession: "Nothing has stirred yet. The spawn wakes with your first message.",

@@ -429,3 +429,38 @@ async fn a_snapshot_being_taken_is_kept_and_one_cut_short_goes() {
     assert_eq!(cleaned.deleted, [listed[0].key.clone()]);
     assert_eq!(core.snapshots("demo").expect("reads"), []);
 }
+
+#[tokio::test]
+async fn checkpoints_of_tasks_that_are_gone_are_listed_and_a_current_tasks_never() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    let current = new_task(&core, "current").await;
+    let gone = new_task(&core, "gone").await;
+    remove(&core, "gone").await;
+    // As a removal cut short, or one by a Swarmed that knew nothing of checkpoints, leaves them.
+    for task in [&current, &gone] {
+        let store = fx.paths.checkpoints(task.id).join("objects");
+        std::fs::create_dir_all(&store).expect("test setup");
+        std::fs::write(store.join("object"), "tree").expect("test setup");
+    }
+    let unknown = fx.paths.checkpoints(9_999);
+    std::fs::create_dir_all(&unknown).expect("test setup");
+
+    let listed = core
+        .cleanup_items(CleanupKind::Checkpoints)
+        .await
+        .expect("lists");
+    let mut tasks: Vec<Option<&str>> = listed.iter().map(|item| item.task.as_deref()).collect();
+    tasks.sort_unstable();
+    assert_eq!(tasks, [None, Some("gone")]);
+    assert!(listed.iter().all(|item| !item.at_risk));
+
+    let cleaned = core
+        .cleanup_clean(CleanupKind::Checkpoints, None, None)
+        .await
+        .expect("cleans");
+    assert_eq!(cleaned.deleted.len(), 2);
+    assert!(!fx.paths.checkpoints(gone.id).exists());
+    assert!(!unknown.exists());
+    assert!(fx.paths.checkpoints(current.id).exists());
+}

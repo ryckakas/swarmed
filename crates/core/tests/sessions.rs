@@ -9,8 +9,9 @@ use swarmed_core::agent::{
     AgentEvent, Auth, BackgroundState, Effort, FakeBackend, Namer, Naming, PLAN_TOOL, Supervision,
 };
 use swarmed_core::{
-    AccountUsage, AgentInfo, Core, Error, Mark, MarkColour, NewTaskOptions, Session, SessionEvent,
-    SessionOptions, SessionSettings, SessionStatus, Settings, TerminalOutput, UsageWindow, hooks,
+    AccountUsage, AgentInfo, Attached, Core, Error, Mark, MarkColour, NewTaskOptions, Session,
+    SessionEvent, SessionOptions, SessionSettings, SessionStatus, Settings, TerminalOutput,
+    UsageWindow, hooks,
 };
 use tokio::sync::broadcast::Receiver;
 
@@ -1083,7 +1084,9 @@ async fn a_closed_session_stops_and_leaves_the_lists_but_keeps_its_history() {
     assert_eq!(core.sessions("demo", "one").expect("lists"), vec![]);
     let overview = core.overview().expect("reads");
     assert_eq!(overview[0].tasks[0].sessions, vec![]);
-    assert_eq!(core.session_events(session.id).expect("kept").len(), 6);
+    // The message, the start, the reply, where the agent's record stood, the turn's end, the
+    // close and the agent's exit.
+    assert_eq!(core.session_events(session.id).expect("kept").len(), 7);
     assert!(matches!(
         core.session_close(404),
         Err(Error::SessionNotFound(404))
@@ -2570,7 +2573,7 @@ async fn a_message_sent_now_stops_the_turn_and_goes_ahead_of_those_waiting() {
 
     core.session_send(session.id, "slow").expect("sends");
     core.session_enqueue(session.id, "later").expect("queues");
-    core.session_message_now(session.id, "now", &[], Auth::default())
+    core.session_message_now(session.id, "now", &Attached::default(), Auth::default())
         .expect("sends now");
     let stopped = turn(&mut bus, session.id).await;
     assert!(
@@ -2585,14 +2588,15 @@ async fn a_message_sent_now_stops_the_turn_and_goes_ahead_of_those_waiting() {
     assert!(later.contains(&text("echo: later")), "{later:?}");
 
     // With nothing under way it goes at once.
-    core.session_message_now(session.id, "at once", &[], Auth::default())
+    core.session_message_now(session.id, "at once", &Attached::default(), Auth::default())
         .expect("sends");
     let at_once = turn(&mut bus, session.id).await;
     assert!(at_once.contains(&text("echo: at once")), "{at_once:?}");
     // Nothing, and a command Swarmed does not send on, are refused.
-    let empty = core.session_message_now(session.id, " ", &[], Auth::default());
+    let empty = core.session_message_now(session.id, " ", &Attached::default(), Auth::default());
     assert!(matches!(empty, Err(Error::EmptyMessage)), "{empty:?}");
-    let login = core.session_message_now(session.id, "/login", &[], Auth::default());
+    let login =
+        core.session_message_now(session.id, "/login", &Attached::default(), Auth::default());
     assert!(
         matches!(login, Err(Error::TerminalOnly { .. })),
         "{login:?}"

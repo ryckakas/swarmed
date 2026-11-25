@@ -4,13 +4,13 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
-use clap::{Subcommand, ValueEnum};
+use clap::{Args, Subcommand, ValueEnum};
 use serde_json::Value;
 use swarmed_core::agent::{
     AgentEvent, Asked, Auth, Effort, McpServerInfo, PLAN_TOOL, RemoteState, ScreenRow,
     ScreenSection, Supervision,
 };
-use swarmed_core::{Core, Session, SessionEvent, SessionOptions, SessionSettings};
+use swarmed_core::{Attached, Core, Session, SessionEvent, SessionOptions, SessionSettings};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
@@ -53,19 +53,22 @@ pub(crate) enum SessionCommand {
         auth: AuthMode,
     },
     /// Continue a session with another turn.
-    Send {
-        id: i64,
-        prompt: String,
-        /// A file or folder to point the agent at; may be given more than once.
-        #[arg(long = "file")]
-        files: Vec<PathBuf>,
-        #[arg(long, value_enum, default_value_t)]
-        auth: AuthMode,
-    },
+    Send(SendArgs),
     /// List a task's sessions.
     List { project: String, task: String },
     /// Print everything a session has said and been told.
     Show { id: i64 },
+    /// List the turns of a session whose checkpoints are kept, each with the files it changed:
+    /// the worktree as it was before its message went, against when it ended.
+    Turns { id: i64 },
+    /// Print what one turn changed as a diff: of one file, or of every file it changed.
+    TurnDiff {
+        id: i64,
+        /// The message that began the turn, counting the messages sent into the session from 0.
+        message: usize,
+        /// The file, relative to the worktree; without it, every file the turn changed.
+        path: Option<String>,
+    },
     /// Start a new session from what was said in this one. Its agent is given that
     /// conversation with the first message sent to it.
     Fork {
@@ -88,6 +91,12 @@ pub(crate) enum SessionCommand {
         )]
         into: Option<Vec<String>>,
     },
+    /// Take a session back to before one of its messages: that message and what followed no
+    /// longer count, and its agent goes on from there with the next message. With `--files`,
+    /// the worktree's files go back to how they were before it too; commits stay.
+    Rewind(crate::rewind::RewindArgs),
+    /// Put back the files a session's latest rewind took back, as they were before it.
+    PutBack { id: i64 },
     /// Change the model and supervision a session runs with from now on. Without `--auto`,
     /// `--ask` or `--plan` the session stays supervised as it is.
     Set {
@@ -167,6 +176,31 @@ pub(crate) enum SessionCommand {
     Delete { id: i64 },
 }
 
+/// What `swarmed session send` is given.
+#[derive(Debug, Args)]
+pub(crate) struct SendArgs {
+    id: i64,
+    prompt: String,
+    /// A file or folder to point the agent at; may be given more than once.
+    #[arg(long = "file")]
+    files: Vec<PathBuf>,
+    /// Another session for the agent to read, by id: one this session's agent can reach
+    /// with `read_session`. May be given more than once.
+    #[arg(long = "session")]
+    sessions: Vec<i64>,
+    /// A pull request of the session's repository for the agent to read, by number; may
+    /// be given more than once. It is read through your `gh` and listed under the message
+    /// with its title, state, branches and address.
+    #[arg(long = "pull")]
+    pulls: Vec<u64>,
+    /// An issue of the session's repository, as `--pull` takes a pull request. GitHub
+    /// counts both alike: the list under the message says which a number is.
+    #[arg(long = "issue")]
+    issues: Vec<u64>,
+    #[arg(long, value_enum, default_value_t)]
+    auth: AuthMode,
+}
+
 /// Where the agent's credentials come from.
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
 pub(crate) enum AuthMode {
@@ -243,21 +277,10 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             };
             let session = core.session_new(&project, &task, &options)?;
             say(&format!("session {}", session.id));
-            run_turn(core, session.id, &prompt, &[], auth.resolve()?).await
+            let nothing = Attached::default();
+            run_turn(core, session.id, &prompt, &nothing, auth.resolve()?).await
         }
-        SessionCommand::Send {
-            id,
-            prompt,
-            files,
-            auth,
-        } => {
-            // A path typed in a terminal is meant from where the terminal is.
-            let files: Vec<PathBuf> = files
-                .iter()
-                .map(std::path::absolute)
-                .collect::<std::io::Result<_>>()?;
-            run_turn(core, id, &prompt, &files, auth.resolve()?).await
-        }
+        SessionCommand::Send(args) => send(core, args).await,
         SessionCommand::List { project, task } => {
             for s in core.sessions(&project, &task)? {
                 let mode = s.supervision.as_str();
@@ -273,6 +296,10 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             into,
         } => fork(core, id, (from, agent.as_deref()), into.as_deref()),
         SessionCommand::Show { id } => show(core, id),
+        SessionCommand::Turns { id } => turns(core, id).await,
+        SessionCommand::TurnDiff { id, message, path } => turn_diff(core, id, message, path).await,
+        SessionCommand::Rewind(args) => crate::rewind::rewind(core, args).await,
+        SessionCommand::PutBack { id } => crate::rewind::put_back(core, id).await,
         SessionCommand::Set {
             id,
             model,
@@ -315,6 +342,67 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
         SessionCommand::Delete { id } => Ok(core.session_delete(id)?),
         SessionCommand::Reopen { id } => reopened(core, id),
     }
+}
+
+/// Prints each kept turn of a session, oldest first: its message's number and first words,
+/// whether its end was recorded, who else was at work meanwhile, and the files it changed.
+async fn turns(core: &Core, id: i64) -> Result<()> {
+    for turn in core.session_turns(id)? {
+        let open = if turn.ended {
+            ""
+        } else {
+            "\t(no end yet: up to now)"
+        };
+        say(&format!("{}\t{}{open}", turn.message, turn.words));
+        if !turn.beside.is_empty() {
+            say(&format!("\talso at work: {}", turn.beside.join(", ")));
+        }
+        let changes = core.session_turn_changes(id, turn.message).await?;
+        for file in &changes.files {
+            let counts = file.added.zip(file.removed).map_or_else(
+                || "binary".to_string(),
+                |(added, removed)| format!("+{added} -{removed}"),
+            );
+            say(&format!(
+                "\t{}\t{counts}\t{}",
+                kind_mark(file.kind),
+                file.path
+            ));
+        }
+        for file in &changes.skipped {
+            say(&format!(
+                "\tnot kept, {} bytes, over the limit for files git does not track\t{}",
+                file.bytes, file.path
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn kind_mark(kind: swarmed_core::ChangeKind) -> &'static str {
+    match kind {
+        swarmed_core::ChangeKind::Added => "A",
+        swarmed_core::ChangeKind::Modified => "M",
+        swarmed_core::ChangeKind::Deleted => "D",
+    }
+}
+
+/// Prints the diff of one turn: of `path`, or of every file the turn changed.
+async fn turn_diff(core: &Core, id: i64, message: usize, path: Option<String>) -> Result<()> {
+    let paths = if let Some(path) = path {
+        vec![path]
+    } else {
+        let changes = core.session_turn_changes(id, message).await?;
+        changes.files.into_iter().map(|file| file.path).collect()
+    };
+    for path in paths {
+        let diff = core.session_turn_diff(id, message, &path).await?;
+        say(diff.text.trim_end());
+        if diff.truncated {
+            say("[the diff is longer; the rest is not shown]");
+        }
+    }
+    Ok(())
 }
 
 /// Puts a closed session back in the lists and prints its title.
@@ -502,12 +590,48 @@ fn pass_on_stdin(typed: &UnboundedSender<std::io::Result<String>>) {
     }
 }
 
-/// Sends `prompt`, with `files` listed under it, and shows the session's events until the
-/// turn ends. Permission requests are answered from stdin, and `bg` there sends what the agent
-/// waits on to the background; Ctrl-C interrupts the turn instead of killing the session.
-async fn run_turn(core: &Core, id: i64, prompt: &str, files: &[PathBuf], auth: Auth) -> Result<()> {
+/// `files` as typed in a terminal, which means them from where the terminal is.
+fn from_here(files: &[PathBuf]) -> Result<Vec<PathBuf>> {
+    let files = files.iter().map(std::path::absolute);
+    Ok(files.collect::<std::io::Result<_>>()?)
+}
+
+/// Sends a message as [`run_turn`] does, the pull requests and issues it mentions read first:
+/// the message then waits on nothing.
+async fn send(core: &Core, args: SendArgs) -> Result<()> {
+    let SendArgs {
+        id,
+        prompt,
+        files,
+        sessions,
+        pulls,
+        issues,
+        auth,
+    } = args;
+    let attached = Attached {
+        files: from_here(&files)?,
+        sessions,
+        github: [pulls, issues].concat(),
+    };
+    if !attached.github.is_empty() {
+        core.session_github_read(id, &attached.github).await?;
+    }
+    run_turn(core, id, &prompt, &attached, auth.resolve()?).await
+}
+
+/// Sends `prompt`, with what is `attached` listed under it, and shows the session's events
+/// until the turn ends. Permission requests are answered from stdin, and `bg` there sends what
+/// the agent waits on to the background; Ctrl-C interrupts the turn instead of killing the
+/// session.
+async fn run_turn(
+    core: &Core,
+    id: i64,
+    prompt: &str,
+    attached: &Attached,
+    auth: Auth,
+) -> Result<()> {
     let mut bus = core.subscribe();
-    core.session_message(id, prompt, files, auth)?;
+    core.session_message(id, prompt, attached, auth)?;
     follow_turn(core, id, &mut bus).await
 }
 
@@ -801,6 +925,8 @@ fn described_by_core(event: &AgentEvent) -> Option<String> {
         AgentEvent::PullChanged { number, change, .. } => {
             Some(crate::pull::changed(*number, change))
         }
+        AgentEvent::Rewound { to, files, .. } => Some(crate::rewind::rewound(*to, *files)),
+        AgentEvent::FilesPutBack { .. } => Some("— the files were put back".to_string()),
         _ => None,
     }
 }

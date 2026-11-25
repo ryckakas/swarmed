@@ -12,6 +12,7 @@ import {
     nestedSessions,
     projectStatus,
     projectUnread,
+    repositoryOf,
     stillFolded,
     taskNameForPrompt,
     taskNameFrom,
@@ -254,6 +255,24 @@ describe("titleFrom", () => {
         const title = titleFrom("x".repeat(200));
         expect(title).toHaveLength(60);
         expect(title.endsWith("…")).toBe(true);
+    });
+
+    it("reads what a message mentions by a token as its words, as the core does", () => {
+        expect(titleFrom("review [#142 Fix the login form] with [@4 Here]\nmore")).toBe(
+            "review Fix the login form with Here",
+        );
+    });
+});
+
+describe("repositoryOf", () => {
+    it("names a session's repository, and none for a chat", () => {
+        const projects = sampleProjects();
+        const session = findSession(projects, 3);
+        expect(session && repositoryOf(projects, session)).toBe("storefront");
+        const chats = projects.find((project) => project.chats);
+        const chat = chats?.tasks[0]?.sessions[0];
+        expect(chat).toBeDefined();
+        expect(chat && repositoryOf(projects, chat)).toBeUndefined();
     });
 });
 

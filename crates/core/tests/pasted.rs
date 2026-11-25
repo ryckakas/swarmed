@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use common::{core_with_project, fixture, turn};
 use swarmed_core::agent::{AgentEvent, Auth};
 use swarmed_core::{
-    CHATS, Core, Error, NewTaskOptions, RemoveOptions, Session, SessionOptions, hooks,
+    Attached, CHATS, Core, Error, NewTaskOptions, RemoveOptions, Session, SessionOptions, hooks,
 };
 
 /// The first bytes of a PNG, which is all the core looks at, in base64.
@@ -79,8 +79,13 @@ async fn pasted_images_are_kept_in_the_sessions_own_folder_and_attached_by_their
     assert_eq!(entries, 2);
 
     let mut bus = core.subscribe();
-    core.session_message(session.id, "what is wrong here?", &kept, Auth::Subscription)
-        .expect("sends");
+    core.session_message(
+        session.id,
+        "what is wrong here?",
+        &Attached::files(&kept),
+        Auth::Subscription,
+    )
+    .expect("sends");
     turn(&mut bus, session.id).await;
     assert_eq!(
         messages(&core, session.id),
@@ -97,14 +102,24 @@ async fn a_fork_has_copies_of_its_own_and_the_first_session_takes_its_images_alo
     let first = core
         .session_images_keep(source.id, &[PNG.to_string()])
         .expect("kept");
-    core.session_message(source.id, "before", &first, Auth::Subscription)
-        .expect("sends");
+    core.session_message(
+        source.id,
+        "before",
+        &Attached::files(&first),
+        Auth::Subscription,
+    )
+    .expect("sends");
     turn(&mut bus, source.id).await;
     let second = core
         .session_images_keep(source.id, &[GIF.to_string()])
         .expect("kept");
-    core.session_message(source.id, "after", &second, Auth::Subscription)
-        .expect("sends");
+    core.session_message(
+        source.id,
+        "after",
+        &Attached::files(&second),
+        Auth::Subscription,
+    )
+    .expect("sends");
     turn(&mut bus, source.id).await;
 
     // From the second message: only what it names is copied, and it names the copy.
@@ -119,8 +134,13 @@ async fn a_fork_has_copies_of_its_own_and_the_first_session_takes_its_images_alo
     assert!(core.session_image(fork.id, &copy).is_ok());
     // A fork of a conversation with no images makes no folder.
     let plain = session_in(&core, "demo", "two").await;
-    core.session_message(plain.id, "words only", &[], Auth::Subscription)
-        .expect("sends");
+    core.session_message(
+        plain.id,
+        "words only",
+        &Attached::default(),
+        Auth::Subscription,
+    )
+    .expect("sends");
     turn(&mut bus, plain.id).await;
     let words = core.session_fork(plain.id, None, None).expect("forks");
     assert!(!fx.paths.attachments(words.id).exists());
@@ -176,6 +196,8 @@ async fn a_task_started_with_a_pasted_image_attaches_it_to_its_prompt() {
         options: SessionOptions::default(),
         prompt: "match this design".to_string(),
         files: vec![],
+        sessions: vec![],
+        github: vec![],
         images: vec![PNG.to_string()],
     };
     let mut bus = core.subscribe();
