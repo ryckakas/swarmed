@@ -34,17 +34,17 @@ impl Core {
         }
     }
 
-    /// Ends the setups and stacks Swarmed leaves behind when it quits: the setups it runs, and
-    /// every stack if this was the first Swarmed to [`arrive`](Core::arrive), and otherwise only
-    /// the ones it started itself.
+    /// Ends the setups, stacks and browsers Swarmed leaves behind when it quits: the setups it
+    /// runs, and every stack and browser if this was the first Swarmed to
+    /// [`arrive`](Core::arrive), and otherwise only the ones it started itself.
     pub async fn leave(&self) {
         // A setup under way goes first: it would start its stack once done.
         self.setups_stop_all().await;
         let first = lock(&self.house).is_some();
         if first {
-            self.stacks_stop_all().await;
+            tokio::join!(self.stacks_stop_all(), self.browsers_stop_all());
         } else {
-            self.stacks_stop_started().await;
+            tokio::join!(self.stacks_stop_started(), self.browsers_stop_started());
         }
     }
 

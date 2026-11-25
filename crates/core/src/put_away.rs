@@ -4,8 +4,8 @@
 //! sidebar with its agents and its stack running until it was removed, and removal takes the
 //! worktree and the branch too. Putting a task away is the step between:
 //!
-//! - **What it does.** The task's agents are stopped, and its stack, and it is marked done
-//!   (`tasks.done_at`, with why), which front ends list apart. Its sessions stay open unless
+//! - **What it does.** The task's agents are stopped, its stack and its browser, and it is
+//!   marked done (`tasks.done_at`, with why), which front ends list apart. Its sessions stay open unless
 //!   `Settings::put_away_closes_sessions` says to close them: the user often keeps them for
 //!   what they say. Remote Control is turned off and continuations are cancelled, since
 //!   either would start an agent again by itself. Nothing is deleted: the worktree, the
@@ -282,6 +282,7 @@ impl Core {
         let (config, notes) = self.config_for_removal(project, task);
         let mut notes = notes;
         notes.extend(self.stop_stack(project, &config, task, sink).await);
+        notes.extend(self.stop_browser(task.id).await);
         if self.store().task_set_done(task.id, seconds_now(), why)? {
             self.live.publish_apart(AgentEvent::TreeChanged);
         }

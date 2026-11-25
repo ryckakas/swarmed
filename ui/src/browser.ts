@@ -1,0 +1,386 @@
+// The Browser pane's logic: where on the page a click on its picture lands, which keys go to
+// the page, how big the page is, and what the console shows. Pure, so it can be tested.
+
+import type {
+    BrowserEvent,
+    BrowserSetup,
+    BrowserState,
+    BrowserTab,
+    ConsoleLine,
+    KeyInput,
+    Modifiers,
+    MouseInput,
+    Task,
+    Viewport,
+} from "./api/types";
+import type { WidthLimits } from "./resize";
+
+/** The pane may be dragged wide; the stylesheet keeps the conversation readable beside it. */
+export const BROWSER_WIDTH: WidthLimits = { initial: 560, min: 320, max: 2400 };
+
+/** The most minutes the settings may leave an unused browser running, as the core allows. */
+export const MAX_IDLE_MINUTES = 1440;
+
+/** The minutes typed for stopping an unused browser, within what the core takes. */
+export function minutesWithin(typed: string): number {
+    const minutes = Math.round(Number(typed));
+    if (!Number.isFinite(minutes)) {
+        return 30;
+    }
+    return Math.min(MAX_IDLE_MINUTES, Math.max(0, minutes));
+}
+
+/** How many lines of a tab's console the pane keeps, as the core does. */
+export const CONSOLE_KEPT = 500;
+
+/** Where the picture is drawn on screen. */
+export interface Box {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+}
+
+/** The page's own size, in CSS pixels, as its latest picture said. */
+export interface PageSize {
+    width: number;
+    height: number;
+}
+
+interface HeldKeys {
+    altKey: boolean;
+    ctrlKey: boolean;
+    metaKey: boolean;
+    shiftKey: boolean;
+}
+
+/** A pointer event, as far as the page needs it. */
+export interface PointerLike extends HeldKeys {
+    clientX: number;
+    clientY: number;
+    button: number;
+    buttons: number;
+    detail: number;
+}
+
+/** A wheel event, as far as the page needs it. */
+export interface WheelLike extends HeldKeys {
+    clientX: number;
+    clientY: number;
+    deltaX: number;
+    deltaY: number;
+    /** 0 for pixels, 1 for lines, 2 for pages. */
+    deltaMode: number;
+}
+
+/** A key event, as far as the page needs it. */
+export interface KeyLike extends HeldKeys {
+    key: string;
+    code: string;
+    keyCode: number;
+    repeat: boolean;
+    isComposing: boolean;
+}
+
+export function modifiersOf(event: HeldKeys): Modifiers {
+    return {
+        alt: event.altKey,
+        ctrl: event.ctrlKey,
+        meta: event.metaKey,
+        shift: event.shiftKey,
+    };
+}
+
+const BUTTONS: MouseInput["button"][] = ["left", "middle", "right", "back", "forward"];
+
+/**
+ * Where a point on screen is on the page, in its CSS pixels. The picture is drawn whole in its
+ * box from the top left, at one scale both ways (`object-fit: contain`), so a page of another
+ * shape than the box, as one an agent's tool gave a size of its own, leaves room beside or
+ * under it: the point is found by that one scale, never by the box's two.
+ */
+export function pagePoint(
+    clientX: number,
+    clientY: number,
+    box: Box,
+    page: PageSize,
+): { x: number; y: number } {
+    const across = box.width > 0 ? page.width / box.width : 1;
+    const down = box.height > 0 ? page.height / box.height : 1;
+    const scale = Math.max(across, down);
+    return {
+        x: Math.round((clientX - box.left) * scale * 10) / 10,
+        y: Math.round((clientY - box.top) * scale * 10) / 10,
+    };
+}
+
+/** What a pointer did on the picture, as the page takes it. */
+export function mouseInput(
+    kind: "down" | "up" | "move",
+    event: PointerLike,
+    box: Box,
+    page: PageSize,
+): MouseInput {
+    const { x, y } = pagePoint(event.clientX, event.clientY, box, page);
+    return {
+        kind,
+        x,
+        y,
+        button: kind === "move" ? "none" : (BUTTONS[event.button] ?? "none"),
+        buttons: event.buttons,
+        click_count: kind === "move" ? 0 : Math.max(1, event.detail),
+        delta_x: 0,
+        delta_y: 0,
+        modifiers: modifiersOf(event),
+    };
+}
+
+/** How far a line and a page of the wheel scroll, in CSS pixels. */
+const LINE = 40;
+const PAGE = 800;
+
+/** A scroll of the wheel or the trackpad on the picture, in CSS pixels. */
+export function wheelInput(event: WheelLike, box: Box, page: PageSize): MouseInput {
+    const unit = [1, LINE, PAGE][event.deltaMode] ?? 1;
+    const { x, y } = pagePoint(event.clientX, event.clientY, box, page);
+    return {
+        kind: "wheel",
+        x,
+        y,
+        button: "none",
+        buttons: 0,
+        click_count: 0,
+        delta_x: event.deltaX * unit,
+        delta_y: event.deltaY * unit,
+        modifiers: modifiersOf(event),
+    };
+}
+
+/**
+ * A key on the picture as the page takes it, or `null` for one it does not get that way: a
+ * key that is part of what an input method composes, which arrives whole when it is done, and
+ * ⌘V, whose text the window pastes itself, since Chrome's clipboard is not the user's.
+ */
+export function keyInput(kind: "down" | "up", event: KeyLike): KeyInput | null {
+    if (event.isComposing || event.key === "Process" || event.key === "Dead") {
+        return null;
+    }
+    if (event.metaKey && !event.ctrlKey && event.key.toLowerCase() === "v") {
+        return null;
+    }
+    return {
+        kind,
+        key: event.key,
+        code: event.code,
+        key_code: event.keyCode,
+        modifiers: modifiersOf(event),
+        repeat: event.repeat,
+    };
+}
+
+/** The room the pane gives the page, in whole CSS pixels, at the screen's density. */
+export function viewportOf(width: number, height: number, density: number): Viewport {
+    return {
+        width: Math.max(100, Math.floor(width)),
+        height: Math.max(100, Math.floor(height)),
+        scale: Math.min(2, Math.max(1, density || 1)),
+    };
+}
+
+/** Whether two viewports differ enough to tell Chrome. */
+export function sameViewport(one: Viewport | null, other: Viewport): boolean {
+    return (
+        one !== null &&
+        one.width === other.width &&
+        one.height === other.height &&
+        one.scale === other.scale
+    );
+}
+
+/** The lines kept and those heard since, in order, each once, the latest kept. */
+export function consoleMerged(kept: ConsoleLine[], heard: ConsoleLine[]): ConsoleLine[] {
+    const byNumber = new Map<number, ConsoleLine>();
+    for (const line of [...kept, ...heard]) {
+        byNumber.set(line.n, line);
+    }
+    const lines = [...byNumber.values()].sort((one, other) => one.n - other.n);
+    return lines.slice(-CONSOLE_KEPT);
+}
+
+/** How many lines of each level that matters a console holds, for its heading. */
+export function consoleCounts(lines: ConsoleLine[]): { errors: number; warnings: number } {
+    return {
+        errors: lines.filter((line) => line.level === "error").length,
+        warnings: lines.filter((line) => line.level === "warning").length,
+    };
+}
+
+/** The console's heading count, in words: `1 error`, `3 warnings`; nothing for none. */
+export function consoleCounted(lines: ConsoleLine[]): string[] {
+    const { errors, warnings } = consoleCounts(lines);
+    const said = (count: number, one: string) => `${count} ${one}${count === 1 ? "" : "s"}`;
+    return [
+        ...(errors > 0 ? [said(errors, "error")] : []),
+        ...(warnings > 0 ? [said(warnings, "warning")] : []),
+    ];
+}
+
+/** What a tab is called in the strip. */
+export function tabLabel(tab: BrowserTab): string {
+    if (tab.url === "about:blank" || tab.url === "") {
+        return "New tab";
+    }
+    return tab.title || tab.url;
+}
+
+/** What the address bar shows for a tab: nothing for an empty one, to type into. */
+export function addressOf(tab: BrowserTab | null): string {
+    if (tab === null || tab.url === "about:blank") {
+        return "";
+    }
+    return tab.url;
+}
+
+/**
+ * What tells one dialog of a page from another: its tab, its kind and what it says. The bar
+ * that answers it is made anew for each, so that the text typed for one `prompt`, or its
+ * default, is never sent as the answer to the next.
+ */
+export function dialogKey(tab: BrowserTab): string {
+    const { kind, message, default_prompt } = tab.dialog ?? {};
+    return JSON.stringify([tab.id, kind, message, default_prompt]);
+}
+
+/** What stands in the address bar: what the user is typing, else where the tab is. */
+export function shownAddress(typed: string | null, tab: BrowserTab | null): string {
+    return typed ?? addressOf(tab);
+}
+
+/** The tab the pane shows. */
+export function shownTab(state: BrowserState | null): BrowserTab | null {
+    if (state === null) {
+        return null;
+    }
+    return state.tabs.find((tab) => tab.id === state.shown) ?? null;
+}
+
+/** How the pane's browser stands: starting, running, or why not. */
+export type Standing =
+    | { kind: "starting" }
+    | { kind: "stopped" }
+    | { kind: "running"; state: BrowserState }
+    | { kind: "missing"; setup: BrowserSetup | null }
+    | { kind: "failed"; problem: string };
+
+/** Whether a pick asked for by shortcut still is, with the pane open or closed. */
+export function stillAsked(asked: boolean, paneOpen: boolean): boolean {
+    return asked && paneOpen;
+}
+
+/** How a browser stands by what the core says of it: running with its tabs, or stopped. */
+export function standingOf(state: BrowserState): Standing {
+    return state.running ? { kind: "running", state } : { kind: "stopped" };
+}
+
+/**
+ * What becomes of a pick the shortcut asked for, with `tab` shown and the browser standing so:
+ * it starts in the tab, waits while one is on its way (the browser starting, or running with
+ * tabs and none shown yet), and is dropped where none is: stopped, missing, failed, or
+ * without a tab.
+ */
+export function pickAsked(tab: string | null, standing: Standing): "start" | "wait" | "drop" {
+    if (tab !== null) {
+        return "start";
+    }
+    const coming =
+        standing.kind === "starting" ||
+        (standing.kind === "running" && leftUnshown(standing.state));
+    return coming ? "wait" : "drop";
+}
+
+/**
+ * Whether a browser that runs has tabs and shows none of them: one an agent's tools started
+ * behind a pane that was stopped, or one whose shown tab was closed. The pane then shows one,
+ * rather than say that no tab is open under a strip that lists some.
+ */
+export function leftUnshown(state: BrowserState): boolean {
+    return state.running && state.shown === null && state.tabs.length > 0;
+}
+
+/** The state an event brings for `task`, if it brings one. */
+export function stateOf(event: BrowserEvent, task: number): BrowserState | null {
+    if (event.kind !== "state" || event.task_id !== task) {
+        return null;
+    }
+    const { kind: _, ...state } = event;
+    return state;
+}
+
+/**
+ * Whether the browser could not start because none is installed: the pane offers to install
+ * one instead of saying the error.
+ */
+export function isMissing(error: string): boolean {
+    return error.includes("no Google Chrome, Chromium, Microsoft Edge or Brave was found");
+}
+
+/** A line's time, as the console shows it: `14:03:07`. */
+export function lineTime(at: number): string {
+    if (at <= 0) {
+        return "";
+    }
+    return new Date(at).toTimeString().slice(0, 8);
+}
+
+/**
+ * The session to show beside a task's browser when its mark in the sidebar is pressed: the one
+ * on screen if it is the task's, else the task's latest; `null` for a task with none open.
+ */
+export function sessionForBrowser(task: Task, selected: number | null): number | null {
+    if (task.sessions.some((session) => session.id === selected)) {
+        return selected;
+    }
+    return task.sessions.at(-1)?.id ?? null;
+}
+
+/** A tab an agent asked to show, for the pane of its task. */
+export interface BrowserAsked {
+    task: number;
+    tab: string | null;
+}
+
+/**
+ * What an agent's `show_browser` opens: the pane, on its tab, when the session on screen works
+ * in the same task; nothing otherwise, since the pane shows the browser of the task on screen.
+ */
+export function askedToShow(event: BrowserEvent, shownTask: number | null): BrowserAsked | null {
+    if (event.kind !== "show" || event.task_id !== shownTask) {
+        return null;
+    }
+    return { task: event.task_id, tab: event.tab };
+}
+
+/**
+ * Who last acted in a tab, as the pane names them: the title of the session whose browser
+ * tools did, `null` for a tab none did. A session gone since is named by its number.
+ */
+export function actorOf(
+    tab: BrowserTab,
+    titleOf: (session: number) => string | null,
+): string | null {
+    if (tab.acted_by === null) {
+        return null;
+    }
+    const title = titleOf(tab.acted_by)?.trim();
+    return title || `session ${tab.acted_by}`;
+}
+
+/** Whether the pane is open once an agent asked for it (`asked`), or the asking is forgotten. */
+export function openedBy(asked: BrowserAsked | null, open: boolean): boolean {
+    return asked !== null || open;
+}
+
+/** Whether a key on the page stops picking an element: Esc, while one is picked. */
+export function endsPick(picking: boolean, key: string): boolean {
+    return picking && key === "Escape";
+}

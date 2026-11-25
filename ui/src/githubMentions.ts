@@ -10,6 +10,7 @@
 // or a number typed by hand, stays text and is not looked up.
 
 import type { GitHubItem, GitHubKind, GitHubState } from "./api/types";
+import { elementsAgain, type ListedElement, splitElements } from "./elements";
 import {
     type Mentioned,
     mentionQuery,
@@ -28,8 +29,8 @@ export const GITHUB_LIMIT = 8;
  */
 const TOKEN = /\[#(\d+)(?: ([^\]\n]*))?\](?!\()/g;
 
-/** Either kind of token, for taking a message apart where they stand. */
-const ANY_TOKEN = /\[([@#])(\d+)(?: ([^\]\n]*))?\]/g;
+/** Any kind of token, a session's, a pull request's or issue's, or a picked element's, for taking a message apart where they stand. */
+const ANY_TOKEN = /\[([@#])(\d+)(?: ([^\]\n]*))?\]|\[Element (\d+): ([^\]\n]*)\]/g;
 
 /** The line that opens the list under a message, as the core writes it. */
 export const MENTIONED_ON_GITHUB = "Pull requests and issues mentioned, to read with gh:";
@@ -201,41 +202,47 @@ export function splitGitHub(message: string): { text: string; github: GitHubMent
 }
 
 /**
- * A message taken apart into what the user wrote, the sessions it mentions and its pull
- * requests and issues: the lists under it come off from the end, the last first.
+ * A message taken apart into what the user wrote, the sessions it mentions, its pull requests
+ * and issues, and the elements picked in the task's browser: the lists under it come off from
+ * the end, the last first.
  */
 export function splitMentioned(message: string): {
     text: string;
     sessions: Mentioned[];
     github: GitHubMentioned[];
+    elements: ListedElement[];
 } {
-    const { text, github } = splitGitHub(message);
-    return { ...splitMentions(text), github };
+    const picked = splitElements(message);
+    const { text, github } = splitGitHub(picked.text);
+    return { ...splitMentions(text), github, elements: picked.elements };
 }
 
 /**
  * A sent message's words as they can be typed again: the lists under it gone, and each session,
- * pull request and issue it names standing as a token, where it had none in the words (named on
- * the command line, say) at the end. For bringing a message back into a box.
+ * pull request, issue and picked element it names standing as a token, where it had none in the
+ * words (named on the command line, say) at the end. For bringing a message back into a box.
  */
 export function typedAgain(message: string): string {
-    const { text, github } = splitGitHub(message);
+    const picked = splitElements(message);
+    const { text, github } = splitGitHub(picked.text);
     const words = mentionsAgain(text);
     const named = new Set(githubIn(words));
     const added = github
         .filter((item) => !named.has(item.number))
         .map((item) => githubToken(item.number, item.title));
-    if (added.length === 0) {
-        return words;
-    }
-    return words === "" ? added.join(" ") : `${words} ${added.join(" ")}`;
+    const typed = [words, ...added].filter((part) => part !== "").join(" ");
+    return elementsAgain(typed, picked.elements);
 }
 
-/** A piece of what the user wrote: words, a session it names, or a pull request or issue. */
+/**
+ * A piece of what the user wrote: words, a session it names, a pull request or issue, or an
+ * element picked in the task's browser.
+ */
 export type MentionedPiece =
     | string
     | { session: Mentioned }
-    | { github: GitHubMentioned & { shown: string } };
+    | { github: GitHubMentioned & { shown: string } }
+    | { element: ListedElement };
 
 /**
  * `text` in pieces: the tokens of what is listed under the message as what they name, the rest
@@ -245,11 +252,12 @@ export function mentionedPieces(
     text: string,
     sessions: Mentioned[],
     github: GitHubMentioned[],
+    elements: ListedElement[] = [],
 ): MentionedPiece[] {
     const pieces: MentionedPiece[] = [];
     let from = 0;
     for (const match of text.matchAll(ANY_TOKEN)) {
-        const piece = pieceOf(match, sessions, github);
+        const piece = pieceOf(match, { sessions, github, elements });
         if (piece === null) {
             continue;
         }
@@ -265,13 +273,23 @@ export function mentionedPieces(
     return pieces;
 }
 
+/** What a message lists under its words. */
+interface Listed {
+    sessions: Mentioned[];
+    github: GitHubMentioned[];
+    elements: ListedElement[];
+}
+
 /** What a token names, if the list under the message names it too. */
 function pieceOf(
     match: RegExpExecArray | RegExpMatchArray,
-    sessions: Mentioned[],
-    github: GitHubMentioned[],
+    { sessions, github, elements }: Listed,
 ): MentionedPiece | null {
-    const [, sign, number, shown] = match;
+    const [, sign, number, shown, picked] = match;
+    if (picked !== undefined) {
+        const element = elements.find((one) => one.number === Number(picked));
+        return element ? { element } : null;
+    }
     if (sign === "@") {
         const session = sessions.find((one) => one.id === Number(number));
         return session ? { session: { id: session.id, title: shown ?? session.title } } : null;

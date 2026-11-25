@@ -10,7 +10,7 @@ use serde_json::json;
 use swarmed_core::agent::{AcpBackend, AgentEvent, Auth, Effort, FakeBackend, Supervision};
 use swarmed_core::{
     AgentInfo, Core, Error, McpServerInput, NewTaskOptions, RemoveOptions, SessionEvent,
-    SessionOptions, SessionSettings, SessionStatus, hooks,
+    SessionOptions, SessionSettings, SessionStatus, hooks, serve_session_tools,
 };
 use tokio::sync::broadcast::Receiver;
 
@@ -239,6 +239,8 @@ async fn a_permission_request_is_answered_with_the_matching_option() {
         tool_use_id: "call-1".into(),
         content: "ok".into(),
         is_error: false,
+        images: Vec::new(),
+        returned: Vec::new(),
     };
     assert_eq!(rest.get(1), Some(&ok));
     assert!(rest.contains(&text("ran it")));
@@ -930,6 +932,42 @@ async fn an_acp_agent_is_given_swarmeds_guidance_once_with_its_first_message() {
     assert!(second.contains(&text("guidance: none")), "{second:?}");
 }
 
+/// The words of the agent's replies in `events`.
+fn words(events: &[AgentEvent]) -> String {
+    let said = events.iter().filter_map(|event| match event {
+        AgentEvent::Text { text } => Some(text.as_str()),
+        _ => None,
+    });
+    said.collect()
+}
+
+#[tokio::test]
+async fn an_acp_agent_is_given_the_users_browser_servers_pointed_and_told_of_the_browser() {
+    let fx = fixture();
+    let config = json!({ "mcpServers": {
+        "playwright": { "command": "npx", "args": ["@playwright/mcp@latest"] },
+    }});
+    std::fs::write(&fx.paths.claude_config, config.to_string()).expect("writes");
+    let core = Arc::new(core_with(&fx, scripted_agent(&[])).await);
+    drop(tokio::spawn(serve_session_tools(Arc::clone(&core))));
+    let socket = core.paths().tools_socket();
+    while !socket.exists() {
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+
+    core.session_send(id, "guidance browser").expect("sends");
+    let told = turn(&mut bus, id).await;
+    assert!(told.contains(&text("browser: yes")), "{told:?}");
+    core.session_send(id, "mcp args").expect("sends");
+    let said = words(&turn(&mut bus, id).await);
+    assert!(
+        said.contains("playwright: npx @playwright/mcp@latest --cdp-endpoint http://127.0.0.1:"),
+        "{said}"
+    );
+}
+
 #[tokio::test]
 async fn an_agent_that_cannot_be_started_is_an_error_not_a_hang() {
     let fx = fixture();
@@ -1490,7 +1528,33 @@ async fn what_a_command_printed_beside_its_call_is_its_result() {
             tool_use_id: "call_ls".into(),
             content: "README.md\nsrc\n".into(),
             is_error: false,
+            images: Vec::new(),
+            returned: Vec::new(),
         }),
         "{events:?}"
     );
+}
+
+#[tokio::test]
+async fn an_image_a_tool_call_returned_is_kept_and_listed_on_its_result() {
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Auto);
+
+    core.session_send(id, "screenshot").expect("sends");
+    let events = turn(&mut bus, id).await;
+    let kept = fx.paths.attachments(id).join("tool-call_shot-1.png");
+    assert!(
+        events.contains(&AgentEvent::ToolResult {
+            tool_use_id: "call_shot".into(),
+            content: "Took the screenshot\n[image]".into(),
+            is_error: false,
+            images: vec![kept.clone()],
+            returned: Vec::new(),
+        }),
+        "{events:?}"
+    );
+    let shown = core.session_image(id, &kept).expect("read");
+    assert!(shown.starts_with("data:image/png;base64,iVBORw0KGgo"));
 }

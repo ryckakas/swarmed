@@ -2,6 +2,7 @@ import { memo, useMemo, useRef, useState } from "react";
 import { editFromMessage, forkFromMessage } from "../actions";
 import { api } from "../api";
 import type { AgentEvent } from "../api/types";
+import { elementsApart, type ListedElement } from "../elements";
 import { type GitHubMentioned, githubApart } from "../githubMentions";
 import { type Mentioned, mentionedApart } from "../mentions";
 import { type MessagePart, messageParts } from "../pastes";
@@ -49,6 +50,7 @@ import { QuestionPrompt } from "./QuestionPrompt";
 import { QuoteButton } from "./QuoteButton";
 import { Spawning, Swarming } from "./Spawning";
 import { ToolCall, ToolRun } from "./ToolCall";
+import { LastImage } from "./ToolImages";
 
 interface Props {
     sessionId: number;
@@ -176,6 +178,9 @@ function Said({ text, mentioned }: { text: string; mentioned: Mentions }) {
 interface Mentions {
     sessions: Mentioned[];
     github: GitHubMentioned[];
+    elements: ListedElement[];
+    /** The session the message went to, whose folder holds the elements' pictures. */
+    sessionId: number;
 }
 
 function SaidPart({ part, mentioned }: { part: MessagePart; mentioned: Mentions }) {
@@ -186,6 +191,8 @@ function SaidPart({ part, mentioned }: { part: MessagePart; mentioned: Mentions 
                     text={part.text}
                     sessions={mentioned.sessions}
                     github={mentioned.github}
+                    elements={mentioned.elements}
+                    sessionId={mentioned.sessionId}
                 />
             );
         case "quote":
@@ -236,11 +243,14 @@ function ItemView(props: ItemProps) {
                     input={item.input}
                     result={item.result}
                     moved={item.moved}
+                    sessionId={sessionId}
                     sendsFrom={sendsFrom}
                 />
             );
         case "tools":
-            return <ToolRun calls={item.calls} sendsFrom={sendsFrom} />;
+            return <ToolRun calls={item.calls} sessionId={sessionId} sendsFrom={sendsFrom} />;
+        case "last-image":
+            return <LastImage sessionId={sessionId} path={item.path} />;
         case "permission":
             return (
                 <PermissionPrompt
@@ -365,10 +375,12 @@ function UserSaid(props: {
         <div className="said">
             {item.remote && <p className="said-from">Typed on claude.ai</p>}
             {item.atReset && <p className="said-from">Sent by itself when the usage limit reset</p>}
-            <Said text={item.text} mentioned={item} />
+            <Said text={item.text} mentioned={{ ...item, sessionId }} />
             <MentionList
                 sessions={mentionedApart(item.text, item.sessions)}
                 github={githubApart(item.text, item.github)}
+                elements={elementsApart(item.text, item.elements)}
+                sessionId={sessionId}
             />
             <FileChips files={item.files} sessionId={sessionId} />
             {!folded && (

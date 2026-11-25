@@ -197,6 +197,11 @@ pub(crate) struct SendArgs {
     /// counts both alike: the list under the message says which a number is.
     #[arg(long = "issue")]
     issues: Vec<u64>,
+    /// An element picked for this session in its task's browser, by its number; may be given
+    /// more than once. It is listed under the message with its address, selector, role, text,
+    /// HTML and picture.
+    #[arg(long = "element")]
+    elements: Vec<u64>,
     #[arg(long, value_enum, default_value_t)]
     auth: AuthMode,
 }
@@ -606,12 +611,14 @@ async fn send(core: &Core, args: SendArgs) -> Result<()> {
         sessions,
         pulls,
         issues,
+        elements,
         auth,
     } = args;
     let attached = Attached {
         files: from_here(&files)?,
         sessions,
         github: [pulls, issues].concat(),
+        elements,
     };
     if !attached.github.is_empty() {
         core.session_github_read(id, &attached.github).await?;
@@ -1066,6 +1073,8 @@ mod tests {
             tool_use_id: "t".into(),
             content: "fine".into(),
             is_error: false,
+            images: Vec::new(),
+            returned: Vec::new(),
         };
         assert_eq!(describe(&ok), None);
         let allowed = AgentEvent::RateLimit {

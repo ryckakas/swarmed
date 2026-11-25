@@ -15,6 +15,57 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Added
+
+- **Point the agent at an element of the page.** **Pick** in the Browser pane, or ⌘⇧C, puts
+  the page in Chrome's own inspect mode: the element under the pointer is outlined, and a click
+  puts it into the message box as a token, `[Element 3: button "Save" on /settings]`. Sent, the
+  agent gets its address, a selector that finds it, its role and name, a few computed styles,
+  its text and HTML marked as the page's content, and a picture of it kept with the session.
+  Several can go in one message; the transcript shows each with its picture, which opens
+  large. Esc stops picking. See
+  [Pointing at an element of the page](docs/coding-agents.md#pointing-at-an-element-of-the-page).
+
+- **Agents browse in the task's browser, where you watch them.** Your own Playwright MCP and
+  Chrome DevTools MCP servers are pointed at the task's Chrome, so an agent that checks a page,
+  or a skill that says to use them, acts in the Browser pane beside the conversation, on the
+  task's profile, instead of opening a window or a fresh profile of its own. Each session has
+  an address of the task's browser in `SWARMED_BROWSER`, which also starts it, so a session
+  that never browses starts nothing. Every agent is told to use it, and the new
+  `show_browser` tool opens the pane on an address, in a tab of the session's own. The pane
+  marks the tabs agents acted in, says which session acted last, and goes to the tab an agent
+  works in. Claude Code's own servers and those Swarmed hands other agents are covered; a
+  server another agent keeps in its own configuration is not. See
+  [The task's browser and your browser tools](docs/coding-agents.md#the-tasks-browser-and-your-browser-tools).
+
+- **A Chrome of each task's own, live beside its sessions.** The globe in a session's header
+  opens the **Browser** pane: the task's page, drawn live, with tabs, an address bar, back,
+  forward, reload and its console. Click, scroll and type in it as in any browser, paste with
+  ⌘V; a dialog the page opens is answered there. It runs on the Google Chrome, Chromium,
+  Microsoft Edge or Brave you have, without a window, on a profile of the task's own, so a
+  login there stays with the task across restarts and never mixes with your own browser's or
+  another task's. It opens on the task's dev server when that runs, and stops when the task is
+  put away or removed, when Swarmed quits, and after 30 minutes unused (a setting). A task
+  whose browser runs is marked in the sidebar. No browser installed: the pane offers to
+  install Google Chrome with Homebrew, showing the command first. `swarmed task browser`
+  starts it and prints where its DevTools endpoint answers, for tools that drive a browser.
+  See [The task's browser](docs/configuration.md#the-tasks-browser).
+
+- **See the images a tool returns.** A screenshot from a browser tool, or an image file the
+  agent read, used to show as `[image]`; it now shows under the call, large when pressed, with
+  **Open** to see it in your system's viewer. The last image of a turn also stands at the end
+  of the agent's reply, so it shows with folded tool calls. Claude Code and ACP agents that
+  send images in their tool calls are covered; PNG, JPEG, GIF and WebP up to 10 MB, at most 8
+  per result. The images are kept with the session, for you alone, and deleted with it; see
+  [Screenshots and other images tools return](docs/coding-agents.md#screenshots-and-other-images-tools-return).
+
+### Fixed
+
+- **Tasks started at once in one repository are all created.** Now and then one of them
+  failed with git's `failed to read .git/worktrees/<name>/commondir`: git writes a new
+  worktree's records one file at a time, and another git reading them meanwhile gave up.
+  Swarmed now runs its worktree commands on a repository one at a time.
+
 ## [0.4.5] - 2026-11-25
 
 ### Added

@@ -310,6 +310,10 @@ pub enum Error {
     /// A pull request or issue a message mentions could not be read from GitHub. Says why.
     #[error("#{0} cannot be mentioned: {1}")]
     CannotMentionOnGitHub(u64, String),
+    /// An element a message names that was not picked for its session, or whose description
+    /// is gone.
+    #[error("element {0} was not picked for this session: pick it again in the browser")]
+    NoSuchElement(u64),
     /// A pasted image in a format agents do not read, or something that is no image at all.
     /// Says which, when the format is known.
     #[error("{0} cannot be attached: agents read only PNG, JPEG, GIF and WebP images")]
@@ -317,8 +321,9 @@ pub enum Error {
     /// A pasted image larger than one is kept, in megabytes.
     #[error("an image of more than {0} MB cannot be attached")]
     ImageTooLarge(usize),
-    /// A path that is not an image pasted into the session it was asked of.
-    #[error("{} is not an image pasted into this session", .0.display())]
+    /// A path that is not an image kept for the session it was asked of: one pasted into it, or
+    /// one of its tools returned.
+    #[error("{} is not an image kept for this session", .0.display())]
     NotPastedImage(PathBuf),
     /// A command of the agent's that Swarmed does not send on: it has its own way to do what
     /// the command does in a terminal, or does not leave it to the agent at all.
@@ -389,6 +394,23 @@ pub enum Error {
          that Swarmed has quit"
     )]
     RunsElsewhere(i64),
+    /// No browser that speaks Chrome's DevTools protocol is on this machine.
+    #[error(
+        "no Google Chrome, Chromium, Microsoft Edge or Brave was found: install one, or set \
+         the browser's program in Settings"
+    )]
+    BrowserMissing,
+    /// A task's browser could not do what was asked; Chrome's own words where it gave any.
+    #[error("the browser of `{task}`: {reason}")]
+    Browser {
+        /// The task whose browser it is.
+        task: String,
+        /// Why not.
+        reason: String,
+    },
+    /// The task's browser does not run, or runs where this Swarmed is not connected to it.
+    #[error("the browser of `{0}` is not running: open it first")]
+    BrowserNotRunning(String),
     /// A stored or outgoing event could not be converted to or from JSON.
     #[error(transparent)]
     Json(#[from] serde_json::Error),

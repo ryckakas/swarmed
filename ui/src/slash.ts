@@ -106,10 +106,16 @@ export function boxOpensChoice(
  */
 export function goesAtOnce(
     message: string,
-    going: { files: unknown[]; images: unknown[]; sessions: unknown[]; github: unknown[] },
+    going: {
+        files: unknown[];
+        images: unknown[];
+        sessions: unknown[];
+        github: unknown[];
+        elements?: unknown[];
+    },
     commands: SlashCommand[],
 ): boolean {
-    const lists = [going.files, going.images, going.sessions, going.github];
+    const lists = [going.files, going.images, going.sessions, going.github, going.elements ?? []];
     const alone = lists.every((list) => list.length === 0);
     return alone && takenBySwarmed(message, commands);
 }

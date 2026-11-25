@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createMockApi, suggestedTitle } from "./mock";
-import type { SessionEvent } from "./types";
+import type { BrowserEvent, SessionEvent } from "./types";
 
 // The sample `Api` the UI runs on in a plain browser. These tests are about the mock alone:
 // what the store makes of an `Api` is tested with the store.
@@ -284,6 +284,23 @@ describe("the mock's agent", () => {
         expect(reply?.type === "text" && reply.text).toContain("```html-view\n<style>");
     });
 
+    it("answers `screenshot` with a browser check whose last call returns an image", async () => {
+        const api = createMockApi();
+        const heard: SessionEvent["event"][] = [];
+        await api.onSessionEvent((published) => heard.push(published.event));
+        await api.sessionSend(3, "screenshot");
+        await expect
+            .poll(() => heard.some((event) => event.type === "turn_done"), { timeout: 5000 })
+            .toBe(true);
+        const images = heard.flatMap((event) =>
+            event.type === "tool_result" ? (event.images ?? []) : [],
+        );
+        expect(images).toEqual([`${await api.attachmentsRoot()}/3/tool-shot-100-3-1.png`]);
+        const [path = ""] = images;
+        expect(await api.sessionImage(3, path)).toMatch(/^data:image\/png;base64,iVBORw0KGgo/);
+        await expect(api.sessionImage(4, path)).rejects.toThrow("not an image kept");
+    });
+
     it("is given a better title while it writes its first reply, and only then", async () => {
         const api = createMockApi();
         const heard: SessionEvent["event"][] = [];
@@ -354,7 +371,133 @@ describe("the mock's pasted images", () => {
         const [path] = await api.sessionImagesKeep(3, [PNG]);
         expect(path).toBe(`${root}/3/pasted-1.png`);
         expect(await api.sessionImage(3, path ?? "")).toBe(`data:image/png;base64,${PNG}`);
-        await expect(api.sessionImage(4, path ?? "")).rejects.toThrow("not an image pasted");
+        await expect(api.sessionImage(4, path ?? "")).rejects.toThrow("not an image kept");
         await expect(api.sessionImagesKeep(3, ["SUkqAA=="])).rejects.toThrow("a TIFF image");
+    });
+});
+
+describe("the mock's browsers", () => {
+    const view = { width: 640, height: 480, scale: 1 };
+
+    it("start with the pane, draw the tab shown, follow where it goes and stop", async () => {
+        const api = createMockApi();
+        const tasks = (await api.overview()).flatMap((project) => project.tasks);
+        const running = tasks.find((task) => task.browser);
+        const idle = tasks.find((task) => !(task.browser || task.archived || task.done_at));
+        if (!(running && idle)) {
+            throw new Error(
+                "the sample data has a task whose browser runs, and one whose does not",
+            );
+        }
+        expect((await api.browserState(running.id)).running).toBe(true);
+        const heard: BrowserEvent[] = [];
+        await api.onBrowserEvent((event) => heard.push(event));
+
+        const shown = await api.browserShow(idle.id, null, view);
+        const tab = shown.shown ?? "";
+        expect(shown.running).toBe(true);
+        expect(heard.some((event) => event.kind === "frame" && event.tab === tab)).toBe(true);
+        await api.browserGo(idle.id, tab, { address: "localhost:3000/console" });
+        const lines = await api.browserConsole(idle.id, tab);
+        expect(lines.map((line) => line.text)).toEqual([
+            "hello from http://localhost:3000/console",
+        ]);
+        await expect(
+            api.browserGo(idle.id, tab, { address: "localhost:9/refused" }),
+        ).rejects.toThrow("ERR_CONNECTION_REFUSED");
+        const marked = (await api.overview()).flatMap((project) => project.tasks);
+        expect(marked.find((task) => task.id === idle.id)?.browser).toBe(true);
+
+        // Hidden and shown again, the pane is on the tab it was on, not back on the first.
+        const second = await api.browserTabNew(idle.id, null);
+        await api.browserShow(idle.id, second, view);
+        await api.browserHide(idle.id);
+        expect((await api.browserShow(idle.id, null, view)).shown).toBe(second);
+
+        await api.browserStop(idle.id);
+        expect((await api.browserState(idle.id)).running).toBe(false);
+        await expect(api.browserText(idle.id, "late")).rejects.toThrow("not running");
+    });
+
+    it("are acted in by the agent's tools on `browse`, in a tab the pane follows", async () => {
+        const api = createMockApi();
+        const session = 3;
+        const task = (await api.overview())
+            .flatMap((project) => project.tasks)
+            .find((one) => one.sessions.some((known) => known.id === session));
+        if (!task) {
+            throw new Error("the sample session has a task");
+        }
+        const heard: BrowserEvent[] = [];
+        await api.onBrowserEvent((event) => heard.push(event));
+        const said: SessionEvent["event"][] = [];
+        await api.onSessionEvent((published) => said.push(published.event));
+        await api.browserShow(task.id, null, view);
+        await api.sessionSend(session, "browse");
+        await expect
+            .poll(() => said.some((event) => event.type === "turn_done"), { timeout: 5000 })
+            .toBe(true);
+        const asked = heard.find((event) => event.kind === "show");
+        expect(asked?.kind === "show" && asked.session_id).toBe(session);
+        const state = await api.browserState(task.id);
+        const own = state.tabs.filter((tab) => tab.acted_by === session);
+        expect(own.map((tab) => tab.url)).toEqual(["http://localhost:5173/products"]);
+        expect(state.shown).toBe(own[0]?.id);
+        const failed = said.some((event) => event.type === "tool_result" && event.is_error);
+        expect(failed).toBe(false);
+    });
+
+    it("pick a part of the page with a click and list it under a message to the session", async () => {
+        const api = createMockApi();
+        const session = 3;
+        const task = (await api.overview())
+            .flatMap((project) => project.tasks)
+            .find((one) => one.sessions.some((known) => known.id === session));
+        if (!task) {
+            throw new Error("the sample session has a task");
+        }
+        const state = await api.browserShow(task.id, null, view);
+        await api.browserGo(task.id, state.shown ?? "", { address: "localhost:3000/shop" });
+        const ended = api.browserPick(task.id, session);
+        await api.browserPickEnd(task.id);
+        expect(await ended).toBeNull();
+
+        const picking = api.browserPick(task.id, session);
+        const move = { kind: "move" as const, button: "none" as const, buttons: 0, click_count: 0 };
+        const held = { alt: false, ctrl: false, meta: false, shift: false };
+        const at = { x: 40, y: 180, delta_x: 0, delta_y: 0, modifiers: held };
+        await api.browserMouse(task.id, { ...at, ...move });
+        await api.browserMouse(task.id, {
+            ...at,
+            kind: "down",
+            button: "left",
+            buttons: 1,
+            click_count: 1,
+        });
+        const element = await picking;
+        expect(element).toMatchObject({
+            number: 1,
+            tag: "li",
+            label: 'li "Linen shirt: 49 €" on /shop',
+        });
+        expect(await api.sessionElements(session, [1])).toEqual([element]);
+        await expect(api.sessionElements(session, [2])).rejects.toThrow("element 2 was not picked");
+
+        const said: SessionEvent["event"][] = [];
+        await api.onSessionEvent((published) => said.push(published.event));
+        await api.sessionSend(session, "make it blue [Element 1: li]", [], [], [], [1]);
+        const sent = said.find((event) => event.type === "user_message");
+        expect(sent?.type === "user_message" && sent.text).toContain(
+            '- element 1: li "Linen shirt',
+        );
+    });
+
+    it("offer to install one when the program set is missing", async () => {
+        const api = createMockApi();
+        const settings = await api.settings();
+        await api.setSettings({ ...settings, browser_program: "/missing/chrome" });
+        expect((await api.browserSetup()).name).toBeNull();
+        const task = (await api.overview())[0]?.tasks[0];
+        await expect(api.browserOpen(task?.id ?? 0)).rejects.toThrow("no Google Chrome");
     });
 });

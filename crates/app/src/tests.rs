@@ -53,6 +53,11 @@ fn app() -> App {
 
 /// The same app, looking for new versions of itself at `endpoint`.
 fn app_updating_from(endpoint: &str) -> App {
+    app_built(endpoint, |_| {})
+}
+
+/// The app, its core changed by `change` first.
+fn app_built(endpoint: &str, change: impl FnOnce(&mut Core)) -> App {
     let dir = TempDir::new().expect("temp dir");
     let root = dir.path().canonicalize().expect("temp dir resolves");
     let repo = root.join("demo");
@@ -72,7 +77,8 @@ fn app_updating_from(endpoint: &str) -> App {
         codex_config: root.join("codex.toml"),
         opencode_config_dir: root.join("opencode"),
     };
-    let core = Core::with_backend(paths, Arc::new(FakeBackend::default())).expect("core opens");
+    let mut core = Core::with_backend(paths, Arc::new(FakeBackend::default())).expect("core opens");
+    change(&mut core);
     let mut context = mock_context(noop_assets());
     let updater = json!({ "pubkey": "none", "endpoints": [endpoint] });
     context
@@ -153,6 +159,31 @@ impl App {
     /// The folder Swarmed keeps its own files in, beside the repository.
     fn data_dir(&self) -> std::path::PathBuf {
         self.repo.with_file_name("data")
+    }
+
+    /// Calls `command` without waiting for its answer, which comes on the receiver: for one that
+    /// waits on what the test does next, as a pick waits for the click.
+    fn invoke_waiting(
+        &self,
+        command: &str,
+        arguments: Value,
+    ) -> std::sync::mpsc::Receiver<Result<Value, Value>> {
+        let request = Self::request(command, arguments, self.origin.clone(), INVOKE_KEY);
+        let (answered, answer) = std::sync::mpsc::channel();
+        let window: &tauri::Webview<MockRuntime> = self.window.as_ref();
+        window.clone().on_message(
+            request,
+            Box::new(move |_webview, _command, response, _callback, _error| {
+                let value = match response {
+                    InvokeResponse::Ok(body) => body
+                        .deserialize::<Value>()
+                        .map_err(|e| json!(e.to_string())),
+                    InvokeResponse::Err(error) => Err(error.0),
+                };
+                answered.send(value).ok();
+            }),
+        );
+        answer
     }
 
     fn ok(&self, command: &str, arguments: Value) -> Value {
@@ -377,6 +408,36 @@ fn the_ui_can_paste_an_image_into_a_message_and_show_it_again() {
     assert!(folder.exists());
     app.ok("session_delete", json!({ "id": id }));
     assert!(!folder.exists());
+}
+
+#[test]
+fn the_ui_can_show_the_image_a_tool_returned_from_the_path_on_its_result() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    app.ok(
+        "task_new",
+        json!({ "project": "demo", "name": "one", "branch": null }),
+    );
+    let session = app.ok(
+        "session_new",
+        json!({ "project": "demo", "task": "one", "agent": null, "how": { "model": null, "supervision": "auto", "effort": null } }),
+    );
+    let id = &session["id"];
+    app.ok("session_send", json!({ "id": id, "text": "screenshot" }));
+    let result = app.wait_for_event(id, "tool_result");
+    assert_eq!(result["content"], "Took the viewport screenshot\n[image]");
+    // The paths alone: what the image shows never reaches the window but by asking for it.
+    assert_eq!(result.get("returned"), None);
+    let path = result["images"][0].as_str().expect("a path").to_string();
+    let shown = app.ok("session_image", json!({ "id": id, "path": path }));
+    assert!(
+        shown
+            .as_str()
+            .expect("an address")
+            .starts_with("data:image/png;base64,")
+    );
+    let usage = app.ok("usage", json!({}));
+    assert!(usage["images_bytes"].as_u64().expect("a size") > 0);
 }
 
 /// Closed, a session is still kept; deleted, it is gone for good.
@@ -1017,6 +1078,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
             "status_command": "", "rules": "", "updates": "automatic", "branch_prefix": "",
             "put_away_merged": false, "put_away_merged_days": 1, "put_away_idle": false,
             "put_away_idle_days": 14, "put_away_closes_sessions": false,
+            "browser_program": "", "browser_idle_minutes": 30,
         })
     );
 
@@ -2269,4 +2331,213 @@ fn the_one_capability_is_the_main_windows_and_names_no_page_from_elsewhere() {
         "windows",
     ];
     assert_eq!(keys, known);
+}
+
+/// The stand-in Chrome of the core's tests, installed beside the repository.
+fn stand_in_chrome(app: &App) -> std::path::PathBuf {
+    let program = app.repo.with_file_name("fake-chrome");
+    let source = app.repo.with_file_name("fake-chrome.py");
+    std::fs::write(
+        &source,
+        include_str!("../../core/tests/fixtures/fake_chrome.py"),
+    )
+    .expect("writes");
+    // Installed by a child process: a file this one held open for writing could be inherited
+    // by a process another test starts, and running it would fail with "Text file busy".
+    let status = Command::new("install")
+        .args(["-m", "755"])
+        .arg(&source)
+        .arg(&program)
+        .status()
+        .expect("install runs");
+    assert!(status.success());
+    program
+}
+
+/// What the tab shown logged, once it has logged anything.
+fn logged(app: &App, which: &Value) -> Value {
+    let deadline = Instant::now() + WAIT_LIMIT;
+    while Instant::now() < deadline {
+        let lines = app.ok("browser_console", which.clone());
+        if lines.as_array().is_some_and(|lines| !lines.is_empty()) {
+            return lines;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    panic!("the tab logged nothing");
+}
+
+/// Waits until the stand-in Chrome of `task_id` has been put into inspect mode `times` times.
+fn inspecting(app: &App, task_id: &Value, times: usize) {
+    let profile = app.ok("browser_state", json!({ "taskId": task_id }))["downloads"]
+        .as_str()
+        .map(|downloads| Path::new(downloads).with_file_name("profile"))
+        .expect("a profile");
+    let deadline = Instant::now() + WAIT_LIMIT;
+    while Instant::now() < deadline {
+        let modes = std::fs::read_to_string(profile.join("fake-inspect")).unwrap_or_default();
+        if modes.lines().count() >= times {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    panic!("the page was not put into inspect mode");
+}
+
+/// Picks an element of the tab shown for a session of the task, as the pane does, and sends
+/// it in a message; then starts a pick and ends it without one.
+fn picked_and_sent(app: &App, task_id: &Value) {
+    let session = app.ok(
+        "session_new",
+        json!({ "project": "demo", "task": "one", "agent": null, "how": { "model": null, "supervision": "ask", "effort": null } }),
+    );
+    let id = &session["id"];
+    let asked = json!({ "taskId": task_id, "sessionId": id });
+    let picking = app.invoke_waiting("browser_pick", asked.clone());
+    inspecting(app, task_id, 1);
+    let held = json!({ "alt": false, "ctrl": false, "meta": false, "shift": false });
+    let click = json!({ "kind": "down", "x": 60.0, "y": 110.0, "button": "left", "buttons": 1,
+        "click_count": 1, "delta_x": 0.0, "delta_y": 0.0, "modifiers": held });
+    app.ok(
+        "browser_mouse",
+        json!({ "taskId": task_id, "input": click }),
+    );
+    let element = picking
+        .recv_timeout(WAIT_LIMIT)
+        .expect("answered")
+        .expect("picked");
+    assert_eq!(element["number"], 1);
+    assert_eq!(element["selector"], "#save");
+    assert!(
+        element["picture"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("element-1.png"))
+    );
+    let kept = app.ok("session_elements", json!({ "id": id, "numbers": [1] }));
+    assert_eq!(kept[0]["label"], element["label"]);
+
+    let queued = app.ok(
+        "session_enqueue",
+        json!({ "id": id, "text": "make it blue", "files": [], "sessions": [], "github": [],
+            "elements": [1] }),
+    );
+    let text = queued[0]["text"].as_str().unwrap_or_default();
+    assert!(text.contains("\n- element 1: button \"Save\""), "{text}");
+    // Every way a message goes takes the elements it names, as `tauri.ts` sends them.
+    let listed = |text: &str| text.contains("\n- element 1: button \"Save\"");
+    let edited = app.ok(
+        "session_queue_edit",
+        json!({ "id": id, "message": queued[0]["id"], "text": "make it green", "files": [],
+            "sessions": [], "github": [], "elements": [1] }),
+    );
+    let text = edited[0]["text"].as_str().unwrap_or_default();
+    assert!(text.starts_with("make it green") && listed(text), "{text}");
+    for (command, words) in [
+        ("session_send", "look at it"),
+        ("session_message_now", "now"),
+    ] {
+        let refused = app.invoke(
+            command,
+            json!({ "id": id, "text": words, "files": [], "sessions": [], "github": [],
+                "elements": [404] }),
+        );
+        let why = refused.expect_err("no such element");
+        assert!(why.to_string().contains("404"), "{command}: {why}");
+    }
+
+    let ended = app.invoke_waiting("browser_pick", asked);
+    inspecting(app, task_id, 3);
+    app.ok("browser_pick_end", json!({ "taskId": task_id }));
+    let nothing = ended.recv_timeout(WAIT_LIMIT).expect("answered");
+    assert_eq!(nothing, Ok(Value::Null));
+}
+
+#[test]
+fn the_ui_can_open_a_tasks_browser_show_and_drive_a_tab_and_stop_it() {
+    // Without Homebrew, nothing could install a browser: no test installs one for real.
+    let app = app_built("https://127.0.0.1:9/latest.json", |core| {
+        core.set_tool_dirs(vec![]);
+    });
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+    let chrome = stand_in_chrome(&app);
+    app.ok(
+        "set_settings",
+        json!({ "settings": { "browser_program": chrome } }),
+    );
+    let setup = app.ok("browser_setup", json!({}));
+    assert_eq!(
+        (&setup["name"], &setup["chosen"]),
+        (&json!("fake-chrome"), &json!(true))
+    );
+    assert_eq!(setup["install_command"], json!(null));
+    let refused = app.invoke("browser_install", json!({}));
+    let said = refused.expect_err("nothing installs it");
+    assert!(
+        said.as_str().is_some_and(|said| said.contains("Homebrew")),
+        "{said}"
+    );
+
+    let task_id = app.ok("overview", json!({}))[0]["tasks"][0]["id"].clone();
+    let which = json!({ "taskId": task_id });
+    assert_eq!(app.ok("browser_state", which.clone())["running"], false);
+    let opened = app.ok("browser_open", which.clone());
+    assert_eq!(opened["running"], true);
+    assert_eq!(
+        app.ok("overview", json!({}))[0]["tasks"][0]["browser"],
+        true
+    );
+    let view = json!({ "width": 640, "height": 480, "scale": 2.0 });
+    let shown = app.ok(
+        "browser_show",
+        json!({ "taskId": task_id, "tab": null, "viewport": view }),
+    );
+    let tab = shown["shown"].clone();
+    assert_eq!(tab, opened["tabs"][0]["id"]);
+
+    let held = json!({ "alt": false, "ctrl": false, "meta": false, "shift": false });
+    let click = json!({ "kind": "down", "x": 1.5, "y": 2.0, "button": "left", "buttons": 1,
+        "click_count": 1, "delta_x": 0.0, "delta_y": 0.0, "modifiers": held });
+    app.ok(
+        "browser_mouse",
+        json!({ "taskId": task_id, "input": click }),
+    );
+    let key = json!({ "kind": "down", "key": "a", "code": "KeyA", "key_code": 65,
+        "modifiers": held, "repeat": false });
+    app.ok("browser_key", json!({ "taskId": task_id, "input": key }));
+    app.ok(
+        "browser_text",
+        json!({ "taskId": task_id, "text": "pasted" }),
+    );
+
+    let address = json!({ "address": "localhost:3000/console" });
+    app.ok(
+        "browser_go",
+        json!({ "taskId": task_id, "tab": tab, "go": address }),
+    );
+    app.ok(
+        "browser_go",
+        json!({ "taskId": task_id, "tab": tab, "go": "back" }),
+    );
+    let lines = logged(&app, &json!({ "taskId": task_id, "tab": tab }));
+    assert_eq!(lines[0]["text"], "hello from http://localhost:3000/console");
+    assert_eq!(lines[0]["level"], "info");
+
+    let opened = app.ok(
+        "browser_tab_new",
+        json!({ "taskId": task_id, "url": "example.com" }),
+    );
+    app.ok(
+        "browser_tab_close",
+        json!({ "taskId": task_id, "tab": opened }),
+    );
+    let answer = json!({ "taskId": task_id, "tab": tab, "accept": true, "text": null });
+    app.ok("browser_dialog", answer);
+    picked_and_sent(&app, &task_id);
+    app.ok("browser_hide", which.clone());
+    app.ok("browser_stop", which.clone());
+    assert_eq!(app.ok("browser_state", which.clone())["running"], false);
+    let gone = app.invoke("browser_text", json!({ "taskId": task_id, "text": "late" }));
+    assert!(gone.is_err(), "nothing runs to type into");
 }

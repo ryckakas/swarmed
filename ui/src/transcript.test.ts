@@ -5,6 +5,7 @@ import {
     continueOffer,
     fileName,
     type Item,
+    imagesOf,
     type LimitItem,
     latestFailure,
     latestFilesRewind,
@@ -408,7 +409,7 @@ describe("sameToolCall", () => {
         id: "t1",
         name: "Bash",
         input,
-        result: { content, isError },
+        result: { content, isError, images: [] },
         moved: false,
     });
 
@@ -436,6 +437,95 @@ describe("sameToolCall", () => {
     it("tells apart another call, and one whose work was moved to the background since", () => {
         expect(sameToolCall(done("a.txt"), { ...done("a.txt"), id: "t2" })).toBe(false);
         expect(sameToolCall(done("a.txt"), { ...done("a.txt"), moved: true })).toBe(false);
+    });
+
+    it("tells apart a result by the images it returned, and not by their being two lists", () => {
+        const shot = (images: string[]) => ({
+            ...done("[image]"),
+            result: { content: "[image]", isError: false, images },
+        });
+        expect(sameToolCall(shot(["/a/tool-t1-1.png"]), shot(["/a/tool-t1-1.png"]))).toBe(true);
+        expect(sameToolCall(shot(["/a/tool-t1-1.png"]), shot([]))).toBe(false);
+        expect(sameToolCall(shot(["/a/tool-t1-1.png"]), shot(["/a/tool-t1-2.png"]))).toBe(false);
+    });
+});
+
+describe("images a tool returned", () => {
+    const shot = (id: string, images: string[]): AgentEvent => ({
+        type: "tool_result",
+        tool_use_id: id,
+        content: images.map(() => "[image]").join("\n"),
+        is_error: false,
+        images,
+    });
+    const done: AgentEvent = {
+        type: "turn_done",
+        is_error: false,
+        result: null,
+        cost_usd: 0.01,
+        duration_ms: null,
+    };
+    const turn = [
+        { type: "user_message", text: "check the page" },
+        toolUse("a", "open"),
+        shot("a", ["/s/tool-a-1.png", "/s/tool-a-2.png"]),
+        toolUse("b", "click"),
+        toolResult("b", "clicked"),
+        toolUse("c", "screenshot"),
+        shot("c", ["/s/tool-c-1.png"]),
+        { type: "text", text: "It looks right." },
+        done,
+    ] satisfies AgentEvent[];
+
+    it("joins them to their call's result, in order, and leaves other results with none", () => {
+        const items = toItems(turn);
+        expect(items[1]).toMatchObject({
+            result: { images: ["/s/tool-a-1.png", "/s/tool-a-2.png"] },
+        });
+        expect(items[2]).toMatchObject({ result: { images: [] } });
+        // A result recorded before images were kept has none.
+        const older = toItems([toolUse("a", "ls"), toolResult("a", "[image]")]);
+        expect(older[0]).toMatchObject({ result: { content: "[image]", images: [] } });
+    });
+
+    it("shows the turn's last image again at the end of its reply, before its line", () => {
+        const items = toItems(turn);
+        expect(items.map((item) => item.kind).slice(-3)).toEqual(["text", "last-image", "turn"]);
+        // Keyed by the result it came in, which has no item of its own.
+        expect(items.at(-2)).toEqual({ kind: "last-image", key: 6, path: "/s/tool-c-1.png" });
+    });
+
+    it("shows none for a turn whose calls returned none, nor one an earlier turn returned", () => {
+        const next = [
+            { type: "user_message", text: "and now?" },
+            toolUse("d", "ls"),
+            toolResult("d", "src"),
+            done,
+        ] satisfies AgentEvent[];
+        const items = toItems([...turn, ...next]);
+        expect(items.filter((item) => item.kind === "last-image")).toHaveLength(1);
+        const unfinished = toItems(turn.slice(0, -1));
+        expect(unfinished.some((item) => item.kind === "last-image")).toBe(false);
+    });
+
+    it("keeps them in view with folded calls, and hides them with hidden ones", () => {
+        const items = toItems(turn);
+        const folded = shownTools(items, "folded");
+        expect(folded.map((item) => item.kind)).toEqual([
+            "user",
+            "tools",
+            "text",
+            "last-image",
+            "turn",
+        ]);
+        const run = folded[1];
+        expect(run?.kind === "tools" && imagesOf(run.calls)).toEqual([
+            "/s/tool-a-1.png",
+            "/s/tool-a-2.png",
+            "/s/tool-c-1.png",
+        ]);
+        const hidden = shownTools(items, "hidden");
+        expect(hidden.map((item) => item.kind)).toEqual(["user", "text", "turn"]);
     });
 });
 
@@ -473,7 +563,7 @@ describe("work sent to the background", () => {
             id: "t1",
             name,
             input,
-            result: ended ? { content: "", isError: false } : null,
+            result: ended ? { content: "", isError: false, images: [] } : null,
             moved: false,
         });
         expect(mayGoToBackground(call("Bash", { command: "npm test" }))).toBe(true);
@@ -855,6 +945,7 @@ describe("going on when a usage limit resets", () => {
         files: [],
         sessions: [],
         github: [],
+        elements: [],
         remote: false,
         atReset: false,
     });

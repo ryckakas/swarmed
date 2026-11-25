@@ -15,17 +15,18 @@ export function waitsItsTurn(status: SessionStatus | undefined): boolean {
 }
 
 /**
- * What a message points the agent at besides its words: files, sessions to read, and pull
- * requests and issues of the session's repository, by number.
+ * What a message points the agent at besides its words: files, sessions to read, pull requests
+ * and issues of the session's repository, and elements picked in its task's browser, by number.
  */
 export interface Attached {
     files: string[];
     sessions: number[];
     github: number[];
+    elements: number[];
 }
 
 /** A message that points at nothing. */
-export const NOTHING_ATTACHED: Attached = { files: [], sessions: [], github: [] };
+export const NOTHING_ATTACHED: Attached = { files: [], sessions: [], github: [], elements: [] };
 
 /**
  * Has the core read the pull requests and issues `github` of `project`, unless it did a moment
@@ -57,14 +58,14 @@ export async function delivered(
     atOnce = false,
     now = false,
 ): Promise<void> {
-    const { files, sessions, github } = attached;
+    const { files, sessions, github, elements } = attached;
     if (!waitsItsTurn(status) || atOnce) {
-        await api.sessionSend(id, text, files, sessions, github);
+        await api.sessionSend(id, text, files, sessions, github, elements);
     } else if (now) {
         // Asked for now: the turn under way is stopped, and it goes ahead of what waits.
-        await api.sessionMessageNow(id, text, files, sessions, github);
+        await api.sessionMessageNow(id, text, files, sessions, github, elements);
     } else {
-        await api.sessionEnqueue(id, text, files, sessions, github);
+        await api.sessionEnqueue(id, text, files, sessions, github, elements);
     }
 }
 

@@ -207,7 +207,7 @@ struct Seen {
     /// The database's `data_version`.
     version: i64,
     tree: u64,
-    /// The records of running stacks.
+    /// The records of running stacks and browsers.
     stacks: Vec<FileSeen>,
     files: Vec<FileSeen>,
 }
@@ -393,7 +393,11 @@ impl Core {
         let now = Seen {
             version,
             tree,
-            stacks: files_in(&data.join(STACK_RECORDS), &[".pid"]),
+            stacks: [
+                files_in(&data.join(STACK_RECORDS), &[".pid"]),
+                files_in(&crate::browser::records(data), &[".pid"]),
+            ]
+            .concat(),
             files: config_files(data),
         };
         let agents = self.paths.agents_config();

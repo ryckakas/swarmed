@@ -149,6 +149,79 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   asked of `ps` with `LC_ALL=C` and `TZ=UTC`, so it reads the same to every Swarmed. A stack is
   refused (`start_stack`) while as many of the project's stacks run as `max_stacks` allows: the
   task's environment's, if it sets one, else the project's.
+- **Each task can have a Chrome of its own** (`browser.rs`, `BrowserPane.tsx`, `useBrowser.ts`,
+  `browser.ts`, #382), shown live in the Browser pane beside the conversation. The pane's
+  hooks are in `useBrowser.ts` and only act; what they decide is in `browser.ts`, with tests.
+  - **One process per task**, on the Chrome, Chromium, Edge or Brave found (`browser/find.rs`)
+    or `Settings::browser_program`, headless, on `browsers/<task>/profile` (0700), so logins
+    outlast restarts and stay the task's. Deleted with the task (`browser_forget`), listed by
+    the clean-up when its task is gone. A missing browser is `Error::BrowserMissing`, and the
+    pane offers Homebrew's `google-chrome` cask (Chromium's was disabled on 2026-09-01).
+  - **Swarmed's connection is a WebSocket to the port** Chrome writes into
+    `DevToolsActivePort` (`--remote-debugging-port=0`, on 127.0.0.1), with a client written
+    here for loopback only (`browser/ws.rs`), not a pipe: agents' tools need the port anyway
+    (#384), and a Chrome an earlier Swarmed started can only be reached by it. Never pass
+    `--remote-allow-origins`. Over it, the DevTools protocol (`browser/cdp.rs`): commands with
+    numbers, events, one session per page (`flatten`).
+  - **What the pane shows is pure** (`browser/page.rs`: tabs, console, dialogs from events;
+    `browser/input.rs`: clicks, keys, the address bar), tested against made-up events; the rest
+    against a stand-in Chrome (`tests/fixtures/fake_chrome.py`), and against a real one with
+    `cargo test --test browser -- --ignored`.
+  - **Pictures** (`Page.startScreencast`) are asked for only while the pane shows a tab, at
+    most `FRAMES_A_SECOND`, acknowledged at that pace, and published on their own channel
+    (`Core::subscribe_browsers`, `BrowserEvent`), never stored. A page's script can change its
+    title without Chrome saying so, so the shown tab's info is read again with its pictures,
+    at most once a second.
+  - **Input goes in order**: the mouse, keys and text commands are not `async` in the app and
+    send without waiting (`Cdp::send`). ⌘V is the window's: Chrome's clipboard is its own.
+  - **Remembered on disk** as a stack is (`run/browsers/<task>.pid`), counted in
+    `TaskOverview::browser` (the sidebar's mark: never hide running work) and watched by
+    `elsewhere.rs`. A start takes `run/browsers/<task>.lock`, so two Swarmeds connect to one
+    Chrome rather than start two. **Stopped** with `Browser.close`, then its process group as a
+    stack's: when its task is put away or removed, by `leave` (the first Swarmed every one,
+    any other those it started), and by `follow_browsers` (the house only) after
+    `browser_idle_minutes` unused, not while the pane shows it. The house also connects to one
+    another Swarmed left, so that its unused time counts. The command line's runs on after it.
+  - **Agents drive it with their own browser tools** (#384, `browser/agents.rs`), never a
+    tool of Swarmed's: Playwright MCP and Chrome DevTools MCP, recognised by what they run
+    (`browser/servers.rs`), are given `--cdp-endpoint` or `--browser-url`. Claude Code gets a
+    pointed copy of each of its own (`Paths::claude_code_own_servers`: approved ones and
+    plugins' `plugin:<plugin>:<server>`) in its `--mcp-config` file, whose server of a name takes
+    the place of its own (tried with 2.1.332); never one of the repository's it would ask
+    about first. Other agents' servers are pointed as Swarmed hands them over; their own
+    configuration is not touched (codex-acp keeps its own of a name). Nothing the user did not
+    set up is added.
+  - **Each session has an address** (`browser/address.rs`, `SWARMED_BROWSER`): a listener on
+    `127.0.0.1` from when its agent starts, made once a front end serves agents' tools
+    (`serve_session_tools` calls `browsers_listen`). The first connection starts the task's
+    Chrome (`browser_of`), so a session that never browses starts none. Bytes pass unchanged:
+    Chrome builds the addresses it hands out from the `Host` sent, so they lead back here.
+    `Sec-WebSocket-Extensions` is dropped so messages stay readable, and a request with an
+    `Origin`, a `Sec-Fetch-Site` other than `none` or another host is refused before
+    anything starts. Short messages are read on the way (`ws::Unframer`, `watch.rs`, pure)
+    for the tab a session's tools act in: `Browser::acted` marks it (`BrowserTab::acted_by`)
+    and the pane, on screen, goes to it when another tab was acted in before. Nothing read is
+    kept or logged.
+  - **`show_browser`** (`browser_show_for`) opens the pane on an address or the stack, in the
+    session's own tab (the one it acted in last, else an unused empty one, else a new one), and
+    publishes `BrowserEvent::Show`, which opens the pane where the session on screen is in
+    that task. Not on Claude Code's allow list: it navigates with the task's logins.
+  - **Picking an element** (`browser/pick.rs`, `elements.ts`, #383): `browser_pick` puts the
+    tab shown into Chrome's inspect mode (`Overlay.setInspectMode`) for the session on screen
+    and waits; only an `Overlay.inspectNodeRequested` on Swarmed's own session of that tab,
+    while that pick waits (`Browser::picking`), is taken. `browser_pick_end`, another pick,
+    another tab shown, the pane hidden or the connection gone end it with nothing. What is read
+    (DOM, `Accessibility`, box, and a script in an isolated world for the selector, text and
+    styles) is kept as `attachments/<session>/element-<n>.json` beside its picture
+    (`element-<n>.png`, `Page.captureScreenshot` clipped to the box and a margin, checked as a
+    pasted image is) and never logged. A message names picks by number (`Attached::elements`);
+    `message_for` lists them after the pull requests and before the files (`with_elements`),
+    every line after an entry's first set in by two spaces and its text and HTML fenced with
+    more backticks than they hold, so page content can neither close its fence nor pass for an
+    entry or a field. The UI reads the list back only up to the fenced part (`splitElements`).
+    The token, `[Element 3: label]`, follows the `@` and `#` pattern; the pane puts it at the
+    caret of the session's box through the store (`placePick`, `pickWaiting`). A fork copies a
+    pick's description with its picture. The mock picks from its drawn page.
 - **Two Swarmeds can run on one data directory** (`presence.rs`): the installed app beside a
   development build, or the app beside a command. Only the first to arrive, known by a lock on
   `run/first.lock`, settles sessions when it starts and ends stacks it did not start when it
@@ -214,14 +287,15 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   like Codex. It names its effort `thought_level` and its modes `default`, `auto` and `plan`,
   which `acp.rs` maps supervision onto. What it asks permission for is decided by its own
   settings as well: with `toolPermission` set to `always-proceed` there, it never asks.
-- **What Swarmed takes up** (`usage.rs`) is measured on request: the database and notes by
-  their files, each worktree with `du`, and memory and processor time with `ps`, summed over
+- **What Swarmed takes up** (`usage.rs`) is measured on request: the database, notes and
+  sessions' images by their files, each worktree with `du`, and memory and processor time with `ps`, summed over
   Swarmed's own process and everything started from it. An agent's share is the tree under the
   process its backend reported when it started.
 - **What removed tasks leave behind is cleaned up on request** (`cleanup.rs`): removed
   worktrees not deleted yet (in `.removed`), the branches of removed tasks, stale worktrees
   (folders in a project's place under the worktrees root that no task owns, and git's records
-  of worktrees whose folder is gone) and snapshots. `Core::cleanup` lists them, each with a
+  of worktrees whose folder is gone), snapshots, and the checkpoints and browser profiles of
+  tasks that are gone. `Core::cleanup` lists them, each with a
   key; `cleanup_clean` deletes one kind, by keys or every item not at risk, after listing again,
   so only what is still listed goes. A record is listed only while nothing is at its path:
   git calls one prunable when the folder's `.git` file is missing, which a folder made again
@@ -458,8 +532,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   `warn <percent> <seconds>`), ends its turn refused by a 5-hour limit that resets that many
   seconds later for `limit <seconds>`, runs until stopped for `slow`, runs a
   command its turn waits on for `long: <command>`, until it is sent to the background or
-  stopped, and renames the session as another Swarmed would for `elsewhere: <title>`, saying
-  only `tree_changed`; one sample session has 2,000 messages for checking scroll speed.
+  stopped, renames the session as another Swarmed would for `elsewhere: <title>`, saying
+  only `tree_changed`, checks a page in a browser for `screenshot`, whose last call returns
+  an image, and for `browse` opens the task's browser with `show_browser` and types and clicks
+  in a tab of its own there, which the pane goes to; one sample session has 2,000 messages for
+  checking scroll speed.
   The pull request of `fix-login-redirect` has a check running that fails 15 seconds after the
   window opens, as the core's follower would say it (`pull_read`, `pull_changed`). Its
   required check holds a merge back (`mockMerging.ts`): Force merge is refused in GitHub's
@@ -472,7 +549,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   (`mockSetups.ts`). Storefront and bonsai-lint have GitHub issues, `shop-142` was started for
   #142, #428's text holds HTML GitHub draws (`<details>`, `<kbd>`) and HTML it does not, an
   HTML comment, an image and a view's block, and one of its comments is hidden on GitHub, and
-  fsum is not on GitHub, so its list says why (`mockIssues.ts`). The README's
+  fsum is not on GitHub, so its list says why (`mockIssues.ts`). The task whose stack runs has
+  its browser running too (`mockBrowser.ts`), drawn on a canvas as a made-up shop that shows
+  clicks and typing, and whose parts Pick outlines and picks; an address with `console` logs a line, `alert` opens a dialog, `refused`
+  fails, and a browser program with `missing` in it shows the offer to install one. The README's
   screenshot and GIF are of this sample data, never of anyone's real projects.
 - **MCP servers are one pool for every agent** (`mcp_pool.rs`). When a session starts, each
   agent's servers are read from its own configuration (`mcp.rs` and `mcp_plugins.rs` for
@@ -733,6 +813,16 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   `session_delete`); closing keeps it. A fork copies the images its messages name into its own
   folder and has them name the copies (`images_forked`), so deleting the first session costs it
   nothing.
+- **An image a tool returns is kept beside the pasted ones** (`returned.rs`, `ToolImages.tsx`,
+  #428). A backend reads each image of a tool result (`Taking`: Claude Code's
+  `source.base64`, ACP's `image` content) into `ToolResult::returned`, which is never stored or
+  published and whose `Debug` names no bytes; checked as a pasted one is, at most
+  `MAX_RETURNED_MB` and `MAX_PER_RESULT`, with `[image]` in `content` where it was, or why not.
+  The core writes them into the session's `attachments/` folder as `tool-<call>-<n>.<ext>`
+  before the event is stored (`returned::kept`, from `take` in `sessions.rs`) and lists the
+  paths in `images`. The window reads them through `session_image` and holds only smaller
+  copies (`keptThumbnail`); the turn's last one also stands at the end of its reply
+  (`last-image`), and hidden tool calls hide them. Shown to the user only, like a pasted one.
 - **Each session can have a terminal** (`terminal.rs`): the user's shell on a pseudo-terminal in
   the task's worktree, shown in place of the message box. Its output is published on its own
   channel (`Core::subscribe_terminals`) and not stored. What it printed since the agent's last
@@ -802,11 +892,13 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   the work stands, in the user's terms; the status says what the agent is doing, and the two
   never mix. It is cleared when the user writes to the session. Colours are names, drawn by
   each theme, so a mark never carries a colour value.
-- **Swarmed serves one tool of its own to every agent** (`toolserver.rs`): `show_html`, on an
+- **Swarmed serves tools of its own to every agent** (`toolserver.rs`): `show_html`, on an
   MCP server named `swarmed`. A front end's executable is that server when started with
   `tool-server`, and tells the core so with `set_tool_server`. The tool does nothing: its call
   is in the conversation, where the UI shows the HTML like an `html-view` block. It is there
-  because agents asked for something visual look for a tool.
+  because agents asked for something visual look for a tool. `show_browser` beside it is there
+  for the same reason: an agent asked to look at a page should find the task's browser, not
+  launch one. The core answers it, as it does the session tools.
 - **A view reaches the conversation from the tool, not from the call.** The tool server
   leaves the HTML in the session's own folder (`Paths::view_spool`, named to it by an
   environment variable), and the core records it as a `View` event when the next tool result or
@@ -1342,6 +1434,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   anything a shell would read is put in by the name of its `SWARMED_*` variable, never as text,
   so a branch name cannot run. Unknown-length lists from git are read NUL-separated (`-z`).
 - **Git is used by shelling out** to the `git` binary (`git.rs`), not through a library.
+  A command that writes or reads a repository's worktree records (`worktree add`, `remove`,
+  `prune`, `list`, `branch -D`) goes through `on_worktrees`, one at a time per repository: git
+  writes a new worktree's records file by file, and another git reading them meanwhile dies.
+  A task's `switch` reads them too, and takes the same lock (`git::switch`).
 - **The store is SQLite** (`store.rs`). Schema changes are appended to `MIGRATIONS` and never
   edited afterwards.
 - **No id is given twice: every table's integer id is `INTEGER PRIMARY KEY AUTOINCREMENT`.**

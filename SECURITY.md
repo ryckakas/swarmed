@@ -40,6 +40,32 @@ advisory is published with credit to you, unless you'd rather not be named.
   into `attachments/<session>/` in the data directory, readable by you alone, and its path is
   attached. It is deleted when the session is deleted or its task removed; closing a session
   keeps it. Nothing pasted is written into a repository or a worktree.
+- **An image a tool returns is shown to you and nobody else.** A screenshot can show anything a
+  page showed, a password included. Images a session's tools return are kept beside its pasted
+  images, readable by you alone, deleted with them, and never logged, handed to another
+  session, a fork or a cloud agent, or searched.
+- **A task's browser runs in Chrome, never in Swarmed's window.** The window only draws
+  pictures Chrome sends of the page, so no page can reach Swarmed's commands. Chrome's DevTools
+  endpoint listens on `127.0.0.1` only, on a port Chrome picks: other programs you run can reach
+  it, as they can any local dev server, but web pages cannot, since Swarmed never lets an origin
+  in (`--remote-allow-origins`). Its profile, which holds what you signed in to there, is the
+  task's own, readable by you alone and deleted with the task. What a page shows or logs is
+  shown to you and never logged.
+- **Agents' browser tools reach the task's browser through an address of their session's
+  own.** Swarmed listens at it on `127.0.0.1` only, on a port the system picks, and passes what
+  comes on to Chrome unchanged. A request a web page made is refused before Chrome is even
+  started: one with an `Origin`, one a browser marks as coming from a site, or one that names a
+  host other than this machine. On the way Swarmed reads only which tab a tool acts in, and
+  keeps or logs nothing of what passes. A login you made in the task's browser can be used by
+  the task's agents, as anything else in its profile can: that is what lets them check pages
+  behind it. Agents cannot change any of this through `configure`.
+- **Picking an element of a page is started by you, and what it reads is the page's.** Chrome's
+  inspect mode is started over Swarmed's own connection when you press Pick, and only a click
+  in it while that pick waits is taken: a page can neither start a pick nor send Swarmed
+  anything. The selector, text and styles are read by a script in a world of Swarmed's own,
+  apart from the page's scripts. What is read goes to the agent marked as the page's content,
+  its text and HTML fenced and cut to a size, and is logged nowhere. Its picture and
+  description are kept in the session's folder, readable by you alone, and deleted with it.
 - **An agent's HTML cannot reach the app.** Views are shown in a sandboxed frame on an origin of
   their own, under a policy that lets them make no request. A link in a view opens only when you
   press Open.
@@ -52,14 +78,14 @@ advisory is published with credit to you, unless you'd rather not be named.
   agent's own summary, or gives the first line of a finished answer. Other agents name their tool
   calls themselves, and a notice shows that name as given.
 - **Swarmed makes no network requests of its own** apart from fetching OpenRouter's public model
-  list, with nothing of yours in it, running an agent's installer when you ask for one, checking
-  whether a stack answers on this machine, and looking for a new version of itself. That last
-  one fetches `latest.json` from this repository's latest GitHub release, at launch and every
-  few hours while updating automatically is on, and otherwise only when About opens; the
+  list, with nothing of yours in it, running an agent's or a browser's installer when you ask
+  for one, checking whether a stack answers on this machine, and looking for a new version of
+  itself. That last one fetches `latest.json` from this repository's latest GitHub release, at
+  launch and every few hours while updating automatically is on, and otherwise only when About opens; the
   request names the updater, not you or your version. When a newer version is out, the archive
   that file names is downloaded too: by itself while updating automatically is on, and otherwise
   when you ask for the update. There is no telemetry. The programs it
-  runs for you, such as the agents, `git` and `gh`, make their own.
+  runs for you, such as the agents, `git`, `gh` and a task's Chrome, make their own.
 - **An update is installed only if it is signed with the release key,** whose public half is
   built into the app, and only for the version it was signed as: neither a changed archive nor
   an older release presented as newer goes in. It is installed as Swarmed quits, never while it

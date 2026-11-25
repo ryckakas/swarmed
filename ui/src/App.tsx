@@ -2,7 +2,9 @@ import { type CSSProperties, useEffect } from "react";
 import { api } from "./api";
 import { applyAppearance, customCss, drawCustom } from "./appearance";
 import icon from "./assets/icon.jpg";
+import { BROWSER_WIDTH } from "./browser";
 import { BannerDialog } from "./components/BannerDialog";
+import { BrowserColumn, useBrowserAsked } from "./components/BrowserPane";
 import { CloseSessionDialog } from "./components/CloseSessionDialog";
 import { CloudDialog } from "./components/CloudDialog";
 import { CloudDiffDialog } from "./components/CloudDiffDialog";
@@ -29,6 +31,7 @@ import { useHotkeys } from "./useHotkeys";
 export function App() {
     useEffect(() => connect(api), []);
     useHotkeys();
+    useBrowserAsked();
     const load = useStore((state) => state.load);
     const settings = useStore((state) => state.settings);
     const customLayout = useStore((state) => state.customLayout);
@@ -44,6 +47,8 @@ export function App() {
     const sidebar = sidebarOf(drawnLayout(settings, customLayout));
     const [sidebarWidth, setSidebarWidth] = useStoredWidth(sidebar.key, sidebar.limits);
     const [panelWidth, setPanelWidth] = useStoredWidth("swarmed.panel-width", PANEL_WIDTH);
+    const [browserShown, setBrowserWidth] = useStoredWidth("swarmed.browser-width", BROWSER_WIDTH);
+    const browserWidth = { "--browser-width": `${browserShown}px` } as CSSProperties;
     const widths = {
         "--sidebar-width": `${sidebarWidth}px`,
         "--panel-width": `${panelWidth}px`,
@@ -72,7 +77,14 @@ export function App() {
                 )}
                 {load === "ready" && <UsageNotice />}
                 {load === "loading" && <Splash />}
-                {load === "ready" && <SessionPane />}
+                {load === "ready" && (
+                    <div className="main-body" style={browserWidth}>
+                        <div className="main-column">
+                            <SessionPane />
+                        </div>
+                        <BrowserColumn width={browserShown} onResize={setBrowserWidth} />
+                    </div>
+                )}
                 {typeof load === "object" && <LoadError message={load.error} />}
             </main>
             <TaskPanel

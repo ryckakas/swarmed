@@ -299,7 +299,7 @@ impl Core {
     /// not conflict, and refuses with its reason when they do; every branch keeps its commits.
     /// Refused while a rebase is under way.
     pub async fn task_switch(&self, project: &str, name: &str, branch: &str) -> Result<()> {
-        let (_, task) = self.repo_task(project, name)?;
+        let (project, task) = self.repo_task(project, name)?;
         let worktree = &task.worktree_path;
         if rebase_under_way(worktree).await? {
             return Err(mid_rebase());
@@ -311,7 +311,7 @@ impl Core {
                 "`{branch}` is not a branch this task's worktree has been on"
             )));
         }
-        git::git(worktree, &["switch", "--quiet", branch]).await?;
+        git::switch(project.repo()?, worktree, branch).await?;
         // The user moved it: nothing for the watch for moves to report, and each agent of the
         // task is told with its next message.
         self.live

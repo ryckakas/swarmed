@@ -6,3 +6,6 @@
 
 # The shortcut ⌘⇧Enter, written as "cmd+shift+enter" under `keys`, from before the line was marked.
 4b5e5665c8e189b650ab1c90690f28a043928e40:ui/src/hotkeys.ts:generic-api-key:100
+
+# The made-up WebSocket key of an agent browser test's handshake, from before the line was marked.
+752d4f6318be0b16b1c9ddf971216c977cb134fe:crates/core/tests/agent_browser.rs:generic-api-key:119

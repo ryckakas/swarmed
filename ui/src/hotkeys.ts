@@ -34,6 +34,7 @@ export type HotkeyId =
     | "toggle-panel"
     | "open-editor"
     | "open-browser"
+    | "pick-element"
     | "open-note"
     | "issues"
     | "toggle-status"
@@ -145,6 +146,12 @@ export const HOTKEYS: Hotkey[] = [
         id: "open-browser",
         keys: "cmd+shift+b",
         label: "Open the task in the browser",
+        group: "Task",
+    },
+    {
+        id: "pick-element",
+        keys: "cmd+shift+c",
+        label: "Pick an element on the task's page, to point the agent at it; again to stop",
         group: "Task",
     },
     { id: "open-note", keys: "cmd+shift+n", label: "Open the task's note", group: "Task" },

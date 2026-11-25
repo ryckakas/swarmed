@@ -18,8 +18,9 @@ use std::sync::Arc;
 
 use swarmed_core::agent::{Auth, FakeBackend};
 use swarmed_core::{
-    Core, Paths, SessionEvent, TOOL_SERVER_ARG, TerminalOutput, VIEW_POLICY, follow_others,
-    follow_pulls, follow_put_away, follow_resets, serve_session_tools, serve_tools,
+    BrowserEvent, Core, Paths, SessionEvent, TOOL_SERVER_ARG, TerminalOutput, VIEW_POLICY,
+    follow_browsers, follow_others, follow_pulls, follow_put_away, follow_resets,
+    serve_session_tools, serve_tools,
 };
 use tauri::http::header::{CONTENT_SECURITY_POLICY, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
 use tauri::http::{HeaderValue, Response, StatusCode};
@@ -35,6 +36,8 @@ const SESSION_EVENTS_LAGGED: &str = "session-events-lagged";
 const TERMINAL_OUTPUT: &str = "terminal-output";
 /// The event every piece of a Claude Code that a session opened prints is emitted as.
 const CLAUDE_TERMINAL_OUTPUT: &str = "claude-terminal-output";
+/// What the tasks' browsers show: pictures of the tab in the pane, its tabs, what it logged.
+const BROWSER_EVENT: &str = "browser-event";
 /// The label of the app's one window.
 const MAIN_WINDOW: &str = "main";
 /// The event that tells the UI which session a clicked notification was about.
@@ -144,6 +147,18 @@ async fn forward_terminals<R: Runtime>(
     }
 }
 
+/// Passes on what the tasks' browsers show. Pictures a slow window missed are not sent again:
+/// the next one draws the whole page.
+async fn forward_browsers<R: Runtime>(mut bus: Receiver<BrowserEvent>, app: AppHandle<R>) {
+    loop {
+        match bus.recv().await {
+            Ok(event) => app.emit(BROWSER_EVENT, event).ok(),
+            Err(RecvError::Lagged(_)) => None,
+            Err(RecvError::Closed) => return,
+        };
+    }
+}
+
 /// Answers a frame asking for the HTML document kept under the id in `path`.
 ///
 /// The document comes from an agent. It is served from this scheme's own origin, which holds no
@@ -243,6 +258,12 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::sessions_search, commands::sessions_closed, commands::session_reopen,
         commands::session_fork, commands::session_fork_into, commands::session_set_agent,
         commands::update_state, commands::update_check, commands::update_restart,
+        commands::browser_setup, commands::browser_install, commands::browser_state,
+        commands::browser_open, commands::browser_stop, commands::browser_show,
+        commands::browser_hide, commands::browser_mouse, commands::browser_key,
+        commands::browser_text, commands::browser_go, commands::browser_tab_new,
+        commands::browser_tab_close, commands::browser_dialog, commands::browser_console,
+        commands::browser_pick, commands::browser_pick_end, commands::session_elements,
     ])
 }
 
@@ -275,9 +296,11 @@ fn main() {
     let resetting = Arc::downgrade(&core);
     let pulling = Arc::downgrade(&core);
     let tidying = Arc::downgrade(&core);
+    let browsing = Arc::downgrade(&core);
     let bus = core.subscribe();
     let terminals = core.subscribe_terminals();
     let claude_terminals = core.subscribe_claude_terminals();
+    let browsers = core.subscribe_browsers();
     // The dialog plugin is the native folder picker, for adding a repository; the updater
     // fetches and checks new versions (`update.rs`).
     let plugins = Builder::default()
@@ -305,6 +328,13 @@ fn main() {
             // Finished tasks are put away by themselves, where the user's settings say so. Only
             // the first Swarmed on the data does this.
             drop(tauri::async_runtime::spawn(follow_put_away(tidying)));
+            // The tasks' browsers that sat unused are stopped. Only the first Swarmed on the data
+            // does this.
+            drop(tauri::async_runtime::spawn(follow_browsers(browsing)));
+            drop(tauri::async_runtime::spawn(forward_browsers(
+                browsers,
+                app.handle().clone(),
+            )));
             // Sessions that had Remote Control on can be reached from claude.ai again, without
             // anyone writing to them here first. Only the first Swarmed on the data does this.
             drop(tauri::async_runtime::spawn(async move {

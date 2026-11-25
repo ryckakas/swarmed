@@ -26,6 +26,7 @@ use super::{
 use crate::agent_setup::{default_tool_dirs, find_program};
 use crate::error::{Error, Result};
 use crate::mcp::{McpServer, McpTransport};
+use crate::returned::Taking;
 
 mod screens;
 
@@ -1158,13 +1159,20 @@ fn parse_assistant_block(block: &Value) -> Option<AgentEvent> {
 }
 
 fn parse_tool_result(block: &Value) -> Option<AgentEvent> {
-    (kind_of(block, "type") == Some("tool_result")).then(|| AgentEvent::ToolResult {
+    if kind_of(block, "type") != Some("tool_result") {
+        return None;
+    }
+    let mut taking = Taking::default();
+    let content = flatten_content(block.get("content"), &mut taking);
+    Some(AgentEvent::ToolResult {
         tool_use_id: str_of(block, "tool_use_id"),
-        content: flatten_content(block.get("content")),
+        content,
         is_error: block
             .get("is_error")
             .and_then(Value::as_bool)
             .unwrap_or(false),
+        images: Vec::new(),
+        returned: taking.images(),
     })
 }
 
@@ -1247,18 +1255,35 @@ fn content_blocks(message: &Value) -> impl Iterator<Item = &Value> {
         .flatten()
 }
 
-/// Tool results are either a string or a list of blocks; only text is kept.
-fn flatten_content(content: Option<&Value>) -> String {
-    let block_text = |block: &Value| {
-        kind_of(block, "text").map_or_else(
-            || format!("[{}]", kind_of(block, "type").unwrap_or("content")),
-            String::from,
-        )
-    };
+/// Tool results are either a string or a list of blocks. Text is kept as text, and an image
+/// given in base64 is taken to be kept apart, with `[image]` in its place; anything else is
+/// named by its kind.
+fn flatten_content(content: Option<&Value>, taking: &mut Taking) -> String {
     match content {
         Some(Value::String(text)) => text.clone(),
-        Some(Value::Array(blocks)) => blocks.iter().map(block_text).collect::<Vec<_>>().join("\n"),
+        Some(Value::Array(blocks)) => blocks
+            .iter()
+            .map(|block| block_text(block, taking))
+            .collect::<Vec<_>>()
+            .join("\n"),
         _ => String::new(),
+    }
+}
+
+/// What one block of a tool result says as text. An image is
+/// `{"type": "image", "source": {"type": "base64", "media_type": …, "data": …}}`, as the
+/// Messages API has it; one given any other way stays the word `[image]`.
+fn block_text(block: &Value, taking: &mut Taking) -> String {
+    if let Some(text) = kind_of(block, "text") {
+        return text.to_string();
+    }
+    let kind = kind_of(block, "type").unwrap_or("content");
+    let source = block.get("source").unwrap_or(&Value::Null);
+    match (kind, kind_of(source, "type"), kind_of(source, "data")) {
+        ("image", Some("base64"), Some(data)) => {
+            taking.image(kind_of(source, "media_type").unwrap_or_default(), data)
+        }
+        _ => format!("[{kind}]"),
     }
 }
 
@@ -1340,6 +1365,8 @@ mod tests {
             tool_use_id: id.into(),
             content: content.into(),
             is_error,
+            images: Vec::new(),
+            returned: Vec::new(),
         };
         assert_eq!(
             events,
@@ -1348,6 +1375,77 @@ mod tests {
                 result("t2", "boom", true)
             ]
         );
+    }
+
+    /// What Claude Code 2.1.332 said when its `Read` tool read a PNG of two by two pixels.
+    fn read_an_image() -> Value {
+        json!({
+            "type": "user",
+            "message": { "role": "user", "content": [{
+                "tool_use_id": "toolu_01CCfD9eVzVK1A4cLhAVMFVy",
+                "type": "tool_result",
+                "content": [{ "type": "image", "source": {
+                    "type": "base64",
+                    "data": DOT,
+                    "media_type": "image/png",
+                }}],
+            }]},
+            "parent_tool_use_id": null,
+            "session_id": "6919d355-6991-4ce1-8f71-fa53d6f1aea1",
+            "uuid": "b71c38c4-9add-4c88-9f62-c82f4e62690a",
+            "tool_use_result": { "type": "image", "file": {
+                "base64": DOT, "type": "image/png", "originalSize": 76,
+            }},
+        })
+    }
+
+    const DOT: &str = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAE0lEQVR42mPQiDoBRAxA/OHDBwAlUgav0sDuFwAAAABJRU5ErkJggg==";
+
+    #[test]
+    fn an_image_a_tool_returned_is_taken_with_a_word_in_its_place() {
+        let [result] = parse(&read_an_image()).try_into().expect("one event");
+        let AgentEvent::ToolResult {
+            tool_use_id,
+            content,
+            images,
+            returned,
+            ..
+        } = result
+        else {
+            panic!("not a result: {result:?}");
+        };
+        assert_eq!(tool_use_id, "toolu_01CCfD9eVzVK1A4cLhAVMFVy");
+        assert_eq!(content, "[image]");
+        // Kept by the core, which lists the paths: the backend only reads.
+        assert_eq!(images, Vec::<PathBuf>::new());
+        assert_eq!(returned.len(), 1);
+        assert!(!format!("{returned:?}").contains(DOT));
+        // A screenshot as browser tools return it: words, then the image. A kind not shown is
+        // named, and one given by address is never fetched.
+        let events = parse(&json!({
+            "type": "user",
+            "parent_tool_use_id": "toolu_agent",
+            "message": { "content": [{ "type": "tool_result", "tool_use_id": "t1", "content": [
+                { "type": "text", "text": "Took the viewport screenshot" },
+                { "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": DOT } },
+                { "type": "image", "source": { "type": "base64", "media_type": "image/tiff", "data": "SUkqAA==" } },
+                { "type": "image", "source": { "type": "url", "url": "https://example.com/a.png" } },
+            ]}]},
+        }));
+        let [AgentEvent::Sub { event, .. }] = events.as_slice() else {
+            panic!("not a sub-agent's: {events:?}");
+        };
+        let AgentEvent::ToolResult {
+            content, returned, ..
+        } = event.as_ref()
+        else {
+            panic!("not a result: {event:?}");
+        };
+        assert_eq!(
+            content,
+            "Took the viewport screenshot\n[image]\n[image not shown: image/tiff]\n[image]"
+        );
+        assert_eq!(returned.len(), 1);
     }
 
     #[test]
