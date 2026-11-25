@@ -70,6 +70,7 @@ async fn opened(port: u16, path: &str) -> io::Result<(Reader, Writer)> {
         Reader {
             inner: reader,
             pending: rest,
+            gathering: Gathered::default(),
         },
         Writer { inner: write },
     ))
@@ -144,6 +145,9 @@ pub(crate) struct Reader {
     inner: BufReader<OwnedReadHalf>,
     /// What came with the handshake's answer and has not been read yet.
     pending: Vec<u8>,
+    /// The message being put together. Kept here, not for one read: a ping may come between
+    /// two of a message's frames, and is handed out before the message is whole.
+    gathering: Gathered,
 }
 
 impl Reader {
@@ -215,12 +219,11 @@ impl Reader {
 
 /// The next whole message `reader` reads, put together from its frames.
 async fn next_message(reader: &mut Reader) -> io::Result<Option<Message>> {
-    let mut gathered = Gathered::default();
     loop {
         let Some(frame) = reader.frame().await? else {
             return Ok(None);
         };
-        match gathered.take(frame)? {
+        match reader.gathering.take(frame)? {
             Taken::More => {}
             Taken::Message(message) => return Ok(Some(message)),
             Taken::Closed => return Ok(None),
@@ -247,7 +250,7 @@ struct Frame {
 }
 
 /// A message being put together from its frames.
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct Gathered {
     bytes: Vec<u8>,
     binary: bool,
@@ -491,7 +494,7 @@ fn frame_head(bytes: &[u8]) -> Option<(usize, usize, Option<[u8; 4]>)> {
 /// The server's side of the protocol, for the stand-in Chrome the tests talk to.
 #[cfg(test)]
 pub(crate) mod serving {
-    use super::{CLOSE, TEXT, find, invalid, masked};
+    use super::{CLOSE, PING, TEXT, find, invalid, masked};
     use std::io;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpStream;
@@ -550,6 +553,15 @@ pub(crate) mod serving {
         if split {
             out.extend(unmasked(0x80, second));
         }
+        stream.write_all(&out).await
+    }
+
+    /// Sends a text message in two frames with a ping between them, which the standard allows.
+    pub(crate) async fn send_around_ping(stream: &mut TcpStream, text: &str) -> io::Result<()> {
+        let (first, second) = text.as_bytes().split_at(text.len() / 2);
+        let mut out = unmasked(TEXT, first);
+        out.extend(unmasked(0x80 | PING, b"still there?"));
+        out.extend(unmasked(0x80, second));
         stream.write_all(&out).await
     }
 
@@ -668,6 +680,9 @@ mod tests {
         serving::send(&mut stream, &long, true)
             .await
             .expect("sends");
+        serving::send_around_ping(&mut stream, "in two")
+            .await
+            .expect("sends");
         heard
     }
 
@@ -702,6 +717,15 @@ mod tests {
         );
         let long = reader.next().await.expect("reads");
         assert_eq!(long, Some(Message::Text("x".repeat(70_000))));
+        // A ping between a message's two frames is handed out, and the message still whole.
+        assert_eq!(
+            reader.next().await.expect("reads"),
+            Some(Message::Ping(b"still there?".to_vec()))
+        );
+        assert_eq!(
+            reader.next().await.expect("reads"),
+            Some(Message::Text("in two".into()))
+        );
         assert_eq!(
             server.await.expect("served").as_deref(),
             Some(r#"{"id":1}"#)
