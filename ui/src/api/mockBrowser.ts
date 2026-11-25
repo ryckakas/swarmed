@@ -58,6 +58,8 @@ interface Page {
 interface Browser {
     pages: Page[];
     shown: string | null;
+    /** The tab shown when the pane was last hidden. */
+    left: string | null;
     viewport: Viewport | null;
     /** A pick under way in the tab shown, for a session, and what it resolves. */
     picking: { session: number; done(element: PickedElement | null): void } | null;
@@ -279,7 +281,7 @@ export class MockBrowsers {
             return known;
         }
         const first = this.page(task.stack === "running" && task.url ? task.url : "about:blank");
-        const browser: Browser = { pages: [first], shown: null, viewport: null, picking: null };
+        const browser: Browser = { pages: [first], shown: null, left: null, viewport: null, picking: null };
         this.browsers.set(id, browser);
         task.browser = true;
         this.host.publish(0, { type: "tree_changed" });
@@ -318,7 +320,8 @@ export class MockBrowsers {
 
     show(id: number, tab: string | null, viewport: Viewport): BrowserState {
         const browser = this.start(id);
-        const wanted = tab ?? browser.shown ?? browser.pages[0]?.id ?? null;
+        const left = browser.pages.find((page) => page.id === browser.left)?.id;
+        const wanted = tab ?? browser.shown ?? left ?? browser.pages[0]?.id ?? null;
         if (wanted !== null && !browser.pages.some((page) => page.id === wanted)) {
             throw new Error(`the browser of \`${this.task(id).name}\`: it has no such tab`);
         }
@@ -336,6 +339,7 @@ export class MockBrowsers {
         const browser = this.browsers.get(id);
         if (browser) {
             this.pickEnd(id);
+            browser.left = browser.shown ?? browser.left;
             browser.shown = null;
         }
     }
@@ -565,7 +569,7 @@ export class MockBrowsers {
         this.log(page, "info", "[vite] connected.");
         this.log(page, "warning", 'Image with src "/hero.jpg" has no alt text.');
         this.log(page, "error", "TypeError: Cannot read properties of undefined (reading 'price')");
-        this.browsers.set(task.id, { pages: [page], shown: null, viewport: null, picking: null });
+        this.browsers.set(task.id, { pages: [page], shown: null, left: null, viewport: null, picking: null });
     }
 }
 

@@ -343,6 +343,11 @@ async fn tabs_are_opened_and_closed_and_a_closed_tab_is_no_longer_shown() {
         .expect("shows");
     assert_eq!(shown.shown.as_deref(), Some(opened.as_str()));
 
+    // Hidden and shown again, the pane is on the tab it was on, not back on the first.
+    core.browser_hide(task).await.expect("hides");
+    let again = core.browser_show(task, None, VIEW).await.expect("shows");
+    assert_eq!(again.shown.as_deref(), Some(opened.as_str()));
+
     core.browser_tab_close(task, &opened).await.expect("closes");
     let state = state_where(&mut bus, |state| state.tabs.len() == 1).await;
     assert_eq!(state.shown, None);

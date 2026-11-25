@@ -353,13 +353,19 @@ impl Browser {
         lock(&self.pane).shown().map(String::from)
     }
 
-    /// Shows `tab`: the one shown, else the first, when `None`. Returns the tab shown before
-    /// and the one shown now; `None` if there is no such tab.
+    /// Shows `tab`: when `None`, the one shown, else the one shown when the pane was hidden,
+    /// else the first. Returns the tab shown before and the one shown now; `None` if there is
+    /// no such tab.
     fn shows(&self, tab: Option<&str>) -> Option<(Option<String>, Option<String>)> {
         let mut pane = lock(&self.pane);
         let before = pane.shown().map(String::from);
+        let left = pane.left().map(String::from);
         let first = pane.tabs().first().map(|tab| tab.id.clone());
-        let wanted = tab.map(String::from).or_else(|| before.clone()).or(first);
+        let wanted = tab
+            .map(String::from)
+            .or_else(|| before.clone())
+            .or(left)
+            .or(first);
         pane.show(wanted.as_deref()).then_some((before, wanted))
     }
 

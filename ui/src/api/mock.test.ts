@@ -408,6 +408,12 @@ describe("the mock's browsers", () => {
         const marked = (await api.overview()).flatMap((project) => project.tasks);
         expect(marked.find((task) => task.id === idle.id)?.browser).toBe(true);
 
+        // Hidden and shown again, the pane is on the tab it was on, not back on the first.
+        const second = await api.browserTabNew(idle.id, null);
+        await api.browserShow(idle.id, second, view);
+        await api.browserHide(idle.id);
+        expect((await api.browserShow(idle.id, null, view)).shown).toBe(second);
+
         await api.browserStop(idle.id);
         expect((await api.browserState(idle.id)).running).toBe(false);
         await expect(api.browserText(idle.id, "late")).rejects.toThrow("not running");

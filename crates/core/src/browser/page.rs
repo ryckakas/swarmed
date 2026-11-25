@@ -121,6 +121,8 @@ pub(crate) struct Pane {
     /// Each page's session, by the page.
     sessions: HashMap<String, String>,
     shown: Option<String>,
+    /// The tab shown when the pane was last hidden, to show again when it comes back.
+    left: Option<String>,
     lines: u64,
     /// The session that last acted in each tab, kept for a tab Chrome has not told of yet.
     actors: HashMap<String, i64>,
@@ -137,15 +139,22 @@ impl Pane {
         self.shown.as_deref()
     }
 
+    /// The tab that was shown when the pane was hidden, if it is still there.
+    pub(crate) fn left(&self) -> Option<&str> {
+        self.left.as_deref().filter(|tab| self.has(tab))
+    }
+
     /// Shows `tab`, or none. Says whether there is such a tab.
     pub(crate) fn show(&mut self, tab: Option<&str>) -> bool {
-        match tab {
-            Some(tab) if !self.has(tab) => false,
-            _ => {
-                self.shown = tab.map(String::from);
-                true
-            }
+        if tab.is_some_and(|tab| !self.has(tab)) {
+            return false;
         }
+        let before = std::mem::replace(&mut self.shown, tab.map(String::from));
+        // Hidden, the pane remembers where it was: it is the same pane when it comes back.
+        if tab.is_none() && before.is_some() {
+            self.left = before;
+        }
+        true
     }
 
     /// Whether there is a tab `id`.
@@ -534,6 +543,22 @@ mod tests {
         pane.apply(&event("Target.targetCreated", page("T", "about:blank", "")));
         pane.attached("T", "S");
         pane
+    }
+
+    #[test]
+    fn a_hidden_pane_remembers_the_tab_it_showed_while_that_tab_is_there() {
+        let mut pane = one_tab();
+        pane.apply(&event("Target.targetCreated", page("U", "about:blank", "")));
+        assert_eq!(pane.left(), None);
+        assert!(pane.show(Some("U")));
+        assert!(pane.show(None));
+        assert_eq!(pane.shown(), None);
+        assert_eq!(pane.left(), Some("U"));
+        // Hidden again while nothing is shown, it still knows.
+        assert!(pane.show(None));
+        assert_eq!(pane.left(), Some("U"));
+        pane.apply(&event("Target.targetDestroyed", json!({ "targetId": "U" })));
+        assert_eq!(pane.left(), None);
     }
 
     #[test]
