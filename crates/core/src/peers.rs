@@ -22,7 +22,7 @@ use crate::paths::SOCKET_PREFIX;
 use crate::sessions::{Session, SessionOptions, SessionStatus};
 use crate::store::Project;
 use crate::toolserver::DELEGATE_TO_CLOUD;
-use crate::{Core, Task};
+use crate::{Core, Task, rewind};
 
 /// How many sessions one session may have started that are still open. A runaway agent stops
 /// here instead of filling the machine.
@@ -413,7 +413,8 @@ impl Core {
         chars: usize,
     ) -> Result<Option<Said>> {
         let events = self.session_events(id)?;
-        let said: Vec<String> = events.iter().filter_map(spoken).collect();
+        // Not what a rewind dropped: the session's agent no longer knows of it either.
+        let said: Vec<String> = rewind::counted(&events).filter_map(spoken).collect();
         Ok(read_of(&said, first, wanted, chars))
     }
 

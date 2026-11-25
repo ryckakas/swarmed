@@ -498,6 +498,23 @@ async fn a_fork_of_a_session_taken_back_leaves_out_what_was_dropped() {
 const AGENT: &str = "scripted";
 
 /// A core with the scripted ACP agent registered next to (fake) Claude Code.
+#[tokio::test]
+async fn another_session_reads_only_what_still_counts() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    task(&core).await;
+    let mut bus = core.subscribe();
+    let id = started(&core);
+    let reader = started(&core);
+    say(&core, &mut bus, id, "keep the first").await;
+    say(&core, &mut bus, id, "then the second").await;
+    core.session_rewind(id, 1, false).await.expect("rewinds");
+
+    let read = core.peer_digest(reader, id, None, None).expect("reads");
+    assert!(read.contains("keep the first"), "{read}");
+    assert!(!read.contains("then the second"), "{read}");
+}
+
 async fn core_with_acp(fx: &common::Fixture) -> Core {
     let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_acp_agent.py");
     let backend = AcpBackend {

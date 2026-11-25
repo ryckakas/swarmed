@@ -838,7 +838,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   - **Nothing is deleted.** `AgentEvent::Rewound { to }` says that message `to` (numbered as a
     fork numbers them, every message ever sent counted) and what followed, up to the event, no
     longer count (`rewind::dropped`, `counted`); one inside a later one's part goes with it.
-    Forks and carried text read `counted`; costs, search and the event list read everything.
+    Forks, carried text, a hand-over to the cloud and what another session reads of it
+    (`said_in`) read `counted`; costs, search and the event list read everything.
     The transcript folds the part under the line (`RewoundItem`).
   - **Claude Code resumes** at its own id of the last message of the turn before
     (`--resume-session-at`, which takes a message's `uuid`). `claude.rs` reports it at each
