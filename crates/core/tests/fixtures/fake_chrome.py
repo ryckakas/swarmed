@@ -17,7 +17,8 @@ the `Host` the client sent. Every connection that asked to discover targets hear
 changed and closed, whichever connection did it, as with Chrome.
 
 What it is told to do with the mouse and the keys is written into `fake-input` in its profile,
-one JSON line each, and what it was given to download into, into `fake-downloads`. The inspect
+one JSON line each, and what it was given to download into, into `fake-downloads`. Each start of
+pictures goes into `fake-cast`, with the number of the picture it sent. The inspect
 modes it is put in go into `fake-inspect`, and what a pick read it with into `fake-pick`. A file
 `fake-fail` in its profile has it end at once, saying why, as a Chrome that cannot start does,
 and a file `fake-slow` has it take two seconds to listen, as one on a busy machine does. A file
@@ -248,8 +249,9 @@ def answer_on_page(conn, method, params, session, page_id, page):
         if page["casting"]:
             raise KeyError("Screencast is already active")
         page["casting"] = True
-        note("fake-cast", {"quality": params.get("quality"), "maxWidth": params.get("maxWidth")})
         frame(conn, page_id, session, started=True)
+        note("fake-cast", {"quality": params.get("quality"), "maxWidth": params.get("maxWidth"),
+                           "frame": page["frames"]})
         return {}
     if method == "Page.stopScreencast":
         page["casting"] = False

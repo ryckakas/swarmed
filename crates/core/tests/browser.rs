@@ -295,24 +295,52 @@ async fn a_moving_page_is_sent_at_a_lower_quality_and_a_still_one_sharp_again() 
     core.browser_show(task, None, VIEW).await.expect("shows");
     // The stand-in sends forty pictures, as fast as they are acknowledged, then none: a page
     // that moves, then stands still. It is started sharp, again lower as pictures come close
-    // together, and sharp again once they stop, which sends the one picture that stays.
+    // together, and sharp again once they stop, which sends the one picture that stays. A
+    // pause on a busy machine is a page that stood still for that long, so it may go between
+    // the two more than once while they come.
     let profile = fx.paths.browser(task).join("profile");
-    let started = noted(&profile, "fake-cast", 3).await;
-    let qualities: Vec<_> = started.iter().map(|cast| cast["quality"].clone()).collect();
-    assert_eq!(qualities, [90, 60, 90]);
+    let casts = casts_settled(&profile).await;
+    let qualities: Vec<_> = casts.iter().map(|cast| cast["quality"].clone()).collect();
+    assert_eq!(qualities.first(), Some(&90.into()), "{qualities:?}");
+    assert!(qualities.contains(&60.into()), "{qualities:?}");
+    assert_eq!(qualities.last(), Some(&90.into()), "{qualities:?}");
+    let last = casts.last().map(|cast| cast["frame"].clone());
+    let last = last.and_then(|frame| frame.as_u64()).expect("a number");
     let sharp = heard(&mut bus, |event| match event {
-        BrowserEvent::Frame { data, .. } => Some(picture(&data)).filter(|p| p.contains("41")),
+        BrowserEvent::Frame { data, .. } => {
+            Some(picture(&data)).filter(|p| p.starts_with(&format!("frame {last} ")))
+        }
         _ => None,
     });
     assert_eq!(
         sharp.await,
-        "frame 41 640x480",
+        format!("frame {last} 640x480"),
         "the sharp one after the forty"
     );
-    // Standing still, it is not started again.
-    tokio::time::sleep(Duration::from_millis(600)).await;
-    assert_eq!(noted(&profile, "fake-cast", 3).await.len(), 3);
     core.browser_stop(task).await.expect("stops");
+}
+
+/// How long the starts of pictures must not change to count as settled.
+const CASTS_SETTLE: Duration = Duration::from_millis(600);
+
+/// The starts of pictures the stand-in noted, once some were lower, the last is sharp, and no
+/// other came for [`CASTS_SETTLE`]: standing still, the page is not started again.
+async fn casts_settled(profile: &Path) -> Vec<serde_json::Value> {
+    let quality = |cast: &serde_json::Value| cast["quality"].as_u64();
+    let (mut seen, mut since) = (Vec::new(), tokio::time::Instant::now());
+    for _ in 0..200 {
+        let casts = noted(profile, "fake-cast", 3).await;
+        let moved = casts.iter().any(|cast| quality(cast) == Some(60));
+        let sharp = casts.last().and_then(quality) == Some(90);
+        let still = since.elapsed() >= CASTS_SETTLE;
+        if casts != seen {
+            (seen, since) = (casts, tokio::time::Instant::now());
+        } else if moved && sharp && still {
+            return casts;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("the pictures were started again and again: {seen:?}");
 }
 
 #[tokio::test]
