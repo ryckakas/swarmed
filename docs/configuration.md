@@ -287,8 +287,13 @@ deleted; a merge queue is named as one.
 
 A repository's GitHub issues are read through the same `gh`, only when you ask: the issue
 button on the repository's row, or ⌘⇧I, lists them; picking one reads it whole, with its
-comments. What an issue says is shown as text, never as HTML, and an image in it as a link:
-anyone can write one. A comment GitHub hides, as spam say, is left out. **Start a task** opens
+comments. Anyone can write an issue, so it is drawn as GitHub draws it and no further: Markdown,
+and of its HTML only what formats text, such as a folded `<details>` or `<kbd>` keys, with no
+styles, scripts, frames or forms. An image in it is a link, never loaded, and nothing in it is
+run or shown as a view. **Show source** shows the issue as written, which is what the agent
+reads; when the drawing leaves anything out, such as an HTML comment (which GitHub hides too) or
+HTML it does not draw, the issue says so above its text. A comment GitHub hides, as spam say,
+is left out. **Start a task** opens
 New task with a prompt naming the issue and asking the agent to read it with `gh`; nothing of
 what the issue says is pasted in, and nothing is sent until you send it.
 

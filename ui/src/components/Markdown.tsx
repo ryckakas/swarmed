@@ -1,15 +1,25 @@
 import { type ComponentProps, isValidElement, memo, type ReactNode, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import { api } from "../api";
 import { HTML_LANGUAGE, splitPendingView, VIEW_LANGUAGE } from "../htmlview";
+import { ISSUE_SCHEMA } from "../issueHtml";
 import { useStore } from "../store";
 import { HtmlView, ViewPending } from "./HtmlView";
 
 const PLUGINS = [remarkGfm];
 // Colours code blocks that name their language; one that does not is left plain, not guessed.
 const REHYPE_PLUGINS = [rehypeHighlight];
+// Text anyone could write: its HTML is read, then cleaned to what GitHub would draw of it, and
+// only then are code blocks coloured, so that the colours' classes are not cleaned away.
+const UNTRUSTED_REHYPE_PLUGINS = [
+    rehypeRaw,
+    [rehypeSanitize, ISSUE_SCHEMA],
+    rehypeHighlight,
+] satisfies ComponentProps<typeof ReactMarkdown>["rehypePlugins"];
 
 interface Props {
     text: string;
@@ -126,16 +136,17 @@ const VIEW_COMPONENTS = { ...COMPONENTS, pre: Pre };
 const UNTRUSTED_COMPONENTS = { ...COMPONENTS, img: ImageLink };
 
 /**
- * Text anyone could write, such as a GitHub issue and its comments: Markdown drawn as text,
- * whatever the settings say of views. HTML in it stays the text it is, a view's block stays
- * code with no way to show it, and an image is a link.
+ * Text anyone could write, such as a GitHub issue and its comments, drawn as GitHub draws it:
+ * Markdown, and of its HTML only what `ISSUE_SCHEMA` keeps, such as a folded `<details>` or a
+ * `<kbd>`. Whatever the settings say of views, a view's block stays code with no way to show
+ * it, and an image is a link: nothing in it is run or loaded.
  */
 export const UntrustedMarkdown = memo(function UntrustedMarkdown({ text }: { text: string }) {
     return (
         <div className="prose">
             <ReactMarkdown
                 remarkPlugins={PLUGINS}
-                rehypePlugins={REHYPE_PLUGINS}
+                rehypePlugins={UNTRUSTED_REHYPE_PLUGINS}
                 components={UNTRUSTED_COMPONENTS}
             >
                 {text}

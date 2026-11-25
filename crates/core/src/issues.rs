@@ -4,8 +4,9 @@
 //! Swarmed holds no GitHub token: it asks `gh` in the repository and shows what that says.
 //! Without `gh`, or in a repository that is not on GitHub, a repository has no issues to list,
 //! and the list says why instead of failing, as a task without a pull request is no error
-//! (`pulls.rs`). What an issue says is anyone's to write: it is handed on as text, and front
-//! ends draw it as text, never as HTML.
+//! (`pulls.rs`). What an issue says is anyone's to write: it is handed on as text. The command
+//! line prints it so; the window draws only the HTML GitHub allows, narrowed further, with its
+//! source a press away.
 //!
 //! A task records the number of the issue it was started for. Its pull request text then
 //! closes that issue ([`with_closes`]), so merging it closes the issue on GitHub.

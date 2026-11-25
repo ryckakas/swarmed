@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import type { Issue, IssueDetail, IssueFilter, IssueList } from "../api/types";
 import { problemOf } from "../branchPrefix";
+import { issueLeavesOut } from "../issueHtml";
 import {
     ageOf,
     FIRST_FILTER,
@@ -24,7 +25,8 @@ const PAUSE_MS = 450;
 /**
  * A repository's GitHub issues, opened from its row in the sidebar or the keyboard: the
  * filters and the list on one side, the issue picked on the other, and a way to start a task
- * on it. What an issue says is drawn as text, never as HTML: anyone can write one.
+ * on it. Anyone can write an issue: what it says is drawn as GitHub draws it, with only the
+ * HTML GitHub allows, narrowed further, nothing run or loaded, and its source a press away.
  */
 export function IssuesDialog() {
     const target = useStore((state) => state.issuesOf);
@@ -211,7 +213,7 @@ function IssueRows({ list, shown, reading, picked, onPick }: RowsProps) {
     );
 }
 
-/** The issue picked, read whole: what it says and its comments, drawn as text. */
+/** The issue picked, read whole, or why it is not shown yet. */
 function IssueShown({ picked, detail }: { picked: number | null; detail: IssueRead }) {
     if (picked === null) {
         return <p className="issues-note">Pick an issue to read it here.</p>;
@@ -226,18 +228,48 @@ function IssueShown({ picked, detail }: { picked: number | null; detail: IssueRe
             </p>
         );
     }
+    // A key per issue, so each one opens formatted, whatever the one before was shown as.
+    return <IssueText key={detail.number} detail={detail} />;
+}
+
+/**
+ * What an issue and its comments say: drawn as GitHub draws it, or as the text it is, which is
+ * what an agent reads. When drawing it leaves anything out, it says so.
+ */
+function IssueText({ detail }: { detail: IssueDetail }) {
+    const [source, setSource] = useState(false);
+    const leftOut = useMemo(() => issueLeavesOut(detail), [detail]);
     const now = Date.now() / 1000;
     const assigned =
         detail.assignees.length > 0 ? `Assigned to ${detail.assignees.join(", ")}.` : null;
     return (
         <article className="issue-detail">
-            <h3 className="issue-detail-title">{detail.title}</h3>
+            <div className="issue-detail-head">
+                <h3 className="issue-detail-title">{detail.title}</h3>
+                <button
+                    type="button"
+                    className="changes-refresh"
+                    title={
+                        source
+                            ? "Shows the issue formatted, as GitHub would"
+                            : "Shows what the issue says as written, which is what an agent reads"
+                    }
+                    onClick={() => setSource((shown) => !shown)}
+                >
+                    {source ? "Show formatted" : "Show source"}
+                </button>
+            </div>
             <p className="issue-row-line">{issueLine(detail, now)}</p>
             {assigned && <p className="issue-row-line">{assigned}</p>}
+            {leftOut && !source && (
+                <p className="issue-left-out">
+                    Parts of this issue are not shown here; Show source shows the whole text.
+                </p>
+            )}
             {detail.body.trim() === "" ? (
                 <p className="issues-note">It says nothing more.</p>
             ) : (
-                <UntrustedMarkdown text={detail.body} />
+                <Said text={detail.body} source={source} />
             )}
             {detail.comments.map((comment, index) => (
                 <section
@@ -252,7 +284,7 @@ function IssueShown({ picked, detail }: { picked: number | null; detail: IssueRe
                         {ageOf(comment.created_at, now) ?? comment.created_at}
                     </p>
                     {comment.hidden === null ? (
-                        <UntrustedMarkdown text={comment.body} />
+                        <Said text={comment.body} source={source} />
                     ) : (
                         <p className="issues-note">Hidden on GitHub as {comment.hidden}.</p>
                     )}
@@ -260,6 +292,11 @@ function IssueShown({ picked, detail }: { picked: number | null; detail: IssueRe
             ))}
         </article>
     );
+}
+
+/** What an issue or a comment says: formatted, or as the text it is. */
+function Said({ text, source }: { text: string; source: boolean }) {
+    return source ? <pre className="issue-source">{text}</pre> : <UntrustedMarkdown text={text} />;
 }
 
 /** The list for `filter`, while it is read again, and a way to read it again. */
