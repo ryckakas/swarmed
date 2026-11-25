@@ -374,6 +374,26 @@ async fn a_chrome_that_cannot_start_says_why_and_leaves_nothing_written_down() {
 }
 
 #[tokio::test]
+async fn a_chrome_given_up_on_while_it_starts_is_written_down_and_can_be_stopped() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let task = task_id(&core);
+    let profile = fx.paths.browser(task).join("profile");
+    std::fs::create_dir_all(&profile).expect("test setup");
+    std::fs::write(profile.join("fake-slow"), "").expect("test setup");
+
+    // Whoever asked goes before it listens, as a Swarmed that quits or a call that is dropped.
+    let opening = tokio::time::timeout(Duration::from_millis(500), core.browser_open(task));
+    assert!(opening.await.is_err(), "it was not ready yet");
+    let process = pid(&fx, task);
+    assert!(alive(process));
+
+    core.browser_stop(task).await.expect("stops");
+    assert!(!alive(process));
+    assert!(!record(&fx, task).exists());
+}
+
+#[tokio::test]
 async fn without_any_browser_the_pane_is_told_none_was_found() {
     let fx = fixture();
     let core = core_with_task(&fx).await;

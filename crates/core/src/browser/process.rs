@@ -63,11 +63,16 @@ pub(crate) fn args(profile: &Path, url: Option<&str>) -> Vec<OsString> {
 
 /// Starts `program` on `profile`, its output in `output`, and waits until its endpoint
 /// listens. Why not, in words, when it does not.
+///
+/// The process is written down in `record` as soon as it is started, not once it listens: a
+/// Swarmed that ends while it waits would otherwise leave a Chrome nobody knows of, and so
+/// nobody stops. One that does not get ready is ended with its helpers and forgotten.
 pub(crate) async fn start(
     program: &Path,
     profile: &Path,
     output: &Path,
     url: Option<&str>,
+    record: &Path,
 ) -> Result<Started, String> {
     let active = profile.join(ACTIVE_PORT);
     // One an earlier Chrome left would point at a port nobody listens on now.
@@ -85,20 +90,24 @@ pub(crate) async fn start(
         .process_group(0)
         .spawn()
         .map_err(|error| format!("{} could not be started: {error}", program.display()))?;
+    keep(record, child.id());
     let until = Instant::now() + START_LIMIT;
     loop {
         if let Some((port, path)) = endpoint_in(profile) {
             return Ok(Started { child, port, path });
         }
         if let Ok(Some(status)) = child.try_wait() {
+            std::fs::remove_file(record).ok();
             return Err(format!(
                 "it ended before it was ready ({status}){}",
                 said(output)
             ));
         }
         if Instant::now() >= until {
-            child.kill().ok();
-            child.wait().ok();
+            let pid = child.id();
+            if end(pid, Some(child), false).await {
+                std::fs::remove_file(record).ok();
+            }
             return Err(format!("it did not get ready in time{}", said(output)));
         }
         tokio::time::sleep(POLL).await;

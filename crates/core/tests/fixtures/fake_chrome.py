@@ -19,7 +19,8 @@ changed and closed, whichever connection did it, as with Chrome.
 What it is told to do with the mouse and the keys is written into `fake-input` in its profile,
 one JSON line each, and what it was given to download into, into `fake-downloads`. The inspect
 modes it is put in go into `fake-inspect`, and what a pick read it with into `fake-pick`. A file
-`fake-fail` in its profile has it end at once, saying why, as a Chrome that cannot start does.
+`fake-fail` in its profile has it end at once, saying why, as a Chrome that cannot start does,
+and a file `fake-slow` has it take two seconds to listen, as one on a busy machine does.
 """
 
 import base64
@@ -49,6 +50,9 @@ if profile is None:
 if os.path.exists(os.path.join(profile, "fake-fail")):
     sys.stderr.write("[0101/000000.000:ERROR] the profile is in use by another Chrome\n")
     sys.exit(21)
+
+if os.path.exists(os.path.join(profile, "fake-slow")):
+    time.sleep(2)
 
 lock = threading.Lock()
 discovering = []

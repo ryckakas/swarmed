@@ -1039,11 +1039,11 @@ impl Core {
         crate::pasted::private_folder(&downloads)?;
         let page = self.start_page(task);
         let output = folder.join(process::OUTPUT);
-        let started = process::start(&program, &profile, &output, page.as_deref())
+        let record = self.browser_record(task.id);
+        let started = process::start(&program, &profile, &output, page.as_deref(), &record)
             .await
             .map_err(|reason| self.browser_error(task.id, reason))?;
         let pid = started.child.id();
-        process::keep(&self.browser_record(task.id), pid);
         let found = Found {
             pid,
             child: Some(started.child),
