@@ -19,6 +19,9 @@ use crate::lock;
 /// on its way, not when it has loaded.
 const ANSWER_LIMIT: Duration = Duration::from_secs(30);
 
+/// How long Chrome has to take a connection: it is on this machine, and answers at once.
+const CONNECT_LIMIT: Duration = Duration::from_secs(10);
+
 /// What became of a command: its result, or why there is none.
 type Answer = Result<Value, String>;
 
@@ -56,7 +59,7 @@ impl Cdp {
         port: u16,
         path: &str,
     ) -> std::io::Result<(Arc<Self>, mpsc::UnboundedReceiver<Event>)> {
-        let (reader, writer) = ws::connect(port, path).await?;
+        let (reader, writer) = ws::connect(port, path, CONNECT_LIMIT).await?;
         let (out, outgoing) = mpsc::unbounded_channel();
         let (events, heard) = mpsc::unbounded_channel();
         let cdp = Arc::new(Self {

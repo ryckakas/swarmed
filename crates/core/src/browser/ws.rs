@@ -14,7 +14,7 @@
 
 use std::io;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
@@ -45,8 +45,21 @@ pub(crate) enum Message {
     Ping(Vec<u8>),
 }
 
-/// Connects to `ws://127.0.0.1:<port><path>` and opens a WebSocket there.
-pub(crate) async fn connect(port: u16, path: &str) -> io::Result<(Reader, Writer)> {
+/// Connects to `ws://127.0.0.1:<port><path>` and opens a WebSocket there, within `limit`:
+/// a Chrome that runs and does not answer, stopped or hung, would otherwise hold whoever
+/// connects, and the task's locks with them, for good.
+pub(crate) async fn connect(
+    port: u16,
+    path: &str,
+    limit: Duration,
+) -> io::Result<(Reader, Writer)> {
+    let late = || io::Error::new(io::ErrorKind::TimedOut, "it did not answer in time");
+    tokio::time::timeout(limit, opened(port, path))
+        .await
+        .map_err(|_| late())?
+}
+
+async fn opened(port: u16, path: &str) -> io::Result<(Reader, Writer)> {
     let stream = TcpStream::connect(("127.0.0.1", port)).await?;
     stream.set_nodelay(true)?;
     let (read, mut write) = stream.into_split();
@@ -658,12 +671,30 @@ mod tests {
         heard
     }
 
+    const LIMIT: Duration = Duration::from_secs(10);
+
+    #[tokio::test]
+    async fn a_server_that_takes_the_connection_and_says_nothing_is_given_up_on() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("listens");
+        let port = listener.local_addr().expect("has an address").port();
+        // Held open, never answered: as a Chrome that is stopped or hung.
+        let held = tokio::spawn(async move { listener.accept().await });
+        let refused = connect(port, "/devtools/browser/1", Duration::from_millis(50)).await;
+        assert_eq!(
+            refused.err().map(|error| error.kind()),
+            Some(io::ErrorKind::TimedOut)
+        );
+        held.abort();
+    }
+
     #[tokio::test]
     async fn messages_go_both_ways_whole_and_in_pieces() {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("listens");
         let port = listener.local_addr().expect("has an address").port();
         let server = tokio::spawn(serve_once(listener));
-        let (mut reader, mut writer) = connect(port, "/devtools/browser/1").await.expect("opens");
+        let (mut reader, mut writer) = connect(port, "/devtools/browser/1", LIMIT)
+            .await
+            .expect("opens");
         writer.text(r#"{"id":1}"#).await.expect("writes");
         assert_eq!(
             reader.next().await.expect("reads"),
