@@ -733,7 +733,6 @@ function withRecall(
         : { ...recalls, [sessionId]: browsing };
 }
 
-/** The new-task drafts of the repositories still listed: a removed one's goes with it. */
 /** Each repository's issue for its new task, with `project`'s now `link`, or none for `null`. */
 function withIssue(
     links: Record<string, IssueLink>,
@@ -747,6 +746,7 @@ function withIssue(
     return { ...links, [project]: link };
 }
 
+/** What is kept by repository (new-task drafts, issue links), of those still listed only. */
 function listedOnly<T>(drafts: Record<string, T>, projects: Project[]): Record<string, T> {
     // The chats' draft stays: there is no project to list until the first chat is made.
     const listed = new Set([CHATS, ...projects.map((project) => project.name)]);
