@@ -20,7 +20,8 @@ What it is told to do with the mouse and the keys is written into `fake-input` i
 one JSON line each, and what it was given to download into, into `fake-downloads`. The inspect
 modes it is put in go into `fake-inspect`, and what a pick read it with into `fake-pick`. A file
 `fake-fail` in its profile has it end at once, saying why, as a Chrome that cannot start does,
-and a file `fake-slow` has it take two seconds to listen, as one on a busy machine does.
+and a file `fake-slow` has it take two seconds to listen, as one on a busy machine does. A file
+`fake-slow-open` has it take a second to open a tab, answering everything else meanwhile.
 """
 
 import base64
@@ -338,6 +339,24 @@ def answer_http(sock, path, host):
     sock.close()
 
 
+def reply_to(conn, message):
+    method, session = message["method"], message.get("sessionId")
+    try:
+        with lock:
+            result = answer(conn, method, message.get("params", {}), session)
+        reply = {"id": message["id"], "result": result}
+    except KeyError as refused:
+        reply = {"id": message["id"], "error": {"code": -32000, "message": refused.args[0]}}
+    if session:
+        reply["sessionId"] = session
+    conn.send(reply)
+
+
+def slowly(conn, message):
+    time.sleep(1)
+    reply_to(conn, message)
+
+
 def serve(sock):
     request = b""
     while b"\r\n\r\n" not in request:
@@ -367,16 +386,11 @@ def serve(sock):
             message = json.loads(conn.read())
         except (EOFError, OSError):
             return
-        method, session = message["method"], message.get("sessionId")
-        try:
-            with lock:
-                result = answer(conn, method, message.get("params", {}), session)
-            reply = {"id": message["id"], "result": result}
-        except KeyError as refused:
-            reply = {"id": message["id"], "error": {"code": -32000, "message": refused.args[0]}}
-        if session:
-            reply["sessionId"] = session
-        conn.send(reply)
+        method = message["method"]
+        if method == "Target.createTarget" and os.path.exists(os.path.join(profile, "fake-slow-open")):
+            threading.Thread(target=slowly, args=(conn, message), daemon=True).start()
+            continue
+        reply_to(conn, message)
         if method == "Browser.close":
             sock.close()
             os._exit(0)

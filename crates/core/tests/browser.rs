@@ -381,6 +381,63 @@ async fn a_chrome_started_again_opens_the_tabs_it_had_when_it_was_stopped() {
 }
 
 #[tokio::test]
+async fn the_blank_tab_is_kept_when_it_was_used_while_the_kept_tabs_opened() {
+    let fx = fixture();
+    let _ends = ends_browsers(&fx);
+    let core = core_with_task(&fx).await;
+    let task = task_id(&core);
+    let mut bus = core.subscribe_browsers();
+    core.browser_open(task).await.expect("starts");
+    core.browser_tab_new(task, Some("example.com"))
+        .await
+        .expect("opens a tab");
+    state_where(&mut bus, |state| state.tabs.len() == 2).await;
+    core.browser_stop(task).await.expect("stops");
+
+    // Started again, its kept tab takes a while to open, and meanwhile the blank tab it
+    // started on is sent somewhere, as an agent's tools or the address bar would.
+    let profile = fx.paths.browser(task).join("profile");
+    std::fs::write(profile.join("fake-slow-open"), "").expect("test setup");
+    let mut bus = core.subscribe_browsers();
+    let using = blank_tab_used(&core, task, &mut bus);
+    let (started, used) = tokio::join!(core.browser_open(task), using);
+    started.expect("starts again");
+    let state = core.browser_state(task).expect("reads");
+    let urls: Vec<(&str, &str)> = state
+        .tabs
+        .iter()
+        .map(|tab| (tab.id.as_str(), tab.url.as_str()))
+        .collect();
+    assert!(
+        urls.contains(&(used.as_str(), "http://localhost:3000/form")),
+        "the tab that was used stays: {urls:?}"
+    );
+    assert!(urls.iter().any(|(_, url)| *url == "https://example.com"));
+    core.browser_stop(task).await.expect("stops");
+}
+
+/// The blank tab of `state`, if it has one.
+fn blank_tab(state: &BrowserState) -> Option<String> {
+    let found = state.tabs.iter().find(|tab| tab.url == "about:blank");
+    found.map(|tab| tab.id.clone())
+}
+
+/// Sends the blank tab of the task's browser somewhere as soon as it is told of and can be
+/// spoken to. Returns its id.
+async fn blank_tab_used(core: &Core, task: i64, bus: &mut Receiver<BrowserEvent>) -> String {
+    let started = state_where(bus, |state| blank_tab(state).is_some()).await;
+    let tab = blank_tab(&started).expect("the blank tab");
+    let form = BrowserGo::Address("localhost:3000/form".into());
+    for _ in 0..100 {
+        if core.browser_go(task, &tab, &form).await.is_ok() {
+            return tab;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("the blank tab could not be sent anywhere");
+}
+
+#[tokio::test]
 async fn clicks_keys_and_text_reach_the_tab_shown_in_the_order_they_came() {
     let fx = fixture();
     let _ends = ends_browsers(&fx);

@@ -196,7 +196,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     changes that. A stop keeps the open web pages (`browser/reopen.rs`, `tabs.json`, 0600,
     at most 20, `http` and `https` only, read back with the same check) and a start opens
     them over the connection, never on the command line, then closes the blank tab it
-    started on. A stopped Chrome's connection can end after a new one started in its place:
+    started on unless it was used meanwhile (`unused`: the browser can be reached while they
+    open). A stopped Chrome's connection can end after a new one started in its place:
     `gone` then says nothing, and a record is deleted only for the Chrome it names
     (`process::forget`).
   - **Input goes in order**: the mouse, keys and text commands are not `async` in the app and

@@ -60,8 +60,8 @@ pub(super) fn kept(path: &Path) -> Vec<String> {
 }
 
 /// Opens the tabs kept in `path` in a Chrome just started, then closes the blank one it started
-/// on, once any of them opened: the pane then shows the first of them. A page Chrome started
-/// on, such as the task's stack, is not opened twice.
+/// on, once any of them opened and if nobody used it meanwhile: the pane then shows the first
+/// of them. A page Chrome started on, such as the task's stack, is not opened twice.
 pub(super) async fn reopen(browser: &Browser, path: &Path) {
     let urls = kept(path);
     if urls.is_empty() {
@@ -78,7 +78,14 @@ pub(super) async fn reopen(browser: &Browser, path: &Path) {
     if !opened {
         return;
     }
-    for blank in started.iter().filter(|tab| tab.url == "about:blank") {
+    // The browser could be reached while they opened: a blank tab an agent's tools or the
+    // address bar took meanwhile is theirs now.
+    let unused = |id: &str| {
+        let pane = lock(&browser.pane);
+        let blank = |tab: &BrowserTab| tab.url == "about:blank" && tab.acted_by.is_none();
+        pane.tabs().iter().any(|tab| tab.id == id && blank(tab))
+    };
+    for blank in started.iter().filter(|tab| unused(&tab.id)) {
         let close = json!({ "targetId": blank.id });
         browser
             .cdp
