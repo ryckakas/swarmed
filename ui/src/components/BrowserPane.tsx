@@ -14,6 +14,7 @@ import {
 } from "react";
 import { api } from "../api";
 import type {
+    BrowserDisplay,
     BrowserSetup,
     BrowserState,
     BrowserTab,
@@ -26,6 +27,7 @@ import {
     askedToShow,
     type Box,
     BROWSER_WIDTH,
+    blankPage,
     consoleCounted,
     consoleMerged,
     dialogKey,
@@ -34,6 +36,7 @@ import {
     lineTime,
     mouseInput,
     type PageSize,
+    restartTo,
     type Standing,
     shownAddress,
     shownTab,
@@ -66,14 +69,14 @@ const MOVE_EVERY_MS = 33;
 /** How long the pane waits for its size to settle before telling Chrome. */
 const RESIZE_SETTLE_MS = 120;
 
-/** The task of the session on screen, if the Browser pane is open. */
+/** The task of the session on screen, if its Browser pane is open. */
 function useBrowserTask(): Task | null {
-    const open = useStore((state) => state.browserOpen);
+    const opened = useStore((state) => state.browserOpen);
     const projects = useStore((state) => state.projects);
     const selected = useStore((state) => state.selectedSessionId);
     const session = findSession(projects, selected);
     const home = session && findSessionHome(projects, session);
-    return open && home ? home.task : null;
+    return home && opened.includes(home.task.id) ? home.task : null;
 }
 
 /**
@@ -135,11 +138,21 @@ function BrowserPane({ task }: { task: Task }) {
     const tab = shownTab(state);
     const actor = useActor(tab);
     const pick = usePick(task.id, tab?.id ?? null, standing);
+    const windowed = state?.windowed ?? false;
+    const again = useRestart(task.id, state, retry);
+    const report = useStore((store) => store.report);
+    // A tab chosen here is brought forward in a window of its own, where the user sees it.
+    const showTab = (id: string) => {
+        show(id);
+        if (windowed) {
+            void api.browserRaise(task.id, id).catch(report);
+        }
+    };
     return (
         <aside className="browser-pane" aria-label={`The browser of ${task.name}`}>
             <div className="browser-head">
-                <Tabs task={task.id} state={state} show={show} />
-                <IconButton label="Hide the browser" onClick={() => toggleBrowser(false)}>
+                <Tabs task={task.id} state={state} show={showTab} />
+                <IconButton label="Hide the browser" onClick={() => toggleBrowser(task.id, false)}>
                     <CloseIcon />
                 </IconButton>
             </div>
@@ -153,8 +166,20 @@ function BrowserPane({ task }: { task: Task }) {
                 // Each dialog its own: a prompt's answer is not the one before's.
                 <PageDialogBar key={dialogKey(tab)} task={task.id} tab={tab} />
             )}
-            <Picture task={task.id} tab={tab?.id ?? null} onViewport={show} pick={pick}>
-                <StandingIn standing={standing} retry={retry} task={task} />
+            {again.to === "window" && <RestartBar again={again} />}
+            <Picture
+                task={task.id}
+                tab={tab?.id ?? null}
+                onViewport={show}
+                pick={pick}
+                windowed={windowed}
+                blank={blankPage(tab)}
+            >
+                {windowed ? (
+                    <InItsWindow task={task.id} tab={tab?.id ?? null} again={again} />
+                ) : (
+                    <StandingIn standing={standing} retry={retry} task={task} />
+                )}
             </Picture>
             {state && tab && <Console key={tab.id} task={task.id} tab={tab.id} />}
             {state && (
@@ -165,6 +190,72 @@ function BrowserPane({ task }: { task: Task }) {
                 </p>
             )}
         </aside>
+    );
+}
+
+/** Where the task's Chrome would start again to be shown as the settings say, and doing so. */
+interface Restart {
+    to: BrowserDisplay | null;
+    restart(): void;
+}
+
+/**
+ * The settings say to show the browser another way than the Chrome that runs was started:
+ * stopping it and starting it again shows it that way. What was signed in to, and its tabs,
+ * are kept.
+ */
+function useRestart(task: number, state: BrowserState | null, retry: () => void): Restart {
+    const display = useStore((store) => store.settings?.browser_display ?? "pane");
+    const report = useStore((store) => store.report);
+    const to = restartTo(state, display);
+    const restart = () => void api.browserStop(task).then(retry, report);
+    return { to, restart };
+}
+
+/** Offers to start the browser again in a window of its own, as the settings now say. */
+function RestartBar({ again }: { again: Restart }) {
+    return (
+        <div className="browser-dialog" role="status">
+            <p className="browser-dialog-message">
+                The settings show this browser in a window of its own. It runs without one until it
+                starts again.
+            </p>
+            <div className="browser-dialog-buttons">
+                <button type="button" className="button" onClick={again.restart}>
+                    Start it in a window
+                </button>
+            </div>
+        </div>
+    );
+}
+
+/**
+ * What stands in the page's place for a Chrome with a window of its own: Chrome draws the page
+ * there, so the pane only brings that window forward.
+ */
+function InItsWindow(props: { task: number; tab: string | null; again: Restart }) {
+    const { task, tab, again } = props;
+    const words = useWords();
+    const report = useStore((store) => store.report);
+    return (
+        <div className="browser-standing">
+            <p className="browser-said">
+                This {words.terms.task}'s Chrome is in a window of its own, drawn by Chrome itself.
+                Browser tools act in it there, and the tabs above are its tabs.
+            </p>
+            <button
+                type="button"
+                className="button button-primary"
+                onClick={() => void api.browserRaise(task, tab).catch(report)}
+            >
+                Show its window
+            </button>
+            {again.to === "pane" && (
+                <button type="button" className="button" onClick={again.restart}>
+                    Show it here instead
+                </button>
+            )}
+        </div>
     );
 }
 
@@ -187,7 +278,8 @@ function StandingIn(props: { standing: Standing; retry(): void; task: Task }) {
             return (
                 <div className="browser-standing">
                     <p className="browser-said">
-                        The browser is stopped. What was signed in to there is kept for next time.
+                        The browser is stopped. What was signed in to there, and its tabs, are kept
+                        for next time.
                     </p>
                     <button type="button" className="button" onClick={retry}>
                         Start it
@@ -393,7 +485,7 @@ function Toolbar({ task, tab, pick }: { task: number; tab: BrowserTab | null; pi
                     </IconButton>
                 )}
                 <IconButton
-                    label="Stop the browser. What was signed in to stays for next time."
+                    label="Stop the browser. What was signed in to, and its tabs, stay for next time."
                     onClick={() => void api.browserStop(task).catch(report)}
                 >
                     <PowerIcon />
@@ -507,9 +599,13 @@ function Picture(props: {
     tab: string | null;
     onViewport(viewport: Viewport): void;
     pick: Pick;
+    /** A Chrome with a window of its own: nothing is drawn here, nor passed on from here. */
+    windowed: boolean;
+    /** Chrome's blank page: the white behind the picture shows instead of its black pictures. */
+    blank: boolean;
     children: ReactNode;
 }) {
-    const { task, tab, onViewport, pick } = props;
+    const { task, tab, onViewport, pick, windowed, blank } = props;
     const box = useRef<HTMLDivElement>(null);
     const picture = useRef<HTMLImageElement>(null);
     const keys = useRef<HTMLTextAreaElement>(null);
@@ -526,12 +622,17 @@ function Picture(props: {
         <div
             ref={box}
             className="browser-page"
-            data-empty={tab === null}
+            data-empty={tab === null || windowed}
             data-picking={pick.picking}
-            {...input.pointer}
+            {...(windowed ? {} : input.pointer)}
         >
-            <img ref={picture} alt="" draggable={false} hidden={tab === null} />
-            {tab !== null && (
+            <img
+                ref={picture}
+                alt=""
+                draggable={false}
+                hidden={tab === null || windowed || blank}
+            />
+            {tab !== null && !windowed && (
                 <textarea
                     ref={keys}
                     className="browser-keys"
@@ -539,19 +640,20 @@ function Picture(props: {
                     {...input.keyboard}
                 />
             )}
-            {pick.picking && <PickingSaid />}
+            {pick.picking && <PickingSaid windowed={windowed} />}
             {props.children}
         </div>
     );
 }
 
 /** What a click does while an element is picked, and how to stop, over the page's foot. */
-function PickingSaid() {
+function PickingSaid({ windowed }: { windowed: boolean }) {
     const words = useWords();
+    const where = windowed ? "the page in its window" : "the page";
     return (
         <p className="browser-picking" role="status">
-            Click an element of the page to point the {words.terms.agent} at it. <kbd>Esc</kbd>{" "}
-            stops picking.
+            Click an element of {where} to point the {words.terms.agent} at it. <kbd>Esc</kbd> stops
+            picking.
         </p>
     );
 }

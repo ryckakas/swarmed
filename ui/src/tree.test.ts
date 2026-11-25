@@ -13,7 +13,7 @@ import {
     projectStatus,
     projectUnread,
     repositoryOf,
-    stillFolded,
+    stillListed,
     taskNameForPrompt,
     taskNameFrom,
     taskStatus,
@@ -97,14 +97,14 @@ describe("a folded task", () => {
     it("is forgotten once its task is removed or archived", () => {
         const projects = sampleProjects();
         const folded = [1, 2, 4];
-        expect(stillFolded(folded, projects)).toBe(folded);
+        expect(stillListed(folded, projects)).toBe(folded);
         const archived = projects.map((project) => ({
             ...project,
             tasks: project.tasks.map((task) =>
                 task.id === 2 ? { ...task, archived: true } : task,
             ),
         }));
-        expect(stillFolded([...folded, 9], archived)).toEqual([1, 4]);
+        expect(stillListed([...folded, 9], archived)).toEqual([1, 4]);
     });
 
     it("leaves a list as it was when none of its ids go", () => {

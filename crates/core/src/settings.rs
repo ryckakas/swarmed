@@ -87,6 +87,8 @@ pub struct Settings {
     /// How many minutes a task's browser may sit unused before it is stopped, up to a day; 0
     /// to leave it running until its task is put away or Swarmed quits.
     pub browser_idle_minutes: u32,
+    /// Where a task's browser is shown: drawn in the pane, or as a Chrome window of its own.
+    pub browser_display: BrowserDisplay,
 }
 
 /// The longest the user's rules may be, in bytes: they travel with every session's
@@ -188,6 +190,19 @@ pub enum LimitWarnings {
     None,
 }
 
+/// Where a task's browser is shown. Either way it is the same Chrome, on the task's profile,
+/// and agents' browser tools act in it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowserDisplay {
+    /// Chrome runs without a window, and the Browser pane draws pictures of its page.
+    #[default]
+    Pane,
+    /// Chrome runs with a window of its own, drawn by Chrome itself; the pane lists its tabs
+    /// and brings its window forward.
+    Window,
+}
+
 /// How Swarmed gets its new versions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -234,6 +249,7 @@ impl Default for Settings {
             put_away_closes_sessions: false,
             browser_program: String::new(),
             browser_idle_minutes: 30,
+            browser_display: BrowserDisplay::Pane,
         }
     }
 }
@@ -378,6 +394,7 @@ mod tests {
             put_away_closes_sessions: true,
             browser_program: "/Applications/Chromium.app/Contents/MacOS/Chromium".to_string(),
             browser_idle_minutes: 90,
+            browser_display: BrowserDisplay::Window,
         };
         chosen.save(&path).expect("saves");
         assert_eq!(Settings::load(&path).expect("loads"), chosen);
@@ -539,6 +556,13 @@ mod tests {
             Settings::load(&path).expect("loads").browser_idle_minutes,
             MAX_IDLE_MINUTES
         );
+        std::fs::write(&path, "browser_display = \"window\"\n").expect("writes");
+        let display = Settings::load(&path).expect("loads").browser_display;
+        assert_eq!(display, BrowserDisplay::Window);
+        // A way of showing it a newer Swarmed knows is the pane here.
+        std::fs::write(&path, "browser_display = \"tab\"\n").expect("writes");
+        let display = Settings::load(&path).expect("loads").browser_display;
+        assert_eq!(display, BrowserDisplay::Pane);
     }
 
     #[test]

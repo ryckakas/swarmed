@@ -219,7 +219,7 @@ async fn attached(browser: &Browser, tab: &str) -> Option<String> {
 }
 
 /// Opens a tab on `url`, and waits until it is told of, so that it can be shown at once.
-async fn open(browser: &Browser, url: &str) -> std::result::Result<String, String> {
+pub(super) async fn open(browser: &Browser, url: &str) -> std::result::Result<String, String> {
     let created = browser
         .cdp
         .call(None, "Target.createTarget", json!({ "url": url }))
@@ -307,6 +307,7 @@ mod tests {
             ],
             shown: Some("A".into()),
             downloads: PathBuf::from("/tmp"),
+            windowed: false,
         };
         let said = told("http://127.0.0.1:50123", &state, 7, Some("A"));
         assert!(said.contains("on http://localhost:3000/ (tab A)"), "{said}");

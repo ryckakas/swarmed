@@ -12,8 +12,8 @@ use std::time::Duration;
 use base64::Engine;
 use common::{core_with_project, fixture};
 use swarmed_core::{
-    BrowserEvent, BrowserGo, BrowserState, CleanupKind, Core, KeyInput, KeyKind, Modifiers,
-    MouseInput, MouseKind, NewTaskOptions, RemoveOptions, Settings, Viewport, hooks,
+    BrowserDisplay, BrowserEvent, BrowserGo, BrowserState, CleanupKind, Core, KeyInput, KeyKind,
+    Modifiers, MouseInput, MouseKind, NewTaskOptions, RemoveOptions, Settings, Viewport, hooks,
 };
 use tokio::sync::broadcast::Receiver;
 
@@ -158,7 +158,12 @@ fn picture(data: &str) -> String {
 
 /// What the stand-in was told to do with the mouse and keys, in order.
 async fn inputs(profile: &Path, count: usize) -> Vec<serde_json::Value> {
-    let file = profile.join("fake-input");
+    noted(profile, "fake-input", count).await
+}
+
+/// What the stand-in noted under `name`, once it has noted at least `count` things.
+async fn noted(profile: &Path, name: &str, count: usize) -> Vec<serde_json::Value> {
+    let file = profile.join(name);
     for _ in 0..100 {
         let text = std::fs::read_to_string(&file).unwrap_or_default();
         if text.lines().count() >= count {
@@ -242,6 +247,136 @@ async fn the_pane_gets_pictures_of_the_tab_shown_at_its_size_and_none_once_hidde
         late += usize::from(matches!(event, BrowserEvent::Frame { .. }));
     }
     assert!(late <= 1, "at most one already on its way, not {late}");
+    core.browser_stop(task).await.expect("stops");
+}
+
+#[tokio::test]
+async fn the_tab_shown_shown_again_gets_pictures_at_the_new_size() {
+    let fx = fixture();
+    let _ends = ends_browsers(&fx);
+    let core = core_with_task(&fx).await;
+    let task = task_id(&core);
+    let mut bus = core.subscribe_browsers();
+    let size = |event| match event {
+        BrowserEvent::Frame { width, height, .. } => Some((width, height)),
+        _ => None,
+    };
+    core.browser_show(task, None, VIEW).await.expect("shows");
+    assert_eq!(heard(&mut bus, size).await, (640, 480));
+
+    // The pane measured again: the same tab, at its new size. Chrome refuses to start
+    // pictures a second time, so they are stopped first.
+    let wider = Viewport { width: 900, ..VIEW };
+    core.browser_show(task, None, wider)
+        .await
+        .expect("shows the same tab again");
+    let resized = heard(&mut bus, |event| {
+        size(event).filter(|&(width, _)| width == 900)
+    });
+    assert_eq!(resized.await, (900, 480));
+
+    // Two at once, as the pane opening and a session's tools acting can be.
+    let (one, two) = tokio::join!(
+        core.browser_show(task, None, VIEW),
+        core.browser_show(task, None, wider),
+    );
+    one.expect("the first shows");
+    two.expect("the second shows");
+    core.browser_stop(task).await.expect("stops");
+}
+
+#[tokio::test]
+async fn a_moving_page_is_sent_at_a_lower_quality_and_a_still_one_sharp_again() {
+    let fx = fixture();
+    let _ends = ends_browsers(&fx);
+    let core = core_with_task(&fx).await;
+    let task = task_id(&core);
+    let mut bus = core.subscribe_browsers();
+    core.browser_show(task, None, VIEW).await.expect("shows");
+    // The stand-in sends forty pictures, as fast as they are acknowledged, then none: a page
+    // that moves, then stands still. It is started sharp, again lower as pictures come close
+    // together, and sharp again once they stop, which sends the one picture that stays.
+    let profile = fx.paths.browser(task).join("profile");
+    let started = noted(&profile, "fake-cast", 3).await;
+    let qualities: Vec<_> = started.iter().map(|cast| cast["quality"].clone()).collect();
+    assert_eq!(qualities, [90, 60, 90]);
+    let sharp = heard(&mut bus, |event| match event {
+        BrowserEvent::Frame { data, .. } => Some(picture(&data)).filter(|p| p.contains("41")),
+        _ => None,
+    });
+    assert_eq!(
+        sharp.await,
+        "frame 41 640x480",
+        "the sharp one after the forty"
+    );
+    // Standing still, it is not started again.
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(noted(&profile, "fake-cast", 3).await.len(), 3);
+    core.browser_stop(task).await.expect("stops");
+}
+
+#[tokio::test]
+async fn a_chrome_with_a_window_is_drawn_by_chrome_and_raised_only_when_asked() {
+    let fx = fixture();
+    let _ends = ends_browsers(&fx);
+    let core = core_with_task(&fx).await;
+    let task = task_id(&core);
+    let settings = Settings {
+        browser_display: BrowserDisplay::Window,
+        ..core.settings().expect("reads")
+    };
+    core.set_settings(&settings).expect("test setup");
+    let state = core.browser_show(task, None, VIEW).await.expect("shows");
+    assert!(state.windowed, "started with a window of its own");
+    let tab = state.shown.expect("a tab is shown");
+    // Chrome draws it: no pictures, and no size set on its page.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let profile = fx.paths.browser(task).join("profile");
+    assert!(!profile.join("fake-cast").exists(), "no pictures asked for");
+    core.browser_raise(task, None).await.expect("raises");
+    let raised = noted(&profile, "fake-activate", 1).await;
+    assert_eq!(raised, [serde_json::json!(tab)]);
+    core.browser_stop(task).await.expect("stops");
+
+    // Started again with the pane chosen, it runs without one.
+    let pane = Settings {
+        browser_display: BrowserDisplay::Pane,
+        ..settings
+    };
+    core.set_settings(&pane).expect("saves");
+    let state = core.browser_show(task, None, VIEW).await.expect("shows");
+    assert!(!state.windowed);
+    core.browser_stop(task).await.expect("stops");
+}
+
+#[tokio::test]
+async fn a_chrome_started_again_opens_the_tabs_it_had_when_it_was_stopped() {
+    let fx = fixture();
+    let _ends = ends_browsers(&fx);
+    let core = core_with_task(&fx).await;
+    let task = task_id(&core);
+    let mut bus = core.subscribe_browsers();
+    core.browser_open(task).await.expect("starts");
+    core.browser_tab_new(task, Some("example.com"))
+        .await
+        .expect("opens a tab");
+    core.browser_tab_new(task, Some("localhost:3000/cart"))
+        .await
+        .expect("opens a tab");
+    state_where(&mut bus, |state| state.tabs.len() == 3).await;
+    core.browser_stop(task).await.expect("stops");
+
+    // Its web pages come back, and the blank page it started on goes.
+    let state = core
+        .browser_show(task, None, VIEW)
+        .await
+        .expect("starts again");
+    let urls: Vec<&str> = state.tabs.iter().map(|tab| tab.url.as_str()).collect();
+    assert_eq!(urls, ["https://example.com", "http://localhost:3000/cart"]);
+    assert_eq!(state.shown.as_ref(), state.tabs.first().map(|tab| &tab.id));
+    let kept = fx.paths.browser(task).join("tabs.json");
+    let mode = std::fs::metadata(&kept).expect("kept").permissions().mode();
+    assert_eq!(mode & 0o777, 0o600, "readable by the user alone");
     core.browser_stop(task).await.expect("stops");
 }
 
@@ -697,5 +832,166 @@ async fn with_a_real_chrome_a_page_is_drawn_typed_into_and_logs() {
         state.tabs.iter().any(|t| t.title == "typed")
     })
     .await;
+    core.browser_stop(task).await.expect("stops");
+}
+
+/// On a screen with two pixels to each point, a real Chrome draws the page at that density:
+/// pictures drawn at one point to a pixel are blurred twice over when the pane enlarges them.
+#[tokio::test]
+#[ignore = "needs a real Chrome on the machine"]
+async fn with_a_real_chrome_pictures_have_the_screens_pixels() {
+    let fx = fixture();
+    let _ends = ends_browsers(&fx);
+    let core = core_with_project(&fx).await;
+    core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    let task = task_id(&core);
+    let mut bus = core.subscribe_browsers();
+    let retina = Viewport { scale: 2.0, ..VIEW };
+    let state = core.browser_show(task, None, retina).await.expect("shows");
+    let tab = state.shown.expect("shown");
+    let page = "data:text/html,<p style=\"font:13px system-ui\">The quick brown fox</p>";
+    let address = BrowserGo::Address(page.into());
+    core.browser_go(task, &tab, &address).await.expect("goes");
+    assert_eq!(settled(&mut bus).await, (1280, 960));
+    // The still once the page stopped is the last: taking it sets off no more pictures.
+    let after = settled_count(&mut bus).await;
+    assert_eq!(after, 0, "pictures after the still");
+    // On a screen of one pixel to a point, Chrome makes them smaller: none wider than asked.
+    core.browser_show(task, None, VIEW).await.expect("shows");
+    assert_eq!(settled(&mut bus).await, (640, 480));
+    core.browser_stop(task).await.expect("stops");
+}
+
+/// The last state and how many pictures came in three seconds.
+async fn heard_after(bus: &mut Receiver<BrowserEvent>) -> (Option<BrowserState>, usize) {
+    let (mut last_state, mut pictures) = (None, 0);
+    let until = tokio::time::Instant::now() + Duration::from_secs(3);
+    while let Ok(Ok(event)) = tokio::time::timeout_at(until, bus.recv()).await {
+        pictures += usize::from(matches!(event, BrowserEvent::Frame { .. }));
+        if let BrowserEvent::State(state) = event {
+            last_state = Some(state);
+        }
+    }
+    (last_state, pictures)
+}
+
+/// How many pictures came in a second.
+async fn settled_count(bus: &mut Receiver<BrowserEvent>) -> usize {
+    let until = tokio::time::Instant::now() + Duration::from_secs(1);
+    let mut count = 0;
+    while let Ok(Ok(event)) = tokio::time::timeout_at(until, bus.recv()).await {
+        count += usize::from(matches!(event, BrowserEvent::Frame { .. }));
+    }
+    count
+}
+
+/// The size of the last picture heard within two seconds: the first pictures after a change
+/// can be of the page before it took its size.
+async fn settled(bus: &mut Receiver<BrowserEvent>) -> (u16, u16) {
+    let mut sizes = Vec::new();
+    let until = tokio::time::Instant::now() + Duration::from_secs(2);
+    while let Ok(Ok(event)) = tokio::time::timeout_at(until, bus.recv()).await {
+        if let BrowserEvent::Frame { data, .. } = event {
+            sizes.push(jpeg_size(&data));
+        }
+    }
+    sizes.last().copied().expect("pictures came")
+}
+
+/// A JPEG's own width and height, from its start-of-frame marker.
+fn jpeg_size(data: &str) -> (u16, u16) {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .expect("base64");
+    let mut at = 2;
+    while at + 9 < bytes.len() {
+        let marker = bytes[at + 1];
+        let length = usize::from(u16::from_be_bytes([bytes[at + 2], bytes[at + 3]]));
+        if (0xC0..=0xC3).contains(&marker) {
+            let height = u16::from_be_bytes([bytes[at + 5], bytes[at + 6]]);
+            let width = u16::from_be_bytes([bytes[at + 7], bytes[at + 8]]);
+            return (width, height);
+        }
+        at += 2 + length;
+    }
+    panic!("no size in the JPEG");
+}
+
+/// A real Chrome with a window of its own says so, and its window can be brought forward. It
+/// opens a window on the screen for a moment: `cargo test --test browser -- --ignored window`.
+#[tokio::test]
+#[ignore = "needs a real Chrome on the machine, and opens a window on the screen"]
+async fn with_a_real_chrome_in_a_window_it_says_so_and_is_brought_forward() {
+    let fx = fixture();
+    let _ends = ends_browsers(&fx);
+    let core = core_with_project(&fx).await;
+    core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    let task = task_id(&core);
+    let settings = Settings {
+        browser_display: BrowserDisplay::Window,
+        ..core.settings().expect("reads")
+    };
+    core.set_settings(&settings).expect("test setup");
+    let state = core.browser_show(task, None, VIEW).await.expect("shows");
+    assert!(
+        state.windowed,
+        "a Chrome with a window does not name itself HeadlessChrome"
+    );
+    core.browser_raise(task, None)
+        .await
+        .expect("brought forward");
+    core.browser_stop(task).await.expect("stops");
+}
+
+/// Stopped and started again, a real Chrome is shown again, and stays shown: what the stopped
+/// one says as it goes is not taken for the new one.
+#[tokio::test]
+#[ignore = "needs a real Chrome on the machine"]
+async fn with_a_real_chrome_stopped_and_started_again_it_is_shown_again() {
+    let fx = fixture();
+    let _ends = ends_browsers(&fx);
+    let core = core_with_project(&fx).await;
+    core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    let task = task_id(&core);
+    let mut bus = core.subscribe_browsers();
+    let shown = core.browser_show(task, None, VIEW).await.expect("shows");
+    let tab = shown.shown.expect("a tab");
+    // Nothing listens there: Chrome shows its error page, at that address.
+    let away = BrowserGo::Address("http://127.0.0.1:9/away".into());
+    core.browser_go(task, &tab, &away).await.ok();
+    state_where(&mut bus, |state| {
+        state.tabs.iter().any(|tab| tab.url.ends_with("/away"))
+    })
+    .await;
+    core.browser_stop(task).await.expect("stops");
+    let again = core
+        .browser_show(task, None, VIEW)
+        .await
+        .expect("shows again");
+    assert!(again.running && again.shown.is_some(), "{again:?}");
+    let urls: Vec<&str> = again.tabs.iter().map(|tab| tab.url.as_str()).collect();
+    assert_eq!(
+        urls,
+        ["http://127.0.0.1:9/away"],
+        "its tab again, not a blank page"
+    );
+    // What comes after: pictures of it, and no word that it stopped.
+    let (last_state, pictures) = heard_after(&mut bus).await;
+    assert!(pictures > 0, "no pictures after starting again");
+    if let Some(state) = last_state {
+        assert!(state.running && state.shown.is_some(), "{state:?}");
+    }
+    let record = fx
+        .paths
+        .data_dir
+        .join("run/browsers")
+        .join(format!("{task}.pid"));
+    assert!(record.exists(), "the new Chrome is still written down");
     core.browser_stop(task).await.expect("stops");
 }

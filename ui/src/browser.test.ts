@@ -4,6 +4,7 @@ import {
     actorOf,
     addressOf,
     askedToShow,
+    blankPage,
     consoleCounted,
     consoleCounts,
     consoleMerged,
@@ -16,7 +17,9 @@ import {
     mouseInput,
     openedBy,
     pagePoint,
+    paneOpenFor,
     pickAsked,
+    restartTo,
     sameViewport,
     sessionForBrowser,
     shownAddress,
@@ -75,6 +78,7 @@ describe("where a click on the picture lands on the page", () => {
             tabs: [],
             shown: null,
             downloads: "/tmp/downloads",
+            windowed: false,
         };
         const some = { ...base, tabs: [tab("a", "about:blank")] };
         expect(pickAsked("a", { kind: "running", state: { ...some, shown: "a" } })).toBe("start");
@@ -117,6 +121,7 @@ describe("where a click on the picture lands on the page", () => {
             tabs: [],
             shown: null,
             downloads: "/tmp/downloads",
+            windowed: false,
         };
         const state = { tabs: [tab("a", "about:blank")] };
         expect(leftUnshown({ ...base, ...state })).toBe(true);
@@ -228,6 +233,7 @@ describe("tabs", () => {
         tabs: [tab("A", "about:blank"), tab("B", "http://localhost:3000/", "Shop")],
         shown: "B",
         downloads: "/d",
+        windowed: false,
     };
 
     it("are called by their title, an empty one New tab", () => {
@@ -276,6 +282,51 @@ describe("the minutes an unused browser runs on", () => {
     });
 });
 
+describe("Chrome's blank page", () => {
+    it("is drawn as the white page it is, and any other page from its pictures", () => {
+        expect(blankPage(tab("T", "about:blank"))).toBe(true);
+        expect(blankPage(tab("T", "http://localhost:3000/"))).toBe(false);
+        expect(blankPage(tab("T", "about:blank#x"))).toBe(false);
+        expect(blankPage(null)).toBe(false);
+    });
+});
+
+describe("a Chrome with a window of its own", () => {
+    it("is offered to start again as the settings say, only where it runs the other way", () => {
+        const runs = (windowed: boolean): BrowserState => ({
+            task_id: 1,
+            running: true,
+            name: "Google Chrome",
+            endpoint: null,
+            websocket: null,
+            tabs: [],
+            shown: null,
+            downloads: "/d",
+            windowed,
+        });
+        expect(restartTo(runs(false), "window")).toBe("window");
+        expect(restartTo(runs(true), "pane")).toBe("pane");
+        expect(restartTo(runs(true), "window")).toBeNull();
+        expect(restartTo(runs(false), "pane")).toBeNull();
+        // Not running, it starts as the settings say anyway.
+        expect(restartTo({ ...runs(false), running: false }, "window")).toBeNull();
+        expect(restartTo(null, "window")).toBeNull();
+    });
+});
+
+describe("which tasks show their browser", () => {
+    it("opens, closes and turns over one task's pane and leaves the others' as they are", () => {
+        expect(paneOpenFor([], 4, true)).toEqual([4]);
+        expect(paneOpenFor([4, 7], 4, false)).toEqual([7]);
+        expect(paneOpenFor([7], 4)).toEqual([7, 4]);
+        expect(paneOpenFor([7, 4], 4)).toEqual([7]);
+        // Nothing to change: the same list, so that nothing is written down again.
+        const opened = [4];
+        expect(paneOpenFor(opened, 4, true)).toBe(opened);
+        expect(paneOpenFor(opened, 5, false)).toBe(opened);
+    });
+});
+
 describe("an agent's acting in the task's browser", () => {
     it("opens the pane only for the task on screen", () => {
         const asked = { kind: "show", task_id: 4, session_id: 9, tab: "T2" } as const;
@@ -284,10 +335,11 @@ describe("an agent's acting in the task's browser", () => {
         expect(askedToShow(asked, null)).toBeNull();
         const console = { kind: "console", task_id: 4, tab: "T2", line: line(1) } as const;
         expect(askedToShow(console, 4)).toBeNull();
-        // Asked, the pane opens; forgetting the asking leaves it as it is.
-        expect(openedBy({ task: 4, tab: null }, false)).toBe(true);
-        expect(openedBy(null, false)).toBe(false);
-        expect(openedBy(null, true)).toBe(true);
+        // Asked, the task's pane opens; forgetting the asking leaves every pane as it is.
+        expect(openedBy({ task: 4, tab: null }, [2])).toEqual([2, 4]);
+        const opened = [4];
+        expect(openedBy({ task: 4, tab: "T2" }, opened)).toBe(opened);
+        expect(openedBy(null, opened)).toBe(opened);
     });
 
     it("names the session that acted in a tab, by its title or its number", () => {

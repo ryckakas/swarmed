@@ -716,7 +716,15 @@ export interface Settings {
     browser_program: string;
     /** Minutes a task's browser may sit unused before it is stopped, up to 1440; 0 for never. */
     browser_idle_minutes: number;
+    /** Where a task's browser is shown: drawn in the pane, or as a Chrome window of its own. */
+    browser_display: BrowserDisplay;
 }
+
+/**
+ * Where a task's browser is shown. Either way it is the same Chrome on the task's profile, and
+ * agents' browser tools act in it.
+ */
+export type BrowserDisplay = "pane" | "window";
 
 /**
  * How Swarmed gets its new versions: by itself, at launch and every few hours, installed as it
@@ -1552,6 +1560,8 @@ export interface BrowserState {
     shown: string | null;
     /** Where what its pages download goes. */
     downloads: string;
+    /** Whether it runs with a window of its own, which Chrome draws and the pane does not. */
+    windowed: boolean;
 }
 
 export type ConsoleLevel = "debug" | "info" | "warning" | "error";

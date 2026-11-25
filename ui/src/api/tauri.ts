@@ -304,6 +304,7 @@ export const tauriApi: Api = {
     browserShow: (taskId, tab, viewport) =>
         invoke<BrowserState>("browser_show", { taskId, tab, viewport }),
     browserHide: (taskId) => invoke("browser_hide", { taskId }),
+    browserRaise: (taskId, tab) => invoke("browser_raise", { taskId, tab }),
     browserMouse: (taskId, input) => invoke("browser_mouse", { taskId, input }),
     browserKey: (taskId, input) => invoke("browser_key", { taskId, input }),
     browserText: (taskId, text) => invoke("browser_text", { taskId, text }),

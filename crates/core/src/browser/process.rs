@@ -32,6 +32,12 @@ pub(crate) const ACTIVE_PORT: &str = "DevToolsActivePort";
 /// Where Chrome's own output goes, in the task's browser folder.
 pub(crate) const OUTPUT: &str = "chrome.log";
 
+/// The pixels to a point a Chrome without a window draws at. Headless, Chrome draws one pixel
+/// to a point whatever device scale is emulated, and a Retina pane enlarged those pictures into
+/// a blur. Drawn at two, pictures are asked for at the screen's own density and made smaller by
+/// Chrome where that is one.
+pub(crate) const RENDER_SCALE: f64 = 2.0;
+
 /// A Chrome that has started and listens.
 #[derive(Debug)]
 pub(crate) struct Started {
@@ -40,20 +46,26 @@ pub(crate) struct Started {
     pub(crate) path: String,
 }
 
-/// What Chrome is started with: without a window, on a profile of the task's own, with its
-/// endpoint on a port it picks on `127.0.0.1`, which is where Chrome listens unless told
-/// otherwise. No `--remote-allow-origins`: a web page must never reach the endpoint.
-pub(crate) fn args(profile: &Path, url: Option<&str>) -> Vec<OsString> {
+/// What Chrome is started with: on a profile of the task's own, with its endpoint on a port it
+/// picks on `127.0.0.1`, which is where Chrome listens unless told otherwise. No
+/// `--remote-allow-origins`: a web page must never reach the endpoint. Without a window unless
+/// `windowed`; with one, Chrome draws at the screen's density and keeps where the user put it.
+pub(crate) fn args(profile: &Path, url: Option<&str>, windowed: bool) -> Vec<OsString> {
     let mut profile_arg = OsString::from("--user-data-dir=");
     profile_arg.push(profile);
     let mut args: Vec<OsString> = vec![
-        "--headless".into(),
         "--remote-debugging-port=0".into(),
         profile_arg,
         "--no-first-run".into(),
         "--no-default-browser-check".into(),
-        "--window-size=1280,800".into(),
     ];
+    if !windowed {
+        args.extend([
+            "--headless".into(),
+            "--window-size=1280,800".into(),
+            format!("--force-device-scale-factor={RENDER_SCALE}").into(),
+        ]);
+    }
     // Only an address of the web: anything else on Chrome's command line could be read as a
     // switch.
     let page = url.filter(|url| url.starts_with("http://") || url.starts_with("https://"));
@@ -72,6 +84,7 @@ pub(crate) async fn start(
     profile: &Path,
     output: &Path,
     url: Option<&str>,
+    windowed: bool,
     record: &Path,
 ) -> Result<Started, String> {
     let active = profile.join(ACTIVE_PORT);
@@ -82,7 +95,7 @@ pub(crate) async fn start(
     // With the standard library, not Tokio: the process is to outlive whatever runtime asked
     // for it, as a command line that prints the endpoint and ends.
     let mut child = Command::new(program)
-        .args(args(profile, url))
+        .args(args(profile, url, windowed))
         .stdin(Stdio::null())
         .stdout(out)
         .stderr(err)
@@ -178,6 +191,19 @@ pub(crate) fn kept(record: &Path) -> Option<u32> {
     None
 }
 
+/// Forgets the record of Chrome `pid`, and only of it: a Chrome started since in its place is
+/// written down in the same file, and must not be forgotten for what the one before did.
+pub(crate) fn forget(record: &Path, pid: u32) {
+    let written = std::fs::read_to_string(record).unwrap_or_default();
+    let named = written
+        .lines()
+        .next()
+        .and_then(|line| line.trim().parse::<u32>().ok());
+    if named == Some(pid) {
+        std::fs::remove_file(record).ok();
+    }
+}
+
 /// Ends a Chrome: waits for one that was `asked` to close, then ends its whole group as a
 /// stack's is ended. Says whether it is gone.
 pub(crate) async fn end(pid: u32, mut child: Option<Child>, asked: bool) -> bool {
@@ -246,6 +272,7 @@ mod tests {
         let args = args(
             Path::new("/data/browsers/7/profile"),
             Some("http://localhost:3000/"),
+            false,
         );
         let args: Vec<String> = args
             .iter()
@@ -268,10 +295,38 @@ mod tests {
             args.last().map(String::as_str),
             Some("http://localhost:3000/")
         );
-        let odd = super::args(Path::new("/p"), Some("--load-extension=/x"));
+        let odd = super::args(Path::new("/p"), Some("--load-extension=/x"), false);
         assert_eq!(
             odd.last().map(|arg| arg.to_string_lossy()),
             Some("about:blank".into())
         );
+    }
+
+    #[test]
+    fn a_record_is_forgotten_only_for_the_chrome_it_names() {
+        let folder = tempfile::tempdir().expect("a folder");
+        let record = folder.path().join("7.pid");
+        std::fs::write(&record, "4242\nWed Nov 25 19:21:30 2026\n").expect("writes");
+        forget(&record, 1111);
+        assert!(record.exists(), "a Chrome started since keeps its record");
+        forget(&record, 4242);
+        assert!(!record.exists());
+        forget(&record, 4242);
+    }
+
+    #[test]
+    fn a_chrome_with_a_window_is_drawn_by_chrome_where_the_user_put_it() {
+        let args: Vec<String> = args(Path::new("/p"), None, true)
+            .iter()
+            .map(|arg| arg.to_string_lossy().into())
+            .collect();
+        assert!(args.contains(&"--user-data-dir=/p".to_string()));
+        assert!(args.contains(&"--remote-debugging-port=0".to_string()));
+        for left_out in ["--headless", "--window-size", "--force-device-scale-factor"] {
+            assert!(
+                !args.iter().any(|arg| arg.starts_with(left_out)),
+                "{left_out}"
+            );
+        }
     }
 }

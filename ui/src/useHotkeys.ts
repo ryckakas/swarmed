@@ -130,8 +130,9 @@ function pickElement() {
         void api.browserPickEnd(picking.task).catch(report);
         return;
     }
-    if (current()) {
-        toggleBrowser(true);
+    const shown = current();
+    if (shown) {
+        toggleBrowser(shown.task.id, true);
         askToPick(true);
     }
 }

@@ -3301,6 +3301,7 @@ export function createMockApi(): Api {
         put_away_closes_sessions: false,
         browser_program: "",
         browser_idle_minutes: 30,
+        browser_display: "pane",
     };
     const browserHost = {
         projects: () => agent.projects,

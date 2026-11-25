@@ -92,7 +92,7 @@ export function SessionPane() {
                         <ForkIcon />
                     </IconButton>
                     <HandOn session={session} project={home.project} task={home.task} />
-                    <BrowserButton running={home.task.browser} />
+                    <BrowserButton task={home.task.id} running={home.task.browser} />
                     {!panelOpen && (
                         <IconButton
                             label={`Show the ${words.terms.task} panel`}
@@ -149,15 +149,15 @@ export function SessionPane() {
 }
 
 /** Shows or hides the task's own browser beside the conversation; marked while it runs. */
-function BrowserButton({ running }: { running: boolean }) {
+function BrowserButton({ task, running }: { task: number; running: boolean }) {
     const words = useWords();
-    const open = useStore((state) => state.browserOpen);
+    const open = useStore((state) => state.browserOpen.includes(task));
     const toggleBrowser = useStore((state) => state.toggleBrowser);
     const what = `the ${words.terms.task}'s own browser`;
     const label = open ? `Hide ${what}` : `Show ${what}${running ? ", which runs" : ""}`;
     return (
         <span className="browser-button" data-running={running} data-open={open}>
-            <IconButton label={label} onClick={() => toggleBrowser()}>
+            <IconButton label={label} onClick={() => toggleBrowser(task)}>
                 <GlobeIcon />
             </IconButton>
         </span>

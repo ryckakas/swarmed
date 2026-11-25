@@ -1080,7 +1080,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
             "status_command": "", "rules": "", "updates": "automatic", "branch_prefix": "",
             "put_away_merged": false, "put_away_merged_days": 1, "put_away_idle": false,
             "put_away_idle_days": 14, "put_away_closes_sessions": false,
-            "browser_program": "", "browser_idle_minutes": 30,
+            "browser_program": "", "browser_idle_minutes": 30, "browser_display": "pane",
         })
     );
 
@@ -2537,6 +2537,8 @@ fn the_ui_can_open_a_tasks_browser_show_and_drive_a_tab_and_stop_it() {
     let answer = json!({ "taskId": task_id, "tab": tab, "accept": true, "text": null });
     app.ok("browser_dialog", answer);
     picked_and_sent(&app, &task_id);
+    // Without a window of its own there is none to raise, and asking does no harm.
+    app.ok("browser_raise", json!({ "taskId": task_id, "tab": tab }));
     app.ok("browser_hide", which.clone());
     app.ok("browser_stop", which.clone());
     assert_eq!(app.ok("browser_state", which.clone())["running"], false);

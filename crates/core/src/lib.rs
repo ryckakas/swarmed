@@ -171,7 +171,9 @@ use sessions::Live;
 pub use sessions::{
     EVENT_BUFFER, Session, SessionEvent, SessionOptions, SessionSettings, SessionStatus,
 };
-pub use settings::{Layout, LimitWarnings, Palette, Settings, Style, Theme, ToolCalls, UpdateMode};
+pub use settings::{
+    BrowserDisplay, Layout, LimitWarnings, Palette, Settings, Style, Theme, ToolCalls, UpdateMode,
+};
 pub use setups::{SettingUp, SetupEnd, SetupLog, SetupProgress, SetupStep, SetupStop};
 pub use skills::Skill;
 pub use snapshots::Snapshot;
