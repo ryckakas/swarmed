@@ -1419,6 +1419,14 @@ code {
     margin-right: 0;
 }
 
+/*
+ * With no remove button after it (the chats can't be removed), it keeps the room that button
+ * and its margin take, so every + on the headings stays in one column (#393).
+ */
+.row-head .row-add:last-child {
+    margin-right: calc(22px + var(--space-2));
+}
+
 .row-add:hover,
 .row-add:focus-visible {
     background: var(--raised);

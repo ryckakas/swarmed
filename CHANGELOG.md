@@ -35,6 +35,8 @@ notice adds its line under Unreleased.
   away counted them, though they are listed apart in Done, so a task dragged or moved with
   ⌥⌘↑/↓ could stop short or not move at all. A task brought back still comes back where it
   was.
+- **The + for a new chat lines up with the others.** On the chats' heading in the sidebar it
+  sat further right than the + on each repository's heading.
 
 ## [0.4.6] - 2026-11-25
 
