@@ -15,6 +15,8 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+## [0.4.8] - 2026-11-26
+
 ### Added
 
 - **Agents start tasks.** Ask an agent for work that needs a branch of its own, such as a fix to
@@ -962,7 +964,8 @@ through Homebrew or a browser.
 - **Installing:** an install script, a Homebrew cask that also puts `swarmed` on the PATH, and
   `cargo install swarmed` for the command alone.
 
-[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.4.7...HEAD
+[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.4.8...HEAD
+[0.4.8]: https://github.com/ryckakas/swarmed/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/ryckakas/swarmed/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/ryckakas/swarmed/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/ryckakas/swarmed/compare/v0.4.4...v0.4.5
