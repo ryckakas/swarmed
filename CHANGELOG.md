@@ -15,6 +15,15 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Agents close the sessions they start with `start_task`.** An architect or a planner that
+  hands work to an implementer in a task of its own can close that session with
+  `close_session` once it has reported back, as it can a session it spawned beside itself, and
+  so makes room to start more. The task, its worktree, branch and pull request stay. A session
+  you started stays yours to close, even one you set to work for an agent, and one whose task
+  is still being set up is not closed.
+
 ## [0.4.8] - 2026-11-26
 
 ### Added
