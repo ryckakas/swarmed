@@ -2069,6 +2069,8 @@ code {
  * The five colours marks and highlights are named by: each the palette's own, unless the custom
  * layout gives one (`--green` and the others, on the body), which then changes both. Read on the
  * element itself, so that it is the custom layout's value that is read and not the root's.
+ * Purple's own is `--violet`, under another name than the custom layout's so that a palette set
+ * on an element below the body can never take its place.
  */
 .mark-green {
     --mark: var(--green, var(--moss));
@@ -2087,7 +2089,7 @@ code {
 }
 
 .mark-purple {
-    --mark: var(--purple, color-mix(in srgb, var(--sky) 50%, var(--clay)));
+    --mark: var(--purple, var(--violet));
 }
 
 [data-highlight="green"] {
@@ -2107,7 +2109,7 @@ code {
 }
 
 [data-highlight="purple"] {
-    --highlight: var(--purple, color-mix(in srgb, var(--sky) 50%, var(--clay)));
+    --highlight: var(--purple, var(--violet));
 }
 
 /*

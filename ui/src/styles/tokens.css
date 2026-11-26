@@ -54,6 +54,9 @@
     --teal: #7fc8c2;
     --sand: #e3c08a;
     --bright: #fbf8ef;
+
+    /* Marks and highlights called purple: each palette has its own, apart from its sky. */
+    --violet: #c57ae6;
 }
 
 /* Light, when the system is and the user has not asked for dark. */
@@ -81,6 +84,8 @@
         --teal: #0e6f69;
         --sand: #8a5a10;
         --bright: #0b0d12;
+
+        --violet: #8c2faf;
     }
 }
 
@@ -108,6 +113,8 @@
     --teal: #0e6f69;
     --sand: #8a5a10;
     --bright: #0b0d12;
+
+    --violet: #8c2faf;
 }
 
 :root[data-theme="dark"] {

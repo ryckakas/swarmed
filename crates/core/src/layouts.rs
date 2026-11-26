@@ -102,7 +102,7 @@ pub enum Colour {
     Yellow,
     /// Marks and highlights called red; the palette's clay unless given.
     Red,
-    /// Marks and highlights called purple; between the palette's sky and clay unless given.
+    /// Marks and highlights called purple; the palette's own purple unless given.
     Purple,
 }
 
@@ -633,7 +633,7 @@ pub fn layout_schema() -> Value {
                 "blue": colour("Marks and highlights called blue. Busy unless given."),
                 "yellow": colour("Marks and highlights called yellow. Pollen unless given."),
                 "red": colour("Marks and highlights called red. Clay unless given."),
-                "purple": colour("Marks and highlights called purple. Between sky and clay unless given."),
+                "purple": colour("Marks and highlights called purple. The palette's own purple unless given."),
             },
         })
     };

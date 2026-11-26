@@ -470,7 +470,7 @@ A key Swarmed does not know stays in `settings.toml` when the settings are saved
 
 `layout.json` holds the custom layout, which Settings shows as JSON and an agent can write for you. It starts from classic or senior (`base`) and changes only how things look: the five text sizes, line height, spacing, icons, the heights of rows and controls, the two fonts, the palette's colours in dark and in light, and the sidebar's levels. `swarmed layout schema` prints every field with its range.
 
-Beside the palette's colours, `dark` and `light` can give the five colours marks and highlights are named by: `green`, `blue`, `yellow`, `red` and `purple`. Each is the palette's own until given (moss, busy, pollen, clay, and between sky and clay), and one value changes both the marks an agent sets and the highlights you choose in that colour.
+Beside the palette's colours, `dark` and `light` can give the five colours marks and highlights are named by: `green`, `blue`, `yellow`, `red` and `purple`. Each is the palette's own until given (moss, busy, pollen, clay, and a purple of each palette's own), and one value changes both the marks an agent sets and the highlights you choose in that colour.
 
 `sidebar` sets the four levels of the sidebar apart from each other and from the rest of the app: `repository`, `task`, `session` and `sub_agent`. Each can take a text `size` in pixels (9 to 40), a `weight` from 400 to 700, and for `dark` and `light` a `colour` for its text and a `background` for its rows:
 

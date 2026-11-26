@@ -49,6 +49,11 @@ notice adds its line under Unreleased.
   you point at the row, reach it with the keyboard or have its colours open, in every layout,
   and takes no room otherwise: the bar at the row's right edge shows its colour. In classic,
   every task and session row has that room for its name again, highlighted or not.
+- **Purple marks and highlights no longer look red.** Purple was half the palette's link colour
+  and half red, so in the swarm palette, whose link colour is magenta, it came out next to red,
+  and in the others a greyish mauve. Each palette now has a purple of its own, in dark and in
+  light, which stands apart from its red, its blue and its link colour, and a custom layout's
+  `purple` still takes its place.
 
 ## [0.4.8] - 2026-11-26
 

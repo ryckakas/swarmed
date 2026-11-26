@@ -5,6 +5,11 @@
  * all of them: what they mean must
  * not change with taste.
  *
+ * Violet, which marks and highlights called purple are drawn in, is the palette's own: it has to
+ * stand apart from the palette's sky as well as from clay and the blue of work, and plum's sky is
+ * violet and swarm's magenta. Each is told apart from those at a glance and stands out from the
+ * backgrounds at least 4.5 to 1, as the status colours do.
+ *
  * Each is written three times, as the base colours in tokens.css are: dark, light because the
  * system is, and light because the user asked. The selectors match the page's root and any
  * element carrying `data-palette`, which is how the settings show each palette in its own
@@ -21,6 +26,7 @@
     --faint: #757c8c;
     --focus: #8fb4ff;
     --sky: #8fb4ff;
+    --violet: #c57ae6;
     --bright: #fbf8ef;
 }
 
@@ -36,6 +42,7 @@
         --faint: #7b8392;
         --focus: #1f5fd1;
         --sky: #1f5fd1;
+        --violet: #8c2faf;
         --bright: #0b0d12;
     }
 }
@@ -51,6 +58,7 @@
     --faint: #7b8392;
     --focus: #1f5fd1;
     --sky: #1f5fd1;
+    --violet: #8c2faf;
     --bright: #0b0d12;
 }
 
@@ -64,6 +72,7 @@
     --faint: #7a7a80;
     --focus: #9db8f5;
     --sky: #9db8f5;
+    --violet: #c57ae6;
     --bright: #fafaf7;
 }
 
@@ -79,6 +88,7 @@
         --faint: #7e7e84;
         --focus: #2a5fc4;
         --sky: #2a5fc4;
+        --violet: #8c2faf;
         --bright: #0c0c0d;
     }
 }
@@ -94,6 +104,7 @@
     --faint: #7e7e84;
     --focus: #2a5fc4;
     --sky: #2a5fc4;
+    --violet: #8c2faf;
     --bright: #0c0c0d;
 }
 
@@ -107,6 +118,7 @@
     --faint: #74807a;
     --focus: #8fc4e8;
     --sky: #8fc4e8;
+    --violet: #c57ae6;
     --bright: #f6f9ef;
 }
 
@@ -122,6 +134,7 @@
         --faint: #76847a;
         --focus: #1d6a8c;
         --sky: #1d6a8c;
+        --violet: #8c2faf;
         --bright: #0a100c;
     }
 }
@@ -137,6 +150,7 @@
     --faint: #76847a;
     --focus: #1d6a8c;
     --sky: #1d6a8c;
+    --violet: #8c2faf;
     --bright: #0a100c;
 }
 
@@ -150,6 +164,7 @@
     --faint: #7f778a;
     --focus: #b7a6ff;
     --sky: #b7a6ff;
+    --violet: #db6dd9;
     --bright: #fbf7fd;
 }
 
@@ -165,6 +180,7 @@
         --faint: #837a90;
         --focus: #5b3fc4;
         --sky: #5b3fc4;
+        --violet: #851980;
         --bright: #0f0b14;
     }
 }
@@ -180,6 +196,7 @@
     --faint: #837a90;
     --focus: #5b3fc4;
     --sky: #5b3fc4;
+    --violet: #851980;
     --bright: #0f0b14;
 }
 
@@ -193,6 +210,7 @@
     --faint: #857b70;
     --focus: #9cc0e8;
     --sky: #9cc0e8;
+    --violet: #c57ae6;
     --bright: #fdf8ef;
 }
 
@@ -208,6 +226,7 @@
         --faint: #8a7e71;
         --focus: #1f5fa8;
         --sky: #1f5fa8;
+        --violet: #8c2faf;
         --bright: #120d08;
     }
 }
@@ -223,6 +242,7 @@
     --faint: #8a7e71;
     --focus: #1f5fa8;
     --sky: #1f5fa8;
+    --violet: #8c2faf;
     --bright: #120d08;
 }
 
@@ -237,6 +257,7 @@
     --faint: #8a7590;
     --focus: #e86bbf;
     --sky: #e86bbf;
+    --violet: #a18bf3;
     --bright: #fff3fa;
 }
 
@@ -252,6 +273,7 @@
         --faint: #8f7791;
         --focus: #a8257f;
         --sky: #a8257f;
+        --violet: #5b2bb4;
         --bright: #150a16;
     }
 }
@@ -267,5 +289,6 @@
     --faint: #8f7791;
     --focus: #a8257f;
     --sky: #a8257f;
+    --violet: #5b2bb4;
     --bright: #150a16;
 }
