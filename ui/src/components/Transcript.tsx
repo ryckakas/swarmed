@@ -44,7 +44,6 @@ import { SentContexts } from "./AppContexts";
 import { ConfigProposal } from "./ConfigProposal";
 import { FileChips } from "./FileChips";
 import { HtmlView } from "./HtmlView";
-import { WithLinks } from "./Link";
 import { Markdown } from "./Markdown";
 import { McpAppView } from "./McpAppView";
 import { MentionList, WithMentions } from "./MentionChips";
@@ -53,6 +52,7 @@ import { SendFailure } from "./PullRequest";
 import { PutAwayButton } from "./PutAway";
 import { QuestionPrompt } from "./QuestionPrompt";
 import { QuoteButton } from "./QuoteButton";
+import { SaidText } from "./SaidText";
 import { Spawning, Swarming } from "./Spawning";
 import { ToolCall, ToolRun } from "./ToolCall";
 import { LastImage } from "./ToolImages";
@@ -203,7 +203,7 @@ function SaidPart({ part, mentioned }: { part: MessagePart; mentioned: Mentions 
         case "quote":
             return (
                 <blockquote className="said-quote">
-                    <WithLinks text={part.text} />
+                    <SaidText text={part.text} sessionId={mentioned.sessionId} />
                 </blockquote>
             );
         case "paste":

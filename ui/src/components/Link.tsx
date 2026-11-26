@@ -1,6 +1,5 @@
 import type { ComponentProps } from "react";
 import { api } from "../api";
-import { hasLinks, saidLinks } from "../saidLinks";
 import { useStore } from "../store";
 
 /**
@@ -27,27 +26,5 @@ export function Link({
         >
             {children}
         </a>
-    );
-}
-
-/** Words the user wrote, each address in them a link that opens in their browser. */
-export function WithLinks({ text }: { text: string }) {
-    const pieces = saidLinks(text);
-    if (!hasLinks(pieces)) {
-        return <span>{text}</span>;
-    }
-    return (
-        <span>
-            {pieces.map((piece, index) =>
-                typeof piece === "string" ? (
-                    piece
-                ) : (
-                    // biome-ignore lint/suspicious/noArrayIndexKey: the pieces of a sent message never change
-                    <Link key={index} className="said-link" href={piece.address}>
-                        {piece.shown}
-                    </Link>
-                ),
-            )}
-        </span>
     );
 }

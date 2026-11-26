@@ -1617,7 +1617,7 @@ export function sampleEvents(sessionId: number): AgentEvent[] {
         return [
             {
                 type: "user_message",
-                text: "Users get stuck in a redirect loop after login (try https://shop.example.com/login?next=/login). Fix it.",
+                text: "Users get stuck in a redirect loop after login (try https://shop.example.com/login?next=/login). It starts in `redirectAfterLogin`, src/auth/login.ts:41, and my notes from the last outage are in ~/notes/storefront.md. Fix it.",
             },
             INIT,
             { type: "text", text: "I'll look at how the login redirect is built." },
@@ -1954,6 +1954,18 @@ const SAMPLE_TREE: Record<string, string[]> = {
     test: ["auth/"],
     "test/auth": ["login.test.ts"],
 };
+
+/**
+ * Opens a sample file, as the core does: one the sample worktree does not hold is refused in
+ * the core's words.
+ */
+function openSampleFile(path: string) {
+    const slash = path.lastIndexOf("/");
+    const [dir, name] = slash < 0 ? ["", path] : [path.slice(0, slash), path.slice(slash + 1)];
+    if (!SAMPLE_TREE[dir]?.includes(name)) {
+        throw new Error(`\`${path}\` is not a path inside the worktree`);
+    }
+}
 
 function sampleFiles(dir: string): FileListing {
     const names = SAMPLE_TREE[dir] ?? [];
@@ -3879,7 +3891,7 @@ export function createMockApi(): Api {
         taskOpenEditor: async () => undefined,
         taskOpenTerminal: async () => undefined,
         taskFiles: async (_project, _name, dir) => sampleFiles(dir),
-        taskOpenFile: async () => undefined,
+        taskOpenFile: async (_project, _name, path) => openSampleFile(path),
         taskOpenUrl: async () => undefined,
         openLink: async (url) => {
             window.open(url, "_blank", "noopener");
