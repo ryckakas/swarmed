@@ -23,7 +23,7 @@ use swarmed_core::{
     RemoveOptions, RewindCheck, RewindDone, SearchHit, Session, SessionOptions, SessionSettings,
     Settings, SetupLog, Skill, SlashCommand, Snapshot, Task, TaskNaming, TaskStarted, Template,
     TerminalConfig, TerminalOpened, Turn, TurnChanges, TurnStats, Unpublished, Usage, UsageAsk,
-    Viewport, highlight_named, hooks,
+    Viewport, hooks,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -513,8 +513,7 @@ pub(crate) fn task_highlight(
     task: String,
     colour: Option<String>,
 ) -> Command<()> {
-    let colour = highlight_named(colour.as_deref().unwrap_or("none"))?;
-    core.task_highlight(&project, &task, colour)?;
+    core.task_highlight_named(&project, &task, colour.as_deref())?;
     Ok(())
 }
 
@@ -525,8 +524,7 @@ pub(crate) fn session_highlight(
     id: i64,
     colour: Option<String>,
 ) -> Command<()> {
-    let colour = highlight_named(colour.as_deref().unwrap_or("none"))?;
-    core.session_highlight(id, colour)?;
+    core.session_highlight_named(id, colour.as_deref())?;
     Ok(())
 }
 

@@ -997,8 +997,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   each theme, so a mark never carries a colour value.
 - **A highlight is the user's colour on a task or a session, where it is** (`highlights.rs`,
   `highlights.ts`, `Highlight.tsx`, #398). A column of its own on both (`highlight`, a
-  `MarkColour` name), set by `session_highlight` and `task_highlight` and published as
-  `TreeChanged`, never stored as an event. Nothing but the user clears it: writing, closing and
+  `MarkColour` name), set by `session_highlight` and `task_highlight` (by a colour's word
+  through `session_highlight_named` and `task_highlight_named`, which is all a front end
+  calls) and published as `TreeChanged`, never stored as an event. Nothing but the user clears it: writing, closing and
   reopening keep it, a fork starts without one, and neither `set_mark` nor `configure` reaches
   it. It is drawn as a bar at the row's right edge (an `::after`, since styles draw the open
   row's edge with a shadow, and the left edge is the waiting bar), never a tint, so the row's

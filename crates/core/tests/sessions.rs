@@ -663,9 +663,10 @@ async fn a_highlight_stays_until_the_user_takes_it_off() {
     assert_eq!(lit.highlight, Some(MarkColour::Blue));
     told_to_read_the_tree(&mut bus);
     assert!(matches!(
-        swarmed_core::highlight_named("teal"),
+        core.session_highlight_named(session.id, Some("teal")),
         Err(Error::Highlight(_))
     ));
+    assert_eq!(kept_now(&core, session.id), Some(MarkColour::Blue));
 
     // Writing to the session clears a mark, not a highlight.
     core.session_send(session.id, "next thing").expect("sends");
@@ -694,11 +695,7 @@ async fn a_highlight_stays_until_the_user_takes_it_off() {
 
     // A task is highlighted the same way, and taken off with none.
     let task = core
-        .task_highlight(
-            "demo",
-            "one",
-            swarmed_core::highlight_named("Purple").expect("named"),
-        )
+        .task_highlight_named("demo", "one", Some("Purple"))
         .expect("highlights");
     assert_eq!(task.highlight, Some(MarkColour::Purple));
     assert!(matches!(
@@ -715,10 +712,20 @@ async fn a_highlight_stays_until_the_user_takes_it_off() {
     let one = &overview[0].tasks[0];
     assert_eq!(one.task.highlight, Some(MarkColour::Purple));
     assert_eq!(one.sessions[0].highlight, Some(MarkColour::Blue));
+    // No word at all takes one off, as `none` does.
     let off = again
-        .session_highlight(session.id, None)
+        .session_highlight_named(session.id, None)
         .expect("takes it off");
     assert_eq!(off.highlight, None);
+    let off = again
+        .task_highlight_named("demo", "one", Some("none"))
+        .expect("takes it off");
+    assert_eq!(off.highlight, None);
+}
+
+/// What session `id` is highlighted in now.
+fn kept_now(core: &Core, id: i64) -> Option<MarkColour> {
+    core.session(id).expect("exists").highlight
 }
 
 /// A Swarmed started again on the data `fx` holds, after the one before quit.

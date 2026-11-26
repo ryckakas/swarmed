@@ -30,7 +30,6 @@ use swarmed_core::agent::FakeBackend;
 use swarmed_core::{
     AgentSetup, ApiKeyInfo, CloudOrigin, CloudProvider, CloudTask, Core, EnvironmentChoice,
     MarkColour, McpServerView, NewTaskOptions, Paths, RemoveOptions, Settings, SetupStatus, Task,
-    highlight_named,
 };
 use terminal::TerminalCommand;
 
@@ -1196,8 +1195,7 @@ async fn sent_or_switched(core: &Core, command: TaskCommand) -> Result<Option<Ta
             colour,
             ..
         } => {
-            let colour = highlight_named(colour.as_deref().unwrap_or("none"))?;
-            let task = core.task_highlight(&project, &name, colour)?;
+            let task = core.task_highlight_named(&project, &name, colour.as_deref())?;
             say(&highlight_said(task.highlight));
         }
         TaskCommand::Done { project, name } => {

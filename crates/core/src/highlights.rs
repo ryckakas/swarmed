@@ -13,9 +13,8 @@ use crate::{Core, MarkColour, Result, Session, Task};
 /// What takes a highlight off, where a colour is asked for.
 const NO_HIGHLIGHT: &str = "none";
 
-/// The highlight the word `colour` asks for, as a command line or a front end gives it;
-/// `None` for `none`, which takes it off.
-pub fn highlight_named(colour: &str) -> Result<Option<MarkColour>> {
+/// The highlight the word `colour` asks for; `None` for `none`, which takes it off.
+fn highlight_named(colour: &str) -> Result<Option<MarkColour>> {
     if colour.trim().eq_ignore_ascii_case(NO_HIGHLIGHT) {
         return Ok(None);
     }
@@ -55,6 +54,27 @@ impl Core {
         self.store().highlight_write("tasks", task.id, colour)?;
         self.live.publish_apart(AgentEvent::TreeChanged);
         Ok(self.task(&project.name, &task.name)?.1)
+    }
+
+    /// Highlights session `id` in the colour the word `colour` asks for, as a command line or
+    /// a front end gives it, or takes its highlight off for `none` or no word at all.
+    pub fn session_highlight_named(&self, id: i64, colour: Option<&str>) -> Result<Session> {
+        self.session_highlight(id, highlight_named(colour.unwrap_or(NO_HIGHLIGHT))?)
+    }
+
+    /// Highlights task `task` of `project` as [`Core::session_highlight_named`] does a
+    /// session.
+    pub fn task_highlight_named(
+        &self,
+        project: &str,
+        task: &str,
+        colour: Option<&str>,
+    ) -> Result<Task> {
+        self.task_highlight(
+            project,
+            task,
+            highlight_named(colour.unwrap_or(NO_HIGHLIGHT))?,
+        )
     }
 }
 

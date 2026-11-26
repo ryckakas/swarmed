@@ -524,8 +524,7 @@ fn pinned(core: &Core, id: i64, pinned: bool) -> Result<()> {
 
 /// Highlights session `id` in `colour`, or takes its highlight off for none.
 fn highlighted(core: &Core, id: i64, colour: Option<&str>) -> Result<()> {
-    let colour = swarmed_core::highlight_named(colour.unwrap_or("none"))?;
-    let session = core.session_highlight(id, colour)?;
+    let session = core.session_highlight_named(id, colour)?;
     say(&crate::highlight_said(session.highlight));
     Ok(())
 }
