@@ -2457,6 +2457,9 @@ fn launch(shared: Shared, id: i64, how: Launch) -> Result<()> {
     // A new process has heard nothing yet and has nothing turned on.
     lock(&live.sent).remove(&id);
     live.remote_ends(id);
+    // Nor does it answer a tool call an app asked of a run this takes the place of, whose end
+    // forgets nobody while this one runs: who waits hears now, not when the wait is over.
+    live.apps.end(id);
     // What a run this takes the place of was told and never heard: its own end is dropped.
     let unheard = live.never_heard(id);
     let number = live.runs.fetch_add(1, Ordering::Relaxed);
