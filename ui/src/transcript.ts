@@ -1,7 +1,8 @@
-import type { AgentEvent, PullChange, ScreenSection, ToolCalls } from "./api/types";
+import type { AgentEvent, AppCsp, PullChange, ScreenSection, ToolCalls } from "./api/types";
 import type { ListedElement } from "./elements";
 import { type GitHubMentioned, splitMentioned } from "./githubMentions";
 import { shownHtml } from "./htmlview";
+import { type SentContext, splitAppContexts } from "./mcpApps";
 import type { Mentioned } from "./mentions";
 import { QUESTION_TOOL, type Question, questionsOf } from "./questions";
 import { type RateLimit, refusalNotice } from "./rateLimit";
@@ -29,6 +30,8 @@ export type Item =
           remote: boolean;
           /** Whether Swarmed sent it by itself, as the usage limit that stopped the session reset. */
           atReset: boolean;
+          /** What apps shown in the conversation left for the agent with it. */
+          contexts?: SentContext[];
       }
     /** A message another of the user's sessions left for this one. */
     | { kind: "peer"; key: number; from: number; title: string; text: string }
@@ -97,6 +100,7 @@ export type Item =
     | { kind: "pull"; key: number; number: number; url: string; change: PullChange }
     /** HTML the agent showed the user through Swarmed's tool. */
     | { kind: "view"; key: number; html: string }
+    | AppItem
     /**
      * The last image the agent's tools returned in a turn, again at the end of what it said
      * then, so that a run of folded calls still shows it. Keyed by the result it came in.
@@ -142,6 +146,31 @@ export interface RewoundItem {
     commitsSince: number | null;
     /** What it dropped, as the transcript showed it. */
     dropped: Item[];
+}
+
+/**
+ * The app an MCP server attached to a call, under that call: what it is kept in, what its
+ * server declared, and what the call was given and returned, which the app is told.
+ */
+export interface AppItem {
+    kind: "app";
+    key: number;
+    /** The call it belongs to. */
+    toolUseId: string;
+    server: string;
+    tool: string;
+    /** The file its HTML is kept in; `null` when it was not kept, which `note` says why. */
+    document: string | null;
+    note: string | null;
+    csp: AppCsp;
+    /** The devices and the like it asked for, which it is not given. */
+    permissions: string[];
+    /** The tools of its own server it may call. */
+    callable: string[];
+    /** What the call was given. */
+    input: unknown;
+    /** What came of it, as an app is handed it (MCP's `CallToolResult`). */
+    result: unknown;
 }
 
 /** The line a turn a usage limit refused keeps where it stopped. */
@@ -236,7 +265,10 @@ function messageItem(
 ): Item {
     const left = FROM_SESSION.exec(text);
     if (!left) {
-        return { kind: "user", key, ...splitSent(text), remote, atReset };
+        const sent = splitSent(text);
+        const { text: typed, contexts } = splitAppContexts(sent.text);
+        const apps = contexts.length > 0 ? { contexts } : {};
+        return { kind: "user", key, ...sent, text: typed, ...apps, remote, atReset };
     }
     return { kind: "peer", key, from: Number(left[1]), title: left[2] ?? "", text: left[3] ?? "" };
 }
@@ -638,6 +670,8 @@ function add(draft: Draft, event: AgentEvent, key: number) {
             return addRewound(draft, event, key);
         case "files_put_back":
             return markPutBack(draft, event.to);
+        case "app":
+            return addApp(draft, event, key);
         case "user_message":
             draft.messages.push({ key, text: event.text });
             draft.lastImage = null;
@@ -647,6 +681,29 @@ function add(draft: Draft, event: AgentEvent, key: number) {
         default:
             return addSingle(draft, event, key);
     }
+}
+
+/**
+ * An app under the call it belongs to, which tells it what the call was given. A result not
+ * kept for it is told by the call's text.
+ */
+function addApp(draft: Draft, event: Extract<AgentEvent, { type: "app" }>, key: number) {
+    const call = draft.tools.get(event.tool_use_id);
+    const text = call?.result ? { content: [{ type: "text", text: call.result.content }] } : null;
+    draft.items.push({
+        kind: "app",
+        key,
+        toolUseId: event.tool_use_id,
+        server: event.server,
+        tool: event.tool,
+        document: event.document,
+        note: event.note,
+        csp: event.csp,
+        permissions: event.permissions,
+        callable: event.callable,
+        input: call?.input ?? {},
+        result: event.result ?? text,
+    });
 }
 
 /**

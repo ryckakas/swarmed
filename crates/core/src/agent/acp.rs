@@ -393,6 +393,7 @@ impl Conversation {
             mcp_servers: self.passed_servers(),
             skills: self.spec.skills,
             slash_commands: vec![],
+            capabilities: vec![],
         });
         if let Some(applied) = self.applied(result) {
             self.emit(applied);
@@ -1009,6 +1010,14 @@ impl Conversation {
                 });
             }
             AgentCommand::StopBackground { task_id } => self.stop_child(&task_id).await,
+            // The protocol shows no apps, so none of its agents has one to call a tool for.
+            AgentCommand::CallTool { call, .. } => {
+                self.emit(AgentEvent::AppCalled {
+                    call,
+                    result: None,
+                    error: Some("this agent cannot call a tool for an app".to_string()),
+                });
+            }
             // These agents describe no screens of their own, and cannot be reached from
             // claude.ai.
             AgentCommand::Show(_) | AgentCommand::AskUsage | AgentCommand::RemoteControl { .. } => {

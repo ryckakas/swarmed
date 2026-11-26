@@ -263,6 +263,20 @@ pub enum Error {
     /// why, in words for the user.
     #[error("not sent to the background: {0}")]
     NotSentToBackground(String),
+    /// An app an MCP server attached to a tool call could not be kept with its session.
+    #[error("{0}")]
+    AppNotKept(String),
+    /// No app is kept for the call or under the file named: it was never shown here, or its
+    /// session is gone.
+    #[error("no app is kept for `{0}`")]
+    AppNotFound(String),
+    /// An app asked to call a tool it may not: one of another server, or one its server keeps
+    /// from apps.
+    #[error("this app may not call the tool `{0}`")]
+    AppToolRefused(String),
+    /// A tool an app asked for did not run. Says why, in the agent's words.
+    #[error("the tool did not run: {0}")]
+    AppCallFailed(String),
     /// A port's name is not one a hook could use.
     #[error(
         "`{0}` cannot name a port: use lowercase letters, digits and underscores, starting with a letter"

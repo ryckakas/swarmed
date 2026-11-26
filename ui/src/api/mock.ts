@@ -5,6 +5,7 @@ import { calledCommand } from "../slash";
 import { PLAN_TOOL } from "../transcript";
 import { titleFrom } from "../tree";
 import type { Api } from "./client";
+import { mockAppCall, mockAppCalled, mockAppShown } from "./mockApps";
 import { browserApi, MockBrowsers } from "./mockBrowser";
 import { MOCK_COMMANDS, mockQuestions, mockSaid, mockScreen, mockScreenOnly } from "./mockCommands";
 import {
@@ -80,8 +81,9 @@ import type {
 // that full (`warn <percent> <seconds>`: one that resets that soon), `limit <seconds>` ends its
 // turn refused by a 5-hour limit that resets that soon, `slow` runs until interrupted,
 // `long: <command>` runs a command the turn waits on until it is sent to the background or
-// stopped, `screenshot` checks a page in a browser, whose last call returns an image, and
-// `browse` opens the task's browser with `show_browser` and acts in its own tab there.
+// stopped, `screenshot` checks a page in a browser, whose last call returns an image, `app`
+// calls an MCP tool whose server attached an app to it, and `browse` opens the task's
+// browser with `show_browser` and acts in its own tab there.
 
 // `show` answers with this view: a chart in the app's colours, with buttons that redraw it.
 const SAMPLE_VIEW = `<style>
@@ -2269,6 +2271,8 @@ class MockAgent {
             this.showView(id, done);
         } else if (text === "screenshot") {
             this.checkInBrowser(id, done);
+        } else if (text === "app") {
+            this.showApp(id, done);
         } else if (text === "browse") {
             this.browse(id, done);
         } else if (text.startsWith("switch ")) {
@@ -2446,6 +2450,20 @@ class MockAgent {
      * Checks a page in a browser, as an agent with Playwright MCP does: its last call returns
      * a screenshot, which shows under the call and again at the end of the reply.
      */
+    /**
+     * Calls an MCP tool whose server attached an app to it, as Claude Code reports one: the
+     * call, its result, and the app read for it, which shows under the call.
+     */
+    private showApp(id: number, done: AgentEvent) {
+        const events = mockAppCall(`app-${this.nextId++}`, `${MOCK_ATTACHMENTS}/${id}`);
+        events.forEach((event, at) => {
+            this.later(id, event, "working", at + 1);
+        });
+        const said = "Here are the invoices of the last six months, in the server's own chart.";
+        this.later(id, { type: "text", text: said }, "working", events.length + 1);
+        this.later(id, done, "idle", events.length + 2);
+    }
+
     private checkInBrowser(id: number, done: AgentEvent) {
         const check = mockCheck(`shot-${this.nextId++}`, `${MOCK_ATTACHMENTS}/${id}`);
         this.returned.set(check.path, check.source);
@@ -3566,6 +3584,8 @@ export function createMockApi(): Api {
         viewOpen: async (document) => {
             window.open(URL.createObjectURL(new Blob([document], { type: "text/html" })));
         },
+        appUrl: async (_id, _toolUseId, _document, csp) => mockAppShown(csp),
+        sessionAppCall: async (_id, _toolUseId, tool) => mockAppCalled(tool),
         terminalOpen: async (id) => terminal.open(id),
         terminalWrite: async (id, data) => terminal.type(id, data),
         terminalResize: async () => undefined,

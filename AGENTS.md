@@ -564,7 +564,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   command its turn waits on for `long: <command>`, until it is sent to the background or
   stopped, renames the session as another Swarmed would for `elsewhere: <title>`, saying
   only `tree_changed`, checks a page in a browser for `screenshot`, whose last call returns
-  an image, and for `browse` opens the task's browser with `show_browser` and types and clicks
+  an image, calls an MCP tool whose server attached an app for `app` (`mockApps.ts`: a chart
+  that asks to connect first, refreshes through a tool call, asks to send a message, leaves a
+  context and asks to open a link), and for `browse` opens the task's browser with `show_browser` and types and clicks
   in a tab of its own there, which the pane goes to; one sample session has 2,000 messages for
   checking scroll speed.
   The pull request of `fix-login-redirect` has a check running that fails 15 seconds after the
@@ -886,6 +888,55 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   holds a view that swings between two heights at the taller one. When the frame stops
   following a view (`holdsBack`), the host tells it so and it may scroll again. Test a change
   here in Safari with "Always show scroll bars": Chromium does not reproduce the loop.
+- **MCP servers' apps are shown under their calls** (MCP Apps, #385: `apps.rs`,
+  `agent/claude/apps.rs`, `mcpApps.ts`, `McpAppView.tsx`). An app is a third party's HTML, the
+  server author's, and gets every rule a view has and more.
+  - **Read through Claude Code only**, as it offers its host (tried with 2.1.332): only a
+    Claude Code whose init message says `mcp_read_resource_v1` and `mcp_tool_ui_meta_v1` is
+    asked. `mcp_status` is asked when it starts and when the servers it lists change, and of
+    its answer only names and `_meta.ui` are read (`tools_in`), never a server's definition.
+    A call of a tool with a `ui://` resource that ends without an error has the resource read
+    (`mcp_read_resource`), and the app is reported as `AgentEvent::App` with the call's whole
+    result (`structuredContent` from the message's `tool_use_result`), cut at
+    `MAX_RESULT_BYTES`. A sub-agent's app is its own (`Sub`). Other agents report nothing of
+    the kind.
+  - **Kept once per session**: `apps::kept` writes the HTML into the session's attachments as
+    `app-<hash>.html`, never over another file, at most `MAX_APP_MB`, and the event names the
+    file; `html` is never stored or published. Forks, peers, the cloud and search pick events
+    by kind and never carry one.
+  - **Served from a host of its own** (`swarmed-view://app-<id>/`, `view_response` routes by
+    host) under the policy `app_policy` builds from the declared `csp`: an `https:` origin
+    (`wss:` too for connecting) by name, with at most a `*.` subdomain of a domain of two
+    labels or more, no IP address, no path, at most `MAX_DOMAINS` of a kind; anything else is
+    refused and named. `frame-src` is always `'none'`: the
+    window's navigation guard is asked about every frame, so a nested page could not load
+    without loosening it for the window. Views keep `VIEW_POLICY` unchanged. The frame is
+    `allow-scripts` alone (the user's choice): no origin to keep storage in.
+  - **The user says yes before an app that reaches anything loads** (`Consent`), and the yes
+    holds per server and the addresses it reaches until Swarmed quits (`appsAllowed`, in
+    memory, the user's choice). No device is granted.
+  - **The bridge decides in `mcpApps.ts`**, pure and tested; `McpAppView.tsx` only acts.
+    Messages are taken only from the app's own frame. The handshake and sizing go by
+    themselves; the call's input and result are sent after `initialized`, again if the app
+    loads anew. A link and `ui/message` wait for the user each time, and a message starting
+    with `/` is refused: an app sends words, never a command or a skill.
+    `ui/update-model-context` is kept per session (`appContexts`) as a chip and goes with the
+    next typed message, never a command, in `<app_context>` tags the transcript folds and
+    recall leaves out; a waiting message being edited keeps them. A tag of that name inside an
+    app's text is renamed (`inBlock`), or the app could close its block and pass what follows
+    off as the user's words. The transcript draws its
+    items again with each event, so the bridge keeps the item in a ref and listens once per
+    call: a listener tied to the item would tear the app down at every event.
+  - **An app's tool calls go through the agent** (`Core::session_app_call`): only a tool of
+    the app's own server in the event's `callable` (its visibility leaves `app` in), sent as
+    `mcp_call` with `check_permissions` and `result_not_for_model` (the user's choice), so
+    Claude Code decides it as the agent's own call of that tool and its permission request
+    arrives as any other, marked as the app's (`APP_ASKS`). A Claude Code that does not say
+    `mcp_call_check_permissions_v1` would run the tool unchecked, so it is not sent one: the
+    writing side answers the call at once (`CANNOT_CALL`) instead. The
+    answer is `AgentEvent::AppCalled`, handed to whoever waits (`AppCalls`) and never stored
+    or published. While a call waits the app is told it still runs (`notifications/progress`),
+    so the user's decision outlasts its own timeout.
 - **Actions are buttons of the user's own** (`actions.rs`): a name, an optional icon, and either
   a prompt or a command. Those for every repository are in `actions.toml` in the data
   directory, a repository's own in `projects/<name>.actions.toml`; its own takes the place of a

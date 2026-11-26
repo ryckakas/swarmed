@@ -78,6 +78,11 @@ describe("a large paste", () => {
         expect(expandTokens(typed, pastes)).toBe(sent);
         // Its number taken by another paste being written, it is given the next free one.
         expect(tokensAgain(sent, pastes)).toBe("Read this:\n[Pasted text #5 +3 lines]\nthanks");
+        // What apps left for the agent with it was never typed, and is not brought back.
+        const withContext = `${sent}\n\n<app_context server="maps">\nVilnius\n</app_context>`;
+        expect(tokensAgain(withContext, nothingWritten())).toBe(
+            tokensAgain(sent, nothingWritten()),
+        );
         expect(tokensAgain("no paste here", pastes)).toBe("no paste here");
     });
 });

@@ -44,7 +44,8 @@ const MAIN_WINDOW: &str = "main";
 const NOTICE_OPENED: &str = "notice-opened";
 /// The argument that has the app check its notifications and say what it found, with no window.
 const NOTIFY_CHECK_ARG: &str = "notify-check";
-/// The scheme frames load an agent's HTML from: `swarmed-view://localhost/<id>`.
+/// The scheme frames load an agent's HTML from, `swarmed-view://localhost/<id>`, and an MCP
+/// server's app, `swarmed-view://app-<id>/`.
 const VIEW_SCHEME: &str = "swarmed-view";
 
 /// `SWARMED_FAKE_AGENT` swaps Claude for the scripted agent, to work on the UI without tokens.
@@ -159,24 +160,43 @@ async fn forward_browsers<R: Runtime>(mut bus: Receiver<BrowserEvent>, app: AppH
     }
 }
 
-/// Answers a frame asking for the HTML document kept under the id in `path`.
+/// What the host of an app's address starts with: `swarmed-view://app-<id>/`. Each app is
+/// served from a host of its own, so that no app shares an origin with another or a view.
+const APP_HOST: &str = "app-";
+
+/// Answers a frame asking for a document: an app an MCP server attached to a tool call, by
+/// the id in `host` (`app-<id>`), else an agent's view, by the id in `path`.
 ///
-/// The document comes from an agent. It is served from this scheme's own origin, which holds no
-/// permission to call Swarmed's commands, under a policy of its own instead of the app's.
-fn view_response(core: &Core, path: &str) -> Response<Cow<'static, [u8]>> {
-    let (status, body) = match core.view(path.trim_start_matches('/')) {
-        Some(document) => (StatusCode::OK, document),
-        None => (StatusCode::NOT_FOUND, String::new()),
+/// The document comes from an agent or a server. It is served from this scheme's own origin,
+/// which holds no permission to call Swarmed's commands, under a policy of its own instead of
+/// the app's: a view under [`VIEW_POLICY`], an app under the one the core built from what its
+/// server declared.
+fn view_response(core: &Core, host: &str, path: &str) -> Response<Cow<'static, [u8]>> {
+    let found = match host.strip_prefix(APP_HOST) {
+        // An app is one document at its root: nothing else is served from its host.
+        Some(app) => (path.trim_start_matches('/').is_empty())
+            .then(|| core.app_document(app))
+            .flatten()
+            .map(|(document, policy)| (document, HeaderValue::from_str(&policy).ok())),
+        None => core
+            .view(path.trim_start_matches('/'))
+            .map(|document| (document, Some(HeaderValue::from_static(VIEW_POLICY)))),
+    };
+    // A policy that cannot be sent as a header serves nothing.
+    let (status, body, policy) = match found {
+        Some((document, Some(policy))) => (StatusCode::OK, document, policy),
+        _ => (
+            StatusCode::NOT_FOUND,
+            String::new(),
+            HeaderValue::from_static(VIEW_POLICY),
+        ),
     };
     let mut response = Response::new(Cow::Owned(body.into_bytes()));
     *response.status_mut() = status;
     let headers = response.headers_mut();
     let html = HeaderValue::from_static("text/html; charset=utf-8");
     headers.insert(CONTENT_TYPE, html);
-    headers.insert(
-        CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static(VIEW_POLICY),
-    );
+    headers.insert(CONTENT_SECURITY_POLICY, policy);
     headers.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
     response
 }
@@ -189,7 +209,8 @@ fn with_state<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         .manage(Arc::clone(&core))
         .manage(update::Updates::default())
         .register_uri_scheme_protocol(VIEW_SCHEME, move |_context, request| {
-            view_response(&core, request.uri().path())
+            let uri = request.uri();
+            view_response(&core, uri.host().unwrap_or_default(), uri.path())
         })
 }
 
@@ -248,7 +269,8 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::task_background,
         commands::session_background_output,
         commands::session_configure, commands::slash_commands, commands::badge_set,
-        commands::view_put, commands::view_open, commands::terminal_open,
+        commands::view_put, commands::view_open, commands::app_put, commands::session_app_call,
+        commands::terminal_open,
         commands::terminal_write, commands::terminal_resize, commands::claude_terminal_open,
         commands::claude_terminal_write, commands::claude_terminal_resize,
         commands::claude_terminal_close,

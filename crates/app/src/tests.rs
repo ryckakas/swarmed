@@ -1939,15 +1939,84 @@ fn an_agents_html_is_served_from_its_own_origin_under_its_own_policy() {
     let core = Core::with_backend(paths, Arc::new(FakeBackend::default())).expect("core opens");
     let id = core.view_put("<p>sorted</p>".to_string());
 
-    let found = crate::view_response(&core, &format!("/{id}"));
+    let found = crate::view_response(&core, "localhost", &format!("/{id}"));
     assert_eq!(found.status(), 200);
     assert_eq!(found.body().as_ref(), b"<p>sorted</p>");
     let policy = found.headers()["content-security-policy"]
         .to_str()
         .expect("text");
-    assert!(policy.starts_with("default-src 'none'"), "{policy}");
+    assert_eq!(policy, swarmed_core::VIEW_POLICY);
     assert!(!policy.contains("connect-src"), "{policy}");
-    assert_eq!(crate::view_response(&core, "/missing").status(), 404);
+    assert_eq!(
+        crate::view_response(&core, "localhost", "/missing").status(),
+        404
+    );
+    // A view's id under an app's host is no app.
+    assert_eq!(
+        crate::view_response(&core, &format!("app-{id}"), "/").status(),
+        404
+    );
+}
+
+/// An app an MCP server attached to a call is served from a host of its own, under the
+/// policy the core built from its server's declaration; the UI shows it and calls the tools of
+/// its server through the session's agent, as it does.
+#[test]
+fn the_ui_can_show_the_app_of_a_call_and_call_its_servers_tools() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    app.ok(
+        "task_new",
+        json!({ "project": "demo", "name": "one", "branch": null }),
+    );
+    let session = app.ok(
+        "session_new",
+        json!({ "project": "demo", "task": "one", "agent": null, "how": { "model": null, "supervision": "auto", "effort": null } }),
+    );
+    let id = &session["id"];
+    app.ok("session_send", json!({ "id": id, "text": "app" }));
+    let shown = app.wait_for_event(id, "app");
+    // The file it is kept in: the HTML never reaches the window but by its frame.
+    assert_eq!(shown.get("html"), None);
+    assert_eq!(shown["callable"], json!(["chart", "refresh"]));
+    let csp = json!({ "connect": ["https://api.example.com", "http://plain.example.com"],
+                      "resources": [], "frames": [], "base_uris": [] });
+    let put =
+        json!({ "id": id, "toolUseId": "tool-app", "document": shown["document"], "csp": csp });
+    let served = app.ok("app_put", put);
+    assert_eq!(served["reaches"], json!(["https://api.example.com"]));
+    assert_eq!(served["refused"].as_array().map(Vec::len), Some(1));
+    let app_id = served["id"].as_str().expect("an id");
+    let core = tauri::Manager::state::<Arc<Core>>(&app.window);
+    let found = crate::view_response(&core, &format!("app-{app_id}"), "/");
+    assert_eq!(found.status(), 200);
+    assert_eq!(found.body().as_ref(), b"<!doctype html><h1>Chart</h1>");
+    let policy = found.headers()["content-security-policy"]
+        .to_str()
+        .expect("text");
+    assert!(
+        policy.contains("connect-src https://api.example.com;"),
+        "{policy}"
+    );
+    assert!(policy.contains("frame-src 'none'"), "{policy}");
+    assert_ne!(policy, swarmed_core::VIEW_POLICY);
+    // Nothing else is served from its host.
+    let elsewhere = crate::view_response(&core, &format!("app-{app_id}"), "/app.js");
+    assert_eq!(elsewhere.status(), 404);
+
+    let call =
+        json!({ "id": id, "toolUseId": "tool-app", "tool": "refresh", "arguments": { "page": 2 } });
+    let called = app.ok("session_app_call", call);
+    assert_eq!(called["structuredContent"], json!({ "page": 2 }));
+    let refused =
+        json!({ "id": id, "toolUseId": "tool-app", "tool": "drop_tables", "arguments": {} });
+    assert_eq!(
+        app.invoke("session_app_call", refused),
+        Err(json!("this app may not call the tool `drop_tables`"))
+    );
+    // Only a file kept as an app in the session's own folder is served.
+    let readme = json!({ "id": id, "toolUseId": "tool-app", "document": app.repo.join("README.md"), "csp": csp });
+    assert!(app.invoke("app_put", readme).is_err());
 }
 
 // `view_open` is the one command not called here: it would open a browser on whoever runs the

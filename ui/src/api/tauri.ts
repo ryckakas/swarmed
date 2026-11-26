@@ -11,6 +11,7 @@ import type {
     AgentInfo,
     AgentSetup,
     ApiKeyInfo,
+    AppShown,
     BackgroundOutput,
     BranchChoices,
     BrowserEvent,
@@ -291,6 +292,12 @@ export const tauriApi: Api = {
         return `swarmed-view://localhost/${id}`;
     },
     viewOpen: (document) => invoke("view_open", { document }),
+    appUrl: async (id, toolUseId, document, csp) => {
+        const shown = await invoke<AppShown>("app_put", { id, toolUseId, document, csp });
+        return { ...shown, address: `swarmed-view://app-${shown.id}/` };
+    },
+    sessionAppCall: (id, toolUseId, tool, args) =>
+        invoke<unknown>("session_app_call", { id, toolUseId, tool, arguments: args }),
     terminalOpen: (id, cols, rows) => invoke<TerminalOpened>("terminal_open", { id, cols, rows }),
     terminalWrite: (id, data) => invoke("terminal_write", { id, data }),
     terminalResize: (id, cols, rows) => invoke("terminal_resize", { id, cols, rows }),

@@ -934,6 +934,10 @@ fn described_by_core(event: &AgentEvent) -> Option<String> {
         }
         AgentEvent::Rewound { to, files, .. } => Some(crate::rewind::rewound(*to, *files)),
         AgentEvent::FilesPutBack { .. } => Some("— the files were put back".to_string()),
+        // An app is HTML for a sandboxed frame, which only the window has.
+        AgentEvent::App { server, .. } => Some(format!(
+            "— the {server} server showed an app, which the Swarmed window draws"
+        )),
         _ => None,
     }
 }
@@ -1045,6 +1049,7 @@ mod tests {
             mcp_servers: vec![],
             skills: 3,
             slash_commands: vec![],
+            capabilities: vec![],
         };
         let done = AgentEvent::TurnDone {
             is_error: false,

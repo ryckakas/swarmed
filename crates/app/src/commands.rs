@@ -10,13 +10,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
-    AccountUsage, Action, AgentInfo, AgentSetup, ApiKeyInfo, Attached, BackgroundOutput,
-    BackgroundTask, BranchChoices, BrowserGo, BrowserSetup, BrowserState, Cleaned, Cleanup,
-    CleanupKind, CloudOrigin, CloudProvider, CloudTask, ConsoleLine, Core, Costs, CustomLayout,
-    Environment, EnvironmentChoice, FileChange, FileDiff, FileListing, FirstSession, GitHubItem,
-    GitHubItems, Issue, IssueDetail, IssueFilter, IssueList, KeyInput, McpServerInput,
+    AccountUsage, Action, AgentInfo, AgentSetup, ApiKeyInfo, AppCsp, AppShown, Attached,
+    BackgroundOutput, BackgroundTask, BranchChoices, BrowserGo, BrowserSetup, BrowserState,
+    Cleaned, Cleanup, CleanupKind, CloudOrigin, CloudProvider, CloudTask, ConsoleLine, Core, Costs,
+    CustomLayout, Environment, EnvironmentChoice, FileChange, FileDiff, FileListing, FirstSession,
+    GitHubItem, GitHubItems, Issue, IssueDetail, IssueFilter, IssueList, KeyInput, McpServerInput,
     McpServerView, MergeMethod, MergeReport, MergeRules, MergeWhen, MouseInput, NewTaskOptions,
     PickedElement, Project, ProjectOverview, Pull, PullDraft, QueuedMessage, Reachable,
     RemoveOptions, RewindCheck, RewindDone, SearchHit, Session, SessionOptions, SessionSettings,
@@ -1534,6 +1535,35 @@ pub(crate) fn view_put(core: CoreState<'_>, document: String) -> String {
 #[tauri::command]
 pub(crate) fn view_open(core: CoreState<'_>, document: String) -> Command<()> {
     Ok(core.view_open(&document)?)
+}
+
+/// Makes the app an MCP server attached to call `tool_use_id` of session `id`, kept in
+/// `document`, ready for a frame, under the policy its server's declaration comes to.
+#[tauri::command]
+pub(crate) fn app_put(
+    core: CoreState<'_>,
+    id: i64,
+    tool_use_id: String,
+    document: PathBuf,
+    csp: AppCsp,
+) -> Command<AppShown> {
+    Ok(core.app_put(id, &tool_use_id, &document, &csp)?)
+}
+
+/// Calls a tool of its own server for the app shown under call `tool_use_id` of session `id`,
+/// through the session's agent, and returns the tool's result. Waits on the agent, which may
+/// ask the user first, so it runs off the main thread.
+#[tauri::command]
+pub(crate) async fn session_app_call(
+    core: CoreState<'_>,
+    id: i64,
+    tool_use_id: String,
+    tool: String,
+    arguments: Value,
+) -> Command<Value> {
+    Ok(core
+        .session_app_call(id, &tool_use_id, &tool, arguments)
+        .await?)
 }
 
 /// Async so that it runs on the runtime the core spawns the terminal's tasks on.

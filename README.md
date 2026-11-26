@@ -45,7 +45,8 @@ once: each has its own worktree and ports, so they don't step on each other. A d
   choose, and the message waits in the box to be changed and sent again.
 - **Answers you can see.** An agent can answer with HTML, such as a chart, a table or a mock-up,
   and Swarmed shows it in the conversation, in a sandbox with no way out to the app or the
-  network.
+  network. Apps that MCP servers attach to their tools show under the call, sandboxed the same
+  way.
 - **A browser per task.** Each task can have a Chrome of its own, shown live beside its
   sessions: click and type in its page, read its console. Its profile is the task's own, so
   what you sign in to there stays with the task and never reaches another's. Agents' own

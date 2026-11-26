@@ -4149,6 +4149,57 @@ code {
     margin: var(--space-2);
 }
 
+/* An app an MCP server attached to a call: what it asks the user, and the yes it needs to
+   reach the network before it loads. */
+.mcp-app-asked {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+}
+
+.mcp-app-asked blockquote {
+    flex-basis: 100%;
+    margin: 0;
+    padding: var(--space-1) var(--space-2);
+    border-left: 2px solid var(--pollen);
+    color: var(--text);
+    white-space: pre-wrap;
+}
+
+.mcp-app-choices {
+    display: flex;
+    gap: var(--space-1);
+    margin-left: auto;
+}
+
+.mcp-app-consent {
+    display: grid;
+    justify-items: start;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    color: var(--text);
+    font-size: var(--text-sm);
+}
+
+.mcp-app-consent p,
+.mcp-app-consent ul {
+    margin: 0;
+}
+
+.mcp-app-consent ul {
+    padding-left: var(--space-4);
+}
+
+.mcp-app-consent-note {
+    color: var(--muted);
+    font-size: var(--text-xs);
+}
+
+.composer .app-contexts {
+    padding: 0 0 var(--space-2);
+}
+
 /* The status line: one quiet row under the message box, which folds away to its toggle. */
 
 .status-line {

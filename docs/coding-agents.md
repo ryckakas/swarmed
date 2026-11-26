@@ -441,6 +441,43 @@ configured, secrets included. Nothing is copied into an agent's own files.
 
 `swarmed mcp` lists the pool: the servers set up in Swarmed, Claude Code, Codex and OpenCode.
 
+### Apps MCP servers attach to their tools
+
+Some MCP servers attach an interactive app to a tool, following the MCP Apps standard: a map
+for a geocoding tool, a chart for a query, a form to pick from. When the agent calls such a
+tool, Swarmed reads the app from the server once the call has its result and shows it under the
+call, with the server's name above it. The call itself keeps its arguments and result, so you
+can read them when the app shows nothing.
+
+- **Which agents:** Claude Code 2.1.332 or later, which says it can read an app and call a tool
+  for one. Older versions and other agents show the call as before.
+- **What an app may do by itself:** size its frame and learn what its call was given and
+  returned, in the window's colours. Nothing else happens without you or the agent's own
+  permission check:
+  - **A link** it asks to open is shown with its address, and opens when you press **Open**.
+  - **A message** it asks to send is shown in full, and goes to the agent, or waits in the
+    queue if the agent is busy, only when you press **Send**. A message is never a command:
+    one starting with `/` is refused.
+  - **Context** it leaves for the agent shows above the message box as a chip, and goes with
+    your next message, unless you take it off with its ×.
+  - **A tool call** it makes goes to the agent, and only for a tool of its own server that the
+    server lets apps call. Claude Code decides it as it would its own call of that tool: in
+    Ask mode it asks you first, in Auto and Bypass it runs. Its result goes back to the app and
+    stays out of the agent's context. With the agent not running, the app's calls fail.
+- **The network:** an app reaches nothing unless its server declares where (`https:` origins
+  by name, and `wss:` for connecting; never an IP address, nor every subdomain of a whole
+  top-level domain). Swarmed lists those addresses and loads the app only when you
+  press **Show**; your yes holds for that server's apps that reach the same addresses until
+  Swarmed quits. Anything declared that is not such an origin, and frames of other pages inside
+  the app, are left out and named above it. Camera, microphone, location and the clipboard are
+  never given, whatever the app asks for.
+- **Where:** the app's HTML is kept in `attachments/<session id>/` in the data directory, once
+  per distinct document, up to 4 MB, readable by you alone, and deleted with the session. A
+  larger one is named in a note under the call. It is shown from the file, so a conversation
+  read again shows the app as it was, even when the server is gone.
+- **Who sees it:** you. An app's HTML is never logged, nor handed to another session, a fork,
+  the cloud or search.
+
 ## Skills
 
 A skill is a folder holding a `SKILL.md`. Swarmed reads them from `~/.claude/skills`,

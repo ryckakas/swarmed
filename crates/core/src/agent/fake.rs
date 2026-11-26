@@ -14,6 +14,9 @@ use crate::error::Result;
 use crate::mcp::McpTransport;
 use crate::returned::Taking;
 
+/// The app `app` shows: a heading.
+const FAKE_APP: &str = "<!doctype html><h1>Chart</h1>";
+
 /// What `screenshot` returns: a PNG of two by two pixels.
 const SCREENSHOT: &str = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAE0lEQVR42mPQiDoBRAxA/OHDBwAlUgav0sDuFwAAAABJRU5ErkJggg==";
 
@@ -62,6 +65,9 @@ fn run_by(server: &crate::mcp::McpServer) -> String {
 ///   reconnecting, and on again;
 /// - `resumed`: replies with where it was started to resume its conversation: the session id
 ///   and the point in it it was given, or `none`;
+/// - `app`: calls an MCP tool whose server attached an app to it, which is read once the call
+///   has its result; a tool called for the app between turns answers with its name and what
+///   it was given;
 /// - `screenshot`: calls a browser's screenshot tool, which returns a small PNG with a line of
 ///   text, as Playwright MCP's does, then replies and ends the turn;
 /// - in plan mode, anything: presents a plan and waits for it to be approved.
@@ -310,6 +316,23 @@ impl Script {
                 self.emit(sent_to_background(tool_use_id, every));
                 return Next::Continue;
             }
+            // A tool an app calls answers with its own name and what it was given.
+            AgentCommand::CallTool {
+                call,
+                tool,
+                arguments,
+                ..
+            } => {
+                self.emit(AgentEvent::AppCalled {
+                    call,
+                    result: Some(json!({
+                        "content": [{ "type": "text", "text": format!("called {tool}") }],
+                        "structuredContent": arguments,
+                    })),
+                    error: None,
+                });
+                return Next::Continue;
+            }
             _ => return Next::Continue,
         };
         if !self.initialised {
@@ -395,6 +418,7 @@ impl Script {
             mcp_servers: vec![],
             skills: 0,
             slash_commands: vec!["context".to_string(), "review".to_string()],
+            capabilities: vec![],
         }
     }
 
@@ -458,6 +482,10 @@ impl Script {
             self.screenshot();
             return Next::Continue;
         }
+        if message == "app" {
+            self.app();
+            return Next::Continue;
+        }
         if message == "instructions" {
             let told = self.spec.append_system_prompt.clone();
             self.text(told.unwrap_or_else(|| "none".to_string()));
@@ -482,6 +510,45 @@ impl Script {
             self.report_usage(message);
         }
         next
+    }
+
+    /// Calls a tool whose MCP server attached an app to it, as Claude Code reports one: the
+    /// call, its result, and the app read for it, which may call the server's `chart` and
+    /// `refresh` tools.
+    fn app(&mut self) {
+        let call = "tool-app".to_string();
+        self.emit(AgentEvent::ToolUse {
+            id: call.clone(),
+            name: "mcp__demo__chart".to_string(),
+            input: json!({ "bars": 3 }),
+        });
+        let text = "Drew 3 bars.";
+        self.emit(AgentEvent::ToolResult {
+            tool_use_id: call.clone(),
+            content: text.to_string(),
+            is_error: false,
+            images: Vec::new(),
+            returned: Vec::new(),
+        });
+        self.emit(AgentEvent::App {
+            tool_use_id: call,
+            server: "demo".to_string(),
+            tool: "chart".to_string(),
+            uri: "ui://demo/chart".to_string(),
+            document: None,
+            note: None,
+            csp: crate::apps::AppCsp::default(),
+            permissions: vec![],
+            prefers_border: Some(true),
+            callable: vec!["chart".to_string(), "refresh".to_string()],
+            result: Some(json!({
+                "content": [{ "type": "text", "text": text }],
+                "structuredContent": { "bars": [1, 2, 3] },
+            })),
+            html: Some(FAKE_APP.to_string()),
+        });
+        self.text("Here is the chart.");
+        self.end_answered();
     }
 
     /// Takes a screenshot as a browser's tool does: a line of text and the image, in base64.

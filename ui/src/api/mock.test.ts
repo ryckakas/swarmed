@@ -301,6 +301,29 @@ describe("the mock's agent", () => {
         await expect(api.sessionImage(4, path)).rejects.toThrow("not an image kept");
     });
 
+    it("answers `app` with a call whose server's app shows under it and calls its tools", async () => {
+        const api = createMockApi();
+        const heard: SessionEvent["event"][] = [];
+        await api.onSessionEvent((published) => heard.push(published.event));
+        await api.sessionSend(3, "app");
+        await expect
+            .poll(() => heard.some((event) => event.type === "turn_done"), { timeout: 5000 })
+            .toBe(true);
+        const app = heard.find((event) => event.type === "app");
+        if (app?.type !== "app" || app.document === null) {
+            throw new Error("no app");
+        }
+        expect(app.callable).toEqual(["chart", "refresh"]);
+        const shown = await api.appUrl(3, app.tool_use_id, app.document, app.csp);
+        expect(shown.reaches).toEqual(["https://api.invoices.example.com"]);
+        expect(shown.refused).toEqual(["http://plain.example.com (not an https origin)"]);
+        const called = await api.sessionAppCall(3, app.tool_use_id, "refresh", { months: 6 });
+        expect(called).toMatchObject({ structuredContent: { bars: expect.any(Array) } });
+        await expect(api.sessionAppCall(3, app.tool_use_id, "drop", {})).rejects.toThrow(
+            "may not call",
+        );
+    });
+
     it("is given a better title while it writes its first reply, and only then", async () => {
         const api = createMockApi();
         const heard: SessionEvent["event"][] = [];
