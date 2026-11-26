@@ -2,6 +2,7 @@ import { type KeyboardEvent, useEffect, useState } from "react";
 import { api } from "../api";
 import type {
     LimitWarnings,
+    MathShown,
     Settings,
     StatusItem,
     Style,
@@ -26,6 +27,7 @@ import { McpSettings } from "./McpSettings";
 import {
     editorChoices,
     LIMIT_WARNINGS,
+    MATH_SHOWN,
     supervisionChoices,
     TEXT_SCALES,
     THEMES,
@@ -455,6 +457,17 @@ function Sessions({ settings }: { settings: Settings }) {
                     aria-label="Draw a line where each turn ends"
                     checked={settings.turn_end_lines}
                     onChange={(event) => void change(api, { turn_end_lines: event.target.checked })}
+                />
+            </Row>
+            <Row
+                label="Math"
+                hint="Which formulas in agents' replies are drawn as math. A single $ counts only when chosen here, so prices and shell variables such as $5 and $HOME stay text. Code is never drawn, and copying a formula gives its TeX."
+            >
+                <Picker
+                    label="Math"
+                    value={settings.math}
+                    onChange={(value) => void change(api, { math: value as MathShown })}
+                    options={MATH_SHOWN}
                 />
             </Row>
             <Row

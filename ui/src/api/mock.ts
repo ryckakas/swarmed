@@ -1611,8 +1611,41 @@ export function safeNext(next: string | null): string {
 
 The existing tests pass. I'd like to push the branch so CI runs the browser tests too.`;
 
+/**
+ * A reply with formulas in every form math is drawn from: inline and display, `$$`, `\(…\)`,
+ * `\[…\]` and a fenced block, one KaTeX cannot read, and dollars that stay text: prices, shell
+ * variables, code, and a single `$r$`, drawn only with single dollars on.
+ */
+const VAT_ANSWER = `The VAT column goes missing because \`columnsFor(invoice)\` builds the header from the first row of a batch, and a batch that starts with a credit note has no VAT there. The header is fixed now, and VAT is worked out for each row.
+
+Each row's VAT is \\(v = \\lfloor 100\\,n r + \\tfrac{1}{2} \\rfloor / 100\\): the net amount \\(n\\) times the rate $r$, rounded half up to the cent. The spec wants the total to agree with the rows, so it is summed from the rounded rows rather than taken from the summed net:
+
+$$
+V = \\sum_{i=1}^{k} v_i \\quad\\text{not}\\quad \\operatorname{round}\\Big(r \\sum_{i=1}^{k} n_i\\Big)
+$$
+
+Two lines of $5 and $10 at 19% give $0.95 and $1.90, as the spec wants. A line's gross amount is then
+
+\\[ g = n + v \\approx n\\,(1 + r) \\]
+
+and the rates a row can have are
+
+\`\`\`math
+r \\in \\{\\, 0,\\ 0.07,\\ 0.19 \\,\\}
+\`\`\`
+
+The spec writes the rate as \\(\\frac{v}{n\\), with a brace missing; I read it as VAT over net. The export still writes to $EXPORT_DIR, or to $HOME/exports when that is unset, and in the code the rate stays \`rate * net\`, not \`\\(r \\cdot n\\)\`.`;
+
 /** What the sample sessions have said so far. */
 export function sampleEvents(sessionId: number): AgentEvent[] {
+    if (sessionId === 3) {
+        return [
+            { type: "user_message", text: "Why does the CSV export drop the VAT column?" },
+            INIT,
+            { type: "text", text: VAT_ANSWER },
+            { type: "turn_done", is_error: false, result: null, cost_usd: 0.04, duration_ms: 9800 },
+        ];
+    }
     if (sessionId === 1) {
         return [
             {
@@ -3724,6 +3757,7 @@ export function createMockApi(): Api {
         html_views: true,
         tool_calls: "folded",
         turn_end_lines: true,
+        math: "standard",
         limit_warnings: "frequent",
         continue_after_limit: false,
         notifications: true,

@@ -1,11 +1,15 @@
 import { type ComponentProps, isValidElement, memo, type ReactNode, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
+import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import type { MathShown } from "../api/types";
 import { HTML_LANGUAGE, splitPendingView, VIEW_LANGUAGE } from "../htmlview";
 import { ISSUE_SCHEMA } from "../issueHtml";
+import { KATEX_OPTIONS, mathText, REMARK_MATH_OPTIONS, remarkMathAlone } from "../math";
 import { useStore } from "../store";
 import { HtmlView, ViewPending } from "./HtmlView";
 import { Link } from "./Link";
@@ -13,6 +17,18 @@ import { Link } from "./Link";
 const PLUGINS = [remarkGfm];
 // Colours code blocks that name their language; one that does not is left plain, not guessed.
 const REHYPE_PLUGINS = [rehypeHighlight];
+// Formulas, which `mathText` has put in dollars, drawn by KaTeX before code is coloured, so a
+// fenced `math` block is drawn rather than coloured. What KaTeX draws is its own markup, read
+// into the tree rather than set as HTML; the reply's own HTML stays text as it does without.
+const MATH_PLUGINS = [
+    remarkGfm,
+    [remarkMath, REMARK_MATH_OPTIONS],
+    remarkMathAlone,
+] satisfies ComponentProps<typeof ReactMarkdown>["remarkPlugins"];
+const MATH_REHYPE_PLUGINS = [
+    [rehypeKatex, KATEX_OPTIONS],
+    rehypeHighlight,
+] satisfies ComponentProps<typeof ReactMarkdown>["rehypePlugins"];
 // Text anyone could write: its HTML is read, then cleaned to what GitHub would draw of it, and
 // only then are code blocks coloured, so that the colours' classes are not cleaned away.
 const UNTRUSTED_REHYPE_PLUGINS = [
@@ -27,26 +43,46 @@ interface Props {
     streaming?: boolean;
 }
 
-/** The agent's prose. Memoised on the text, so a long transcript re-parses only what is new. */
+/**
+ * The agent's prose, with its formulas drawn as math as the settings say. Memoised on the text,
+ * so a long transcript re-parses only what is new.
+ */
 export const Markdown = memo(function Markdown({ text, streaming = false }: Props) {
     const views = useStore((state) => state.settings?.html_views ?? false);
+    const math = useStore((state) => state.settings?.math ?? "standard");
     // A view still being written is held back and stood in for, so it appears whole. With
     // views off, a view's block is the code it is.
     const { shown, pending } =
         views && streaming ? splitPendingView(text) : { shown: text, pending: false };
     return (
         <div className="prose">
-            <ReactMarkdown
-                remarkPlugins={PLUGINS}
-                rehypePlugins={REHYPE_PLUGINS}
-                components={views ? VIEW_COMPONENTS : COMPONENTS}
-            >
-                {shown}
-            </ReactMarkdown>
+            <AgentMarkdown text={shown} math={math} views={views} />
             {pending && <ViewPending />}
         </div>
     );
 });
+
+interface AgentProps {
+    text: string;
+    /** Which formulas are drawn as math. */
+    math: MathShown;
+    /** Whether a view's block is shown as a view. */
+    views: boolean;
+}
+
+/** An agent's Markdown, drawn as the settings given say. */
+export function AgentMarkdown({ text, math, views }: AgentProps) {
+    const drawn = math !== "off";
+    return (
+        <ReactMarkdown
+            remarkPlugins={drawn ? MATH_PLUGINS : PLUGINS}
+            rehypePlugins={drawn ? MATH_REHYPE_PLUGINS : REHYPE_PLUGINS}
+            components={views ? VIEW_COMPONENTS : COMPONENTS}
+        >
+            {mathText(text, math)}
+        </ReactMarkdown>
+    );
+}
 
 /** The text inside rendered Markdown, however deeply it is wrapped. */
 function textOf(node: ReactNode): string {

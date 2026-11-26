@@ -50,6 +50,8 @@ pub struct Settings {
     /// Whether a conversation draws a line where each turn that showed something ends. A turn
     /// that failed or was stopped keeps its line either way.
     pub turn_end_lines: bool,
+    /// Which formulas in what agents write are drawn as math.
+    pub math: MathShown,
     /// Which levels of the account's usage the notice at the top of the window says.
     pub limit_warnings: LimitWarnings,
     /// Whether a Claude Code session that a usage limit stopped goes on by itself when the
@@ -172,6 +174,24 @@ pub enum ToolCalls {
     Hidden,
 }
 
+/// Which formulas in what agents write are drawn as math.
+///
+/// The window draws them with `KaTeX`. Code is never read for them, and the user's own messages
+/// are not Markdown, so they show as typed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MathShown {
+    /// None: formulas show as they were written.
+    Off,
+    /// `$$…$$`, `\(…\)`, `\[…\]` and fenced `math` blocks. A single `$` stays a dollar sign,
+    /// so replies about prices and shell variables (`$5 and $10`, `$HOME`) stay text.
+    #[default]
+    Standard,
+    /// Those, and `$…$` where it reads as math: no space after the first `$` or before the
+    /// second, and no digit after it.
+    WithSingleDollars,
+}
+
 /// Which levels of the account's usage the notice at the top of the window says.
 ///
 /// The levels are 50%, 75% and 90% of a window used, a limit reached with extra usage paying
@@ -235,6 +255,7 @@ impl Default for Settings {
             html_views: true,
             tool_calls: ToolCalls::Folded,
             turn_end_lines: true,
+            math: MathShown::Standard,
             limit_warnings: LimitWarnings::Frequent,
             continue_after_limit: false,
             status_items: StatusItem::defaults(),
@@ -380,6 +401,7 @@ mod tests {
             html_views: false,
             tool_calls: ToolCalls::Hidden,
             turn_end_lines: false,
+            math: MathShown::WithSingleDollars,
             limit_warnings: LimitWarnings::Rare,
             continue_after_limit: true,
             status_items: vec![StatusItem::Cost],
@@ -447,6 +469,36 @@ mod tests {
         assert!(Settings::load(&path).expect("loads").turn_end_lines);
         std::fs::write(&path, "turn_end_lines = false").expect("writes");
         assert!(!Settings::load(&path).expect("loads").turn_end_lines);
+    }
+
+    #[test]
+    fn math_is_drawn_without_single_dollars_unless_chosen_otherwise() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.toml");
+        assert_eq!(
+            Settings::load(&path).expect("defaults").math,
+            MathShown::Standard
+        );
+        // A file written before the setting existed.
+        std::fs::write(&path, "theme = \"dark\"").expect("writes");
+        assert_eq!(
+            Settings::load(&path).expect("loads").math,
+            MathShown::Standard
+        );
+        std::fs::write(&path, "math = \"with_single_dollars\"").expect("writes");
+        assert_eq!(
+            Settings::load(&path).expect("loads").math,
+            MathShown::WithSingleDollars
+        );
+        // A choice a newer Swarmed may have: this one draws what it knows, and names the value.
+        std::fs::write(&path, "math = \"everything\"\ntheme = \"dark\"").expect("writes");
+        let (settings, problems) = Settings::read(&path).expect("reads");
+        assert_eq!(
+            (settings.math, settings.theme),
+            (MathShown::Standard, Theme::Dark)
+        );
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("`math`"), "{problems:?}");
     }
 
     #[test]

@@ -684,6 +684,13 @@ export type ToolCalls = "all" | "folded" | "hidden";
  */
 export type LimitWarnings = "frequent" | "rare" | "none";
 
+/**
+ * Which formulas in what agents write are drawn as math: none; `$$…$$`, `\(…\)`, `\[…\]` and
+ * fenced `math` blocks, while a single `$` stays a dollar sign; or those and `$…$` where it reads
+ * as math.
+ */
+export type MathShown = "off" | "standard" | "with_single_dollars";
+
 /** The user's own preferences. */
 export interface Settings {
     /** The command that opens a folder in the user's code editor. */
@@ -712,6 +719,8 @@ export interface Settings {
      * that failed or was stopped keeps its line either way.
      */
     turn_end_lines: boolean;
+    /** Which formulas in what agents write are drawn as math. */
+    math: MathShown;
     /** Which levels of the account's usage the notice at the top of the window says. */
     limit_warnings: LimitWarnings;
     /** Whether a session a usage limit stopped goes on by itself when it resets, unasked. */

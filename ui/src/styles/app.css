@@ -3740,6 +3740,41 @@ code {
     border: 1px solid var(--line);
 }
 
+/*
+ * Formulas, drawn by KaTeX in the reply's own colour and in proportion to its text, so every
+ * palette and layout draws them. KaTeX lays out its own boxes, so nothing in one wraps as the
+ * reply's words do, and a display formula wider than the reply scrolls sideways on its own.
+ */
+.prose .katex {
+    overflow-wrap: normal;
+}
+
+.prose .katex-display {
+    padding-block: 2px;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+/* A formula KaTeX cannot read, shown as written, as code is; KaTeX colours it (`errorColor`). */
+.prose .katex-error {
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: var(--raised);
+    font-family: var(--font-mono);
+    white-space: pre-wrap;
+}
+
+/* One that was a block of its own, as a code block is. */
+.prose > .katex-error,
+.prose :is(li, blockquote) > .katex-error {
+    display: block;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    font-size: var(--text-sm);
+}
+
 /* Syntax colours for code blocks that name their language (highlight.js class names). */
 .hljs-comment,
 .hljs-quote,

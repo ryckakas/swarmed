@@ -17,6 +17,12 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **Math in agents' replies is drawn as math.** A formula an agent writes in `$$…$$`, `\(…\)`,
+  `\[…\]` or a fenced `math` block is drawn by KaTeX, which comes with the app, so nothing is
+  fetched from the network. A single `$` stays a dollar sign, so replies about prices and shell
+  variables (`$5 and $10`, `$HOME`) read as before; Settings → Sessions → Math also draws `$…$`
+  where it reads as math, or turns math off. Code is never drawn as math, a formula KaTeX cannot
+  read shows as written, and copying a formula gives its TeX.
 - **Links in your own messages open.** An address you wrote in a message (`https://`, `http://`
   or one starting with `www.`) is a link in the conversation and in the queue of waiting
   messages, and opens in your browser when pressed, as a link in an agent's reply does.

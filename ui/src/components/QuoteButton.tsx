@@ -16,6 +16,50 @@ function replyOf(node: Node): HTMLElement | null {
     return element?.closest<HTMLElement>(`[${QUOTE_INTO}]`) ?? null;
 }
 
+/** The formula a node of a reply lies in, whole: its display block if it is one. */
+function formulaOf(node: Node): Element | null {
+    const element = node instanceof Element ? node : node.parentElement;
+    const formula = element?.closest(".katex") ?? null;
+    return formula?.parentElement?.closest(".katex-display") ?? formula;
+}
+
+/**
+ * The words of `range` with each formula in them whole and as the agent wrote it, its TeX
+ * between dollars as copying gives it (`katex/contrib/copy-tex`), rather than the symbols drawn
+ * and the MathML beside them. Without a formula, the selection as the window shows it.
+ */
+function wordsOf(selection: Selection, range: Range): string {
+    const whole = range.cloneRange();
+    const first = formulaOf(whole.startContainer);
+    const last = formulaOf(whole.endContainer);
+    if (first) {
+        whole.setStartBefore(first);
+    }
+    if (last) {
+        whole.setEndAfter(last);
+    }
+    const fragment = whole.cloneContents();
+    const formulas = [...fragment.querySelectorAll(".katex")];
+    if (formulas.length === 0) {
+        return selection.toString();
+    }
+    for (const formula of formulas) {
+        const tex = formula.querySelector("annotation")?.textContent ?? "";
+        const fence = formula.parentElement?.classList.contains("katex-display") ? "$$" : "$";
+        formula.replaceWith(`${fence}${tex}${fence}`);
+    }
+    // Laid out out of sight, so that the words keep the line breaks the window shows.
+    const holder = document.createElement("div");
+    holder.style.position = "fixed";
+    holder.style.left = "-100000px";
+    holder.append(fragment);
+    document.body.append(holder);
+    // biome-ignore lint/performance/useDomNodeTextContent: the line breaks as laid out are the point
+    const words = holder.innerText;
+    holder.remove();
+    return words;
+}
+
 /** What the window's selection quotes, into which session, and where it lies; `null` for none. */
 function selectedQuote() {
     const selection = window.getSelection();
@@ -25,9 +69,9 @@ function selectedQuote() {
     const range = selection.getRangeAt(0);
     const start = replyOf(range.startContainer);
     const end = replyOf(range.endContainer);
-    // The words as shown, not the reply's Markdown.
+    // The words as shown, not the reply's Markdown, but a formula as its TeX.
     const words = quotedWords(
-        selection.toString(),
+        wordsOf(selection, range),
         start?.dataset.key ?? null,
         end?.dataset.key ?? null,
     );

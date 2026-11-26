@@ -287,7 +287,8 @@ fn configure_tool() -> Value {
             changes, model, context, cost, agent, worktree, duration), or a script as `command`. \
             appearance: `theme`, `palette`, `style`, `layout`, `text_size`, `tool_calls` (hiding \
             them is only proposed), `turn_end_lines` (true or false), `limit_warnings` (the \
-            usage notice at the top of the window: frequent, rare, none). \
+            usage notice at the top of the window: frequent, rare, none), `math` (which \
+            formulas are drawn: off, standard, with_single_dollars). \
             layout: the user's custom layout, one JSON object of sizes, spacing, fonts and \
             colours; list it to get its schema, save the whole of it as `json`. Saving \
             switches the app to it; what cannot be read, such as text too close to its \
