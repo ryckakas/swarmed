@@ -533,7 +533,7 @@ Every session gets an MCP server named `swarmed`, with these tools:
 | `list_sessions`, `read_session` | see and read the other open sessions of the same project; from a chat, every open session. `read_session` reads the latest messages, or from one it is given (`from`), so a long conversation can be read from its start |
 | `send_message` | write to another session it can read, or to a chat, so that one a chat wrote to can answer it; queued if it is busy |
 | `spawn_session`, `close_session` | start a session in the same task, up to six, and close the idle ones it started |
-| `start_task` | start a new task in the same repository for work that needs a branch of its own, as New task does: on a new branch, on an existing one such as a pull request's (`branch`), or on a new one stacked on another (`from`). Its session gets the prompt once the task is set up and reports back to the session that started it |
+| `start_task` | start a new task in the same repository for work that needs a branch of its own, as New task does: on a new branch, on an existing one such as a pull request's (`branch`), or on a new one stacked on another (`from`). Its session gets the prompt once the task is set up and reports back to the session that started it. A session run with `swarmed session` is refused: the command ends with its turn |
 | `delegate_to_cloud` | hand work to a Codex cloud agent or a Claude Code cloud session |
 | `use_skill` | read a skill Swarmed offers |
 | `set_mark` | put a colour and a few words on its own session in the sidebar |

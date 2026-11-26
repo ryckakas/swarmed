@@ -50,7 +50,14 @@ const VIEW_SCHEME: &str = "swarmed-view";
 
 /// `SWARMED_FAKE_AGENT` swaps Claude for the scripted agent, to work on the UI without tokens.
 fn open_core() -> swarmed_core::Result<Core> {
-    let paths = Paths::from_env()?;
+    let mut core = core_on(Paths::from_env()?)?;
+    // The window outlives every turn, so a task a session starts is set up here.
+    core.set_stays();
+    Ok(core)
+}
+
+/// The core on the user's agents, or on the scripted one for `SWARMED_FAKE_AGENT`.
+fn core_on(paths: Paths) -> swarmed_core::Result<Core> {
     if std::env::var_os("SWARMED_FAKE_AGENT").is_some() {
         return Core::with_backend(paths, Arc::new(FakeBackend::default()));
     }

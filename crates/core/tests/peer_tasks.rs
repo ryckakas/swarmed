@@ -17,7 +17,15 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 
 async fn core_with_task(fx: &common::Fixture) -> Arc<Core> {
-    let core = core_with_project(fx).await;
+    core_that(fx, true).await
+}
+
+/// A core with one task, in a process that stays after a turn as the window does, or not.
+async fn core_that(fx: &common::Fixture, stays: bool) -> Arc<Core> {
+    let mut core = core_with_project(fx).await;
+    if stays {
+        core.set_stays();
+    }
     core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
         .await
         .expect("test setup");
@@ -235,19 +243,14 @@ async fn a_task_is_refused_to_a_helper_a_chat_and_an_empty_prompt() {
     assert_eq!(core.tasks("demo", false).expect("lists").len(), 1);
 }
 
-#[tokio::test]
-async fn the_tool_server_starts_a_task_over_its_socket() {
-    let fx = fixture();
-    let core = core_with_task(&fx).await;
-    let asking = new_session(&core);
-    core.session_start(asking.id, Auth::Subscription)
-        .expect("starts");
-    drop(tokio::spawn(serve_session_tools(Arc::clone(&core))));
+/// What the tool server of `core` answers session `from`'s `start_task` call for `name`.
+async fn asked_over_the_socket(core: &Arc<Core>, from: i64, name: &str) -> serde_json::Value {
+    drop(tokio::spawn(serve_session_tools(Arc::clone(core))));
     let socket = core.paths().tools_socket();
     listening(&socket).await;
     let request = serde_json::json!({
-        "session": asking.id, "tool": "start_task",
-        "arguments": { "name": "over-the-wire", "prompt": "Do the work.", "title": "Work" },
+        "session": from, "tool": "start_task",
+        "arguments": { "name": name, "prompt": "Do the work.", "title": "Work" },
     });
     let mut stream = UnixStream::connect(&socket).await.expect("connects");
     stream
@@ -259,7 +262,29 @@ async fn the_tool_server_starts_a_task_over_its_socket() {
         .read_line(&mut line)
         .await
         .expect("reads");
-    let answer: serde_json::Value = serde_json::from_str(&line).expect("json");
+    serde_json::from_str(&line).expect("json")
+}
+
+#[tokio::test]
+async fn a_command_that_ends_with_its_turn_starts_no_task() {
+    let fx = fixture();
+    let core = core_that(&fx, false).await;
+    let asking = new_session(&core);
+    let answer = asked_over_the_socket(&core, asking.id, "cut-short").await;
+    assert_eq!(answer["ok"], false, "{answer}");
+    let text = answer["text"].as_str().expect("text");
+    assert!(text.contains("from the command line"), "{text}");
+    assert!(core.task("demo", "cut-short").is_err());
+}
+
+#[tokio::test]
+async fn the_tool_server_starts_a_task_over_its_socket() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let asking = new_session(&core);
+    core.session_start(asking.id, Auth::Subscription)
+        .expect("starts");
+    let answer = asked_over_the_socket(&core, asking.id, "over-the-wire").await;
     assert_eq!(answer["ok"], true, "{answer}");
     let text = answer["text"].as_str().expect("text");
     assert!(text.starts_with("Started task `over-the-wire`"), "{text}");

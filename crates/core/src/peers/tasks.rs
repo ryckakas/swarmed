@@ -5,7 +5,8 @@
 //! The task is made as the window's New task makes one ([`Core::task_start`]): the setup runs
 //! in this process and shows in the task's setup panel, and the prompt goes once it finished
 //! well. Its session is the app's from the start, so the user can watch it, stop it and answer
-//! it like any other.
+//! it like any other. A command ends with its turn and would take the setup along, so the tool
+//! is answered only by a process that stays ([`Core::set_stays`]).
 
 use std::sync::Arc;
 
@@ -144,6 +145,13 @@ impl Core {
         from: i64,
         arguments: &Value,
     ) -> Result<String> {
+        // The setup and the new session's agent run here, and would end with this process.
+        if !self.stays {
+            return Err(refused(
+                "a session run from the command line cannot start tasks: the command ends with \
+                 its turn, before the task is set up; ask the user to start one",
+            ));
+        }
         let asked = PeerTask::from_call(arguments);
         let started = self.peer_start_task(from, asked).await?;
         let task = &started.task;

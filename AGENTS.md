@@ -1044,7 +1044,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   with a note to report back; the session is not spawned (`spawned_by` stays empty), so it
   can spawn and start tasks itself, as the next link of a chain of pull requests does. A
   title left out is the prompt's, never the mark's, and the namer names it from the prompt.
-  Refused to a spawned session and to a chat. `TreeChanged` is published, since front ends
+  Refused to a spawned session and to a chat, and by a process that ends with its turn, as
+  the command line's does, which would take the setup along: only one that stays answers it
+  (`Core::set_stays`, which the app sets). `TreeChanged` is published, since front ends
   learn of a task their own process made only when told. Not on the allow list.
 - **A session's agent can be changed until it has begun** (`session_set_agent`): before its
   first message reaches an agent, which from then on holds the conversation. The model goes

@@ -73,7 +73,8 @@ to pass over is printed.
 `task new --branch <branch>` checks out an existing branch, here or on a remote, instead of
 making one. `task new --from <branch>` makes the new branch from that branch instead of the
 base, which it then is for the task: its changes and its pull request are against it, for work
-stacked on another pull request. Agents do the same with Swarmed's `start_task` tool.
+stacked on another pull request. Agents do the same with Swarmed's `start_task` tool, in the app: a session run from the
+command line is refused it, since the command ends with its turn and the task's setup with it.
 
 `task new --prompt "…"` starts the task's first session with it, as the app does: the session
 is made at once, the prompt waits while `setup` runs, and goes once it succeeds, after which the
