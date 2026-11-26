@@ -337,6 +337,13 @@ const MIGRATIONS: &[&str] = &[
         at_ms      INTEGER NOT NULL
     );
 ",
+    // What each session's agent has running in the background now, sub-agents and commands
+    // apart, as its stored reports and ends add up (`background.rs`): a flag beside the status,
+    // which the sidebar shows. Worked out again whenever such a report or an end is stored.
+    "
+    ALTER TABLE sessions ADD COLUMN background_agents INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE sessions ADD COLUMN background_commands INTEGER NOT NULL DEFAULT 0;
+",
 ];
 
 /// Stands in [`MIGRATIONS`] for the one change SQL in a transaction cannot make: every

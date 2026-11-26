@@ -10,7 +10,9 @@ use swarmed_core::agent::{
     AgentEvent, Asked, Auth, Effort, McpServerInfo, PLAN_TOOL, RemoteState, ScreenRow,
     ScreenSection, Supervision,
 };
-use swarmed_core::{Attached, Core, Session, SessionEvent, SessionOptions, SessionSettings};
+use swarmed_core::{
+    Attached, BackgroundCount, Core, Session, SessionEvent, SessionOptions, SessionSettings,
+};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
@@ -423,10 +425,31 @@ fn show(core: &Core, id: i64) -> Result<()> {
     for line in shown(&core.session_events(id)?) {
         say(&line);
     }
-    if let Some(at) = core.session(id)?.continue_at {
+    let session = core.session(id)?;
+    if let Some(at) = session.continue_at {
         say(&continues(at, seconds_now()));
     }
+    if let Some(running) = in_background(session.background) {
+        say(&running);
+    }
     Ok(())
+}
+
+/// What is said of what a session's agent has running in the background, if anything.
+fn in_background(count: BackgroundCount) -> Option<String> {
+    let counted = |n: u32, one: &str, many: &str| match n {
+        0 => None,
+        1 => Some(format!("1 {one}")),
+        n => Some(format!("{n} {many}")),
+    };
+    let parts: Vec<String> = [
+        counted(count.agents, "sub-agent", "sub-agents"),
+        counted(count.commands, "command", "commands"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    (!parts.is_empty()).then(|| format!("{} in the background", parts.join(", ")))
 }
 
 /// Sets a session to go on by itself when the usage limit that stopped it resets, or cancels
@@ -1009,6 +1032,17 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn what_runs_in_the_background_is_said_by_kind_and_nothing_is_not() {
+        let said = |agents, commands| in_background(BackgroundCount { agents, commands });
+        assert_eq!(
+            said(2, 1).as_deref(),
+            Some("2 sub-agents, 1 command in the background")
+        );
+        assert_eq!(said(0, 3).as_deref(), Some("3 commands in the background"));
+        assert_eq!(said(0, 0), None);
+    }
 
     #[test]
     fn tool_calls_are_summarised_by_their_telling_argument() {

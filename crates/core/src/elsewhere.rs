@@ -348,7 +348,10 @@ impl Core {
 
     /// Publishes events another process stored, in order. The last of each session's carries
     /// the status and unread state its row has now, and so does an answer handed back, which
-    /// is unread or not by what that process knew of work left in the background.
+    /// is unread or not by what that process knew of work left in the background. A report of
+    /// something left running, or the end of an agent, carries what the session has running
+    /// in the background, worked out again here and kept on its row: a Swarmed that does not
+    /// know that count stores the reports all the same.
     fn pass_on(&self, events: Vec<(i64, AgentEvent)>) {
         let last: HashMap<i64, usize> = events
             .iter()
@@ -369,10 +372,12 @@ impl Core {
                 _ => status,
             };
             let unread = stands.map_or(unread, |(_, unread_now)| Some(unread_now));
+            let background = self.store().background_after(session_id, &event);
             let published = SessionEvent {
                 session_id,
                 status,
                 unread,
+                background: background.ok().flatten(),
                 event,
                 elsewhere: true,
             };

@@ -171,6 +171,7 @@ mod tests {
             session_id: 1,
             status,
             unread,
+            background: None,
             event,
             elsewhere: false,
         }

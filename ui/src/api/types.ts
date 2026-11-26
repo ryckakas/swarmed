@@ -36,6 +36,19 @@ export interface Session {
      * a message is sent to it then. `null` for not.
      */
     continue_at: number | null;
+    /**
+     * What its agent has running in the background now, sub-agents and commands apart. Not a
+     * status: the session stays idle, and takes a message.
+     */
+    background: BackgroundCount;
+}
+
+/** How many things a session's agent has running in the background now, by kind. */
+export interface BackgroundCount {
+    /** Sub-agents at work. */
+    agents: number;
+    /** Everything else left running: commands, and shells an agent left open. */
+    commands: number;
 }
 
 /** The colours a mark can have. Each theme draws its own. */
@@ -1421,6 +1434,12 @@ export interface SessionEvent {
      * always says; events the window makes up itself (the sample data) leave it out.
      */
     unread?: boolean | null;
+    /**
+     * What the session's agent has running in the background after this event, if the event
+     * could change that: a report of something left running, or the agent's end. The core
+     * always says; events the window makes up itself leave it out.
+     */
+    background?: BackgroundCount | null;
     event: AgentEvent;
 }
 

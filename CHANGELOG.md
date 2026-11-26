@@ -25,6 +25,16 @@ notice adds its line under Unreleased.
   tool of its own server it calls goes through the agent, which decides it as its own call.
   See [Apps MCP servers attach to their tools](docs/coding-agents.md#apps-mcp-servers-attach-to-their-tools).
 
+### Changed
+
+- **A session with work left in the background no longer looks idle.** Its status mark in the
+  sidebar gets a ring: a clear one that breathes slowly while sub-agents are at work, and a
+  faint one while only commands it left running run, such as a dev server. Pointed at, the mark
+  says what runs ("2 sub-agents, 1 command in the background"), and so does the session's
+  header. A folded task or repository shows the ring too, ranked below working and above idle.
+  The session stays idle all the same, and takes your messages at once. It reads the same
+  after a restart and in a second Swarmed, and `swarmed session show` says it as well.
+
 ### Fixed
 
 - **A row pinned stays above the rows not pinned.** A repository, task or session pinned

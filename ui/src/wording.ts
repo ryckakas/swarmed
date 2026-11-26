@@ -1,7 +1,13 @@
 // What things are called, by the style the user chose: the plain words, or a swarm's. Apart from
 // the palette, so either goes with any colours. Pure, so it can be tested.
 
-import type { BackgroundState, SessionStatus, StackState, Style } from "./api/types";
+import type {
+    BackgroundCount,
+    BackgroundState,
+    SessionStatus,
+    StackState,
+    Style,
+} from "./api/types";
 import { DEFAULT_STYLE } from "./appearance";
 
 /** What a session is doing, as the marks tell it: its status, or idle with an unseen answer. */
@@ -155,6 +161,11 @@ export interface Words {
     untitled: string;
     /** The line under a session another session started. */
     startedBy: (id: number) => string;
+    /**
+     * What a session, or the sessions under a folded heading, have running in the background,
+     * as its status mark says when pointed at: "2 sub-agents, 1 command in the background".
+     */
+    inBackground: (count: BackgroundCount) => string;
     /** The transcript's button that starts a session from one message on, and what it does. */
     forkHere: string;
     forkHereHint: string;
@@ -365,6 +376,11 @@ const PLAIN: Words = {
     sessionNumbered: (id) => `Session ${id}`,
     untitled: "New session",
     startedBy: (id) => `Started by session ${id}`,
+    inBackground: ({ agents, commands }) =>
+        `${counted([
+            [agents, "sub-agent", "sub-agents"],
+            [commands, "command", "commands"],
+        ])} in the background`,
     forkHere: "Fork from here",
     forkHereHint:
         "Starts a new session with this message and everything said after it, and nothing from before",
@@ -532,6 +548,13 @@ const SWARM: Words = {
     sessionNumbered: (id) => `Spawn ${id}`,
     untitled: "New spawn",
     startedBy: (id) => `Sent out by spawn ${id}`,
+    inBackground: ({ agents, commands }) =>
+        [
+            agents > 0 ? `${counted([[agents, "hatchling", "hatchlings"]])} foraging` : "",
+            commands > 0 ? `${counted([[commands, "command", "commands"]])} left running` : "",
+        ]
+            .filter((part) => part !== "")
+            .join(", "),
     forkHere: "Split from here",
     forkHereHint:
         "Spawns from this message: everything said after it comes along, and nothing from before",
@@ -727,6 +750,14 @@ export function withArticle(name: string): string {
 /** The words on offer for what the agent is doing: the swarm's, or the plain word alone. */
 export function activityWords(words: Words, plain: string): string[] {
     return words.activity[plain] ?? [plain];
+}
+
+/** Several numbers of things, each with its word, the ones of none left out: "2 sub-agents, 1 command". */
+function counted(things: [count: number, one: string, many: string][]): string {
+    return things
+        .filter(([count]) => count > 0)
+        .map(([count, one, many]) => `${count} ${count === 1 ? one : many}`)
+        .join(", ");
 }
 
 /** Which mark a session gets: unread only counts while it is idle, as the rest says more. */

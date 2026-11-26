@@ -27,6 +27,7 @@ import {
     countWaiting,
     foldedSummary,
     nestedSessions,
+    projectBackground,
     projectStatus,
     projectUnread,
 } from "../tree";
@@ -188,7 +189,13 @@ function ProjectGroup({ project }: { project: Project }) {
                         <FoldChevron />
                         <RepositoryIcon />
                         <span className="project-title">{project.name}</span>
-                        {status && <StatusMark status={status} unread={projectUnread(project)} />}
+                        {status && (
+                            <StatusMark
+                                status={status}
+                                unread={projectUnread(project)}
+                                background={projectBackground(project)}
+                            />
+                        )}
                         {folded && <span className="project-count">{tasks.length}</span>}
                     </button>
                 </h2>
@@ -252,7 +259,13 @@ function ChatsGroup({ home }: { home: Project }) {
                         <FoldChevron />
                         <ChatIcon />
                         <span className="project-title">{words.chats}</span>
-                        {status && <StatusMark status={status} unread={projectUnread(home)} />}
+                        {status && (
+                            <StatusMark
+                                status={status}
+                                unread={projectUnread(home)}
+                                background={projectBackground(home)}
+                            />
+                        )}
                         {folded && <span className="project-count">{chats.length}</span>}
                     </button>
                 </h2>
@@ -407,7 +420,13 @@ function TaskHeading({ task, folded, chat }: { task: Task; folded: boolean; chat
                 {chat ? <ChatIcon /> : <WorktreeIcon />}
                 <span className="task-title">{task.name}</span>
                 <SetupFlag task={task} />
-                {summary?.status && <StatusMark status={summary.status} unread={summary.unread} />}
+                {summary?.status && (
+                    <StatusMark
+                        status={summary.status}
+                        unread={summary.unread}
+                        background={summary.background}
+                    />
+                )}
                 {summary && <span className="task-count">{summary.count}</span>}
             </button>
         </h3>
@@ -976,7 +995,11 @@ function SessionRow({ session }: { session: Session }) {
                 aria-current={selected ? "true" : undefined}
                 onClick={() => void open(api, session.id)}
             >
-                <StatusMark status={session.status} unread={session.unread} />
+                <StatusMark
+                    status={session.status}
+                    unread={session.unread}
+                    background={session.background}
+                />
                 {session.spawned_by !== null && (
                     <span
                         className="session-spawned"

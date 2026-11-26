@@ -31,6 +31,7 @@ import type {
     AgentEvent,
     AgentSetup,
     ApiKeyInfo,
+    BackgroundCount,
     BackgroundState,
     BackgroundTask,
     Check,
@@ -177,7 +178,36 @@ function session(id: number, taskId: number, title: string, status: SessionStatu
         // One sample session is pinned above the others of its task.
         pinned: id === 1,
         continue_at: null,
+        // What its agent left running, as the core counts it from the reports.
+        background: backgroundIn(id, sampleEvents(id)),
     };
+}
+
+/**
+ * What sample sessions' agents left running before their histories begin: the dev servers the
+ * sample task's Background list shows.
+ */
+const LEFT_RUNNING: Record<number, string[]> = { 1: ["b1"], 2: ["sh_7"] };
+
+/**
+ * What a session's agent has running in the background after `events`, folded as the core folds
+ * the reports: the last word on each thing counts, and the agent's end takes everything with it.
+ * An end does not say again what kind of thing it was.
+ */
+function backgroundIn(sessionId: number, events: AgentEvent[]): BackgroundCount {
+    const running = new Map((LEFT_RUNNING[sessionId] ?? []).map((id) => [id, "local_bash"]));
+    for (const event of events) {
+        if (event.type === "exited") {
+            running.clear();
+        } else if (event.type === "background" && event.state === "running") {
+            running.set(event.task_id, running.get(event.task_id) ?? event.kind);
+        } else if (event.type === "background") {
+            running.delete(event.task_id);
+        }
+    }
+    const kinds = [...running.values()];
+    const agents = kinds.filter((kind) => kind === "local_agent" || kind === "remote_agent");
+    return { agents: agents.length, commands: kinds.length - agents.length };
 }
 
 /** A branch prefix as the core keeps it: without blank space or slashes at either end. */
@@ -1005,11 +1035,36 @@ function backgroundApi(
             stoppable: true,
         },
     ];
-    const all = () => [...agent.sentToBackground.map((sent) => sent.listed), ...tasks];
+    // What the export's review session left at work, as its history reports it.
+    const left = (id: string, kind: string, description: string): BackgroundTask => ({
+        session_id: 8,
+        session_title: "Review the export while the dev server runs",
+        task_id: id,
+        description,
+        kind,
+        state: "running",
+        summary: null,
+        tool_use_id: id === "b8-review" ? "bg-review" : null,
+        output: false,
+        stoppable: true,
+    });
+    const exportTasks = [
+        left("b8-review", "local_agent", "Review the export"),
+        left("b8-server", "local_bash", "Run the dev server on port 3300"),
+    ];
+    const samples: Record<string, BackgroundTask[]> = {
+        "fix-login-redirect": tasks,
+        "invoice-export": exportTasks,
+    };
+    const all = () => [
+        ...agent.sentToBackground.map((sent) => sent.listed),
+        ...tasks,
+        ...exportTasks,
+    ];
     return {
         taskBackground: async (_project, name) => {
             const sent = agent.sentToBackground.filter((one) => one.task === name);
-            const sample = name === "fix-login-redirect" ? tasks : [];
+            const sample = samples[name] ?? [];
             return [...sent.map((one) => one.listed), ...sample].map((task) => ({ ...task }));
         },
         sessionSendToBackground: async (id, toolUseId) => agent.sendToBackground(id, toolUseId),
@@ -1031,9 +1086,80 @@ function backgroundApi(
             }
             if (task) {
                 task.state = "stopped";
+                // The agent reports the end, as Claude Code does, which the session's mark follows.
+                agent.publish(id, stoppedReport(taskId, task.tool_use_id), null);
             }
         },
     };
+}
+
+/**
+ * The report of something left running that was stopped: what it was is not said again, the
+ * call that started it is.
+ */
+function stoppedReport(taskId: string, call: string | null): AgentEvent {
+    return {
+        type: "background",
+        task_id: taskId,
+        description: "",
+        kind: "",
+        state: "stopped",
+        summary: "Stopped",
+        tool_use_id: call,
+        output_file: null,
+    };
+}
+
+/**
+ * A session that left a dev server running and a sub-agent at work in the background, and
+ * ended its turn to wait for the review: idle, and not done.
+ */
+function reviewInBackground(): AgentEvent[] {
+    const report = (id: string, kind: string, description: string, call: string): AgentEvent => ({
+        type: "background",
+        task_id: id,
+        description,
+        kind,
+        state: "running",
+        summary: null,
+        tool_use_id: call,
+        output_file: null,
+    });
+    const server = { command: "pnpm dev --port 3300", run_in_background: true };
+    const review = {
+        description: "Review the export",
+        subagent_type: "general-purpose",
+        prompt: "Review the CSV export for missing columns.",
+        run_in_background: true,
+    };
+    return [
+        {
+            type: "user_message",
+            text: "Have the export reviewed, and keep the dev server up so I can try it meanwhile.",
+        },
+        INIT,
+        { type: "tool_use", id: "bg-server", name: "Bash", input: server },
+        report("b8-server", "local_bash", "Run the dev server on port 3300", "bg-server"),
+        {
+            type: "tool_result",
+            tool_use_id: "bg-server",
+            content: "Command running in background with ID: b8-server",
+            is_error: false,
+        },
+        { type: "tool_use", id: "bg-review", name: "Agent", input: review },
+        report("b8-review", "local_agent", "Review the export", "bg-review"),
+        {
+            type: "tool_result",
+            tool_use_id: "bg-review",
+            content: "Async agent launched successfully.",
+            is_error: false,
+        },
+        {
+            type: "text",
+            text: "The dev server runs on port 3300, and a sub-agent is reviewing the export. I'll read its review when it reports back.",
+        },
+        { type: "turn_done", is_error: false, result: null, cost_usd: 0.03, duration_ms: 9100 },
+    ];
 }
 
 /** Starting and stopping what a sample task keeps running. */
@@ -1215,6 +1341,8 @@ export function sampleProjects(): Project[] {
                 ]),
                 task(2, 1, "invoice-export", [
                     session(3, 2, "Why does the CSV export drop the VAT column?", "idle"),
+                    // Idle, with a sub-agent at work and a dev server left running.
+                    session(8, 2, "Review the export while the dev server runs", "idle"),
                 ]),
                 task(3, 1, "shop-142", []),
                 // Put away once its pull request merged: listed apart, its session kept.
@@ -1377,6 +1505,9 @@ export function sampleEvents(sessionId: number): AgentEvent[] {
             },
             { type: "turn_done", is_error: false, result: null, cost_usd: 0.02, duration_ms: 3100 },
         ];
+    }
+    if (sessionId === 8) {
+        return reviewInBackground();
     }
     if (sessionId === 5) {
         return Array.from({ length: 2000 }, (_, index): AgentEvent => {
@@ -1933,8 +2064,11 @@ class MockAgent {
 
     publish(sessionId: number, event: AgentEvent, status: SessionStatus | null) {
         this.history(sessionId).push(event);
-        this.record(sessionId, event, status);
-        this.tell(sessionId, event, status);
+        // What the agent has in the background rides on what can change it, as in the core.
+        const counts = event.type === "background" || event.type === "exited";
+        const background = counts ? backgroundIn(sessionId, this.history(sessionId)) : null;
+        this.record(sessionId, event, status, background);
+        this.tell(sessionId, event, status, background);
         this.hearUsage(sessionId, event);
         this.followContinuation(sessionId, event);
         // A turn that ended well makes room for the next waiting message, as in the core.
@@ -1964,7 +2098,12 @@ class MockAgent {
      * must say what the events said, or a refresh would put a working session back to idle
      * and take a new session's title away.
      */
-    private record(sessionId: number, event: AgentEvent, status: SessionStatus | null) {
+    private record(
+        sessionId: number,
+        event: AgentEvent,
+        status: SessionStatus | null,
+        background: BackgroundCount | null,
+    ) {
         const session = this.tasks()
             .flatMap((task) => task.sessions)
             .find((candidate) => candidate.id === sessionId);
@@ -1973,6 +2112,7 @@ class MockAgent {
             return;
         }
         session.status = status ?? session.status;
+        session.background = background ?? session.background;
         if (event.type === "turn_done") {
             session.unread = true;
         } else if (event.type === "renamed") {
@@ -2041,9 +2181,14 @@ class MockAgent {
         this.tell(0, event, null);
     }
 
-    private tell(sessionId: number, event: AgentEvent, status: SessionStatus | null) {
+    private tell(
+        sessionId: number,
+        event: AgentEvent,
+        status: SessionStatus | null,
+        background: BackgroundCount | null = null,
+    ) {
         for (const listener of this.listeners) {
-            listener({ session_id: sessionId, status, event });
+            listener({ session_id: sessionId, status, background, event });
         }
     }
 

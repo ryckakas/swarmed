@@ -78,6 +78,20 @@ describe("wordsFor", () => {
     });
 });
 
+describe("inBackground", () => {
+    it("says what runs in the background, each kind counted and none left out", () => {
+        const plain = wordsFor("plain").inBackground;
+        expect(plain({ agents: 2, commands: 1 })).toBe("2 sub-agents, 1 command in the background");
+        expect(plain({ agents: 1, commands: 0 })).toBe("1 sub-agent in the background");
+        expect(plain({ agents: 0, commands: 3 })).toBe("3 commands in the background");
+        const swarm = wordsFor("swarm").inBackground;
+        expect(swarm({ agents: 2, commands: 1 })).toBe(
+            "2 hatchlings foraging, 1 command left running",
+        );
+        expect(swarm({ agents: 0, commands: 1 })).toBe("1 command left running");
+    });
+});
+
 describe("statusKind", () => {
     it("counts unread only for an idle session", () => {
         expect(statusKind("idle", true)).toBe("unread");

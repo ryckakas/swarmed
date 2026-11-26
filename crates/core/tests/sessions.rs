@@ -9,9 +9,9 @@ use swarmed_core::agent::{
     AgentEvent, Auth, BackgroundState, Effort, FakeBackend, Namer, Naming, PLAN_TOOL, Supervision,
 };
 use swarmed_core::{
-    AccountUsage, AgentInfo, Attached, Core, Error, Mark, MarkColour, NewTaskOptions, Session,
-    SessionEvent, SessionOptions, SessionSettings, SessionStatus, Settings, TerminalOutput,
-    UsageWindow, hooks,
+    AccountUsage, AgentInfo, Attached, BackgroundCount, Core, Error, Mark, MarkColour,
+    NewTaskOptions, Session, SessionEvent, SessionOptions, SessionSettings, SessionStatus,
+    Settings, TerminalOutput, UsageWindow, hooks,
 };
 use tokio::sync::broadcast::Receiver;
 
@@ -2148,6 +2148,7 @@ async fn a_worktree_moved_by_a_tool_is_noticed_and_one_moved_between_turns_is_to
         session_id: session.id,
         status: None,
         unread: None,
+        background: None,
         event: moved,
         elsewhere: false,
     };
@@ -2430,6 +2431,83 @@ async fn the_agent_ending_ends_a_wait_on_background_sub_agents() {
     assert_eq!(turn_ends(&events)[0].unread, Some(true));
 }
 
+/// What the session has running in the background, as `agents` sub-agents and `commands`.
+fn counted(agents: u32, commands: u32) -> BackgroundCount {
+    BackgroundCount { agents, commands }
+}
+
+/// The counts the session's events carried, in order.
+fn counts_carried(events: &[SessionEvent]) -> Vec<BackgroundCount> {
+    events.iter().filter_map(|event| event.background).collect()
+}
+
+/// Skips ahead to the end of the session's agent.
+async fn exited(bus: &mut Receiver<SessionEvent>, session: i64) -> SessionEvent {
+    loop {
+        let event = next(bus).await;
+        if event.session_id == session && matches!(event.event, AgentEvent::Exited { .. }) {
+            return event;
+        }
+    }
+}
+
+/// What the tree, read again from the database, says session `id` has in the background.
+fn counted_in_tree(core: &Core, id: i64) -> BackgroundCount {
+    let tree = core.overview().expect("reads");
+    let sessions = tree.iter().flat_map(|project| &project.tasks);
+    let session = sessions
+        .flat_map(|task| &task.sessions)
+        .find(|session| session.id == id);
+    session.expect("listed").background
+}
+
+#[tokio::test]
+async fn a_sessions_background_count_follows_its_reports_and_rides_on_its_events() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let session = started_session(&core);
+    assert_eq!(session.background, counted(0, 0));
+
+    // A sub-agent counts from the report of its start to the report of its end.
+    core.session_send(session.id, "background agent")
+        .expect("sends");
+    let events = until_turns(&mut bus, session.id, 2).await;
+    assert_eq!(counts_carried(&events), [counted(1, 0), counted(0, 0)]);
+    // Only what can change it carries it.
+    for event in &events {
+        let report = matches!(event.event, AgentEvent::Background { .. });
+        assert_eq!(event.background.is_some(), report, "{event:?}");
+    }
+    assert_eq!(counted_in_tree(&core, session.id), counted(0, 0));
+
+    // A command left running is counted apart from a sub-agent left at work.
+    core.session_send(session.id, "background bash")
+        .expect("sends");
+    let events = until_turns(&mut bus, session.id, 1).await;
+    assert_eq!(counts_carried(&events), [counted(0, 1)]);
+    core.session_send(session.id, "background agent left")
+        .expect("sends");
+    let events = until_turns(&mut bus, session.id, 1).await;
+    assert_eq!(counts_carried(&events), [counted(1, 1)]);
+    // Not a status: the session is idle, and takes a message.
+    let read = core.session(session.id).expect("reads");
+    assert_eq!(read.status, SessionStatus::Idle);
+    // Read again from the database, it is what was published, here and in another Swarmed.
+    assert_eq!(read.background, counted(1, 1));
+    assert_eq!(counted_in_tree(&core, session.id), counted(1, 1));
+    let other =
+        Core::with_backend(fx.paths.clone(), Arc::new(FakeBackend::default())).expect("opens");
+    assert_eq!(counted_in_tree(&other, session.id), counted(1, 1));
+
+    // The agent's end takes everything it left with it.
+    core.session_stop(session.id);
+    let exited = exited(&mut bus, session.id).await;
+    assert_eq!(exited.background, Some(counted(0, 0)));
+    assert_eq!(counted_in_tree(&core, session.id), counted(0, 0));
+    assert_eq!(counted_in_tree(&other, session.id), counted(0, 0));
+}
+
 #[tokio::test]
 async fn a_swarmed_that_starts_records_the_end_of_what_was_left_in_the_background() {
     let fx = fixture();
@@ -2439,6 +2517,8 @@ async fn a_swarmed_that_starts_records_the_end_of_what_was_left_in_the_backgroun
     core.session_send(session.id, "background agent left")
         .expect("sends");
     until_turns(&mut bus, session.id, 1).await;
+    let read = core.session(session.id).expect("reads");
+    assert_eq!(read.background, counted(1, 0));
     // Swarmed ends with the sub-agent at work: nothing says that it, or its agent, ended.
     drop(core);
 
@@ -2465,6 +2545,9 @@ async fn a_swarmed_that_starts_records_the_end_of_what_was_left_in_the_backgroun
     // Once: the end is there now.
     later.arrive().expect("arrives");
     assert_eq!(ends(&later), 1);
+    // And the session no longer counts what went with its agent.
+    let read = later.session(session.id).expect("reads");
+    assert_eq!(read.background, counted(0, 0));
 }
 
 /// Skips ahead to the session's call of tool `id`.

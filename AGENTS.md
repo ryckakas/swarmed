@@ -580,7 +580,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   required check holds a merge back (`mockMerging.ts`): Force merge is refused in GitHub's
   words, auto-merge can be turned on, and Bypass requirements merges it.
   Removing the sample task `invoice-export` is refused over unsaved work, and `shop-142` over
-  a session another Swarmed runs. A session can be taken back with Edit from here once idle
+  a session another Swarmed runs. The second session of `invoice-export` is idle with a
+  sub-agent at work and a dev server left running; stopping them from the Background list
+  changes its mark. A session can be taken back with Edit from here once idle
   (`mockRewind.ts`); a busy one is refused, and so are the files of one whose task has a session
   at work, as in `fix-login-redirect`. A new task's setup is quick in storefront, takes half a
   minute in bonsai-lint, and in fsum is killed the first time and succeeds when run again
@@ -717,7 +719,14 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   or agent, which become `AgentEvent::Background`. Stopping one is the `stop_task` control
   request. What ran under an agent that is no longer running is listed as stopped, and so is
   what an earlier run of the agent left once that run's `Exited` is recorded: the agent
-  started again knows nothing of it.
+  started again knows nothing of it. One run by another Swarmed (`agents_alive`) runs.
+  - **Each session counts what runs** (`BackgroundCount`, #420): sub-agents and commands
+    apart, kept on its row (`background_agents`, `background_commands`) and worked out again
+    from its history whenever a `Background` or an `Exited` is stored (`background_after`),
+    here or by a Swarmed that only passes it on, in case the one that stored it did not know
+    the count. It rides on those events (`SessionEvent::background`). It is a flag beside
+    the status, never one: the session stays idle. The UI rings an idle mark with it
+    (`backgroundShown`), and folded headings add it up, ranked below working.
   - **OpenCode's shells** (`agent/acp/shells.rs`): a call that ends with
     `rawOutput.metadata.status: "running"` and a `shellID` left one running, reported as
     `local_bash`. Nothing over ACP tells its end, so every shell reported running is taken to

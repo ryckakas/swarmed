@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { sampleProjects } from "./api/mock";
-import type { Project, Session, SessionEvent } from "./api/types";
+import type { Project, Session, SessionEvent, SessionStatus, Task } from "./api/types";
+import { backgroundShown } from "./inBackground";
 import {
     applySessionEvent,
     countBusy,
@@ -10,10 +11,12 @@ import {
     findSessionHome,
     foldedSummary,
     nestedSessions,
+    projectBackground,
     projectStatus,
     projectUnread,
     repositoryOf,
     stillListed,
+    taskBackground,
     taskNameForPrompt,
     taskNameFrom,
     taskStatus,
@@ -73,15 +76,18 @@ describe("a folded repository", () => {
 describe("a folded task", () => {
     it("still says how many sessions are open, what the most urgent needs, and if one is unread", () => {
         const [storefront, bonsai] = sampleProjects();
+        const nothing = { agents: 0, commands: 0 };
         expect(storefront?.tasks.map(foldedSummary)).toEqual([
-            { count: 2, status: "waiting", unread: false },
-            { count: 1, status: "idle", unread: false },
-            { count: 0, status: null, unread: false },
+            // Each session left a dev server running.
+            { count: 2, status: "waiting", unread: false, background: { agents: 0, commands: 2 } },
+            // One left a sub-agent at work and a dev server running.
+            { count: 2, status: "idle", unread: false, background: { agents: 1, commands: 1 } },
+            { count: 0, status: null, unread: false, background: nothing },
             // Put away, its session kept open.
-            { count: 1, status: "idle", unread: false },
+            { count: 1, status: "idle", unread: false, background: nothing },
         ]);
         expect(bonsai?.tasks.map(foldedSummary)).toEqual([
-            { count: 2, status: "errored", unread: true },
+            { count: 2, status: "errored", unread: true, background: nothing },
         ]);
     });
 
@@ -409,5 +415,114 @@ describe("nestedSessions", () => {
             [2, false],
             [5, false],
         ]);
+    });
+});
+
+describe("work left in the background", () => {
+    const sample = (id: number): Session => {
+        const session = findSession(sampleProjects(), id);
+        if (!session) {
+            throw new Error(`no sample session ${id}`);
+        }
+        return session;
+    };
+    const one = (status: SessionStatus, agents = 0, commands = 0): Session => ({
+        ...sample(3),
+        status,
+        unread: false,
+        background: { agents, commands },
+    });
+    const taskOf = (sessions: Session[]): Task => {
+        const task = sampleProjects()[0]?.tasks[1];
+        if (!task) {
+            throw new Error("no sample task");
+        }
+        return { ...task, sessions };
+    };
+    /** What a folded task's heading shows of its sessions: its status, and the ring beside it. */
+    const shown = (task: Task) => {
+        const status = taskStatus(task);
+        return [status, status && backgroundShown(status, taskBackground(task))];
+    };
+
+    it("is taken from every event that says it, whatever else the event changes", () => {
+        const report: SessionEvent = {
+            session_id: 3,
+            status: null,
+            background: { agents: 1, commands: 2 },
+            event: {
+                type: "background",
+                task_id: "b",
+                description: "Review",
+                kind: "local_agent",
+                state: "running",
+                summary: null,
+                tool_use_id: null,
+                output_file: null,
+            },
+        };
+        const after = applySessionEvent(sampleProjects(), report);
+        expect(findSession(after, 3)?.background).toEqual({ agents: 1, commands: 2 });
+        expect(findSession(after, 3)?.status).toBe("idle");
+        const exited: SessionEvent = {
+            session_id: 3,
+            status: "errored",
+            background: { agents: 0, commands: 0 },
+            event: { type: "exited", code: 1, stderr: "" },
+        };
+        const gone = applySessionEvent(after, exited);
+        expect(findSession(gone, 3)?.background).toEqual({ agents: 0, commands: 0 });
+        expect(findSession(gone, 3)?.status).toBe("errored");
+        // An event that does not say leaves it as it was.
+        const said: SessionEvent = {
+            session_id: 3,
+            status: null,
+            event: { type: "text", text: "hi" },
+        };
+        expect(findSession(applySessionEvent(after, said), 3)?.background).toEqual({
+            agents: 1,
+            commands: 2,
+        });
+    });
+
+    it("ranks a folded task above idle: working, then sub-agents, then commands", () => {
+        expect(shown(taskOf([one("idle", 1), one("idle", 0, 1)]))).toEqual(["idle", "agents"]);
+        expect(shown(taskOf([one("idle"), one("idle", 0, 1)]))).toEqual(["idle", "commands"]);
+        expect(shown(taskOf([one("idle"), one("idle")]))).toEqual(["idle", null]);
+        expect(shown(taskOf([one("working"), one("idle", 1, 1)]))).toEqual(["working", null]);
+        expect(taskBackground(taskOf([one("idle", 1, 2), one("working", 1)]))).toEqual({
+            agents: 2,
+            commands: 2,
+        });
+    });
+
+    it("ranks a folded repository the same, over its open tasks only", () => {
+        const [storefront] = sampleProjects();
+        if (!storefront) {
+            throw new Error("no sample repository");
+        }
+        const withTasks = (tasks: Task[]): Project => ({ ...storefront, tasks });
+        const ringOf = (project: Project) => {
+            const status = projectStatus(project);
+            return status && backgroundShown(status, projectBackground(project));
+        };
+        const agents = taskOf([one("idle", 1)]);
+        const commands = taskOf([one("idle", 0, 1)]);
+        expect(ringOf(withTasks([commands, agents]))).toBe("agents");
+        expect(ringOf(withTasks([commands, taskOf([one("idle")])]))).toBe("commands");
+        expect(ringOf(withTasks([agents, taskOf([one("working")])]))).toBeNull();
+        // An archived task's sessions count for nothing.
+        expect(
+            ringOf(withTasks([{ ...agents, archived: true }, taskOf([one("idle")])])),
+        ).toBeNull();
+    });
+
+    it("is not a turn: such a session is not counted as busy", () => {
+        const projects = sampleProjects();
+        const busy = countBusy(projects);
+        const idleWithWork = findSession(projects, 8);
+        expect(idleWithWork?.status).toBe("idle");
+        expect(idleWithWork?.background).toEqual({ agents: 1, commands: 1 });
+        expect(busy).toBe(2);
     });
 });

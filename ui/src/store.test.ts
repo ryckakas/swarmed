@@ -935,14 +935,14 @@ describe("closed sessions", () => {
                 .projects.flatMap((project) => project.tasks)
                 .find((candidate) => candidate.name === "invoice-export");
         expect(task()?.closed).toBe(1);
-        expect(task()?.sessions).toEqual([]);
+        expect(task()?.sessions.map((session) => session.id)).toEqual([8]);
         const closed = await api.sessionsClosed("storefront", "invoice-export");
         expect(closed.map((session) => session.id)).toEqual([3]);
 
         await api.sessionReopen(3);
         await useStore.getState().refresh(api);
         expect(task()?.closed).toBe(0);
-        expect(task()?.sessions.map((session) => session.id)).toEqual([3]);
+        expect(task()?.sessions.map((session) => session.id)).toEqual([3, 8]);
     });
 });
 

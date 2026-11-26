@@ -74,6 +74,7 @@ mod tests {
             session_id,
             status: None,
             unread: None,
+            background: None,
             event,
             elsewhere: true,
         }

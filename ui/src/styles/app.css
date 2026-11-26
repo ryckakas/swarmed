@@ -2332,8 +2332,41 @@ code {
     }
 }
 
+/*
+ * Work left in the background: a ring around an idle or unread mark, in either style, so that
+ * such a session never looks merely idle. Sub-agents at work get a clear ring in the working
+ * colour that breathes slowly, unlike working's quick pulse; commands left running, often on
+ * purpose, a faint one in idle's own colour that stands still. Before the swarm's own rules,
+ * so that the flash of a hatching stays.
+ */
+.mark[data-background],
+:is(.egg, .larva)[data-background] {
+    border-radius: 50%;
+    outline-offset: 2px;
+}
+
+.mark[data-background="agents"],
+:is(.egg, .larva)[data-background="agents"] {
+    outline: 1.5px solid var(--busy);
+    animation: background-ring 2.8s ease-in-out infinite;
+}
+
+.mark[data-background="commands"],
+:is(.egg, .larva)[data-background="commands"] {
+    outline: 1px solid var(--faint);
+}
+
+@keyframes background-ring {
+    50% {
+        outline-color: color-mix(in srgb, var(--busy) 55%, transparent);
+        outline-offset: 3px;
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
-    .mark-working {
+    .mark-working,
+    .mark[data-background="agents"],
+    :is(.egg, .larva)[data-background="agents"] {
         animation: none;
     }
 }

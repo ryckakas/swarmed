@@ -20,6 +20,7 @@ use crate::agent::{
 };
 use crate::agents::CLAUDE;
 use crate::apps;
+use crate::background::{self, BackgroundCount};
 use crate::browser::{self, AgentBrowser};
 use crate::chats;
 use crate::checkpoints;
@@ -43,9 +44,6 @@ use crate::toolserver::{
     take_views,
 };
 use crate::{Core, elsewhere, git, lock, peers, publish, remote, returned, views};
-
-/// The kinds of things an agent leaves running that are sub-agents, as Claude Code names them.
-const SUB_AGENT_KINDS: [&str; 2] = ["local_agent", "remote_agent"];
 
 /// How long a session title derived from the first message may be.
 /// What stands above the user's rules where an agent reads them.
@@ -241,6 +239,9 @@ pub struct Session {
     /// When it goes on by itself, the usage limit that stopped it reset, in seconds since
     /// 1970: a message is sent to it then. `None` for not.
     pub continue_at: Option<i64>,
+    /// What its agent has running in the background now, sub-agents and commands apart. Not a
+    /// status: the session stays idle, and takes a message.
+    pub background: BackgroundCount,
 }
 
 /// What can be changed about a session after it was created.
@@ -274,7 +275,8 @@ pub struct SessionOptions {
 }
 
 const SESSION_SELECT: &str = "SELECT id, task_id, title, agent_session_id, model, supervision, status, agent, effort, unread, spawned_by, fast, mark_colour, mark_label, \
-     setup_prompt IS NOT NULL, pinned, continue_at FROM sessions";
+     setup_prompt IS NOT NULL, pinned, continue_at, background_agents, background_commands \
+     FROM sessions";
 
 /// The order the sidebar lists a task's sessions in: the pinned ones first, then as the user
 /// put them.
@@ -309,6 +311,10 @@ fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
         waits_for_setup: row.get(14)?,
         pinned: row.get(15)?,
         continue_at: row.get(16)?,
+        background: BackgroundCount {
+            agents: row.get(17)?,
+            commands: row.get(18)?,
+        },
     })
 }
 
@@ -348,6 +354,7 @@ impl Store {
             waits_for_setup: false,
             pinned: false,
             continue_at: None,
+            background: BackgroundCount::default(),
         })
     }
 
@@ -517,6 +524,7 @@ impl Store {
         };
         for session in sessions.into_iter().filter(|id| !except.contains(id)) {
             self.keep(session, &ended)?;
+            self.background_after(session, &ended)?;
         }
         Ok(())
     }
@@ -643,14 +651,32 @@ impl Store {
         Ok(())
     }
 
-    /// Stores an event and applies what it means for the session's row.
+    /// What the session's agent has running in the background once `event` is stored, kept on
+    /// its row, if the event is one that can change it: a report of something left running,
+    /// or the end of the agent, which takes everything it left with it.
+    pub(crate) fn background_after(
+        &self,
+        session_id: i64,
+        event: &AgentEvent,
+    ) -> Result<Option<BackgroundCount>> {
+        if !matches!(
+            event,
+            AgentEvent::Background { .. } | AgentEvent::Exited { .. }
+        ) {
+            return Ok(None);
+        }
+        self.background_refresh(session_id).map(Some)
+    }
+
+    /// Stores an event and applies what it means for the session's row. Says what the
+    /// session's agent has running in the background, if the event changed that.
     fn record(
         &self,
         session_id: i64,
         event: &AgentEvent,
         status: Option<SessionStatus>,
         unread: Option<bool>,
-    ) -> Result<()> {
+    ) -> Result<Option<BackgroundCount>> {
         self.keep(session_id, event)?;
         if let Some(status) = status {
             self.conn.execute(
@@ -679,7 +705,7 @@ impl Store {
             )?,
             _ => 0,
         };
-        Ok(())
+        self.background_after(session_id, event)
     }
 
     /// Starts session `to` with a copy of `events`, said in session `from`, and marks where
@@ -1722,6 +1748,9 @@ pub struct SessionEvent {
     /// handed back makes it unread and a message of the user's makes it read. A turn that ends
     /// while sub-agents work on in the background hands nothing back yet, and changes nothing.
     pub unread: Option<bool>,
+    /// What the session's agent has running in the background after this event, if the event
+    /// could change that: a report of something left running, or the agent's end.
+    pub background: Option<BackgroundCount>,
     /// What happened.
     pub event: AgentEvent,
     /// Whether another Swarmed process on the same data stored the event, and this one only
@@ -2097,9 +2126,15 @@ impl Live {
         if dropped_when_late(&event) {
             return;
         }
-        if !shown_only(&event) {
-            lock(store).keep(session_id, &event).ok();
-        }
+        // What it says it left running is kept as any report is: the count follows the
+        // history, whichever run wrote it.
+        let background = if shown_only(&event) {
+            None
+        } else {
+            let store = lock(store);
+            store.keep(session_id, &event).ok();
+            store.background_after(session_id, &event).ok().flatten()
+        };
         // What it heard of the account's usage is as true as what the run in its place hears.
         let usage = self.usage.hear(store, session_id, &event);
         // An error only means nobody is subscribed right now.
@@ -2108,6 +2143,7 @@ impl Live {
                 session_id,
                 status: None,
                 unread: None,
+                background,
                 event,
                 elsewhere: false,
             })
@@ -2145,6 +2181,7 @@ impl Live {
             session_id: 0,
             status: None,
             unread: None,
+            background: None,
             event,
             elsewhere: false,
         };
@@ -2172,10 +2209,11 @@ impl Live {
         self.follow_background(session_id, &event);
         let unread = self.unread_after(session_id, &event);
         let stored = if shown_only(&event) {
-            Ok(())
+            Ok(None)
         } else {
             lock(store).record(session_id, &event, status, unread)
         };
+        let background = stored.as_ref().ok().copied().flatten();
         let usage = self.usage.hear(store, session_id, &event);
         // An error only means nobody is subscribed right now.
         self.bus
@@ -2183,12 +2221,13 @@ impl Live {
                 session_id,
                 status,
                 unread,
+                background,
                 event,
                 elsewhere: false,
             })
             .ok();
         self.publish_usage(usage);
-        stored
+        stored.map(|_| ())
     }
 
     /// Publishes an event another Swarmed process stored, as [`Live::note`] would have here,
@@ -2215,7 +2254,7 @@ impl Live {
             } => {
                 // An end is reported without saying again what it was: any end takes it off.
                 let running = *state == BackgroundState::Running;
-                let starts = running && SUB_AGENT_KINDS.contains(&kind.as_str());
+                let starts = running && background::is_sub_agent(kind);
                 self.note_background(session_id, task_id, starts);
             }
             AgentEvent::UserMessage { .. } => {

@@ -107,7 +107,7 @@ use agents::Agents;
 pub use agents::{AgentInfo, CLAUDE};
 pub use analytics::TurnStats;
 pub use attach::{ATTACHED_FILES, Attached, with_files};
-pub use background::{BackgroundOutput, BackgroundTask};
+pub use background::{BackgroundCount, BackgroundOutput, BackgroundTask};
 pub use browser::{
     BrowserEvent, BrowserGo, BrowserSetup, BrowserState, BrowserTab, ConsoleLevel, ConsoleLine,
     ELEMENTS_PICKED, ElementBox, ElementStyle, FRAMES_A_SECOND, KeyInput, KeyKind, MAX_HTML_CHARS,

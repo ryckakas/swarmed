@@ -80,7 +80,11 @@ function InboxGroup({ kind, items }: { kind: InboxKind; items: InboxItem[] }) {
                     // The keyboard starts on the first row, where the arrows move from.
                     data-dialog-start
                 >
-                    <StatusMark status={session.status} unread={session.unread} />
+                    <StatusMark
+                        status={session.status}
+                        unread={session.unread}
+                        background={session.background}
+                    />
                     <span className="inbox-title">{session.title || words.untitled}</span>
                     <span className="inbox-place">
                         {placeName(project, words)} / {task}
