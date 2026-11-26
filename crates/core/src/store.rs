@@ -371,7 +371,8 @@ const MIGRATIONS: &[&str] = &[
     // Which session's agent started a session, however it did, apart from whom it works for,
     // which the user can change (`spawned_by`); none for one the user started. A session
     // started before this is known by its first message, as each way marked it, when that
-    // names the session it works for: `start_task`'s, and `spawn_session`'s.
+    // names the session it works for: `start_task`'s, and `spawn_session`'s. Never a fork: it
+    // holds a copy of that first message, mark and all, and the user made it.
     "
     ALTER TABLE sessions ADD COLUMN started_by INTEGER;
     WITH firsts AS (
@@ -383,6 +384,11 @@ const MIGRATIONS: &[&str] = &[
                   THEN json_extract(event, '$.type') = 'user_message' END
             ORDER BY said.id LIMIT 1)) AS text
         FROM sessions WHERE spawned_by IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM session_events AS copied
+            WHERE copied.session_id = sessions.id
+              AND CASE WHEN json_valid(event)
+                  THEN json_extract(event, '$.type') = 'forked' END)
     )
     UPDATE sessions SET started_by = spawned_by WHERE id IN (
         SELECT id FROM firsts
@@ -920,7 +926,8 @@ mod tests {
         // Session 5 started 6 with `start_task`, 7 the same way with its prompt still waiting
         // for the setup, and 8 with `spawn_session`. The user set 9 to work for 5; 10 was
         // started by 5 and moved to work for 6; 11's first message was the user's; 12 has an
-        // event that is no JSON, which must not stop the step.
+        // event that is no JSON, which must not stop the step; 13 is the user's fork of 6,
+        // with a copy of its first message, set to work for 5.
         conn.execute_batch(
             r#"INSERT INTO projects (id, name, repo_path) VALUES (1, 'demo', '/repo');
              INSERT INTO tasks (id, project_id, name, branch, base_ref, worktree_path, slot)
@@ -934,7 +941,7 @@ Build it.
 (Session 5 started this task for that work, which is yours.)'),
                         (8, 3, 'ask', 5, 1, NULL), (9, 3, 'ask', 5, 0, NULL),
                         (10, 3, 'ask', 6, 0, NULL), (11, 3, 'ask', 5, 0, NULL),
-                        (12, 3, 'ask', 5, 0, NULL);
+                        (12, 3, 'ask', 5, 0, NULL), (13, 3, 'ask', 5, 0, NULL);
              INSERT INTO session_events (session_id, event) VALUES
                  (6, '{"type":"user_message","text":"Message from session 5 (\"Plan\"), another agent session of the same user:\n\nBuild it.\n\n(Session 5 started this task for that work, which is yours.)"}'),
                  (8, '{"type":"user_message","text":"A part.\n\n(You were started by session 5, another agent session of the same user, working in this same worktree.)"}'),
@@ -943,7 +950,9 @@ Build it.
                  (11, '{"type":"agent_started"}'),
                  (11, '{"type":"user_message","text":"Hello."}'),
                  (11, '{"type":"user_message","text":"Message from session 5 (\"Plan\"), another agent session of the same user:\n\n(Session 5 started this task for that work)"}'),
-                 (12, 'not json');"#,
+                 (12, 'not json'),
+                 (13, '{"type":"user_message","text":"Message from session 5 (\"Plan\"), another agent session of the same user:\n\nBuild it.\n\n(Session 5 started this task for that work, which is yours.)"}'),
+                 (13, '{"type":"forked","from":6}');"#,
         )
         .expect("test setup");
 
