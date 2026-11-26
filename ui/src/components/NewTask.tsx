@@ -29,6 +29,7 @@ import { githubOf } from "../githubMentions";
 import { mentionedIn, mentionsAsWords } from "../mentions";
 import { expandTokens, forgetTokens } from "../pastes";
 import { removedWhileSetUp } from "../removal";
+import { heldSaid, roleHolds } from "../roles";
 import { githubRead, NO_DRAFT } from "../sending";
 import { sentOn } from "../slash";
 import { hookKey, useStore } from "../store";
@@ -49,6 +50,7 @@ import {
     takesFast,
     useAgents,
     useEffortDefault,
+    useRoles,
     useSlashCommands,
 } from "./options";
 import { Picker } from "./Picker";
@@ -83,6 +85,8 @@ export function NewTask({ projects }: { projects: Project[] }) {
     const [effort, setEffort] = useState<Effort | null>(null);
     const [fast, setFast] = useState(false);
     const [role, setRole] = useState<string | null>(null);
+    // A role that changes no files starts in plan mode whatever the menu says (`roles.rs`).
+    const roles = useRoles();
     // More agents to run the same prompt on, each in a task of its own.
     const [variants, setVariants] = useState<Variant[]>([]);
     const agents = useAgents();
@@ -210,7 +214,12 @@ export function NewTask({ projects }: { projects: Project[] }) {
                         onEnvironment={(name) => setPicked({ ...picked, [repository.name]: name })}
                     />
                 )}
-                <ModePicker value={supervision} agentId={agentId} onChange={setSupervision} />
+                <ModePicker
+                    value={roleHolds(role, roles) ?? supervision}
+                    agentId={agentId}
+                    onChange={setSupervision}
+                    held={heldSaid(role, roles, words)}
+                />
                 <RoleMenu value={role} onChange={setRole} />
                 <AgentPickers
                     agents={agents}

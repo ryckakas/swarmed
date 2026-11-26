@@ -534,7 +534,7 @@ Every session gets an MCP server named `swarmed`, with these tools:
 | `show_browser` | opens the task's browser beside the conversation, on an address, in a tab of the session's own; see [The task's browser and your browser tools](#the-tasks-browser-and-your-browser-tools) |
 | `list_sessions`, `read_session` | see and read the other open sessions of the same project; from a chat, every open session. Both say which session each works for and its role, and `read_session` which work for the one it reads. It reads the latest messages, or from one it is given (`from`), so a long conversation can be read from its start |
 | `send_message` | write to another session it can read, or to a chat, so that one a chat wrote to can answer it; queued if it is busy |
-| `spawn_session`, `close_session` | start a session in the same task, which works for the one that started it, up to six open, with a role its own role may start (see [Roles](#roles)), and close the idle ones it started |
+| `spawn_session`, `close_session` | start a session in the same task, which works for the one that started it, up to six open, with a role its own role may start (see [Roles](#roles)), and close the idle ones it started. A session another one started starts none itself unless its role starts sessions |
 | `start_task` | start a new task in the same repository for work that needs a branch of its own, as New task does: on a new branch, on an existing one such as a pull request's (`branch`), or on a new one stacked on another (`from`). Its session gets the prompt once the task is set up, works for the session that started it and reports back to it, and has a role as a spawned one does. A session run with `swarmed session` is refused: the command ends with its turn |
 | `delegate_to_cloud` | hand work to a Codex cloud agent or a Claude Code cloud session |
 | `use_skill` | read a skill Swarmed offers |
@@ -611,6 +611,37 @@ each part, with `start_task`) and reviewers, a planner starts implementers (with
 nobody. Without a role asked for, an architect's session is a planner and a planner's an
 implementer. A session with no role may start any role, or none. A fork keeps its session's role.
 Only you choose a role: `configure` cannot set one.
+
+#### How a role is kept to
+
+An architect, a planner and a reviewer change no files, and Swarmed keeps them from it, not
+only tells them:
+
+- **They start in plan mode.** Claude Code is put in its plan mode; an agent without one in its
+  read-only mode where it has one (Codex's `read-only`), else in Ask before commands, with the
+  role's rules alone. Choosing such a role for a session that runs puts it in plan mode, and
+  taking the role off, or choosing an implementer, puts back the supervision it had before. While
+  such a role is chosen in the new-task view, its supervision menu shows plan mode and cannot be
+  changed; change it once the session runs. A supervision you choose yourself wins: taking the
+  role off later leaves it as you chose.
+- **Approving their plan does not send them building.** Approving a plan of an architect, a
+  planner or a reviewer keeps it in plan mode, and its agent is told to hand the plan on (an
+  architect starts a task for each part, a planner hands each change to an implementer, a
+  reviewer reports its findings) instead of the usual go-ahead. The prompt says so. An implementer,
+  or a session with no role, carries its plan out as before.
+- **Plan mode still lets them delegate.** Swarmed's session tools change none of their files,
+  and their agents are told to use them in plan mode. In plan mode Claude Code asks before each
+  call of them, so you allow each session they start, as in Ask before commands. Anything that
+  would change a file, Claude Code asks you about too.
+
+A session with a role may start sessions and tasks if its role starts any, even one another
+session started: a planner an architect or another session started starts its implementers.
+Sessions with a role work for one another at most three in a row (an architect, its planner and
+the planner's implementers), and one session has at most six open that work for it. A session
+with no role that another session started starts nothing, as before, and a session with no role
+counts for nothing in a row, so a chain of tasks where each starts the next is not limited by
+it. The sessions a session with a role starts begin under the supervision it had before its own
+role's, so an implementer a planner starts is not held in the planner's plan mode.
 
 ### Mentioning another session
 

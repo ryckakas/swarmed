@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { createMockApi, sampleProjects } from "./api/mock";
 import { MOCK_ROLES } from "./api/mockRoles";
-import { roleAbout, roleChangedSaid, roleChosen, roleOptions } from "./roles";
+import {
+    heldSaid,
+    keepsPlanning,
+    planKeptSaid,
+    roleAbout,
+    roleChangedSaid,
+    roleChosen,
+    roleHolds,
+    roleOptions,
+} from "./roles";
 import { applySessionEvent, findSession } from "./tree";
 import { wordsFor } from "./wording";
 
@@ -65,7 +74,46 @@ describe("a change of role", () => {
     });
 });
 
+describe("what a role keeps its session to", () => {
+    it("holds a role that changes no files in plan mode, and no other", () => {
+        expect(roleHolds("planner", MOCK_ROLES)).toBe("plan");
+        expect(roleHolds("reviewer", MOCK_ROLES)).toBe("plan");
+        expect(roleHolds("implementer", MOCK_ROLES)).toBeNull();
+        expect(roleHolds(null, MOCK_ROLES)).toBeNull();
+        expect(roleHolds("tester", MOCK_ROLES)).toBeNull();
+    });
+
+    it("keeps such a role planning once its plan is approved", () => {
+        expect(keepsPlanning("architect", MOCK_ROLES)).toBe(true);
+        expect(keepsPlanning("implementer", MOCK_ROLES)).toBe(false);
+        expect(keepsPlanning(null, MOCK_ROLES)).toBe(false);
+        expect(plain.planKept("Planner")).toMatch(/^Planner: once approved, it stays in plan mode/);
+        expect(swarm.roleHolds("Broodkeeper")).toMatch(/once the spawn hatches\.$/);
+    });
+
+    it("says so in the new-task view's menu and the plan's prompt", () => {
+        expect(heldSaid("planner", MOCK_ROLES, plain)).toMatch(/^Planner: starts in plan mode/);
+        expect(heldSaid("implementer", MOCK_ROLES, plain)).toBeNull();
+        expect(heldSaid(null, MOCK_ROLES, plain)).toBeNull();
+        expect(planKeptSaid("reviewer", MOCK_ROLES, swarm)).toMatch(/^Sentinel: once approved/);
+        expect(planKeptSaid("implementer", MOCK_ROLES, plain)).toBeNull();
+    });
+});
+
 describe("the sample's roles", () => {
+    it("hold a session in plan mode and put back what it had, unless the user chose", async () => {
+        const api = createMockApi();
+        const tree = await api.overview();
+        expect(findSession(tree, 13)?.supervision).toBe("plan");
+        expect(findSession(tree, 10)?.supervision).toBe("ask");
+        expect((await api.sessionSetRole(10, "reviewer")).supervision).toBe("plan");
+        expect((await api.sessionSetRole(10, "implementer")).supervision).toBe("ask");
+        await api.sessionSetRole(10, "planner");
+        const settings = { model: null, supervision: "auto" as const, effort: null, fast: false };
+        await api.sessionConfigure(10, settings);
+        expect((await api.sessionSetRole(10, null)).supervision).toBe("auto");
+    });
+
     it("are set as the core sets them, recorded only once something was said", async () => {
         const api = createMockApi();
         const tree = await api.overview();

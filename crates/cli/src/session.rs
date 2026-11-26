@@ -57,7 +57,8 @@ pub(crate) enum SessionCommand {
         #[arg(long, value_parser = parent)]
         parent: Option<Parent>,
         /// What the new session is for: architect, planner, implementer or reviewer. Its
-        /// agent is told the role's rules. Without it, it has no role.
+        /// agent is told the role's rules, and an architect, a planner or a reviewer starts in
+        /// plan mode whatever `--ask` or `--auto` says. Without it, it has no role.
         #[arg(long)]
         role: Option<String>,
         #[arg(long, value_enum, default_value_t)]
@@ -148,7 +149,9 @@ pub(crate) enum SessionCommand {
         parent: Parent,
     },
     /// Give a session a role: architect, planner, implementer or reviewer, or `none` for no
-    /// role. Once something was said in it, its agent is told with its next message.
+    /// role. Once something was said in it, its agent is told with its next message. An
+    /// architect, a planner or a reviewer puts it in plan mode, and taking the role off puts
+    /// back the supervision it had, unless another was chosen since.
     Role {
         id: i64,
         /// The role, or `none`.

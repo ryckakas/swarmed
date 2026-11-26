@@ -22,7 +22,15 @@ import { mergeApi } from "./mockMerging";
 import { SAMPLE_PARENTS, SAMPLE_SPAWNED, sampleParentSet } from "./mockParents";
 import { bringBack, putAwayApi } from "./mockPutAway";
 import { rewindApi } from "./mockRewind";
-import { MOCK_ROLES, SAMPLE_ROLES, sampleRoleSet } from "./mockRoles";
+import {
+    MOCK_ROLES,
+    SAMPLE_ROLES,
+    sampleKeepsPlanning,
+    sampleRoleSet,
+    sampleStartsIn,
+    sampleSupervision,
+    sampleSupervisionChosen,
+} from "./mockRoles";
 import { mockCheck } from "./mockScreenshot";
 import { MockSetups, taskSetupApi } from "./mockSetups";
 import { turnsApi } from "./mockTurns";
@@ -167,7 +175,7 @@ function session(id: number, taskId: number, title: string, status: SessionStatu
         title,
         agent_session_id: `mock-${id}`,
         model: null,
-        supervision: "ask",
+        supervision: sampleSupervision(id),
         effort: null,
         status,
         // One sample session has answered and not been looked at.
@@ -2867,24 +2875,27 @@ class MockAgent {
         this.later(id, done, "idle", 4);
     }
 
-    /** In plan mode the agent only proposes; approving the plan ends plan mode. */
+    /**
+     * In plan mode the agent only proposes; approving the plan ends plan mode, except for a role
+     * that changes no files, which keeps planning and hands the plan on, as the core has it.
+     */
     private presentPlan(id: number, text: string, done: AgentEvent) {
         const plan = `## ${text}\n\n1. Read the code this touches.\n2. Make the change in \`src/\`.\n3. Run the tests.\n\nNothing is changed until you approve.`;
         const toolId = this.ask(id, PLAN_TOOL, { plan });
+        const kept = sampleKeepsPlanning(this.configure(id, {}).role);
         this.decisions.set(id, (approved) => {
-            const content = approved ? "ok" : "The user wants changes to the plan.";
+            const { content, reply } = planAnswered(approved, kept);
             const result: AgentEvent = {
                 type: "tool_result",
                 tool_use_id: toolId,
                 content,
-                is_error: !approved,
+                is_error: !approved || kept,
             };
             this.later(id, result, "working");
-            if (approved) {
+            if (approved && !kept) {
                 this.configure(id, { supervision: "auto" });
                 this.later(id, { type: "supervision_changed", supervision: "auto" }, null);
             }
-            const reply = approved ? "Starting on the plan." : "What should I change?";
             this.later(id, { type: "text", text: reply }, "working", 2);
             this.later(id, done, "idle", 3);
         });
@@ -3128,6 +3139,17 @@ class MockAgent {
         return Object.assign(found, settings);
     }
 
+    /**
+     * Changes a session's settings as the user chooses them: a supervision chosen by hand wins
+     * over what its role holds, as the core has it.
+     */
+    chooseSettings(id: number, settings: Partial<Session>): Session {
+        if (settings.supervision !== this.configure(id, {}).supervision) {
+            sampleSupervisionChosen(id);
+        }
+        return this.configure(id, settings);
+    }
+
     /** Answers the sample proposal, in whichever session it was made. */
     answerProposal(requestId: string, accepted: boolean) {
         for (const [id, events] of this.events) {
@@ -3236,9 +3258,12 @@ class MockAgent {
      */
     setRole(id: number, role: string | null): Session {
         const said = this.history(id).some((event) => event.type === "user_message");
-        const { session, event } = sampleRoleSet(this.projects, id, role, said);
+        const { session, event, supervision } = sampleRoleSet(this.projects, id, role, said);
         if (event) {
             this.publish(id, event, null);
+        }
+        if (supervision) {
+            this.publish(id, { type: "supervision_changed", supervision }, null);
         }
         this.tell(0, { type: "tree_changed" }, null);
         return session;
@@ -3390,6 +3415,23 @@ function sampleFork(
     agent.events.set(fork.id, [...kept, { type: "forked", from: id }]);
     home.sessions.push(fork);
     return fork;
+}
+
+/**
+ * What a sample agent reads when its plan is answered, and says then: sent back, approved, or
+ * approved for a role that changes no files, which hands the plan on instead of starting on it.
+ */
+function planAnswered(approved: boolean, kept: boolean): { content: string; reply: string } {
+    if (!approved) {
+        return { content: "The user wants changes to the plan.", reply: "What should I change?" };
+    }
+    if (kept) {
+        return {
+            content: "The user approved your plan. Your role changes no files: hand it on.",
+            reply: "Handing the plan on: each change to a session of its own.",
+        };
+    }
+    return { content: "ok", reply: "Starting on the plan." };
 }
 
 /** The task called `name` in `project`: by its project too, since a chat can have a task's name. */
@@ -3884,6 +3926,7 @@ export function createMockApi(): Api {
                 ...setup,
                 agent: setup.agent ?? "claude",
             };
+            created.supervision = sampleStartsIn(created.id, created.role, created.supervision);
             home.sessions.push(created);
             return created;
         },
@@ -3926,7 +3969,7 @@ export function createMockApi(): Api {
         slashCommands: async () => MOCK_COMMANDS,
         sessionCommandAnswer: async (id, requestId, answers) =>
             agent.answerCommand(id, requestId, answers),
-        sessionConfigure: async (id, settings) => agent.configure(id, settings),
+        sessionConfigure: async (id, settings) => agent.chooseSettings(id, settings),
         sessionSetAgent: async (id, to) =>
             agent.configure(id, { agent: to, model: null, fast: false }),
         // A browser has no custom scheme; a blob address is enough to see the view.

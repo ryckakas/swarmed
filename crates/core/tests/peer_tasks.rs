@@ -8,7 +8,7 @@ use std::process::Command;
 use std::sync::Arc;
 
 use common::{core_with_project, fixture, git, turn};
-use swarmed_core::agent::{AgentEvent, Auth};
+use swarmed_core::agent::{AgentEvent, Auth, Supervision};
 use swarmed_core::{
     CHATS, Core, Error, NewTaskOptions, PeerTask, Session, SessionOptions, hooks,
     serve_session_tools,
@@ -383,6 +383,27 @@ async fn a_task_s_session_has_the_role_its_starter_may_start() {
         matches!(&refused, Err(Error::Peers(why)) if why.contains("may start only planner or reviewer")),
         "{refused:?}"
     );
+    // In plan mode, as a planner starts, with the supervision its starter had before its own
+    // role took its place to put back.
+    assert_eq!(architect.supervision, Supervision::Plan);
+    assert_eq!(started.session.supervision, Supervision::Plan);
+    core.session_set_role(started.session.id, None)
+        .expect("takes it off");
+    let without = core.session(started.session.id).expect("reads");
+    assert_eq!(without.supervision, SessionOptions::default().supervision);
+
+    // An architect another session started starts tasks all the same: its role decides.
+    let user_s = new_session(&core);
+    let spawned = core
+        .peer_spawn(user_s.id, "Shape the export.", None, Some("architect"))
+        .expect("spawns");
+    assert!(spawned.spawned);
+    let started = core
+        .peer_start_task(spawned.id, asked("export-part", None))
+        .await
+        .expect("a role that starts sessions may");
+    assert_eq!(started.session.parent, Some(spawned.id));
+
     let implementer = core
         .session_new("demo", "one", &with_role("implementer"))
         .expect("creates");

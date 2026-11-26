@@ -812,6 +812,35 @@ impl Store {
         Ok(())
     }
 
+    /// The supervision session `id`'s role took the place of, if its role holds one and the
+    /// user has not chosen another since: what taking the role off puts back.
+    pub(crate) fn session_supervision_before_role(&self, id: i64) -> Result<Option<Supervision>> {
+        let kept: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT supervision_before_role FROM sessions WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten();
+        Ok(kept.as_deref().and_then(Supervision::parse))
+    }
+
+    /// Keeps `supervision` as what session `id`'s role took the place of, or with `None`
+    /// forgets it.
+    pub(crate) fn session_set_supervision_before_role(
+        &self,
+        id: i64,
+        supervision: Option<Supervision>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions SET supervision_before_role = ?2 WHERE id = ?1",
+            params![id, supervision.map(Supervision::as_str)],
+        )?;
+        Ok(())
+    }
+
     /// The open sessions that work for session `parent`, oldest first.
     pub(crate) fn session_children(&self, parent: i64) -> Result<Vec<Session>> {
         let sql = format!(
@@ -1006,10 +1035,23 @@ impl Core {
         if let Some(agent) = &options.agent {
             self.agents_now().backend(agent)?;
         }
-        if let Some(role) = &options.role {
-            roles::known(role)?;
-        }
-        self.store().session_insert(task.id, options)
+        self.session_insert(task.id, options)
+    }
+
+    /// Makes a session in task `task_id` as `options` say, under the supervision its role
+    /// holds if it holds one, keeping the one asked for to put back when the role is taken
+    /// off. A role there is not is refused.
+    pub(crate) fn session_insert(&self, task_id: i64, options: &SessionOptions) -> Result<Session> {
+        let role = options.role.as_deref().map(roles::known).transpose()?;
+        let (supervision, before) = roles::starts_in(role, options.supervision);
+        let options = SessionOptions {
+            supervision,
+            ..options.clone()
+        };
+        let store = self.store();
+        let session = store.session_insert(task_id, &options)?;
+        store.session_set_supervision_before_role(session.id, before)?;
+        Ok(session)
     }
 
     /// Makes a session in `task` whose first message is `prompt`, before it is sent: called
@@ -1027,14 +1069,11 @@ impl Core {
             .map(|title| shortened(title, MAX_TITLE_CHARS))
             .filter(|title| !title.is_empty());
         let named = given.is_some();
-        if let Some(role) = &options.role {
-            roles::known(role)?;
-        }
         let options = SessionOptions {
             title: Some(given.unwrap_or_else(|| title_from(prompt))),
             ..options.clone()
         };
-        let session = self.store().session_insert(task.id, &options)?;
+        let session = self.session_insert(task.id, &options)?;
         if !named {
             self.name_later(session.id, prompt);
         }
@@ -1409,11 +1448,24 @@ impl Core {
             allowed,
         };
         let plan_approved = allowed && self.is_plan_request(id, &request_id)?;
+        // A role that changes no files keeps its session from that once its plan is approved
+        // too: the agent is told how to hand it on, in an answer that keeps it planning, since
+        // allowing the plan would end its plan mode with the go-ahead to start changing things.
+        let kept = if plan_approved {
+            self.approved_kept(id)?
+        } else {
+            None
+        };
         self.live.note(&self.store, id, answered)?;
+        let command = match kept {
+            Some(reason) => AgentCommand::Deny { request_id, reason },
+            None => command,
+        };
+        let leaves = plan_approved && matches!(command, AgentCommand::Allow { .. });
         commands
             .send(command)
             .map_err(|_| Error::SessionNotRunning(id))?;
-        if plan_approved {
+        if leaves {
             self.leave_plan_mode(id)?;
         }
         Ok(())
@@ -1441,13 +1493,21 @@ impl Core {
             Supervision::Plan => Supervision::Ask,
             other => other,
         };
+        self.supervise(id, supervision).map(drop)
+    }
+
+    /// Puts session `id` under `supervision`, as the core does by itself (a plan approved, a
+    /// role set or taken off), its other settings as they are. Unlike the user's own change,
+    /// it leaves what the session's role took the place of as it is.
+    pub(crate) fn supervise(&self, id: i64, supervision: Supervision) -> Result<Session> {
+        let session = self.session(id)?;
         let settings = SessionSettings {
             model: session.model,
             supervision,
             effort: session.effort,
             fast: session.fast,
         };
-        self.session_configure(id, &settings).map(drop)
+        self.configure(id, &settings)
     }
 
     /// Puts a session that has not begun on another agent, with that agent's default model.
@@ -1591,7 +1651,19 @@ impl Core {
     /// model applies from its next turn, the supervision from its next action. An agent takes
     /// its effort only when it starts, so a running one is stopped once its turn is over and
     /// continues the conversation, with the new effort, on the next message.
+    ///
+    /// This is the user's choice, which wins over what the session's role holds: a role taken
+    /// off later leaves the supervision chosen here as it is.
     pub fn session_configure(&self, id: i64, settings: &SessionSettings) -> Result<Session> {
+        let before = self.session(id)?;
+        if before.supervision != settings.supervision {
+            self.store().session_set_supervision_before_role(id, None)?;
+        }
+        self.configure(id, settings)
+    }
+
+    /// Changes a session's settings as [`Core::session_configure`] does, by whoever.
+    fn configure(&self, id: i64, settings: &SessionSettings) -> Result<Session> {
         let before = self.session(id)?;
         self.store().session_configure(id, settings)?;
         // Not running is fine: the session starts with the new settings.

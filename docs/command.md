@@ -111,7 +111,8 @@ exit non-zero when the turn is stopped or fails, so a script can tell.
 A session runs on Claude Code unless `--agent` names another (`swarmed agents` lists them).
 `--ask`, `--auto` and `--plan` choose how it is supervised; without one, the settings' default
 applies. `--role` gives it a role: `architect`, `planner`, `implementer` or `reviewer` (see
-[Roles](coding-agents.md#roles)). `SWARMED_FAKE_AGENT=1` swaps in a scripted agent that spends no tokens.
+[Roles](coding-agents.md#roles)). An architect, a planner or a reviewer starts in plan mode
+whatever `--ask` or `--auto` says, and goes back to that when the role is taken off. `SWARMED_FAKE_AGENT=1` swaps in a scripted agent that spends no tokens.
 
 ## Commands
 

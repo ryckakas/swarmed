@@ -15,11 +15,12 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 
-use crate::agent::{AgentEvent, Auth};
+use crate::agent::{AgentEvent, Auth, Supervision};
 use crate::chats::CHATS;
 use crate::cloud::{CloudOrigin, CloudProvider};
 use crate::error::{Error, Result};
 use crate::paths::SOCKET_PREFIX;
+use crate::roles::Role;
 use crate::sessions::{Session, SessionOptions, SessionStatus};
 use crate::store::Project;
 use crate::toolserver::{DELEGATE_TO_CLOUD, SHOW_BROWSER, START_TASK};
@@ -32,6 +33,9 @@ pub use tasks::PeerTask;
 /// How many sessions one session may have started that are still open. A runaway agent stops
 /// here instead of filling the machine.
 pub const MAX_SPAWNED: usize = 6;
+/// How many sessions with a role may work one for another in a row: an architect, its
+/// planners and their implementers. A chain of roles that start one another stops here.
+pub const MAX_DEPTH: usize = 3;
 /// How much of another session's conversation is handed over at most, in characters.
 const DIGEST_CHARS: usize = 8000;
 /// How many of a session's messages are read when no number is asked for.
@@ -166,6 +170,30 @@ impl Reach {
 pub(crate) enum Access {
     Read,
     Write,
+}
+
+/// What a session asks to start.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Starting {
+    /// A session beside itself, in its own worktree (`spawn_session`).
+    Session,
+    /// A task, with a session of its own (`start_task`).
+    Task,
+}
+
+impl Starting {
+    /// Why a session with no role that another session's agent started may not start this.
+    fn refused_to_spawned(self) -> &'static str {
+        match self {
+            Self::Session => {
+                "a session that was started by another session cannot start sessions itself"
+            }
+            Self::Task => {
+                "a session that was started by another session cannot start tasks; the session \
+                 that started it can"
+            }
+        }
+    }
 }
 
 /// Where a session works, as another session is told of it: its chat, or its task, with the
@@ -541,9 +569,10 @@ impl Core {
     /// `from`, and is told who started it and to report back when it is done.
     ///
     /// The new session has the role called `role`, or without one the role `from`'s own starts
-    /// by default (`roles.rs`); a role `from`'s may not start is refused. A session that was
-    /// itself started this way cannot start others, and one session can have [`MAX_SPAWNED`]
-    /// open that work for it at most.
+    /// by default (`roles.rs`); a role `from`'s may not start is refused (`may_start`).
+    /// It starts as `from` would without its role, under the supervision its own role holds if
+    /// it holds one: an implementer a planner starts is not held in the planner's plan mode.
+    /// One session can have [`MAX_SPAWNED`] open that work for it at most.
     pub fn peer_spawn(
         &self,
         from: i64,
@@ -555,12 +584,7 @@ impl Core {
         if prompt.trim().is_empty() {
             return Err(Error::EmptyMessage);
         }
-        if parent.spawned {
-            return Err(refused(
-                "a session that was started by another session cannot start sessions itself",
-            ));
-        }
-        let role = roles::of_child(&parent, role)?;
+        let role = self.may_start(&parent, role, Starting::Session)?;
         let open = self.store().sessions_spawned_by(from)?;
         if open >= MAX_SPAWNED {
             return Err(refused(format!(
@@ -574,17 +598,13 @@ impl Core {
                 .map(String::from)
                 .filter(|title| !title.trim().is_empty()),
             model: parent.model.clone(),
-            supervision: parent.supervision,
+            supervision: self.supervision_without_role(&parent)?,
             effort: parent.effort,
             fast: parent.fast,
             role: role.map(|role| role.name.to_string()),
         };
-        let child = {
-            let store = self.store();
-            let child = store.session_insert(parent.task_id, &options)?;
-            store.session_set_spawned_by(child.id, from)?;
-            child
-        };
+        let child = self.session_insert(parent.task_id, &options)?;
+        self.store().session_set_spawned_by(child.id, from)?;
         let message = format!(
             "{prompt}\n\n(You were started by session {from}, another agent session of the same \
              user, working in this same worktree. When you are done, report what you did and \
@@ -595,6 +615,50 @@ impl Core {
         // a command of the user's, which could turn Remote Control on with nobody asked.
         self.session_send_as_typed(child.id, &message)?;
         self.session(child.id)
+    }
+
+    /// The role of a session `from` starts, asking for `asked`, if it may start one: with a
+    /// role, one its role starts ([`roles::of_child`]), while fewer than [`MAX_DEPTH`] sessions
+    /// with a role work one for another in a row up from `from`; with none, any role, unless
+    /// another session's agent started `from`, which then starts nothing. `None` for no role.
+    pub(crate) fn may_start(
+        &self,
+        from: &Session,
+        asked: Option<&str>,
+        what: Starting,
+    ) -> Result<Option<&'static Role>> {
+        let own = from.role.as_deref().and_then(roles::find);
+        if own.is_none() && from.spawned {
+            return Err(refused(what.refused_to_spawned()));
+        }
+        let child = roles::of_child(from, asked)?;
+        let in_a_row = self.roles_in_a_row(from);
+        if own.is_some() && in_a_row >= MAX_DEPTH {
+            return Err(refused(format!(
+                "sessions with a role may work one for another at most {MAX_DEPTH} in a row, and \
+                 this one is already the last of {in_a_row}; ask the session you work for, or \
+                 the user, how to go on"
+            )));
+        }
+        Ok(child)
+    }
+
+    /// How many sessions with a role work one for another in a row up from `session`, itself
+    /// included: none if it has no role. Counted no further than one past [`MAX_DEPTH`].
+    fn roles_in_a_row(&self, session: &Session) -> usize {
+        let up = std::iter::successors(Some(session.clone()), |at| {
+            at.parent.and_then(|parent| self.session(parent).ok())
+        });
+        up.take(MAX_DEPTH + 1)
+            .take_while(|at| at.role.as_deref().and_then(roles::find).is_some())
+            .count()
+    }
+
+    /// The supervision `session` has, or had before its role took its place: what a session
+    /// it starts is asked to start in, before its own role has its say.
+    pub(crate) fn supervision_without_role(&self, session: &Session) -> Result<Supervision> {
+        let before = self.store().session_supervision_before_role(session.id)?;
+        Ok(before.unwrap_or(session.supervision))
     }
 
     /// Closes session `id` on behalf of session `from`, which has to be the one that started

@@ -162,7 +162,7 @@ pub use overview::{ProjectOverview, TaskOverview};
 pub use parents::nested_sessions;
 pub use pasted::MAX_IMAGE_MB;
 pub use paths::Paths;
-pub use peers::{Delivery, MAX_SPAWNED, PeerTask, Reachable, serve_session_tools};
+pub use peers::{Delivery, MAX_DEPTH, MAX_SPAWNED, PeerTask, Reachable, serve_session_tools};
 pub use prefix::{EXAMPLE_TASK, branch_example};
 pub use publish::{PullDraft, Unpublished};
 pub use pulls::{Check, CheckOutcome, Pull, PullState};

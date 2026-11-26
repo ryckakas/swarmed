@@ -145,7 +145,7 @@ impl Core {
             format!("{} (fork)", source.title)
         };
         let task = source.task_id;
-        self.fork_to(source, &Fork { from, agent, task }, title)
+        self.fork_to(&source, &Fork { from, agent, task }, title)
     }
 
     /// A new session in task `task` of `project`, on the same agent and under the same title,
@@ -161,36 +161,48 @@ impl Core {
             agent: None,
             task: task.id,
         };
-        self.fork_to(source, &fork, title)
+        self.fork_to(&source, &fork, title)
     }
 
-    fn fork_to(&self, source: Session, fork: &Fork<'_>, title: String) -> Result<Session> {
+    fn fork_to(&self, source: &Session, fork: &Fork<'_>, title: String) -> Result<Session> {
         let mut earlier = kept(&self.session_events(source.id)?, fork.from);
-        let options = match fork.agent.filter(|agent| *agent != source.agent) {
-            None => SessionOptions {
-                agent: Some(source.agent),
-                title: Some(title),
-                model: source.model,
-                supervision: source.supervision,
-                effort: source.effort,
-                fast: source.fast,
-                // A fork keeps what its session is for, and starts working for nobody.
-                role: source.role,
-            },
+        let forked = match fork.agent.filter(|agent| *agent != source.agent) {
+            None => {
+                let options = SessionOptions {
+                    agent: Some(source.agent.clone()),
+                    title: Some(title),
+                    model: source.model.clone(),
+                    supervision: source.supervision,
+                    effort: source.effort,
+                    fast: source.fast,
+                    // A fork keeps what its session is for, and starts working for nobody.
+                    role: source.role.clone(),
+                };
+                // As it is, with what its role took the place of: a supervision the user chose
+                // in the first session still wins over the role's in the fork.
+                let before = self.store().session_supervision_before_role(source.id)?;
+                let store = self.store();
+                let forked = store.session_insert(fork.task, &options)?;
+                store.session_set_supervision_before_role(forked.id, before)?;
+                forked
+            }
             Some(other) => {
                 self.agents_now().backend(other)?;
-                SessionOptions {
+                // A new start on another agent: as the first would be without its role, and
+                // then under the supervision its role holds, as any session with it starts.
+                let without = self.supervision_without_role(source)?;
+                let options = SessionOptions {
                     agent: Some(other.to_string()),
                     title: Some(title),
                     model: None,
-                    supervision: supervision_on(other, source.supervision),
+                    supervision: supervision_on(other, without),
                     effort: None,
                     fast: false,
-                    role: source.role,
-                }
+                    role: source.role.clone(),
+                };
+                self.session_insert(fork.task, &options)?
             }
         };
-        let forked = self.store().session_insert(fork.task, &options)?;
         // The images pasted into the conversation are the fork's own from the start.
         let copied = self
             .images_forked(source.id, forked.id, &mut earlier)

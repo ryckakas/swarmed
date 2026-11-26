@@ -36,6 +36,12 @@ pub struct Role {
     pub starts: &'static [&'static str],
     /// The role of a session it starts without naming one.
     pub child: Option<&'static str>,
+    /// What its agent goes on with once the user approves a plan it presented, for a role that
+    /// changes no files: it stays in the mode that keeps it from changing them, and is told
+    /// this instead of the usual go-ahead. `None` for a role that changes files, which goes
+    /// on to carry its plan out.
+    #[serde(skip)]
+    pub approved: Option<&'static str>,
 }
 
 /// The architect: over a whole feature, across tasks.
@@ -57,6 +63,10 @@ implementers' to build.",
     changes_files: false,
     starts: &["planner", "reviewer"],
     child: Some("planner"),
+    approved: Some(
+        "Start a task for each part now with `start_task`, each with a planner in it, and follow \
+         them as your role says.",
+    ),
 };
 
 /// The planner: over one part, inside one task.
@@ -77,6 +87,10 @@ change it alone.",
     changes_files: false,
     starts: &["implementer", "reviewer"],
     child: Some("implementer"),
+    approved: Some(
+        "Hand each change to an implementer now with `spawn_session`, in parts that do not touch \
+         the same files, and check what each reports back against the plan.",
+    ),
 };
 
 /// The implementer: builds what it was given.
@@ -92,6 +106,7 @@ cannot decide. You start no sessions and no tasks.",
     changes_files: true,
     starts: &[],
     child: None,
+    approved: None,
 };
 
 /// The reviewer: reads, and changes nothing.
@@ -108,6 +123,10 @@ matters, the most severe first. You start no sessions and no tasks.",
     changes_files: false,
     starts: &[],
     child: None,
+    approved: Some(
+        "Report your findings now to the session you work for with `send_message`, or to the \
+         user if you work for none.",
+    ),
 };
 
 /// The roles built in, in the order they are offered.
@@ -179,18 +198,74 @@ fn with_article(name: &str) -> String {
     format!("{} {name}", if vowel { "An" } else { "A" })
 }
 
-/// The rules of `role`, as its agent keeps to them: what it is, its own rules, and what it may
-/// start, then what every role is for.
+/// How a role that changes no files is kept to it, as its agent is told.
+const KEPT_FROM_CHANGES: &str = "Swarmed keeps you to that: your role starts you in plan mode, or \
+in your agent's read-only mode where it has no plan mode, either of which keeps you from changing \
+files. Swarmed's session tools (`list_sessions`, `read_session`, `send_message`, `spawn_session`, \
+`start_task`) change none of your files, so they are yours to use in that mode, even where it \
+says to run nothing that changes anything; the user may be asked to allow each call. When the \
+user approves a plan you present, you stay in that mode: an approval is no go-ahead to change \
+anything yourself, but to hand the plan on as your role says.";
+
+/// The rules of `role`, as its agent keeps to them: what it is, its own rules, how Swarmed keeps
+/// it from changing files if it changes none, and what it may start, then what every role is
+/// for.
 fn rules(role: &Role) -> String {
-    format!(
-        "Your role in this session is {}. {} {}.\n\n{}\n\n{}\n\n{}",
+    let opening = format!(
+        "Your role in this session is {}. {} {}.",
         role.name,
         with_article(role.name),
-        role.description,
-        role.instructions,
-        starting(role),
-        overview()
-    )
+        role.description
+    );
+    let kept = (!role.changes_files).then(|| KEPT_FROM_CHANGES.to_string());
+    let parts = [
+        Some(opening),
+        Some(role.instructions.to_string()),
+        kept,
+        Some(starting(role)),
+        Some(overview()),
+    ];
+    let parts: Vec<String> = parts.into_iter().flatten().collect();
+    parts.join("\n\n")
+}
+
+/// What the agent of a session with `role` is told when the user approves a plan it presented,
+/// in place of the usual go-ahead: for a role that changes no files, that it stays in the mode
+/// that keeps it from changing them, and how it hands the plan on. `None` for a role that
+/// changes files, which goes on to carry its plan out.
+pub(crate) fn approval(role: &Role) -> Option<String> {
+    let next = role.approved?;
+    Some(format!(
+        "The user approved your plan. Your role, the {}'s, changes no files: this is no go-ahead \
+         to change anything yourself, and you stay in the mode that keeps you from it. {next}",
+        role.name
+    ))
+}
+
+/// The supervision a session supervised as `now` has once its role is `role`, and what to keep
+/// as the supervision its role took the place of, given `before`, what an earlier role took the
+/// place of if one did: a role that holds a supervision puts the session in it and remembers
+/// what it took the place of, the first it did; one that holds none puts that back, and
+/// remembers nothing.
+pub(crate) fn held(
+    role: Option<&Role>,
+    now: Supervision,
+    before: Option<Supervision>,
+) -> (Supervision, Option<Supervision>) {
+    match role.and_then(|role| role.supervision) {
+        Some(own) if own == now => (own, before),
+        Some(own) => (own, Some(before.unwrap_or(now))),
+        None => (before.unwrap_or(now), None),
+    }
+}
+
+/// The supervision a new session with `role` starts in when it was asked to start as `asked`,
+/// and what to put back when its role is taken off: the role's own if it holds one.
+pub(crate) fn starts_in(
+    role: Option<&Role>,
+    asked: Supervision,
+) -> (Supervision, Option<Supervision>) {
+    held(role, asked, None)
 }
 
 /// What the agent of a session with `role` is told at its start of its role and of who works
@@ -283,29 +358,57 @@ impl Core {
     /// guidance, and nothing is recorded. After, the change is recorded as
     /// [`AgentEvent::RoleChanged`], where the transcript shows the new rules start, and the
     /// agent is told along with its next message. Front ends are told to read the tree again.
+    ///
+    /// A role that changes no files holds the session in plan mode, which an agent without one
+    /// takes as its read-only mode (`acp.rs`), and taking it off puts back the supervision it
+    /// took the place of, unless the user chose another meanwhile: their choice wins. Either is
+    /// recorded as [`AgentEvent::SupervisionChanged`] and told to a running agent at once.
     pub fn session_set_role(&self, id: i64, role: Option<&str>) -> Result<Session> {
         let session = self.session(id)?;
         if self.store().session_is_closed(id)? {
             return Err(Error::SessionClosed(id));
         }
-        let role = role.map(known).transpose()?.map(|role| role.name);
-        if session.role.as_deref() == role {
+        let role = role.map(known).transpose()?;
+        let name = role.map(|role| role.name);
+        if session.role.as_deref() == name {
             return Ok(session);
         }
-        self.store().session_set_role(id, role)?;
+        self.store().session_set_role(id, name)?;
         let said = self
             .session_events(id)?
             .iter()
             .any(|event| matches!(event, AgentEvent::UserMessage { .. }));
         if said {
             let changed = AgentEvent::RoleChanged {
-                role: role.map(String::from),
-                previous: session.role,
+                role: name.map(String::from),
+                previous: session.role.clone(),
             };
             self.live.note(&self.store, id, changed)?;
         }
+        self.role_supervision(&session, role)?;
         self.live.publish_apart(AgentEvent::TreeChanged);
         self.session(id)
+    }
+
+    /// Puts `session` under the supervision `role`, its role now, holds, or back under the one
+    /// its earlier role took the place of ([`held`]).
+    fn role_supervision(&self, session: &Session, role: Option<&Role>) -> Result<()> {
+        let before = self.store().session_supervision_before_role(session.id)?;
+        let (supervision, before) = held(role, session.supervision, before);
+        self.store()
+            .session_set_supervision_before_role(session.id, before)?;
+        if supervision != session.supervision {
+            self.supervise(session.id, supervision)?;
+        }
+        Ok(())
+    }
+
+    /// The role of session `id` if it keeps the session from changing files once the user
+    /// approves its plan, with what its agent is told instead of the go-ahead.
+    pub(crate) fn approved_kept(&self, id: i64) -> Result<Option<String>> {
+        let session = self.session(id)?;
+        let role = session.role.as_deref().and_then(find);
+        Ok(role.and_then(approval))
     }
 }
 
@@ -447,6 +550,41 @@ mod tests {
         let refused = of_child(&implementer, None).expect_err("starts none");
         assert!(refused.to_string().contains("starts no sessions"));
         assert!(of_child(&planner, Some("boss")).is_err());
+    }
+
+    #[test]
+    fn a_role_that_changes_no_files_holds_a_supervision_and_is_told_how_it_is_kept() {
+        for role in ROLES {
+            let holds = role.supervision == Some(Supervision::Plan);
+            assert_eq!(holds, !role.changes_files, "{}", role.name);
+            assert_eq!(role.approved.is_none(), role.changes_files, "{}", role.name);
+            let told = instructions(&role, None);
+            assert_eq!(told.contains(KEPT_FROM_CHANGES), !role.changes_files);
+            assert_eq!(approval(&role).is_some(), !role.changes_files);
+        }
+        let planner = find("planner").expect("built in");
+        let approved = approval(planner).expect("kept");
+        assert!(approved.starts_with("The user approved your plan. Your role, the planner's,"));
+        assert!(approved.ends_with(planner.approved.expect("kept")));
+        assert!(note(Some(planner), None).contains(KEPT_FROM_CHANGES));
+    }
+
+    #[test]
+    fn a_role_s_supervision_is_held_and_what_it_took_the_place_of_put_back() {
+        let (planner, implementer) = (find("planner"), find("implementer"));
+        let (ask, auto, plan) = (Supervision::Ask, Supervision::Auto, Supervision::Plan);
+        assert_eq!(starts_in(planner, auto), (plan, Some(auto)));
+        assert_eq!(starts_in(planner, plan), (plan, None));
+        assert_eq!(starts_in(implementer, auto), (auto, None));
+        assert_eq!(starts_in(None, ask), (ask, None));
+        // Set, it remembers what it took the place of the first time only.
+        assert_eq!(held(planner, ask, None), (plan, Some(ask)));
+        assert_eq!(held(find("reviewer"), plan, Some(ask)), (plan, Some(ask)));
+        // Taken off, or for one that holds none, that is put back.
+        assert_eq!(held(None, plan, Some(ask)), (ask, None));
+        assert_eq!(held(implementer, plan, Some(auto)), (auto, None));
+        // Nothing to put back: as it is, the user's own choice included.
+        assert_eq!(held(None, auto, None), (auto, None));
     }
 
     /// `docs/coding-agents.md` shows users the same roles their agents are told of.

@@ -44,6 +44,13 @@ notice adds its line under Unreleased.
   and the sidebar shows each session's role. `swarmed session role` and `--role` do the same
   from the command line. See [Roles](docs/coding-agents.md#roles).
 
+- **Roles are kept to.** An architect, a planner or a reviewer starts in plan mode, or in its
+  agent's read-only mode, and taking the role off puts back the supervision it had. Approving
+  its plan keeps it there and has it hand the plan on, to planners or implementers, instead of
+  building it itself. A planner another session started can start its implementers, up to three
+  sessions with a role in a row. See
+  [How a role is kept to](docs/coding-agents.md#how-a-role-is-kept-to).
+
 ## [0.4.7] - 2026-11-26
 
 ### Added

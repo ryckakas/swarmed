@@ -12,12 +12,12 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use super::{left_by, refused};
+use super::{Starting, left_by, refused};
 use crate::agent::{AgentEvent, Auth};
 use crate::environments::EnvironmentChoice;
 use crate::error::{Error, Result};
 use crate::sessions::{SessionOptions, title_from};
-use crate::{Core, FirstSession, NewTaskOptions, TaskStarted, hooks, roles};
+use crate::{Core, FirstSession, NewTaskOptions, TaskStarted, hooks};
 
 /// What a session asks for in a task it starts.
 #[derive(Debug, Clone, Copy, Default)]
@@ -65,25 +65,21 @@ impl Core {
     ///
     /// The new session works for `from`, but is not one `from` spawned: it is the first of a
     /// task of its own, and can start sessions and tasks itself, as the next link of a chain of
-    /// pull requests does. It has the role asked for, or the one `from`'s own starts by default;
-    /// a role `from`'s may not start is refused. A session that was itself spawned cannot start
-    /// one, nor can a chat, which has no repository. Must be called from within a tokio runtime.
+    /// pull requests does. It has the role asked for, or the one `from`'s own starts by default,
+    /// and starts under the supervision that role holds, if it holds one. Who may start what is
+    /// `may_start`'s: a role `from`'s may not start is refused, and so is a task asked
+    /// for by a session with no role that another session's agent started. A chat starts none,
+    /// having no repository. Must be called from within a tokio runtime.
     pub async fn peer_start_task(
         self: &Arc<Self>,
         from: i64,
         asked: PeerTask<'_>,
     ) -> Result<TaskStarted> {
         let asking = self.session(from)?;
-        if asking.spawned {
-            return Err(refused(
-                "a session that was started by another session cannot start tasks; the session \
-                 that started it can",
-            ));
-        }
+        let role = self.may_start(&asking, asked.role, Starting::Task)?;
         if asked.prompt.trim().is_empty() {
             return Err(Error::EmptyMessage);
         }
-        let role = roles::of_child(&asking, asked.role)?;
         let own = self.task_of(&asking)?;
         let project = self
             .store()
@@ -117,7 +113,7 @@ impl Core {
                         .map_or_else(|| title_from(asked.prompt), String::from),
                 ),
                 model: asking.model.clone(),
-                supervision: asking.supervision,
+                supervision: self.supervision_without_role(&asking)?,
                 effort: asking.effort,
                 fast: asking.fast,
                 role: role.map(|role| role.name.to_string()),

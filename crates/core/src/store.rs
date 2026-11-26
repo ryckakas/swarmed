@@ -363,6 +363,11 @@ const MIGRATIONS: &[&str] = &[
     "
     ALTER TABLE sessions ADD COLUMN role TEXT;
 ",
+    // The supervision a session's role took the place of, which taking the role off puts
+    // back (`roles.rs`); none while no role holds one, or once the user chose another.
+    "
+    ALTER TABLE sessions ADD COLUMN supervision_before_role TEXT;
+",
 ];
 
 /// Stands in [`MIGRATIONS`] for the one change SQL in a transaction cannot make: every

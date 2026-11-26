@@ -1033,8 +1033,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   a message in the other conversation, queued if that session is busy. Only open sessions of
   the caller's own project can be read or written to (`peer_in_reach`), and from a chat those
   of every project (see the chats above): a closed one would be started out of sight. A spawned session runs
-  in its parent's task with its settings, cannot spawn itself (`Session::spawned`), and a
-  session can have `MAX_SPAWNED` open working for it. The tools are not on the allow list: in
+  in its parent's task with its settings, cannot spawn itself (`Session::spawned`) unless its
+  role starts sessions (see roles below), and a session can have `MAX_SPAWNED` open working
+  for it. The tools are not on the allow list: in
   ask mode the user is asked. A session can close only sessions it spawned, and only idle ones
   (`peer_close`).
 - **Who works for whom is a tree of parents** (`parents.rs`, #459). `Session::parent`, kept
@@ -1073,9 +1074,29 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     the architect and planner table (`TABLE`), and who works with it (folding in part of
     `parents.rs`); with no role, only who works with it. `docs/coding-agents.md` holds the
     same roles and table, and a test keeps the two together: change both.
-  - **What it may start:** `spawn_session` and `start_task` take a `role`, default to the
-    caller's role's child, and refuse one it may not start (`roles::of_child`); a role that
-    starts nothing starts no session, and a session with no role starts any.
+  - **What it may start** (`Core::may_start`): `spawn_session` and `start_task` take a
+    `role`, default to the caller's role's child, and refuse one it may not start
+    (`roles::of_child`); a role that starts nothing starts no session, and a session with no
+    role starts any. A role that starts sessions may even when another session spawned it,
+    while fewer than `MAX_DEPTH` (3) sessions with a role work one for another in a row up from
+    it (`roles_in_a_row`); a session with no role breaks the row, so chains of tasks are not
+    capped. A spawned session with no role still starts nothing (`Session::spawned`).
+  - **Kept to, where Swarmed can** (#459 part 3): a role that changes no files holds the
+    session in `Plan` (`Role::supervision`), which `acp.rs` maps onto an agent's plan or
+    read-only mode, else its asking one. At start (`Core::session_insert`, `roles::starts_in`)
+    and on a change (`roles::held`), what the role took the place of is kept in
+    `supervision_before_role` and put back when the role goes; the user's own change
+    (`session_configure`, not `supervise`, which the core uses) forgets it, so their choice
+    wins. A session a role-holder starts begins from that kept supervision
+    (`supervision_without_role`), so an implementer is never held in its planner's plan mode.
+    A same-agent fork copies it; a clone onto another agent starts anew under the role.
+  - **Approving its plan keeps it planning:** for a role that changes no files, `decide`
+    answers `PLAN_TOOL` with a refusal whose reason is `roles::approval` (the role's
+    `approved`: how it hands the plan on), recorded as allowed, and the session stays in
+    `Plan`. Allowing would end Claude Code's plan mode with its own "You can now start coding".
+    Tried with Claude Code 2.1.332: in plan mode it asks before an MCP tool and runs it once
+    allowed, and the model calls one only when told it may, which the guidance
+    (`KEPT_FROM_CHANGES`) does; an edit in plan mode is asked about, not refused.
   - **Shown:** a short chip on its sidebar row, gone when the row has no room for it (a
     container query), and the menu in the header and the new-task view. `list_sessions`,
     `read_session` and `swarmed session list` (`role <name>` last) say it.
@@ -1192,7 +1213,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **Plan mode** is a value of `Supervision`. Claude Code is started in, or switched to, its own
   plan mode, and presents its plan by asking to use `PLAN_TOOL`. Allowing that request approves
   the plan: the core then puts the session back to how new sessions are supervised and tells the
-  agent, which by itself would fall back to asking about everything. Every change of
+  agent, which by itself would fall back to asking about everything. A session whose role
+  changes no files stays in plan mode and is told to hand the plan on instead (see roles). Every change of
   supervision is an event, `SupervisionChanged`. Other agents have no plan mode and ask instead.
 - **The model and effort actually in use** are asked of Claude Code (`get_settings`) when it
   starts and after each turn, and recorded as `Applied`. Only those two values are read: the

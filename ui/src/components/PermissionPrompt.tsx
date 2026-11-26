@@ -2,9 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { focusIsFree } from "../focus";
 import { questionsOf } from "../questions";
+import { planKeptSaid } from "../roles";
 import { useStore } from "../store";
 import { PLAN_TOOL, summarize } from "../transcript";
-import { afterPlan, SUPERVISION_LABELS } from "./options";
+import { findSession } from "../tree";
+import { useWords } from "../useWords";
+import { afterPlan, SUPERVISION_LABELS, useRoles } from "./options";
 import { QuestionPrompt } from "./QuestionPrompt";
 
 interface Props {
@@ -35,7 +38,7 @@ function ToolPrompt(props: Props) {
     // The prompt leaves the transcript when the app confirms the answer. Until then the buttons
     // show the click was taken, and cannot be pressed twice.
     const [sent, setSent] = useState<"allow" | "deny" | null>(null);
-    const words = useWords(toolName);
+    const words = usePromptWords(toolName, sessionId);
     const allow = useRef<HTMLButtonElement>(null);
     // Focused as it appears, so Enter allows and Tab then Enter denies: but only while nothing
     // else has the keyboard. Taken from the message box, the next key typed would answer.
@@ -88,9 +91,14 @@ function ToolPrompt(props: Props) {
     );
 }
 
-/** How the question is put: a plan is approved, anything else is allowed. */
-function useWords(toolName: string) {
+/**
+ * How the question is put: a plan is approved, anything else is allowed. A plan of a session
+ * whose role changes no files is handed on once approved, and the prompt says so.
+ */
+function usePromptWords(toolName: string, sessionId: number) {
     const next = useStore((state) => afterPlan(state.settings?.default_supervision));
+    const role = useStore((state) => findSession(state.projects, sessionId)?.role ?? null);
+    const kept = planKeptSaid(role, useRoles(), useWords());
     if (toolName !== PLAN_TOOL) {
         return {
             ask: `Allow ${toolName}?`,
@@ -104,7 +112,9 @@ function useWords(toolName: string) {
     }
     return {
         ask: "Approve this plan?",
-        note: `Once approved, the agent starts on it and plan mode ends: ${SUPERVISION_LABELS[next].toLowerCase()}.`,
+        note:
+            kept ??
+            `Once approved, the agent starts on it and plan mode ends: ${SUPERVISION_LABELS[next].toLowerCase()}.`,
         allow: "Approve plan",
         allowing: "Approving…",
         deny: "Keep planning",

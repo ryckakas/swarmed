@@ -175,6 +175,12 @@ export interface Words {
     roleMenu: string;
     noRole: string;
     /**
+     * Why the supervision menu of a new session is fixed while its role, as `role` says it,
+     * holds it in plan mode, and what its plan's approval does instead of the usual.
+     */
+    roleHolds: (role: string) => string;
+    planKept: (role: string) => string;
+    /**
      * What a session, or the sessions under a folded heading, have running in the background,
      * as its status mark says when pointed at: "2 sub-agents, 1 command in the background".
      */
@@ -413,6 +419,10 @@ const PLAIN: Words = {
     roleShort: (name) => PLAIN_ROLES_SHORT[name] ?? name,
     roleMenu: "Role",
     noRole: "No role",
+    roleHolds: (role) =>
+        `${role}: starts in plan mode, or its agent's read-only mode, and changes no files. Change it once the session runs.`,
+    planKept: (role) =>
+        `${role}: once approved, it stays in plan mode and hands the plan on, changing no files itself.`,
     inBackground: ({ agents, commands }) =>
         `${counted([
             [agents, "sub-agent", "sub-agents"],
@@ -593,6 +603,10 @@ const SWARM: Words = {
     roleShort: (name) => SWARM_ROLES[name]?.[1] ?? name,
     roleMenu: "Caste",
     noRole: "No caste",
+    roleHolds: (role) =>
+        `${role}: starts in plan mode, or its agent's read-only mode, and touches nothing. Change it once the spawn hatches.`,
+    planKept: (role) =>
+        `${role}: once approved, it stays in plan mode and passes the plan to the swarm, touching nothing itself.`,
     inBackground: ({ agents, commands }) =>
         [
             agents > 0 ? `${counted([[agents, "hatchling", "hatchlings"]])} foraging` : "",

@@ -4,6 +4,7 @@ import { withFiles } from "../transcript";
 import { titleFrom } from "../tree";
 import type { Api } from "./client";
 import { firstMessageIn } from "./mockMentions";
+import { sampleStartsIn } from "./mockRoles";
 import type {
     AgentEvent,
     EnvironmentChoice,
@@ -271,6 +272,8 @@ export function taskSetupApi(
                 title: start.title ?? titleFrom(mentionsAsWords(start.prompt)),
                 waits_for_setup: project !== CHATS,
             };
+            // A role that changes no files starts in plan mode, as the core starts one.
+            session.supervision = sampleStartsIn(session.id, session.role, session.supervision);
             const kept = await deps.keepImages(session.id, start.images);
             const prompt = withFiles(said, [...start.files, ...kept]);
             task.sessions.push(session);

@@ -308,8 +308,8 @@ struct NewArgs {
     /// The model the first session runs on; defaults to the agent's own default.
     #[arg(long, requires = "prompt")]
     model: Option<String>,
-    /// What the first session is for: architect, planner, implementer or reviewer. Without
-    /// it, it has no role.
+    /// What the first session is for: architect, planner, implementer or reviewer; the first
+    /// three start in plan mode. Without it, it has no role.
     #[arg(long, requires = "prompt")]
     role: Option<String>,
     /// The number of the repository's GitHub issue the task is for, which it records: its
