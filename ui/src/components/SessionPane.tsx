@@ -237,10 +237,15 @@ function Facts({ session, task }: { session: Session; task: Task }) {
 
 /** The session's status in a mark and in words, which always say the same. */
 function StatusWords({ session }: { session: Session }) {
-    const status = useStatusLabel(session.status, session.unread);
+    const status = useStatusLabel(session.status, session.unread, session.background);
     return (
         <p className={`session-status status-${session.status}`}>
-            <StatusMark status={session.status} unread={session.unread} label={status} />
+            <StatusMark
+                status={session.status}
+                unread={session.unread}
+                background={session.background}
+                label={status}
+            />
             {status}
         </p>
     );

@@ -1,4 +1,13 @@
-import type { AgentEvent, Project, Session, SessionEvent, SessionStatus, Task } from "./api/types";
+import type {
+    AgentEvent,
+    BackgroundCount,
+    Project,
+    Session,
+    SessionEvent,
+    SessionStatus,
+    Task,
+} from "./api/types";
+import { addedUp } from "./inBackground";
 import { mentionsAsWords } from "./mentions";
 
 // Pure functions over the project tree, kept apart from the store so they can be tested.
@@ -74,12 +83,23 @@ function rowChange(event: AgentEvent): ((session: Session) => Session) | null {
     }
 }
 
+/** The tree with what the event says the session has running in the background, if it says. */
+function withBackground(projects: Project[], published: SessionEvent): Project[] {
+    const background = published.background;
+    if (!background) {
+        return projects;
+    }
+    return mapSession(projects, published.session_id, (session) => ({ ...session, background }));
+}
+
 /**
- * Applies what a published event means for the sidebar: the session's new status, and, for
- * the first message of an untitled session, the title the core has just given it.
+ * Applies what a published event means for the sidebar: the session's new status, what it has
+ * running in the background, and, for the first message of an untitled session, the title the
+ * core has just given it.
  */
-export function applySessionEvent(projects: Project[], published: SessionEvent): Project[] {
+export function applySessionEvent(tree: Project[], published: SessionEvent): Project[] {
     const { session_id: id, status, event } = published;
+    const projects = withBackground(tree, published);
     const change = rowChange(event);
     if (change !== null) {
         return mapSession(projects, id, change);
@@ -232,15 +252,35 @@ export function taskUnread(task: Task): boolean {
 }
 
 /**
+ * What a task's sessions have running in the background, added up. Beside an idle status it
+ * ranks above idle: sub-agents at work first, then commands left running (`backgroundShown`).
+ */
+export function taskBackground(task: Task): BackgroundCount {
+    return addedUp(task.sessions.map((session) => session.background));
+}
+
+/** What a repository's open tasks have running in the background, added up. */
+export function projectBackground(project: Project): BackgroundCount {
+    return addedUp(project.tasks.filter((task) => !task.archived).map(taskBackground));
+}
+
+/**
  * What a folded task still shows of its sessions in its heading: how many are open, the one
- * status that best describes them, and whether one holds an unread answer.
+ * status that best describes them, whether one holds an unread answer, and what they have
+ * running in the background.
  */
 export function foldedSummary(task: Task): {
     count: number;
     status: SessionStatus | null;
     unread: boolean;
+    background: BackgroundCount;
 } {
-    return { count: task.sessions.length, status: taskStatus(task), unread: taskUnread(task) };
+    return {
+        count: task.sessions.length,
+        status: taskStatus(task),
+        unread: taskUnread(task),
+        background: taskBackground(task),
+    };
 }
 
 /** `ids` with `id` added if it was missing, removed if it was there. */

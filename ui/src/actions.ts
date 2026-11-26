@@ -1,4 +1,6 @@
 import { api } from "./api";
+import type { MarkColour } from "./api/types";
+import { type HighlightTarget, highlightable, highlightTarget } from "./highlights";
 import {
     moveTarget,
     type OrderTarget,
@@ -138,6 +140,28 @@ export async function pinFocusedRow() {
     await pinRow(target, !pinned);
     if (inHand.had) {
         keepKeyboard(target, inHand.had);
+    }
+}
+
+/** Highlights a task or a session in `colour` where it is, or takes it off, then reads the tree again. */
+export async function highlightRow(target: HighlightTarget, colour: MarkColour | null) {
+    const { refresh, report } = useStore.getState();
+    try {
+        await highlightTarget(api, target, colour);
+        await refresh(api);
+    } catch (error) {
+        report(error);
+    }
+}
+
+/**
+ * Opens the highlight palette of the task or session row that has the keyboard, or of the
+ * session on screen when no row has it. A repository or a cloud task has none.
+ */
+export function highlightFocusedRow() {
+    const target = rowInHand()?.target;
+    if (target && highlightable(target)) {
+        useStore.getState().askToHighlight(target);
     }
 }
 

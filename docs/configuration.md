@@ -470,6 +470,8 @@ A key Swarmed does not know stays in `settings.toml` when the settings are saved
 
 `layout.json` holds the custom layout, which Settings shows as JSON and an agent can write for you. It starts from classic or senior (`base`) and changes only how things look: the five text sizes, line height, spacing, icons, the heights of rows and controls, the two fonts, the palette's colours in dark and in light, and the sidebar's levels. `swarmed layout schema` prints every field with its range.
 
+Beside the palette's colours, `dark` and `light` can give the five colours marks and highlights are named by: `green`, `blue`, `yellow`, `red` and `purple`. Each is the palette's own until given (moss, busy, pollen, clay, and between sky and clay), and one value changes both the marks an agent sets and the highlights you choose in that colour.
+
 `sidebar` sets the four levels of the sidebar apart from each other and from the rest of the app: `repository`, `task`, `session` and `sub_agent`. Each can take a text `size` in pixels (9 to 40), a `weight` from 400 to 700, and for `dark` and `light` a `colour` for its text and a `background` for its rows:
 
 ```json
@@ -485,7 +487,7 @@ A key Swarmed does not know stays in `settings.toml` when the settings are saved
 
 A level you leave out is drawn as its base draws it, and the repository's name grows and shrinks with the text sizes like the rest. A session's colour is used whatever the session is doing; one that waits on you or has an answer you have not read is still drawn heavier. Where a session is selected, pointed at or waits on you, its row keeps the background that says so.
 
-Swarmed refuses a layout it could not draw readably, with the reason, and keeps the one before. Text has to stand out from its background by 4.5 to 1 (3 to 1 for sub-agents, which are drawn quieter). A level that gives a colour has to give its background too, or its form a `panel`, which the sidebar is; one that gives a background has to give its colour. The palette's own colours are only known to the window, so nothing could be checked against them.
+Swarmed refuses a layout it could not draw readably, with the reason, and keeps the one before. Text has to stand out from its background by 4.5 to 1 (3 to 1 for sub-agents, which are drawn quieter, and for the five colours of marks and highlights against the backgrounds the layout gives, the one it gives a task's or a session's row in the sidebar included). A level that gives a colour has to give its background too, or its form a `panel`, which the sidebar is; one that gives a background has to give its colour. The palette's own colours are only known to the window, so nothing could be checked against them.
 
 A key the layout does not know, misspelt or written by a newer Swarmed, is left out when `layout.json` is read and named with the other problems, and the rest of the layout is drawn. Saving a layout with one is refused, so a misspelt key is caught when you save it.
 

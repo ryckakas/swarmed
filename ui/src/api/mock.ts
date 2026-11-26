@@ -31,6 +31,7 @@ import type {
     AgentEvent,
     AgentSetup,
     ApiKeyInfo,
+    BackgroundCount,
     BackgroundState,
     BackgroundTask,
     Check,
@@ -177,7 +178,43 @@ function session(id: number, taskId: number, title: string, status: SessionStatu
         // One sample session is pinned above the others of its task.
         pinned: id === 1,
         continue_at: null,
+        // What its agent left running, as the core counts it from the reports.
+        background: backgroundIn(id, sampleEvents(id)),
+        highlight: SAMPLE_HIGHLIGHTS[id] ?? null,
     };
+}
+
+/**
+ * The sample sessions the user highlighted, in two colours: one beside an agent's mark, which
+ * reads as a second thing, and one with an answer nobody has read.
+ */
+const SAMPLE_HIGHLIGHTS: Partial<Record<number, MarkColour>> = { 3: "purple", 5: "blue" };
+
+/**
+ * What sample sessions' agents left running before their histories begin: the dev servers the
+ * sample task's Background list shows.
+ */
+const LEFT_RUNNING: Record<number, string[]> = { 1: ["b1"], 2: ["sh_7"] };
+
+/**
+ * What a session's agent has running in the background after `events`, folded as the core folds
+ * the reports: the last word on each thing counts, and the agent's end takes everything with it.
+ * An end does not say again what kind of thing it was.
+ */
+function backgroundIn(sessionId: number, events: AgentEvent[]): BackgroundCount {
+    const running = new Map((LEFT_RUNNING[sessionId] ?? []).map((id) => [id, "local_bash"]));
+    for (const event of events) {
+        if (event.type === "exited") {
+            running.clear();
+        } else if (event.type === "background" && event.state === "running") {
+            running.set(event.task_id, running.get(event.task_id) ?? event.kind);
+        } else if (event.type === "background") {
+            running.delete(event.task_id);
+        }
+    }
+    const kinds = [...running.values()];
+    const agents = kinds.filter((kind) => kind === "local_agent" || kind === "remote_agent");
+    return { agents: agents.length, commands: kinds.length - agents.length };
 }
 
 /** A branch prefix as the core keeps it: without blank space or slashes at either end. */
@@ -249,6 +286,8 @@ function task(id: number, projectId: number, name: string, sessions: Session[]):
         issue: SAMPLE_ISSUES[name] ?? null,
         // The task whose stack runs has its browser running too.
         browser: SAMPLE_STACKS[id] === "running",
+        // One sample task is highlighted, where it is.
+        highlight: name === "shop-142" ? "yellow" : null,
     };
 }
 
@@ -804,8 +843,10 @@ function orderApi(
         },
         taskMove: async (name, task, by) => {
             const { tasks } = project(name);
-            const among = pinnedAs(tasks.find((one) => one.name === task && !one.archived));
-            const open = (one: Task) => !one.archived && among(one);
+            // A task put away is listed apart, and neither moves nor is passed by a move.
+            const listed = (one: Task) => !one.archived && one.done_at === null;
+            const among = pinnedAs(tasks.find((one) => one.name === task && listed(one)));
+            const open = (one: Task) => listed(one) && among(one);
             replace(
                 tasks,
                 movedAmong(tasks, open, (one) => one.name === task, by),
@@ -829,7 +870,7 @@ function orderApi(
         taskPin: async (name, task, pinned) => {
             const { tasks } = project(name);
             const open = tasks.filter((one) => !one.archived);
-            const pinning = (one: Task) => one.name === task;
+            const pinning = (one: Task) => one.name === task && one.done_at === null;
             const archived = tasks.filter((one) => one.archived);
             replace(tasks, [...pinnedAmong(open, pinning, pinned), ...archived]);
         },
@@ -854,6 +895,30 @@ function orderApi(
                     by,
                 ),
             );
+        },
+    };
+}
+
+/** Highlighting the sample's tasks and sessions, which leaves each where it is. */
+function highlightApi(projects: () => Project[]): Pick<Api, "taskHighlight" | "sessionHighlight"> {
+    const tasks = () => projects().flatMap((project) => project.tasks);
+    return {
+        taskHighlight: async (name, task, colour) => {
+            const home = projects().find((project) => project.name === name);
+            const found = home?.tasks.find((one) => one.name === task && !one.archived);
+            if (!found) {
+                throw new Error(`task \`${task}\` not found in \`${name}\``);
+            }
+            found.highlight = colour;
+        },
+        sessionHighlight: async (id, colour) => {
+            const session = tasks()
+                .flatMap((task) => task.sessions)
+                .find((one) => one.id === id);
+            if (!session) {
+                throw new Error(`session ${id} not found`);
+            }
+            session.highlight = colour;
         },
     };
 }
@@ -1003,11 +1068,43 @@ function backgroundApi(
             stoppable: true,
         },
     ];
-    const all = () => [...agent.sentToBackground.map((sent) => sent.listed), ...tasks];
+    // What the export's review session left at work, as its history reports it.
+    const left = (id: string, kind: string, description: string): BackgroundTask => ({
+        session_id: 8,
+        session_title: "Review the export while the dev server runs",
+        task_id: id,
+        description,
+        kind,
+        state: "running",
+        summary: null,
+        tool_use_id: id === "b8-review" ? "bg-review" : null,
+        output: false,
+        stoppable: true,
+    });
+    const exportTasks: BackgroundTask[] = [
+        left("b8-review", "local_agent", "Review the export"),
+        left("b8-server", "local_bash", "Run the dev server on port 3300"),
+        {
+            // Done before them, with a page of an answer: the row folds it to its first lines.
+            ...left("b8-spec", "local_agent", "Check the export against the spec"),
+            state: "completed",
+            summary: SPEC_CHECK_ANSWER,
+            tool_use_id: "bg-spec",
+        },
+    ];
+    const samples: Record<string, BackgroundTask[]> = {
+        "fix-login-redirect": tasks,
+        "invoice-export": exportTasks,
+    };
+    const all = () => [
+        ...agent.sentToBackground.map((sent) => sent.listed),
+        ...tasks,
+        ...exportTasks,
+    ];
     return {
         taskBackground: async (_project, name) => {
             const sent = agent.sentToBackground.filter((one) => one.task === name);
-            const sample = name === "fix-login-redirect" ? tasks : [];
+            const sample = samples[name] ?? [];
             return [...sent.map((one) => one.listed), ...sample].map((task) => ({ ...task }));
         },
         sessionSendToBackground: async (id, toolUseId) => agent.sendToBackground(id, toolUseId),
@@ -1029,9 +1126,204 @@ function backgroundApi(
             }
             if (task) {
                 task.state = "stopped";
+                // The agent reports the end, as Claude Code does, which the session's mark follows.
+                agent.publish(id, stoppedReport(taskId, task.tool_use_id), null);
             }
         },
     };
+}
+
+/**
+ * The report of something left running that was stopped: what it was is not said again, the
+ * call that started it is.
+ */
+function stoppedReport(taskId: string, call: string | null): AgentEvent {
+    return {
+        type: "background",
+        task_id: taskId,
+        description: "",
+        kind: "",
+        state: "stopped",
+        summary: "Stopped",
+        tool_use_id: call,
+        output_file: null,
+    };
+}
+
+/** What the export's spec check was asked: long, as agents hand their sub-agents prompts. */
+const SPEC_CHECK_PROMPT = `Check the CSV invoice export in \`src/export/csv.ts\` against the accounting spec in \`docs/export-spec.md\`, and report every difference you find. Do not change any file: this is a read-only review, and the findings go to the user before anything is fixed.
+
+The spec was rewritten last month for the new VAT fields, and the export has not been looked at since. In particular:
+
+1. **Columns.** The spec lists the columns in a fixed order. Compare it with the order \`toRow\` writes them in, and name any column that is missing, extra or out of place. The importer on the accounting side reads by position, not by header, so the order matters as much as the names.
+2. **VAT.** Every line needs its net amount, its VAT rate and its VAT amount, and the invoice needs its totals per rate. Check how rates are written (\`19\`, \`19%\` or \`0.19\`) and whether reverse charge and tax-free lines get the codes the spec gives them.
+3. **Numbers and dates.** The spec wants a dot as the decimal separator, no thousands separator, two decimals for money and four for quantities, and dates as \`YYYY-MM-DD\`. Look at \`formatMoney\`, \`formatQuantity\` and \`formatDate\`, and at whether any of them follow the user's locale instead.
+4. **Credit notes.** A credit note is exported as an invoice with negative amounts and a reference to the invoice it corrects. Check the sign of every amount and that the reference column is filled.
+5. **Escaping.** Customer names and line texts can hold semicolons, quotes and line breaks. Check that the writer quotes such a field and doubles the quotes inside it.
+
+For each finding, give the file and line, what the spec says, what the code does, and an example row that shows it. Leave out anything the spec does not settle, and say so at the end instead of guessing. Keep the report under a page if you can.`;
+
+/** What it handed back: a page of findings, as a background sub-agent's end report gives it. */
+const SPEC_CHECK_ANSWER = `Five differences between the CSV export and docs/export-spec.md, in the order the spec lists its rules. Nothing was changed.
+
+1. Columns: the spec puts vat_rate before vat_amount; toRow (src/export/csv.ts:48) writes vat_amount first. The accounting importer reads by position, so every VAT amount would land in the rate column. The spec also lists a cost_centre column after account, which the export leaves out entirely, so every column after it is shifted one place to the left. Example: an invoice line with a net of 100.00 at 19% comes out as ...;100.00;19.00;19;... where the spec wants ...;100.00;19;19.00;....
+2. VAT: rates are written as 0.19 (formatRate, csv.ts:112), where the spec wants 19. Reverse-charge lines get the code RC, which the spec does not know: it wants AE. Tax-free lines get an empty code where the spec wants 0. The per-rate totals on the invoice row are present and add up in every sample I checked.
+3. Numbers and dates: formatMoney uses toLocaleString, so on a German machine the export writes 1.234,56 instead of 1234.56. formatQuantity rounds to two decimals instead of four, which loses precision for quantities such as 0.125 hours. formatDate is right: YYYY-MM-DD in every case.
+4. Credit notes: amounts are negative as the spec wants, but the VAT amount keeps its positive sign (csv.ts:131 takes Math.abs), so a credit note's lines no longer add up to its total. The reference to the corrected invoice is written into the notes column instead of corrects_invoice, which stays empty.
+5. Escaping: fields with semicolons and quotes are quoted and their quotes doubled, as the spec wants. Line breaks inside a line text are not: the writer only quotes on a semicolon or a quote (needsQuotes, csv.ts:20), so a line text with a break splits its row in two.
+
+Not settled by the spec, so left alone: whether the header row is written at all (the code writes one; the spec only shows examples without it), the file's encoding (the code writes UTF-8 with a BOM), and how discounts on the invoice as a whole are spread over its lines.
+
+The fixes are small and local: the column order and the missing cost_centre column in toRow, the rate format and the two codes in formatRate, a fixed format in formatMoney and formatQuantity, the sign of the VAT amount for credit notes, and a line break in needsQuotes. I would add one sample row per finding to the export's tests before changing anything, so each fix shows up as a test that goes from failing to passing.`;
+
+/** What the spec check said and did on its way, as its own events filed under its call. */
+function specCheckSaid(): AgentEvent[] {
+    const said = (event: AgentEvent): AgentEvent => ({ type: "sub", parent: "bg-spec", event });
+    const read = (id: string, path: string, content: string): AgentEvent[] => [
+        said({ type: "tool_use", id, name: "Read", input: { file_path: path } }),
+        said({ type: "tool_result", tool_use_id: id, content, is_error: false }),
+    ];
+    return [
+        said({ type: "text", text: "Reading the spec first, then the export." }),
+        ...read(
+            "spec-read-1",
+            "docs/export-spec.md",
+            "# Invoice export\n\n## Columns\n\ninvoice_no;date;customer;account;cost_centre;net;vat_rate;vat_amount;gross;corrects_invoice\n\n## VAT\n\nRates as whole percent (19, 7, 0). Reverse charge: AE. Tax free: 0.",
+        ),
+        said({
+            type: "text",
+            text: "The spec has ten columns in a fixed order, with `cost_centre` after `account`. Now the writer.",
+        }),
+        ...read(
+            "spec-read-2",
+            "src/export/csv.ts",
+            "export function toRow(line: InvoiceLine): string[] {\n    return [line.invoice, formatDate(line.date), line.customer, line.account, formatMoney(line.net), formatMoney(line.vat), formatRate(line.rate), formatMoney(line.gross)];\n}",
+        ),
+        said({
+            type: "text",
+            text: "`toRow` writes nine columns: `cost_centre` is missing, and the VAT amount comes before its rate.",
+        }),
+        said({
+            type: "tool_use",
+            id: "spec-grep",
+            name: "Grep",
+            input: { pattern: "toLocaleString|Math\\.abs", path: "src/export" },
+        }),
+        said({
+            type: "tool_result",
+            tool_use_id: "spec-grep",
+            content:
+                "src/export/csv.ts:96:    return value.toLocaleString();\nsrc/export/csv.ts:131:    vat: Math.abs(line.vat),",
+            is_error: false,
+        }),
+        said({
+            type: "text",
+            text: "Money follows the locale, and credit notes lose the sign of their VAT. Checking how fields are quoted.",
+        }),
+        ...read(
+            "spec-read-3",
+            "src/export/csv.ts",
+            'function needsQuotes(field: string): boolean {\n    return field.includes(";") || field.includes(\'"\');\n}',
+        ),
+        said({ type: "text", text: "A line break is not quoted. That makes five findings." }),
+    ];
+}
+
+/**
+ * The export's spec check: started in the background a turn before the review, done since,
+ * and read by the agent in a turn of its own.
+ */
+function specCheckInBackground(): AgentEvent[] {
+    const report = (state: BackgroundState, summary: string | null): AgentEvent => ({
+        type: "background",
+        task_id: "b8-spec",
+        description: "Check the export against the spec",
+        kind: "local_agent",
+        state,
+        summary,
+        tool_use_id: "bg-spec",
+        output_file: null,
+    });
+    const check = {
+        description: "Check the export against the spec",
+        subagent_type: "general-purpose",
+        prompt: SPEC_CHECK_PROMPT,
+        run_in_background: true,
+    };
+    return [
+        { type: "user_message", text: "Check the export against the spec before anything else." },
+        INIT,
+        { type: "tool_use", id: "bg-spec", name: "Agent", input: check },
+        report("running", null),
+        {
+            type: "tool_result",
+            tool_use_id: "bg-spec",
+            content: "Async agent launched successfully.",
+            is_error: false,
+        },
+        { type: "text", text: "A sub-agent is checking the export against the spec." },
+        { type: "turn_done", is_error: false, result: null, cost_usd: 0.02, duration_ms: 6200 },
+        ...specCheckSaid(),
+        report("completed", SPEC_CHECK_ANSWER),
+        {
+            type: "text",
+            text: "The spec check found five differences, the column order and the missing `cost_centre` column first. Its whole report is in the sub-agent's answer.",
+        },
+        { type: "turn_done", is_error: false, result: null, cost_usd: 0.04, duration_ms: 8800 },
+    ];
+}
+
+/**
+ * A session that left a dev server running and a sub-agent at work in the background, and
+ * ended its turn to wait for the review: idle, and not done.
+ */
+function reviewInBackground(): AgentEvent[] {
+    const report = (id: string, kind: string, description: string, call: string): AgentEvent => ({
+        type: "background",
+        task_id: id,
+        description,
+        kind,
+        state: "running",
+        summary: null,
+        tool_use_id: call,
+        output_file: null,
+    });
+    const server = { command: "pnpm dev --port 3300", run_in_background: true };
+    const review = {
+        description: "Review the export",
+        subagent_type: "general-purpose",
+        prompt: "Review the CSV export for missing columns.",
+        run_in_background: true,
+    };
+    return [
+        ...specCheckInBackground(),
+        {
+            type: "user_message",
+            text: "Have the export reviewed, and keep the dev server up so I can try it meanwhile.",
+        },
+        INIT,
+        { type: "tool_use", id: "bg-server", name: "Bash", input: server },
+        report("b8-server", "local_bash", "Run the dev server on port 3300", "bg-server"),
+        {
+            type: "tool_result",
+            tool_use_id: "bg-server",
+            content: "Command running in background with ID: b8-server",
+            is_error: false,
+        },
+        { type: "tool_use", id: "bg-review", name: "Agent", input: review },
+        report("b8-review", "local_agent", "Review the export", "bg-review"),
+        {
+            type: "tool_result",
+            tool_use_id: "bg-review",
+            content: "Async agent launched successfully.",
+            is_error: false,
+        },
+        {
+            type: "text",
+            text: "The dev server runs on port 3300, and a sub-agent is reviewing the export. I'll read its review when it reports back.",
+        },
+        { type: "turn_done", is_error: false, result: null, cost_usd: 0.03, duration_ms: 9100 },
+    ];
 }
 
 /** Starting and stopping what a sample task keeps running. */
@@ -1213,6 +1505,8 @@ export function sampleProjects(): Project[] {
                 ]),
                 task(2, 1, "invoice-export", [
                     session(3, 2, "Why does the CSV export drop the VAT column?", "idle"),
+                    // Idle, with a sub-agent at work and a dev server left running.
+                    session(8, 2, "Review the export while the dev server runs", "idle"),
                 ]),
                 task(3, 1, "shop-142", []),
                 // Put away once its pull request merged: listed apart, its session kept.
@@ -1375,6 +1669,9 @@ export function sampleEvents(sessionId: number): AgentEvent[] {
             },
             { type: "turn_done", is_error: false, result: null, cost_usd: 0.02, duration_ms: 3100 },
         ];
+    }
+    if (sessionId === 8) {
+        return reviewInBackground();
     }
     if (sessionId === 5) {
         return Array.from({ length: 2000 }, (_, index): AgentEvent => {
@@ -1931,8 +2228,11 @@ class MockAgent {
 
     publish(sessionId: number, event: AgentEvent, status: SessionStatus | null) {
         this.history(sessionId).push(event);
-        this.record(sessionId, event, status);
-        this.tell(sessionId, event, status);
+        // What the agent has in the background rides on what can change it, as in the core.
+        const counts = event.type === "background" || event.type === "exited";
+        const background = counts ? backgroundIn(sessionId, this.history(sessionId)) : null;
+        this.record(sessionId, event, status, background);
+        this.tell(sessionId, event, status, background);
         this.hearUsage(sessionId, event);
         this.followContinuation(sessionId, event);
         // A turn that ended well makes room for the next waiting message, as in the core.
@@ -1962,7 +2262,12 @@ class MockAgent {
      * must say what the events said, or a refresh would put a working session back to idle
      * and take a new session's title away.
      */
-    private record(sessionId: number, event: AgentEvent, status: SessionStatus | null) {
+    private record(
+        sessionId: number,
+        event: AgentEvent,
+        status: SessionStatus | null,
+        background: BackgroundCount | null,
+    ) {
         const session = this.tasks()
             .flatMap((task) => task.sessions)
             .find((candidate) => candidate.id === sessionId);
@@ -1971,6 +2276,7 @@ class MockAgent {
             return;
         }
         session.status = status ?? session.status;
+        session.background = background ?? session.background;
         if (event.type === "turn_done") {
             session.unread = true;
         } else if (event.type === "renamed") {
@@ -2039,9 +2345,14 @@ class MockAgent {
         this.tell(0, event, null);
     }
 
-    private tell(sessionId: number, event: AgentEvent, status: SessionStatus | null) {
+    private tell(
+        sessionId: number,
+        event: AgentEvent,
+        status: SessionStatus | null,
+        background: BackgroundCount | null = null,
+    ) {
         for (const listener of this.listeners) {
-            listener({ session_id: sessionId, status, event });
+            listener({ session_id: sessionId, status, background, event });
         }
     }
 
@@ -3345,6 +3656,7 @@ export function createMockApi(): Api {
         costs: async () => SAMPLE_COSTS,
         ...snapshotApi(() => agent.projects),
         ...orderApi(() => agent.projects),
+        ...highlightApi(() => agent.projects),
         analytics: async () => sampleAnalytics(new Date()),
         effortDefault: sampleEffortDefault,
         ...setupApi(hookListeners),

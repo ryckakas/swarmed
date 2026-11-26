@@ -19,9 +19,9 @@ use serde::Serialize;
 
 use crate::agent::{AgentCommand, AgentEvent, BackgroundState};
 use crate::error::Result;
-use crate::sessions::event_from_json;
+use crate::sessions::{SessionEvent, event_from_json};
 use crate::store::Store;
-use crate::{Core, Error};
+use crate::{Core, Error, lock};
 
 /// One thing an agent left running, as last heard of.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -67,6 +67,44 @@ impl BackgroundTask {
     }
 }
 
+/// How many things a session's agent has running in the background now, by kind.
+///
+/// Sub-agents and commands are counted apart. Kept on the session's row beside its status,
+/// which it is not: a session with work in the background is idle, and takes a message.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct BackgroundCount {
+    /// Sub-agents at work: Claude Code's `local_agent` and `remote_agent`, and the sub-agent
+    /// runs of ACP agents, which are reported the same way.
+    pub agents: u32,
+    /// Everything else left running: commands, and shells an agent left open.
+    pub commands: u32,
+}
+
+impl BackgroundCount {
+    /// What is still running among `tasks`, counted by kind.
+    fn of(tasks: &[BackgroundTask]) -> Self {
+        let running = tasks
+            .iter()
+            .filter(|task| task.state == BackgroundState::Running);
+        let (agents, commands): (Vec<_>, Vec<_>) =
+            running.partition(|task| is_sub_agent(&task.kind));
+        let count = |things: Vec<_>| u32::try_from(things.len()).unwrap_or(u32::MAX);
+        Self {
+            agents: count(agents),
+            commands: count(commands),
+        }
+    }
+}
+
+/// The kinds of things an agent leaves running that are sub-agents, as Claude Code names them.
+/// ACP agents' sub-agent runs are reported as `local_agent` too.
+const SUB_AGENT_KINDS: [&str; 2] = ["local_agent", "remote_agent"];
+
+/// Whether something left running of `kind` is a sub-agent, rather than a command.
+pub(crate) fn is_sub_agent(kind: &str) -> bool {
+    SUB_AGENT_KINDS.contains(&kind)
+}
+
 /// A report from a session's history: whose it is, and the event itself.
 type Reported = (i64, String, AgentEvent);
 
@@ -95,8 +133,44 @@ impl Core {
     pub fn task_background(&self, project: &str, task: &str) -> Result<Vec<BackgroundTask>> {
         let (_, task) = self.task(project, task)?;
         let reported = self.store().background_reports(task.id)?;
-        let alive = self.running_sessions();
-        Ok(listed(reported, &alive))
+        Ok(listed(reported, &self.agents_alive()))
+    }
+
+    /// The sessions whose agent runs, here or in another Swarmed on the same data: what one
+    /// of them left running is at work there, not stopped.
+    fn agents_alive(&self) -> Vec<i64> {
+        let mut alive = self.running_sessions();
+        alive.extend(self.sessions_run_elsewhere());
+        alive
+    }
+
+    /// Records the end of every agent that went without saying so while its session's row
+    /// still counts something in the background, and publishes it. A Swarmed that ends takes
+    /// its agents along and stores no end for them, as the command line does after each
+    /// turn: the row would count what the task's list shows as stopped until the agent next
+    /// ran. The house's look calls it, so that the end is recorded once.
+    pub(crate) fn background_settle_gone(&self) -> Result<()> {
+        let mut alive = self.agents_alive();
+        alive.extend(lock(&self.live.runs_held).keys());
+        let store = self.store();
+        let counted = store.background_counted()?;
+        let gone = counted.into_iter().filter(|id| !alive.contains(id));
+        let ended = gone.map(|id| Ok((id, store.background_ended(id)?)));
+        let ended = ended.collect::<Result<Vec<_>>>();
+        // Publishing takes the store itself.
+        drop(store);
+        for (session_id, (event, left)) in ended? {
+            let published = SessionEvent {
+                session_id,
+                status: None,
+                unread: None,
+                background: Some(left),
+                event,
+                elsewhere: false,
+            };
+            self.live.pass_on(&self.store, published);
+        }
+        Ok(())
     }
 
     /// Whether something a session of task `id` left running still runs.
@@ -108,8 +182,7 @@ impl Core {
     /// any of its sessions, still runs.
     pub(crate) fn background_running_in(&self, task: i64, session: Option<i64>) -> Result<bool> {
         let reported = self.store().background_reports(task)?;
-        let alive = self.running_sessions();
-        let listed = listed(reported, &alive);
+        let listed = listed(reported, &self.agents_alive());
         Ok(listed.iter().any(|task| {
             task.state == BackgroundState::Running
                 && session.is_none_or(|session| task.session_id == session)
@@ -240,6 +313,36 @@ impl Store {
             )
         };
         Ok(self.reports_of(session, task_id)?.iter().any(unstoppable))
+    }
+
+    /// Works out again what session `id`'s agent has running in the background, from what its
+    /// history holds, and keeps it on the session's row if that changed. Called whenever a
+    /// report of something left running or the end of the agent is stored, by whichever
+    /// Swarmed stored it, and by one that only passes on what another stored, in case that
+    /// one did not know the count.
+    pub(crate) fn background_refresh(&self, id: i64) -> Result<BackgroundCount> {
+        // The event's type is the first thing in its JSON, which keeps these prefix matches.
+        let mut statement = self.conn.prepare(
+            "SELECT event FROM session_events
+             WHERE session_id = ?1
+               AND (event LIKE '{\"type\":\"background\"%' OR event LIKE '{\"type\":\"exited\"%')
+             ORDER BY id",
+        )?;
+        let rows = statement.query_map(params![id], |row| row.get::<_, String>(0))?;
+        let mut reported = Vec::new();
+        for text in rows {
+            reported.push((id, String::new(), event_from_json(&text?)));
+        }
+        // Whoever stores its reports runs its agent, here or elsewhere, and its end is among
+        // them. One that went without a word has its end recorded by the house
+        // (`background_settle_gone`).
+        let count = BackgroundCount::of(&listed(reported, &[id]));
+        self.conn.execute(
+            "UPDATE sessions SET background_agents = ?2, background_commands = ?3
+             WHERE id = ?1 AND (background_agents != ?2 OR background_commands != ?3)",
+            params![id, count.agents, count.commands],
+        )?;
+        Ok(count)
     }
 
     /// What the task's open sessions said of the things they left running, oldest first, with
@@ -559,5 +662,39 @@ mod tests {
                 ("other", BackgroundState::Running),
             ]
         );
+    }
+
+    #[test]
+    fn sub_agents_and_everything_else_still_running_are_counted_apart() {
+        let of_kind = |id: &str, kind: &str, state| {
+            let event = AgentEvent::Background {
+                task_id: id.to_string(),
+                description: String::new(),
+                kind: kind.to_string(),
+                state,
+                summary: None,
+                tool_use_id: None,
+                output_file: None,
+                moved: false,
+                unstoppable: false,
+            };
+            (1, "session 1".to_string(), event)
+        };
+        let reported = vec![
+            of_kind("agent", "local_agent", BackgroundState::Running),
+            of_kind("remote", "remote_agent", BackgroundState::Running),
+            of_kind("server", "local_bash", BackgroundState::Running),
+            of_kind("workflow", "local_workflow", BackgroundState::Running),
+            of_kind("done", "local_agent", BackgroundState::Running),
+            // An end does not say again what it was.
+            of_kind("done", "", BackgroundState::Completed),
+        ];
+        let count = BackgroundCount::of(&listed(reported, &[1]));
+        let expected = BackgroundCount {
+            agents: 2,
+            commands: 2,
+        };
+        assert_eq!(count, expected);
+        assert_eq!(BackgroundCount::of(&[]), BackgroundCount::default());
     }
 }

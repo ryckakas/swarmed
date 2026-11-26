@@ -7,10 +7,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::{core_with_project, fixture, next, turn};
-use swarmed_core::agent::{AgentEvent, Auth, FakeBackend};
+use swarmed_core::agent::{AgentEvent, Auth, BackgroundState, FakeBackend};
 use swarmed_core::{
-    Action, Attached, Core, Error, NewTaskOptions, RemoveOptions, Session, SessionEvent,
-    SessionOptions, SessionStatus, hooks,
+    Action, Attached, BackgroundCount, Core, Error, NewTaskOptions, RemoveOptions, Session,
+    SessionEvent, SessionOptions, SessionStatus, hooks,
 };
 use tokio::sync::broadcast::Receiver;
 
@@ -93,6 +93,14 @@ async fn a_rename_a_mark_and_a_new_session_from_elsewhere_are_published_here() {
         |event| matches!(&event.event, AgentEvent::Marked { label, .. } if label == "ready"),
     )
     .await;
+
+    // A highlight is in the tree, never in the conversation: the tree is read again.
+    there
+        .session_highlight(session.id, Some(swarmed_core::MarkColour::Yellow))
+        .expect("highlights");
+    noticed(&here, &mut bus, tree_changed).await;
+    let lit = here.session(session.id).expect("found").highlight;
+    assert_eq!(lit, Some(swarmed_core::MarkColour::Yellow));
 
     let made = new_session(&there);
     noticed(&here, &mut bus, tree_changed).await;
@@ -180,6 +188,87 @@ async fn a_turn_run_elsewhere_follows_here_with_its_status_and_notice() {
     // A Swarmed that did not arrive first shows none of what it passes on: the first does.
     let second = there.notice_for(done).expect("reads");
     assert!(second.is_none(), "{second:?}");
+}
+
+#[tokio::test]
+async fn what_a_session_run_elsewhere_left_in_the_background_counts_here() {
+    let fx = fixture();
+    let (here, there) = two_cores(&fx).await;
+    let session = new_session(&here);
+    here.notice_others().expect("looks");
+    let mut bus = here.subscribe();
+
+    let mut theirs = there.subscribe();
+    let attached = Attached::default();
+    there
+        .session_message(session.id, "background bash", &attached, Auth::Subscription)
+        .expect("sends");
+    turn(&mut theirs, session.id).await;
+    let left = BackgroundCount {
+        agents: 0,
+        commands: 1,
+    };
+    let seen = noticed(&here, &mut bus, |event| {
+        matches!(event.event, AgentEvent::Background { .. })
+    })
+    .await;
+    let report = seen
+        .iter()
+        .find(|event| matches!(event.event, AgentEvent::Background { .. }));
+    assert_eq!(report.and_then(|event| event.background), Some(left));
+    // It runs there, not stopped: the tree and the task's list here say so.
+    assert_eq!(here.session(session.id).expect("reads").background, left);
+    let listed = here.task_background("demo", "one").expect("lists");
+    let running = listed
+        .iter()
+        .filter(|task| task.state == BackgroundState::Running);
+    assert_eq!(running.count(), 1, "{listed:?}");
+}
+
+#[tokio::test]
+async fn what_a_swarmed_that_ended_left_in_the_background_no_longer_counts() {
+    let fx = fixture();
+    let (here, there) = two_cores(&fx).await;
+    here.arrive().expect("arrives");
+    let session = new_session(&here);
+    here.notice_others().expect("looks");
+    let mut bus = here.subscribe();
+
+    let mut theirs = there.subscribe();
+    let attached = Attached::default();
+    there
+        .session_message(session.id, "background bash", &attached, Auth::Subscription)
+        .expect("sends");
+    turn(&mut theirs, session.id).await;
+    let reported = |event: &SessionEvent| matches!(event.event, AgentEvent::Background { .. });
+    noticed(&here, &mut bus, reported).await;
+    let counted = here.session(session.id).expect("reads").background;
+    assert_eq!(counted.commands, 1, "{counted:?}");
+
+    // It ends as the command line does after a turn: with its agent, and without a word.
+    drop(there);
+    let seen = noticed(&here, &mut bus, |event| {
+        matches!(event.event, AgentEvent::Exited { .. })
+    })
+    .await;
+    let nothing = BackgroundCount::default();
+    let end = seen
+        .iter()
+        .find(|event| matches!(event.event, AgentEvent::Exited { .. }));
+    assert_eq!(end.and_then(|event| event.background), Some(nothing));
+    assert_eq!(here.session(session.id).expect("reads").background, nothing);
+    let listed = here.task_background("demo", "one").expect("lists");
+    let running = listed
+        .iter()
+        .filter(|task| task.state == BackgroundState::Running);
+    assert_eq!(running.count(), 0, "{listed:?}");
+    // Recorded once: the next look finds nothing left to end.
+    let ends = |events: Vec<AgentEvent>| {
+        let ended = |event: &&AgentEvent| matches!(event, AgentEvent::Exited { .. });
+        events.iter().filter(ended).count()
+    };
+    here.notice_others().expect("looks");
+    assert_eq!(ends(here.session_events(session.id).expect("reads")), 1);
 }
 
 #[tokio::test]

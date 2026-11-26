@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FileListing } from "./api/types";
-import { fileRows, leftOut, pathIn, toggled } from "./files";
+import { fileRows, leftOut, openable, opensInEditor, pathIn, toggled } from "./files";
 
 const listing = (...names: string[]): FileListing => ({
     entries: names.map((name) => ({ name: name.replace(/\/$/, ""), dir: name.endsWith("/") })),
@@ -51,5 +51,17 @@ describe("the helpers", () => {
         expect([...toggled(new Set(["a", "b"]), "a")]).toEqual(["b"]);
         expect(leftOut(listing("a"))).toBeNull();
         expect(leftOut({ entries: [], more: 12 })).toContain("12 more");
+    });
+});
+
+describe("opening a file", () => {
+    it("names the file it opens", () => {
+        expect(opensInEditor("src/auth/login.ts")).toBe("Opens src/auth/login.ts in your editor");
+    });
+
+    it("offers an added or changed file, never a deleted one", () => {
+        expect(openable({ kind: "added" })).toBe(true);
+        expect(openable({ kind: "modified" })).toBe(true);
+        expect(openable({ kind: "deleted" })).toBe(false);
     });
 });

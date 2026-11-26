@@ -9,6 +9,7 @@ use serde::Serialize;
 use crate::chats::CHATS;
 use crate::elsewhere::Written;
 use crate::error::{Error, Result};
+use crate::marks::MarkColour;
 use crate::put_away::DoneWhy;
 
 /// A registered git repository, or the home of the chats, which has none ([`CHATS`]).
@@ -105,6 +106,8 @@ pub struct Task {
     /// The number of the repository's GitHub issue the task was started for, if it was
     /// (`issues.rs`).
     pub issue: Option<u64>,
+    /// The colour the user highlighted it in, if any (`highlights.rs`).
+    pub highlight: Option<MarkColour>,
 }
 
 pub(crate) struct NewTask<'a> {
@@ -337,6 +340,19 @@ const MIGRATIONS: &[&str] = &[
         at_ms      INTEGER NOT NULL
     );
 ",
+    // What each session's agent has running in the background now, sub-agents and commands
+    // apart, as its stored reports and ends add up (`background.rs`): a flag beside the status,
+    // which the sidebar shows. Worked out again whenever such a report or an end is stored.
+    "
+    ALTER TABLE sessions ADD COLUMN background_agents INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE sessions ADD COLUMN background_commands INTEGER NOT NULL DEFAULT 0;
+",
+    // The colour the user highlighted a task or a session in, by its name, so that it stands
+    // out where it is (`highlights.rs`); none for none.
+    "
+    ALTER TABLE tasks ADD COLUMN highlight TEXT;
+    ALTER TABLE sessions ADD COLUMN highlight TEXT;
+",
 ];
 
 /// Stands in [`MIGRATIONS`] for the one change SQL in a transaction cannot make: every
@@ -356,7 +372,7 @@ pub(crate) const TASK_ORDER: &str = "pinned DESC, position, created_at, id";
 
 const TASK_SELECT: &str = "SELECT id, project_id, name, branch, base_ref, worktree_path, slot, \
                            setup_status, archived_at IS NOT NULL, environment, setup_reason, \
-                           pinned, done_at, done_why, issue FROM tasks";
+                           pinned, done_at, done_why, issue, highlight FROM tasks";
 
 #[derive(Debug)]
 pub(crate) struct Store {
@@ -484,6 +500,7 @@ impl Store {
             done_at: None,
             done_why: None,
             issue: new.issue,
+            highlight: None,
         })
     }
 
@@ -639,6 +656,10 @@ fn task_from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
         issue: row
             .get::<_, Option<i64>>(14)?
             .and_then(|number| u64::try_from(number).ok()),
+        highlight: row
+            .get::<_, Option<String>>(15)?
+            .as_deref()
+            .and_then(MarkColour::parse),
     })
 }
 

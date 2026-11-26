@@ -6,6 +6,7 @@ import { useStore } from "../store";
 import { useWords } from "../useWords";
 import { wordsFor } from "../wording";
 import { Dialog } from "./Dialog";
+import { HighlightDot } from "./Highlight";
 import { StatusMark } from "./StatusMark";
 
 /** Up and down move between the rows, as in a list. */
@@ -80,8 +81,13 @@ function InboxGroup({ kind, items }: { kind: InboxKind; items: InboxItem[] }) {
                     // The keyboard starts on the first row, where the arrows move from.
                     data-dialog-start
                 >
-                    <StatusMark status={session.status} unread={session.unread} />
+                    <StatusMark
+                        status={session.status}
+                        unread={session.unread}
+                        background={session.background}
+                    />
                     <span className="inbox-title">{session.title || words.untitled}</span>
+                    <HighlightDot colour={session.highlight} />
                     <span className="inbox-place">
                         {placeName(project, words)} / {task}
                     </span>

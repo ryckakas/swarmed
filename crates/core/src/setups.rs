@@ -759,6 +759,7 @@ mod tests {
             done_at: None,
             done_why: None,
             issue: None,
+            highlight: None,
         }
     }
 

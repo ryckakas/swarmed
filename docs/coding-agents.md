@@ -332,6 +332,13 @@ sub-agent asking. While a sub-agent works on after its session's turn, the sessi
 tell you it is done until the sub-agent is too. A command left running does not hold it back:
 a dev server may never end. Reading what a command printed is Claude Code's alone.
 
+A session whose agent has something running in the background never looks merely idle in the
+sidebar: its mark gets a ring, a clear one that breathes slowly while sub-agents are at work and
+a faint one while only commands run. Pointed at, the mark says what runs, and a folded task or
+repository shows the ring of what runs in it, below working and above idle. A command that runs
+for good, such as a dev server, keeps its session marked for good: stop it from the Background
+list once you no longer need it. The session is still idle, and a message goes at once.
+
 ## Screenshots and other images tools return
 
 When a tool returns an image, such as a screenshot from Playwright MCP's

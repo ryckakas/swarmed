@@ -421,17 +421,24 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   a cloud task at the top. A row moves `by` places among its siblings only, never to another
   parent: a session within its task, and one another session started among those its starter
   started while that one is open (`session_siblings`, as `nestedSessions` lists them). Rows
-  not listed, a closed session or an archived task, keep their places among the others, so
-  one put back comes back where it was. Sub-agents have no order: nothing stores them. A move
+  not listed among the others, a closed session, an archived task or one put away (which the
+  sidebar lists apart, in Done), keep their places among them and are not counted in a move,
+  so one put back comes back where it was: the core counts exactly the siblings the sidebar
+  draws together, or a drag lands short. Sub-agents have no order: nothing stores them. A move
   is published as `AgentEvent::Reordered` with session id 0, which no session has, and never
-  stored; front ends read the tree again on it. The UI drags rows with pointer events, not
-  HTML drag and drop, which would fight the window's dropping of files to attach
-  (`useRowDrag`, `ordering.ts`), and ⌥⌘↑/↓ move the focused row or the open session.
+  stored; front ends read the tree again on it. Several reads of the tree are often under way
+  at once and the core answers each on a thread of its own, so the store takes an answer only
+  if none asked for later was taken (`treeReads`): an older one would put a row back where it
+  was before a move or a pin (#407). The UI drags rows with pointer events, not HTML drag and
+  drop, which would fight the window's dropping of files to attach (`useRowDrag`,
+  `ordering.ts`), and ⌥⌘↑/↓ move the focused row or the open session.
   A repository, a task or a session can be pinned (`pinned`, `project_pin` and the like):
   lists order by `pinned DESC` first, a move stays among the rows pinned as it is (each pin
   state is a drag group of its own in the UI), pinning puts a row last among the pinned and
-  unpinning first among the others, and a closed session keeps its pin. A pin is published
-  as a move is. Cloud tasks and the chats among the repositories are not pinned.
+  unpinning first among the others, and a closed session or a task put away keeps its pin:
+  pinning or moving either is refused (`Error::SessionClosed`, `Error::TaskPutAway`). A
+  pin is published as a move is. Cloud tasks and the chats among the repositories are not
+  pinned.
 - **Closing a session keeps it; deleting one does not** (`session_close`, `session_delete`).
   A closed session is put away with its conversation and can be reopened; until it is, its
   agent cannot be started and nothing can be sent to it (`Error::SessionClosed`). A deleted one is
@@ -544,6 +551,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   (`stays_inside`) and again once links are followed (`files::inside`); a link to a
   folder is listed as a file, since it may lead out. A file is opened in the user's editor
   together with its worktree, so an editor with a window per folder shows it in that window.
+  A changed file's line in the Changes tab opens it the same way, from a button beside the one
+  that folds its diff (`openable`: never a deleted file's, nor a cloud task's diff).
   Swarmed shows no file's contents itself: that is the editor's job.
 - **A place in a front end's list of events means nothing to the core.** That list also holds
   events that are only shown and never stored (`TextDelta`, `Queue`, `ConfigChanged`,
@@ -574,7 +583,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   required check holds a merge back (`mockMerging.ts`): Force merge is refused in GitHub's
   words, auto-merge can be turned on, and Bypass requirements merges it.
   Removing the sample task `invoice-export` is refused over unsaved work, and `shop-142` over
-  a session another Swarmed runs. A session can be taken back with Edit from here once idle
+  a session another Swarmed runs. The second session of `invoice-export` is idle with a
+  sub-agent at work and a dev server left running; stopping them from the Background list
+  changes its mark. A session can be taken back with Edit from here once idle
   (`mockRewind.ts`); a busy one is refused, and so are the files of one whose task has a session
   at work, as in `fix-login-redirect`. A new task's setup is quick in storefront, takes half a
   minute in bonsai-lint, and in fsum is killed the first time and succeeds when run again
@@ -711,7 +722,17 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   or agent, which become `AgentEvent::Background`. Stopping one is the `stop_task` control
   request. What ran under an agent that is no longer running is listed as stopped, and so is
   what an earlier run of the agent left once that run's `Exited` is recorded: the agent
-  started again knows nothing of it.
+  started again knows nothing of it. One run by another Swarmed (`agents_alive`) runs.
+  - **Each session counts what runs** (`BackgroundCount`, #420): sub-agents and commands
+    apart, kept on its row (`background_agents`, `background_commands`) and worked out again
+    from its history whenever a `Background` or an `Exited` is stored (`background_after`),
+    here or by a Swarmed that only passes it on, in case the one that stored it did not know
+    the count. It rides on those events (`SessionEvent::background`). It is a flag beside
+    the status, never one: the session stays idle. The UI rings an idle mark with it
+    (`backgroundShown`), and folded headings add it up, ranked below working. A Swarmed
+    that ends takes its agents along and stores no `Exited`, as the command line does after
+    each turn: the house's look records one for each session that still counts something
+    and whose agent runs nowhere (`background_settle_gone`), and publishes it.
   - **OpenCode's shells** (`agent/acp/shells.rs`): a call that ends with
     `rawOutput.metadata.status: "running"` and a `shellID` left one running, reported as
     `local_bash`. Nothing over ACP tells its end, so every shell reported running is taken to
@@ -975,6 +996,18 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   the work stands, in the user's terms; the status says what the agent is doing, and the two
   never mix. It is cleared when the user writes to the session. Colours are names, drawn by
   each theme, so a mark never carries a colour value.
+- **A highlight is the user's colour on a task or a session, where it is** (`highlights.rs`,
+  `highlights.ts`, `Highlight.tsx`, #398). A column of its own on both (`highlight`, a
+  `MarkColour` name), set by `session_highlight` and `task_highlight` (by a colour's word
+  through `session_highlight_named` and `task_highlight_named`, which is all a front end
+  calls) and published as `TreeChanged`, never stored as an event. Nothing but the user clears it: writing, closing and
+  reopening keep it, a fork starts without one, and neither `set_mark` nor `configure` reaches
+  it. It is drawn as a bar at the row's right edge (an `::after`, since styles draw the open
+  row's edge with a shadow, and the left edge is the waiting bar), never a tint, so the row's
+  other states keep their look. Marks and highlights read their colour from one name each,
+  `var(--green, var(--moss))` and so on, on the element: the custom layout's `green` and the
+  others change both. The palette's open row is in the store (`highlighting`), which the
+  shortcut sets and which unfolds what hides the row (`foldsShowing`).
 - **Swarmed serves tools of its own to every agent** (`toolserver.rs`): `show_html`, on an
   MCP server named `swarmed`. A front end's executable is that server when started with
   `tool-server`, and tells the core so with `set_tool_server`. The tool does nothing: its call

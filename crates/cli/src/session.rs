@@ -10,7 +10,9 @@ use swarmed_core::agent::{
     AgentEvent, Asked, Auth, Effort, McpServerInfo, PLAN_TOOL, RemoteState, ScreenRow,
     ScreenSection, Supervision,
 };
-use swarmed_core::{Attached, Core, Session, SessionEvent, SessionOptions, SessionSettings};
+use swarmed_core::{
+    Attached, BackgroundCount, Core, Session, SessionEvent, SessionOptions, SessionSettings,
+};
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
@@ -140,6 +142,17 @@ pub(crate) enum SessionCommand {
     Pin { id: i64 },
     /// Unpin a session: it goes first among those that are not pinned.
     Unpin { id: i64 },
+    /// Highlight a session in a colour of your own, in the sidebar, where it is: writing to it
+    /// leaves it, and nothing but you takes it off. Agents cannot set one; a mark is theirs.
+    Highlight {
+        id: i64,
+        /// `green`, `blue`, `yellow`, `red` or `purple`.
+        #[arg(required_unless_present = "off")]
+        colour: Option<String>,
+        /// Take the highlight off instead.
+        #[arg(long, conflicts_with = "colour")]
+        off: bool,
+    },
     /// Put a mark on a session: a colour and a few words shown in the sidebar.
     Mark {
         id: i64,
@@ -338,6 +351,7 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
         SessionCommand::Move { id, by } => moved(core, id, by),
         SessionCommand::Pin { id } => pinned(core, id, true),
         SessionCommand::Unpin { id } => pinned(core, id, false),
+        SessionCommand::Highlight { id, colour, .. } => highlighted(core, id, colour.as_deref()),
         SessionCommand::Mark { id, colour, label } => mark(core, id, &colour, &label),
         SessionCommand::RemoteControl { id, off, auth } => {
             remote_control(core, id, off, auth).await
@@ -423,10 +437,31 @@ fn show(core: &Core, id: i64) -> Result<()> {
     for line in shown(&core.session_events(id)?) {
         say(&line);
     }
-    if let Some(at) = core.session(id)?.continue_at {
+    let session = core.session(id)?;
+    if let Some(at) = session.continue_at {
         say(&continues(at, seconds_now()));
     }
+    if let Some(running) = in_background(session.background) {
+        say(&running);
+    }
     Ok(())
+}
+
+/// What is said of what a session's agent has running in the background, if anything.
+fn in_background(count: BackgroundCount) -> Option<String> {
+    let counted = |n: u32, one: &str, many: &str| match n {
+        0 => None,
+        1 => Some(format!("1 {one}")),
+        n => Some(format!("{n} {many}")),
+    };
+    let parts: Vec<String> = [
+        counted(count.agents, "sub-agent", "sub-agents"),
+        counted(count.commands, "command", "commands"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    (!parts.is_empty()).then(|| format!("{} in the background", parts.join(", ")))
 }
 
 /// Sets a session to go on by itself when the usage limit that stopped it resets, or cancels
@@ -484,6 +519,13 @@ fn moved(core: &Core, id: i64, by: i32) -> Result<()> {
 fn pinned(core: &Core, id: i64, pinned: bool) -> Result<()> {
     core.session_pin(id, pinned)?;
     say(if pinned { "pinned" } else { "unpinned" });
+    Ok(())
+}
+
+/// Highlights session `id` in `colour`, or takes its highlight off for none.
+fn highlighted(core: &Core, id: i64, colour: Option<&str>) -> Result<()> {
+    let session = core.session_highlight_named(id, colour)?;
+    say(&crate::highlight_said(session.highlight));
     Ok(())
 }
 
@@ -1009,6 +1051,17 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn what_runs_in_the_background_is_said_by_kind_and_nothing_is_not() {
+        let said = |agents, commands| in_background(BackgroundCount { agents, commands });
+        assert_eq!(
+            said(2, 1).as_deref(),
+            Some("2 sub-agents, 1 command in the background")
+        );
+        assert_eq!(said(0, 3).as_deref(), Some("3 commands in the background"));
+        assert_eq!(said(0, 0), None);
+    }
 
     #[test]
     fn tool_calls_are_summarised_by_their_telling_argument() {

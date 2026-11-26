@@ -24,6 +24,48 @@ notice adds its line under Unreleased.
   leaves for the agent shows as a chip above the message box, to go with your next message; a
   tool of its own server it calls goes through the agent, which decides it as its own call.
   See [Apps MCP servers attach to their tools](docs/coding-agents.md#apps-mcp-servers-attach-to-their-tools).
+- **Highlight a task or a session in a colour of your own, where it is.** The drop beside a
+  row's pin, or ⌘⇧H on the focused row or the open session, opens a palette of the five colours
+  marks use, and None. A highlighted row keeps its place and gets a bar of its colour at its
+  right edge, so what it is open, unread or waiting for still shows as before; the session's
+  header and the inbox show a dot of it. Writing to the session, closing and reopening it and
+  restarting keep it; a fork starts without one, and agents cannot set one. A custom layout can
+  give each of the five colours its own value (`green`, `blue`, `yellow`, `red`, `purple`, in
+  dark and in light), which marks follow too. `swarmed session highlight <id> <colour>` and
+  `swarmed task highlight <project> <task> <colour>` do the same, and `--off` takes it off.
+- **Open a changed file in your editor from the Changes tab.** Pointing at a file's line in the
+  task panel's Changes tab shows a button at its end that opens the file in the editor from
+  the settings, in its worktree's window, as the Files tab does. Its diff stays as it was. A
+  deleted file has nothing to open, so its line has no button.
+
+### Changed
+
+- **A session with work left in the background no longer looks idle.** Its status mark in the
+  sidebar gets a ring: a clear one that breathes slowly while sub-agents are at work, and a
+  faint one while only commands it left running run, such as a dev server. Pointed at, the mark
+  says what runs ("2 sub-agents, 1 command in the background"), and so does the session's
+  header. A folded task or repository shows the ring too, ranked below working and above idle.
+  The session stays idle all the same, and takes your messages at once. It reads the same
+  after a restart and in a second Swarmed, and `swarmed session show` says it as well.
+
+### Fixed
+
+- **A row pinned stays above the rows not pinned.** A repository, task or session pinned
+  again after you moved it could stay where it was, below rows not pinned, until the sidebar
+  was next drawn: an older reading of the list could arrive after the newer one and take its
+  place. The sidebar now keeps the newest.
+- **Dragging a task among the others goes where you drop it.** A repository with tasks put
+  away counted them, though they are listed apart in Done, so a task dragged or moved with
+  ⌥⌘↑/↓ could stop short or not move at all. A task brought back still comes back where it
+  was.
+- **The + for a new chat lines up with the others.** On the chats' heading in the sidebar it
+  sat further right than the + on each repository's heading.
+- **A sub-agent's long prompt or answer no longer pushes its conversation out of reach.** In a
+  sub-agent's pane, What it was asked and what it handed back can each be folded, and opened
+  they scroll inside a height of their own, giving way where the window is short, so the
+  conversation between them always keeps its room. In the task panel's Background list, a long
+  summary of a finished sub-agent shows its first lines, with Show all to read the rest in a
+  box that scrolls.
 
 ## [0.4.6] - 2026-11-25
 

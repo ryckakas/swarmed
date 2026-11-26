@@ -27,6 +27,7 @@ import {
     countWaiting,
     foldedSummary,
     nestedSessions,
+    projectBackground,
     projectStatus,
     projectUnread,
 } from "../tree";
@@ -35,6 +36,7 @@ import { useNow } from "../useNow";
 import { useWords } from "../useWords";
 import { withArticle, wordsFor } from "../wording";
 import { ForgetCloudDialog } from "./ForgetCloudDialog";
+import { HighlightButton, HighlightWords } from "./Highlight";
 import { CloseIcon, CloudIcon, GlobeIcon, PlusIcon, PlusMinusIcon } from "./IconButton";
 import { Incubating } from "./Incubating";
 import { ProviderMark } from "./ProviderMark";
@@ -188,7 +190,13 @@ function ProjectGroup({ project }: { project: Project }) {
                         <FoldChevron />
                         <RepositoryIcon />
                         <span className="project-title">{project.name}</span>
-                        {status && <StatusMark status={status} unread={projectUnread(project)} />}
+                        {status && (
+                            <StatusMark
+                                status={status}
+                                unread={projectUnread(project)}
+                                background={projectBackground(project)}
+                            />
+                        )}
                         {folded && <span className="project-count">{tasks.length}</span>}
                     </button>
                 </h2>
@@ -252,7 +260,13 @@ function ChatsGroup({ home }: { home: Project }) {
                         <FoldChevron />
                         <ChatIcon />
                         <span className="project-title">{words.chats}</span>
-                        {status && <StatusMark status={status} unread={projectUnread(home)} />}
+                        {status && (
+                            <StatusMark
+                                status={status}
+                                unread={projectUnread(home)}
+                                background={projectBackground(home)}
+                            />
+                        )}
                         {folded && <span className="project-count">{chats.length}</span>}
                     </button>
                 </h2>
@@ -311,7 +325,7 @@ function DoneTaskGroup({ project, task }: { project: string; task: Task }) {
     const folded = useStore((state) => state.foldedTasks.includes(task.id));
     return (
         <div className="task task-done">
-            <div className="row-head">
+            <div className="row-head" data-highlight={task.highlight ?? undefined}>
                 <TaskHeading task={task} folded={folded} chat={false} />
                 <IssueBadge project={project} task={task} />
                 <PullBadge project={project} task={task} />
@@ -354,9 +368,10 @@ function TaskGroup({ project, task, chat }: { project: string; task: Task; chat?
     const order = orderAttributes(target, orderGroup.tasks(project, task.pinned));
     return (
         <div className="task" {...order}>
-            <div className="row-head">
+            <div className="row-head" data-highlight={task.highlight ?? undefined}>
                 <Grip />
                 <TaskHeading task={task} folded={folded} chat={chat === true} />
+                <HighlightButton target={target} colour={task.highlight} name={task.name} />
                 <PinButton target={target} pinned={task.pinned} name={task.name} />
                 <BrowserBadge task={task} />
                 {!chat && <IssueBadge project={project} task={task} />}
@@ -406,8 +421,15 @@ function TaskHeading({ task, folded, chat }: { task: Task; folded: boolean; chat
                 <FoldChevron />
                 {chat ? <ChatIcon /> : <WorktreeIcon />}
                 <span className="task-title">{task.name}</span>
+                <HighlightWords colour={task.highlight} />
                 <SetupFlag task={task} />
-                {summary?.status && <StatusMark status={summary.status} unread={summary.unread} />}
+                {summary?.status && (
+                    <StatusMark
+                        status={summary.status}
+                        unread={summary.unread}
+                        background={summary.background}
+                    />
+                )}
                 {summary && <span className="task-count">{summary.count}</span>}
             </button>
         </h3>
@@ -966,6 +988,7 @@ function SessionRow({ session }: { session: Session }) {
             className={`session-line status-${session.status}`}
             data-current={selected}
             data-unread={session.unread}
+            data-highlight={session.highlight ?? undefined}
         >
             <Grip />
             <button
@@ -976,7 +999,11 @@ function SessionRow({ session }: { session: Session }) {
                 aria-current={selected ? "true" : undefined}
                 onClick={() => void open(api, session.id)}
             >
-                <StatusMark status={session.status} unread={session.unread} />
+                <StatusMark
+                    status={session.status}
+                    unread={session.unread}
+                    background={session.background}
+                />
                 {session.spawned_by !== null && (
                     <span
                         className="session-spawned"
@@ -991,12 +1018,18 @@ function SessionRow({ session }: { session: Session }) {
                     </span>
                 )}
                 <span className="session-title">{title}</span>
+                <HighlightWords colour={session.highlight} />
                 <ProviderMark icon={iconForAgent(session.agent)} label={agentName(session.agent)} />
             </button>
             {session.mark && <SessionMark id={session.id} mark={session.mark} />}
             {session.continue_at !== null && (
                 <SessionContinues id={session.id} at={session.continue_at} />
             )}
+            <HighlightButton
+                target={{ kind: "session", id: session.id }}
+                colour={session.highlight}
+                name={title}
+            />
             <PinButton
                 target={{ kind: "session", id: session.id }}
                 pinned={session.pinned}

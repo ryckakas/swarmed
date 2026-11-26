@@ -23,6 +23,7 @@ import { CHATS } from "./chats";
 import type { CloudTarget } from "./cloud";
 import type { Comparison } from "./components/CompareDialog";
 import { withElementToken } from "./elements";
+import { foldsShowing, type HighlightTarget } from "./highlights";
 import { type IssueLink, type IssuesTarget, issueLink, withIssuePrompt } from "./issues";
 import { forgetImages } from "./keptImages";
 import { type AppContext, contextsBack, contextsTaken, contextsWith, withAllowed } from "./mcpApps";
@@ -406,6 +407,13 @@ interface State {
     noting: NoteTarget | null;
     /** Opens a note; `null` puts it away. */
     askForNote(target: NoteTarget | null): void;
+    /** The task or session whose highlight palette is open in the sidebar. */
+    highlighting: HighlightTarget | null;
+    /**
+     * Opens the highlight palette of a task's or a session's row, unfolding what hides the
+     * row; `null` puts it away.
+     */
+    askToHighlight(target: HighlightTarget | null): void;
     /** The user's comments on each task's diff, by the task's id, until they are sent. */
     reviews: Record<number, ReviewComment[]>;
     /** Puts a comment on a line, changes it, or with empty text takes it away. */
@@ -488,6 +496,44 @@ export interface Reading {
 
 /** Sessions whose history is being read, and what arrived for them meanwhile. */
 const loading = new Map<number, Reading>();
+
+/**
+ * The reads of the tree asked for, and the latest whose answer was taken. The core answers each
+ * read on a thread of its own, and several are often under way at once (an action's, the event
+ * it sets off, another process's changes), so an answer can reach the window after one asked for
+ * later. Taken, it would put back the tree as it was before: a row pinned or moved since, back
+ * in its old place (#407).
+ */
+const treeReads = { asked: 0, taken: 0 };
+
+/** Whether the answer to tree read `read` is newer than any taken, which it then is. */
+function takesRead(read: number): boolean {
+    if (read <= treeReads.taken) {
+        return false;
+    }
+    treeReads.taken = read;
+    return true;
+}
+
+/**
+ * Reads the tree, and keeps the answer, or that it could not be read, only if it is newer than
+ * any kept (`treeReads`).
+ */
+async function readTree(api: Api, set: (change: (state: State) => Partial<State>) => void) {
+    treeReads.asked += 1;
+    const read = treeReads.asked;
+    let change: (state: State) => Partial<State>;
+    try {
+        const projects = await api.overview();
+        // A session that is gone, with its task or repository, cannot stay in the centre.
+        change = (state) => readAgain(state, projects);
+    } catch (error) {
+        change = () => ({ load: { error: String(error) } });
+    }
+    if (takesRead(read)) {
+        set(change);
+    }
+}
 
 /**
  * The events the core publishes and never stores. Reading the history again finds none of
@@ -913,6 +959,22 @@ function foldedOnOpening(state: State, sessionId: number): number[] {
         : unfoldedFor(state.foldedTasks, state.projects, sessionId);
 }
 
+/**
+ * The palette of `target` open, and what hid its row unfolded; a repository unfolded for it
+ * stays so, as one the user unfolded does.
+ */
+function highlightingIn(state: State, target: HighlightTarget | null): Partial<State> {
+    if (target === null) {
+        return { highlighting: null };
+    }
+    const { folded, foldedTasks, doneShown } = state;
+    const folds = foldsShowing({ folded, foldedTasks, doneShown }, state.projects, target);
+    if (folds.folded !== folded) {
+        writeStored(FOLDED, JSON.stringify(folds.folded));
+    }
+    return { ...folds, highlighting: target };
+}
+
 /** The Done groups unfolded so that the session on screen has its row in view. */
 function doneInView(state: State): Partial<State> {
     const id = state.selectedSessionId;
@@ -1173,6 +1235,8 @@ export const useStore = create<State>((set, get) => ({
     askForEnvironments: (project) => set({ environmentsOf: project }),
     noting: null,
     askForNote: (target) => set({ noting: target }),
+    highlighting: null,
+    askToHighlight: (target) => set((state) => highlightingIn(state, target)),
     reviews: {},
     comment: (taskId, comment) =>
         set((state) => ({
@@ -1219,15 +1283,7 @@ export const useStore = create<State>((set, get) => ({
     askToClose: (sessionId) => set({ closing: sessionId }),
     deleting: null,
     askToDelete: (session) => set({ deleting: session }),
-    refresh: async (api) => {
-        try {
-            const projects = await api.overview();
-            // A session that is gone, with its task or repository, cannot stay in the centre.
-            set((state) => readAgain(state, projects));
-        } catch (error) {
-            set({ load: { error: String(error) } });
-        }
-    },
+    refresh: (api) => readTree(api, set),
     open: async (api, sessionId) => {
         // Opened from anywhere, its row is in view: a folded task unfolds to show it.
         set((state) => ({

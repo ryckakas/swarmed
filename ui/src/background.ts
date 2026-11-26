@@ -14,3 +14,11 @@ export function stopOffered(task: BackgroundTask): "button" | "cannot" | null {
     }
     return task.stoppable ? "button" : "cannot";
 }
+
+/**
+ * Whether a summary folded to its first lines leaves some of it out: drawn taller than the
+ * room it is given. A pixel is let pass, since the browser rounds both heights on their own.
+ */
+export function cutShort(drawn: number, shown: number): boolean {
+    return drawn > shown + 1;
+}

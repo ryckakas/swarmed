@@ -505,6 +505,29 @@ pub(crate) fn session_pin(core: CoreState<'_>, id: i64, pinned: bool) -> Command
     Ok(core.session_pin(id, pinned)?)
 }
 
+/// Highlights a task in the colour named, or with `null` or `none` takes its highlight off.
+#[tauri::command]
+pub(crate) fn task_highlight(
+    core: CoreState<'_>,
+    project: String,
+    task: String,
+    colour: Option<String>,
+) -> Command<()> {
+    core.task_highlight_named(&project, &task, colour.as_deref())?;
+    Ok(())
+}
+
+/// Highlights a session in the colour named, or with `null` or `none` takes its highlight off.
+#[tauri::command]
+pub(crate) fn session_highlight(
+    core: CoreState<'_>,
+    id: i64,
+    colour: Option<String>,
+) -> Command<()> {
+    core.session_highlight_named(id, colour.as_deref())?;
+    Ok(())
+}
+
 /// Moves a cloud task `by` places among the others of its project.
 #[tauri::command]
 pub(crate) fn cloud_task_move(core: CoreState<'_>, id: i64, by: i32) -> Command<()> {

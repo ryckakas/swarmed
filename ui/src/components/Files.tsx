@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import type { FileListing, Project, Task } from "../api/types";
-import { type FileRow, fileRows, leftOut, toggled } from "../files";
+import { type FileRow, fileRows, leftOut, opensInEditor, toggled } from "../files";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
 
@@ -84,7 +84,7 @@ function FileLine({ row, onPress, more }: LineProps) {
                 className="file-row"
                 style={indent}
                 aria-expanded={row.dir ? row.open : undefined}
-                title={row.dir ? row.path : `Opens ${row.path} in your editor`}
+                title={row.dir ? row.path : opensInEditor(row.path)}
                 onClick={onPress}
             >
                 {row.dir ? (

@@ -118,7 +118,12 @@ function levelMeasures(custom: CustomLayout): string[] {
     return lines;
 }
 
-/** The declarations for the colours of one form of the app. */
+/**
+ * The declarations for the colours of one form of the app, each as the token of its name: the
+ * palette's (`--dusk`, `--moss`), and the five that marks and highlights are named by
+ * (`--green`, `--blue`, `--yellow`, `--red`, `--purple`), which app.css reads before the
+ * palette's own, so that one value changes both.
+ */
 function colours(given: LayoutColours | undefined): string[] {
     return Object.entries(given ?? {})
         .filter(([name, value]) => /^[a-z]+$/.test(name) && HEX.test(value))

@@ -36,9 +36,27 @@ export interface Session {
      * a message is sent to it then. `null` for not.
      */
     continue_at: number | null;
+    /**
+     * What its agent has running in the background now, sub-agents and commands apart. Not a
+     * status: the session stays idle, and takes a message.
+     */
+    background: BackgroundCount;
+    /**
+     * The colour the user highlighted it in, where it is; `null` for none. Writing to it
+     * leaves it, and so does closing it; a fork starts without one.
+     */
+    highlight: MarkColour | null;
 }
 
-/** The colours a mark can have. Each theme draws its own. */
+/** How many things a session's agent has running in the background now, by kind. */
+export interface BackgroundCount {
+    /** Sub-agents at work. */
+    agents: number;
+    /** Everything else left running: commands, and shells an agent left open. */
+    commands: number;
+}
+
+/** The colours a mark or a highlight can have. Each theme draws its own. */
 export type MarkColour = "green" | "blue" | "yellow" | "red" | "purple";
 
 export const MARK_COLOURS: MarkColour[] = ["green", "blue", "yellow", "red", "purple"];
@@ -91,6 +109,8 @@ export interface Task {
     issue: number | null;
     /** Whether the task's own Chrome runs, here or in another Swarmed. */
     browser: boolean;
+    /** The colour the user highlighted it in, where it is; `null` for none. */
+    highlight: MarkColour | null;
 }
 
 /** Why a task was put away: by the user, or by their rule for merged or idle tasks. */
@@ -1421,6 +1441,12 @@ export interface SessionEvent {
      * always says; events the window makes up itself (the sample data) leave it out.
      */
     unread?: boolean | null;
+    /**
+     * What the session's agent has running in the background after this event, if the event
+     * could change that: a report of something left running, or the agent's end. The core
+     * always says; events the window makes up itself leave it out.
+     */
+    background?: BackgroundCount | null;
     event: AgentEvent;
 }
 

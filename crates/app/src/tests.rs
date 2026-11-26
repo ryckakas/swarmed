@@ -548,6 +548,54 @@ fn the_ui_can_pin_projects_tasks_and_sessions() {
 }
 
 #[test]
+fn the_ui_can_highlight_tasks_and_sessions_where_they_are() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+    let how = json!({ "model": null, "supervision": "auto", "effort": null });
+    let options = json!({ "project": "demo", "task": "one", "agent": null, "how": how });
+    let (first, second) = (
+        app.ok("session_new", options.clone())["id"].clone(),
+        app.ok("session_new", options)["id"].clone(),
+    );
+    app.ok(
+        "task_highlight",
+        json!({ "project": "demo", "task": "one", "colour": "purple" }),
+    );
+    app.ok(
+        "session_highlight",
+        json!({ "id": second, "colour": "blue" }),
+    );
+    let one = &app.ok("overview", json!({}))[0]["tasks"][0];
+    assert_eq!(one["highlight"], json!("purple"));
+    let sessions = &one["sessions"];
+    // Highlighted, it stays where it was.
+    assert_eq!((&sessions[0]["id"], &sessions[1]["id"]), (&first, &second));
+    assert_eq!(
+        (&sessions[0]["highlight"], &sessions[1]["highlight"]),
+        (&json!(null), &json!("blue"))
+    );
+    app.ok("session_highlight", json!({ "id": second, "colour": null }));
+    app.ok(
+        "task_highlight",
+        json!({ "project": "demo", "task": "one", "colour": "none" }),
+    );
+    let one = &app.ok("overview", json!({}))[0]["tasks"][0];
+    assert_eq!(
+        (&one["highlight"], &one["sessions"][1]["highlight"]),
+        (&json!(null), &json!(null))
+    );
+    app.invoke(
+        "session_highlight",
+        json!({ "id": second, "colour": "teal" }),
+    )
+    .expect_err("not a colour");
+    app.invoke("session_highlight", json!({ "id": 999, "colour": "red" }))
+        .expect_err("no such session");
+}
+
+#[test]
 fn the_ui_can_put_a_task_away_and_bring_it_back() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));

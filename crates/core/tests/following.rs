@@ -209,6 +209,7 @@ async fn says_a_failure(scene: &Scene, core: &Core, failed: &PullChange) {
         session_id: scene.written,
         status: None,
         unread: None,
+        background: None,
         event: AgentEvent::PullChanged {
             number: 142,
             url: "https://github.com/o/r/pull/142".to_string(),

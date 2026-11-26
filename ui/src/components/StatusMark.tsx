@@ -1,18 +1,35 @@
 import { useEffect, useRef, useState } from "react";
-import type { SessionStatus } from "../api/types";
+import type { BackgroundCount, SessionStatus } from "../api/types";
 import { isSwarm } from "../appearance";
+import {
+    anyInBackground,
+    type BackgroundLevel,
+    backgroundShown,
+    NOTHING_IN_BACKGROUND,
+} from "../inBackground";
 import { useStore } from "../store";
 import { useRoll } from "../useRoll";
 import { pickWord, type StatusKind, statusKind, wordsFor } from "../wording";
 
 /**
  * What a session's status is called, in the words of the style in use. A status with several
- * words gets one at random, and another one now and then.
+ * words gets one at random, and another one now and then. With work left in the background,
+ * that is said too: alone beside idle, which it stands in for, else after the status.
  */
-export function useStatusLabel(status: SessionStatus, unread = false): string {
+export function useStatusLabel(
+    status: SessionStatus,
+    unread = false,
+    background: BackgroundCount = NOTHING_IN_BACKGROUND,
+): string {
     const kind = statusKind(status, unread);
-    const words = useStore((state) => wordsFor(state.settings?.style).status[kind]);
-    return pickWord(words, useRoll(words.length > 1));
+    const style = useStore((state) => wordsFor(state.settings?.style));
+    const words = style.status[kind];
+    const word = pickWord(words, useRoll(words.length > 1));
+    if (!anyInBackground(background)) {
+        return word;
+    }
+    const running = style.inBackground(background);
+    return kind === "idle" ? running : `${word}, ${running}`;
 }
 
 /** Whether the mark just went from working to holding an unseen answer: the moment it hatched. */
@@ -30,6 +47,8 @@ interface Props {
     status: SessionStatus;
     /** Whether the session holds an answer nobody has looked at. */
     unread?: boolean;
+    /** What the session, or the sessions it stands for, left running in the background. */
+    background?: BackgroundCount;
     /** What to call the status, where the words beside the mark already chose; else its own. */
     label?: string;
 }
@@ -38,31 +57,61 @@ interface Props {
  * A small mark for a session's status, which says what it means when pointed at. Each status
  * has its own shape, not only its own colour. An idle session that has answered and not been
  * looked at is told apart from one that is merely idle; a session that is busy, waiting or
- * failed already says more than "unread" would.
+ * failed already says more than "unread" would. An idle one with work left in the background
+ * is never drawn as merely idle: a ring around it says so, clear for sub-agents at work and
+ * quiet for commands left running.
  */
-export function StatusMark({ status, unread = false, label }: Props) {
-    const own = useStatusLabel(status, unread);
+export function StatusMark({
+    status,
+    unread = false,
+    background = NOTHING_IN_BACKGROUND,
+    label,
+}: Props) {
+    const own = useStatusLabel(status, unread, background);
     const swarm = useStore((state) => isSwarm(state.settings?.style));
     const kind = statusKind(status, unread);
     const hatching = useHatching(kind);
+    const ring = backgroundShown(status, background) ?? undefined;
     const name = label ?? own;
     if (!swarm) {
-        return <span className={`mark mark-${kind}`} role="img" aria-label={name} title={name} />;
+        return (
+            <span
+                className={`mark mark-${kind}`}
+                data-background={ring}
+                role="img"
+                aria-label={name}
+                title={name}
+            />
+        );
     }
     const Shape = SHAPES[kind];
-    return <Shape label={name} hatching={hatching} />;
+    return <Shape label={name} hatching={hatching} background={ring} />;
 }
 
 interface ShapeProps {
     label: string;
     /** Whether to flash once, as what just hatched. */
     hatching: boolean;
+    /** What runs in the background, which a ring around the shape says. */
+    background?: BackgroundLevel | undefined;
 }
 
 /** Dormant: a sac standing on three roots, waiting. */
-export function Egg({ label }: { label: string }) {
+export function Egg({
+    label,
+    background,
+}: {
+    label: string;
+    background?: BackgroundLevel | undefined;
+}) {
     return (
-        <svg className="egg" viewBox="0 0 12 14" role="img" aria-label={label}>
+        <svg
+            className="egg"
+            data-background={background}
+            viewBox="0 0 12 14"
+            role="img"
+            aria-label={label}
+        >
             <title>{label}</title>
             <path
                 className="swarm-body"
@@ -84,11 +133,12 @@ function Crawling({ label }: ShapeProps) {
 }
 
 /** The same grub, glowing: it has hatched an answer nobody has looked at. */
-function Hatched({ label, hatching }: ShapeProps) {
+function Hatched({ label, hatching, background }: ShapeProps) {
     return (
         <svg
             className="larva larva-unread"
             data-hatching={hatching}
+            data-background={background}
             viewBox="0 0 16 10"
             role="img"
             aria-label={label}

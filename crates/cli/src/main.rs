@@ -29,7 +29,7 @@ use session::SessionCommand;
 use swarmed_core::agent::FakeBackend;
 use swarmed_core::{
     AgentSetup, ApiKeyInfo, CloudOrigin, CloudProvider, CloudTask, Core, EnvironmentChoice,
-    McpServerView, NewTaskOptions, Paths, RemoveOptions, Settings, SetupStatus, Task,
+    MarkColour, McpServerView, NewTaskOptions, Paths, RemoveOptions, Settings, SetupStatus, Task,
 };
 use terminal::TerminalCommand;
 
@@ -366,6 +366,18 @@ enum TaskCommand {
     Pin { project: String, name: String },
     /// Unpin a task: it goes first among the project's tasks that are not pinned.
     Unpin { project: String, name: String },
+    /// Highlight a task in a colour of your own, in the sidebar, where it is: nothing but you
+    /// takes it off.
+    Highlight {
+        project: String,
+        name: String,
+        /// `green`, `blue`, `yellow`, `red` or `purple`.
+        #[arg(required_unless_present = "off")]
+        colour: Option<String>,
+        /// Take the highlight off instead.
+        #[arg(long, conflicts_with = "colour")]
+        off: bool,
+    },
     /// List what the task's agents left running in the background, and how it ended.
     Background { project: String, name: String },
     /// Commit everything in the task's worktree.
@@ -443,6 +455,14 @@ enum TaskCommand {
 /// reporting, which is why this is not `println!`: that panics instead.
 pub(crate) fn say(line: &str) {
     writeln!(std::io::stdout().lock(), "{line}").ok();
+}
+
+/// What a task or a session is highlighted in, said after it was changed.
+pub(crate) fn highlight_said(colour: Option<MarkColour>) -> String {
+    colour.map_or_else(
+        || "not highlighted".to_string(),
+        |colour| format!("highlighted {}", colour.as_str()),
+    )
 }
 
 /// Text someone else wrote on GitHub (an issue, a pull request's title, a check's name),
@@ -1169,6 +1189,15 @@ async fn sent_or_switched(core: &Core, command: TaskCommand) -> Result<Option<Ta
             core.task_pin(&project, &name, false)?;
             tasks_in_order(core, &project)?;
         }
+        TaskCommand::Highlight {
+            project,
+            name,
+            colour,
+            ..
+        } => {
+            let task = core.task_highlight_named(&project, &name, colour.as_deref())?;
+            say(&highlight_said(task.highlight));
+        }
         TaskCommand::Done { project, name } => {
             for note in core.task_done(&project, &name, &hook_line).await? {
                 say(&note);
@@ -1293,6 +1322,7 @@ async fn task(core: &Arc<Core>, command: TaskCommand) -> Result<()> {
         | TaskCommand::Move { .. }
         | TaskCommand::Pin { .. }
         | TaskCommand::Unpin { .. }
+        | TaskCommand::Highlight { .. }
         | TaskCommand::Done { .. }
         | TaskCommand::Undone { .. }
         | TaskCommand::Setup { .. }
@@ -1345,9 +1375,11 @@ fn projects_in_order(core: &Core) -> Result<()> {
     Ok(())
 }
 
-/// A project's open tasks' names as the app lists them, each pinned one marked so.
+/// A project's open tasks' names as the app lists them, each pinned one marked so. Those put
+/// away are listed apart and moved past by nothing, so they are left out.
 fn tasks_in_order(core: &Core, project: &str) -> Result<()> {
-    for task in core.tasks(project, false)? {
+    let tasks = core.tasks(project, false)?;
+    for task in tasks.iter().filter(|task| task.done_at.is_none()) {
         say(&in_order(&task.name, task.pinned));
     }
     Ok(())
