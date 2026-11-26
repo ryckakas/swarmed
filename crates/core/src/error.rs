@@ -294,6 +294,9 @@ pub enum Error {
     /// A mark could not be put on a session. Says why.
     #[error("{0}")]
     Mark(String),
+    /// A task or a session could not be highlighted. Says why.
+    #[error("{0}")]
+    Highlight(String),
     /// An action could not be kept or found. Says why.
     #[error("{0}")]
     Action(String),

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { newSession } from "./actions";
 import { api as moduleApi } from "./api";
 import type { Api } from "./api/client";
-import { createMockApi } from "./api/mock";
+import { createMockApi, sampleProjects } from "./api/mock";
 import type { AccountUsage, AgentEvent, Project, SessionEvent } from "./api/types";
 import { NO_DRAFT } from "./sending";
 import {
@@ -34,6 +34,34 @@ describe("appendEvent", () => {
         const events = { 1: [text("a")] };
         expect(appendEvent(events, published(1, text("b")))).toEqual({ 1: [text("a"), text("b")] });
         expect(appendEvent(events, published(2, text("b")))).toBe(events);
+    });
+});
+
+describe("askToHighlight", () => {
+    it("opens the palette of one row at a time, with what hid the row unfolded", () => {
+        useStore.setState({
+            projects: sampleProjects(),
+            folded: [],
+            foldedTasks: [2],
+            doneShown: [],
+            highlighting: null,
+        });
+        // Nothing hides the task's own row: nothing is unfolded for it.
+        useStore
+            .getState()
+            .askToHighlight({ kind: "task", project: "storefront", task: "invoice-export" });
+        expect(useStore.getState().highlighting).toEqual({
+            kind: "task",
+            project: "storefront",
+            task: "invoice-export",
+        });
+        expect(useStore.getState().foldedTasks).toEqual([2]);
+        // A session of that folded task brings its rows back into view.
+        useStore.getState().askToHighlight({ kind: "session", id: 3 });
+        expect(useStore.getState().highlighting).toEqual({ kind: "session", id: 3 });
+        expect(useStore.getState().foldedTasks).toEqual([]);
+        useStore.getState().askToHighlight(null);
+        expect(useStore.getState().highlighting).toBeNull();
     });
 });
 

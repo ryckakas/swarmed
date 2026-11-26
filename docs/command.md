@@ -109,9 +109,9 @@ applies. `SWARMED_FAKE_AGENT=1` swaps in a scripted agent that spends no tokens.
 | Command | What it does |
 | --- | --- |
 | `project` | add, list, remove, move and pin repositories; `project config` prints the path of a project's config file |
-| `task` | create, remove, move and pin tasks, rerun `setup`, run the `start` command, see changes, commit, push, open a pull request, follow it (`task pull --follow`) and merge it (`task merge`) |
+| `task` | create, remove, move, pin and highlight tasks, rerun `setup`, run the `start` command, see changes, commit, push, open a pull request, follow it (`task pull --follow`) and merge it (`task merge`) |
 | `issue` | list a repository's GitHub issues with filters, or print one with its comments, through your own `gh` |
-| `session` | run, continue, list, show, fork, rename, mark, move, pin, close, reopen and delete sessions; list a session's turns with the files each changed (`turns`) and print one turn's diff (`turn-diff`); take a session back to before one of its messages, its files too with `--files` (`rewind`), and put those files back (`put-back`); change a session's model or supervision; let a Claude Code session be reached from claude.ai (`remote-control`); let one a usage limit stopped go on by itself when the limit resets (`continue-at-reset`, which the app sends) |
+| `session` | run, continue, list, show, fork, rename, mark, move, pin, highlight, close, reopen and delete sessions; list a session's turns with the files each changed (`turns`) and print one turn's diff (`turn-diff`); take a session back to before one of its messages, its files too with `--files` (`rewind`), and put those files back (`put-back`); change a session's model or supervision; let a Claude Code session be reached from claude.ai (`remote-control`); let one a usage limit stopped go on by itself when the limit resets (`continue-at-reset`, which the app sends) |
 | `environment` | list a project's environments; choose the default one new tasks are set up in |
 | `snapshot` | keep the files git ignores in a set-up task, for new tasks to start from |
 | `agents`, `agent` | list the agents sessions can run on; install and configure the others |

@@ -23,6 +23,7 @@ import { CHATS } from "./chats";
 import type { CloudTarget } from "./cloud";
 import type { Comparison } from "./components/CompareDialog";
 import { withElementToken } from "./elements";
+import { foldsShowing, type HighlightTarget } from "./highlights";
 import { type IssueLink, type IssuesTarget, issueLink, withIssuePrompt } from "./issues";
 import { forgetImages } from "./keptImages";
 import { type AppContext, contextsBack, contextsTaken, contextsWith, withAllowed } from "./mcpApps";
@@ -406,6 +407,13 @@ interface State {
     noting: NoteTarget | null;
     /** Opens a note; `null` puts it away. */
     askForNote(target: NoteTarget | null): void;
+    /** The task or session whose highlight palette is open in the sidebar. */
+    highlighting: HighlightTarget | null;
+    /**
+     * Opens the highlight palette of a task's or a session's row, unfolding what hides the
+     * row; `null` puts it away.
+     */
+    askToHighlight(target: HighlightTarget | null): void;
     /** The user's comments on each task's diff, by the task's id, until they are sent. */
     reviews: Record<number, ReviewComment[]>;
     /** Puts a comment on a line, changes it, or with empty text takes it away. */
@@ -951,6 +959,22 @@ function foldedOnOpening(state: State, sessionId: number): number[] {
         : unfoldedFor(state.foldedTasks, state.projects, sessionId);
 }
 
+/**
+ * The palette of `target` open, and what hid its row unfolded; a repository unfolded for it
+ * stays so, as one the user unfolded does.
+ */
+function highlightingIn(state: State, target: HighlightTarget | null): Partial<State> {
+    if (target === null) {
+        return { highlighting: null };
+    }
+    const { folded, foldedTasks, doneShown } = state;
+    const folds = foldsShowing({ folded, foldedTasks, doneShown }, state.projects, target);
+    if (folds.folded !== folded) {
+        writeStored(FOLDED, JSON.stringify(folds.folded));
+    }
+    return { ...folds, highlighting: target };
+}
+
 /** The Done groups unfolded so that the session on screen has its row in view. */
 function doneInView(state: State): Partial<State> {
     const id = state.selectedSessionId;
@@ -1211,6 +1235,8 @@ export const useStore = create<State>((set, get) => ({
     askForEnvironments: (project) => set({ environmentsOf: project }),
     noting: null,
     askForNote: (target) => set({ noting: target }),
+    highlighting: null,
+    askToHighlight: (target) => set((state) => highlightingIn(state, target)),
     reviews: {},
     comment: (taskId, comment) =>
         set((state) => ({

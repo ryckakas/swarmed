@@ -41,6 +41,7 @@ mod fork;
 mod git;
 mod github_mentions;
 mod handoff;
+mod highlights;
 pub mod hooks;
 mod issues;
 mod layouts;
@@ -139,6 +140,7 @@ pub use github_mentions::{
     MENTIONED_ON_GITHUB, with_github,
 };
 pub use handoff::MAX_HANDED;
+pub use highlights::highlight_named;
 pub use hooks::OutputSink;
 pub use issues::{
     ISSUES_LISTED, Issue, IssueComment, IssueDetail, IssueFilter, IssueList, IssueState, IssueWho,

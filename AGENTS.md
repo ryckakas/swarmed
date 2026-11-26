@@ -990,6 +990,17 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   the work stands, in the user's terms; the status says what the agent is doing, and the two
   never mix. It is cleared when the user writes to the session. Colours are names, drawn by
   each theme, so a mark never carries a colour value.
+- **A highlight is the user's colour on a task or a session, where it is** (`highlights.rs`,
+  `highlights.ts`, `Highlight.tsx`, #398). A column of its own on both (`highlight`, a
+  `MarkColour` name), set by `session_highlight` and `task_highlight` and published as
+  `TreeChanged`, never stored as an event. Nothing but the user clears it: writing, closing and
+  reopening keep it, a fork starts without one, and neither `set_mark` nor `configure` reaches
+  it. It is drawn as a bar at the row's right edge (an `::after`, since styles draw the open
+  row's edge with a shadow, and the left edge is the waiting bar), never a tint, so the row's
+  other states keep their look. Marks and highlights read their colour from one name each,
+  `var(--green, var(--moss))` and so on, on the element: the custom layout's `green` and the
+  others change both. The palette's open row is in the store (`highlighting`), which the
+  shortcut sets and which unfolds what hides the row (`foldsShowing`).
 - **Swarmed serves tools of its own to every agent** (`toolserver.rs`): `show_html`, on an
   MCP server named `swarmed`. A front end's executable is that server when started with
   `tool-server`, and tells the core so with `set_tool_server`. The tool does nothing: its call

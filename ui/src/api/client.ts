@@ -174,6 +174,10 @@ export interface Api {
     taskPin(project: string, task: string, pinned: boolean): Promise<void>;
     /** Pins a session above its siblings that are not pinned, or unpins it. */
     sessionPin(id: number, pinned: boolean): Promise<void>;
+    /** Highlights a task in `colour` where it is, or with `null` takes its highlight off. */
+    taskHighlight(project: string, task: string, colour: MarkColour | null): Promise<void>;
+    /** Highlights a session in `colour` where it is, or with `null` takes its highlight off. */
+    sessionHighlight(id: number, colour: MarkColour | null): Promise<void>;
     /**
      * Removes a task's worktree and takes the task out of the tree. Its branch is kept. Without
      * `force` it refuses if the worktree holds unsaved work; nothing else stops it. Resolves to

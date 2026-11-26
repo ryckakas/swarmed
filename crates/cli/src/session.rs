@@ -142,6 +142,17 @@ pub(crate) enum SessionCommand {
     Pin { id: i64 },
     /// Unpin a session: it goes first among those that are not pinned.
     Unpin { id: i64 },
+    /// Highlight a session in a colour of your own, in the sidebar, where it is: writing to it
+    /// leaves it, and nothing but you takes it off. Agents cannot set one; a mark is theirs.
+    Highlight {
+        id: i64,
+        /// `green`, `blue`, `yellow`, `red` or `purple`.
+        #[arg(required_unless_present = "off")]
+        colour: Option<String>,
+        /// Take the highlight off instead.
+        #[arg(long, conflicts_with = "colour")]
+        off: bool,
+    },
     /// Put a mark on a session: a colour and a few words shown in the sidebar.
     Mark {
         id: i64,
@@ -340,6 +351,7 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
         SessionCommand::Move { id, by } => moved(core, id, by),
         SessionCommand::Pin { id } => pinned(core, id, true),
         SessionCommand::Unpin { id } => pinned(core, id, false),
+        SessionCommand::Highlight { id, colour, .. } => highlighted(core, id, colour.as_deref()),
         SessionCommand::Mark { id, colour, label } => mark(core, id, &colour, &label),
         SessionCommand::RemoteControl { id, off, auth } => {
             remote_control(core, id, off, auth).await
@@ -507,6 +519,14 @@ fn moved(core: &Core, id: i64, by: i32) -> Result<()> {
 fn pinned(core: &Core, id: i64, pinned: bool) -> Result<()> {
     core.session_pin(id, pinned)?;
     say(if pinned { "pinned" } else { "unpinned" });
+    Ok(())
+}
+
+/// Highlights session `id` in `colour`, or takes its highlight off for none.
+fn highlighted(core: &Core, id: i64, colour: Option<&str>) -> Result<()> {
+    let colour = swarmed_core::highlight_named(colour.unwrap_or("none"))?;
+    let session = core.session_highlight(id, colour)?;
+    say(&crate::highlight_said(session.highlight));
     Ok(())
 }
 

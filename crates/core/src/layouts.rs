@@ -94,6 +94,16 @@ pub enum Colour {
     Teal,
     /// Numbers and strings in code.
     Sand,
+    /// Marks and highlights called green; the palette's moss unless given.
+    Green,
+    /// Marks and highlights called blue; the palette's busy unless given.
+    Blue,
+    /// Marks and highlights called yellow; the palette's pollen unless given.
+    Yellow,
+    /// Marks and highlights called red; the palette's clay unless given.
+    Red,
+    /// Marks and highlights called purple; between the palette's sky and clay unless given.
+    Purple,
 }
 
 /// The colours a custom layout sets, each as `#rrggbb`. What is not named stays the palette's.
@@ -408,6 +418,18 @@ const INKS: [(Colour, u32); 4] = [
     (Colour::Faint, QUIET_CONTRAST),
 ];
 
+/// The colours marks and highlights are named by. A mark's few words are written in its
+/// colour and a highlight is a bar and a dot, so each has to stand out from the backgrounds as
+/// much as quieter text does. Giving one alone changes nothing else, so it needs no `dusk` or
+/// `text` beside it.
+const NAMED: [Colour; 5] = [
+    Colour::Green,
+    Colour::Blue,
+    Colour::Yellow,
+    Colour::Red,
+    Colour::Purple,
+];
+
 fn name_of(colour: Colour) -> String {
     let named = serde_json::to_value(colour).unwrap_or_default();
     named.as_str().unwrap_or_default().to_string()
@@ -427,6 +449,9 @@ fn check_colours(form: &str, colours: &Colours) -> Result<()> {
         parts.insert(*colour, read);
     }
     let touched = |colour: &Colour| parts.contains_key(colour);
+    for named in NAMED {
+        check_ink(form, &parts, named, QUIET_CONTRAST)?;
+    }
     let writes = SURFACES.iter().any(touched) || INKS.iter().any(|(ink, _)| touched(ink));
     if !writes {
         return Ok(());
@@ -550,7 +575,7 @@ pub fn layout_schema() -> Value {
                 "Colours of the {form} form, each #rrggbb. What is left out stays the palette's. \
                  Changing a background or the text needs both dusk and text, and text has to \
                  stand out from the backgrounds given: 4.5 to 1 for text and bright, 3 to 1 for \
-                 muted and faint."
+                 muted and faint and the five colours of marks and highlights."
             ),
             "properties": {
                 "dusk": colour("The window's background."),
@@ -570,6 +595,11 @@ pub fn layout_schema() -> Value {
                 "lilac": colour("Names and headings in what agents write, and a merged pull request."),
                 "teal": colour("Code in what agents write."),
                 "sand": colour("Numbers and strings in code."),
+                "green": colour("Marks and highlights called green. Moss unless given."),
+                "blue": colour("Marks and highlights called blue. Busy unless given."),
+                "yellow": colour("Marks and highlights called yellow. Pollen unless given."),
+                "red": colour("Marks and highlights called red. Clay unless given."),
+                "purple": colour("Marks and highlights called purple. Between sky and clay unless given."),
             },
         })
     };
@@ -765,6 +795,32 @@ mod tests {
     }
 
     #[test]
+    fn the_colours_of_marks_and_highlights_stand_out_from_the_backgrounds_given() {
+        // Given alone, a colour of marks and highlights asks for nothing else.
+        let alone = r##"{ "dark": { "green": "#33ff99" }, "light": { "purple": "#6a1b9a" } }"##;
+        let layout = CustomLayout::parse(alone).expect("reads");
+        assert_eq!(
+            layout.dark.get(&Colour::Green).map(String::as_str),
+            Some("#33ff99")
+        );
+        assert_eq!(
+            layout.light.get(&Colour::Purple).map(String::as_str),
+            Some("#6a1b9a")
+        );
+        // Beside a background, it has to stand out from it as quieter text does.
+        let faint =
+            r##"{ "light": { "dusk": "#ffffff", "text": "#000000", "yellow": "#ffee88" } }"##;
+        assert_eq!(
+            why(faint),
+            "`light.yellow` cannot be read on `light.dusk`: their contrast has to be at least 3.0 to 1"
+        );
+        let clear =
+            r##"{ "light": { "dusk": "#ffffff", "text": "#000000", "yellow": "#8a5d00" } }"##;
+        assert!(CustomLayout::parse(clear).is_ok());
+        assert!(why(r#"{ "dark": { "red": "red" } }"#).contains("`dark.red` is a colour"));
+    }
+
+    #[test]
     fn reading_leaves_out_and_names_what_it_does_not_know_and_keeps_the_rest() {
         let text = r##"{ "icons": 120, "later": 1, "text": { "sm": 15, "xxl": 30 },
             "sidebar": { "task": { "size": 12, "italic": true }, "pinned": {} },
@@ -927,7 +983,7 @@ mod tests {
         let colours = schema["properties"]["dark"]["properties"]
             .as_object()
             .expect("colours");
-        assert_eq!(colours.len(), 17);
+        assert_eq!(colours.len(), 22);
         for name in colours.keys() {
             let text = format!("{{ \"dark\": {{ \"{name}\": \"#12ab9f\" }} }}");
             // Named in the schema and known to the layout: refused, if at all, for its contrast.

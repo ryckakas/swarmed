@@ -94,6 +94,14 @@ async fn a_rename_a_mark_and_a_new_session_from_elsewhere_are_published_here() {
     )
     .await;
 
+    // A highlight is in the tree, never in the conversation: the tree is read again.
+    there
+        .session_highlight(session.id, Some(swarmed_core::MarkColour::Yellow))
+        .expect("highlights");
+    noticed(&here, &mut bus, tree_changed).await;
+    let lit = here.session(session.id).expect("found").highlight;
+    assert_eq!(lit, Some(swarmed_core::MarkColour::Yellow));
+
     let made = new_session(&there);
     noticed(&here, &mut bus, tree_changed).await;
     let listed = here.sessions("demo", "one").expect("lists");

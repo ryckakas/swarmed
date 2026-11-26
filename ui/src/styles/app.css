@@ -1452,11 +1452,11 @@ code {
  * browser's own padding is taken off: it leaves less room than the icon needs, and the icon then
  * starts at the padding and sits right of its button's centre.
  */
-:is(.row-add, .row-note, .row-pin, .row-close) {
+:is(.row-add, .row-note, .row-pin, .row-highlight, .row-close) {
     padding: 0;
 }
 
-:is(.row-add, .row-note, .row-pin, .row-close) svg {
+:is(.row-add, .row-note, .row-pin, .row-highlight, .row-close) svg {
     width: 13px;
     height: 13px;
     fill: none;
@@ -1523,6 +1523,120 @@ code {
 .session-line .row-pin:hover,
 .session-line .row-pin:focus-visible {
     background: var(--line);
+}
+
+/*
+ * The highlight on a row: out of the way until the row is pointed at or has the keyboard, and in
+ * view, filled with its colour, once the row has one.
+ */
+.highlight-wrap {
+    position: relative;
+    flex: none;
+    display: flex;
+}
+
+.row-highlight {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--faint);
+    opacity: 0;
+}
+
+.row-head:hover .row-highlight,
+.row-head:focus-within .row-highlight,
+.session-line:hover .row-highlight,
+.session-line:focus-within .row-highlight,
+.row-highlight:focus-visible,
+.row-highlight[aria-expanded="true"] {
+    opacity: 1;
+}
+
+.row-highlight[data-highlight] {
+    color: var(--highlight);
+    opacity: 1;
+}
+
+.row-highlight[data-highlight] .highlight-drop {
+    fill: currentColor;
+}
+
+.row-highlight:hover,
+.row-highlight:focus-visible,
+.row-highlight[aria-expanded="true"] {
+    background: var(--raised);
+}
+
+.row-highlight:not([data-highlight]):is(:hover, :focus-visible) {
+    color: var(--text);
+}
+
+.session-line .row-highlight:is(:hover, :focus-visible, [aria-expanded="true"]) {
+    background: var(--line);
+}
+
+/* The palette a highlight is chosen from: a swatch per colour, then none. */
+.highlight-palette {
+    position: absolute;
+    top: calc(100% + 2px);
+    right: 0;
+    z-index: 30;
+    display: flex;
+    gap: 6px;
+    padding: 6px 7px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--raised);
+    box-shadow: 0 6px 18px rgb(0 0 0 / 0.28);
+}
+
+.highlight-swatch {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: var(--highlight);
+}
+
+/* None: an empty ring, struck through. */
+.highlight-swatch[data-highlight="none"] {
+    background: linear-gradient(
+        to top right,
+        transparent calc(50% - 0.75px),
+        var(--faint) calc(50% - 0.75px),
+        var(--faint) calc(50% + 0.75px),
+        transparent calc(50% + 0.75px)
+    );
+    box-shadow: inset 0 0 0 1.5px var(--faint);
+}
+
+.highlight-swatch[aria-checked="true"] {
+    box-shadow:
+        0 0 0 2px var(--raised),
+        0 0 0 3.5px var(--text);
+}
+
+.highlight-swatch[data-highlight="none"][aria-checked="true"] {
+    box-shadow:
+        inset 0 0 0 1.5px var(--faint),
+        0 0 0 2px var(--raised),
+        0 0 0 3.5px var(--text);
+}
+
+.highlight-swatch:hover {
+    scale: 1.12;
+}
+
+.highlight-swatch:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 3px;
 }
 
 /* What kind of thing a row is, left of its name. */
@@ -1871,24 +1985,97 @@ code {
     white-space: nowrap;
 }
 
+/*
+ * The five colours marks and highlights are named by: each the palette's own, unless the custom
+ * layout gives one (`--green` and the others, on the body), which then changes both. Read on the
+ * element itself, so that it is the custom layout's value that is read and not the root's.
+ */
 .mark-green {
-    --mark: var(--moss);
+    --mark: var(--green, var(--moss));
 }
 
 .mark-blue {
-    --mark: var(--busy);
+    --mark: var(--blue, var(--busy));
 }
 
 .mark-yellow {
-    --mark: var(--pollen);
+    --mark: var(--yellow, var(--pollen));
 }
 
 .mark-red {
-    --mark: var(--clay);
+    --mark: var(--red, var(--clay));
 }
 
 .mark-purple {
-    --mark: color-mix(in srgb, var(--sky) 50%, var(--clay));
+    --mark: var(--purple, color-mix(in srgb, var(--sky) 50%, var(--clay)));
+}
+
+[data-highlight="green"] {
+    --highlight: var(--green, var(--moss));
+}
+
+[data-highlight="blue"] {
+    --highlight: var(--blue, var(--busy));
+}
+
+[data-highlight="yellow"] {
+    --highlight: var(--yellow, var(--pollen));
+}
+
+[data-highlight="red"] {
+    --highlight: var(--red, var(--clay));
+}
+
+[data-highlight="purple"] {
+    --highlight: var(--purple, color-mix(in srgb, var(--sky) 50%, var(--clay)));
+}
+
+/*
+ * A highlighted task or session: a bar of its colour at the row's right edge. Not a tint, and not
+ * the left edge, where a session that needs you has its bar: what a row is open, unread or
+ * waiting for keeps its own look. Drawn on its own, since the styles and layouts draw the open
+ * row's edge with a shadow; the rows are placed already, for their grips.
+ */
+.task > .row-head[data-highlight]::after,
+.session-line[data-highlight]::after {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    inset-inline-end: 0;
+    width: 3px;
+    background: var(--highlight);
+    pointer-events: none;
+}
+
+/* A task's band is rounded; its bar ends it square, as a session's does. */
+.task > .row-head[data-highlight] {
+    border-start-end-radius: 0;
+    border-end-end-radius: 0;
+}
+
+/* The colour a session is highlighted in, beside its title in its header and in the inbox. */
+.highlight-dot {
+    flex: none;
+    align-self: center;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--highlight);
+}
+
+.session-title-row .highlight-dot {
+    width: 10px;
+    height: 10px;
+}
+
+/* Words for those who cannot see a colour, such as the one a row is highlighted in. */
+.unseen {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
 }
 
 /* The user's own buttons on a task: as many lines as they need. */

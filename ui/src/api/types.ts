@@ -41,6 +41,11 @@ export interface Session {
      * status: the session stays idle, and takes a message.
      */
     background: BackgroundCount;
+    /**
+     * The colour the user highlighted it in, where it is; `null` for none. Writing to it
+     * leaves it, and so does closing it; a fork starts without one.
+     */
+    highlight: MarkColour | null;
 }
 
 /** How many things a session's agent has running in the background now, by kind. */
@@ -51,7 +56,7 @@ export interface BackgroundCount {
     commands: number;
 }
 
-/** The colours a mark can have. Each theme draws its own. */
+/** The colours a mark or a highlight can have. Each theme draws its own. */
 export type MarkColour = "green" | "blue" | "yellow" | "red" | "purple";
 
 export const MARK_COLOURS: MarkColour[] = ["green", "blue", "yellow", "red", "purple"];
@@ -104,6 +109,8 @@ export interface Task {
     issue: number | null;
     /** Whether the task's own Chrome runs, here or in another Swarmed. */
     browser: boolean;
+    /** The colour the user highlighted it in, where it is; `null` for none. */
+    highlight: MarkColour | null;
 }
 
 /** Why a task was put away: by the user, or by their rule for merged or idle tasks. */

@@ -3,6 +3,7 @@ import { api } from "../api";
 import type { Session } from "../api/types";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
+import { HighlightDot } from "./Highlight";
 
 /** The session's title. Double-click it, or press Rename, to type a better one. */
 export function SessionTitle({ session }: { session: Session }) {
@@ -23,6 +24,7 @@ export function SessionTitle({ session }: { session: Session }) {
     if (draft === null) {
         return (
             <div className="session-title-row">
+                <HighlightDot colour={session.highlight} />
                 <h1 title="Double-click to rename" onDoubleClick={() => setDraft(session.title)}>
                     {title}
                 </h1>

@@ -119,6 +119,13 @@ describe("layoutCss", () => {
         );
     });
 
+    it("gives marks and highlights the colours of their names", () => {
+        const css = layoutCss({ base: "classic", dark: { green: "#33ff99", purple: "#bb88ff" } });
+        expect(css).toContain(
+            ':root[data-custom][data-theme="dark"] body { --green: #33ff99; --purple: #bb88ff; }',
+        );
+    });
+
     it("leaves out what is not of the form it knows, whatever let it through", () => {
         const hostile = {
             base: "classic",

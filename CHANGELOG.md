@@ -24,6 +24,15 @@ notice adds its line under Unreleased.
   leaves for the agent shows as a chip above the message box, to go with your next message; a
   tool of its own server it calls goes through the agent, which decides it as its own call.
   See [Apps MCP servers attach to their tools](docs/coding-agents.md#apps-mcp-servers-attach-to-their-tools).
+- **Highlight a task or a session in a colour of your own, where it is.** The drop beside a
+  row's pin, or ⌘⇧H on the focused row or the open session, opens a palette of the five colours
+  marks use, and None. A highlighted row keeps its place and gets a bar of its colour at its
+  right edge, so what it is open, unread or waiting for still shows as before; the session's
+  header and the inbox show a dot of it. Writing to the session, closing and reopening it and
+  restarting keep it; a fork starts without one, and agents cannot set one. A custom layout can
+  give each of the five colours its own value (`green`, `blue`, `yellow`, `red`, `purple`, in
+  dark and in light), which marks follow too. `swarmed session highlight <id> <colour>` and
+  `swarmed task highlight <project> <task> <colour>` do the same, and `--off` takes it off.
 
 ### Changed
 

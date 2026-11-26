@@ -72,6 +72,7 @@
     .mark,
     .session-spawned,
     .session-mark-dot,
+    .highlight-dot,
     .session-continues-clock,
     .grip-dots,
     .agent-ready,
@@ -87,6 +88,8 @@
     .row-close,
     .row-note,
     .row-pin,
+    .row-highlight,
+    .highlight-swatch,
     .icon-button,
     .icon-picker,
     .round-button,
@@ -116,7 +119,13 @@
 :root[data-layout="senior"] .row-head:not(:hover, :focus-within) .row-pin:not([data-pinned="true"]),
 :root[data-layout="senior"]
     .session-line:not(:hover, :focus-within)
-    .row-pin:not([data-pinned="true"]) {
+    .row-pin:not([data-pinned="true"]),
+:root[data-layout="senior"]
+    .row-head:not(:hover, :focus-within)
+    .row-highlight:not([data-highlight]),
+:root[data-layout="senior"]
+    .session-line:not(:hover, :focus-within)
+    .row-highlight:not([data-highlight]) {
     display: none;
 }
 

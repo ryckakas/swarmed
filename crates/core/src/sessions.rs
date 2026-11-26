@@ -242,6 +242,9 @@ pub struct Session {
     /// What its agent has running in the background now, sub-agents and commands apart. Not a
     /// status: the session stays idle, and takes a message.
     pub background: BackgroundCount,
+    /// The colour the user highlighted it in, if any (`highlights.rs`). It stays when the
+    /// user writes and while the session is closed; a fork starts without one.
+    pub highlight: Option<MarkColour>,
 }
 
 /// What can be changed about a session after it was created.
@@ -275,8 +278,8 @@ pub struct SessionOptions {
 }
 
 const SESSION_SELECT: &str = "SELECT id, task_id, title, agent_session_id, model, supervision, status, agent, effort, unread, spawned_by, fast, mark_colour, mark_label, \
-     setup_prompt IS NOT NULL, pinned, continue_at, background_agents, background_commands \
-     FROM sessions";
+     setup_prompt IS NOT NULL, pinned, continue_at, background_agents, background_commands, \
+     highlight FROM sessions";
 
 /// The order the sidebar lists a task's sessions in: the pinned ones first, then as the user
 /// put them.
@@ -315,6 +318,10 @@ fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
             agents: row.get(17)?,
             commands: row.get(18)?,
         },
+        highlight: row
+            .get::<_, Option<String>>(19)?
+            .as_deref()
+            .and_then(MarkColour::parse),
     })
 }
 
@@ -355,6 +362,7 @@ impl Store {
             pinned: false,
             continue_at: None,
             background: BackgroundCount::default(),
+            highlight: None,
         })
     }
 

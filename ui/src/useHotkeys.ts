@@ -1,5 +1,11 @@
 import { useEffect } from "react";
-import { addProject, moveFocusedRow, newSession, pinFocusedRow } from "./actions";
+import {
+    addProject,
+    highlightFocusedRow,
+    moveFocusedRow,
+    newSession,
+    pinFocusedRow,
+} from "./actions";
 import { api } from "./api";
 import type { Project } from "./api/types";
 import { inSidebarOrder } from "./chats";
@@ -160,6 +166,7 @@ const ACTIONS: Partial<Record<HotkeyId, () => void>> = {
     "move-up": () => void moveFocusedRow(-1),
     "move-down": () => void moveFocusedRow(1),
     pin: () => void pinFocusedRow(),
+    highlight: highlightFocusedRow,
     search: () => useStore.getState().showSearch(!useStore.getState().searchOpen),
     inbox: () => useStore.getState().showInbox(!useStore.getState().inboxOpen),
     "focus-message": focusMessage,

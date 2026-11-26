@@ -180,8 +180,15 @@ function session(id: number, taskId: number, title: string, status: SessionStatu
         continue_at: null,
         // What its agent left running, as the core counts it from the reports.
         background: backgroundIn(id, sampleEvents(id)),
+        highlight: SAMPLE_HIGHLIGHTS[id] ?? null,
     };
 }
+
+/**
+ * The sample sessions the user highlighted, in two colours: one beside an agent's mark, which
+ * reads as a second thing, and one with an answer nobody has read.
+ */
+const SAMPLE_HIGHLIGHTS: Partial<Record<number, MarkColour>> = { 3: "purple", 5: "blue" };
 
 /**
  * What sample sessions' agents left running before their histories begin: the dev servers the
@@ -279,6 +286,8 @@ function task(id: number, projectId: number, name: string, sessions: Session[]):
         issue: SAMPLE_ISSUES[name] ?? null,
         // The task whose stack runs has its browser running too.
         browser: SAMPLE_STACKS[id] === "running",
+        // One sample task is highlighted, where it is.
+        highlight: name === "shop-142" ? "yellow" : null,
     };
 }
 
@@ -886,6 +895,30 @@ function orderApi(
                     by,
                 ),
             );
+        },
+    };
+}
+
+/** Highlighting the sample's tasks and sessions, which leaves each where it is. */
+function highlightApi(projects: () => Project[]): Pick<Api, "taskHighlight" | "sessionHighlight"> {
+    const tasks = () => projects().flatMap((project) => project.tasks);
+    return {
+        taskHighlight: async (name, task, colour) => {
+            const home = projects().find((project) => project.name === name);
+            const found = home?.tasks.find((one) => one.name === task && !one.archived);
+            if (!found) {
+                throw new Error(`task \`${task}\` not found in \`${name}\``);
+            }
+            found.highlight = colour;
+        },
+        sessionHighlight: async (id, colour) => {
+            const session = tasks()
+                .flatMap((task) => task.sessions)
+                .find((one) => one.id === id);
+            if (!session) {
+                throw new Error(`session ${id} not found`);
+            }
+            session.highlight = colour;
         },
     };
 }
@@ -3492,6 +3525,7 @@ export function createMockApi(): Api {
         costs: async () => SAMPLE_COSTS,
         ...snapshotApi(() => agent.projects),
         ...orderApi(() => agent.projects),
+        ...highlightApi(() => agent.projects),
         analytics: async () => sampleAnalytics(new Date()),
         effortDefault: sampleEffortDefault,
         ...setupApi(hookListeners),

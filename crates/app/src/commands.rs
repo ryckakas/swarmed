@@ -23,7 +23,7 @@ use swarmed_core::{
     RemoveOptions, RewindCheck, RewindDone, SearchHit, Session, SessionOptions, SessionSettings,
     Settings, SetupLog, Skill, SlashCommand, Snapshot, Task, TaskNaming, TaskStarted, Template,
     TerminalConfig, TerminalOpened, Turn, TurnChanges, TurnStats, Unpublished, Usage, UsageAsk,
-    Viewport, hooks,
+    Viewport, highlight_named, hooks,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -503,6 +503,31 @@ pub(crate) fn task_pin(
 #[tauri::command]
 pub(crate) fn session_pin(core: CoreState<'_>, id: i64, pinned: bool) -> Command<()> {
     Ok(core.session_pin(id, pinned)?)
+}
+
+/// Highlights a task in the colour named, or with `null` or `none` takes its highlight off.
+#[tauri::command]
+pub(crate) fn task_highlight(
+    core: CoreState<'_>,
+    project: String,
+    task: String,
+    colour: Option<String>,
+) -> Command<()> {
+    let colour = highlight_named(colour.as_deref().unwrap_or("none"))?;
+    core.task_highlight(&project, &task, colour)?;
+    Ok(())
+}
+
+/// Highlights a session in the colour named, or with `null` or `none` takes its highlight off.
+#[tauri::command]
+pub(crate) fn session_highlight(
+    core: CoreState<'_>,
+    id: i64,
+    colour: Option<String>,
+) -> Command<()> {
+    let colour = highlight_named(colour.as_deref().unwrap_or("none"))?;
+    core.session_highlight(id, colour)?;
+    Ok(())
 }
 
 /// Moves a cloud task `by` places among the others of its project.

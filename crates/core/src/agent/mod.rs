@@ -508,8 +508,9 @@ pub enum AgentEvent {
     },
     /// Another Swarmed process on the same data, such as the command line, changed
     /// repositories, tasks or sessions, or started or stopped a stack, or a task was put away
-    /// or brought back here (`put_away.rs`), so front ends read the tree again. It belongs to no session: published with session id 0, which no session
-    /// has, and never recorded.
+    /// or brought back here (`put_away.rs`), or a task or a session was highlighted
+    /// (`highlights.rs`), so front ends read the tree again. It belongs to no session:
+    /// published with session id 0, which no session has, and never recorded.
     TreeChanged,
     /// How a task's setup goes: where it is, what it printed, and how it ended. It belongs to
     /// no session: published with session id 0, which no session has, and never recorded.

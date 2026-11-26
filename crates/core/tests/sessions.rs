@@ -645,6 +645,88 @@ async fn a_mark_stays_on_a_session_until_it_is_taken_off_or_the_user_writes() {
 }
 
 #[tokio::test]
+async fn a_highlight_stays_until_the_user_takes_it_off() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let session = started_session(&core);
+    assert_eq!(session.highlight, None);
+    let mut bus = core.subscribe();
+    let told_to_read_the_tree = |bus: &mut Receiver<SessionEvent>| {
+        let heard = bus.try_recv().expect("told");
+        assert_eq!(heard.session_id, 0);
+        assert_eq!(heard.event, AgentEvent::TreeChanged);
+    };
+
+    let lit = core
+        .session_highlight(session.id, Some(MarkColour::Blue))
+        .expect("highlights");
+    assert_eq!(lit.highlight, Some(MarkColour::Blue));
+    told_to_read_the_tree(&mut bus);
+    assert!(matches!(
+        swarmed_core::highlight_named("teal"),
+        Err(Error::Highlight(_))
+    ));
+
+    // Writing to the session clears a mark, not a highlight.
+    core.session_send(session.id, "next thing").expect("sends");
+    turn(&mut bus, session.id).await;
+    let kept = |core: &Core| core.session(session.id).expect("exists").highlight;
+    assert_eq!(kept(&core), Some(MarkColour::Blue));
+
+    // Closed and reopened, it is still there, and its row keeps its place.
+    let other = core
+        .session_new("demo", "one", &SessionOptions::default())
+        .expect("creates");
+    core.session_close(session.id).expect("closes");
+    core.session_reopen(session.id).expect("reopens");
+    assert_eq!(kept(&core), Some(MarkColour::Blue));
+    let order: Vec<i64> = core
+        .sessions("demo", "one")
+        .expect("lists")
+        .iter()
+        .map(|one| one.id)
+        .collect();
+    assert_eq!(order, [session.id, other.id]);
+
+    // A fork starts without one.
+    let fork = core.session_fork(session.id, None, None).expect("forks");
+    assert_eq!(fork.highlight, None);
+
+    // A task is highlighted the same way, and taken off with none.
+    let task = core
+        .task_highlight(
+            "demo",
+            "one",
+            swarmed_core::highlight_named("Purple").expect("named"),
+        )
+        .expect("highlights");
+    assert_eq!(task.highlight, Some(MarkColour::Purple));
+    assert!(matches!(
+        core.task_highlight("demo", "nowhere", None),
+        Err(Error::TaskNotFound { .. })
+    ));
+    assert!(core.session_highlight(9999, None).is_err());
+
+    // A Swarmed started again on the same data finds both.
+    drop(core);
+    let again = core_again(&fx);
+    assert_eq!(kept(&again), Some(MarkColour::Blue));
+    let overview = again.overview().expect("reads");
+    let one = &overview[0].tasks[0];
+    assert_eq!(one.task.highlight, Some(MarkColour::Purple));
+    assert_eq!(one.sessions[0].highlight, Some(MarkColour::Blue));
+    let off = again
+        .session_highlight(session.id, None)
+        .expect("takes it off");
+    assert_eq!(off.highlight, None);
+}
+
+/// A Swarmed started again on the data `fx` holds, after the one before quit.
+fn core_again(fx: &common::Fixture) -> Core {
+    Core::with_backend(fx.paths.clone(), Arc::new(FakeBackend::default())).expect("opens")
+}
+
+#[tokio::test]
 async fn a_title_chosen_before_the_suggestion_arrives_is_kept_and_naming_can_be_off() {
     let fx = fixture();
     let mut core = core_with_task(&fx).await;
