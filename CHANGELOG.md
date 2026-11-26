@@ -31,6 +31,11 @@ notice adds its line under Unreleased.
 
 ### Fixed
 
+- **A setup with nothing to run no longer flashes its panel.** Starting a task on the
+  repository's own setup, where there is nothing to set up, showed the setup panel and the
+  sidebar's setup line for a moment before they went again. A setup now shows only once it has
+  run for most of a second, and at once if it fails or is stopped; a longer one shows as before,
+  with how long it has run counted from its start. What you type meanwhile still waits for it.
 - **A closed pull request no longer looks like a draft.** Its number is struck through on the
   task's badge in the sidebar, in the task panel, and where a message or the `#` menu names a
   closed pull request or issue. It stays grey: red still means a failed check.

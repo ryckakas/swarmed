@@ -588,12 +588,14 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   sub-agent at work and a dev server left running; stopping them from the Background list
   changes its mark. A session can be taken back with Edit from here once idle
   (`mockRewind.ts`); a busy one is refused, and so are the files of one whose task has a session
-  at work, as in `fix-login-redirect`. A new task's setup is quick in storefront, takes half a
-  minute in bonsai-lint, and in fsum is killed the first time and succeeds when run again
-  (`mockSetups.ts`). Storefront and bonsai-lint have GitHub issues, `shop-142` was started for
-  #142, #428's text holds HTML GitHub draws (`<details>`, `<kbd>`) and HTML it does not, an
-  HTML comment, an image and a view's block, and one of its comments is hidden on GitHub, and
-  fsum is not on GitHub, so its list says why (`mockIssues.ts`). bonsai-lint's `rule-engine`
+  at work, as in `fix-login-redirect`. A new task's setup is quick in storefront's `staging`
+  environment and has nothing to run on storefront's own setup, so it ends within the grace
+  and is never shown (`SETUP_GRACE`), takes half a minute in bonsai-lint, and in fsum is killed
+  the first time and succeeds when run again (`mockSetups.ts`). Storefront and bonsai-lint
+  have GitHub issues, `shop-142` was started for #142, #428's text holds HTML GitHub draws
+  (`<details>`, `<kbd>`) and HTML it does not, an HTML comment, an image and a view's block,
+  and one of its comments is hidden on GitHub, and fsum is not on GitHub, so its list says why
+  (`mockIssues.ts`). bonsai-lint's `rule-engine`
   holds an architect with sessions working for it, three levels deep, and `rule-docs` a
   planner that works for it from another task (`mockParents.ts`), each with a role
   (`mockRoles.ts`). The task whose stack runs has

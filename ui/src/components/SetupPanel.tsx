@@ -8,6 +8,7 @@ import {
     lastLines,
     ranSince,
     type SetupState,
+    setupShown,
     setupState,
     whyNotDone,
 } from "../setup";
@@ -24,7 +25,8 @@ const ELSEWHERE_EVERY = 2000;
 /**
  * How the setup of the task on screen goes, or why it did not finish, with what can be done
  * about it: stopped while it runs; run again, started anyway, its log shown, or the task
- * removed once it failed. Nothing for a task that is set up.
+ * removed once it failed. Nothing for a task that is set up, nor for a setup in its first
+ * moments (`setupShown`), which one with nothing to run never outlasts.
  */
 export function SetupPanel({ project, task }: { project: string; task: Task }) {
     const state = setupState(task);
@@ -51,7 +53,7 @@ export function SetupPanel({ project, task }: { project: string; task: Task }) {
         const timer = setInterval(read, ELSEWHERE_EVERY);
         return () => clearInterval(timer);
     }, [project, task.name, task.id, began, state, readSetupLog]);
-    if (state === "done") {
+    if (!setupShown(task, seen, now)) {
         return null;
     }
     return (

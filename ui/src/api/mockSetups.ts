@@ -18,17 +18,27 @@ import type {
 } from "./types";
 
 // How the sample repositories' tasks are set up, to see in a browser what a slow or a failing
-// setup looks like: storefront's is quick, bonsai-lint's takes half a minute, and fsum's is
-// killed the first time, as one the system ends for memory is, and does well when run again.
+// setup looks like, and one with nothing to run: storefront's own configuration has no setup,
+// so a task started on it ends at once and is never seen, while its staging environment's is
+// quick; bonsai-lint's takes half a minute, and fsum's is killed the first time, as one the
+// system ends for memory is, and does well when run again.
 
 interface Script {
-    /** What it prints, one line at a time. */
+    /** What it prints, one line at a time; nothing for no hook, which is not run. */
     lines: string[];
     /** How long each line takes, in milliseconds. */
     pace: number;
+    /** How long making the worktree ready and starting the stack each take, in milliseconds. */
+    steps: number;
     /** Why it fails, if it does. */
     fails: string | null;
 }
+
+/** How long a step around the hook takes in a setup that has one. */
+const STEPS = 400;
+
+/** How long a step takes in a setup with nothing to run: a few dozen milliseconds, as the core's. */
+const NOTHING_TO_RUN = 40;
 
 /** What the core says of a hook killed from outside (`failure_said`). */
 export const KILLED =
@@ -43,8 +53,11 @@ const STOPPED: Record<SetupStop, string> = {
 
 const INSTALL = ["Resolving packages", "Downloading 1,284 packages", "Linking dependencies"];
 
-/** How repository `project`'s setup goes, the `tries`th time for one task. */
-function scriptFor(project: string, tries: number): Script {
+/**
+ * How repository `project`'s setup goes in `environment` (`null` for the repository's own
+ * configuration), the `tries`th time for one task.
+ */
+function scriptFor(project: string, environment: string | null, tries: number): Script {
     if (project === "bonsai-lint") {
         const crates = Array.from(
             { length: 36 },
@@ -53,14 +66,23 @@ function scriptFor(project: string, tries: number): Script {
         return {
             lines: [...INSTALL, ...crates, "    Finished dev profile"],
             pace: 750,
+            steps: STEPS,
             fails: null,
         };
     }
     if (project === "fsum" && tries === 0) {
         const lines = [...INSTALL, "Building native modules", "node-gyp rebuild"];
-        return { lines, pace: 700, fails: KILLED };
+        return { lines, pace: 700, steps: STEPS, fails: KILLED };
     }
-    return { lines: [...INSTALL, "Seeding the database"], pace: 450, fails: null };
+    if (project === "storefront" && environment === null) {
+        return { lines: [], pace: 0, steps: NOTHING_TO_RUN, fails: null };
+    }
+    return {
+        lines: [...INSTALL, "Seeding the database"],
+        pace: 450,
+        steps: STEPS,
+        fails: null,
+    };
 }
 
 /** The bytes `text` takes, as the core counts places in a log. */
@@ -98,13 +120,16 @@ export class MockSetups {
     async run(project: string, task: Task): Promise<SetupEnd> {
         const tries = this.tries.get(task.id) ?? 0;
         this.tries.set(task.id, tries + 1);
-        const script = scriptFor(project, tries);
+        const script = scriptFor(project, task.environment, tries);
         const run: Run = { began: Date.now(), step: "preparing", stopped: null };
         this.running.set(task.id, run);
         this.logs.set(task.id, "");
         task.setting_up = { state: "here", step: run.step, began: run.began, latest: null };
-        await pause(400);
-        this.step(task, run, "hook");
+        await pause(script.steps);
+        // An empty hook is not run, as the core runs none.
+        if (script.lines.length > 0) {
+            this.step(task, run, "hook");
+        }
         for (const line of script.lines) {
             if (run.stopped !== null) {
                 break;
@@ -140,7 +165,7 @@ export class MockSetups {
             end = { outcome: "failed", reason: script.fails };
         } else {
             this.step(task, run, "stack");
-            await pause(400);
+            await pause(script.steps);
             end = { outcome: "done" };
         }
         const took = ((Date.now() - run.began) / 1000).toFixed(1);
