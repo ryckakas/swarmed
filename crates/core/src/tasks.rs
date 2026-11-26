@@ -987,7 +987,8 @@ async fn start_point(repo: &Path, from: &str, existing: Option<&str>) -> Result<
         return Err(Error::ExistingBranchStartsFromNothing(existing.to_string()));
     }
     for kind in ["refs/heads", "refs/remotes"] {
-        if git::ref_exists(repo, &format!("{kind}/{from}")).await {
+        // By its exact name: `main~1` is a commit and no branch.
+        if git::is_ref(repo, &format!("{kind}/{from}")).await {
             return Ok(from.to_string());
         }
     }

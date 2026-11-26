@@ -180,6 +180,18 @@ async fn a_task_checks_out_a_pull_requests_branch_or_stacks_on_one() {
         matches!(refused, Err(Error::NoBranchToStartFrom(ref name)) if name == "no/such"),
         "{refused:?}"
     );
+    // A commit named by way of a branch is no branch to keep as a base.
+    let earlier = PeerTask {
+        name: "earlier",
+        prompt: "Build on it.",
+        from: Some("pr/5028~1"),
+        ..PeerTask::default()
+    };
+    let refused = core.peer_start_task(asking.id, earlier).await;
+    assert!(
+        matches!(refused, Err(Error::NoBranchToStartFrom(ref name)) if name == "pr/5028~1"),
+        "{refused:?}"
+    );
     let both = PeerTask {
         name: "both",
         prompt: "Build on it.",
