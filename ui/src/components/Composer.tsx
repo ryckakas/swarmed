@@ -122,7 +122,7 @@ export function Composer({ session }: { session: Session }) {
     const toggleTerminal = useStore((state) => state.toggleTerminal);
     const report = useStore((state) => state.report);
     const input = useRef<HTMLTextAreaElement>(null);
-    const recalling = useRecall(id, session.spawned_by !== null, draft);
+    const recalling = useRecall(id, session.spawned, draft);
     const busy = waitsItsTurn(status);
     const commands = useSlashCommands(id, status);
     const suggestion = useStore((state) => suggestionOf(state.events[id]));

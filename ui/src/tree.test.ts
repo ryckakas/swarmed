@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { sampleProjects } from "./api/mock";
 import type { Project, Session, SessionEvent, SessionStatus, Task } from "./api/types";
 import { backgroundShown } from "./inBackground";
+import { parentChosen, parentOptions, regroupedSaid } from "./parents";
 import {
     applySessionEvent,
+    childrenOf,
     countBusy,
     countUnread,
     countWaiting,
@@ -11,6 +13,8 @@ import {
     findSessionHome,
     foldedSummary,
     nestedSessions,
+    parentChoices,
+    parentElsewhere,
     projectBackground,
     projectStatus,
     projectUnread,
@@ -30,6 +34,7 @@ import {
     withSession,
     withSessionStatus,
 } from "./tree";
+import { wordsFor } from "./wording";
 
 function withTitle(projects: Project[], sessionId: number, title: string): Project[] {
     const session = findSession(projects, sessionId);
@@ -88,6 +93,9 @@ describe("a folded task", () => {
         ]);
         expect(bonsai?.tasks.map(foldedSummary)).toEqual([
             { count: 2, status: "errored", unread: true, background: nothing },
+            // A planner and those working for it, and one more for it in a task of its own.
+            { count: 4, status: "idle", unread: false, background: nothing },
+            { count: 1, status: "idle", unread: false, background: nothing },
         ]);
     });
 
@@ -306,7 +314,7 @@ describe("lookups", () => {
     it("describes a task by its most urgent session", () => {
         const [storefront, bonsai] = sampleProjects();
         expect(storefront?.tasks.map(taskStatus)).toEqual(["waiting", "idle", null, "idle"]);
-        expect(bonsai?.tasks.map(taskStatus)).toEqual(["errored"]);
+        expect(bonsai?.tasks.map(taskStatus)).toEqual(["errored", "idle", "idle"]);
     });
 });
 
@@ -388,33 +396,110 @@ describe("unread sessions", () => {
 describe("nestedSessions", () => {
     const [storefront] = sampleProjects();
     const base = storefront?.tasks[0]?.sessions[0] as Session;
-    const session = (id: number, spawnedBy: number | null): Session => ({
+    const session = (id: number, parent: number | null): Session => ({
         ...base,
         id,
-        spawned_by: spawnedBy,
+        parent,
+    });
+    const shown = (sessions: Session[]) =>
+        nestedSessions(sessions).map(({ session: s, depth }) => [s.id, depth]);
+
+    it("lists a session right after the one it works for, one step in", () => {
+        const listed = shown([session(1, null), session(2, null), session(3, 1), session(4, 1)]);
+        expect(listed).toEqual([
+            [1, 0],
+            [3, 1],
+            [4, 1],
+            [2, 0],
+        ]);
     });
 
-    it("lists a session an agent started right after the one that started it", () => {
-        const listed = nestedSessions([
+    it("nests to any depth, each level in the task's own order", () => {
+        // 1 over 2 and 5; 2 over 3; 3 over 4.
+        const listed = shown([
             session(1, null),
-            session(2, null),
-            session(3, 1),
-            session(4, 1),
+            session(5, 1),
+            session(2, 1),
+            session(3, 2),
+            session(4, 3),
         ]);
-        expect(listed.map(({ session: s, nested }) => [s.id, nested])).toEqual([
-            [1, false],
-            [3, true],
-            [4, true],
-            [2, false],
+        expect(listed).toEqual([
+            [1, 0],
+            [5, 1],
+            [2, 1],
+            [3, 2],
+            [4, 3],
         ]);
     });
 
-    it("keeps one in line whose starter is not in the task any more", () => {
-        const listed = nestedSessions([session(2, null), session(5, 1)]);
-        expect(listed.map(({ session: s, nested }) => [s.id, nested])).toEqual([
-            [2, false],
-            [5, false],
+    it("keeps one in line whose parent is not in the task, and says which that is", () => {
+        const sessions = [session(2, null), session(5, 1), session(6, 6)];
+        expect(shown(sessions)).toEqual([
+            [2, 0],
+            [5, 0],
+            [6, 0],
         ]);
+        expect(parentElsewhere(sessions, session(5, 1))).toBe(1);
+        expect(parentElsewhere(sessions, session(2, null))).toBeNull();
+        expect(parentElsewhere([session(1, null), session(3, 1)], session(3, 1))).toBeNull();
+    });
+
+    it("leaves out a cycle written by hand rather than following it", () => {
+        expect(shown([session(1, 2), session(2, 1), session(3, null)])).toEqual([[3, 0]]);
+    });
+});
+
+describe("whom a session can work for", () => {
+    const sample = () => sampleProjects();
+    const ids = (sessions: Session[]) => sessions.map((session) => session.id);
+    const sampled = (projects: ReturnType<typeof sampleProjects>, id: number) => {
+        const found = findSession(projects, id);
+        if (!found) {
+            throw new Error(`no sample session ${id}`);
+        }
+        return found;
+    };
+
+    it("is any other open session of its repository but those that work for it", () => {
+        const projects = sample();
+        // The rule engine's planner (9) over the parser (10) and the port (12), the parser
+        // over its tests (11), and the planner over the docs, in a task of their own (13).
+        const parser = sampled(projects, 10);
+        expect(ids(parentChoices(projects, parser))).toEqual([9, 12, 4, 5, 13]);
+        const planner = sampled(projects, 9);
+        expect(ids(parentChoices(projects, planner))).toEqual([4, 5]);
+        expect(ids(childrenOf(projects, 9))).toEqual([10, 12, 13]);
+        expect(ids(childrenOf(projects, 11))).toEqual([]);
+    });
+
+    it("is offered in a menu with nobody first and the current one kept", () => {
+        const projects = sample();
+        const words = wordsFor("plain");
+        const options = parentOptions(projects, sampled(projects, 11), words);
+        expect(options[0]).toEqual(["", "Works for nobody"]);
+        expect(options).toContainEqual(["10", "Works for session 10: Build the rule parser"]);
+        // One that works for a closed session keeps it in the menu, by its number.
+        const orphan = { ...sampled(projects, 4), parent: 99 };
+        const kept = parentOptions(projects, orphan, words);
+        expect(kept[1]).toEqual(["99", "Works for session 99"]);
+        expect(parentChosen("")).toBeNull();
+        expect(parentChosen("12")).toBe(12);
+    });
+
+    it("says in each conversation it concerns what changed", () => {
+        const words = wordsFor("plain");
+        const change = { child: 11, parent: 9, previous: 10 };
+        expect(regroupedSaid(change, 11, words)).toBe(
+            "Works for session 9 from here on, no longer for session 10.",
+        );
+        expect(regroupedSaid(change, 9, words)).toBe(
+            "Session 11 works for this session from here on.",
+        );
+        expect(regroupedSaid(change, 10, words)).toBe(
+            "Session 11 no longer works for this session.",
+        );
+        const freed = { child: 11, parent: null, previous: null };
+        expect(regroupedSaid(freed, 11, words)).toBe("Works for nobody from here on.");
     });
 });
 

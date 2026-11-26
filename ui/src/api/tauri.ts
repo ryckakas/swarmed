@@ -344,6 +344,7 @@ export const tauriApi: Api = {
     sessionContinueAtReset: (id) => invoke<number>("session_continue_at_reset", { id }),
     sessionContinueCancel: (id) => invoke("session_continue_cancel", { id }),
     sessionRename: (id, title) => invoke<Session>("session_rename", { id, title }),
+    sessionSetParent: (id, parent) => invoke<Session>("session_set_parent", { id, parent }),
     sessionMark: (id, colour, label) => invoke<Session>("session_mark", { id, colour, label }),
     sessionClose: (id) => invoke("session_close", { id }),
     sessionDelete: (id) => invoke("session_delete", { id }),

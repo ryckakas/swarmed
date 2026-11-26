@@ -1,9 +1,9 @@
 import { lastDays } from "../analytics";
 import { CHATS } from "../chats";
-import { movedAmong, pinnedAmong, starterHere } from "../ordering";
+import { movedAmong, pinnedAmong } from "../ordering";
 import { calledCommand } from "../slash";
 import { PLAN_TOOL } from "../transcript";
-import { titleFrom } from "../tree";
+import { parentHere, titleFrom } from "../tree";
 import type { Api } from "./client";
 import { mockAppCall, mockAppCalled, mockAppShown } from "./mockApps";
 import { browserApi, MockBrowsers } from "./mockBrowser";
@@ -19,6 +19,7 @@ import { MOCK_ATTACHMENTS, mockImagesApi } from "./mockImages";
 import { issuesApi } from "./mockIssues";
 import { mentionsApi, messageFor } from "./mockMentions";
 import { mergeApi } from "./mockMerging";
+import { SAMPLE_PARENTS, SAMPLE_SPAWNED, sampleParentSet } from "./mockParents";
 import { bringBack, putAwayApi } from "./mockPutAway";
 import { rewindApi } from "./mockRewind";
 import { mockCheck } from "./mockScreenshot";
@@ -170,7 +171,8 @@ function session(id: number, taskId: number, title: string, status: SessionStatu
         status,
         // One sample session has answered and not been looked at.
         unread: id === 5,
-        spawned_by: null,
+        parent: SAMPLE_PARENTS[id] ?? null,
+        spawned: SAMPLE_SPAWNED.has(id),
         fast: false,
         // One sample session carries a mark, as a skill's last step would leave it.
         mark: id === 3 ? { colour: "green", label: "e2e passed" } : null,
@@ -854,9 +856,9 @@ function orderApi(
         },
         sessionMove: async (id, by) => {
             const { task, session } = taskOf(id);
-            const starter = starterHere(task.sessions, session);
+            const parent = parentHere(task.sessions, session);
             const siblings = (one: Session) =>
-                starterHere(task.sessions, one) === starter && one.pinned === session.pinned;
+                parentHere(task.sessions, one) === parent && one.pinned === session.pinned;
             const moved = movedAmong(task.sessions, siblings, (one) => one.id === id, by);
             replace(task.sessions, moved);
         },
@@ -1528,6 +1530,14 @@ export function sampleProjects(): Project[] {
                     session(4, 4, "Sketch a Rust language spec", "errored"),
                     session(5, 4, "A very long conversation", "idle"),
                 ]),
+                // Who works for whom, three levels deep and across two tasks (`mockParents.ts`).
+                task(7, 2, "rule-engine", [
+                    session(9, 7, "Plan the rule engine", "idle"),
+                    session(10, 7, "Build the rule parser", "idle"),
+                    session(11, 7, "Write the parser's tests", "idle"),
+                    session(12, 7, "Port the built-in rules", "idle"),
+                ]),
+                task(8, 2, "rule-docs", [session(13, 8, "Document the rule format", "idle")]),
             ],
         },
         {
@@ -3205,6 +3215,19 @@ class MockAgent {
         return renamed;
     }
 
+    /**
+     * Has a session work for another, recorded in every session it concerns as the core records
+     * it, and has the window read the tree again.
+     */
+    setParent(id: number, parent: number | null): Session {
+        const { session, event, concerned } = sampleParentSet(this.projects, id, parent);
+        for (const one of concerned) {
+            this.publish(one, event, null);
+        }
+        this.tell(0, { type: "tree_changed" }, null);
+        return session;
+    }
+
     /** The sessions that were closed, by the id of their task, the one closed last first. */
     private readonly closedSessions = new Map<number, Session[]>();
 
@@ -3920,6 +3943,7 @@ export function createMockApi(): Api {
         sessionContinueAtReset: async (id) => agent.continueAtReset(id),
         sessionContinueCancel: async (id) => agent.cancelContinuation(id),
         sessionRename: async (id, title) => agent.rename(id, title),
+        sessionSetParent: async (id, parent) => agent.setParent(id, parent),
         sessionMark: async (id, colour, label) => agent.mark(id, colour, label),
         sessionsSearch: async (query) => sampleSearch(agent.projects, query),
         ...closingApi(agent),

@@ -4,6 +4,7 @@ import { type GitHubMentioned, splitMentioned } from "./githubMentions";
 import { shownHtml } from "./htmlview";
 import { type SentContext, splitAppContexts } from "./mcpApps";
 import type { Mentioned } from "./mentions";
+import type { Regrouped } from "./parents";
 import { QUESTION_TOOL, type Question, questionsOf } from "./questions";
 import { type RateLimit, refusalNotice } from "./rateLimit";
 import { type Words, wordsFor } from "./wording";
@@ -96,6 +97,8 @@ export type Item =
       }
     /** The task's worktree moved to another branch: during the turn, or since the last one. */
     | { kind: "moved"; key: number; from: string | null; to: string | null; betweenTurns: boolean }
+    /** Whom a session works for changed: this one, or one that works or worked for it. */
+    | ({ kind: "regrouped"; key: number } & Regrouped)
     /** Something changed on the task's pull request: checks, a review, a comment, a merge. */
     | { kind: "pull"; key: number; number: number; url: string; change: PullChange }
     /** HTML the agent showed the user through Swarmed's tool. */
@@ -323,6 +326,10 @@ function single(event: AgentEvent, key: number, words: Words): Item | null {
         case "worktree_moved": {
             const { from, to, between_turns } = event;
             return { kind: "moved", key, from, to, betweenTurns: between_turns };
+        }
+        case "parent_changed": {
+            const { child, parent, previous } = event;
+            return { kind: "regrouped", key, child, parent, previous };
         }
         case "pull_changed":
             return {

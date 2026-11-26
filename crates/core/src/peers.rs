@@ -23,7 +23,7 @@ use crate::paths::SOCKET_PREFIX;
 use crate::sessions::{Session, SessionOptions, SessionStatus};
 use crate::store::Project;
 use crate::toolserver::{DELEGATE_TO_CLOUD, SHOW_BROWSER, START_TASK};
-use crate::{Core, Task, rewind};
+use crate::{Core, Task, parents, rewind};
 
 mod tasks;
 
@@ -44,18 +44,19 @@ pub(crate) const INSTRUCTIONS: &str = "\
 You are one of possibly several agent sessions the user runs side by side in Swarmed, each in \
 a task with its own git worktree. The `swarmed` tool server (in Claude Code: `mcp__swarmed__…`) \
 lets you work with the others:
-- `list_sessions`: who else is there, in which task, and whether they are busy.
+- `list_sessions`: who else is there, in which task, whether they are busy, and which session \
+each works for.
 - `read_session`: the latest messages of another session.
 - `send_message`: leave another session a message. It arrives as a message in its \
 conversation, at once if it is idle, else when its turn ends.
 - `spawn_session`: start a new session in your own worktree with a prompt of yours, for a part \
 of the work that can go on beside you. It shares your files, so give it a part that does not \
-collide with what you are editing. It is told to report back to you with `send_message` when \
-it is done; you do not have to wait for it.
+collide with what you are editing. It works for you, and is told to report back to you with \
+`send_message` when it is done; you do not have to wait for it.
 - `start_task`: start a new task, with a branch, worktree and session of its own, for work that \
 needs a branch of its own: a separate change, a fix to another pull request, the next pull \
-request of a stack. Its session gets your prompt once the task is set up, and reports back to \
-you like a spawned one.
+request of a stack. Its session gets your prompt once the task is set up, works for you, and \
+reports back to you like a spawned one.
 - `close_session`: put away a session you spawned, once it is done and you have what you need \
 from it. You cannot close any other session.
 - `delegate_to_cloud`: hand a self-contained piece of work to an agent in the cloud, when the \
@@ -182,7 +183,8 @@ fn place(task: &Task, reach: Reach, projects: &[Project]) -> String {
     }
 }
 
-/// One line about a session, as another session is told of it.
+/// One line about a session, as another session is told of it: its number, its state, where
+/// it works, the session it works for, and its title.
 fn brief(session: &Session, place: &str, own: i64) -> String {
     let you = if session.id == own { " (you)" } else { "" };
     let state = if session.unread && !is_busy(session) {
@@ -195,7 +197,15 @@ fn brief(session: &Session, place: &str, own: i64) -> String {
     } else {
         &session.title
     };
-    format!("{}{you}\t{state}\t{place}\t{title}", session.id)
+    let works_for = match session.parent {
+        Some(parent) if parent == own => "you".to_string(),
+        Some(parent) => parent.to_string(),
+        None => "-".to_string(),
+    };
+    format!(
+        "{}{you}\t{state}\t{place}\t{works_for}\t{title}",
+        session.id
+    )
 }
 
 /// What a session said or was told, if the event is that, as one paragraph.
@@ -329,7 +339,7 @@ impl Core {
     }
 
     /// The open sessions `from` can read, one line each, for an agent to read: those of the
-    /// project it works in, or from a chat, every one.
+    /// project it works in, or from a chat, every one, each with the session it works for.
     pub fn peer_sessions(&self, from: i64) -> Result<String> {
         let own = self.session(from)?;
         let reach = self.reach_of(&own)?;
@@ -343,7 +353,7 @@ impl Core {
             task.filter(in_reach)
                 .map(|task| brief(session, &place(task, reach, &projects), from))
         };
-        let mut lines = vec!["id\tstate\ttask\ttitle".to_string()];
+        let mut lines = vec!["id\tstate\ttask\tworks for\ttitle".to_string()];
         lines.extend(sessions.iter().filter_map(line));
         Ok(lines.join("\n"))
     }
@@ -450,6 +460,8 @@ impl Core {
     ///
     /// Only an open session `from` can reach can be read: of its own project, or any from a
     /// chat. A repository's session cannot read a chat, which may hold another repository's.
+    /// Who works with it comes first, if anyone does, so that an agent can find again the
+    /// sessions that work for it.
     pub fn peer_digest(
         &self,
         from: i64,
@@ -458,6 +470,16 @@ impl Core {
         first: Option<usize>,
     ) -> Result<String> {
         self.peer_in_reach(from, id, Access::Read)?;
+        let read = self.peer_read(id, messages, first)?;
+        let relations = self.store().relations(id)?;
+        Ok(match parents::about(id, &relations) {
+            Some(about) => format!("{about}\n\n{read}"),
+            None => read,
+        })
+    }
+
+    /// What was said in session `id`, as [`Core::peer_digest`] hands it on.
+    fn peer_read(&self, id: i64, messages: Option<usize>, first: Option<usize>) -> Result<String> {
         let wanted = messages.unwrap_or(DIGEST_MESSAGES);
         let Some(said) = self.said_in(id, first, wanted, DIGEST_CHARS)? else {
             return Ok(nothing_from(first));
@@ -514,17 +536,17 @@ impl Core {
     }
 
     /// Starts a new session beside `from`, in the same task and so the same worktree, on the
-    /// same agent with the same settings, and gives it `prompt`. The new session is told who
-    /// started it and to report back when it is done.
+    /// same agent with the same settings, and gives it `prompt`. The new session works for
+    /// `from`, and is told who started it and to report back when it is done.
     ///
     /// A session that was itself started this way cannot start others, and one session can
-    /// have [`MAX_SPAWNED`] of them open at most.
+    /// have [`MAX_SPAWNED`] open that work for it at most.
     pub fn peer_spawn(&self, from: i64, prompt: &str, title: Option<&str>) -> Result<Session> {
         let parent = self.session(from)?;
         if prompt.trim().is_empty() {
             return Err(Error::EmptyMessage);
         }
-        if parent.spawned_by.is_some() {
+        if parent.spawned {
             return Err(refused(
                 "a session that was started by another session cannot start sessions itself",
             ));
@@ -532,8 +554,8 @@ impl Core {
         let open = self.store().sessions_spawned_by(from)?;
         if open >= MAX_SPAWNED {
             return Err(refused(format!(
-                "this session already has {open} sessions of its own open, which is the most \
-                 allowed; wait for them, or ask the user to close some"
+                "this session already has {open} open sessions working for it, which is the \
+                 most allowed; wait for them, or ask the user to close some"
             )));
         }
         let options = SessionOptions {
@@ -565,12 +587,13 @@ impl Core {
     }
 
     /// Closes session `id` on behalf of session `from`, which has to be the one that started
-    /// it, and only once it is idle. A session the user started, or another agent's, is not an
-    /// agent's to put away; and closing one in the middle of a turn would throw its work away.
+    /// it and that it works for, and only once it is idle. A session the user started, even one
+    /// the user has work for `from`, or another agent's, is not an agent's to put away; and
+    /// closing one in the middle of a turn would throw its work away.
     pub fn peer_close(&self, from: i64, id: i64) -> Result<()> {
         self.session(from)?;
         let session = self.session(id)?;
-        if session.spawned_by != Some(from) {
+        if session.parent != Some(from) || !session.spawned {
             return Err(refused(
                 "a session can only close sessions it started itself; this one is not yours",
             ));

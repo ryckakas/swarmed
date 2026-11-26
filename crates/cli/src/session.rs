@@ -11,14 +11,15 @@ use swarmed_core::agent::{
     ScreenSection, Supervision,
 };
 use swarmed_core::{
-    Attached, BackgroundCount, Core, Session, SessionEvent, SessionOptions, SessionSettings,
+    Attached, BackgroundCount, Core, SESSION_ENV, Session, SessionEvent, SessionOptions,
+    SessionSettings, nested_sessions,
 };
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use crate::limits::{seconds_now, span};
-use crate::say;
+use crate::{aside, say};
 
 /// How long a tool call's arguments may be when shown on one line.
 const SUMMARY_CHARS: usize = 120;
@@ -51,12 +52,17 @@ pub(crate) enum SessionCommand {
         /// Plan mode: the agent only reads, then presents a plan to approve before it acts.
         #[arg(long, conflicts_with = "auto")]
         plan: bool,
+        /// The session the new one works for, by id, or `none`: it reports to that one, and is
+        /// listed under it. Without it, the session whose agent runs this command, if it may.
+        #[arg(long, value_parser = parent)]
+        parent: Option<Parent>,
         #[arg(long, value_enum, default_value_t)]
         auth: AuthMode,
     },
     /// Continue a session with another turn.
     Send(SendArgs),
-    /// List a task's sessions.
+    /// List a task's sessions, each after the one it works for, with `for <id>` at the end of
+    /// the line of each that works for another.
     List { project: String, task: String },
     /// Print everything a session has said and been told.
     Show { id: i64 },
@@ -128,6 +134,15 @@ pub(crate) enum SessionCommand {
     Status { id: i64 },
     /// Give a session a new title.
     Rename { id: i64, title: String },
+    /// Have a session work for another, of any task of the same repository: it reports to that
+    /// one, and is listed under it. `none` has it work for nobody. Both agents are told with
+    /// their next message.
+    Parent {
+        id: i64,
+        /// The session it works for, by id, or `none`.
+        #[arg(value_parser = parent)]
+        parent: Parent,
+    },
     /// Move a session among the other open sessions of its task, as the app lists them: one
     /// another session started, among those that one started, and a pinned one among the
     /// pinned.
@@ -244,6 +259,80 @@ impl AuthMode {
     }
 }
 
+/// The session one works for, as `--parent` and `swarmed session parent` take it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Parent {
+    /// This session.
+    Session(i64),
+    /// None.
+    Nobody,
+}
+
+impl Parent {
+    fn id(self) -> Option<i64> {
+        match self {
+            Self::Session(id) => Some(id),
+            Self::Nobody => None,
+        }
+    }
+}
+
+/// Reads a session's id, or `none`.
+fn parent(value: &str) -> std::result::Result<Parent, String> {
+    if value.eq_ignore_ascii_case("none") {
+        return Ok(Parent::Nobody);
+    }
+    value
+        .parse()
+        .map(Parent::Session)
+        .map_err(|_| "use a session's id, or none".to_string())
+}
+
+/// Prints a task's sessions, each after the one it works for, which a last column names after
+/// the columns there always were.
+fn list(core: &Core, project: &str, task: &str) -> Result<()> {
+    let sessions = core.sessions(project, task)?;
+    for (s, _) in nested_sessions(&sessions) {
+        let mode = s.supervision.as_str();
+        let state = state_of(s);
+        let parent = s
+            .parent
+            .map_or_else(String::new, |id| format!("\tfor {id}"));
+        say(&format!("{}\t{state}\t{mode}\t{}{parent}", s.id, s.title));
+    }
+    Ok(())
+}
+
+/// What a session works for, said after it was changed.
+fn parent_said(parent: Option<i64>) -> String {
+    parent.map_or_else(
+        || "works for nobody".to_string(),
+        |id| format!("works for session {id}"),
+    )
+}
+
+/// Has new session `id` work for `asked`, or without that for the session whose agent runs
+/// this command (`SWARMED_SESSION`), if any. One asked for and refused fails the command; the
+/// calling session refused, such as one of another repository, is said aside and passed over.
+/// One asked for is told so with its next message, as a change in the window is; the calling
+/// session started it itself, and has nothing to be told.
+fn works_for(core: &Core, id: i64, asked: Option<Parent>) -> Result<()> {
+    if let Some(asked) = asked {
+        core.session_set_parent(id, asked.id())?;
+        return Ok(());
+    }
+    let calling = std::env::var(SESSION_ENV).ok();
+    let Some(calling) = calling.and_then(|calling| calling.trim().parse::<i64>().ok()) else {
+        return Ok(());
+    };
+    if let Err(error) = core.session_parent_from_start(id, calling) {
+        aside(&format!(
+            "not working for session {calling}, which runs this: {error}"
+        ));
+    }
+    Ok(())
+}
+
 /// Puts a mark on a session, or takes it off, and prints what it then has.
 fn mark(core: &Core, id: i64, colour: &str, label: &str) -> Result<()> {
     let marked = core.session_mark_named(id, colour, label)?;
@@ -282,6 +371,7 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             auto,
             ask,
             plan,
+            parent,
             auth,
         } => {
             let chosen = (auto || ask || plan).then(|| supervision(auto, plan));
@@ -295,18 +385,12 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             };
             let session = core.session_new(&project, &task, &options)?;
             say(&format!("session {}", session.id));
+            works_for(core, session.id, parent)?;
             let nothing = Attached::default();
             run_turn(core, session.id, &prompt, &nothing, auth.resolve()?).await
         }
         SessionCommand::Send(args) => send(core, args).await,
-        SessionCommand::List { project, task } => {
-            for s in core.sessions(&project, &task)? {
-                let mode = s.supervision.as_str();
-                let state = state_of(&s);
-                say(&format!("{}\t{state}\t{mode}\t{}", s.id, s.title));
-            }
-            Ok(())
-        }
+        SessionCommand::List { project, task } => list(core, &project, &task),
         SessionCommand::Fork {
             id,
             from,
@@ -348,6 +432,12 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             Ok(())
         }
         SessionCommand::Rename { id, title } => renamed(core, id, &title),
+        SessionCommand::Parent { id, parent } => {
+            say(&parent_said(
+                core.session_set_parent(id, parent.id())?.parent,
+            ));
+            Ok(())
+        }
         SessionCommand::Move { id, by } => moved(core, id, by),
         SessionCommand::Pin { id } => pinned(core, id, true),
         SessionCommand::Unpin { id } => pinned(core, id, false),
@@ -976,12 +1066,25 @@ fn described_by_core(event: &AgentEvent) -> Option<String> {
         }
         AgentEvent::Rewound { to, files, .. } => Some(crate::rewind::rewound(*to, *files)),
         AgentEvent::FilesPutBack { .. } => Some("— the files were put back".to_string()),
+        AgentEvent::ParentChanged {
+            child,
+            parent,
+            previous,
+        } => Some(regrouped(*child, *parent, *previous)),
         // An app is HTML for a sandboxed frame, which only the window has.
         AgentEvent::App { server, .. } => Some(format!(
             "— the {server} server showed an app, which the Swarmed window draws"
         )),
         _ => None,
     }
+}
+
+/// The line of a change of whom session `child` works for, the same in its history and in
+/// those of the sessions it worked for and works for now.
+fn regrouped(child: i64, parent: Option<i64>, previous: Option<i64>) -> String {
+    let now = parent.map_or_else(|| "nobody".to_string(), |id| format!("session {id}"));
+    let before = previous.map_or_else(String::new, |id| format!(", no longer for session {id}"));
+    format!("— session {child} works for {now} now{before}")
 }
 
 /// One of the agent's screens as lines of text: its heading, then each part's rows.

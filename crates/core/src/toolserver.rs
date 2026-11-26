@@ -42,7 +42,7 @@ pub(crate) const VIEW_SPOOL_ENV: &str = "SWARMED_VIEW_SPOOL";
 const VIEW_EXTENSION: &str = "html";
 /// The environment variables that tell the server which session it serves, and where the core
 /// that session belongs to is listening.
-pub(crate) const SESSION_ENV: &str = "SWARMED_SESSION";
+pub const SESSION_ENV: &str = "SWARMED_SESSION";
 pub(crate) const SOCKET_ENV: &str = "SWARMED_SOCKET";
 
 /// What ties this server to the core: the session whose agent started it, and how to reach
@@ -108,8 +108,9 @@ fn local_tools() -> Value {
         "title": "List the user's other agent sessions",
         "description": "Lists the agent sessions the user has open in this project, yours \
             included: each one's id, whether it is idle, working or waiting for the user, the \
-            task (worktree) it is in, and its title. Use it to see who else is at work before \
-            reading from or writing to another session.",
+            task (worktree) it is in, the session it works for, and its title. Use it to see \
+            who else is at work, and who works for you, before reading from or writing to \
+            another session.",
         "inputSchema": { "type": "object", "properties": {} },
     },
     read_session_tool(),
@@ -135,9 +136,9 @@ fn local_tools() -> Value {
             agent and settings as you, and gives it your prompt. It works at the same time as \
             you and on the same files and branch, so give it a part of the work that does not \
             collide with yours, and everything it needs to know: it starts with no knowledge \
-            of your conversation. It reports back to you with a message when it is done. A \
-            session that was itself spawned cannot spawn, and you can have a few open at a \
-            time. For work on another branch, use start_task instead.",
+            of your conversation. It works for you, and reports back to you with a message \
+            when it is done. A session that was itself spawned cannot spawn, and you can have \
+            a few open at a time. For work on another branch, use start_task instead.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -173,14 +174,14 @@ fn start_task_tool() -> Value {
         "description": "Starts a new task in this repository, as the user's New task does: a \
             branch and worktree of its own, set up as the repository says, and a new agent \
             session on your agent and settings, which gets your prompt once the setup is \
-            done and reports back to you with a message when it is done. The user sees it in \
-            the sidebar and can watch and answer it. Use it for work that needs a branch of \
-            its own: a separate change, a fix to another pull request (pass its `branch`), \
-            the next pull request of a stack (pass `from`). Never switch your own worktree \
-            to another branch for such work. Start one when the user asks for that work; when \
-            it is only your own idea, ask first. The new session knows nothing of your \
-            conversation, so the prompt has to say everything it needs. For a part of your \
-            own task's work, on your branch, use spawn_session instead.",
+            done, works for you, and reports back to you with a message when it is done. The \
+            user sees it in the sidebar and can watch and answer it. Use it for work that \
+            needs a branch of its own: a separate change, a fix to another pull request (pass \
+            its `branch`), the next pull request of a stack (pass `from`). Never switch your \
+            own worktree to another branch for such work. Start one when the user asks for \
+            that work; when it is only your own idea, ask first. The new session knows \
+            nothing of your conversation, so the prompt has to say everything it needs. For a \
+            part of your own task's work, on your branch, use spawn_session instead.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -232,7 +233,8 @@ fn read_session_tool() -> Value {
         "name": "read_session",
         "title": "Read another session's latest messages",
         "description": "Returns what was last said in another session, by the user and by \
-            its agent, oldest first. Tool calls and their output are left out.",
+            its agent, oldest first, after who works with it. Tool calls and their output are \
+            left out.",
         "inputSchema": {
             "type": "object",
             "properties": {

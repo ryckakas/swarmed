@@ -59,17 +59,17 @@ impl Core {
     /// same agent and settings as `from`'s, whose prompt goes once the task is set up. The
     /// prompt is marked as `from`'s words, and tells the new session to report back to it.
     ///
-    /// The new session is not one `from` spawned: it is the first of a task of its own, and
-    /// can start sessions and tasks itself, as the next link of a chain of pull requests does.
-    /// A session that was itself spawned cannot start one, nor can a chat, which has no
-    /// repository. Must be called from within a tokio runtime.
+    /// The new session works for `from`, but is not one `from` spawned: it is the first of a
+    /// task of its own, and can start sessions and tasks itself, as the next link of a chain of
+    /// pull requests does. A session that was itself spawned cannot start one, nor can a chat,
+    /// which has no repository. Must be called from within a tokio runtime.
     pub async fn peer_start_task(
         self: &Arc<Self>,
         from: i64,
         asked: PeerTask<'_>,
     ) -> Result<TaskStarted> {
         let asking = self.session(from)?;
-        if asking.spawned_by.is_some() {
+        if asking.spawned {
             return Err(refused(
                 "a session that was started by another session cannot start tasks; the session \
                  that started it can",
@@ -130,7 +130,12 @@ impl Core {
             &hooks::discard,
         );
         // The setup goes on by itself, as the window's New task leaves it.
-        let (started, _going) = starting.await?;
+        let (mut started, _going) = starting.await?;
+        // Before its agent starts, which is once the setup is done, so that it is told whom it
+        // works for from the start.
+        self.store()
+            .session_set_parent(started.session.id, Some(from))?;
+        started.session.parent = Some(from);
         if asked.title.is_none() {
             self.name_later(started.session.id, asked.prompt);
         }

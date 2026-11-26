@@ -520,7 +520,9 @@ A skill can tell that it runs in a Swarmed task. Every agent is started with the
 variables, as hooks are, among them `SWARMED_TASK`, `SWARMED_BRANCH` and `SWARMED_WORKTREE` (see
 [Variables](configuration.md#variables)), so a skill of your own can skip its worktree step when
 `SWARMED_TASK` is set. `SWARMED_BROWSER` is the address of the task's browser, which a skill
-that checks pages can connect to instead of launching a browser.
+that checks pages can connect to instead of launching a browser. `SWARMED_SESSION` is the number
+of the agent's own session, which `swarmed session run` takes as the new session's parent (see
+[Who works for whom](#who-works-for-whom)).
 
 ## What Swarmed gives every agent
 
@@ -530,10 +532,10 @@ Every session gets an MCP server named `swarmed`, with these tools:
 | --- | --- |
 | `show_html` | shows HTML in the conversation, in a sandboxed frame |
 | `show_browser` | opens the task's browser beside the conversation, on an address, in a tab of the session's own; see [The task's browser and your browser tools](#the-tasks-browser-and-your-browser-tools) |
-| `list_sessions`, `read_session` | see and read the other open sessions of the same project; from a chat, every open session. `read_session` reads the latest messages, or from one it is given (`from`), so a long conversation can be read from its start |
+| `list_sessions`, `read_session` | see and read the other open sessions of the same project; from a chat, every open session. Both say which session each works for, and `read_session` which work for the one it reads. It reads the latest messages, or from one it is given (`from`), so a long conversation can be read from its start |
 | `send_message` | write to another session it can read, or to a chat, so that one a chat wrote to can answer it; queued if it is busy |
-| `spawn_session`, `close_session` | start a session in the same task, up to six, and close the idle ones it started |
-| `start_task` | start a new task in the same repository for work that needs a branch of its own, as New task does: on a new branch, on an existing one such as a pull request's (`branch`), or on a new one stacked on another (`from`). Its session gets the prompt once the task is set up and reports back to the session that started it. A session run with `swarmed session` is refused: the command ends with its turn |
+| `spawn_session`, `close_session` | start a session in the same task, which works for the one that started it, up to six open, and close the idle ones it started |
+| `start_task` | start a new task in the same repository for work that needs a branch of its own, as New task does: on a new branch, on an existing one such as a pull request's (`branch`), or on a new one stacked on another (`from`). Its session gets the prompt once the task is set up, works for the session that started it and reports back to it. A session run with `swarmed session` is refused: the command ends with its turn |
 | `delegate_to_cloud` | hand work to a Codex cloud agent or a Claude Code cloud session |
 | `use_skill` | read a skill Swarmed offers |
 | `set_mark` | put a colour and a few words on its own session in the sidebar |
@@ -548,6 +550,28 @@ settings, and removing an action, a prompt or the status line's script. Adding a
 line script, or hiding tool calls it can only propose: the change is shown in the conversation and made when you
 accept it. API keys, MCP servers, sign-ins, supervision, notes and the branch prefix are out of its reach, and it
 tells an agent the names of an environment's variables, never their values.
+
+### Who works for whom
+
+A session can work for another one, its parent: it reports to that one, and the sidebar lists it
+under it. Sessions an agent starts with `spawn_session` or `start_task` work for that agent's
+session, and so does one started with `swarmed session run` from an agent's shell: agents are
+given `SWARMED_SESSION`, the number of their own session, which the command takes as the parent
+unless `--parent` names another one or `none`. You choose it yourself from the menu in the
+session's header, or with `swarmed session parent 12 7` (`none` for nobody).
+
+A session can work for any other open session of the same repository, in any task: a planner in
+one task can have sessions working for it in others. It cannot work for itself, for a closed
+session, for one of another repository, or for one that works for it, however far down, so who
+works for whom stays a tree. The sidebar nests it to any depth: a session sits under the one it
+works for when both are in the same task, and one whose parent is in another task, or closed,
+stays in its own place with a small link to that one (`for #7`). The header names the session it
+works for and those that work for it, with how each is doing; pressing one opens it.
+
+Each agent is told who works with it when it starts. When you change it, the conversations it
+concerns say so on a line of their own, and their agents are told who works with them now along
+with your next message. Closing a session leaves those that worked for it as they are; deleting
+one leaves them working for nobody. A fork starts working for nobody.
 
 ### Mentioning another session
 

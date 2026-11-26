@@ -25,6 +25,17 @@ notice adds its line under Unreleased.
   starts a task's branch from another branch the same way. See
   [What Swarmed gives every agent](docs/coding-agents.md#what-swarmed-gives-every-agent).
 
+- **Who works for whom.** A session can work for another session of the same repository, in
+  any task: it reports to that one, and the sidebar lists it under it, nested to any depth, or
+  with a `for #7` link when that one is in another task. Sessions an agent starts with
+  `spawn_session` or `start_task`, or with `swarmed session run` from its shell, work for that
+  agent's session. Choose it yourself from the menu in a session's header, which also shows the
+  session it works for and those that work for it, or with `swarmed session parent` and
+  `swarmed session run --parent`. Agents are told who works with them when they start, and
+  again with the next message when you change it. `list_sessions` and `read_session` say it
+  too, and `swarmed session list` adds it at the end of each line. See
+  [Who works for whom](docs/coding-agents.md#who-works-for-whom).
+
 ## [0.4.7] - 2026-11-26
 
 ### Added

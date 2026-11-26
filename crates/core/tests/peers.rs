@@ -198,7 +198,7 @@ async fn a_session_starts_others_beside_itself_within_limits() {
         .peer_spawn(parent.id, "write the tests", Some("Tests"))
         .expect("spawns");
     assert_eq!(child.task_id, parent.task_id);
-    assert_eq!(child.spawned_by, Some(parent.id));
+    assert_eq!((child.parent, child.spawned), (Some(parent.id), true));
     assert_eq!(child.title, "Tests");
     // It is running on its prompt, and knows whom to report to.
     let events = turn(&mut bus, child.id).await;
@@ -410,7 +410,7 @@ async fn a_session_closes_only_what_it_started_and_only_when_that_is_done() {
     assert_eq!(closed.iter().map(|s| s.id).collect::<Vec<_>>(), [child.id]);
     assert_eq!(core.overview().expect("reads")[0].tasks[0].closed, 1);
     let back = core.session_reopen(child.id).expect("reopens");
-    assert_eq!(back.spawned_by, Some(parent.id));
+    assert_eq!(back.parent, Some(parent.id));
     assert_eq!(core.sessions("demo", "one").expect("lists").len(), 3);
     assert_eq!(core.overview().expect("reads")[0].tasks[0].closed, 0);
     assert_ne!(core.session_events(child.id).expect("reads").len(), 0);

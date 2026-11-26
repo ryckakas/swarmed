@@ -5,6 +5,7 @@ import type { AgentEvent } from "../api/types";
 import { elementsApart, type ListedElement } from "../elements";
 import { type GitHubMentioned, githubApart } from "../githubMentions";
 import { type Mentioned, mentionedApart } from "../mentions";
+import { regroupedSaid } from "../parents";
 import { type MessagePart, messageParts } from "../pastes";
 import { failedChecks, pullChangeSaid } from "../pulls";
 import { offersPutAway } from "../putAway";
@@ -353,6 +354,8 @@ function ItemView(props: ItemProps) {
             );
         case "forked":
             return <p className="forked-line">{words.forkedFrom(item.from)}</p>;
+        case "regrouped":
+            return <p className="aside regrouped-line">{regroupedSaid(item, sessionId, words)}</p>;
         case "notice":
             return (
                 <p className={`notice-line notice-${item.tone}`} role="alert">

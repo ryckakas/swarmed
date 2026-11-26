@@ -353,6 +353,12 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE tasks ADD COLUMN highlight TEXT;
     ALTER TABLE sessions ADD COLUMN highlight TEXT;
 ",
+    // `spawned_by` is whom a session works for now, which the user can set too (`parents.rs`);
+    // whether another session's agent started it, which is all it said before, is kept apart.
+    "
+    ALTER TABLE sessions ADD COLUMN spawned INTEGER NOT NULL DEFAULT 0;
+    UPDATE sessions SET spawned = 1 WHERE spawned_by IS NOT NULL;
+",
 ];
 
 /// Stands in [`MIGRATIONS`] for the one change SQL in a transaction cannot make: every

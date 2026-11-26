@@ -843,6 +843,17 @@ pub enum AgentEvent {
         /// rather than seen in the middle of a turn.
         between_turns: bool,
     },
+    /// Whom a session works for changed, by the user's choice (`parents.rs`). Recorded by the
+    /// core in that session and in the sessions it worked for before and works for now, whose
+    /// agents are told who works with them along with their next message.
+    ParentChanged {
+        /// The session whose parent changed.
+        child: i64,
+        /// The session it works for now; `None` for nobody.
+        parent: Option<i64>,
+        /// The session it worked for before; `None` for nobody.
+        previous: Option<i64>,
+    },
     /// The task's pull request changed in a way worth telling: checks failed or all passed,
     /// someone else reviewed or commented, its branch conflicts, or it was merged or closed.
     /// Recorded by the core, which follows the pull requests of tasks (`following.rs`), in the

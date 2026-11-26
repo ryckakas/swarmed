@@ -1689,6 +1689,16 @@ pub(crate) fn session_rename(core: CoreState<'_>, id: i64, title: String) -> Com
     Ok(core.session_rename(id, &title)?)
 }
 
+/// Has a session work for another, of the same repository, or with `null` for nobody.
+#[tauri::command]
+pub(crate) fn session_set_parent(
+    core: CoreState<'_>,
+    id: i64,
+    parent: Option<i64>,
+) -> Command<Session> {
+    Ok(core.session_set_parent(id, parent)?)
+}
+
 #[tauri::command]
 pub(crate) fn session_close(core: CoreState<'_>, id: i64) -> Command<()> {
     Ok(core.session_close(id)?)

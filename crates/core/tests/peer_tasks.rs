@@ -87,8 +87,12 @@ async fn a_session_starts_a_task_of_its_own_whose_session_hears_from_it() {
     assert_eq!(started.task.base_ref, own.base_ref);
     assert_eq!(started.session.task_id, started.task.id);
     assert_eq!(started.session.title, "Review fixes");
-    // The first of a task of its own, not a helper of the starter's: it can start more.
-    assert_eq!(started.session.spawned_by, None);
+    // The first of a task of its own, not a helper of the starter's: it can start more. It
+    // works for the starter all the same, and the database says so too.
+    assert!(!started.session.spawned);
+    assert_eq!(started.session.parent, Some(asking.id));
+    let kept = core.session(started.session.id).expect("reads");
+    assert_eq!((kept.parent, kept.spawned), (Some(asking.id), false));
     // The window hears of a task this process made.
     let tree = std::iter::from_fn(|| told.try_recv().ok())
         .any(|heard| heard.session_id == 0 && matches!(heard.event, AgentEvent::TreeChanged));

@@ -596,6 +596,42 @@ fn the_ui_can_highlight_tasks_and_sessions_where_they_are() {
 }
 
 #[test]
+fn the_ui_can_have_a_session_work_for_another_across_tasks() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    for name in ["one", "two"] {
+        app.ok(
+            "task_new",
+            json!({ "project": "demo", "name": name, "branch": null }),
+        );
+    }
+    let how = json!({ "model": null, "supervision": "auto", "effort": null });
+    let new = |task: &str| {
+        let options = json!({ "project": "demo", "task": task, "agent": null, "how": how });
+        app.ok("session_new", options)["id"].clone()
+    };
+    let (planner, implementer) = (new("one"), new("two"));
+    let set = app.ok(
+        "session_set_parent",
+        json!({ "id": implementer, "parent": planner }),
+    );
+    assert_eq!(set["parent"], planner);
+    let two = &app.ok("overview", json!({}))[0]["tasks"][1];
+    assert_eq!(two["sessions"][0]["parent"], planner);
+    assert_eq!(two["sessions"][0]["spawned"], json!(false));
+    app.invoke(
+        "session_set_parent",
+        json!({ "id": planner, "parent": implementer }),
+    )
+    .expect_err("a session cannot work for one that works for it");
+    let unset = app.ok(
+        "session_set_parent",
+        json!({ "id": implementer, "parent": null }),
+    );
+    assert_eq!(unset["parent"], json!(null));
+}
+
+#[test]
 fn the_ui_can_put_a_task_away_and_bring_it_back() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));

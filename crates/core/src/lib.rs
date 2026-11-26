@@ -62,6 +62,7 @@ mod notices;
 mod open;
 mod order;
 mod overview;
+mod parents;
 mod pasted;
 mod paths;
 mod peers;
@@ -157,6 +158,7 @@ pub use naming::TaskNaming;
 pub use notices::Notice;
 pub use open::open_link;
 pub use overview::{ProjectOverview, TaskOverview};
+pub use parents::nested_sessions;
 pub use pasted::MAX_IMAGE_MB;
 pub use paths::Paths;
 pub use peers::{Delivery, MAX_SPAWNED, PeerTask, Reachable, serve_session_tools};
@@ -190,7 +192,9 @@ pub use templates::Template;
 pub use termconfig::{Cursor, TerminalColour, TerminalColours, TerminalConfig, terminal_schema};
 use terminal::Terminals;
 pub use terminal::{TerminalOpened, TerminalOutput};
-pub use toolserver::{SERVER_NAME, SHOW_BROWSER, SHOW_HTML, TOOL_SERVER_ARG, serve_tools};
+pub use toolserver::{
+    SERVER_NAME, SESSION_ENV, SHOW_BROWSER, SHOW_HTML, TOOL_SERVER_ARG, serve_tools,
+};
 pub use usage::{ProcessUsage, SessionUsage, Usage, WorktreeUsage};
 pub use usage_copy::UsageAsk;
 pub use views::VIEW_POLICY;

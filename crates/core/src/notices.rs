@@ -117,7 +117,7 @@ impl Core {
             return Ok(None);
         }
         let session = self.session(event.session_id)?;
-        let Some((heading, detail)) = wording(event, session.spawned_by.is_some()) else {
+        let Some((heading, detail)) = wording(event, session.spawned) else {
             return Ok(None);
         };
         let task = self.store().task_by_id(session.task_id)?;

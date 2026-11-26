@@ -161,6 +161,12 @@ export interface Words {
     untitled: string;
     /** The line under a session another session started. */
     startedBy: (id: number) => string;
+    /** Whom a session works for, by that one's number, and the menu's choice of nobody. */
+    worksFor: (id: number) => string;
+    worksForNobody: string;
+    /** What stands before the session the one on screen works for, and before those that work for it. */
+    worksForHeading: string;
+    workingFor: string;
     /**
      * What a session, or the sessions under a folded heading, have running in the background,
      * as its status mark says when pointed at: "2 sub-agents, 1 command in the background".
@@ -376,6 +382,10 @@ const PLAIN: Words = {
     sessionNumbered: (id) => `Session ${id}`,
     untitled: "New session",
     startedBy: (id) => `Started by session ${id}`,
+    worksFor: (id) => `Works for session ${id}`,
+    worksForNobody: "Works for nobody",
+    worksForHeading: "Works for",
+    workingFor: "Working for it",
     inBackground: ({ agents, commands }) =>
         `${counted([
             [agents, "sub-agent", "sub-agents"],
@@ -548,6 +558,10 @@ const SWARM: Words = {
     sessionNumbered: (id) => `Spawn ${id}`,
     untitled: "New spawn",
     startedBy: (id) => `Sent out by spawn ${id}`,
+    worksFor: (id) => `Serves spawn ${id}`,
+    worksForNobody: "Serves no spawn",
+    worksForHeading: "Serves",
+    workingFor: "Serving it",
     inBackground: ({ agents, commands }) =>
         [
             agents > 0 ? `${counted([[agents, "hatchling", "hatchlings"]])} foraging` : "",

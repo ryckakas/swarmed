@@ -1,12 +1,13 @@
 import type { Api } from "./api/client";
-import type { Project, Session } from "./api/types";
+import type { Project } from "./api/types";
 import { writtenHotkey } from "./hotkeys";
 import { findSession } from "./tree";
 
 /**
  * A row of the sidebar the user can move among its siblings: a repository, a task among its
- * repository's open tasks, a session among its task's (or among those its starter started),
- * or a cloud task among its repository's. Sub-agents are never moved: they are not stored.
+ * repository's open tasks, a session among its task's (or among the others that work for its
+ * parent, where it is listed under that one), or a cloud task among its repository's.
+ * Sub-agents are never moved: they are not stored.
  */
 export type OrderTarget =
     | { kind: "project"; project: string }
@@ -27,9 +28,9 @@ const pinGroup = (group: string, pinned: boolean) => (pinned ? `${group}:pinned`
 export const orderGroup = {
     projects: (pinned: boolean) => pinGroup("projects", pinned),
     tasks: (project: string, pinned: boolean) => pinGroup(`tasks:${project}`, pinned),
-    /** A task's sessions, or with `starter` those that session started. */
-    sessions: (task: number, starter: number | null, pinned: boolean) =>
-        pinGroup(`sessions:${task}:${starter ?? "top"}`, pinned),
+    /** A task's sessions, or with `parent` those listed under that one, which work for it. */
+    sessions: (task: number, parent: number | null, pinned: boolean) =>
+        pinGroup(`sessions:${task}:${parent ?? "top"}`, pinned),
     cloud: (project: string) => `cloud:${project}`,
 };
 
@@ -56,12 +57,6 @@ export function targetOf(element: Pick<Element, "getAttribute">): OrderTarget | 
     } catch {
         return null;
     }
-}
-
-/** The session that started `session` if it is listed in the same task, as `nestedSessions` has it. */
-export function starterHere(sessions: Session[], session: Session): number | null {
-    const starter = session.spawned_by;
-    return starter !== null && sessions.some((other) => other.id === starter) ? starter : null;
 }
 
 /**

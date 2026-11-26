@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
+import { type CSSProperties, type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
 import { addProject, moveRow, newSession, pinRow } from "../actions";
 import { api } from "../api";
 import type { CloudTask, Mark, Project, Session, Task } from "../api/types";
@@ -13,7 +13,6 @@ import {
     type PinTarget,
     pinLabel,
     pinTitle,
-    starterHere,
 } from "../ordering";
 import { agentName, iconForAgent } from "../providerIcons";
 import { doneSaid, doneTasks, openTasks } from "../putAway";
@@ -25,8 +24,11 @@ import { listedUnder } from "../subagents";
 import {
     countUnread,
     countWaiting,
+    findSession,
     foldedSummary,
     nestedSessions,
+    parentElsewhere,
+    parentHere,
     projectBackground,
     projectStatus,
     projectUnread,
@@ -34,7 +36,7 @@ import {
 import { newVersion, updateLine } from "../updates";
 import { useNow } from "../useNow";
 import { useWords } from "../useWords";
-import { withArticle, wordsFor } from "../wording";
+import { type Words, withArticle, wordsFor } from "../wording";
 import { ForgetCloudDialog } from "./ForgetCloudDialog";
 import { HighlightButton, HighlightWords } from "./Highlight";
 import { CloseIcon, CloudIcon, GlobeIcon, PlusIcon, PlusMinusIcon } from "./IconButton";
@@ -465,14 +467,20 @@ function SetupLine({ task }: { task: Task }) {
     );
 }
 
-/** A task's open sessions, the sub-agents at work under them, and the line to its closed ones. */
+/** How many steps in a session is drawn at most: deeper ones line up with the deepest. */
+const DRAWN_DEPTH = 4;
+
+/**
+ * A task's open sessions, each under the one it works for, the sub-agents at work under them,
+ * and the line to its closed ones.
+ */
 function TaskSessions({ project, task }: { project: string; task: Task }) {
     const words = useWords();
-    // A session is moved among those its starter started, or among the task's others.
+    // A session is moved among the others under its parent, or among the task's others.
     const sessionOrder = (session: Session) =>
         orderAttributes(
             { kind: "session", id: session.id },
-            orderGroup.sessions(task.id, starterHere(task.sessions, session), session.pinned),
+            orderGroup.sessions(task.id, parentHere(task.sessions, session), session.pinned),
         );
     return (
         <>
@@ -481,15 +489,22 @@ function TaskSessions({ project, task }: { project: string; task: Task }) {
                 <p className="hint">{words.noSessions}</p>
             )}
             <ul className="sessions">
-                {nestedSessions(task.sessions).map(({ session, nested }) => (
+                {nestedSessions(task.sessions).map(({ session, depth }) => (
                     <li
                         key={session.id}
                         {...sessionOrder(session)}
-                        data-nested={nested}
-                        // One that started others is drawn larger, as the head of its brood.
-                        data-brood={task.sessions.some((other) => other.spawned_by === session.id)}
+                        data-nested={depth > 0}
+                        style={{ "--depth": Math.min(depth, DRAWN_DEPTH) } as CSSProperties}
+                        // One that others work for is drawn larger, as the head of its brood.
+                        data-brood={task.sessions.some(
+                            (other) => parentHere(task.sessions, other) === session.id,
+                        )}
                     >
-                        <SessionRow session={session} />
+                        <SessionRow
+                            session={session}
+                            nested={depth > 0}
+                            elsewhere={parentElsewhere(task.sessions, session)}
+                        />
                         <SubAgentRows session={session} />
                     </li>
                 ))}
@@ -977,7 +992,13 @@ function RemoveButton(props: { project: string; task: string | null; chat?: bool
     );
 }
 
-function SessionRow({ session }: { session: Session }) {
+/**
+ * A session's row. One `nested` under the session it works for hangs off it by a tendril; one
+ * that works for a session the task does not list, of another task or closed, says which
+ * (`elsewhere`), and pressing that opens it.
+ */
+function SessionRow(props: { session: Session; nested: boolean; elsewhere: number | null }) {
+    const { session, nested, elsewhere } = props;
     const words = useWords();
     const selected = useStore((state) => state.selectedSessionId === session.id);
     const open = useStore((state) => state.open);
@@ -1004,11 +1025,11 @@ function SessionRow({ session }: { session: Session }) {
                     unread={session.unread}
                     background={session.background}
                 />
-                {session.spawned_by !== null && (
+                {nested && session.parent !== null && (
                     <span
                         className="session-spawned"
-                        title={words.startedBy(session.spawned_by)}
-                        aria-label={words.startedBy(session.spawned_by)}
+                        title={hangsOff(words, session, session.parent)}
+                        aria-label={hangsOff(words, session, session.parent)}
                         role="img"
                     >
                         <svg viewBox="0 0 12 12" aria-hidden="true">
@@ -1021,6 +1042,7 @@ function SessionRow({ session }: { session: Session }) {
                 <HighlightWords colour={session.highlight} />
                 <ProviderMark icon={iconForAgent(session.agent)} label={agentName(session.agent)} />
             </button>
+            {elsewhere !== null && <ParentLink id={elsewhere} />}
             {session.mark && <SessionMark id={session.id} mark={session.mark} />}
             {session.continue_at !== null && (
                 <SessionContinues id={session.id} at={session.continue_at} />
@@ -1047,6 +1069,34 @@ function SessionRow({ session }: { session: Session }) {
                 </ButtonIcon>
             </button>
         </div>
+    );
+}
+
+/** What the tendril of a session listed under the one it works for, `parent`, says. */
+function hangsOff(words: Words, session: Session, parent: number): string {
+    return session.spawned ? words.startedBy(parent) : words.worksFor(parent);
+}
+
+/**
+ * The session a row works for when it is not listed under it, by its number: pressing it opens
+ * that one, if it is open.
+ */
+function ParentLink({ id }: { id: number }) {
+    const words = useWords();
+    const parent = useStore((state) => findSession(state.projects, id));
+    const open = useStore((state) => state.open);
+    const named = parent ? `${words.worksFor(id)}: ${parent.title || words.untitled}` : "";
+    return (
+        <button
+            type="button"
+            className="parent-link"
+            disabled={!parent}
+            title={parent ? named : `${words.worksFor(id)}, which is closed`}
+            aria-label={parent ? `Open ${named}` : `${words.worksFor(id)}, which is closed`}
+            onClick={() => void open(api, id)}
+        >
+            for #{id}
+        </button>
     );
 }
 

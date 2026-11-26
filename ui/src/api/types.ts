@@ -18,8 +18,16 @@ export interface Session {
     status: SessionStatus;
     /** Whether its agent finished a turn, or stopped with an error, that nobody has looked at. */
     unread: boolean;
-    /** The session that started this one, if an agent did and not the user. */
-    spawned_by: number | null;
+    /**
+     * The session this one works for, if any: the one whose agent started it, or one the user
+     * chose, in any task of the same repository.
+     */
+    parent: number | null;
+    /**
+     * Whether another session's agent started it in its own worktree, not the user: its first
+     * message is that agent's words, and its turns are reported to that session.
+     */
+    spawned: boolean;
     /** Whether the agent is asked for its fast mode, where it has one. */
     fast: boolean;
     /** The mark an agent or the user put on it, if any. */
@@ -1387,6 +1395,11 @@ export type AgentEvent =
      * message.
      */
     | { type: "worktree_moved"; from: string | null; to: string | null; between_turns: boolean }
+    /**
+     * Whom session `child` works for changed, by the user's choice: recorded in it and in the
+     * sessions it worked for and works for now. `null` is nobody.
+     */
+    | { type: "parent_changed"; child: number; parent: number | null; previous: number | null }
     /** The task's pull request changed in a way worth telling, recorded in one of its sessions. */
     | { type: "pull_changed"; number: number; url: string; change: PullChange }
     /** A task's pull request as just read; with session id 0, never stored. */
