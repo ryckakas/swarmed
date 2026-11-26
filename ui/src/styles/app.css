@@ -2314,13 +2314,20 @@ code {
 
 /* The worktree's band: marked off from the rows around it, and quieter than a repository. */
 .task > .row-head {
-    margin: 0 6px 0 22px;
+    --band-inset: 6px;
+    margin: 0 var(--band-inset) 0 22px;
     border-radius: 5px;
     background: var(--sidebar-task-background, color-mix(in srgb, var(--raised) 55%, transparent));
 }
 
+/*
+ * Its remove button ends as far from the sidebar's edge as a heading's does, so its + stays in
+ * their column. The button is zoomed in some layouts, and its margin with it, but the band's inset
+ * is not: the inset is taken off in the button's own units, so the two add up to a heading's gap
+ * whatever the zoom (#474).
+ */
 .task > .row-head .row-close {
-    margin-right: 2px;
+    margin-right: calc(var(--space-2) - var(--band-inset) / var(--button-zoom, 1));
 }
 
 .task > .row-head .row-icon {

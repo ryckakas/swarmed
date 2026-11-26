@@ -39,6 +39,10 @@ notice adds its line under Unreleased.
 - **A closed pull request no longer looks like a draft.** Its number is struck through on the
   task's badge in the sidebar, in the task panel, and where a message or the `#` menu names a
   closed pull request or issue. It stays grey: red still means a failed check.
+- **In the senior layout, a task's + lines up with the others.** The button that starts a
+  session on a task's row sat about 4px right of the + on the chats and repository headings, so
+  the column of + buttons broke at every task. They are in one column now, as in classic, and
+  stay so at any icon size a custom layout sets.
 
 ## [0.4.8] - 2026-11-26
 
