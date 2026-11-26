@@ -44,15 +44,15 @@ export const MOCK_ROLES: RoleInfo[] = [
 ];
 
 /**
- * The role of each sample session that has one, by id: the rule engine's architect (9) over
- * two implementers (10 and 12) and a planner in a task of its own (13), and a reviewer of the
- * parser (11).
+ * The role of each sample session that has one, by id, each one its starter's role may start
+ * (`roles.rs`): the rule engine's architect (9) over two planners beside it (10 and 12) and one
+ * in a task of its own (13), and the parser's planner over its implementer (11).
  */
 export const SAMPLE_ROLES: Partial<Record<number, string>> = {
     9: "architect",
-    10: "implementer",
-    11: "reviewer",
-    12: "implementer",
+    10: "planner",
+    11: "implementer",
+    12: "planner",
     13: "planner",
 };
 

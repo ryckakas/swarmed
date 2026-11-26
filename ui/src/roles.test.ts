@@ -105,13 +105,14 @@ describe("the sample's roles", () => {
         const api = createMockApi();
         const tree = await api.overview();
         expect(findSession(tree, 13)?.supervision).toBe("plan");
-        expect(findSession(tree, 10)?.supervision).toBe("ask");
-        expect((await api.sessionSetRole(10, "reviewer")).supervision).toBe("plan");
-        expect((await api.sessionSetRole(10, "implementer")).supervision).toBe("ask");
-        await api.sessionSetRole(10, "planner");
+        // The sample's implementer.
+        expect(findSession(tree, 11)?.supervision).toBe("ask");
+        expect((await api.sessionSetRole(11, "reviewer")).supervision).toBe("plan");
+        expect((await api.sessionSetRole(11, "implementer")).supervision).toBe("ask");
+        await api.sessionSetRole(11, "planner");
         const settings = { model: null, supervision: "auto" as const, effort: null, fast: false };
-        await api.sessionConfigure(10, settings);
-        expect((await api.sessionSetRole(10, null)).supervision).toBe("auto");
+        await api.sessionConfigure(11, settings);
+        expect((await api.sessionSetRole(11, null)).supervision).toBe("auto");
     });
 
     it("are set as the core sets them, recorded only once something was said", async () => {

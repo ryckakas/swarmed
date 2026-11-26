@@ -462,8 +462,8 @@ describe("whom a session can work for", () => {
 
     it("is any other open session of its repository but those that work for it", () => {
         const projects = sample();
-        // The rule engine's planner (9) over the parser (10) and the port (12), the parser
-        // over its tests (11), and the planner over the docs, in a task of their own (13).
+        // The rule engine's architect (9) over the parser (10) and the port (12), the parser
+        // over its tests (11), and the architect over the docs, in a task of their own (13).
         const parser = sampled(projects, 10);
         expect(ids(parentChoices(projects, parser))).toEqual([9, 12, 4, 5, 13]);
         const planner = sampled(projects, 9);

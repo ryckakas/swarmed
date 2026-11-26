@@ -5,9 +5,9 @@ import { parentChoices } from "../tree";
 import type { AgentEvent, Project, Session } from "./types";
 
 /**
- * Whom each sample session works for, by id: the rule engine's planner (9) over the parser
- * (10) and the port of the built-in rules (12), the parser over its tests (11), and the planner
- * over the documentation, in a task of its own (13).
+ * Whom each sample session works for, by id: the rule engine's architect (9) over the parser
+ * (10) and the port of the built-in rules (12), the parser over its tests (11), and the
+ * architect over the documentation, in a task of its own (13).
  */
 export const SAMPLE_PARENTS: Partial<Record<number, number>> = { 10: 9, 11: 10, 12: 9, 13: 9 };
 
