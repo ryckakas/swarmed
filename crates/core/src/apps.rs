@@ -198,8 +198,8 @@ fn origins(
 }
 
 /// `entry` as an origin a policy can name, if it is one: a scheme of `schemes`, a host of
-/// letters, digits, dashes and dots (or `*.` and such a host), an optional port, and nothing
-/// after it but a slash. Written in lower case.
+/// letters, digits, dashes and dots (or `*.` and such a host) that is no IP address, an
+/// optional port, and nothing after it but a slash. Written in lower case.
 fn origin_of(entry: &str, schemes: &[&str]) -> Option<String> {
     let entry = entry.trim().to_ascii_lowercase();
     let (scheme, rest) = entry.split_once("://")?;
@@ -223,7 +223,13 @@ fn origin_of(entry: &str, schemes: &[&str]) -> Option<String> {
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || b == b'-')
     };
-    let host_ok = bare.contains('.') && bare.split('.').all(label_ok);
+    // No top-level domain is a number, so a host that ends in one is an IP address, which
+    // would name a machine on the user's own network as readily as one on the web.
+    let named = bare
+        .rsplit('.')
+        .next()
+        .is_some_and(|last| !last.bytes().all(|b| b.is_ascii_digit()));
+    let host_ok = named && bare.contains('.') && bare.split('.').all(label_ok);
     (port_ok && host_ok).then(|| format!("{scheme}://{authority}"))
 }
 
@@ -609,12 +615,16 @@ mod tests {
             "https://example.com:99999x",
             "wss://socket.example.com",
             "",
+            "https://169.254.169.254",
+            "https://192.168.1.1:8443",
+            "https://*.0.1",
         ];
         let built = app_policy(&csp(&[], &declared));
         assert_eq!(built.reaches, Vec::<String>::new());
         assert_eq!(built.refused.len(), declared.len());
         assert!(built.refused[0].starts_with("http://plain.example.com (files"));
         assert!(built.refused[11].starts_with("an empty entry"));
+        assert!(built.refused[12].starts_with("https://169.254.169.254 (files"));
         // Nothing declared makes its way into the policy as written.
         assert!(!built.policy.contains("plain"));
         assert!(!built.policy.contains("'unsafe-hashes'"));
