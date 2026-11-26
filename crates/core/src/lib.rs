@@ -15,6 +15,7 @@ mod agent_models;
 mod agent_setup;
 mod agents;
 mod analytics;
+mod apps;
 mod asking;
 mod attach;
 mod background;
@@ -115,6 +116,7 @@ pub use browser::{
 };
 pub use shellenv::learn_shell_path;
 
+pub use apps::{AppCsp, AppPolicy, AppShown, MAX_APP_MB, app_policy};
 pub use changes::{ChangeKind, FileChange, FileDiff};
 pub use chats::CHATS;
 pub use checkpoints::{KEPT_TURNS, MAX_UNTRACKED_BYTES, SkippedFile, Turn, TurnChanges};
@@ -216,6 +218,8 @@ pub struct Core {
     proposals: configure::Proposals,
     /// HTML the agents wrote, waiting to be shown.
     views: ViewStore,
+    /// The apps MCP servers attached to tool calls that are being shown (`apps.rs`).
+    apps: apps::AppStore,
     /// The executable that serves Swarmed's own tools to agents, if a front end named one.
     tool_server: Option<PathBuf>,
     /// The lock that says this was the first Swarmed to arrive on its data, once it has it.
@@ -272,6 +276,7 @@ impl Core {
             claude_terminals: Arc::default(),
             proposals: configure::Proposals::default(),
             views: ViewStore::default(),
+            apps: apps::AppStore::default(),
             tool_server: None,
             house: Mutex::new(None),
             names_claimed: Mutex::default(),

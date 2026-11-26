@@ -207,6 +207,7 @@ mod tests {
             mcp_servers: vec![],
             skills: 0,
             slash_commands: vec![],
+            capabilities: vec![],
         }
     }
 

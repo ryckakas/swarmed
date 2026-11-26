@@ -5,6 +5,8 @@ import type {
     AgentInfo,
     AgentSetup,
     ApiKeyInfo,
+    AppCsp,
+    AppShown,
     BackgroundOutput,
     BackgroundTask,
     BranchChoices,
@@ -598,6 +600,22 @@ export interface Api {
     viewUrl(document: string): Promise<string>;
     /** Opens such a document in the user's browser, under the same restrictions as the frame. */
     viewOpen(document: string): Promise<void>;
+    /**
+     * Makes the app an MCP server attached to a call ready for a frame, from the file it is
+     * kept in, under the policy its server's declaration comes to: the address it loads from
+     * (an origin of its own) and what it may reach.
+     */
+    appUrl(
+        id: number,
+        toolUseId: string,
+        document: string,
+        csp: AppCsp,
+    ): Promise<AppShown & { address: string }>;
+    /**
+     * Calls a tool of its own server for the app shown under a call, through the session's
+     * agent, which may ask the user first, and returns the tool's result.
+     */
+    sessionAppCall(id: number, toolUseId: string, tool: string, args: unknown): Promise<unknown>;
     /**
      * Opens the session's terminal, starting a shell in the task's worktree if none runs, and
      * returns what it has printed so far, to redraw it.

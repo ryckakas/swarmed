@@ -5,6 +5,7 @@ import type { AgentEvent, Session, SlashCommand } from "../api/types";
 import { noteCommandSent } from "../commandSent";
 import { elementsIn, withElementToken } from "../elements";
 import { githubOf } from "../githubMentions";
+import { type AppContext, withAppContexts } from "../mcpApps";
 import { mentionedIn } from "../mentions";
 import { expandTokens, forgetTokens, quoteTokenFor, tokensAgain } from "../pastes";
 import { withQuote } from "../quotes";
@@ -17,6 +18,7 @@ import { suggestionOf } from "../suggestion";
 import { repositoryOf } from "../tree";
 import { useWords } from "../useWords";
 import { capitalized } from "../wording";
+import { AppContextChips } from "./AppContexts";
 import { ComposerBox } from "./ComposerBox";
 import { EffortPicker } from "./EffortPicker";
 import { FastToggle } from "./FastToggle";
@@ -97,6 +99,14 @@ function TerminalPane({ id, busy }: { id: number; busy: boolean }) {
 }
 
 /**
+ * What apps left for session `id`'s agent, taken to go with a message: never with a command,
+ * which would take it for words of its own.
+ */
+function appContextsFor(id: number, typed: string): AppContext[] {
+    return typed.startsWith("/") ? [] : useStore.getState().takeAppContexts(id);
+}
+
+/**
  * The message box of an existing session. What it holds is the session's draft in the store,
  * so it is still there after another session was opened, and no other session sees it.
  */
@@ -107,6 +117,7 @@ export function Composer({ session }: { session: Session }) {
     const { text, files, images } = draft;
     const editDraft = useStore((state) => state.editDraft);
     const putDraftBack = useStore((state) => state.putDraftBack);
+    const putAppContextsBack = useStore((state) => state.putAppContextsBack);
     const terminal = useStore((state) => state.terminalOpen);
     const toggleTerminal = useStore((state) => state.toggleTerminal);
     const report = useStore((state) => state.report);
@@ -140,16 +151,18 @@ export function Composer({ session }: { session: Session }) {
         recalling.forget();
         // What was pasted large or quoted goes out in full, in place of the token for it.
         // A busy agent is not interrupted: the message waits its turn, and can still be changed.
-        const message = expandTokens(text.trim());
+        const typed = expandTokens(text.trim());
         // The sessions, pull requests and issues its tokens name, as typed: not a token that is
         // only words of a paste.
         const sessions = mentionedIn(text);
         const github = githubOf(text, repository);
         const elements = elementsIn(text);
-        const atOnce = goesAtOnce(message, { ...draft, sessions, github, elements }, commands);
+        const atOnce = goesAtOnce(typed, { ...draft, sessions, github, elements }, commands);
         if (atOnce) {
             noteCommandSent(id);
         }
+        const contexts = appContextsFor(id, typed);
+        const message = withAppContexts(typed, contexts);
         // Pasted images are kept as the session's files first, and go as their paths.
         filesWith(api, id, draft)
             .then((attached) => {
@@ -165,6 +178,7 @@ export function Composer({ session }: { session: Session }) {
                 report(error);
                 // Into this session's box, even if another session is on screen by now.
                 putDraftBack(id, unsent);
+                putAppContextsBack(id, contexts);
             });
     };
     const send = useSendOrChoose(id, draft, commands, sendMessage);
@@ -177,6 +191,7 @@ export function Composer({ session }: { session: Session }) {
             ) : (
                 <>
                     <MessageQueue sessionId={id} busy={busy} hearsMidTurn={hearsMidTurn} />
+                    <AppContextChips sessionId={id} />
                     <ComposerBox
                         value={text}
                         onChange={(value) => editDraft(id, { text: value })}

@@ -69,6 +69,15 @@ advisory is published with credit to you, unless you'd rather not be named.
 - **An agent's HTML cannot reach the app.** Views are shown in a sandboxed frame on an origin of
   their own, under a policy that lets them make no request. A link in a view opens only when you
   press Open.
+- **An MCP server's app cannot reach the app either, and reaches the network only where its
+  server declared.** Apps that MCP servers attach to their tools are shown the same way, each
+  from an origin of its own, under a policy built from what the server declared: `https:`
+  origins only (and `wss:` for connecting), frames of other pages never. One that declares any
+  address is loaded only after you press Show, with the addresses listed. An app is given no
+  device. A link and a message to the agent each wait for you, and a message is never a
+  command. Context it leaves for the agent shows above the message box and goes with your next
+  message unless you take it off. A tool it calls goes through the agent, only for its own
+  server's tools, decided as the agent's own call of that tool would be.
 - **What an agent may change in Swarmed is limited.** Its `configure` tool cannot reach API keys,
   MCP servers, sign-ins, supervision or notes. A rule, an environment, an action that runs a
   command and a status line script are added, and tool calls are hidden, only when you accept
@@ -85,7 +94,9 @@ advisory is published with credit to you, unless you'd rather not be named.
   request names the updater, not you or your version. When a newer version is out, the archive
   that file names is downloaded too: by itself while updating automatically is on, and otherwise
   when you ask for the update. There is no telemetry. The programs it
-  runs for you, such as the agents, `git`, `gh` and a task's Chrome, make their own.
+  runs for you, such as the agents, `git`, `gh` and a task's Chrome, make their own, and so
+  does an MCP server's app you chose to show, from the window, to the addresses its server
+  declared.
 - **An update is installed only if it is signed with the release key,** whose public half is
   built into the app, and only for the version it was signed as: neither a changed archive nor
   an older release presented as newer goes in. It is installed as Swarmed quits, never while it
@@ -101,7 +112,8 @@ Anything that breaks one of the promises above is in scope, for example:
 
 - An agent's output, a repository's content or a branch name causing code to run, or a secret
   reaching a log, a file, a notification or an agent the promises above keep it from.
-- An HTML view reaching the app, the network or your files.
+- An HTML view reaching the app, the network or your files, or an MCP server's app reaching
+  the app, your files, or the network beyond what its server declared.
 - A problem in a release artefact or the way it is built and published: the app, the install
   script, the Homebrew cask or the crates.
 

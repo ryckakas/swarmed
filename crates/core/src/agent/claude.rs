@@ -28,6 +28,7 @@ use crate::error::{Error, Result};
 use crate::mcp::{McpServer, McpTransport};
 use crate::returned::Taking;
 
+mod apps;
 mod screens;
 
 /// How much of the process's stderr is kept for [`AgentEvent::Exited`].
@@ -131,9 +132,15 @@ const FOREGROUND_KEPT: usize = 256;
 struct Pending {
     requests: Arc<Mutex<HashMap<String, Value>>>,
     foreground: Arc<Mutex<VecDeque<(String, AgentEvent)>>>,
+    /// What is known of the MCP apps of the run (`apps.rs`).
+    apps: Arc<Mutex<apps::Apps>>,
 }
 
 impl Pending {
+    fn apps(&self) -> std::sync::MutexGuard<'_, apps::Apps> {
+        self.apps.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     fn insert(&self, request_id: String, input: Value) {
         self.requests
             .lock()
@@ -383,7 +390,11 @@ impl AgentBackend for ClaudeBackend {
         let pending = Pending::default();
         // Requests of Swarmed's own, which the reading side raises and the writing side sends.
         let (asks, ask_rx) = mpsc::unbounded_channel();
-        let writing = tokio::spawn(write_commands(stdin, (command_rx, ask_rx), pending.clone()));
+        let writing = tokio::spawn(write_commands(
+            stdin,
+            (command_rx, ask_rx),
+            (pending.clone(), event_tx.clone()),
+        ));
         let reading = tokio::spawn(read_events(
             (child, servers),
             (stdout, stderr),
@@ -423,11 +434,18 @@ async fn read_events(
         for question in parsed.as_ref().map_or_else(Vec::new, questions_after) {
             asks.send(question).ok();
         }
-        let new_events = parsed.as_ref().map_or_else(Vec::new, |message| {
+        let mut new_events = parsed.as_ref().map_or_else(Vec::new, |message| {
             let mut said: Vec<AgentEvent> = resume_point(message, &mut point).into_iter().collect();
             said.extend(parse_message(message, &pending));
             said
         });
+        let (app_questions, app_events) = parsed
+            .as_ref()
+            .map_or_else(Default::default, |message| pending.apps().after(message));
+        for question in app_questions {
+            asks.send(question).ok();
+        }
+        new_events.extend(app_events);
         if new_events
             .into_iter()
             .any(|event| events.send(event).is_err())
@@ -449,16 +467,24 @@ async fn write_commands(
         mpsc::UnboundedReceiver<AgentCommand>,
         mpsc::UnboundedReceiver<Value>,
     ),
-    pending: Pending,
+    (pending, answers): (Pending, mpsc::UnboundedSender<AgentEvent>),
 ) {
     let mut requests = 0_u64;
     loop {
         let line = tokio::select! {
             command = commands.recv() => command.map(|c| command_line(c, &pending, &mut requests)),
-            Some(ask) = asks.recv() => Some(ask),
+            Some(ask) = asks.recv() => Some(Ok(ask)),
         };
         let Some(line) = line else {
             break;
+        };
+        // A command this Claude Code cannot be sent safely is answered here instead.
+        let line = match line {
+            Ok(line) => line,
+            Err(answer) => {
+                answers.send(*answer).ok();
+                continue;
+            }
         };
         let mut bytes = line.to_string().into_bytes();
         bytes.push(b'\n');
@@ -663,7 +689,41 @@ fn parse_context(message: &Value) -> Option<AgentEvent> {
     })
 }
 
-fn command_line(command: AgentCommand, pending: &Pending, requests: &mut u64) -> Value {
+/// What a Claude Code that cannot call a tool for an app with its own check says to one.
+const CANNOT_CALL: &str = "this version of Claude Code cannot call a tool for an app; \
+    update it to call one";
+
+/// The line that tells Claude Code `command`, or, for one it cannot be told, the answer to
+/// it: a tool called for an app, by a Claude Code that would not check it as the agent's own
+/// call, is refused at once rather than left waiting.
+fn command_line(
+    command: AgentCommand,
+    pending: &Pending,
+    requests: &mut u64,
+) -> std::result::Result<Value, Box<AgentEvent>> {
+    let AgentCommand::CallTool {
+        call,
+        server,
+        tool,
+        arguments,
+    } = &command
+    else {
+        return Ok(protocol_line(command, pending, requests));
+    };
+    let refused = || {
+        Box::new(AgentEvent::AppCalled {
+            call: *call,
+            result: None,
+            error: Some(CANNOT_CALL.to_string()),
+        })
+    };
+    pending
+        .apps()
+        .call(*call, (server, tool), arguments)
+        .ok_or_else(refused)
+}
+
+fn protocol_line(command: AgentCommand, pending: &Pending, requests: &mut u64) -> Value {
     match command {
         AgentCommand::UserMessage(text) => json!({
             "type": "user",
@@ -721,6 +781,8 @@ fn command_line(command: AgentCommand, pending: &Pending, requests: &mut u64) ->
         AgentCommand::RemoteControl { on, name, reattach } => {
             remote_control_request(on, &name, reattach.as_deref())
         }
+        // Told by `command_line`, which knows whether it can be.
+        AgentCommand::CallTool { .. } => Value::Null,
     }
 }
 
@@ -1135,6 +1197,7 @@ fn parse_init(message: &Value) -> AgentEvent {
             .and_then(Value::as_array)
             .map_or(0, Vec::len),
         slash_commands: strings(message.get("slash_commands")),
+        capabilities: strings(message.get("capabilities")),
     }
 }
 
@@ -1176,6 +1239,9 @@ fn parse_tool_result(block: &Value) -> Option<AgentEvent> {
     })
 }
 
+/// What a permission request for a tool an app called says it is.
+const APP_ASKS: &str = "An app shown in the conversation asks to run this tool of its server.";
+
 fn parse_control_request(message: &Value, pending: &Pending) -> AgentEvent {
     let request = message.get("request").unwrap_or(&Value::Null);
     if kind_of(request, "subtype") != Some("can_use_tool") {
@@ -1186,11 +1252,23 @@ fn parse_control_request(message: &Value, pending: &Pending) -> AgentEvent {
     let request_id = str_of(message, "request_id");
     let input = request.get("input").cloned().unwrap_or_else(|| json!({}));
     pending.insert(request_id.clone(), input.clone());
+    let tool_name = str_of(request, "tool_name");
+    // Claude Code asks about a tool an app called as about the agent's own call of it: the
+    // user is told it is the app's.
+    let by_app = pending.apps().asked_by_app(
+        kind_of(request, "tool_use_id").unwrap_or_default(),
+        &tool_name,
+    );
+    let description = if by_app {
+        Some(APP_ASKS.to_string())
+    } else {
+        kind_of(request, "description").map(String::from)
+    };
     AgentEvent::PermissionRequest {
         request_id,
-        tool_name: str_of(request, "tool_name"),
+        tool_name,
         input,
-        description: kind_of(request, "description").map(String::from),
+        description,
     }
 }
 
@@ -1298,6 +1376,29 @@ mod tests {
 
     use super::*;
 
+    /// The line `command` is told as, for a command that is told.
+    fn line_of(command: AgentCommand, pending: &Pending, requests: &mut u64) -> Value {
+        command_line(command, pending, requests).expect("a line")
+    }
+
+    #[test]
+    fn a_tool_call_for_an_app_is_refused_at_once_by_a_claude_code_that_cannot_check_it() {
+        let call = AgentCommand::CallTool {
+            call: 4,
+            server: "demo".into(),
+            tool: "refresh".into(),
+            arguments: json!({}),
+        };
+        assert_eq!(
+            command_line(call, &Pending::default(), &mut 0),
+            Err(Box::new(AgentEvent::AppCalled {
+                call: 4,
+                result: None,
+                error: Some(CANNOT_CALL.to_string()),
+            }))
+        );
+    }
+
     fn parse(value: &Value) -> Vec<AgentEvent> {
         parse_message(value, &Pending::default())
     }
@@ -1309,6 +1410,7 @@ mod tests {
             "permissionMode": "acceptEdits", "apiKeySource": "none",
             "mcp_servers": [{ "name": "context7", "status": "connected" }],
             "skills": ["a", "b"], "slash_commands": ["review", "context"],
+            "capabilities": ["mcp_read_resource_v1", 3, "interrupt_receipt_v1"],
         }));
         let expected = AgentEvent::Init {
             agent_session_id: "abc".into(),
@@ -1321,6 +1423,7 @@ mod tests {
             }],
             skills: 2,
             slash_commands: vec!["review".into(), "context".into()],
+            capabilities: vec!["mcp_read_resource_v1".into(), "interrupt_receipt_v1".into()],
         };
         assert_eq!(events, vec![expected]);
     }
@@ -1468,7 +1571,7 @@ mod tests {
         let allow = AgentCommand::Allow {
             request_id: "r1".into(),
         };
-        let line = command_line(allow, &pending, &mut 0);
+        let line = line_of(allow, &pending, &mut 0);
         assert_eq!(line.pointer("/response/request_id"), Some(&json!("r1")));
         assert_eq!(
             line.pointer("/response/response"),
@@ -1540,7 +1643,7 @@ mod tests {
             request_id: "q1".into(),
             answers: BTreeMap::from([("Which one?".to_string(), "B".to_string())]),
         };
-        let line = command_line(answer, &pending, &mut 0);
+        let line = line_of(answer, &pending, &mut 0);
         assert_eq!(
             line.pointer("/response/response"),
             Some(&json!({ "behavior": "allow", "updatedInput": {
@@ -1575,7 +1678,7 @@ mod tests {
     #[test]
     fn settings_change_through_control_requests() {
         let mut requests = 0;
-        let mut line = |command| command_line(command, &Pending::default(), &mut requests);
+        let mut line = |command| line_of(command, &Pending::default(), &mut requests);
         let model = line(AgentCommand::SetModel(Some("opus".into())));
         assert_eq!(
             model.get("request"),
@@ -1872,7 +1975,7 @@ mod tests {
     #[test]
     fn usage_asked_for_is_read_as_figures_and_put_nowhere_in_the_conversation() {
         assert_eq!(
-            command_line(AgentCommand::AskUsage, &Pending::default(), &mut 0),
+            line_of(AgentCommand::AskUsage, &Pending::default(), &mut 0),
             usage_request()
         );
         let events = parse(&usage_answer(USAGE_REQUEST));
@@ -2298,7 +2401,7 @@ mod tests {
                 name: "Fix the login".into(),
                 reattach: reattach.map(String::from),
             };
-            command_line(command, &Pending::default(), &mut 0)
+            line_of(command, &Pending::default(), &mut 0)
         };
         let fresh = line(true, None);
         assert_eq!(fresh.get("request_id"), Some(&json!(REMOTE_ON_REQUEST)));
@@ -2528,7 +2631,7 @@ mod tests {
         let one = AgentCommand::SendToBackground {
             tool_use_id: Some("toolu_1".into()),
         };
-        let line = command_line(one, &Pending::default(), &mut 0);
+        let line = line_of(one, &Pending::default(), &mut 0);
         assert_eq!(
             line,
             json!({
@@ -2537,7 +2640,7 @@ mod tests {
             })
         );
         let every = AgentCommand::SendToBackground { tool_use_id: None };
-        let line = command_line(every, &Pending::default(), &mut 0);
+        let line = line_of(every, &Pending::default(), &mut 0);
         assert_eq!(line["request"], json!({ "subtype": "background_tasks" }));
 
         let answer = |request_id: &str, response: Value| {
@@ -2587,7 +2690,7 @@ mod tests {
         let stop = AgentCommand::StopBackground {
             task_id: "b1".into(),
         };
-        let line = command_line(stop, &Pending::default(), &mut 0);
+        let line = line_of(stop, &Pending::default(), &mut 0);
         assert_eq!(
             line.get("request"),
             Some(&json!({ "subtype": "stop_task", "task_id": "b1" }))

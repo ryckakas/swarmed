@@ -123,6 +123,7 @@ async fn a_turn_joins_the_streamed_pieces_into_one_reply() {
         mcp_servers: vec![],
         skills: 0,
         slash_commands: vec![],
+        capabilities: vec![],
     };
     let done = AgentEvent::TurnDone {
         is_error: false,

@@ -6,6 +6,7 @@
 
 import { elementSpans } from "./elements";
 import { githubSpans } from "./githubMentions";
+import { splitAppContexts } from "./mcpApps";
 import { mentionSpans } from "./mentions";
 
 /** From how many lines, or how many characters, a paste is put away behind a token. */
@@ -173,7 +174,9 @@ export function forgetTokens(value: string, kept: Written = written) {
  * box to send again or change.
  */
 export function tokensAgain(message: string, kept: Written = written): string {
-    return message.replace(BLOCK, (_block, tag: string, number: string, text: string) => {
+    // What apps left for the agent with it was not typed, and is not brought back.
+    const typed = splitAppContexts(message).text;
+    return typed.replace(BLOCK, (_block, tag: string, number: string, text: string) => {
         const kind: TokenKind = tag === TAGS.quote ? "quote" : "paste";
         return MAKE[kind](remember(kept[kind], text, Number(number)), text);
     });

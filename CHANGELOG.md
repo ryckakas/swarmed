@@ -15,6 +15,16 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Added
+
+- **Apps from MCP servers.** When Claude Code calls a tool whose MCP server attaches an app to
+  it (MCP Apps), such as a chart, a map or a form, Swarmed shows the app under the call. It runs
+  sandboxed, from an origin of its own, and reaches the network only where its server declared,
+  after you press Show. A link or a message it wants to send waits for you, and context it
+  leaves for the agent shows as a chip above the message box, to go with your next message; a
+  tool of its own server it calls goes through the agent, which decides it as its own call.
+  See [Apps MCP servers attach to their tools](docs/coding-agents.md#apps-mcp-servers-attach-to-their-tools).
+
 ## [0.4.6] - 2026-11-25
 
 ### Added

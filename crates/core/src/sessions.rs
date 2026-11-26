@@ -19,6 +19,7 @@ use crate::agent::{
     SessionSpec, Supervision,
 };
 use crate::agents::CLAUDE;
+use crate::apps;
 use crate::browser::{self, AgentBrowser};
 use crate::chats;
 use crate::checkpoints;
@@ -138,6 +139,8 @@ impl SessionStatus {
             | AgentEvent::Setup { .. }
             | AgentEvent::Background { .. }
             | AgentEvent::View { .. }
+            | AgentEvent::App { .. }
+            | AgentEvent::AppCalled { .. }
             | AgentEvent::Queue { .. }
             | AgentEvent::ContextUsage { .. }
             | AgentEvent::TerminalShared { .. }
@@ -601,6 +604,21 @@ impl Store {
         let text: Option<String> = self
             .conn
             .query_row(sql, params![session_id, prefix], |row| row.get(0))
+            .optional()?;
+        Ok(text.map(|text| event_from_json(&text)))
+    }
+
+    /// The session's newest app event of call `tool_use_id`, the agent's own or a
+    /// sub-agent's, as stored: an app's call is its first field, wherever the app stands.
+    pub(crate) fn app_of(&self, session_id: i64, tool_use_id: &str) -> Result<Option<AgentEvent>> {
+        let id = serde_json::to_string(tool_use_id)?;
+        // Looked for as written, case and all: LIKE would take another call's id for it.
+        let pattern = format!("\"type\":\"app\",\"tool_use_id\":{id}");
+        let sql = "SELECT event FROM session_events WHERE session_id = ?1 \
+                   AND instr(event, ?2) > 0 ORDER BY id DESC LIMIT 1";
+        let text: Option<String> = self
+            .conn
+            .query_row(sql, params![session_id, pattern], |row| row.get(0))
             .optional()?;
         Ok(text.map(|text| event_from_json(&text)))
     }
@@ -1851,6 +1869,8 @@ pub(crate) struct Live {
     /// Who waits for each session's agent to answer whether work went to the background,
     /// first asked first.
     sending: Mutex<HashMap<i64, Vec<Sending>>>,
+    /// Who waits for each session's agent to answer a tool call an app asked for.
+    pub(crate) apps: apps::AppCalls,
     /// The account's usage as any Claude Code session last heard it.
     pub(crate) usage: UsageHeard,
     /// The turns whose worktree was checkpointed before they began (`checkpoints.rs`).
@@ -1890,6 +1910,7 @@ impl Default for Live {
             sent: Mutex::default(),
             remote: Mutex::default(),
             sending: Mutex::default(),
+            apps: apps::AppCalls::default(),
             usage: UsageHeard::default(),
             checkpoints: checkpoints::Checkpoints::default(),
             taking_back: Mutex::default(),
@@ -2307,8 +2328,12 @@ impl Live {
         if !commands.contains_key(&id) {
             elsewhere::let_go_run(&mut lock(&self.runs_held), id);
         }
+        let running = commands.contains_key(&id);
         drop(commands);
         self.sending_ends_unless_running(id);
+        if !running {
+            self.apps.end(id);
+        }
     }
 }
 
@@ -2562,9 +2587,10 @@ fn dropped_when_late(event: &AgentEvent) -> bool {
 
 /// Deals with one event of run number `run` of session `id`, by how that run stands now. An
 /// answer to sending work to the background goes to whoever asked, whichever run gave it, and
-/// nowhere else: the move itself is reported apart. The images a tool returned are kept in
-/// the session's folder before the event is stored ([`returned::kept`]), unless the session
-/// is gone.
+/// nowhere else: the move itself is reported apart, and so does the answer to a tool call an
+/// app asked for. The images a tool returned, and an app read for a call, are kept in the
+/// session's folder before the event is stored ([`returned::kept`], [`apps::kept`]), unless
+/// the session is gone.
 fn take(shared: &Shared, (id, run): (i64, u64), ending: &Ending, event: AgentEvent) {
     if let AgentEvent::SentToBackground {
         tool_use_id,
@@ -2576,7 +2602,16 @@ fn take(shared: &Shared, (id, run): (i64, u64), ending: &Ending, event: AgentEve
         shared.live.answer_sent(id, tool_use_id.as_deref(), &answer);
         return;
     }
-    let kept = |event| returned::kept(&shared.paths, id, event);
+    if let AgentEvent::AppCalled {
+        call,
+        result,
+        error,
+    } = event
+    {
+        shared.live.apps.answer(id, call, (result, error));
+        return;
+    }
+    let kept = |event| apps::kept(&shared.paths, id, returned::kept(&shared.paths, id, event));
     match shared.live.standing(id, run, ending) {
         Standing::Current => on_event(shared, id, kept(event)),
         Standing::Replaced => shared.live.note_late(&shared.store, id, kept(event)),

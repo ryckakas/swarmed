@@ -25,6 +25,7 @@ import type { Comparison } from "./components/CompareDialog";
 import { withElementToken } from "./elements";
 import { type IssueLink, type IssuesTarget, issueLink, withIssuePrompt } from "./issues";
 import { forgetImages } from "./keptImages";
+import { type AppContext, contextsBack, contextsTaken, contextsWith, withAllowed } from "./mcpApps";
 import { pullsOf, withMessage } from "./pulls";
 import { doneShownFor } from "./putAway";
 import { changesHeard, oneMoreHeard, queuesAnswered } from "./queue";
@@ -113,6 +114,25 @@ interface State {
     recalls: Record<number, Browsing>;
     /** Notes where going through the messages sent stands in session `sessionId`, or that it ended. */
     noteRecall(sessionId: number, browsing: Browsing | null): void;
+    /**
+     * What apps shown in each session's conversation left for the agent, to go with the user's
+     * next message there (`ui/update-model-context`). In memory only, and forgotten with the
+     * session, as its draft is.
+     */
+    appContexts: Record<number, AppContext[]>;
+    /** Keeps what the app of call `toolUseId` left for session `sessionId`'s agent; `null` takes it away. */
+    keepAppContext(sessionId: number, toolUseId: string, context: AppContext | null): void;
+    /** What apps left for session `sessionId`'s agent, which goes with a message now: it is let go. */
+    takeAppContexts(sessionId: number): AppContext[];
+    /** Puts back what apps left for session `sessionId`, when the message it went with was not sent. */
+    putAppContextsBack(sessionId: number, contexts: AppContext[]): void;
+    /**
+     * The yes the user gave to show apps that reach the network, by `consentKey`: a server and
+     * what its app reaches. In memory only, so that it lasts until Swarmed quits.
+     */
+    appsAllowed: string[];
+    /** Remembers the yes to show apps of `key` until Swarmed quits. */
+    allowApps(key: string): void;
     /**
      * Where each transcript was left, by `scrollKey`: a session's, and a sub-agent's under its
      * session. In memory only, and forgotten with the session, as its draft is.
@@ -700,6 +720,7 @@ function forgotten(state: State, sessionIds: number[], taskIds: number[]): Parti
         queuesHeard: without(state.queuesHeard, sessionIds),
         drafts: without(state.drafts, sessionIds),
         recalls: without(state.recalls, sessionIds),
+        appContexts: without(state.appContexts, sessionIds),
         scrolls: withoutScrolls(state.scrolls, sessionIds),
         subView: of(state.subView),
         terminalCommand: of(state.terminalCommand),
@@ -748,6 +769,7 @@ function closed(state: State, sessionId: number): Partial<State> {
         // Put away, it cannot be written to; and its task can go while it is put away.
         drafts: without(state.drafts, [sessionId]),
         recalls: without(state.recalls, [sessionId]),
+        appContexts: without(state.appContexts, [sessionId]),
         scrolls: withoutScrolls(state.scrolls, [sessionId]),
     };
 }
@@ -931,6 +953,20 @@ export const useStore = create<State>((set, get) => ({
     recalls: {},
     noteRecall: (sessionId, browsing) =>
         set((state) => ({ recalls: withRecall(state.recalls, sessionId, browsing) })),
+    appContexts: {},
+    keepAppContext: (sessionId, toolUseId, context) =>
+        set((state) => ({
+            appContexts: contextsWith(state.appContexts, sessionId, toolUseId, context),
+        })),
+    takeAppContexts: (sessionId) => {
+        const { taken, rest } = contextsTaken(get().appContexts, sessionId);
+        set({ appContexts: rest });
+        return taken;
+    },
+    putAppContextsBack: (sessionId, contexts) =>
+        set((state) => ({ appContexts: contextsBack(state.appContexts, sessionId, contexts) })),
+    appsAllowed: [],
+    allowApps: (key) => set((state) => ({ appsAllowed: withAllowed(state.appsAllowed, key) })),
     scrolls: {},
     keepScroll: (sessionId, key, spot) => set((state) => keptScroll(state, sessionId, key, spot)),
     newTaskDrafts: {},

@@ -1041,3 +1041,63 @@ describe("a session taken back", () => {
         expect(latestLimit(items)).toBeNull();
     });
 });
+
+describe("an app an MCP server attached to a call", () => {
+    const app: AgentEvent = {
+        type: "app",
+        tool_use_id: "m1",
+        server: "invoices",
+        tool: "chart",
+        uri: "ui://invoices/chart",
+        document: "/data/attachments/3/app-0123456789abcdef.html",
+        note: null,
+        csp: { connect: ["https://api.example.com"], resources: [], frames: [], base_uris: [] },
+        permissions: [],
+        prefers_border: true,
+        callable: ["chart", "refresh"],
+        result: { content: [{ type: "text", text: "Drew 6 bars." }], structuredContent: { n: 6 } },
+    };
+    const call: AgentEvent = {
+        type: "tool_use",
+        id: "m1",
+        name: "mcp__invoices__chart",
+        input: { months: 6 },
+    };
+
+    it("stands under its call with what the call was given and returned", () => {
+        const items = toItems([call, toolResult("m1", "Drew 6 bars."), app]);
+        expect(items.map((item) => item.kind)).toEqual(["tool", "app"]);
+        expect(items[1]).toMatchObject({
+            kind: "app",
+            toolUseId: "m1",
+            server: "invoices",
+            document: "/data/attachments/3/app-0123456789abcdef.html",
+            callable: ["chart", "refresh"],
+            input: { months: 6 },
+            result: { structuredContent: { n: 6 } },
+        });
+    });
+
+    it("is told the call's text where its result was not kept", () => {
+        const items = toItems([call, toolResult("m1", "Drew 6 bars."), { ...app, result: null }]);
+        expect(items[1]).toMatchObject({
+            result: { content: [{ type: "text", text: "Drew 6 bars." }] },
+        });
+    });
+
+    it("shows whatever the setting for tool calls says, as a view does", () => {
+        const items = toItems([call, toolResult("m1", "Drew 6 bars."), app]);
+        expect(shownTools(items, "hidden").map((item) => item.kind)).toEqual(["app"]);
+        expect(shownTools(items, "folded").map((item) => item.kind)).toEqual(["tools", "app"]);
+    });
+
+    it("leaves a context that is shown apart from what the user typed", () => {
+        const sent = 'What now?\n\n<app_context server="invoices">\nMarch is up\n</app_context>';
+        const [item] = toItems([{ type: "user_message", text: sent }]);
+        expect(item).toMatchObject({
+            kind: "user",
+            text: "What now?",
+            contexts: [{ server: "invoices", text: "March is up" }],
+        });
+    });
+});

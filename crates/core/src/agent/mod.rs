@@ -374,6 +374,11 @@ pub enum AgentEvent {
         /// The commands and skills a message can call by starting with `/`, without the slash.
         #[serde(default)]
         slash_commands: Vec<String>,
+        /// What the agent says it can do beyond the basics, by the names it gives them, for
+        /// telling what to ask of it without going by its version. Absent from what was
+        /// recorded before this, and from agents that say nothing of the kind.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        capabilities: Vec<String>,
     },
     /// A piece of the agent's reply.
     Text {
@@ -524,6 +529,59 @@ pub enum AgentEvent {
     View {
         /// The document or fragment to show.
         html: String,
+    },
+    /// The app an MCP server attached to the tool of a call (MCP Apps), read from the server
+    /// once the call had its result, to be shown under the call. Its HTML is a third party's,
+    /// kept in the session's own folder and shown only in a sandboxed frame
+    /// (`apps.rs`); it is never handed to another session, a fork, the cloud or
+    /// search.
+    App {
+        /// The call it belongs to.
+        tool_use_id: String,
+        /// The MCP server, by the name the agent gives it.
+        server: String,
+        /// The tool, by the server's own name for it.
+        tool: String,
+        /// The `ui://` resource it was read from.
+        uri: String,
+        /// The file its HTML is kept in, in the session's own folder; `None` when it was not
+        /// kept, and `note` says why.
+        #[serde(default)]
+        document: Option<PathBuf>,
+        /// Why the app is not shown, when it is not.
+        #[serde(default)]
+        note: Option<String>,
+        /// What the server declared the app may reach, as declared.
+        #[serde(default)]
+        csp: crate::apps::AppCsp,
+        /// The devices and the like the app asked for (`camera`, `clipboardWrite`), which are
+        /// never granted.
+        #[serde(default)]
+        permissions: Vec<String>,
+        /// Whether the server would rather have the app drawn with a border, if it said.
+        #[serde(default)]
+        prefers_border: Option<bool>,
+        /// The tools of its own server the app may call, by the server's names for them.
+        #[serde(default)]
+        callable: Vec<String>,
+        /// The call's result as an app is handed it: MCP's `CallToolResult`, with its text,
+        /// its `structuredContent` and its `_meta`. `None` where it was too large to keep.
+        #[serde(default)]
+        result: Option<Value>,
+        /// The HTML as the agent's backend read it, until the core keeps it and names its file
+        /// in `document`. Never stored or published.
+        #[serde(skip)]
+        html: Option<String>,
+    },
+    /// The agent's answer to [`AgentCommand::CallTool`]. Never stored or published: the core
+    /// hands it to whoever asked.
+    AppCalled {
+        /// The number the call was asked under.
+        call: u64,
+        /// The tool's result, MCP's `CallToolResult`; `None` when it did not run.
+        result: Option<Value>,
+        /// Why it did not run, in the agent's words.
+        error: Option<String>,
     },
     /// What the agent says it actually runs with, which settings left at their default do not
     /// tell.
@@ -876,6 +934,20 @@ pub enum AgentCommand {
         /// The session on claude.ai to attach to again, from an earlier run; `None` for a new
         /// one.
         reattach: Option<String>,
+    },
+    /// Call a tool of an MCP server for an app shown in the conversation, decided as the
+    /// agent's own call of that tool would be and kept out of the model's context; answered
+    /// as [`AgentEvent::AppCalled`], which says why where the agent cannot: it shows no apps,
+    /// or would not decide the call as its own.
+    CallTool {
+        /// The number the answer comes under.
+        call: u64,
+        /// The MCP server, by the name the agent gives it.
+        server: String,
+        /// The tool, by the server's own name for it.
+        tool: String,
+        /// The tool's arguments.
+        arguments: Value,
     },
 }
 

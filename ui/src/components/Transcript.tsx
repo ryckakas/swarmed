@@ -38,10 +38,12 @@ import { useScrollSpot } from "../useScrollSpot";
 import { useWords } from "../useWords";
 import type { Words } from "../wording";
 import { activityWords, pickWord, wordsFor } from "../wording";
+import { SentContexts } from "./AppContexts";
 import { ConfigProposal } from "./ConfigProposal";
 import { FileChips } from "./FileChips";
 import { HtmlView } from "./HtmlView";
 import { Markdown } from "./Markdown";
+import { McpAppView } from "./McpAppView";
 import { MentionList, WithMentions } from "./MentionChips";
 import { PermissionPrompt } from "./PermissionPrompt";
 import { SendFailure } from "./PullRequest";
@@ -292,6 +294,8 @@ function ItemView(props: ItemProps) {
             );
         case "view":
             return <HtmlView html={item.html} />;
+        case "app":
+            return <McpAppView item={item} sessionId={sessionId} />;
         case "screen":
             return item.command === "usage" ? (
                 <>
@@ -383,6 +387,7 @@ function UserSaid(props: {
                 sessionId={sessionId}
             />
             <FileChips files={item.files} sessionId={sessionId} />
+            <SentContexts contexts={item.contexts} />
             {!folded && (
                 <div className="said-actions">
                     <button

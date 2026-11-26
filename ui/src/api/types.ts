@@ -1129,6 +1129,24 @@ export interface AskedQuestion {
     multiSelect: boolean;
 }
 
+/** What an MCP server declared its app may reach, as it declared it. */
+export interface AppCsp {
+    connect: string[];
+    resources: string[];
+    frames: string[];
+    base_uris: string[];
+}
+
+/** An app made ready for a frame: its address's id, and what its policy lets it reach. */
+export interface AppShown {
+    id: string;
+    policy: string;
+    /** Every origin it may reach, which the user is shown before it loads. */
+    reaches: string[];
+    /** What its server declared and the policy left out, each with why. */
+    refused: string[];
+}
+
 export type AgentEvent =
     /**
      * What the user wrote; `remote` when typed on claude.ai or in the Claude app, `at_reset`
@@ -1145,6 +1163,8 @@ export type AgentEvent =
           skills: number;
           /** The commands and skills a message can call with `/`, without the slash. */
           slash_commands: string[];
+          /** What the agent says it can do beyond the basics; absent from older records. */
+          capabilities?: string[];
       }
     | { type: "text"; text: string }
     /** A piece of a reply still being written; the whole reply follows as `text`. */
@@ -1234,6 +1254,27 @@ export type AgentEvent =
     | { type: "files_put_back"; to: number }
     /** HTML the agent showed through Swarmed's own tool, handed over by the tool itself. */
     | { type: "view"; html: string }
+    /**
+     * The app an MCP server attached to the tool of a call (MCP Apps), read once the call had
+     * its result: kept in the session's own folder, `document`, or not kept, `note` saying why.
+     */
+    | {
+          type: "app";
+          tool_use_id: string;
+          server: string;
+          tool: string;
+          uri: string;
+          document: string | null;
+          note: string | null;
+          csp: AppCsp;
+          /** The devices and the like it asked for, which are never granted. */
+          permissions: string[];
+          prefers_border: boolean | null;
+          /** The tools of its own server it may call. */
+          callable: string[];
+          /** The call's result as an app is handed it (MCP's `CallToolResult`), if kept. */
+          result: unknown;
+      }
     /** What the agent says it actually runs with, defaults resolved. */
     | { type: "applied"; model: string; effort: string | null }
     /**

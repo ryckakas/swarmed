@@ -4,6 +4,7 @@ import type { QueuedMessage } from "../api/types";
 import { editFor } from "../editing";
 import { elementsIn } from "../elements";
 import { githubOf, typedAgain } from "../githubMentions";
+import { splitAppContexts, withAppContexts } from "../mcpApps";
 import { mentionedIn } from "../mentions";
 import { expandTokens, forgetTokens, nothingWritten, tokensAgain, withToken } from "../pastes";
 import { editingAfter, queueHeading } from "../queue";
@@ -173,6 +174,8 @@ function QueuedRow(props: RowProps) {
     const split = splitFiles(message.text);
     // The sessions, pull requests and issues it mentions stand as their tokens again, as typed.
     const said = { ...split, text: typedAgain(split.text) };
+    // What apps left for the agent with it is not the user's to edit, and goes with it still.
+    const { contexts } = splitAppContexts(said.text);
     if (draft === null) {
         // Shown as it was typed: its pastes and quotes as tokens, not in full.
         const shown = tokensAgain(said.text, nothingWritten());
@@ -231,7 +234,7 @@ function QueuedRow(props: RowProps) {
             onDone={(edited) => {
                 close();
                 if (!(opened.current && unchanged(opened.current, edited))) {
-                    onSave(edited);
+                    onSave({ ...edited, text: withAppContexts(edited.text, contexts) });
                 }
             }}
             onCancel={close}
