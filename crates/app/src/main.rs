@@ -282,7 +282,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::terminal_write, commands::terminal_resize, commands::claude_terminal_open,
         commands::claude_terminal_write, commands::claude_terminal_resize,
         commands::claude_terminal_close,
-        commands::status_line, commands::account_usage, commands::session_usage_refresh, commands::session_rename, commands::session_close, commands::session_delete,
+        commands::status_line, commands::account_usage, commands::session_usage_refresh, commands::session_rename, commands::session_set_parent, commands::roles, commands::session_set_role, commands::session_close, commands::session_delete,
         commands::session_remote_control, commands::session_continue_at_reset,
         commands::session_continue_cancel,
         commands::sessions_search, commands::sessions_closed, commands::session_reopen,

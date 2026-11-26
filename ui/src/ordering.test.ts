@@ -14,9 +14,9 @@ import {
     pinnedNow,
     pinTarget,
     pinTitle,
-    starterHere,
     targetOf,
 } from "./ordering";
+import { parentHere } from "./tree";
 
 describe("moving a row among its siblings", () => {
     it("drops before, between or after them", () => {
@@ -74,11 +74,12 @@ describe("moving a row among its siblings", () => {
         );
     });
 
-    it("groups a started session under its starter only while the starter is listed", () => {
-        const session = (id: number, spawned_by: number | null) => ({ id, spawned_by }) as Session;
-        const sessions = [session(1, null), session(2, 1), session(3, 9)];
-        expect(starterHere(sessions, session(2, 1))).toBe(1);
-        expect(starterHere(sessions, session(3, 9))).toBeNull();
+    it("groups a session under the one it works for only while that one is listed", () => {
+        const session = (id: number, parent: number | null) => ({ id, parent }) as Session;
+        const sessions = [session(1, null), session(2, 1), session(3, 9), session(4, 2)];
+        expect(parentHere(sessions, session(2, 1))).toBe(1);
+        expect(parentHere(sessions, session(4, 2))).toBe(2);
+        expect(parentHere(sessions, session(3, 9))).toBeNull();
         expect(orderGroup.sessions(4, 1, false)).toBe("sessions:4:1");
         expect(orderGroup.sessions(4, null, false)).toBe("sessions:4:top");
     });

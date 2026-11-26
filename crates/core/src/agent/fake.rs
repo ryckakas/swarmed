@@ -707,9 +707,11 @@ impl Script {
             return Err(Next::Interrupted);
         }
         let allowed = !matches!(decision, AgentCommand::Deny { .. });
+        // A refusal's reason is what the agent reads as the call's result, as in Claude Code.
         let content = match decision {
             AgentCommand::Answer { answers, .. } => format!("answered: {answers:?}"),
             AgentCommand::Allow { .. } => "ok".to_string(),
+            AgentCommand::Deny { reason, .. } => reason,
             _ => "denied".to_string(),
         };
         self.emit(AgentEvent::ToolResult {

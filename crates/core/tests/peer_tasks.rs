@@ -8,9 +8,9 @@ use std::process::Command;
 use std::sync::Arc;
 
 use common::{core_with_project, fixture, git, turn};
-use swarmed_core::agent::{AgentEvent, Auth};
+use swarmed_core::agent::{AgentEvent, Auth, Supervision};
 use swarmed_core::{
-    CHATS, Core, Error, NewTaskOptions, PeerTask, Session, SessionOptions, hooks,
+    CHATS, Core, Error, MAX_SPAWNED, NewTaskOptions, PeerTask, Session, SessionOptions, hooks,
     serve_session_tools,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -87,8 +87,12 @@ async fn a_session_starts_a_task_of_its_own_whose_session_hears_from_it() {
     assert_eq!(started.task.base_ref, own.base_ref);
     assert_eq!(started.session.task_id, started.task.id);
     assert_eq!(started.session.title, "Review fixes");
-    // The first of a task of its own, not a helper of the starter's: it can start more.
-    assert_eq!(started.session.spawned_by, None);
+    // The first of a task of its own, not a helper of the starter's: it can start more. It
+    // works for the starter all the same, and the database says so too.
+    assert!(!started.session.spawned);
+    assert_eq!(started.session.parent, Some(asking.id));
+    let kept = core.session(started.session.id).expect("reads");
+    assert_eq!((kept.parent, kept.spawned), (Some(asking.id), false));
     // The window hears of a task this process made.
     let tree = std::iter::from_fn(|| told.try_recv().ok())
         .any(|heard| heard.session_id == 0 && matches!(heard.event, AgentEvent::TreeChanged));
@@ -265,7 +269,9 @@ async fn a_task_is_refused_to_a_helper_a_chat_and_an_empty_prompt() {
         core.peer_start_task(asking.id, asked(" \n")).await,
         Err(Error::EmptyMessage)
     ));
-    let helper = core.peer_spawn(asking.id, "a part", None).expect("spawns");
+    let helper = core
+        .peer_spawn(asking.id, "a part", None, None)
+        .expect("spawns");
     turn(&mut bus, helper.id).await;
     let refused = core.peer_start_task(helper.id, asked("more")).await;
     assert!(
@@ -286,6 +292,30 @@ async fn a_task_is_refused_to_a_helper_a_chat_and_an_empty_prompt() {
     let refused = core.peer_start_task(chat.id, asked("work")).await;
     assert!(
         matches!(refused, Err(Error::Peers(ref reason)) if reason.contains("no repository")),
+        "{refused:?}"
+    );
+    assert_eq!(core.tasks("demo", false).expect("lists").len(), 1);
+}
+
+#[tokio::test]
+async fn a_task_is_refused_while_as_many_work_for_the_session_as_may() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let asking = new_session(&core);
+    // However they came to work for it: these the user chose.
+    for _ in 0..MAX_SPAWNED {
+        let another = new_session(&core);
+        core.session_set_parent(another.id, Some(asking.id))
+            .expect("works for it");
+    }
+    let asked = PeerTask {
+        name: "work",
+        prompt: "one more part",
+        ..PeerTask::default()
+    };
+    let refused = core.peer_start_task(asking.id, asked).await;
+    assert!(
+        matches!(refused, Err(Error::Peers(ref reason)) if reason.contains("the most allowed")),
         "{refused:?}"
     );
     assert_eq!(core.tasks("demo", false).expect("lists").len(), 1);
@@ -344,4 +374,68 @@ async fn the_tool_server_starts_a_task_over_its_socket() {
         "{text}"
     );
     assert!(text.contains(&task.branch), "{text}");
+}
+
+#[tokio::test]
+async fn a_task_s_session_has_the_role_its_starter_may_start() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let with_role = |role: &str| SessionOptions {
+        role: Some(role.into()),
+        ..SessionOptions::default()
+    };
+    let architect = core
+        .session_new("demo", "one", &with_role("architect"))
+        .expect("creates");
+    let asked = |name, role| PeerTask {
+        name,
+        prompt: "Plan the export.",
+        role,
+        ..PeerTask::default()
+    };
+    // Without a role asked for, the one an architect starts: a planner.
+    let started = core
+        .peer_start_task(architect.id, asked("export", None))
+        .await
+        .expect("starts");
+    assert_eq!(started.session.role.as_deref(), Some("planner"));
+    assert_eq!(started.session.parent, Some(architect.id));
+    let refused = core
+        .peer_start_task(architect.id, asked("build", Some("implementer")))
+        .await;
+    assert!(
+        matches!(&refused, Err(Error::Peers(why)) if why.contains("may start only planner or reviewer")),
+        "{refused:?}"
+    );
+    // In plan mode, as a planner starts, with the supervision its starter had before its own
+    // role took its place to put back.
+    assert_eq!(architect.supervision, Supervision::Plan);
+    assert_eq!(started.session.supervision, Supervision::Plan);
+    core.session_set_role(started.session.id, None)
+        .expect("takes it off");
+    let without = core.session(started.session.id).expect("reads");
+    assert_eq!(without.supervision, SessionOptions::default().supervision);
+
+    // An architect another session started starts tasks all the same: its role decides.
+    let user_s = new_session(&core);
+    let spawned = core
+        .peer_spawn(user_s.id, "Shape the export.", None, Some("architect"))
+        .expect("spawns");
+    assert!(spawned.spawned);
+    let started = core
+        .peer_start_task(spawned.id, asked("export-part", None))
+        .await
+        .expect("a role that starts sessions may");
+    assert_eq!(started.session.parent, Some(spawned.id));
+
+    let implementer = core
+        .session_new("demo", "one", &with_role("implementer"))
+        .expect("creates");
+    let refused = core
+        .peer_start_task(implementer.id, asked("more", None))
+        .await;
+    assert!(
+        matches!(&refused, Err(Error::Peers(why)) if why.contains("starts no sessions")),
+        "{refused:?}"
+    );
 }

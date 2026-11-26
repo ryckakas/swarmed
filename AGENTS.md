@@ -419,8 +419,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **The sidebar's order is the user's, kept in the core** (`order.rs`): a `position` on
   projects, tasks, sessions and cloud tasks, which their lists follow. New rows go at the end,
   a cloud task at the top. A row moves `by` places among its siblings only, never to another
-  parent: a session within its task, and one another session started among those its starter
-  started while that one is open (`session_siblings`, as `nestedSessions` lists them). Rows
+  parent: a session within its task, and one that works for another open session of its task
+  among the others that work for that one, at any depth (`session_siblings`, as
+  `nestedSessions` lists them). Rows
   not listed among the others, a closed session, an archived task or one put away (which the
   sidebar lists apart, in Done), keep their places among them and are not counted in a move,
   so one put back comes back where it was: the core counts exactly the siblings the sidebar
@@ -592,7 +593,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   (`mockSetups.ts`). Storefront and bonsai-lint have GitHub issues, `shop-142` was started for
   #142, #428's text holds HTML GitHub draws (`<details>`, `<kbd>`) and HTML it does not, an
   HTML comment, an image and a view's block, and one of its comments is hidden on GitHub, and
-  fsum is not on GitHub, so its list says why (`mockIssues.ts`). The task whose stack runs has
+  fsum is not on GitHub, so its list says why (`mockIssues.ts`). bonsai-lint's `rule-engine`
+  holds an architect with sessions working for it, three levels deep, and `rule-docs` a
+  planner that works for it from another task (`mockParents.ts`), each with a role
+  (`mockRoles.ts`). The task whose stack runs has
   its browser running too (`mockBrowser.ts`), drawn on a canvas as a made-up shop that shows
   clicks and typing, and whose parts Pick outlines and picks; an address with `console` logs a line, `alert` opens a dialog, `refused`
   fails, and a browser program with `missing` in it shows the offer to install one. With
@@ -1029,9 +1033,79 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   a message in the other conversation, queued if that session is busy. Only open sessions of
   the caller's own project can be read or written to (`peer_in_reach`), and from a chat those
   of every project (see the chats above): a closed one would be started out of sight. A spawned session runs
-  in its parent's task with its settings, cannot spawn itself, and a session can have
-  `MAX_SPAWNED` open. The tools are not on the allow list: in ask mode the user is asked.
-  A session can close only sessions it started, and only idle ones (`peer_close`).
+  in its parent's task with its settings, cannot spawn itself (`Session::spawned`) unless its
+  role starts sessions (see roles below). While `MAX_SPAWNED` open sessions work for a
+  session, however each came to, its agent starts no more, with `spawn_session` or
+  `start_task` (`room_for_another`); the user can still have more work for it. The tools are
+  not on the allow list: in ask mode the user is asked. A session can close only spawned
+  sessions that work for it, and only idle ones (`peer_close`).
+- **Who works for whom is a tree of parents** (`parents.rs`, #459). `Session::parent`, kept
+  in the `spawned_by` column, is whom a session works for: set by `spawn_session`,
+  `start_task` and `swarmed session run` (`--parent`, or `SWARMED_SESSION`, which agents of a
+  task are given), or by the user (`session_set_parent`, the header's menu,
+  `swarmed session parent`). It can be any open session of the same repository, in any task,
+  never itself, a closed one or one below it (`Error::CannotWorkFor`). `Session::spawned`
+  says apart that an agent started it in its own worktree, which is what keeps it from
+  spawning, keeps its first message out of recall and, while the session it works for is
+  open, its turns out of notices (`reports_to_a_session`: with that one closed or gone it
+  reports to the user); the user's choice never changes it.
+  - **A change** is `AgentEvent::ParentChanged`, recorded in the child and in its old and new
+    parent, and `TreeChanged`. Each of their agents is told who works with it now with its
+    next message (`parents::regrouped`, read from the history, so a change another process
+    made counts too), and every agent at its start in its guidance.
+  - **A session an agent starts** gets its parent from its start and records nothing
+    (`session_parent_from_start`, and so `spawn_session` and `start_task`): its starter
+    knows, and its own agent's guidance says so. One started from an agent's shell
+    (`SWARMED_SESSION`) is that agent's doing, so it works for it only where `spawn_session`
+    would have been allowed (`may_start`, `room_for_another`); refused, the session is made
+    all the same and works for nobody. `--parent` is the user's word and is checked as the
+    user's choice is.
+  - **Shown:** the sidebar nests to any depth (`nestedSessions`, `parentHere`; `order.rs`
+    counts the same siblings), and one whose parent is elsewhere shows `for #N`
+    (`parentElsewhere`). `list_sessions` and `read_session` say it. Deleting a parent leaves
+    its children with none; closing leaves them as they are.
+- **A session's role says what it is for** (`roles.rs`, `roles.ts`, `Role.tsx`, #459). A role
+  is data (`Role`: name, one-line description, instructions, starting supervision, whether it
+  changes files, which roles it may start, its default child), so that roles of the user's own
+  can come; four are built in (`ROLES`: architect, planner, implementer, reviewer), and no
+  role is how every session worked before. `Session::role` is the name, in the `role` column;
+  one no built-in has (a newer Swarmed's) counts as none where rules apply.
+  - **Chosen at start** (`SessionOptions::role`: the new-task view, `--role`, a fork keeps it)
+    and **changed** by the user only (`session_set_role`, the header's menu,
+    `swarmed session role`), never through `configure`. Before anything was said nothing is
+    recorded: the agent starts with it. After, `AgentEvent::RoleChanged`, shown in the
+    transcript, and its agent is told with the next message (`roles::changed` against what it
+    last heard, `roles::note`).
+  - **Told:** `roles::section` is one part of the guidance: the role's rules, every role with
+    the architect and planner table (`TABLE`), and who works with it (folding in part of
+    `parents.rs`); with no role, only who works with it. `docs/coding-agents.md` holds the
+    same roles and table, and a test keeps the two together: change both.
+  - **What it may start** (`Core::may_start`): `spawn_session` and `start_task` take a
+    `role`, default to the caller's role's child, and refuse one it may not start
+    (`roles::of_child`); a role that starts nothing starts no session, and a session with no
+    role starts any. A role that starts sessions may even when another session spawned it,
+    while fewer than `MAX_DEPTH` (3) sessions with a role work one for another in a row up from
+    it (`roles_in_a_row`); a session with no role breaks the row, so chains of tasks are not
+    capped. A spawned session with no role still starts nothing (`Session::spawned`).
+  - **Kept to, where Swarmed can** (#459 part 3): a role that changes no files holds the
+    session in `Plan` (`Role::supervision`), which `acp.rs` maps onto an agent's plan or
+    read-only mode, else its asking one. At start (`Core::session_insert`, `roles::starts_in`)
+    and on a change (`roles::held`), what the role took the place of is kept in
+    `supervision_before_role` and put back when the role goes; the user's own change
+    (`session_configure`, not `supervise`, which the core uses) forgets it, so their choice
+    wins. A session a role-holder starts begins from that kept supervision
+    (`supervision_without_role`), so an implementer is never held in its planner's plan mode.
+    A same-agent fork copies it; a clone onto another agent starts anew under the role.
+  - **Approving its plan keeps it planning:** for a role that changes no files, `decide`
+    answers `PLAN_TOOL` with a refusal whose reason is `roles::approval` (the role's
+    `approved`: how it hands the plan on), recorded as allowed, and the session stays in
+    `Plan`. Allowing would end Claude Code's plan mode with its own "You can now start coding".
+    Tried with Claude Code 2.1.332: in plan mode it asks before an MCP tool and runs it once
+    allowed, and the model calls one only when told it may, which the guidance
+    (`KEPT_FROM_CHANGES`) does; an edit in plan mode is asked about, not refused.
+  - **Shown:** a short chip on its sidebar row, gone when the row has no room for it (a
+    container query), and the menu in the header and the new-task view. `list_sessions`,
+    `read_session` and `swarmed session list` (`role <name>` last) say it.
 - **A session starts a task for work that needs a branch of its own** (`start_task`,
   `peers/tasks.rs`). Without a tool for it, an agent asked for such work finds no way to make
   a task and switches its own worktree instead: `swarmed task new` is known only to an agent
@@ -1042,8 +1116,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   pull request's; its `from` starts a new branch from another (`NewTaskOptions::from`, a
   branch only, here or on a remote, which becomes the task's base and so its pull request's).
   The first message is the starter's words, marked as `send_message` marks them (`left_by`),
-  with a note to report back; the session is not spawned (`spawned_by` stays empty), so it
-  can spawn and start tasks itself, as the next link of a chain of pull requests does. A
+  with a note to report back; the session works for its starter but is not spawned
+  (`Session::spawned` stays false), so it can spawn and start tasks itself, as the next link
+  of a chain of pull requests does. A
   title left out is the prompt's, never the mark's, and the namer names it from the prompt.
   Refused to a spawned session and to a chat, and by a process that ends with its turn, as
   the command line's does, which would take the setup along: only one that stays answers it
@@ -1118,7 +1193,7 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   the line, and ⌘⌫ at the very start empties the box. ↑ at the very start and ↓ at the very end
   go through what was sent to the session (`ui/src/recall.ts`): its `user_message` events as
   typed, files apart, never a message another session left, nor the first message of a session
-  another one started (`spawned_by`), which that session's agent wrote. Not on the first and
+  another one spawned (`spawned`), which that session's agent wrote. Not on the first and
   last line: a long line the box wraps is several rows, and the arrows have to move between
   them. Where it stands is in the store (`recalls`), since it holds what was typed before ↑,
   and goes with the session as its draft does. The command list and a question that has the
@@ -1144,7 +1219,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **Plan mode** is a value of `Supervision`. Claude Code is started in, or switched to, its own
   plan mode, and presents its plan by asking to use `PLAN_TOOL`. Allowing that request approves
   the plan: the core then puts the session back to how new sessions are supervised and tells the
-  agent, which by itself would fall back to asking about everything. Every change of
+  agent, which by itself would fall back to asking about everything. A session whose role
+  changes no files stays in plan mode and is told to hand the plan on instead (see roles). Every change of
   supervision is an event, `SupervisionChanged`. Other agents have no plan mode and ask instead.
 - **The model and effort actually in use** are asked of Claude Code (`get_settings`) when it
   starts and after each turn, and recorded as `Applied`. Only those two values are read: the

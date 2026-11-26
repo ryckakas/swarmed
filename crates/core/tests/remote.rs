@@ -391,7 +391,7 @@ async fn a_session_another_started_takes_its_prompt_as_words_never_as_rc() {
     let core = core_with_task(&fx).await;
     let parent = new_session(&core);
     let mut bus = core.subscribe();
-    let child = core.peer_spawn(parent, "/rc", None).expect("spawns");
+    let child = core.peer_spawn(parent, "/rc", None, None).expect("spawns");
     turn(&mut bus, child.id).await;
     // An agent's prompt turns nothing on: only the user does, where they are told what it means.
     assert_eq!(recorded(&core, child.id), []);

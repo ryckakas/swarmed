@@ -19,11 +19,11 @@ use swarmed_core::{
     CustomLayout, Environment, EnvironmentChoice, FileChange, FileDiff, FileListing, FirstSession,
     GitHubItem, GitHubItems, Issue, IssueDetail, IssueFilter, IssueList, KeyInput, McpServerInput,
     McpServerView, MergeMethod, MergeReport, MergeRules, MergeWhen, MouseInput, NewTaskOptions,
-    PickedElement, Project, ProjectOverview, Pull, PullDraft, QueuedMessage, Reachable,
-    RemoveOptions, RewindCheck, RewindDone, SearchHit, Session, SessionOptions, SessionSettings,
-    Settings, SetupLog, Skill, SlashCommand, Snapshot, Task, TaskNaming, TaskStarted, Template,
-    TerminalConfig, TerminalOpened, Turn, TurnChanges, TurnStats, Unpublished, Usage, UsageAsk,
-    Viewport, hooks,
+    PickedElement, Project, ProjectOverview, Pull, PullDraft, QueuedMessage, ROLES, Reachable,
+    RemoveOptions, RewindCheck, RewindDone, Role, SearchHit, Session, SessionOptions,
+    SessionSettings, Settings, SetupLog, Skill, SlashCommand, Snapshot, Task, TaskNaming,
+    TaskStarted, Template, TerminalConfig, TerminalOpened, Turn, TurnChanges, TurnStats,
+    Unpublished, Usage, UsageAsk, Viewport, hooks,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -240,6 +240,9 @@ pub(crate) struct Start {
     environment: Option<EnvironmentChoice>,
     /// The first session's agent; `None` is Claude Code.
     agent: Option<String>,
+    /// The name of the first session's role; `None` for no role.
+    #[serde(default)]
+    role: Option<String>,
     how: Running,
     /// The first session's title, if a model named the task.
     title: Option<String>,
@@ -287,6 +290,7 @@ pub(crate) async fn task_start<R: Runtime>(
             supervision: start.how.supervision,
             effort: start.how.effort,
             fast: start.how.fast,
+            role: start.role,
         },
         prompt: start.prompt,
         files: start.files,
@@ -1138,6 +1142,7 @@ pub(crate) fn session_new(
     project: String,
     task: String,
     agent: Option<String>,
+    role: Option<String>,
     how: Running,
 ) -> Command<Session> {
     let options = SessionOptions {
@@ -1147,6 +1152,7 @@ pub(crate) fn session_new(
         supervision: how.supervision,
         effort: how.effort,
         fast: how.fast,
+        role,
     };
     Ok(core.session_new(&project, &task, &options)?)
 }
@@ -1687,6 +1693,32 @@ pub(crate) fn session_continue_cancel(core: CoreState<'_>, id: i64) -> Command<(
 #[tauri::command]
 pub(crate) fn session_rename(core: CoreState<'_>, id: i64, title: String) -> Command<Session> {
     Ok(core.session_rename(id, &title)?)
+}
+
+/// Has a session work for another, of the same repository, or with `null` for nobody.
+#[tauri::command]
+pub(crate) fn session_set_parent(
+    core: CoreState<'_>,
+    id: i64,
+    parent: Option<i64>,
+) -> Command<Session> {
+    Ok(core.session_set_parent(id, parent)?)
+}
+
+/// The roles a session can have, in the order they are offered.
+#[tauri::command]
+pub(crate) fn roles() -> Vec<Role> {
+    ROLES.to_vec()
+}
+
+/// Gives a session a role, by its name, or with `null` takes its role off.
+#[tauri::command]
+pub(crate) fn session_set_role(
+    core: CoreState<'_>,
+    id: i64,
+    role: Option<String>,
+) -> Command<Session> {
+    Ok(core.session_set_role(id, role.as_deref())?)
 }
 
 #[tauri::command]

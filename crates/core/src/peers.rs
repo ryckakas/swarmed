@@ -15,23 +15,27 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 
-use crate::agent::{AgentEvent, Auth};
+use crate::agent::{AgentEvent, Auth, Supervision};
 use crate::chats::CHATS;
 use crate::cloud::{CloudOrigin, CloudProvider};
 use crate::error::{Error, Result};
 use crate::paths::SOCKET_PREFIX;
+use crate::roles::Role;
 use crate::sessions::{Session, SessionOptions, SessionStatus};
 use crate::store::Project;
 use crate::toolserver::{DELEGATE_TO_CLOUD, SHOW_BROWSER, START_TASK};
-use crate::{Core, Task, rewind};
+use crate::{Core, Task, parents, rewind, roles};
 
 mod tasks;
 
 pub use tasks::PeerTask;
 
-/// How many sessions one session may have started that are still open. A runaway agent stops
-/// here instead of filling the machine.
+/// How many open sessions may work for one session before its agent starts no more, beside it
+/// or in a task. A runaway agent stops here instead of filling the machine.
 pub const MAX_SPAWNED: usize = 6;
+/// How many sessions with a role may work one for another in a row: an architect, its
+/// planners and their implementers. A chain of roles that start one another stops here.
+pub const MAX_DEPTH: usize = 3;
 /// How much of another session's conversation is handed over at most, in characters.
 const DIGEST_CHARS: usize = 8000;
 /// How many of a session's messages are read when no number is asked for.
@@ -44,18 +48,19 @@ pub(crate) const INSTRUCTIONS: &str = "\
 You are one of possibly several agent sessions the user runs side by side in Swarmed, each in \
 a task with its own git worktree. The `swarmed` tool server (in Claude Code: `mcp__swarmed__…`) \
 lets you work with the others:
-- `list_sessions`: who else is there, in which task, and whether they are busy.
+- `list_sessions`: who else is there, in which task, whether they are busy, and which session \
+each works for.
 - `read_session`: the latest messages of another session.
 - `send_message`: leave another session a message. It arrives as a message in its \
 conversation, at once if it is idle, else when its turn ends.
 - `spawn_session`: start a new session in your own worktree with a prompt of yours, for a part \
 of the work that can go on beside you. It shares your files, so give it a part that does not \
-collide with what you are editing. It is told to report back to you with `send_message` when \
-it is done; you do not have to wait for it.
+collide with what you are editing. It works for you, and is told to report back to you with \
+`send_message` when it is done; you do not have to wait for it.
 - `start_task`: start a new task, with a branch, worktree and session of its own, for work that \
 needs a branch of its own: a separate change, a fix to another pull request, the next pull \
-request of a stack. Its session gets your prompt once the task is set up, and reports back to \
-you like a spawned one.
+request of a stack. Its session gets your prompt once the task is set up, works for you, and \
+reports back to you like a spawned one.
 - `close_session`: put away a session you spawned, once it is done and you have what you need \
 from it. You cannot close any other session.
 - `delegate_to_cloud`: hand a self-contained piece of work to an agent in the cloud, when the \
@@ -167,6 +172,30 @@ pub(crate) enum Access {
     Write,
 }
 
+/// What a session asks to start.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Starting {
+    /// A session beside itself, in its own worktree (`spawn_session`).
+    Session,
+    /// A task, with a session of its own (`start_task`).
+    Task,
+}
+
+impl Starting {
+    /// Why a session with no role that another session's agent started may not start this.
+    fn refused_to_spawned(self) -> &'static str {
+        match self {
+            Self::Session => {
+                "a session that was started by another session cannot start sessions itself"
+            }
+            Self::Task => {
+                "a session that was started by another session cannot start tasks; the session \
+                 that started it can"
+            }
+        }
+    }
+}
+
 /// Where a session works, as another session is told of it: its chat, or its task, with the
 /// repository where sessions of every repository are listed.
 fn place(task: &Task, reach: Reach, projects: &[Project]) -> String {
@@ -182,7 +211,8 @@ fn place(task: &Task, reach: Reach, projects: &[Project]) -> String {
     }
 }
 
-/// One line about a session, as another session is told of it.
+/// One line about a session, as another session is told of it: its number, its state, where
+/// it works, the session it works for, its role, and its title.
 fn brief(session: &Session, place: &str, own: i64) -> String {
     let you = if session.id == own { " (you)" } else { "" };
     let state = if session.unread && !is_busy(session) {
@@ -195,7 +225,16 @@ fn brief(session: &Session, place: &str, own: i64) -> String {
     } else {
         &session.title
     };
-    format!("{}{you}\t{state}\t{place}\t{title}", session.id)
+    let works_for = match session.parent {
+        Some(parent) if parent == own => "you".to_string(),
+        Some(parent) => parent.to_string(),
+        None => "-".to_string(),
+    };
+    let role = session.role.as_deref().unwrap_or("-");
+    format!(
+        "{}{you}\t{state}\t{place}\t{works_for}\t{role}\t{title}",
+        session.id
+    )
 }
 
 /// What a session said or was told, if the event is that, as one paragraph.
@@ -329,7 +368,7 @@ impl Core {
     }
 
     /// The open sessions `from` can read, one line each, for an agent to read: those of the
-    /// project it works in, or from a chat, every one.
+    /// project it works in, or from a chat, every one, each with the session it works for.
     pub fn peer_sessions(&self, from: i64) -> Result<String> {
         let own = self.session(from)?;
         let reach = self.reach_of(&own)?;
@@ -343,7 +382,7 @@ impl Core {
             task.filter(in_reach)
                 .map(|task| brief(session, &place(task, reach, &projects), from))
         };
-        let mut lines = vec!["id\tstate\ttask\ttitle".to_string()];
+        let mut lines = vec!["id\tstate\ttask\tworks for\trole\ttitle".to_string()];
         lines.extend(sessions.iter().filter_map(line));
         Ok(lines.join("\n"))
     }
@@ -450,6 +489,8 @@ impl Core {
     ///
     /// Only an open session `from` can reach can be read: of its own project, or any from a
     /// chat. A repository's session cannot read a chat, which may hold another repository's.
+    /// Its role and who works with it come first, if it has one or anyone does, so that an
+    /// agent can find again the sessions that work for it.
     pub fn peer_digest(
         &self,
         from: i64,
@@ -457,7 +498,17 @@ impl Core {
         messages: Option<usize>,
         first: Option<usize>,
     ) -> Result<String> {
-        self.peer_in_reach(from, id, Access::Read)?;
+        let read_from = self.peer_in_reach(from, id, Access::Read)?;
+        let read = self.peer_read(id, messages, first)?;
+        let relations = self.store().relations(id)?;
+        Ok(match parents::about(&read_from, &relations) {
+            Some(about) => format!("{about}\n\n{read}"),
+            None => read,
+        })
+    }
+
+    /// What was said in session `id`, as [`Core::peer_digest`] hands it on.
+    fn peer_read(&self, id: i64, messages: Option<usize>, first: Option<usize>) -> Result<String> {
         let wanted = messages.unwrap_or(DIGEST_MESSAGES);
         let Some(said) = self.said_in(id, first, wanted, DIGEST_CHARS)? else {
             return Ok(nothing_from(first));
@@ -514,44 +565,40 @@ impl Core {
     }
 
     /// Starts a new session beside `from`, in the same task and so the same worktree, on the
-    /// same agent with the same settings, and gives it `prompt`. The new session is told who
-    /// started it and to report back when it is done.
+    /// same agent with the same settings, and gives it `prompt`. The new session works for
+    /// `from`, and is told who started it and to report back when it is done.
     ///
-    /// A session that was itself started this way cannot start others, and one session can
-    /// have [`MAX_SPAWNED`] of them open at most.
-    pub fn peer_spawn(&self, from: i64, prompt: &str, title: Option<&str>) -> Result<Session> {
+    /// The new session has the role called `role`, or without one the role `from`'s own starts
+    /// by default (`roles.rs`); a role `from`'s may not start is refused (`may_start`).
+    /// It starts as `from` would without its role, under the supervision its own role holds if
+    /// it holds one: an implementer a planner starts is not held in the planner's plan mode.
+    /// Refused while [`MAX_SPAWNED`] open sessions work for `from` (`room_for_another`).
+    pub fn peer_spawn(
+        &self,
+        from: i64,
+        prompt: &str,
+        title: Option<&str>,
+        role: Option<&str>,
+    ) -> Result<Session> {
         let parent = self.session(from)?;
         if prompt.trim().is_empty() {
             return Err(Error::EmptyMessage);
         }
-        if parent.spawned_by.is_some() {
-            return Err(refused(
-                "a session that was started by another session cannot start sessions itself",
-            ));
-        }
-        let open = self.store().sessions_spawned_by(from)?;
-        if open >= MAX_SPAWNED {
-            return Err(refused(format!(
-                "this session already has {open} sessions of its own open, which is the most \
-                 allowed; wait for them, or ask the user to close some"
-            )));
-        }
+        let role = self.may_start(&parent, role, Starting::Session)?;
+        self.room_for_another(from)?;
         let options = SessionOptions {
             agent: Some(parent.agent.clone()),
             title: title
                 .map(String::from)
                 .filter(|title| !title.trim().is_empty()),
             model: parent.model.clone(),
-            supervision: parent.supervision,
+            supervision: self.supervision_without_role(&parent)?,
             effort: parent.effort,
             fast: parent.fast,
+            role: role.map(|role| role.name.to_string()),
         };
-        let child = {
-            let store = self.store();
-            let child = store.session_insert(parent.task_id, &options)?;
-            store.session_set_spawned_by(child.id, from)?;
-            child
-        };
+        let child = self.session_insert(parent.task_id, &options)?;
+        self.store().session_set_spawned_by(child.id, from)?;
         let message = format!(
             "{prompt}\n\n(You were started by session {from}, another agent session of the same \
              user, working in this same worktree. When you are done, report what you did and \
@@ -564,15 +611,76 @@ impl Core {
         self.session(child.id)
     }
 
-    /// Closes session `id` on behalf of session `from`, which has to be the one that started
-    /// it, and only once it is idle. A session the user started, or another agent's, is not an
-    /// agent's to put away; and closing one in the middle of a turn would throw its work away.
+    /// Refuses while [`MAX_SPAWNED`] open sessions work for session `from`, however each came
+    /// to: one more that its agent starts, beside it or in a task, would be one too many.
+    pub(crate) fn room_for_another(&self, from: i64) -> Result<()> {
+        let open = self.store().sessions_spawned_by(from)?;
+        if open >= MAX_SPAWNED {
+            return Err(refused(format!(
+                "this session already has {open} open sessions working for it, which is the \
+                 most allowed; wait for them, or ask the user to close some"
+            )));
+        }
+        Ok(())
+    }
+
+    /// The role of a session `from` starts, asking for `asked`, if it may start one: with a
+    /// role, one its role starts ([`roles::of_child`]), while fewer than [`MAX_DEPTH`] sessions
+    /// with a role work one for another in a row up from `from`; with none, any role, unless
+    /// another session's agent started `from`, which then starts nothing. `None` for no role.
+    pub(crate) fn may_start(
+        &self,
+        from: &Session,
+        asked: Option<&str>,
+        what: Starting,
+    ) -> Result<Option<&'static Role>> {
+        let own = from.role.as_deref().and_then(roles::find);
+        if own.is_none() && from.spawned {
+            return Err(refused(what.refused_to_spawned()));
+        }
+        let child = roles::of_child(from, asked)?;
+        let in_a_row = self.roles_in_a_row(from);
+        if own.is_some() && in_a_row >= MAX_DEPTH {
+            return Err(refused(format!(
+                "sessions with a role may work one for another at most {MAX_DEPTH} in a row, and \
+                 this one is already the last of {in_a_row}; ask the session you work for, or \
+                 the user, how to go on"
+            )));
+        }
+        Ok(child)
+    }
+
+    /// How many sessions with a role work one for another in a row up from `session`, itself
+    /// included: none if it has no role. Counted no further than one past [`MAX_DEPTH`].
+    fn roles_in_a_row(&self, session: &Session) -> usize {
+        let up = std::iter::successors(Some(session.clone()), |at| {
+            at.parent.and_then(|parent| self.session(parent).ok())
+        });
+        up.take(MAX_DEPTH + 1)
+            .take_while(|at| at.role.as_deref().and_then(roles::find).is_some())
+            .count()
+    }
+
+    /// The supervision `session` has, or had before its role took its place: what a session
+    /// it starts is asked to start in, before its own role has its say.
+    pub(crate) fn supervision_without_role(&self, session: &Session) -> Result<Supervision> {
+        let before = self.store().session_supervision_before_role(session.id)?;
+        Ok(before.unwrap_or(session.supervision))
+    }
+
+    /// Closes session `id` on behalf of session `from`: one an agent started beside itself
+    /// ([`Session::spawned`]) that works for `from`, and only once it is idle. Who started it
+    /// is not kept apart from whom it works for, so one the user moved to work for `from` is
+    /// `from`'s to close too. A session the user started, even one the user has work for
+    /// `from`, or one that works for another, is not an agent's to put away; and closing one
+    /// in the middle of a turn would throw its work away.
     pub fn peer_close(&self, from: i64, id: i64) -> Result<()> {
         self.session(from)?;
         let session = self.session(id)?;
-        if session.spawned_by != Some(from) {
+        if session.parent != Some(from) || !session.spawned {
             return Err(refused(
-                "a session can only close sessions it started itself; this one is not yours",
+                "a session can only close sessions an agent started that work for it; this one \
+                 is not yours",
             ));
         }
         if is_busy(&session) {
@@ -636,11 +744,15 @@ impl Core {
                 Ok(delivery.said().to_string())
             }
             "spawn_session" => {
-                let session =
-                    self.peer_spawn(from, word("prompt").unwrap_or_default(), word("title"))?;
+                let prompt = word("prompt").unwrap_or_default();
+                let role = word("role").filter(|role| !role.trim().is_empty());
+                let session = self.peer_spawn(from, prompt, word("title"), role)?;
+                let what = session
+                    .role
+                    .map_or_else(String::new, |role| format!(" (role: {role})"));
                 Ok(format!(
-                    "Started session {}. It works beside you in this worktree and will report \
-                     back with a message when it is done.",
+                    "Started session {}{what}. It works beside you in this worktree and will \
+                     report back with a message when it is done.",
                     session.id
                 ))
             }

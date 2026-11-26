@@ -12,11 +12,12 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use super::{left_by, refused};
+use super::{Starting, left_by, refused};
 use crate::agent::{AgentEvent, Auth};
 use crate::environments::EnvironmentChoice;
 use crate::error::{Error, Result};
 use crate::sessions::{SessionOptions, title_from};
+use crate::starting::Handed;
 use crate::{Core, FirstSession, NewTaskOptions, TaskStarted, hooks};
 
 /// What a session asks for in a task it starts.
@@ -33,6 +34,9 @@ pub struct PeerTask<'a> {
     pub branch: Option<&'a str>,
     /// A branch to start the new one from instead of the repository's base.
     pub from: Option<&'a str>,
+    /// The role of its first session; without one, the role the asking session's starts by
+    /// default (`roles.rs`).
+    pub role: Option<&'a str>,
 }
 
 impl<'a> PeerTask<'a> {
@@ -50,6 +54,7 @@ impl<'a> PeerTask<'a> {
             title: word("title"),
             branch: word("branch"),
             from: word("from"),
+            role: word("role"),
         }
     }
 }
@@ -59,22 +64,22 @@ impl Core {
     /// same agent and settings as `from`'s, whose prompt goes once the task is set up. The
     /// prompt is marked as `from`'s words, and tells the new session to report back to it.
     ///
-    /// The new session is not one `from` spawned: it is the first of a task of its own, and
-    /// can start sessions and tasks itself, as the next link of a chain of pull requests does.
-    /// A session that was itself spawned cannot start one, nor can a chat, which has no
-    /// repository. Must be called from within a tokio runtime.
+    /// The new session works for `from`, but is not one `from` spawned: it is the first of a
+    /// task of its own, and can start sessions and tasks itself, as the next link of a chain of
+    /// pull requests does. It has the role asked for, or the one `from`'s own starts by default,
+    /// and starts under the supervision that role holds, if it holds one. Who may start what is
+    /// `may_start`'s: a role `from`'s may not start is refused, and so is a task asked
+    /// for by a session with no role that another session's agent started, and one more while
+    /// [`MAX_SPAWNED`](crate::MAX_SPAWNED) open sessions work for `from`. A chat starts none,
+    /// having no repository. Must be called from within a tokio runtime.
     pub async fn peer_start_task(
         self: &Arc<Self>,
         from: i64,
         asked: PeerTask<'_>,
     ) -> Result<TaskStarted> {
         let asking = self.session(from)?;
-        if asking.spawned_by.is_some() {
-            return Err(refused(
-                "a session that was started by another session cannot start tasks; the session \
-                 that started it can",
-            ));
-        }
+        let role = self.may_start(&asking, asked.role, Starting::Task)?;
+        self.room_for_another(from)?;
         if asked.prompt.trim().is_empty() {
             return Err(Error::EmptyMessage);
         }
@@ -111,9 +116,10 @@ impl Core {
                         .map_or_else(|| title_from(asked.prompt), String::from),
                 ),
                 model: asking.model.clone(),
-                supervision: asking.supervision,
+                supervision: self.supervision_without_role(&asking)?,
                 effort: asking.effort,
                 fast: asking.fast,
+                role: role.map(|role| role.name.to_string()),
             },
             prompt: left_by(&asking, &format!("{}\n\n{note}", asked.prompt)),
             files: Vec::new(),
@@ -121,11 +127,17 @@ impl Core {
             github: Vec::new(),
             images: Vec::new(),
         };
-        let starting = self.task_start(
+        // Whom it works for is written with the session, before its setup begins: its agent
+        // starts once that is done, and is told from the start.
+        let handed = Handed {
+            first,
+            parent: Some(from),
+        };
+        let starting = self.task_start_handed(
             &project.name,
             asked.name,
             options,
-            first,
+            handed,
             Auth::default(),
             &hooks::discard,
         );
@@ -155,8 +167,13 @@ impl Core {
         let asked = PeerTask::from_call(arguments);
         let started = self.peer_start_task(from, asked).await?;
         let task = &started.task;
+        let what = started
+            .session
+            .role
+            .as_deref()
+            .map_or_else(String::new, |role| format!(" (role: {role})"));
         Ok(format!(
-            "Started task `{}` on the branch `{}`, in {}, with session {}. Its setup runs \
+            "Started task `{}` on the branch `{}`, in {}, with session {}{what}. Its setup runs \
              first, and the prompt goes once it finished well; if the setup fails, the prompt \
              waits for the user. That session reports back to you with a message when it is \
              done.",

@@ -16,6 +16,7 @@ import { CLAUDE, useAgents, useSendsToBackground } from "./options";
 import { Picker } from "./Picker";
 import { ProviderMark } from "./ProviderMark";
 import { RemoteButton } from "./RemoteButton";
+import { SessionRole } from "./Role";
 import { SessionTitle } from "./SessionTitle";
 import { SetupPanel } from "./SetupPanel";
 import { StatusLine } from "./StatusLine";
@@ -23,6 +24,7 @@ import { Egg, StatusMark, useStatusLabel } from "./StatusMark";
 import { SubAgentPane } from "./SubAgentPane";
 import { Transcript } from "./Transcript";
 import { UsageButton } from "./UsageButton";
+import { WorkingWith, WorksForPicker } from "./WorksFor";
 
 const SUPERVISION = {
     ask: "Edits allowed, commands ask",
@@ -120,8 +122,11 @@ export function SessionPane() {
                         <ProviderMark icon={iconForAgent(session.agent)} />
                         {agentName(session.agent)}
                     </p>
+                    <SessionRole session={session} />
+                    <WorksForPicker session={session} />
                     <CloneTo session={session} />
                 </div>
+                <WorkingWith session={session} />
             </header>
             <SetupPanel project={home.project.name} task={home.task} />
             {events === undefined && <p className="aside loading">{words.loadingConversation}</p>}

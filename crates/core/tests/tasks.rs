@@ -958,9 +958,11 @@ async fn what_a_task_keeps_running_is_started_after_setup_and_does_not_hold_the_
     assert!(task.worktree_path.join("setup.txt").exists());
     assert_eq!(stack(&core, 0), Some(StackState::Starting));
     let pid_file = task.worktree_path.join("child.pid");
-    let started = |core: &Core| {
-        pid_file.exists() && !core.stack_log("demo", "one").expect("reads").is_empty()
-    };
+    // The shell makes the file before `echo` writes into it: wait for the whole line, not for
+    // the file, which read empty would name no process.
+    let written = || std::fs::read_to_string(&pid_file).is_ok_and(|pid| pid.ends_with('\n'));
+    let started =
+        |core: &Core| written() && !core.stack_log("demo", "one").expect("reads").is_empty();
     let mut waits = 0;
     while !started(&core) && waits < 200 {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;

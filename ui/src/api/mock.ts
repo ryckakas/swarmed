@@ -1,9 +1,9 @@
 import { lastDays } from "../analytics";
 import { CHATS } from "../chats";
-import { movedAmong, pinnedAmong, starterHere } from "../ordering";
+import { movedAmong, pinnedAmong } from "../ordering";
 import { calledCommand } from "../slash";
 import { PLAN_TOOL } from "../transcript";
-import { titleFrom } from "../tree";
+import { parentHere, titleFrom } from "../tree";
 import type { Api } from "./client";
 import { mockAppCall, mockAppCalled, mockAppShown } from "./mockApps";
 import { browserApi, MockBrowsers } from "./mockBrowser";
@@ -19,8 +19,18 @@ import { MOCK_ATTACHMENTS, mockImagesApi } from "./mockImages";
 import { issuesApi } from "./mockIssues";
 import { mentionsApi, messageFor } from "./mockMentions";
 import { mergeApi } from "./mockMerging";
+import { SAMPLE_PARENTS, SAMPLE_SPAWNED, sampleParentSet } from "./mockParents";
 import { bringBack, putAwayApi } from "./mockPutAway";
 import { rewindApi } from "./mockRewind";
+import {
+    MOCK_ROLES,
+    SAMPLE_ROLES,
+    sampleKeepsPlanning,
+    sampleRoleSet,
+    sampleStartsIn,
+    sampleSupervision,
+    sampleSupervisionChosen,
+} from "./mockRoles";
 import { mockCheck } from "./mockScreenshot";
 import { MockSetups, taskSetupApi } from "./mockSetups";
 import { turnsApi } from "./mockTurns";
@@ -165,12 +175,14 @@ function session(id: number, taskId: number, title: string, status: SessionStatu
         title,
         agent_session_id: `mock-${id}`,
         model: null,
-        supervision: "ask",
+        supervision: sampleSupervision(id),
         effort: null,
         status,
         // One sample session has answered and not been looked at.
         unread: id === 5,
-        spawned_by: null,
+        parent: SAMPLE_PARENTS[id] ?? null,
+        spawned: SAMPLE_SPAWNED.has(id),
+        role: SAMPLE_ROLES[id] ?? null,
         fast: false,
         // One sample session carries a mark, as a skill's last step would leave it.
         mark: id === 3 ? { colour: "green", label: "e2e passed" } : null,
@@ -854,9 +866,9 @@ function orderApi(
         },
         sessionMove: async (id, by) => {
             const { task, session } = taskOf(id);
-            const starter = starterHere(task.sessions, session);
+            const parent = parentHere(task.sessions, session);
             const siblings = (one: Session) =>
-                starterHere(task.sessions, one) === starter && one.pinned === session.pinned;
+                parentHere(task.sessions, one) === parent && one.pinned === session.pinned;
             const moved = movedAmong(task.sessions, siblings, (one) => one.id === id, by);
             replace(task.sessions, moved);
         },
@@ -1528,6 +1540,14 @@ export function sampleProjects(): Project[] {
                     session(4, 4, "Sketch a Rust language spec", "errored"),
                     session(5, 4, "A very long conversation", "idle"),
                 ]),
+                // Who works for whom, three levels deep and across two tasks (`mockParents.ts`).
+                task(7, 2, "rule-engine", [
+                    session(9, 7, "Plan the rule engine", "idle"),
+                    session(10, 7, "Build the rule parser", "idle"),
+                    session(11, 7, "Write the parser's tests", "idle"),
+                    session(12, 7, "Port the built-in rules", "idle"),
+                ]),
+                task(8, 2, "rule-docs", [session(13, 8, "Document the rule format", "idle")]),
             ],
         },
         {
@@ -2855,24 +2875,27 @@ class MockAgent {
         this.later(id, done, "idle", 4);
     }
 
-    /** In plan mode the agent only proposes; approving the plan ends plan mode. */
+    /**
+     * In plan mode the agent only proposes; approving the plan ends plan mode, except for a role
+     * that changes no files, which keeps planning and hands the plan on, as the core has it.
+     */
     private presentPlan(id: number, text: string, done: AgentEvent) {
         const plan = `## ${text}\n\n1. Read the code this touches.\n2. Make the change in \`src/\`.\n3. Run the tests.\n\nNothing is changed until you approve.`;
         const toolId = this.ask(id, PLAN_TOOL, { plan });
+        const kept = sampleKeepsPlanning(this.configure(id, {}).role);
         this.decisions.set(id, (approved) => {
-            const content = approved ? "ok" : "The user wants changes to the plan.";
+            const { content, reply } = planAnswered(approved, kept);
             const result: AgentEvent = {
                 type: "tool_result",
                 tool_use_id: toolId,
                 content,
-                is_error: !approved,
+                is_error: !approved || kept,
             };
             this.later(id, result, "working");
-            if (approved) {
+            if (approved && !kept) {
                 this.configure(id, { supervision: "auto" });
                 this.later(id, { type: "supervision_changed", supervision: "auto" }, null);
             }
-            const reply = approved ? "Starting on the plan." : "What should I change?";
             this.later(id, { type: "text", text: reply }, "working", 2);
             this.later(id, done, "idle", 3);
         });
@@ -3116,6 +3139,17 @@ class MockAgent {
         return Object.assign(found, settings);
     }
 
+    /**
+     * Changes a session's settings as the user chooses them: a supervision chosen by hand wins
+     * over what its role holds, as the core has it.
+     */
+    chooseSettings(id: number, settings: Partial<Session>): Session {
+        if (settings.supervision !== this.configure(id, {}).supervision) {
+            sampleSupervisionChosen(id);
+        }
+        return this.configure(id, settings);
+    }
+
     /** Answers the sample proposal, in whichever session it was made. */
     answerProposal(requestId: string, accepted: boolean) {
         for (const [id, events] of this.events) {
@@ -3203,6 +3237,36 @@ class MockAgent {
         renamed.title = title.trim();
         this.publish(id, { type: "renamed", title: renamed.title }, null);
         return renamed;
+    }
+
+    /**
+     * Has a session work for another, recorded in every session it concerns as the core records
+     * it, and has the window read the tree again.
+     */
+    setParent(id: number, parent: number | null): Session {
+        const { session, event, concerned } = sampleParentSet(this.projects, id, parent);
+        for (const one of concerned) {
+            this.publish(one, event, null);
+        }
+        this.tell(0, { type: "tree_changed" }, null);
+        return session;
+    }
+
+    /**
+     * Gives a session a role, recorded as the core records it once something was said in it,
+     * and has the window read the tree again.
+     */
+    setRole(id: number, role: string | null): Session {
+        const said = this.history(id).some((event) => event.type === "user_message");
+        const { session, event, supervision } = sampleRoleSet(this.projects, id, role, said);
+        if (event) {
+            this.publish(id, event, null);
+        }
+        if (supervision) {
+            this.publish(id, { type: "supervision_changed", supervision }, null);
+        }
+        this.tell(0, { type: "tree_changed" }, null);
+        return session;
     }
 
     /** The sessions that were closed, by the id of their task, the one closed last first. */
@@ -3351,6 +3415,23 @@ function sampleFork(
     agent.events.set(fork.id, [...kept, { type: "forked", from: id }]);
     home.sessions.push(fork);
     return fork;
+}
+
+/**
+ * What a sample agent reads when its plan is answered, and says then: sent back, approved, or
+ * approved for a role that changes no files, which hands the plan on instead of starting on it.
+ */
+function planAnswered(approved: boolean, kept: boolean): { content: string; reply: string } {
+    if (!approved) {
+        return { content: "The user wants changes to the plan.", reply: "What should I change?" };
+    }
+    if (kept) {
+        return {
+            content: "The user approved your plan. Your role changes no files: hand it on.",
+            reply: "Handing the plan on: each change to a session of its own.",
+        };
+    }
+    return { content: "ok", reply: "Starting on the plan." };
 }
 
 /** The task called `name` in `project`: by its project too, since a chat can have a task's name. */
@@ -3845,6 +3926,7 @@ export function createMockApi(): Api {
                 ...setup,
                 agent: setup.agent ?? "claude",
             };
+            created.supervision = sampleStartsIn(created.id, created.role, created.supervision);
             home.sessions.push(created);
             return created;
         },
@@ -3887,7 +3969,7 @@ export function createMockApi(): Api {
         slashCommands: async () => MOCK_COMMANDS,
         sessionCommandAnswer: async (id, requestId, answers) =>
             agent.answerCommand(id, requestId, answers),
-        sessionConfigure: async (id, settings) => agent.configure(id, settings),
+        sessionConfigure: async (id, settings) => agent.chooseSettings(id, settings),
         sessionSetAgent: async (id, to) =>
             agent.configure(id, { agent: to, model: null, fast: false }),
         // A browser has no custom scheme; a blob address is enough to see the view.
@@ -3920,6 +4002,9 @@ export function createMockApi(): Api {
         sessionContinueAtReset: async (id) => agent.continueAtReset(id),
         sessionContinueCancel: async (id) => agent.cancelContinuation(id),
         sessionRename: async (id, title) => agent.rename(id, title),
+        sessionSetParent: async (id, parent) => agent.setParent(id, parent),
+        roles: async () => MOCK_ROLES,
+        sessionSetRole: async (id, role) => agent.setRole(id, role),
         sessionMark: async (id, colour, label) => agent.mark(id, colour, label),
         sessionsSearch: async (query) => sampleSearch(agent.projects, query),
         ...closingApi(agent),

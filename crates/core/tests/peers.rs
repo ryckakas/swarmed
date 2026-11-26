@@ -195,10 +195,10 @@ async fn a_session_starts_others_beside_itself_within_limits() {
     let parent = new_session(&core);
 
     let child = core
-        .peer_spawn(parent.id, "write the tests", Some("Tests"))
+        .peer_spawn(parent.id, "write the tests", Some("Tests"), None)
         .expect("spawns");
     assert_eq!(child.task_id, parent.task_id);
-    assert_eq!(child.spawned_by, Some(parent.id));
+    assert_eq!((child.parent, child.spawned), (Some(parent.id), true));
     assert_eq!(child.title, "Tests");
     // It is running on its prompt, and knows whom to report to.
     let events = turn(&mut bus, child.id).await;
@@ -218,24 +218,62 @@ async fn a_session_starts_others_beside_itself_within_limits() {
 
     // Not a tree that grows by itself: one level, and a handful at a time.
     assert!(matches!(
-        core.peer_spawn(child.id, "more", None),
+        core.peer_spawn(child.id, "more", None, None),
         Err(Error::Peers(reason)) if reason.contains("cannot start sessions")
     ));
     for _ in 1..MAX_SPAWNED {
-        core.peer_spawn(parent.id, "another part", None)
+        core.peer_spawn(parent.id, "another part", None, None)
             .expect("spawns");
     }
     assert!(matches!(
-        core.peer_spawn(parent.id, "one too many", None),
+        core.peer_spawn(parent.id, "one too many", None, None),
         Err(Error::Peers(reason)) if reason.contains("most allowed")
     ));
     // Closing one makes room again.
     core.session_close(child.id).expect("closes");
-    core.peer_spawn(parent.id, "room again", None)
+    core.peer_spawn(parent.id, "room again", None, None)
         .expect("spawns");
 }
 
 /// Whether `result` is the refusal an agent gets for a session it may not reach.
+/// The end of the next turn of session `id`.
+async fn turn_end(bus: &mut Receiver<SessionEvent>, id: i64) -> SessionEvent {
+    loop {
+        let event = next(bus).await;
+        if event.session_id == id && matches!(event.event, AgentEvent::TurnDone { .. }) {
+            return event;
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_started_session_tells_the_user_it_finished_once_nobody_else_hears_it() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let parent = new_session(&core);
+    let child = core
+        .peer_spawn(parent.id, "write the tests", None, None)
+        .expect("spawns");
+    // It reports to the session that started it, so the user is not interrupted.
+    let done = turn_end(&mut bus, child.id).await;
+    assert_eq!(core.notice_for(&done).expect("reads"), None);
+
+    // With that one closed, its agent is told to report to the user, who hears of it.
+    core.session_close(parent.id).expect("closes");
+    core.session_send(child.id, "carry on").expect("sends");
+    let done = turn_end(&mut bus, child.id).await;
+    let notice = core.notice_for(&done).expect("reads").expect("a notice");
+    assert!(notice.title.starts_with("Finished"), "{notice:?}");
+
+    // And with it deleted, there is nobody else to hear.
+    core.session_delete(parent.id).expect("deletes");
+    core.session_send(child.id, "and on").expect("sends");
+    let done = turn_end(&mut bus, child.id).await;
+    let notice = core.notice_for(&done).expect("reads").expect("a notice");
+    assert!(notice.title.starts_with("Finished"), "{notice:?}");
+}
+
 fn out_of_reach<T>(result: Result<T, Error>) -> bool {
     matches!(result, Err(Error::Peers(reason)) if reason.contains("no open session"))
 }
@@ -246,7 +284,9 @@ async fn a_closed_session_is_neither_read_nor_brought_back_by_a_message() {
     let core = core_with_task(&fx).await;
     let mut bus = core.subscribe();
     let parent = new_session(&core);
-    let child = core.peer_spawn(parent.id, "a part", None).expect("spawns");
+    let child = core
+        .peer_spawn(parent.id, "a part", None, None)
+        .expect("spawns");
     turn(&mut bus, child.id).await;
     core.session_close(child.id).expect("closes");
     while !matches!(next(&mut bus).await.event, AgentEvent::Exited { .. }) {}
@@ -268,7 +308,7 @@ async fn a_closed_session_is_neither_read_nor_brought_back_by_a_message() {
     // So closing sessions and writing to them is no way past the limit.
     let mut spawned = vec![];
     for _ in 0..MAX_SPAWNED {
-        let another = core.peer_spawn(parent.id, "another part", None);
+        let another = core.peer_spawn(parent.id, "another part", None, None);
         spawned.push(another.expect("spawns").id);
     }
     for id in &spawned {
@@ -375,7 +415,9 @@ async fn a_session_closes_only_what_it_started_and_only_when_that_is_done() {
     let core = core_with_task(&fx).await;
     let mut bus = core.subscribe();
     let (parent, stranger) = (new_session(&core), new_session(&core));
-    let child = core.peer_spawn(parent.id, "slow", None).expect("spawns");
+    let child = core
+        .peer_spawn(parent.id, "slow", None, None)
+        .expect("spawns");
     // The child's turn only ends when it is interrupted: it is at work.
     next(&mut bus).await;
     assert!(matches!(
@@ -410,7 +452,7 @@ async fn a_session_closes_only_what_it_started_and_only_when_that_is_done() {
     assert_eq!(closed.iter().map(|s| s.id).collect::<Vec<_>>(), [child.id]);
     assert_eq!(core.overview().expect("reads")[0].tasks[0].closed, 1);
     let back = core.session_reopen(child.id).expect("reopens");
-    assert_eq!(back.spawned_by, Some(parent.id));
+    assert_eq!(back.parent, Some(parent.id));
     assert_eq!(core.sessions("demo", "one").expect("lists").len(), 3);
     assert_eq!(core.overview().expect("reads")[0].tasks[0].closed, 0);
     assert_ne!(core.session_events(child.id).expect("reads").len(), 0);

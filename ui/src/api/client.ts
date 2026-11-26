@@ -51,6 +51,7 @@ import type {
     Reachable,
     RewindCheck,
     RewindDone,
+    RoleInfo,
     SearchHit,
     Session,
     SessionEvent,
@@ -728,6 +729,19 @@ export interface Api {
     sessionContinueCancel(id: number): Promise<void>;
     /** Gives the session a title of the user's choosing. Every front end hears of it as an event. */
     sessionRename(id: number, title: string): Promise<Session>;
+    /**
+     * Has a session work for another of the same repository, in any task, or with `null` for
+     * nobody. Refused for a closed one on either side, and for one that works for it already,
+     * however far up. Both agents are told with their next message.
+     */
+    sessionSetParent(id: number, parent: number | null): Promise<Session>;
+    /** The roles a session can have, in the order they are offered. */
+    roles(): Promise<RoleInfo[]>;
+    /**
+     * Gives a session the role called `role`, or with `null` takes its role off. Once something
+     * was said in it, the change is recorded and its agent is told with the next message.
+     */
+    sessionSetRole(id: number, role: string | null): Promise<Session>;
     /** Puts a mark on a session; the colour `none` takes it off. */
     sessionMark(id: number, colour: MarkColour | "none", label: string): Promise<Session>;
     /** A task's closed sessions, the one closed last first. */

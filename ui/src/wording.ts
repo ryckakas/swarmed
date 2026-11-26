@@ -161,6 +161,25 @@ export interface Words {
     untitled: string;
     /** The line under a session another session started. */
     startedBy: (id: number) => string;
+    /** Whom a session works for, by that one's number, and the menu's choice of nobody. */
+    worksFor: (id: number) => string;
+    worksForNobody: string;
+    /** What stands before the session the one on screen works for, and before those that work for it. */
+    worksForHeading: string;
+    workingFor: string;
+    /** A role by its name, as a menu or a line says it; one the window does not know, as named. */
+    role: (name: string) => string;
+    /** A role's short form, on a sidebar row. */
+    roleShort: (name: string) => string;
+    /** The role menu's name, and its choice of none. */
+    roleMenu: string;
+    noRole: string;
+    /**
+     * Why the supervision menu of a new session is fixed while its role, as `role` says it,
+     * holds it in plan mode, and what its plan's approval does instead of the usual.
+     */
+    roleHolds: (role: string) => string;
+    planKept: (role: string) => string;
     /**
      * What a session, or the sessions under a folded heading, have running in the background,
      * as its status mark says when pointed at: "2 sub-agents, 1 command in the background".
@@ -285,6 +304,22 @@ export interface Words {
     };
 }
 
+/** The built-in roles' short forms, for a sidebar row; any other role is shown by its name. */
+const PLAIN_ROLES_SHORT: Partial<Record<string, string>> = {
+    architect: "arch",
+    planner: "plan",
+    implementer: "impl",
+    reviewer: "review",
+};
+
+/** The built-in roles as a swarm calls them, whole and short. */
+const SWARM_ROLES: Partial<Record<string, [string, string]>> = {
+    architect: ["Queen", "queen"],
+    planner: ["Broodkeeper", "brood"],
+    implementer: ["Worker", "worker"],
+    reviewer: ["Sentinel", "guard"],
+};
+
 const PLAIN: Words = {
     overview: "",
     newTask: "What should the agent work on?",
@@ -376,6 +411,18 @@ const PLAIN: Words = {
     sessionNumbered: (id) => `Session ${id}`,
     untitled: "New session",
     startedBy: (id) => `Started by session ${id}`,
+    worksFor: (id) => `Works for session ${id}`,
+    worksForNobody: "Works for nobody",
+    worksForHeading: "Works for",
+    workingFor: "Working for it",
+    role: (name) => capitalized(name),
+    roleShort: (name) => PLAIN_ROLES_SHORT[name] ?? name,
+    roleMenu: "Role",
+    noRole: "No role",
+    roleHolds: (role) =>
+        `${role}: starts in plan mode, or its agent's read-only mode, and changes no files. Change it once the session runs.`,
+    planKept: (role) =>
+        `${role}: once approved, it stays in plan mode and hands the plan on, changing no files itself.`,
     inBackground: ({ agents, commands }) =>
         `${counted([
             [agents, "sub-agent", "sub-agents"],
@@ -548,6 +595,18 @@ const SWARM: Words = {
     sessionNumbered: (id) => `Spawn ${id}`,
     untitled: "New spawn",
     startedBy: (id) => `Sent out by spawn ${id}`,
+    worksFor: (id) => `Serves spawn ${id}`,
+    worksForNobody: "Serves no spawn",
+    worksForHeading: "Serves",
+    workingFor: "Serving it",
+    role: (name) => SWARM_ROLES[name]?.[0] ?? capitalized(name),
+    roleShort: (name) => SWARM_ROLES[name]?.[1] ?? name,
+    roleMenu: "Caste",
+    noRole: "No caste",
+    roleHolds: (role) =>
+        `${role}: starts in plan mode, or its agent's read-only mode, and touches nothing. Change it once the spawn hatches.`,
+    planKept: (role) =>
+        `${role}: once approved, it stays in plan mode and passes the plan to the swarm, touching nothing itself.`,
     inBackground: ({ agents, commands }) =>
         [
             agents > 0 ? `${counted([[agents, "hatchling", "hatchlings"]])} foraging` : "",

@@ -43,7 +43,7 @@ use crate::toolserver::{
     SERVER_NAME, SESSION_ENV, SHOW_HTML_FOR_CLAUDE, SOCKET_ENV, TOOL_SERVER_ARG, VIEW_SPOOL_ENV,
     take_views,
 };
-use crate::{Core, elsewhere, git, lock, peers, publish, remote, returned, views};
+use crate::{Core, elsewhere, git, lock, parents, peers, publish, remote, returned, roles, views};
 
 /// How long a session title derived from the first message may be.
 /// What stands above the user's rules where an agent reads them.
@@ -126,6 +126,8 @@ impl SessionStatus {
             | AgentEvent::ConfigAnswered { .. }
             | AgentEvent::ConfigChanged { .. }
             | AgentEvent::SupervisionChanged { .. }
+            | AgentEvent::ParentChanged { .. }
+            | AgentEvent::RoleChanged { .. }
             | AgentEvent::Applied { .. }
             | AgentEvent::Continuation { .. }
             | AgentEvent::Suggestion { .. }
@@ -223,8 +225,17 @@ pub struct Session {
     /// Whether its agent has finished a turn, or stopped with an error, that the user has not
     /// looked at yet. With many sessions, this is what tells the answered from the merely idle.
     pub unread: bool,
-    /// The session that started this one, if an agent did and not the user.
-    pub spawned_by: Option<i64>,
+    /// The session this one works for, if any (`parents.rs`): the one whose agent started it,
+    /// or one the user chose, in any task of the same repository. Stored as `spawned_by`, which
+    /// once meant only the first.
+    pub parent: Option<i64>,
+    /// Whether another session's agent started it in its own worktree (`spawn_session`), not
+    /// the user: its first message is that agent's words, and its turns are reported to that
+    /// session rather than to the user.
+    pub spawned: bool,
+    /// What the session is for (`roles.rs`), by the name of its role: `planner` and the like.
+    /// `None` for no role, which works as the user asks.
+    pub role: Option<String>,
     /// Whether the agent is asked for its fast mode: quicker answers at a higher price, where
     /// the agent has such a thing. Off leaves the agent as it is set up.
     pub fast: bool,
@@ -275,11 +286,23 @@ pub struct SessionOptions {
     pub effort: Option<Effort>,
     /// Whether the agent is asked for its fast mode, where it has one.
     pub fast: bool,
+    /// The name of its role (`roles.rs`); `None` for no role. One there is no such role of is
+    /// refused.
+    pub role: Option<String>,
 }
 
 const SESSION_SELECT: &str = "SELECT id, task_id, title, agent_session_id, model, supervision, status, agent, effort, unread, spawned_by, fast, mark_colour, mark_label, \
      setup_prompt IS NOT NULL, pinned, continue_at, background_agents, background_commands, \
-     highlight FROM sessions";
+     highlight, spawned, role FROM sessions";
+
+/// What an agent's guidance tells of besides its task and the user's settings.
+#[derive(Debug, Clone, Copy)]
+struct Guided<'a> {
+    /// The task's browser, when the session has an address of it.
+    browser: Option<&'a AgentBrowser>,
+    /// What the session is for and who works with it, when either is anything (`roles.rs`).
+    team: Option<&'a str>,
+}
 
 /// The order the sidebar lists a task's sessions in: the pinned ones first, then as the user
 /// put them.
@@ -299,7 +322,7 @@ fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
             .get::<_, Option<String>>(8)?
             .and_then(|effort| Effort::parse(&effort)),
         unread: row.get(9)?,
-        spawned_by: row.get(10)?,
+        parent: row.get(10)?,
         fast: row.get(11)?,
         mark: row
             .get::<_, Option<String>>(12)?
@@ -322,6 +345,8 @@ fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
             .get::<_, Option<String>>(19)?
             .as_deref()
             .and_then(MarkColour::parse),
+        spawned: row.get(20)?,
+        role: row.get(21)?,
     })
 }
 
@@ -332,7 +357,7 @@ impl Store {
         self.conn.execute(
             // At the end of its task's sessions.
             "INSERT INTO sessions (task_id, title, model, supervision, agent, effort, fast, \
-             position) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, \
+             role, position) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, \
              (SELECT COALESCE(MAX(position), 0) + 1 FROM sessions WHERE task_id = ?1))",
             params![
                 task_id,
@@ -341,7 +366,8 @@ impl Store {
                 options.supervision.as_str(),
                 agent,
                 options.effort.map(Effort::as_str),
-                options.fast
+                options.fast,
+                options.role
             ],
         )?;
         Ok(Session {
@@ -355,7 +381,9 @@ impl Store {
             effort: options.effort,
             status: SessionStatus::Idle,
             unread: false,
-            spawned_by: None,
+            parent: None,
+            spawned: false,
+            role: options.role.clone(),
             fast: options.fast,
             mark: None,
             waits_for_setup: false,
@@ -561,8 +589,8 @@ impl Store {
         Ok(())
     }
 
-    /// Takes a session and everything said in it out of the database. A session it started
-    /// stays, as one nobody started; a cloud task handed off from it stays, without it.
+    /// Takes a session and everything said in it out of the database. A session that worked
+    /// for it stays, working for nobody; a cloud task handed off from it stays, without it.
     pub(crate) fn session_delete(&self, id: i64) -> Result<()> {
         self.conn.execute(
             "UPDATE sessions SET spawned_by = NULL WHERE spawned_by = ?1",
@@ -756,8 +784,18 @@ impl Store {
         Ok(())
     }
 
-    /// Records that session `id` was started by session `parent`.
+    /// Records that session `id` was started by the agent of session `parent`, in its
+    /// worktree, and works for it.
     pub(crate) fn session_set_spawned_by(&self, id: i64, parent: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions SET spawned_by = ?2, spawned = 1 WHERE id = ?1",
+            params![id, parent],
+        )?;
+        Ok(())
+    }
+
+    /// Records whom session `id` works for: `parent`, or with `None` nobody.
+    pub(crate) fn session_set_parent(&self, id: i64, parent: Option<i64>) -> Result<()> {
         self.conn.execute(
             "UPDATE sessions SET spawned_by = ?2 WHERE id = ?1",
             params![id, parent],
@@ -765,7 +803,55 @@ impl Store {
         Ok(())
     }
 
-    /// How many open sessions were started by session `parent`.
+    /// Records what session `id` is for: the role called `role`, or with `None` none.
+    pub(crate) fn session_set_role(&self, id: i64, role: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions SET role = ?2 WHERE id = ?1",
+            params![id, role],
+        )?;
+        Ok(())
+    }
+
+    /// The supervision session `id`'s role took the place of, if its role holds one and the
+    /// user has not chosen another since: what taking the role off puts back.
+    pub(crate) fn session_supervision_before_role(&self, id: i64) -> Result<Option<Supervision>> {
+        let kept: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT supervision_before_role FROM sessions WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten();
+        Ok(kept.as_deref().and_then(Supervision::parse))
+    }
+
+    /// Keeps `supervision` as what session `id`'s role took the place of, or with `None`
+    /// forgets it.
+    pub(crate) fn session_set_supervision_before_role(
+        &self,
+        id: i64,
+        supervision: Option<Supervision>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions SET supervision_before_role = ?2 WHERE id = ?1",
+            params![id, supervision.map(Supervision::as_str)],
+        )?;
+        Ok(())
+    }
+
+    /// The open sessions that work for session `parent`, oldest first.
+    pub(crate) fn session_children(&self, parent: i64) -> Result<Vec<Session>> {
+        let sql = format!(
+            "{SESSION_SELECT} WHERE spawned_by = ?1 AND id <> ?1 AND closed_at IS NULL ORDER BY id"
+        );
+        let mut statement = self.conn.prepare(&sql)?;
+        let rows = statement.query_map(params![parent], session_from_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// How many open sessions work for session `parent`.
     pub(crate) fn sessions_spawned_by(&self, parent: i64) -> Result<usize> {
         let count: i64 = self.conn.query_row(
             "SELECT COUNT(*) FROM sessions WHERE spawned_by = ?1 AND closed_at IS NULL",
@@ -949,7 +1035,23 @@ impl Core {
         if let Some(agent) = &options.agent {
             self.agents_now().backend(agent)?;
         }
-        self.store().session_insert(task.id, options)
+        self.session_insert(task.id, options)
+    }
+
+    /// Makes a session in task `task_id` as `options` say, under the supervision its role
+    /// holds if it holds one, keeping the one asked for to put back when the role is taken
+    /// off. A role there is not is refused.
+    pub(crate) fn session_insert(&self, task_id: i64, options: &SessionOptions) -> Result<Session> {
+        let role = options.role.as_deref().map(roles::known).transpose()?;
+        let (supervision, before) = roles::starts_in(role, options.supervision);
+        let options = SessionOptions {
+            supervision,
+            ..options.clone()
+        };
+        let store = self.store();
+        let session = store.session_insert(task_id, &options)?;
+        store.session_set_supervision_before_role(session.id, before)?;
+        Ok(session)
     }
 
     /// Makes a session in `task` whose first message is `prompt`, before it is sent: called
@@ -971,7 +1073,7 @@ impl Core {
             title: Some(given.unwrap_or_else(|| title_from(prompt))),
             ..options.clone()
         };
-        let session = self.store().session_insert(task.id, &options)?;
+        let session = self.session_insert(task.id, &options)?;
         if !named {
             self.name_later(session.id, prompt);
         }
@@ -1122,11 +1224,26 @@ impl Core {
         };
         // What the task's environment sets for its hooks, the agent working in it gets too.
         env.0.extend(self.task_env(&task)?);
+        // And which session it is, so that a session it starts from its shell with the command
+        // line works for this one. A chat gets no `SWARMED_*` variables: it is no task.
+        if !self.is_chat(&task) {
+            env.0
+                .push((SESSION_ENV.to_string(), session.id.to_string()));
+        }
         if let Some(browser) = &browser {
             env.0
                 .push((browser::BROWSER_ENV.to_string(), browser.endpoint.clone()));
         }
-        let guidance = self.guidance(&settings, &session.agent, &task, browser.as_ref());
+        // What it is for and who works with it; the others only where it can reach them.
+        let relations = self.store().relations(session.id)?;
+        let reach = self.tool_server.is_some().then_some(&relations);
+        let role = session.role.as_deref().and_then(roles::find);
+        let team = roles::section(role, reach);
+        let told = Guided {
+            browser: browser.as_ref(),
+            team: team.as_deref(),
+        };
+        let guidance = self.guidance(&settings, &session.agent, &task, told);
         Ok(SessionSpec {
             mcp_servers,
             skills: self.skills_had(&session.agent, &task.worktree_path),
@@ -1156,15 +1273,11 @@ impl Core {
     /// What every agent is told by Swarmed, on top of what it knows by itself: the user's own
     /// rules, if they wrote any; to keep to its task's branch and worktree, or in a chat that
     /// it has neither; about the other sessions, when there is a tool server to reach them
-    /// through; about the task's browser, when the session has an address of it; and about
-    /// showing views, when the user has those switched on.
-    fn guidance(
-        &self,
-        settings: &Settings,
-        agent: &str,
-        task: &Task,
-        browser: Option<&AgentBrowser>,
-    ) -> String {
+    /// through; its role, and who of the others works with it; about the task's browser, when
+    /// the session has an address of it; and about showing views, when the user has those
+    /// switched on.
+    fn guidance(&self, settings: &Settings, agent: &str, task: &Task, told: Guided<'_>) -> String {
+        let Guided { browser, team } = told;
         let rules = settings.rules.trim();
         let rules = (!rules.is_empty()).then(|| format!("{RULES_HEADING}\n{rules}"));
         let branch = if self.is_chat(task) {
@@ -1181,6 +1294,7 @@ impl Core {
             rules.as_deref(),
             Some(branch.as_str()),
             sessions,
+            team,
             skills.as_deref(),
             browser.as_deref(),
             views,
@@ -1334,11 +1448,24 @@ impl Core {
             allowed,
         };
         let plan_approved = allowed && self.is_plan_request(id, &request_id)?;
+        // A role that changes no files keeps its session from that once its plan is approved
+        // too: the agent is told how to hand it on, in an answer that keeps it planning, since
+        // allowing the plan would end its plan mode with the go-ahead to start changing things.
+        let kept = if plan_approved {
+            self.approved_kept(id)?
+        } else {
+            None
+        };
         self.live.note(&self.store, id, answered)?;
+        let command = match kept {
+            Some(reason) => AgentCommand::Deny { request_id, reason },
+            None => command,
+        };
+        let leaves = plan_approved && matches!(command, AgentCommand::Allow { .. });
         commands
             .send(command)
             .map_err(|_| Error::SessionNotRunning(id))?;
-        if plan_approved {
+        if leaves {
             self.leave_plan_mode(id)?;
         }
         Ok(())
@@ -1366,13 +1493,21 @@ impl Core {
             Supervision::Plan => Supervision::Ask,
             other => other,
         };
+        self.supervise(id, supervision).map(drop)
+    }
+
+    /// Puts session `id` under `supervision`, as the core does by itself (a plan approved, a
+    /// role set or taken off), its other settings as they are. Unlike the user's own change,
+    /// it leaves what the session's role took the place of as it is.
+    pub(crate) fn supervise(&self, id: i64, supervision: Supervision) -> Result<Session> {
+        let session = self.session(id)?;
         let settings = SessionSettings {
             model: session.model,
             supervision,
             effort: session.effort,
             fast: session.fast,
         };
-        self.session_configure(id, &settings).map(drop)
+        self.configure(id, &settings)
     }
 
     /// Puts a session that has not begun on another agent, with that agent's default model.
@@ -1516,7 +1651,19 @@ impl Core {
     /// model applies from its next turn, the supervision from its next action. An agent takes
     /// its effort only when it starts, so a running one is stopped once its turn is over and
     /// continues the conversation, with the new effort, on the next message.
+    ///
+    /// This is the user's choice, which wins over what the session's role holds: a role taken
+    /// off later leaves the supervision chosen here as it is.
     pub fn session_configure(&self, id: i64, settings: &SessionSettings) -> Result<Session> {
+        let before = self.session(id)?;
+        if before.supervision != settings.supervision {
+            self.store().session_set_supervision_before_role(id, None)?;
+        }
+        self.configure(id, settings)
+    }
+
+    /// Changes a session's settings as [`Core::session_configure`] does, by whoever.
+    fn configure(&self, id: i64, settings: &SessionSettings) -> Result<Session> {
         let before = self.session(id)?;
         self.store().session_configure(id, settings)?;
         // Not running is fine: the session starts with the new settings.
@@ -1629,6 +1776,9 @@ pub(crate) fn send_text(
     // recorded as they typed them.
     let events = lock(store).events(id)?;
     let earlier = fork::carried(&events);
+    // Told who works with it now, and its role, if either changed since its last message.
+    let regrouped = parents::regrouped(&events);
+    let role_changed = roles::changed(&events);
     // The message's number, counted as a fork counts them: every message recorded before it.
     let number = events
         .iter()
@@ -1681,6 +1831,19 @@ pub(crate) fn send_text(
             format!("{message}\n\n{note}")
         }
         None => message,
+    };
+    let message = match role_changed {
+        Some((now, previous)) => {
+            let now = now.as_deref().and_then(roles::find);
+            format!("{message}\n\n{}", roles::note(now, previous.as_deref()))
+        }
+        None => message,
+    };
+    let message = if regrouped {
+        let relations = lock(store).relations(id)?;
+        format!("{message}\n\n{}", parents::note(&relations))
+    } else {
+        message
     };
     // The worktree as it stands before the agent can write to it.
     checkpoints::before_message((store, live, paths), id, (number, typed));

@@ -7,23 +7,26 @@ interface Props {
     onChange(value: Supervision): void;
     /** The agent the session runs on: plan mode is offered for Claude Code only. */
     agentId: string;
+    /** Why the menu is fixed, while a role holds the supervision; otherwise left out. */
+    held?: string | null;
 }
 
 /**
  * The session's supervision as an icon. Underneath it is the same native menu as the other
  * pickers, so it opens and is operated like them; only what it shows while closed is a picture.
- * Its name is the tooltip.
+ * Its name is the tooltip, or why it cannot be changed while a role holds it.
  */
-export function ModePicker({ value, onChange, agentId }: Props) {
+export function ModePicker({ value, onChange, agentId, held = null }: Props) {
     const label = SUPERVISION_LABELS[value];
     return (
-        <span className="icon-picker" data-mode={value} title={label}>
+        <span className="icon-picker" data-mode={value} title={held ?? label}>
             <svg viewBox="0 0 16 16" aria-hidden="true">
                 {ICONS[value]}
             </svg>
             <select
                 aria-label={`Supervision: ${label}`}
                 value={value}
+                disabled={held !== null}
                 onChange={(event) => onChange(event.target.value as Supervision)}
             >
                 {supervisionChoices(value, agentId).map(([choice, name]) => (

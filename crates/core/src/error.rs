@@ -319,6 +319,24 @@ pub enum Error {
     /// Something one session asked about another was refused.
     #[error("{0}")]
     Peers(String),
+    /// A session cannot work for the session asked for: says why (`parents.rs`).
+    #[error("session {child} cannot work for session {parent}: {why}")]
+    CannotWorkFor {
+        /// The session that would work for the other.
+        child: i64,
+        /// The session it would work for.
+        parent: i64,
+        /// Why not.
+        why: String,
+    },
+    /// There is no role of the name asked for (`roles.rs`).
+    #[error("there is no role called `{name}`; the roles are {known}")]
+    UnknownRole {
+        /// The name asked for.
+        name: String,
+        /// The names of the roles there are, joined by commas.
+        known: String,
+    },
     /// An MCP server could not be saved or found as asked.
     #[error("{0}")]
     Mcp(String),

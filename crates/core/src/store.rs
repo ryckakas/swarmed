@@ -353,6 +353,21 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE tasks ADD COLUMN highlight TEXT;
     ALTER TABLE sessions ADD COLUMN highlight TEXT;
 ",
+    // `spawned_by` is whom a session works for now, which the user can set too (`parents.rs`);
+    // whether another session's agent started it, which is all it said before, is kept apart.
+    "
+    ALTER TABLE sessions ADD COLUMN spawned INTEGER NOT NULL DEFAULT 0;
+    UPDATE sessions SET spawned = 1 WHERE spawned_by IS NOT NULL;
+",
+    // What a session is for, by the name of its role (`roles.rs`); none for no role.
+    "
+    ALTER TABLE sessions ADD COLUMN role TEXT;
+",
+    // The supervision a session's role took the place of, which taking the role off puts
+    // back (`roles.rs`); none while no role holds one, or once the user chose another.
+    "
+    ALTER TABLE sessions ADD COLUMN supervision_before_role TEXT;
+",
 ];
 
 /// Stands in [`MIGRATIONS`] for the one change SQL in a transaction cannot make: every

@@ -106,11 +106,11 @@ fn moved(rows: &[(i64, bool)], id: i64, by: i32) -> Option<Vec<i64>> {
     Some(order)
 }
 
-/// A task's session, with the session that started it, if one did.
+/// A task's session, with the session it works for, if any.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SessionRow {
     row: Row,
-    started_by: Option<i64>,
+    parent: Option<i64>,
 }
 
 impl Store {
@@ -157,16 +157,17 @@ impl Store {
                     listed: row.get(1)?,
                     pinned: row.get(2)?,
                 },
-                started_by: row.get(3)?,
+                parent: row.get(3)?,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 }
 
-/// The siblings of session `id` among `rows`: the sessions started by the same open session
-/// of the task, or, for one that no open session of the task started, every other such
-/// session. One whose starter is gone, closed or elsewhere is ordinary.
+/// The siblings of session `id` among `rows`: the sessions that work for the same open session
+/// of the task, or, for one that works for no open session of the task, every other such
+/// session. One whose parent is gone, closed or in another task is ordinary. However deep the
+/// sidebar nests them, these are the rows it draws together under one parent.
 fn session_siblings(rows: &[SessionRow], id: i64) -> Vec<Row> {
     let open: HashSet<i64> = rows
         .iter()
@@ -174,7 +175,7 @@ fn session_siblings(rows: &[SessionRow], id: i64) -> Vec<Row> {
         .map(|session| session.row.id)
         .collect();
     let head = |session: &SessionRow| {
-        let by = session.started_by;
+        let by = session.parent;
         by.filter(|by| *by != session.row.id && open.contains(by))
     };
     let mine = rows
@@ -257,17 +258,17 @@ impl Core {
     }
 
     /// Moves session `id` `by` places among the other open sessions of its task pinned as it
-    /// is: a session another started among the others that one started, since it is listed
-    /// under it.
+    /// is: a session that works for another of its task among the others that work for that
+    /// one, since it is listed under it.
     pub fn session_move(&self, id: i64, by: i32) -> Result<()> {
         let siblings = self.open_session_siblings(id)?;
         self.reorder(Kind::Session, &siblings, id, by)
     }
 
     /// Pins session `id` above its siblings that are not pinned, or with `pinned` false
-    /// unpins it, as [`Core::project_pin`] does a repository: among the others its starter
-    /// started, for one another session started. A closed session keeps its pin and cannot be
-    /// pinned or unpinned until it is reopened.
+    /// unpins it, as [`Core::project_pin`] does a repository: among the others that work for
+    /// its parent, for one that works for another session of its task. A closed session keeps
+    /// its pin and cannot be pinned or unpinned until it is reopened.
     pub fn session_pin(&self, id: i64, pinned: bool) -> Result<()> {
         let siblings = self.open_session_siblings(id)?;
         self.repin(Kind::Session, &siblings, id, pinned)
@@ -369,15 +370,15 @@ mod tests {
     }
 
     #[test]
-    fn a_started_session_moves_among_those_its_starter_started() {
-        // 1 started 2 and 3; 4 was started by 5, which is closed; 6 by a session elsewhere.
-        let session = |id: i64, started_by: Option<i64>, listed: bool| SessionRow {
+    fn a_session_moves_among_those_that_work_for_its_parent() {
+        // 2 and 3 work for 1; 4 for 5, which is closed; 6 for a session elsewhere.
+        let session = |id: i64, parent: Option<i64>, listed: bool| SessionRow {
             row: Row {
                 id,
                 listed,
                 pinned: false,
             },
-            started_by,
+            parent,
         };
         let sessions = vec![
             session(1, None, true),
@@ -397,6 +398,30 @@ mod tests {
         ]);
         assert_eq!(session_siblings(&sessions, 4), ordinary);
         assert_eq!(session_siblings(&sessions, 1), ordinary);
+    }
+
+    #[test]
+    fn a_session_deeper_down_moves_among_those_under_the_same_parent() {
+        // 1 over 2 and 3; 2 over 4 and 5.
+        let session = |id: i64, parent: Option<i64>| SessionRow {
+            row: Row {
+                id,
+                listed: true,
+                pinned: false,
+            },
+            parent,
+        };
+        let sessions = vec![
+            session(1, None),
+            session(2, Some(1)),
+            session(4, Some(2)),
+            session(5, Some(2)),
+            session(3, Some(1)),
+        ];
+        let under_two = rows(&[(4, true, false), (5, true, false)]);
+        assert_eq!(session_siblings(&sessions, 5), under_two);
+        let under_one = rows(&[(2, true, false), (3, true, false)]);
+        assert_eq!(session_siblings(&sessions, 3), under_one);
     }
 
     #[test]

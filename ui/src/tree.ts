@@ -76,6 +76,8 @@ function rowChange(event: AgentEvent): ((session: Session) => Session) | null {
         }
         case "supervision_changed":
             return (session) => ({ ...session, supervision: event.supervision });
+        case "role_changed":
+            return (session) => ({ ...session, role: event.role });
         case "continuation":
             return (session) => ({ ...session, continue_at: event.at });
         default:
@@ -121,22 +123,103 @@ export function applySessionEvent(tree: Project[], published: SessionEvent): Pro
     }));
 }
 
+/** A session as the sidebar lists it, with how many steps it is set in under the ones it works for. */
+export interface NestedSession {
+    session: Session;
+    depth: number;
+}
+
 /**
- * A task's sessions in the order the sidebar lists them: each session an agent started comes
- * right after the session that started it, marked as `nested`, instead of at the end where its
- * age alone would put it. One whose starter is gone, closed or in another task, stays in line.
+ * The session `session` works for, if that one is listed among `sessions`, its task's: the
+ * sidebar lists it under that one. One whose parent is gone, closed or in another task has none
+ * here.
  */
-export function nestedSessions(sessions: Session[]): { session: Session; nested: boolean }[] {
-    const here = new Set(sessions.map((session) => session.id));
-    const startedHere = (session: Session) =>
-        session.spawned_by !== null && here.has(session.spawned_by);
-    const startedBy = (id: number) => sessions.filter((session) => session.spawned_by === id);
-    return sessions
-        .filter((session) => !startedHere(session))
-        .flatMap((session) => [
-            { session, nested: false },
-            ...startedBy(session.id).map((child) => ({ session: child, nested: true })),
-        ]);
+export function parentHere(sessions: Session[], session: Session): number | null {
+    const parent = session.parent;
+    const listed =
+        parent !== null && parent !== session.id && sessions.some((s) => s.id === parent);
+    return listed ? parent : null;
+}
+
+/**
+ * The session `session` works for when the sidebar does not list it under that one: a session
+ * of another task, or a closed one. `null` when it works for none, or is listed under it.
+ */
+export function parentElsewhere(sessions: Session[], session: Session): number | null {
+    return parentHere(sessions, session) === null ? session.parent : null;
+}
+
+/**
+ * A task's sessions in the order the sidebar lists them: each session that works for another
+ * comes right after that one, one step deeper, with the others that work for it, to any depth,
+ * instead of at the end where its age alone would put it. One whose parent is gone, closed or
+ * in another task stays in line. Each level keeps the order of `sessions`.
+ */
+export function nestedSessions(sessions: Session[]): NestedSession[] {
+    const under = (parent: number | null) =>
+        sessions.filter((session) => parentHere(sessions, session) === parent);
+    const listed: NestedSession[] = [];
+    const seen = new Set<number>();
+    // Who works for whom is a tree, so nothing is reached twice; a cycle written into the
+    // database by hand has no top, and is left out rather than followed for ever.
+    const walk = (session: Session, depth: number) => {
+        if (seen.has(session.id)) {
+            return;
+        }
+        seen.add(session.id);
+        listed.push({ session, depth });
+        for (const child of under(session.id)) {
+            walk(child, depth + 1);
+        }
+    };
+    for (const top of under(null)) {
+        walk(top, 0);
+    }
+    return listed;
+}
+
+/** The ids of the sessions among `sessions` that work for session `id`, however far down. */
+function workingUnder(sessions: Session[], id: number): Set<number> {
+    const found = new Set<number>();
+    let level = [id];
+    while (level.length > 0) {
+        const above = new Set(level);
+        const next = sessions.filter(
+            (session) =>
+                session.parent !== null && above.has(session.parent) && !found.has(session.id),
+        );
+        for (const session of next) {
+            found.add(session.id);
+        }
+        level = next.map((session) => session.id);
+    }
+    return found;
+}
+
+/**
+ * The sessions `session` can work for, as the core allows: every other open session of its
+ * repository, in any task that is not archived, but those that work for it, however far down.
+ * Those of its own task first, then the others in the sidebar's order.
+ */
+export function parentChoices(projects: Project[], session: Session): Session[] {
+    const home = findSessionHome(projects, session);
+    if (!home) {
+        return [];
+    }
+    const tasks = home.project.tasks.filter((task) => !task.archived);
+    const ordered = [home.task, ...tasks.filter((task) => task.id !== home.task.id)];
+    const all = ordered.flatMap((task) => nestedSessions(task.sessions).map((one) => one.session));
+    const below = workingUnder(all, session.id);
+    return all.filter((one) => one.id !== session.id && !below.has(one.id));
+}
+
+/** The open sessions that work for session `id`, in whichever task they are. */
+export function childrenOf(projects: Project[], id: number): Session[] {
+    return projects
+        .flatMap((project) => project.tasks)
+        .filter((task) => !task.archived)
+        .flatMap((task) => task.sessions)
+        .filter((session) => session.parent === id && session.id !== id);
 }
 
 /** Whether `event` is the agent handing the conversation back: a turn over, or an error. */

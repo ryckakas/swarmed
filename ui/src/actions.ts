@@ -79,6 +79,34 @@ export async function pinRow(target: PinTarget, pinned: boolean) {
 }
 
 /**
+ * Has session `id` work for session `parent`, or with `null` for nobody: the sidebar lists it
+ * under that one, and both agents hear of it with their next message.
+ */
+export async function setParent(id: number, parent: number | null) {
+    const { refresh, report } = useStore.getState();
+    try {
+        await api.sessionSetParent(id, parent);
+        await refresh(api);
+    } catch (error) {
+        report(error);
+    }
+}
+
+/**
+ * Gives session `id` the role called `role`, or with `null` takes its role off, and reads the
+ * tree again. Its agent hears of it with the next message.
+ */
+export async function setRole(id: number, role: string | null) {
+    const { refresh, report } = useStore.getState();
+    try {
+        await api.sessionSetRole(id, role);
+        await refresh(api);
+    } catch (error) {
+        report(error);
+    }
+}
+
+/**
  * The row of the sidebar that has the keyboard, with what in it has the keyboard, or the
  * session on screen when no row has it.
  */
