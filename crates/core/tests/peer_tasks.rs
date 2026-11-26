@@ -10,7 +10,7 @@ use std::sync::Arc;
 use common::{core_with_project, fixture, git, turn};
 use swarmed_core::agent::{AgentEvent, Auth, Supervision};
 use swarmed_core::{
-    CHATS, Core, Error, NewTaskOptions, PeerTask, Session, SessionOptions, hooks,
+    CHATS, Core, Error, MAX_SPAWNED, NewTaskOptions, PeerTask, Session, SessionOptions, hooks,
     serve_session_tools,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -292,6 +292,30 @@ async fn a_task_is_refused_to_a_helper_a_chat_and_an_empty_prompt() {
     let refused = core.peer_start_task(chat.id, asked("work")).await;
     assert!(
         matches!(refused, Err(Error::Peers(ref reason)) if reason.contains("no repository")),
+        "{refused:?}"
+    );
+    assert_eq!(core.tasks("demo", false).expect("lists").len(), 1);
+}
+
+#[tokio::test]
+async fn a_task_is_refused_while_as_many_work_for_the_session_as_may() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let asking = new_session(&core);
+    // However they came to work for it: these the user chose.
+    for _ in 0..MAX_SPAWNED {
+        let another = new_session(&core);
+        core.session_set_parent(another.id, Some(asking.id))
+            .expect("works for it");
+    }
+    let asked = PeerTask {
+        name: "work",
+        prompt: "one more part",
+        ..PeerTask::default()
+    };
+    let refused = core.peer_start_task(asking.id, asked).await;
+    assert!(
+        matches!(refused, Err(Error::Peers(ref reason)) if reason.contains("the most allowed")),
         "{refused:?}"
     );
     assert_eq!(core.tasks("demo", false).expect("lists").len(), 1);

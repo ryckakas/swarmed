@@ -30,8 +30,8 @@ mod tasks;
 
 pub use tasks::PeerTask;
 
-/// How many sessions one session may have started that are still open. A runaway agent stops
-/// here instead of filling the machine.
+/// How many open sessions may work for one session before its agent starts no more, beside it
+/// or in a task. A runaway agent stops here instead of filling the machine.
 pub const MAX_SPAWNED: usize = 6;
 /// How many sessions with a role may work one for another in a row: an architect, its
 /// planners and their implementers. A chain of roles that start one another stops here.
@@ -572,7 +572,7 @@ impl Core {
     /// by default (`roles.rs`); a role `from`'s may not start is refused (`may_start`).
     /// It starts as `from` would without its role, under the supervision its own role holds if
     /// it holds one: an implementer a planner starts is not held in the planner's plan mode.
-    /// One session can have [`MAX_SPAWNED`] open that work for it at most.
+    /// Refused while [`MAX_SPAWNED`] open sessions work for `from` (`room_for_another`).
     pub fn peer_spawn(
         &self,
         from: i64,
@@ -585,13 +585,7 @@ impl Core {
             return Err(Error::EmptyMessage);
         }
         let role = self.may_start(&parent, role, Starting::Session)?;
-        let open = self.store().sessions_spawned_by(from)?;
-        if open >= MAX_SPAWNED {
-            return Err(refused(format!(
-                "this session already has {open} open sessions working for it, which is the \
-                 most allowed; wait for them, or ask the user to close some"
-            )));
-        }
+        self.room_for_another(from)?;
         let options = SessionOptions {
             agent: Some(parent.agent.clone()),
             title: title
@@ -615,6 +609,19 @@ impl Core {
         // a command of the user's, which could turn Remote Control on with nobody asked.
         self.session_send_as_typed(child.id, &message)?;
         self.session(child.id)
+    }
+
+    /// Refuses while [`MAX_SPAWNED`] open sessions work for session `from`, however each came
+    /// to: one more that its agent starts, beside it or in a task, would be one too many.
+    pub(crate) fn room_for_another(&self, from: i64) -> Result<()> {
+        let open = self.store().sessions_spawned_by(from)?;
+        if open >= MAX_SPAWNED {
+            return Err(refused(format!(
+                "this session already has {open} open sessions working for it, which is the \
+                 most allowed; wait for them, or ask the user to close some"
+            )));
+        }
+        Ok(())
     }
 
     /// The role of a session `from` starts, asking for `asked`, if it may start one: with a

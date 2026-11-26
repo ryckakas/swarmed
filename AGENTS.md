@@ -1034,9 +1034,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   the caller's own project can be read or written to (`peer_in_reach`), and from a chat those
   of every project (see the chats above): a closed one would be started out of sight. A spawned session runs
   in its parent's task with its settings, cannot spawn itself (`Session::spawned`) unless its
-  role starts sessions (see roles below), and a session can have `MAX_SPAWNED` open working
-  for it. The tools are not on the allow list: in
-  ask mode the user is asked. A session can close only sessions it spawned, and only idle ones
+  role starts sessions (see roles below). While `MAX_SPAWNED` open sessions work for a
+  session, however each came to, its agent starts no more, with `spawn_session` or
+  `start_task` (`room_for_another`); the user can still have more work for it. The tools are
+  not on the allow list: in ask mode the user is asked. A session can close only sessions it spawned, and only idle ones
   (`peer_close`).
 - **Who works for whom is a tree of parents** (`parents.rs`, #459). `Session::parent`, kept
   in the `spawned_by` column, is whom a session works for: set by `spawn_session`,
