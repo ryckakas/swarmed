@@ -1033,9 +1033,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   `MAX_SPAWNED` open. The tools are not on the allow list: in ask mode the user is asked.
   A session can close only sessions it started, and only idle ones (`peer_close`).
 - **A session starts a task for work that needs a branch of its own** (`start_task`,
-  `peers/tasks.rs`). Before it, agents made tasks only in this repository, through
-  `swarmed task new`, which they knew from its code; anywhere else they found no tool, and an
-  agent asked for a task switched its own worktree instead. It is the window's New task
+  `peers/tasks.rs`). Without a tool for it, an agent asked for such work finds no way to make
+  a task and switches its own worktree instead: `swarmed task new` is known only to an agent
+  that has read this repository. It is the window's New task
   (`task_start`): the name gives way as a made-up one does, the setup runs in the process that
   serves the tools and shows in the setup panel, and the prompt goes once it finished well,
   so the session is the app's from the start. Its `branch` checks out an existing branch, a

@@ -1,6 +1,6 @@
 //! A session starting a new task for work that needs a branch of its own: a separate change, a
-//! fix to another pull request, the next pull request of a stack. Before this, an agent outside
-//! Swarmed's own repository knew of no way to, and switched its own worktree instead.
+//! fix to another pull request, the next pull request of a stack. Without a tool for it, an
+//! agent asked for such work finds no way to make a task and switches its own worktree instead.
 //!
 //! The task is made as the window's New task makes one ([`Core::task_start`]): the setup runs
 //! in this process and shows in the task's setup panel, and the prompt goes once it finished
