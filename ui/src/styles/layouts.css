@@ -116,18 +116,15 @@
     color: var(--muted);
 }
 
-/* And takes no room until then, so a name is cut short only while its row is pointed at. */
+/*
+ * And takes no room until then, so a name is cut short only while its row is pointed at. The
+ * highlight's button does so in every layout (app.css).
+ */
 :root[data-layout="senior"] .row-head:not(:hover, :focus-within) .row-note:not([data-has="true"]),
 :root[data-layout="senior"] .row-head:not(:hover, :focus-within) .row-pin:not([data-pinned="true"]),
 :root[data-layout="senior"]
     .session-line:not(:hover, :focus-within)
-    .row-pin:not([data-pinned="true"]),
-:root[data-layout="senior"]
-    .row-head:not(:hover, :focus-within)
-    .row-highlight:not([data-highlight]),
-:root[data-layout="senior"]
-    .session-line:not(:hover, :focus-within)
-    .row-highlight:not([data-highlight]) {
+    .row-pin:not([data-pinned="true"]) {
     display: none;
 }
 

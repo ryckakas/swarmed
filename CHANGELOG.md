@@ -43,6 +43,12 @@ notice adds its line under Unreleased.
   session on a task's row sat about 4px right of the + on the chats and repository headings, so
   the column of + buttons broke at every task. They are in one column now, as in classic, and
   stay so at any icon size a custom layout sets.
+- **A highlighted session's title has room again in a narrow sidebar.** The drop that opens a
+  row's colours stayed in view on a highlighted task or session, so in a narrow sidebar a
+  session with a mark as well had no room left for its title. The drop now shows only while
+  you point at the row, reach it with the keyboard or have its colours open, in every layout,
+  and takes no room otherwise: the bar at the row's right edge shows its colour. In classic,
+  every task and session row has that room for its name again, highlighted or not.
 
 ## [0.4.8] - 2026-11-26
 

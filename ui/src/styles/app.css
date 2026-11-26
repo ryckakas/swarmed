@@ -1605,8 +1605,10 @@ code {
 }
 
 /*
- * The highlight on a row: out of the way until the row is pointed at or has the keyboard, and in
- * view, filled with its colour, once the row has one.
+ * The highlight on a row: shown while the row is pointed at or has the keyboard, or while its
+ * palette is open, filled with the row's colour if it has one. Otherwise it takes no room, even on
+ * a highlighted row, whose bar at the right edge shows the colour: in a narrow sidebar its title
+ * needs that room, beside a mark most of all (#475).
  */
 .highlight-wrap {
     position: relative;
@@ -1624,21 +1626,15 @@ code {
     border-radius: 4px;
     background: none;
     color: var(--faint);
-    opacity: 0;
 }
 
-.row-head:hover .row-highlight,
-.row-head:focus-within .row-highlight,
-.session-line:hover .row-highlight,
-.session-line:focus-within .row-highlight,
-.row-highlight:focus-visible,
-.row-highlight[aria-expanded="true"] {
-    opacity: 1;
+.row-head:not(:hover, :focus-within) .row-highlight:not([aria-expanded="true"]),
+.session-line:not(:hover, :focus-within) .row-highlight:not([aria-expanded="true"]) {
+    display: none;
 }
 
 .row-highlight[data-highlight] {
     color: var(--highlight);
-    opacity: 1;
 }
 
 .row-highlight[data-highlight] .highlight-drop {
