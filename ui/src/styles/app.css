@@ -495,6 +495,11 @@ code {
     color: var(--lilac);
 }
 
+/* Closed struck through, as its badge in the sidebar: the number only, not the word "closed". */
+.pull-number[data-state="closed"] .pull-numeral {
+    text-decoration: line-through;
+}
+
 .pull-summary {
     color: var(--muted);
     font-size: var(--text-sm);
@@ -1790,6 +1795,8 @@ code {
 /*
  * Merged or closed: done with, whatever its checks said. Merged is lilac, as GitHub draws it in
  * purple, so that it cannot be taken for a draft, which is grey until its checks say otherwise.
+ * Closed stays grey, since GitHub's red is a failed check here, and is struck through instead:
+ * at this size a dashed border alone reads as a draft's solid one. The dash stays as a second cue.
  */
 .pull-badge[data-state="merged"] {
     color: var(--lilac);
@@ -1798,6 +1805,7 @@ code {
 .pull-badge[data-state="closed"] {
     color: var(--faint);
     border-style: dashed;
+    text-decoration: line-through;
 }
 
 /* The issue a task was started for: GitHub's ring with a dot, and its number. */
@@ -5328,8 +5336,8 @@ code {
 }
 
 /*
- * A pull request's or issue's number, in the menu and on its chip, in the colour of its state as
- * the sidebar's badges draw it: open in moss, merged in lilac, a draft and a closed one faint.
+ * A pull request's or issue's number, in the menu and on its chip, as the sidebar's badges draw
+ * it: open in moss, merged in lilac, a draft faint, and a closed one faint and struck through.
  */
 .github-number {
     margin-right: var(--space-1);
@@ -5343,6 +5351,10 @@ code {
 
 .github-number[data-state="merged"] {
     color: var(--lilac);
+}
+
+.github-number[data-state="closed"] {
+    text-decoration: line-through;
 }
 
 .github-chip .github-number {

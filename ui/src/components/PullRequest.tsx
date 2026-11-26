@@ -80,7 +80,7 @@ export function PullSection({ project, task }: { project: string; task: Task }) 
         <section className="pull" aria-label={capitalized(words.terms.pullRequest)}>
             <button type="button" className="pull-title" onClick={() => void open(null)}>
                 <span className="pull-number" data-state={pull.state}>
-                    #{pull.number} {pullState(pull)}
+                    <span className="pull-numeral">#{pull.number}</span> {pullState(pull)}
                 </span>
                 {pull.title}
             </button>

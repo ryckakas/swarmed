@@ -29,6 +29,12 @@ notice adds its line under Unreleased.
   folder, opens in your editor when pressed, at the top of the file. The rest of what you
   write stays as you typed it: a heading, emphasis or a list is not drawn as Markdown.
 
+### Fixed
+
+- **A closed pull request no longer looks like a draft.** Its number is struck through on the
+  task's badge in the sidebar, in the task panel, and where a message or the `#` menu names a
+  closed pull request or issue. It stays grey: red still means a failed check.
+
 ## [0.4.8] - 2026-11-26
 
 ### Added

@@ -1769,9 +1769,10 @@ const SAMPLE_DRAFT: PullDraft = {
 };
 
 /**
- * Three sample tasks have a pull request: one open with a check still running, which fails
- * {@link CHECK_FAILS_AFTER} after the window opens, one merged, and one a draft with no checks
- * yet, which is grey beside the merged one's lilac. The others have none.
+ * Five sample tasks have a pull request: one open with a check still running, which fails
+ * {@link CHECK_FAILS_AFTER} after the window opens, two merged, one a draft with no checks
+ * yet, which is grey beside the merged one's lilac, and one closed without merging, grey too
+ * and struck through. The others have none.
  */
 const SAMPLE_PULLS: Record<string, () => Pull> = {
     "fix-login-redirect": openPull,
@@ -1821,6 +1822,21 @@ const SAMPLE_PULLS: Record<string, () => Pull> = {
         base: "main",
         auto_merge: null,
         merge_state: "draft",
+        merged_at: null,
+    }),
+    "rule-docs": () => ({
+        number: 90,
+        title: "Document the rule format",
+        url: "https://github.com/example/bonsai-lint/pull/90",
+        state: "closed",
+        draft: false,
+        review: "changes_requested",
+        checks: [{ name: "Lint", workflow: "CI", outcome: "passed", url: null }],
+        conflicts: false,
+        head: "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c",
+        base: "main",
+        auto_merge: null,
+        merge_state: null,
         merged_at: null,
     }),
 };
