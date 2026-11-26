@@ -12,6 +12,7 @@
 use crate::Core;
 use crate::agent::AgentEvent;
 use crate::error::{Error, Result};
+use crate::peers::Starting;
 use crate::sessions::Session;
 use crate::store::Store;
 
@@ -239,7 +240,18 @@ impl Core {
     /// [`Core::session_set_parent`] checks it, and front ends are told, but no change is
     /// recorded. The agent of `parent` started it, and its own learns whom it works for as it
     /// starts. Once something was said in it, this is [`Core::session_set_parent`].
+    ///
+    /// It is that agent's doing, not the user's choice, so it is also held to what
+    /// `spawn_session` is: refused unless `parent` may start a session with this one's role
+    /// (`may_start`), and while as many work for it as may (`room_for_another`).
     pub fn session_parent_from_start(&self, id: i64, parent: i64) -> Result<Session> {
+        let child = self.session(id)?;
+        if child.parent != Some(parent)
+            && let Ok(starter) = self.session(parent)
+        {
+            self.may_start(&starter, child.role.as_deref(), Starting::Session)?;
+            self.room_for_another(parent)?;
+        }
         let said = self.session_events(id)?;
         if said
             .iter()
@@ -247,7 +259,6 @@ impl Core {
         {
             return self.session_set_parent(id, Some(parent));
         }
-        let child = self.session(id)?;
         if self.store().session_is_closed(id)? {
             return Err(Error::SessionClosed(id));
         }

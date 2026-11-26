@@ -1054,7 +1054,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     made counts too), and every agent at its start in its guidance.
   - **A session an agent starts** gets its parent from its start and records nothing
     (`session_parent_from_start`, and so `spawn_session` and `start_task`): its starter
-    knows, and its own agent's guidance says so.
+    knows, and its own agent's guidance says so. One started from an agent's shell
+    (`SWARMED_SESSION`) is that agent's doing, so it works for it only where `spawn_session`
+    would have been allowed (`may_start`, `room_for_another`); refused, the session is made
+    all the same and works for nobody. `--parent` is the user's word and is checked as the
+    user's choice is.
   - **Shown:** the sidebar nests to any depth (`nestedSessions`, `parentHere`; `order.rs`
     counts the same siblings), and one whose parent is elsewhere shows `for #N`
     (`parentElsewhere`). `list_sessions` and `read_session` say it. Deleting a parent leaves

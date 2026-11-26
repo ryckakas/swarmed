@@ -557,7 +557,10 @@ A session can work for another one, its parent: it reports to that one, and the 
 under it. Sessions an agent starts with `spawn_session` or `start_task` work for that agent's
 session, and so does one started with `swarmed session run` from an agent's shell: agents are
 given `SWARMED_SESSION`, the number of their own session, which the command takes as the parent
-unless `--parent` names another one or `none`. You choose it yourself from the menu in the
+unless `--parent` names another one or `none`. Without `--parent`, the new session works for
+the agent's session only where that one could have started it with `spawn_session` (its role
+allows it, and fewer than six open sessions work for it); otherwise it is started and works for
+nobody, and the command says so. You choose it yourself from the menu in the
 session's header, or with `swarmed session parent 12 7` (`none` for nobody).
 
 A session can work for any other open session of the same repository, in any task: a planner in

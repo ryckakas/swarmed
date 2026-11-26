@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use common::{core_with_project, fixture, turn};
 use swarmed_core::agent::{AgentEvent, Auth};
-use swarmed_core::{Core, Error, NewTaskOptions, Session, SessionOptions, hooks};
+use swarmed_core::{Core, Error, MAX_SPAWNED, NewTaskOptions, Session, SessionOptions, hooks};
 
 /// A core with a repository `demo` and two tasks in it, `one` and `two`.
 async fn core_with_tasks(fx: &common::Fixture) -> Core {
@@ -206,6 +206,52 @@ async fn a_session_another_starts_works_for_it_from_its_start_without_a_change_t
         core.session_parent_from_start(architect.id, planner.id),
         Err(Error::CannotWorkFor { .. })
     ));
+}
+
+#[tokio::test]
+async fn a_session_started_from_a_shell_is_held_to_what_its_starter_may_start() {
+    let fx = fixture();
+    let core = core_with_tasks(&fx).await;
+    let with_role = |role: &str| {
+        let options = SessionOptions {
+            role: Some(role.into()),
+            ..SessionOptions::default()
+        };
+        core.session_new("demo", "one", &options).expect("creates")
+    };
+    let refused = |result: Result<Session, Error>, why: &str| {
+        assert!(
+            matches!(result, Err(Error::Peers(ref reason)) if reason.contains(why)),
+            "{result:?}"
+        );
+    };
+    // An implementer starts nothing, whatever the new session is for.
+    let (implementer, architect) = (with_role("implementer"), with_role("architect"));
+    refused(
+        core.session_parent_from_start(architect.id, implementer.id),
+        "starts no sessions",
+    );
+    assert_eq!(core.session(architect.id).expect("reads").parent, None);
+    // A planner starts implementers, and no architect.
+    let planner = with_role("planner");
+    refused(
+        core.session_parent_from_start(architect.id, planner.id),
+        "may start only",
+    );
+    let set = core.session_parent_from_start(implementer.id, planner.id);
+    assert_eq!(set.expect("works for it").parent, Some(planner.id));
+
+    // And no more than may work for one session.
+    let busy = new_session(&core, "one");
+    for _ in 0..MAX_SPAWNED {
+        let another = new_session(&core, "two");
+        core.session_set_parent(another.id, Some(busy.id))
+            .expect("works for it");
+    }
+    refused(
+        core.session_parent_from_start(new_session(&core, "two").id, busy.id),
+        "the most allowed",
+    );
 }
 
 #[tokio::test]
