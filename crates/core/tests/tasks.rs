@@ -2698,6 +2698,73 @@ async fn pinned_rows_stay_above_their_siblings_and_move_among_themselves() {
     assert!(core.session(third).expect("found").pinned);
 }
 
+#[tokio::test]
+async fn a_row_pinned_again_after_a_move_goes_above_the_rows_not_pinned() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    two_repositories_and_three_tasks(&fx, &core).await;
+
+    // Pinned, unpinned, moved to the end, and pinned again (#407).
+    core.project_pin("demo", true).expect("pins");
+    core.project_pin("demo", false).expect("unpins");
+    core.project_move("demo", 5).expect("moves");
+    assert_eq!(listed(&core).0, ["aardvark", "demo"]);
+    core.project_pin("demo", true).expect("pins");
+    assert_eq!(listed(&core).0, ["demo", "aardvark"]);
+
+    core.task_pin("demo", "one", true).expect("pins");
+    core.task_pin("demo", "one", false).expect("unpins");
+    core.task_move("demo", "one", 5).expect("moves");
+    assert_eq!(listed(&core).1, ["two", "three", "one"]);
+    core.task_pin("demo", "one", true).expect("pins");
+    assert_eq!(listed(&core).1, ["one", "two", "three"]);
+
+    let new = || {
+        core.session_new("demo", "two", &SessionOptions::default())
+            .expect("creates")
+            .id
+    };
+    let (first, second, third) = (new(), new(), new());
+    let ids = |core: &Core| -> Vec<i64> {
+        let sessions = core.sessions("demo", "two").expect("lists");
+        sessions.iter().map(|session| session.id).collect()
+    };
+    core.session_pin(first, true).expect("pins");
+    core.session_pin(first, false).expect("unpins");
+    core.session_move(first, 5).expect("moves");
+    assert_eq!(ids(&core), [second, third, first]);
+    core.session_pin(first, true).expect("pins");
+    assert_eq!(ids(&core), [first, second, third]);
+}
+
+#[tokio::test]
+async fn a_task_put_away_is_not_among_the_tasks_a_move_passes() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    two_repositories_and_three_tasks(&fx, &core).await;
+    core.task_done("demo", "two", &hooks::discard)
+        .await
+        .expect("puts away");
+    let open = |core: &Core| -> Vec<String> {
+        let overview = core.overview().expect("reads");
+        let tasks = overview[0].tasks.iter().map(|t| &t.task);
+        let open = tasks.filter(|task| !task.archived && task.done_at.is_none());
+        open.map(|task| task.name.clone()).collect()
+    };
+
+    // The sidebar lists "one" and "three" together, and "two" apart: one place down passes
+    // "three", not "two", which the sidebar does not show among them.
+    assert_eq!(open(&core), ["one", "three"]);
+    core.task_move("demo", "one", 1).expect("moves");
+    assert_eq!(open(&core), ["three", "one"]);
+
+    // Put away, it keeps its pin as it is, and is brought back where it was: before "three".
+    core.task_pin("demo", "two", true).expect("leaves it");
+    assert!(!core.task("demo", "two").expect("found").1.pinned);
+    core.task_undone("demo", "two").expect("brings back");
+    assert_eq!(listed(&core).1, ["two", "three", "one"]);
+}
+
 /// The names of the repositories, and of the first one's open tasks, as the sidebar lists them.
 fn listed(core: &Core) -> (Vec<String>, Vec<String>) {
     let overview = core.overview().expect("reads");

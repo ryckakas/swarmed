@@ -25,6 +25,17 @@ notice adds its line under Unreleased.
   tool of its own server it calls goes through the agent, which decides it as its own call.
   See [Apps MCP servers attach to their tools](docs/coding-agents.md#apps-mcp-servers-attach-to-their-tools).
 
+### Fixed
+
+- **A row pinned stays above the rows not pinned.** A repository, task or session pinned
+  again after you moved it could stay where it was, below rows not pinned, until the sidebar
+  was next drawn: an older reading of the list could arrive after the newer one and take its
+  place. The sidebar now keeps the newest.
+- **Dragging a task among the others goes where you drop it.** A repository with tasks put
+  away counted them, though they are listed apart in Done, so a task dragged or moved with
+  ⌥⌘↑/↓ could stop short or not move at all. A task brought back still comes back where it
+  was.
+
 ## [0.4.6] - 2026-11-25
 
 ### Added

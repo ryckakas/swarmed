@@ -51,8 +51,8 @@ impl Kind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Row {
     id: i64,
-    /// Whether the sidebar lists it: not a closed session, an archived task, or the chats among
-    /// the repositories.
+    /// Whether the sidebar lists it among the others: not a closed session, an archived task
+    /// or one put away, or the chats among the repositories.
     listed: bool,
     pinned: bool,
 }
@@ -83,8 +83,9 @@ fn pinned_as(rows: &[Row], id: i64, pinned: bool) -> Option<Vec<i64>> {
 
 /// The ids of `rows`, which are `(id, listed)` in order, with `id` moved `by` places among
 /// the listed ones, earlier for a negative number, and no further than either end. Rows that
-/// are not listed, a closed session or an archived task, keep their places among the others,
-/// so one that comes back comes back where it was. `None` if `id` is not a listed row.
+/// are not listed, a closed session or an archived task or one put away, keep their places
+/// among the others, so one that comes back comes back where it was. `None` if `id` is not a
+/// listed row.
 fn moved(rows: &[(i64, bool)], id: i64, by: i32) -> Option<Vec<i64>> {
     let listed: Vec<i64> = rows.iter().filter(|row| row.1).map(|row| row.0).collect();
     let at = listed.iter().position(|row| *row == id)?;
@@ -189,11 +190,14 @@ fn project_rows_sql() -> String {
     format!("SELECT id, name <> ?1, pinned FROM projects ORDER BY {PROJECT_ORDER}")
 }
 
-/// Every row of a repository's tasks, the archived ones among them but not listed.
+/// Every row of a repository's tasks, the archived ones and those put away among them but not
+/// listed: a task put away is listed apart, with no order of its own, so a move counted among
+/// the tasks the sidebar lists together passes none of them, and one brought back comes back
+/// where it was.
 fn task_rows_sql() -> String {
     format!(
-        "SELECT id, archived_at IS NULL, pinned FROM tasks WHERE project_id = ?1 \
-         ORDER BY {TASK_ORDER}"
+        "SELECT id, archived_at IS NULL AND done_at IS NULL, pinned FROM tasks \
+         WHERE project_id = ?1 ORDER BY {TASK_ORDER}"
     )
 }
 
@@ -221,6 +225,7 @@ impl Core {
     }
 
     /// Moves task `task` `by` places among the other open tasks of `project` pinned as it is.
+    /// A task put away is not among them, and is not moved.
     pub fn task_move(&self, project: &str, task: &str, by: i32) -> Result<()> {
         let (project, task) = self.task(project, task)?;
         let rows = self
@@ -231,7 +236,8 @@ impl Core {
 
     /// Pins task `task` above the open tasks of `project` that are not pinned, or with
     /// `pinned` false unpins it, as [`Core::project_pin`] does a repository. A chat is pinned
-    /// among the chats.
+    /// among the chats. A task put away keeps its pin and is not pinned or unpinned until it is
+    /// brought back.
     pub fn task_pin(&self, project: &str, task: &str, pinned: bool) -> Result<()> {
         let (project, task) = self.task(project, task)?;
         let rows = self

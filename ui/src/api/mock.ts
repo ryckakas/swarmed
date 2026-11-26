@@ -804,8 +804,10 @@ function orderApi(
         },
         taskMove: async (name, task, by) => {
             const { tasks } = project(name);
-            const among = pinnedAs(tasks.find((one) => one.name === task && !one.archived));
-            const open = (one: Task) => !one.archived && among(one);
+            // A task put away is listed apart, and neither moves nor is passed by a move.
+            const listed = (one: Task) => !one.archived && one.done_at === null;
+            const among = pinnedAs(tasks.find((one) => one.name === task && listed(one)));
+            const open = (one: Task) => listed(one) && among(one);
             replace(
                 tasks,
                 movedAmong(tasks, open, (one) => one.name === task, by),
@@ -829,7 +831,7 @@ function orderApi(
         taskPin: async (name, task, pinned) => {
             const { tasks } = project(name);
             const open = tasks.filter((one) => !one.archived);
-            const pinning = (one: Task) => one.name === task;
+            const pinning = (one: Task) => one.name === task && one.done_at === null;
             const archived = tasks.filter((one) => one.archived);
             replace(tasks, [...pinnedAmong(open, pinning, pinned), ...archived]);
         },

@@ -3,7 +3,7 @@ import { newSession } from "./actions";
 import { api as moduleApi } from "./api";
 import type { Api } from "./api/client";
 import { createMockApi } from "./api/mock";
-import type { AccountUsage, AgentEvent, SessionEvent } from "./api/types";
+import type { AccountUsage, AgentEvent, Project, SessionEvent } from "./api/types";
 import { NO_DRAFT } from "./sending";
 import {
     appendEvent,
@@ -225,6 +225,73 @@ describe("connect", () => {
 
         // The answer and the tool's result, each delivered once.
         expect(useStore.getState().events[1]).toHaveLength(before + 2);
+    });
+});
+
+describe("reading the tree again", () => {
+    /**
+     * A mock whose reads of the tree wait to be answered, with a repository's tasks as they are
+     * listed before and after its last open task not pinned is pinned, which puts it above
+     * every task not pinned.
+     */
+    const withReadsHeld = async () => {
+        const mock = createMockApi();
+        const before = await mock.overview();
+        const project = before.find((one) => !one.chats && one.tasks.length > 1);
+        const open = project?.tasks.filter((task) => !(task.archived || task.done_at));
+        const last = open?.filter((task) => !task.pinned).at(-1);
+        await mock.taskPin(project?.name ?? "", last?.name ?? "", true);
+        const after = await mock.overview();
+        const answers: { answer: (tree: Project[]) => void; fail: (error: Error) => void }[] = [];
+        const api: Api = {
+            ...mock,
+            overview: () =>
+                new Promise((answer, fail) => {
+                    answers.push({ answer, fail });
+                }),
+        };
+        const order = (tree: Project[]) =>
+            tree
+                .find((one) => one.name === project?.name)
+                ?.tasks.map((task) => `${task.name}${task.pinned ? " pinned" : ""}`);
+        const shown = () => order(useStore.getState().projects);
+        expect(order(after)).not.toEqual(order(before));
+        return { api, before, after, answers, shown, order };
+    };
+
+    it("keeps a newer tree when an older read is answered after it (#407)", async () => {
+        const { api, before, after, answers, shown, order } = await withReadsHeld();
+        const older = useStore.getState().refresh(api);
+        const newer = useStore.getState().refresh(api);
+        answers[1]?.answer(after);
+        await newer;
+        answers[0]?.answer(before);
+        await older;
+        expect(shown()).toEqual(order(after));
+    });
+
+    it("takes each answer that is newer than the one shown", async () => {
+        const { api, before, after, answers, shown, order } = await withReadsHeld();
+        const older = useStore.getState().refresh(api);
+        const newer = useStore.getState().refresh(api);
+        answers[0]?.answer(before);
+        await older;
+        expect(shown()).toEqual(order(before));
+        answers[1]?.answer(after);
+        await newer;
+        expect(shown()).toEqual(order(after));
+    });
+
+    it("leaves a newer tree for an older read that failed", async () => {
+        const { api, after, answers, shown, order } = await withReadsHeld();
+        const older = useStore.getState().refresh(api);
+        const newer = useStore.getState().refresh(api);
+        answers[1]?.answer(after);
+        await newer;
+        answers[0]?.fail(new Error("gone"));
+        await older;
+        expect(useStore.getState().load).toBe("ready");
+        expect(shown()).toEqual(order(after));
     });
 });
 

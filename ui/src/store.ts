@@ -490,6 +490,44 @@ export interface Reading {
 const loading = new Map<number, Reading>();
 
 /**
+ * The reads of the tree asked for, and the latest whose answer was taken. The core answers each
+ * read on a thread of its own, and several are often under way at once (an action's, the event
+ * it sets off, another process's changes), so an answer can reach the window after one asked for
+ * later. Taken, it would put back the tree as it was before: a row pinned or moved since, back
+ * in its old place (#407).
+ */
+const treeReads = { asked: 0, taken: 0 };
+
+/** Whether the answer to tree read `read` is newer than any taken, which it then is. */
+function takesRead(read: number): boolean {
+    if (read <= treeReads.taken) {
+        return false;
+    }
+    treeReads.taken = read;
+    return true;
+}
+
+/**
+ * Reads the tree, and keeps the answer, or that it could not be read, only if it is newer than
+ * any kept (`treeReads`).
+ */
+async function readTree(api: Api, set: (change: (state: State) => Partial<State>) => void) {
+    treeReads.asked += 1;
+    const read = treeReads.asked;
+    let change: (state: State) => Partial<State>;
+    try {
+        const projects = await api.overview();
+        // A session that is gone, with its task or repository, cannot stay in the centre.
+        change = (state) => readAgain(state, projects);
+    } catch (error) {
+        change = () => ({ load: { error: String(error) } });
+    }
+    if (takesRead(read)) {
+        set(change);
+    }
+}
+
+/**
  * The events the core publishes and never stores. Reading the history again finds none of
  * them, so they are no reason to.
  */
@@ -1219,15 +1257,7 @@ export const useStore = create<State>((set, get) => ({
     askToClose: (sessionId) => set({ closing: sessionId }),
     deleting: null,
     askToDelete: (session) => set({ deleting: session }),
-    refresh: async (api) => {
-        try {
-            const projects = await api.overview();
-            // A session that is gone, with its task or repository, cannot stay in the centre.
-            set((state) => readAgain(state, projects));
-        } catch (error) {
-            set({ load: { error: String(error) } });
-        }
-    },
+    refresh: (api) => readTree(api, set),
     open: async (api, sessionId) => {
         // Opened from anywhere, its row is in view: a folded task unfolds to show it.
         set((state) => ({

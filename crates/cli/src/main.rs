@@ -1345,9 +1345,11 @@ fn projects_in_order(core: &Core) -> Result<()> {
     Ok(())
 }
 
-/// A project's open tasks' names as the app lists them, each pinned one marked so.
+/// A project's open tasks' names as the app lists them, each pinned one marked so. Those put
+/// away are listed apart and moved past by nothing, so they are left out.
 fn tasks_in_order(core: &Core, project: &str) -> Result<()> {
-    for task in core.tasks(project, false)? {
+    let tasks = core.tasks(project, false)?;
+    for task in tasks.iter().filter(|task| task.done_at.is_none()) {
         say(&in_order(&task.name, task.pinned));
     }
     Ok(())

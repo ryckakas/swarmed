@@ -421,17 +421,23 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   a cloud task at the top. A row moves `by` places among its siblings only, never to another
   parent: a session within its task, and one another session started among those its starter
   started while that one is open (`session_siblings`, as `nestedSessions` lists them). Rows
-  not listed, a closed session or an archived task, keep their places among the others, so
-  one put back comes back where it was. Sub-agents have no order: nothing stores them. A move
+  not listed among the others, a closed session, an archived task or one put away (which the
+  sidebar lists apart, in Done), keep their places among them and are not counted in a move,
+  so one put back comes back where it was: the core counts exactly the siblings the sidebar
+  draws together, or a drag lands short. Sub-agents have no order: nothing stores them. A move
   is published as `AgentEvent::Reordered` with session id 0, which no session has, and never
-  stored; front ends read the tree again on it. The UI drags rows with pointer events, not
-  HTML drag and drop, which would fight the window's dropping of files to attach
-  (`useRowDrag`, `ordering.ts`), and ⌥⌘↑/↓ move the focused row or the open session.
+  stored; front ends read the tree again on it. Several reads of the tree are often under way
+  at once and the core answers each on a thread of its own, so the store takes an answer only
+  if none asked for later was taken (`treeReads`): an older one would put a row back where it
+  was before a move or a pin (#407). The UI drags rows with pointer events, not HTML drag and
+  drop, which would fight the window's dropping of files to attach (`useRowDrag`,
+  `ordering.ts`), and ⌥⌘↑/↓ move the focused row or the open session.
   A repository, a task or a session can be pinned (`pinned`, `project_pin` and the like):
   lists order by `pinned DESC` first, a move stays among the rows pinned as it is (each pin
   state is a drag group of its own in the UI), pinning puts a row last among the pinned and
-  unpinning first among the others, and a closed session keeps its pin. A pin is published
-  as a move is. Cloud tasks and the chats among the repositories are not pinned.
+  unpinning first among the others, and a closed session or a task put away keeps its pin. A
+  pin is published as a move is. Cloud tasks and the chats among the repositories are not
+  pinned.
 - **Closing a session keeps it; deleting one does not** (`session_close`, `session_delete`).
   A closed session is put away with its conversation and can be reopened; until it is, its
   agent cannot be started and nothing can be sent to it (`Error::SessionClosed`). A deleted one is
