@@ -1046,8 +1046,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   `swarmed session parent`). It can be any open session of the same repository, in any task,
   never itself, a closed one or one below it (`Error::CannotWorkFor`). `Session::spawned`
   says apart that an agent started it in its own worktree, which is what keeps it from
-  spawning, keeps its first message out of recall and its turns out of notices; the user's
-  choice never changes it.
+  spawning, keeps its first message out of recall and, while the session it works for is
+  open, its turns out of notices (`reports_to_a_session`: with that one closed or gone it
+  reports to the user); the user's choice never changes it.
   - **A change** is `AgentEvent::ParentChanged`, recorded in the child and in its old and new
     parent, and `TreeChanged`. Each of their agents is told who works with it now with its
     next message (`parents::regrouped`, read from the history, so a change another process
