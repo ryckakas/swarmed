@@ -236,6 +236,44 @@ async fn a_session_starts_others_beside_itself_within_limits() {
 }
 
 /// Whether `result` is the refusal an agent gets for a session it may not reach.
+/// The end of the next turn of session `id`.
+async fn turn_end(bus: &mut Receiver<SessionEvent>, id: i64) -> SessionEvent {
+    loop {
+        let event = next(bus).await;
+        if event.session_id == id && matches!(event.event, AgentEvent::TurnDone { .. }) {
+            return event;
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_started_session_tells_the_user_it_finished_once_nobody_else_hears_it() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let parent = new_session(&core);
+    let child = core
+        .peer_spawn(parent.id, "write the tests", None, None)
+        .expect("spawns");
+    // It reports to the session that started it, so the user is not interrupted.
+    let done = turn_end(&mut bus, child.id).await;
+    assert_eq!(core.notice_for(&done).expect("reads"), None);
+
+    // With that one closed, its agent is told to report to the user, who hears of it.
+    core.session_close(parent.id).expect("closes");
+    core.session_send(child.id, "carry on").expect("sends");
+    let done = turn_end(&mut bus, child.id).await;
+    let notice = core.notice_for(&done).expect("reads").expect("a notice");
+    assert!(notice.title.starts_with("Finished"), "{notice:?}");
+
+    // And with it deleted, there is nobody else to hear.
+    core.session_delete(parent.id).expect("deletes");
+    core.session_send(child.id, "and on").expect("sends");
+    let done = turn_end(&mut bus, child.id).await;
+    let notice = core.notice_for(&done).expect("reads").expect("a notice");
+    assert!(notice.title.starts_with("Finished"), "{notice:?}");
+}
+
 fn out_of_reach<T>(result: Result<T, Error>) -> bool {
     matches!(result, Err(Error::Peers(reason)) if reason.contains("no open session"))
 }

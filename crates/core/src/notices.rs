@@ -6,7 +6,7 @@
 use serde::Serialize;
 
 use crate::agent::AgentEvent;
-use crate::sessions::{SessionEvent, SessionStatus};
+use crate::sessions::{Session, SessionEvent, SessionStatus};
 use crate::{Core, PullChange, Result};
 
 /// The longest a notice's detail may be, in characters: it is read at a glance.
@@ -27,7 +27,7 @@ pub struct Notice {
 ///
 /// A permission request only names the tool and the agent's own summary: the tool's arguments
 /// may hold anything and are left out.
-fn wording(event: &SessionEvent, spawned: bool) -> Option<(&'static str, String)> {
+fn wording(event: &SessionEvent, reports: bool) -> Option<(&'static str, String)> {
     match &event.event {
         AgentEvent::PermissionRequest {
             tool_name,
@@ -39,14 +39,14 @@ fn wording(event: &SessionEvent, spawned: bool) -> Option<(&'static str, String)
                 .unwrap_or_else(|| format!("Wants to use {tool_name}"));
             Some(("Needs you", detail))
         }
-        // A session another session started reports to that one, not to the user. A turn that
-        // ends while sub-agents work on in the background hands nothing back yet: the core
-        // marks it unread only once it does.
+        // A session another session started reports to that one, not to the user, while that
+        // one is there to hear it. A turn that ends while sub-agents work on in the background
+        // hands nothing back yet: the core marks it unread only once it does.
         AgentEvent::TurnDone {
             is_error: false,
             result,
             ..
-        } if !spawned && event.unread == Some(true) => {
+        } if !reports && event.unread == Some(true) => {
             Some(("Finished", result.clone().unwrap_or_default()))
         }
         AgentEvent::Exited { .. } if event.status == Some(SessionStatus::Errored) => {
@@ -97,6 +97,17 @@ fn glance(text: &str) -> String {
 }
 
 impl Core {
+    /// Whether what `session` hands back goes to another session instead of the user: one
+    /// another session's agent started, while the session it works for is open. Once that one
+    /// is closed or gone, its agent is told to report to the user, who then has to hear of it.
+    fn reports_to_a_session(&self, session: &Session) -> Result<bool> {
+        if !session.spawned {
+            return Ok(false);
+        }
+        let parent = self.store().relations(session.id)?.parent;
+        Ok(matches!(parent, Some((_, false))))
+    }
+
     /// What to tell the user about `event`, if it is worth interrupting them and they have not
     /// turned notifications off. The front end decides whether they are looking already.
     pub fn notice_for(&self, event: &SessionEvent) -> Result<Option<Notice>> {
@@ -117,7 +128,7 @@ impl Core {
             return Ok(None);
         }
         let session = self.session(event.session_id)?;
-        let Some((heading, detail)) = wording(event, session.spawned) else {
+        let Some((heading, detail)) = wording(event, self.reports_to_a_session(&session)?) else {
             return Ok(None);
         };
         let task = self.store().task_by_id(session.task_id)?;
