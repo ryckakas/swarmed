@@ -1,5 +1,6 @@
 //! What sessions can do about each other: see who else is at work, read what another has said,
-//! leave it a message, and start a new session beside themselves.
+//! leave it a message, start a new session beside themselves, and start a new task for work
+//! that needs a branch of its own (`peers/tasks.rs`).
 //!
 //! Agents reach this through Swarmed's own tool server. That server is a process the agent
 //! starts, so it asks the core over a socket in the data directory: one request on a line, one
@@ -21,8 +22,12 @@ use crate::error::{Error, Result};
 use crate::paths::SOCKET_PREFIX;
 use crate::sessions::{Session, SessionOptions, SessionStatus};
 use crate::store::Project;
-use crate::toolserver::{DELEGATE_TO_CLOUD, SHOW_BROWSER};
+use crate::toolserver::{DELEGATE_TO_CLOUD, SHOW_BROWSER, START_TASK};
 use crate::{Core, Task, rewind};
+
+mod tasks;
+
+pub use tasks::PeerTask;
 
 /// How many sessions one session may have started that are still open. A runaway agent stops
 /// here instead of filling the machine.
@@ -47,6 +52,10 @@ conversation, at once if it is idle, else when its turn ends.
 of the work that can go on beside you. It shares your files, so give it a part that does not \
 collide with what you are editing. It is told to report back to you with `send_message` when \
 it is done; you do not have to wait for it.
+- `start_task`: start a new task, with a branch, worktree and session of its own, for work that \
+needs a branch of its own: a separate change, a fix to another pull request, the next pull \
+request of a stack. Its session gets your prompt once the task is set up, and reports back to \
+you like a spawned one.
 - `close_session`: put away a session you spawned, once it is done and you have what you need \
 from it. You cannot close any other session.
 - `delegate_to_cloud`: hand a self-contained piece of work to an agent in the cloud, when the \
@@ -59,8 +68,8 @@ and made when the user accepts them.
 a skill or a prompt asks for one, such as green once a check has passed. It stays until the \
 user writes to you again.
 
-Use these when they help the user's task, not as a matter of course. A session you spawn costs \
-the user money like any other.";
+Use these when they help the user's task, not as a matter of course. A session or task you \
+start costs the user money like any other.";
 
 /// How a message to another session was passed on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,6 +94,22 @@ impl Delivery {
 
 fn refused(reason: impl Into<String>) -> Error {
     Error::Peers(reason.into())
+}
+
+/// `text` as session `sender` leaves it in another conversation, marked with who wrote it.
+/// The UI reads the mark back (`isFromSession` in `transcript.ts`): it shows the sender, and
+/// ↑ does not bring the message back as the user's.
+fn left_by(sender: &Session, text: &str) -> String {
+    let title = if sender.title.is_empty() {
+        "untitled"
+    } else {
+        &sender.title
+    };
+    let from = sender.id;
+    format!(
+        "Message from session {from} (\"{title}\"), another agent session of the same \
+         user:\n\n{text}"
+    )
 }
 
 fn is_busy(session: &Session) -> bool {
@@ -478,15 +503,7 @@ impl Core {
         if text.trim().is_empty() {
             return Err(Error::EmptyMessage);
         }
-        let title = if sender.title.is_empty() {
-            "untitled"
-        } else {
-            &sender.title
-        };
-        let message = format!(
-            "Message from session {from} (\"{title}\"), another agent session of the same \
-             user:\n\n{text}"
-        );
+        let message = left_by(&sender, text);
         if is_busy(&receiver) {
             self.session_enqueue(to, &message)?;
             return Ok(Delivery::Queued);
@@ -661,6 +678,7 @@ async fn answer(core: Arc<Core>, stream: UnixStream) -> std::io::Result<()> {
     let called = match tool {
         DELEGATE_TO_CLOUD => core.peer_delegate(from, arguments).await,
         SHOW_BROWSER => core.browser_show_for(from, arguments).await,
+        START_TASK => core.peer_start_task_said(from, arguments).await,
         _ => core.peer_call(from, tool, arguments),
     };
     let reply = match called {

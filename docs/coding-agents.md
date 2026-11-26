@@ -511,7 +511,7 @@ its own worktree as a must can still stop the agent or make it argue. What to do
 
 | The skill wants to | In Swarmed |
 | --- | --- |
-| work on a new branch, or in a fresh worktree or clone | start a new task: it gets its own branch, worktree, stack and sessions |
+| work on a new branch, or in a fresh worktree or clone | a new task: it gets its own branch, worktree, stack and sessions. The agent starts one with `start_task` |
 | run agents side by side, each in a worktree of its own | `spawn_session`, which works in the same worktree, or separate tasks for parts that must not share files |
 | check out another branch or a pull request to read it | read it where it is: `git fetch`, then `git show <ref>:<path>`, `git diff`, `git log` or `gh pr diff` |
 | put the worktree back after it was moved | the Branch menu in the task's Publish panel, or `swarmed task switch` |
@@ -533,6 +533,7 @@ Every session gets an MCP server named `swarmed`, with these tools:
 | `list_sessions`, `read_session` | see and read the other open sessions of the same project; from a chat, every open session. `read_session` reads the latest messages, or from one it is given (`from`), so a long conversation can be read from its start |
 | `send_message` | write to another session it can read, or to a chat, so that one a chat wrote to can answer it; queued if it is busy |
 | `spawn_session`, `close_session` | start a session in the same task, up to six, and close the idle ones it started |
+| `start_task` | start a new task in the same repository for work that needs a branch of its own, as New task does: on a new branch, on an existing one such as a pull request's (`branch`), or on a new one stacked on another (`from`). Its session gets the prompt once the task is set up and reports back to the session that started it |
 | `delegate_to_cloud` | hand work to a Codex cloud agent or a Claude Code cloud session |
 | `use_skill` | read a skill Swarmed offers |
 | `set_mark` | put a colour and a few words on its own session in the sidebar |
@@ -654,8 +655,9 @@ the command line, `swarmed session send 7 "..." --element 3` names one picked fo
 in the window.
 
 Every agent is also told that it works in its task's own worktree and is to keep the work on the
-task's branch: to make no other branch, worktree or clone, and to ask you for a new task when
-something needs a branch of its own. A chat's agent is told instead that it has no repository,
+task's branch: to make no other branch, worktree or clone, and to start a new task with
+`start_task` when something needs a branch of its own. It starts one at once when you asked for
+that work, and asks you first when the idea is its own. A chat's agent is told instead that it has no repository,
 works in an empty folder of its own, and reads files where you name them; it is not given the
 task's `SWARMED_*` variables. When the worktree moves to another branch all the same, the
 conversation says so with a button to switch back, you are notified, and the task's panel

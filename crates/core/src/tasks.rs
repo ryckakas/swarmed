@@ -28,6 +28,10 @@ use crate::{Settings, open};
 pub struct NewTaskOptions<'a> {
     /// Check out this existing branch instead of creating one from the base.
     pub existing_branch: Option<&'a str>,
+    /// Start the new branch from this branch, here or on a remote (`origin/<name>`), instead
+    /// of the repository's base, which it then is for the task: its changes, its pull
+    /// request's base. For work stacked on another branch's. Not with `existing_branch`.
+    pub from: Option<&'a str>,
     /// The environment of the project to set the task up in: by default the project's default
     /// one, if it has one.
     pub environment: EnvironmentChoice,
@@ -148,7 +152,10 @@ impl Core {
         git::fetch(repo).await?;
         // A brand new repository has nothing to branch from until it has a commit.
         git::ensure_first_commit(repo).await?;
-        let base = base_of(repo, &config).await?;
+        let base = match options.from {
+            Some(from) => start_point(repo, from, options.existing_branch).await?,
+            None => base_of(repo, &config).await?,
+        };
         let pattern = BranchPattern {
             project: &project,
             pattern: &config.branch_pattern,
@@ -970,6 +977,21 @@ async fn base_of(repo: &Path, config: &ProjectConfig) -> Result<String> {
     } else {
         Ok(config.base_branch.clone())
     }
+}
+
+/// The branch a new task's branch starts from when it is asked for one: `from` itself, once it
+/// is known to be a branch, here or on a remote. Only a branch, since the task keeps it as its
+/// base and its pull request goes into it; and only for a new branch.
+async fn start_point(repo: &Path, from: &str, existing: Option<&str>) -> Result<String> {
+    if let Some(existing) = existing {
+        return Err(Error::ExistingBranchStartsFromNothing(existing.to_string()));
+    }
+    for kind in ["refs/heads", "refs/remotes"] {
+        if git::ref_exists(repo, &format!("{kind}/{from}")).await {
+            return Ok(from.to_string());
+        }
+    }
+    Err(Error::NoBranchToStartFrom(from.to_string()))
 }
 
 /// Adds the worktree at `worktree` on `branch`: a new branch from `base` if `new`, the

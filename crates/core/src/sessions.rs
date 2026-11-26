@@ -1241,7 +1241,7 @@ impl Core {
 
     /// Has the session named after its first message, if the user wants that and something
     /// can do it. Until the name arrives the title is the start of the message.
-    fn name_later(&self, id: i64, prompt: &str) {
+    pub(crate) fn name_later(&self, id: i64, prompt: &str) {
         let wanted = self.settings().is_ok_and(|settings| settings.auto_title);
         let Some(namer) = self.namer.clone().filter(|_| wanted) else {
             return;

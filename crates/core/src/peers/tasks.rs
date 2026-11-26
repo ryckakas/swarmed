@@ -1,0 +1,181 @@
+//! A session starting a new task for work that needs a branch of its own: a separate change, a
+//! fix to another pull request, the next pull request of a stack. Before this, an agent outside
+//! Swarmed's own repository knew of no way to, and switched its own worktree instead.
+//!
+//! The task is made as the window's New task makes one ([`Core::task_start`]): the setup runs
+//! in this process and shows in the task's setup panel, and the prompt goes once it finished
+//! well. Its session is the app's from the start, so the user can watch it, stop it and answer
+//! it like any other.
+
+use std::sync::Arc;
+
+use serde_json::Value;
+
+use super::{left_by, refused};
+use crate::agent::{AgentEvent, Auth};
+use crate::environments::EnvironmentChoice;
+use crate::error::{Error, Result};
+use crate::sessions::{SessionOptions, title_from};
+use crate::{Core, FirstSession, NewTaskOptions, TaskStarted, hooks};
+
+/// What a session asks for in a task it starts.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PeerTask<'a> {
+    /// The task's name. One that is taken gives way to the first free one, as a name the
+    /// window makes up does.
+    pub name: &'a str,
+    /// What the task's first session is to do.
+    pub prompt: &'a str,
+    /// What its first session is called; named after the prompt if left out.
+    pub title: Option<&'a str>,
+    /// An existing branch to check out instead of a new one.
+    pub branch: Option<&'a str>,
+    /// A branch to start the new one from instead of the repository's base.
+    pub from: Option<&'a str>,
+}
+
+impl<'a> PeerTask<'a> {
+    /// The task asked for in the arguments of a `start_task` call.
+    fn from_call(arguments: &'a Value) -> Self {
+        let word = |key: &str| {
+            arguments
+                .get(key)
+                .and_then(Value::as_str)
+                .filter(|word| !word.trim().is_empty())
+        };
+        Self {
+            name: word("name").unwrap_or_default(),
+            prompt: word("prompt").unwrap_or_default(),
+            title: word("title"),
+            branch: word("branch"),
+            from: word("from"),
+        }
+    }
+}
+
+impl Core {
+    /// Starts a new task in the repository of session `from`'s task, with a session on the
+    /// same agent and settings as `from`'s, whose prompt goes once the task is set up. The
+    /// prompt is marked as `from`'s words, and tells the new session to report back to it.
+    ///
+    /// The new session is not one `from` spawned: it is the first of a task of its own, and
+    /// can start sessions and tasks itself, as the next link of a chain of pull requests does.
+    /// A session that was itself spawned cannot start one, nor can a chat, which has no
+    /// repository. Must be called from within a tokio runtime.
+    pub async fn peer_start_task(
+        self: &Arc<Self>,
+        from: i64,
+        asked: PeerTask<'_>,
+    ) -> Result<TaskStarted> {
+        let asking = self.session(from)?;
+        if asking.spawned_by.is_some() {
+            return Err(refused(
+                "a session that was started by another session cannot start tasks; the session \
+                 that started it can",
+            ));
+        }
+        if asked.prompt.trim().is_empty() {
+            return Err(Error::EmptyMessage);
+        }
+        let own = self.task_of(&asking)?;
+        let project = self
+            .store()
+            .project_by_id(own.project_id)?
+            .ok_or(Error::SessionNotFound(from))?;
+        if project.chats {
+            return Err(refused(
+                "a chat has no repository to start a task in; ask the user to start one",
+            ));
+        }
+        let options = NewTaskOptions {
+            existing_branch: asked.branch,
+            from: asked.from,
+            environment: EnvironmentChoice::Default,
+            free_name: true,
+            issue: None,
+        };
+        let note = format!(
+            "(Session {from} started this task for that work, which is yours: this worktree and \
+             its branch. When you are done, report what you did and found to it with the \
+             `send_message` tool, to session {from}.)"
+        );
+        let first = FirstSession {
+            options: SessionOptions {
+                agent: Some(asking.agent.clone()),
+                // The prompt's own words, not the mark of who wrote it, which every task
+                // started this way would be called after.
+                title: Some(
+                    asked
+                        .title
+                        .map_or_else(|| title_from(asked.prompt), String::from),
+                ),
+                model: asking.model.clone(),
+                supervision: asking.supervision,
+                effort: asking.effort,
+                fast: asking.fast,
+            },
+            prompt: left_by(&asking, &format!("{}\n\n{note}", asked.prompt)),
+            files: Vec::new(),
+            sessions: Vec::new(),
+            github: Vec::new(),
+            images: Vec::new(),
+        };
+        let starting = self.task_start(
+            &project.name,
+            asked.name,
+            options,
+            first,
+            Auth::default(),
+            &hooks::discard,
+        );
+        // The setup goes on by itself, as the window's New task leaves it.
+        let (started, _going) = starting.await?;
+        if asked.title.is_none() {
+            self.name_later(started.session.id, asked.prompt);
+        }
+        // Front ends learn of a task this process made only when told.
+        self.live.publish_apart(AgentEvent::TreeChanged);
+        Ok(started)
+    }
+
+    /// Answers a `start_task` call of session `from`: what was started, for its agent.
+    pub(super) async fn peer_start_task_said(
+        self: &Arc<Self>,
+        from: i64,
+        arguments: &Value,
+    ) -> Result<String> {
+        let asked = PeerTask::from_call(arguments);
+        let started = self.peer_start_task(from, asked).await?;
+        let task = &started.task;
+        Ok(format!(
+            "Started task `{}` on the branch `{}`, in {}, with session {}. Its setup runs \
+             first, and the prompt goes once it finished well; if the setup fails, the prompt \
+             waits for the user. That session reports back to you with a message when it is \
+             done.",
+            task.name,
+            task.branch,
+            task.worktree_path.display(),
+            started.session.id
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_call_is_read_with_blank_words_as_none() {
+        let arguments = serde_json::json!({
+            "name": "fix-pr", "prompt": "fix it", "title": " ", "branch": "pr/5028",
+        });
+        let asked = PeerTask::from_call(&arguments);
+        assert_eq!((asked.name, asked.prompt), ("fix-pr", "fix it"));
+        assert_eq!(
+            (asked.title, asked.branch, asked.from),
+            (None, Some("pr/5028"), None)
+        );
+        let empty = PeerTask::from_call(&Value::Null);
+        assert_eq!((empty.name, empty.prompt), ("", ""));
+    }
+}

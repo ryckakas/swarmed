@@ -185,7 +185,7 @@ fn draft_of(answer: &str) -> Option<PullDraft> {
 /// What every agent is told about the task's branch and worktree, as part of Swarmed's
 /// guidance. Swarmed follows a worktree switched to another branch, but the task's sessions,
 /// its name and its pull request are about one piece of work: another belongs in a task of
-/// its own, which the user starts. Skills written for working without Swarmed often say to
+/// its own, which the agent starts with `start_task` (`peers/tasks.rs`). Skills written for working without Swarmed often say to
 /// branch out or make a worktree first, so this says plainly that it holds against them, and
 /// how to read another branch without leaving this one.
 pub(crate) fn worktree_instructions(branch: &str) -> String {
@@ -212,9 +212,12 @@ To look at another branch or a pull request, read it where it is: `git fetch` it
 `git show <ref>:<path>`, `git diff`, `git log` or `gh pr diff`.
 
 When something needs a branch of its own (a separate change, a fix to another pull request, a \
-fresh start from the base), stop and tell the user: a new task in Swarmed gets its own branch, \
-worktree and sessions. If the user asks you to switch or create a branch or a worktree here all \
-the same, tell them that first, and do it if they still want it."
+fresh start from the base, the next pull request of a stack), it belongs in a new task in \
+Swarmed, which gets its own branch, worktree and sessions. Start one with Swarmed's \
+`start_task` tool: at once when the user asked for that work, and after asking them when it is \
+only your own idea. Without that tool, ask the user to start the task. If the user asks you to \
+switch or create a branch or a worktree here all the same, tell them that first, and do it if \
+they still want it."
     )
 }
 

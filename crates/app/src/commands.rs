@@ -223,6 +223,7 @@ pub(crate) async fn task_new<R: Runtime>(
     // has. No environment named is the project's default.
     let options = NewTaskOptions {
         existing_branch: branch.as_deref(),
+        from: None,
         environment: environment.unwrap_or_default(),
         free_name: true,
         issue: None,
@@ -273,6 +274,7 @@ pub(crate) async fn task_start<R: Runtime>(
     // A name that is taken gives way to the first free one, as with `task_new`.
     let options = NewTaskOptions {
         existing_branch: start.branch.as_deref(),
+        from: None,
         environment: start.environment.unwrap_or_default(),
         free_name: true,
         issue: start.issue,

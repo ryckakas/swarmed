@@ -970,7 +970,12 @@ async fn every_agent_is_told_to_keep_to_its_tasks_branch_and_worktree() {
         "{guidance}"
     );
     assert!(guidance.contains(&format!("the task's own branch, `{branch}`")));
-    assert!(guidance.contains("a new task in Swarmed gets its own branch"));
+    // Work on another branch goes into a task the agent starts itself.
+    assert!(
+        guidance.contains("it belongs in a new task in Swarmed"),
+        "{guidance}"
+    );
+    assert!(guidance.contains("`start_task`"), "{guidance}");
     // A skill that says to branch out or make a worktree first is answered in advance.
     assert!(guidance.contains("even when a skill"), "{guidance}");
     assert!(guidance.contains("`git worktree add`"), "{guidance}");

@@ -58,6 +58,16 @@ pub enum Error {
         "a branch named {0} exists already: name the task differently, or start it from that branch"
     )]
     BranchExists(String),
+    /// A new task's branch was asked to start from a branch that is neither here nor on a
+    /// remote.
+    #[error("there is no branch {0} to start from, here or on a remote")]
+    NoBranchToStartFrom(String),
+    /// A task on an existing branch was also asked to start from another: it is checked out
+    /// as it is.
+    #[error(
+        "the existing branch {0} is checked out as it is, so it cannot start from another branch"
+    )]
+    ExistingBranchStartsFromNothing(String),
     /// A branch prefix git would not take at the start of a branch's name.
     #[error("the branch prefix `{prefix}` cannot be used: {reason}")]
     BranchPrefix {

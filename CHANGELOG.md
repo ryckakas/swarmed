@@ -15,6 +15,16 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Added
+
+- **Agents start tasks.** Ask an agent for work that needs a branch of its own, such as a fix to
+  another pull request or the next pull request of a stack, and it starts a new task for it
+  with Swarmed's `start_task` tool instead of switching its own worktree to another branch. The
+  task is set up as New task sets one up, its session starts on the prompt once the setup is
+  done, and it reports back to the session that started it. `swarmed task new --from <branch>`
+  starts a task's branch from another branch the same way. See
+  [What Swarmed gives every agent](docs/coding-agents.md#what-swarmed-gives-every-agent).
+
 ## [0.4.7] - 2026-11-26
 
 ### Added

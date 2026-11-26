@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use action::ActionCommand;
 use anyhow::Result;
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use issue::IssueCommand;
 use layout::LayoutCommand;
 use pr::PrCommand;
@@ -278,39 +278,47 @@ enum ProjectCommand {
     Unpin { project: String },
 }
 
+/// What `swarmed task new` is given.
+#[derive(Debug, Args)]
+struct NewArgs {
+    project: String,
+    name: String,
+    /// Check out this existing branch instead of creating a new one.
+    #[arg(long)]
+    branch: Option<String>,
+    /// Start the new branch from this branch instead of the base, which it then is for
+    /// the task: for work stacked on another branch's.
+    #[arg(long, conflicts_with = "branch")]
+    from: Option<String>,
+    /// Set the task up in this environment of the project; see `swarmed environment`.
+    /// Without it, the task is set up in the project's default environment, if it has one.
+    #[arg(long, conflicts_with = "no_environment")]
+    environment: Option<String>,
+    /// Set the task up the project's own way, whatever its default environment.
+    #[arg(long)]
+    no_environment: bool,
+    /// Start the task's first session with this prompt: the session is made at once, the
+    /// prompt waits for the setup, and goes once it finished well.
+    #[arg(long)]
+    prompt: Option<String>,
+    /// The agent the first session runs on, by its id from `swarmed agents`; defaults to
+    /// Claude Code.
+    #[arg(long, requires = "prompt")]
+    agent: Option<String>,
+    /// The model the first session runs on; defaults to the agent's own default.
+    #[arg(long, requires = "prompt")]
+    model: Option<String>,
+    /// The number of the repository's GitHub issue the task is for, which it records: its
+    /// pull request text then says `Closes #N`. See `swarmed issue list`.
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
+    issue: Option<u64>,
+}
+
 #[derive(Debug, Subcommand)]
 enum TaskCommand {
     /// Create a task: branch, worktree, then the `setup` hook. In the project `.chats`, a
     /// chat: a folder of its own, with no repository and no branch.
-    New {
-        project: String,
-        name: String,
-        /// Check out this existing branch instead of creating a new one.
-        #[arg(long)]
-        branch: Option<String>,
-        /// Set the task up in this environment of the project; see `swarmed environment`.
-        /// Without it, the task is set up in the project's default environment, if it has one.
-        #[arg(long, conflicts_with = "no_environment")]
-        environment: Option<String>,
-        /// Set the task up the project's own way, whatever its default environment.
-        #[arg(long)]
-        no_environment: bool,
-        /// Start the task's first session with this prompt: the session is made at once, the
-        /// prompt waits for the setup, and goes once it finished well.
-        #[arg(long)]
-        prompt: Option<String>,
-        /// The agent the first session runs on, by its id from `swarmed agents`; defaults to
-        /// Claude Code.
-        #[arg(long, requires = "prompt")]
-        agent: Option<String>,
-        /// The model the first session runs on; defaults to the agent's own default.
-        #[arg(long, requires = "prompt")]
-        model: Option<String>,
-        /// The number of the repository's GitHub issue the task is for, which it records: its
-        /// pull request text then says `Closes #N`. See `swarmed issue list`.
-        #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
-        issue: Option<u64>,
-    },
+    New(NewArgs),
     /// Suggest a name for a task that starts with PROMPT, as the app names new tasks.
     Name { project: String, prompt: String },
     /// List a project's tasks.
@@ -1240,16 +1248,32 @@ async fn set_up(core: &Core, command: TaskCommand) -> Result<Option<TaskCommand>
 
 /// Makes a task and sets it up; with a prompt, its first session too, whose turn is shown
 /// once the setup finished well.
-async fn new_task(
-    core: &Arc<Core>,
-    (project, name): (&str, &str),
-    options: NewTaskOptions<'_>,
-    prompted: Option<setup::Prompted>,
-) -> Result<()> {
-    if let Some(prompted) = prompted {
-        return setup::start(core, (project, name), options, prompted).await;
+async fn new_task(core: &Arc<Core>, args: NewArgs) -> Result<()> {
+    let NewArgs {
+        project,
+        name,
+        branch,
+        from,
+        environment,
+        no_environment,
+        prompt,
+        agent,
+        model,
+        issue,
+    } = args;
+    // The name is the user's own: one that is taken is refused, not changed.
+    let options = NewTaskOptions {
+        existing_branch: branch.as_deref(),
+        from: from.as_deref(),
+        environment: environment_choice(environment, no_environment),
+        free_name: false,
+        issue,
+    };
+    if let Some(prompt) = prompt {
+        let prompted = setup::Prompted::new(prompt, agent, model);
+        return setup::start(core, (&project, &name), options, prompted).await;
     }
-    let making = core.task_new(project, name, options, &hook_line);
+    let making = core.task_new(&project, &name, options, &hook_line);
     let task = setting_up(core, making).await?;
     say(&created(&task));
     Ok(())
@@ -1267,27 +1291,7 @@ async fn task(core: &Arc<Core>, command: TaskCommand) -> Result<()> {
                 |naming| format!("{}\t{}", naming.name, naming.title),
             ));
         }
-        TaskCommand::New {
-            project,
-            name,
-            branch,
-            environment,
-            no_environment,
-            prompt,
-            agent,
-            model,
-            issue,
-        } => {
-            // The name is the user's own: one that is taken is refused, not changed.
-            let options = NewTaskOptions {
-                existing_branch: branch.as_deref(),
-                environment: environment_choice(environment, no_environment),
-                free_name: false,
-                issue,
-            };
-            let prompted = prompt.map(|prompt| setup::Prompted::new(prompt, agent, model));
-            new_task(core, (&project, &name), options, prompted).await?;
-        }
+        TaskCommand::New(args) => new_task(core, args).await?,
         TaskCommand::List { project, all } => {
             core.tasks(&project, all)?
                 .iter()
