@@ -981,7 +981,9 @@ async fn base_of(repo: &Path, config: &ProjectConfig) -> Result<String> {
 
 /// The branch a new task's branch starts from when it is asked for one: `from` itself, once it
 /// is known to be a branch, here or on a remote. Only a branch, since the task keeps it as its
-/// base and its pull request goes into it; and only for a new branch.
+/// base and its pull request goes into it; and only for a new branch. One that is only on
+/// `origin` can be named as a pull request names its head, without the remote, and is then
+/// `origin/<from>`.
 async fn start_point(repo: &Path, from: &str, existing: Option<&str>) -> Result<String> {
     if let Some(existing) = existing {
         return Err(Error::ExistingBranchStartsFromNothing(existing.to_string()));
@@ -991,6 +993,10 @@ async fn start_point(repo: &Path, from: &str, existing: Option<&str>) -> Result<
         if git::is_ref(repo, &format!("{kind}/{from}")).await {
             return Ok(from.to_string());
         }
+    }
+    let on_origin = format!("origin/{from}");
+    if git::is_ref(repo, &format!("refs/remotes/{on_origin}")).await {
+        return Ok(on_origin);
     }
     Err(Error::NoBranchToStartFrom(from.to_string()))
 }

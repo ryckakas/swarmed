@@ -214,6 +214,42 @@ async fn a_task_checks_out_a_pull_requests_branch_or_stacks_on_one() {
 }
 
 #[tokio::test]
+async fn a_task_stacks_on_a_branch_that_is_only_on_the_remote() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let asking = new_session(&core);
+    let remote = fx.repo.with_file_name("origin.git");
+    let remote = remote.to_string_lossy();
+    git(&fx.repo, &["init", "--quiet", "--bare", &remote]);
+    git(&fx.repo, &["remote", "add", "origin", &remote]);
+    git(&fx.repo, &["switch", "--quiet", "-c", "feature-x"]);
+    git(
+        &fx.repo,
+        &["commit", "--quiet", "--allow-empty", "-m", "the pr"],
+    );
+    git(&fx.repo, &["push", "--quiet", "origin", "feature-x"]);
+    let pushed = commit_of(&fx.repo, "feature-x");
+    git(&fx.repo, &["switch", "--quiet", "main"]);
+    git(&fx.repo, &["branch", "--quiet", "-D", "feature-x"]);
+
+    // Named as a pull request names its head, and with its remote: the same branch.
+    for (name, from) in [("short", "feature-x"), ("whole", "origin/feature-x")] {
+        let stacked = PeerTask {
+            name,
+            prompt: "Build on it.",
+            from: Some(from),
+            ..PeerTask::default()
+        };
+        let next = core
+            .peer_start_task(asking.id, stacked)
+            .await
+            .expect("starts");
+        assert_eq!(next.task.base_ref, "origin/feature-x");
+        assert_eq!(commit_of(&next.task.worktree_path, "HEAD"), pushed);
+    }
+}
+
+#[tokio::test]
 async fn a_task_is_refused_to_a_helper_a_chat_and_an_empty_prompt() {
     let fx = fixture();
     let core = core_with_task(&fx).await;
