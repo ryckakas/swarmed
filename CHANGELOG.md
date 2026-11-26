@@ -15,6 +15,14 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Added
+
+- **Links in your own messages open.** An address you wrote in a message (`https://`, `http://`
+  or one starting with `www.`) is a link in the conversation and in the queue of waiting
+  messages, and opens in your browser when pressed, as a link in an agent's reply does.
+  Punctuation that ends the sentence after it, and a bracket closed around it, are not part of
+  the address.
+
 ## [0.4.8] - 2026-11-26
 
 ### Added

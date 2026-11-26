@@ -44,6 +44,7 @@ import { SentContexts } from "./AppContexts";
 import { ConfigProposal } from "./ConfigProposal";
 import { FileChips } from "./FileChips";
 import { HtmlView } from "./HtmlView";
+import { WithLinks } from "./Link";
 import { Markdown } from "./Markdown";
 import { McpAppView } from "./McpAppView";
 import { MentionList, WithMentions } from "./MentionChips";
@@ -200,7 +201,11 @@ function SaidPart({ part, mentioned }: { part: MessagePart; mentioned: Mentions 
                 />
             );
         case "quote":
-            return <blockquote className="said-quote">{part.text}</blockquote>;
+            return (
+                <blockquote className="said-quote">
+                    <WithLinks text={part.text} />
+                </blockquote>
+            );
         case "paste":
             return (
                 <details className="pasted">

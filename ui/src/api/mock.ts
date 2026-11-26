@@ -1617,7 +1617,7 @@ export function sampleEvents(sessionId: number): AgentEvent[] {
         return [
             {
                 type: "user_message",
-                text: "Users get stuck in a redirect loop after login. Fix it.",
+                text: "Users get stuck in a redirect loop after login (try https://shop.example.com/login?next=/login). Fix it.",
             },
             INIT,
             { type: "text", text: "I'll look at how the login redirect is built." },

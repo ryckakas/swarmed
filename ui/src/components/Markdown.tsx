@@ -4,11 +4,11 @@ import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
-import { api } from "../api";
 import { HTML_LANGUAGE, splitPendingView, VIEW_LANGUAGE } from "../htmlview";
 import { ISSUE_SCHEMA } from "../issueHtml";
 import { useStore } from "../store";
 import { HtmlView, ViewPending } from "./HtmlView";
+import { Link } from "./Link";
 
 const PLUGINS = [remarkGfm];
 // Colours code blocks that name their language; one that does not is left plain, not guessed.
@@ -94,28 +94,6 @@ function HtmlCode({ html, children }: { html: string; children: ReactNode }) {
             </button>
             {children}
         </div>
-    );
-}
-
-/**
- * A link the agent wrote. It opens in the user's browser: followed here it would replace
- * Swarmed's window with a web page that has no way back.
- */
-function Link({ href, children, node: _node, ...rest }: ComponentProps<"a"> & { node?: unknown }) {
-    const report = useStore((state) => state.report);
-    return (
-        <a
-            {...rest}
-            href={href}
-            onClick={(event) => {
-                event.preventDefault();
-                if (href) {
-                    api.openLink(href).catch(report);
-                }
-            }}
-        >
-            {children}
-        </a>
     );
 }
 

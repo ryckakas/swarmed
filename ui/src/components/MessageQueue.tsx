@@ -15,6 +15,7 @@ import { findSession, repositoryOf } from "../tree";
 import { usePastedImages } from "../usePastedImages";
 import { useWords } from "../useWords";
 import { FileChips } from "./FileChips";
+import { WithLinks } from "./Link";
 
 /** Stands in for a queue that has not been read, without a new array on every render. */
 const NONE: QueuedMessage[] = [];
@@ -182,20 +183,16 @@ function QueuedRow(props: RowProps) {
         return (
             <div className="queue-row">
                 <div className="queue-said">
-                    <button
-                        type="button"
-                        className="queue-text"
-                        title="Edit this message"
-                        onClick={() => {
+                    <QueuedText
+                        text={shown}
+                        onEdit={() => {
                             // Its pastes and quotes behind tokens again, sent in full once saved.
                             const editing = { ...said, text: tokensAgain(said.text), images: [] };
                             opened.current = editing;
                             setDraft(editing);
                             onEditing(true);
                         }}
-                    >
-                        {shown || "Files only"}
-                    </button>
+                    />
                     <FileChips files={said.files} sessionId={sessionId} />
                 </div>
                 {onTellNow && <TellNow onClick={onTellNow} />}
@@ -239,6 +236,26 @@ function QueuedRow(props: RowProps) {
             }}
             onCancel={close}
         />
+    );
+}
+
+/**
+ * A waiting message's words, which open it for editing when pressed. The button lies under the
+ * words rather than around them, since a button cannot hold links: only the addresses in them
+ * stand above it, and open in the user's browser instead.
+ */
+function QueuedText({ text, onEdit }: { text: string; onEdit(): void }) {
+    return (
+        <div className="queue-text">
+            <button
+                type="button"
+                className="queue-open"
+                aria-label="Edit this message"
+                title="Edit this message"
+                onClick={onEdit}
+            />
+            <span className="queue-words">{text ? <WithLinks text={text} /> : "Files only"}</span>
+        </div>
     );
 }
 

@@ -3571,6 +3571,13 @@ code {
     color: var(--muted);
 }
 
+/* An address in what the user wrote, drawn as a reply's links are: it opens in the browser. */
+.said-link {
+    color: var(--sky);
+    text-decoration-color: color-mix(in srgb, var(--sky) 45%, transparent);
+    text-underline-offset: 2px;
+}
+
 /* Beside words selected in one of the agent's replies: quotes them into the message box. */
 .quote-button {
     position: absolute;
@@ -4259,34 +4266,45 @@ code {
 }
 
 .queue-text {
+    position: relative;
     flex: 1;
     min-width: 0;
     padding: var(--space-1) var(--space-2);
+    color: var(--text);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+/* What opens a waiting message for editing: the whole of its text, under its words. */
+.queue-open {
+    position: absolute;
+    inset: 0;
+    padding: 0;
     border: 0;
     border-radius: 8px;
     background: none;
-    color: var(--text);
-    font: inherit;
-    text-align: left;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
     cursor: text;
 }
 
-.queue-text:hover,
-.queue-text:focus-visible {
+.queue-text:hover .queue-open,
+.queue-open:focus-visible {
     background: var(--raised);
+}
+
+/* The words let a press through to the button under them; their links alone take it. */
+.queue-words {
+    position: relative;
+    pointer-events: none;
+}
+
+.queue-words a {
+    pointer-events: auto;
 }
 
 /* A waiting message's text, with its files under it. */
 .queue-said {
     flex: 1;
     min-width: 0;
-}
-
-.queue-said .queue-text {
-    display: block;
-    width: 100%;
 }
 
 .queue-said .file-chips {
