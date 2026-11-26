@@ -161,6 +161,13 @@ function requested(
 }
 
 /**
+ * A `/` with nothing before it that reads as text. The core takes a command's name after
+ * trimming as Rust does, which drops more than `trim` here (U+0085 for one), so whatever
+ * could be trimmed or not be seen counts as nothing.
+ */
+const COMMAND_START = /^[\s\p{White_Space}\p{Cc}\p{Cf}]*\//u;
+
+/**
  * A message an app asks to send, if it is one: words, never a command or a skill, which a
  * leading `/` would make it.
  */
@@ -168,7 +175,7 @@ function appMessage(id: RpcId, text: string): Decision {
     if (text === "") {
         return { kind: "refuse", id, code: INVALID_PARAMS, message: "The message has no text." };
     }
-    if (text.startsWith("/")) {
+    if (COMMAND_START.test(text)) {
         const message = "An app sends messages, not commands.";
         return { kind: "refuse", id, code: REFUSED, message };
     }

@@ -158,6 +158,15 @@ describe("decide", () => {
         expect(
             request("ui/message", { content: [{ type: "text", text: "/rc on" }] }),
         ).toMatchObject({ kind: "refuse", code: REFUSED });
+        // Nor with something before the slash that the core trims and `trim` here does not.
+        for (const before of ["\u0085", "\u200b", "\u0000 \ufeff"]) {
+            expect(
+                request("ui/message", { content: [{ type: "text", text: `${before}/rc on` }] }),
+            ).toMatchObject({ kind: "refuse", code: REFUSED });
+        }
+        expect(
+            request("ui/message", { content: [{ type: "text", text: "Is a/b right?" }] }),
+        ).toMatchObject({ kind: "message" });
         expect(request("ui/message", { content: [{ type: "image", data: "…" }] })).toMatchObject({
             kind: "refuse",
             code: INVALID_PARAMS,
