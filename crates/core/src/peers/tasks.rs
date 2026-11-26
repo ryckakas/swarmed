@@ -17,7 +17,7 @@ use crate::agent::{AgentEvent, Auth};
 use crate::environments::EnvironmentChoice;
 use crate::error::{Error, Result};
 use crate::sessions::{SessionOptions, title_from};
-use crate::{Core, FirstSession, NewTaskOptions, TaskStarted, hooks};
+use crate::{Core, FirstSession, NewTaskOptions, TaskStarted, hooks, roles};
 
 /// What a session asks for in a task it starts.
 #[derive(Debug, Clone, Copy, Default)]
@@ -33,6 +33,9 @@ pub struct PeerTask<'a> {
     pub branch: Option<&'a str>,
     /// A branch to start the new one from instead of the repository's base.
     pub from: Option<&'a str>,
+    /// The role of its first session; without one, the role the asking session's starts by
+    /// default (`roles.rs`).
+    pub role: Option<&'a str>,
 }
 
 impl<'a> PeerTask<'a> {
@@ -50,6 +53,7 @@ impl<'a> PeerTask<'a> {
             title: word("title"),
             branch: word("branch"),
             from: word("from"),
+            role: word("role"),
         }
     }
 }
@@ -61,8 +65,9 @@ impl Core {
     ///
     /// The new session works for `from`, but is not one `from` spawned: it is the first of a
     /// task of its own, and can start sessions and tasks itself, as the next link of a chain of
-    /// pull requests does. A session that was itself spawned cannot start one, nor can a chat,
-    /// which has no repository. Must be called from within a tokio runtime.
+    /// pull requests does. It has the role asked for, or the one `from`'s own starts by default;
+    /// a role `from`'s may not start is refused. A session that was itself spawned cannot start
+    /// one, nor can a chat, which has no repository. Must be called from within a tokio runtime.
     pub async fn peer_start_task(
         self: &Arc<Self>,
         from: i64,
@@ -78,6 +83,7 @@ impl Core {
         if asked.prompt.trim().is_empty() {
             return Err(Error::EmptyMessage);
         }
+        let role = roles::of_child(&asking, asked.role)?;
         let own = self.task_of(&asking)?;
         let project = self
             .store()
@@ -114,6 +120,7 @@ impl Core {
                 supervision: asking.supervision,
                 effort: asking.effort,
                 fast: asking.fast,
+                role: role.map(|role| role.name.to_string()),
             },
             prompt: left_by(&asking, &format!("{}\n\n{note}", asked.prompt)),
             files: Vec::new(),
@@ -160,8 +167,13 @@ impl Core {
         let asked = PeerTask::from_call(arguments);
         let started = self.peer_start_task(from, asked).await?;
         let task = &started.task;
+        let what = started
+            .session
+            .role
+            .as_deref()
+            .map_or_else(String::new, |role| format!(" (role: {role})"));
         Ok(format!(
-            "Started task `{}` on the branch `{}`, in {}, with session {}. Its setup runs \
+            "Started task `{}` on the branch `{}`, in {}, with session {}{what}. Its setup runs \
              first, and the prompt goes once it finished well; if the setup fails, the prompt \
              waits for the user. That session reports back to you with a message when it is \
              done.",

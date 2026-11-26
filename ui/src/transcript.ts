@@ -7,6 +7,7 @@ import type { Mentioned } from "./mentions";
 import type { Regrouped } from "./parents";
 import { QUESTION_TOOL, type Question, questionsOf } from "./questions";
 import { type RateLimit, refusalNotice } from "./rateLimit";
+import type { RoleChange } from "./roles";
 import { type Words, wordsFor } from "./wording";
 
 // Turns a session's raw events into what the transcript shows. Pure, so it can be tested.
@@ -99,6 +100,8 @@ export type Item =
     | { kind: "moved"; key: number; from: string | null; to: string | null; betweenTurns: boolean }
     /** Whom a session works for changed: this one, or one that works or worked for it. */
     | ({ kind: "regrouped"; key: number } & Regrouped)
+    /** The session's role changed: its rules apply from here on. */
+    | ({ kind: "role"; key: number } & RoleChange)
     /** Something changed on the task's pull request: checks, a review, a comment, a merge. */
     | { kind: "pull"; key: number; number: number; url: string; change: PullChange }
     /** HTML the agent showed the user through Swarmed's tool. */
@@ -331,6 +334,8 @@ function single(event: AgentEvent, key: number, words: Words): Item | null {
             const { child, parent, previous } = event;
             return { kind: "regrouped", key, child, parent, previous };
         }
+        case "role_changed":
+            return { kind: "role", key, role: event.role, previous: event.previous };
         case "pull_changed":
             return {
                 kind: "pull",

@@ -17,14 +17,22 @@ pub(crate) struct Prompted {
     prompt: String,
     agent: Option<String>,
     model: Option<String>,
+    /// The name of the first session's role, if it has one.
+    role: Option<String>,
 }
 
 impl Prompted {
-    pub(crate) fn new(prompt: String, agent: Option<String>, model: Option<String>) -> Self {
+    pub(crate) fn new(
+        prompt: String,
+        agent: Option<String>,
+        model: Option<String>,
+        role: Option<String>,
+    ) -> Self {
         Self {
             prompt,
             agent,
             model,
+            role,
         }
     }
 }
@@ -43,6 +51,7 @@ pub(crate) async fn start(
             agent: prompted.agent,
             model: prompted.model,
             supervision: core.settings()?.default_supervision,
+            role: prompted.role,
             ..SessionOptions::default()
         },
         prompt: prompted.prompt,

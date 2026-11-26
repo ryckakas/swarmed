@@ -532,10 +532,10 @@ Every session gets an MCP server named `swarmed`, with these tools:
 | --- | --- |
 | `show_html` | shows HTML in the conversation, in a sandboxed frame |
 | `show_browser` | opens the task's browser beside the conversation, on an address, in a tab of the session's own; see [The task's browser and your browser tools](#the-tasks-browser-and-your-browser-tools) |
-| `list_sessions`, `read_session` | see and read the other open sessions of the same project; from a chat, every open session. Both say which session each works for, and `read_session` which work for the one it reads. It reads the latest messages, or from one it is given (`from`), so a long conversation can be read from its start |
+| `list_sessions`, `read_session` | see and read the other open sessions of the same project; from a chat, every open session. Both say which session each works for and its role, and `read_session` which work for the one it reads. It reads the latest messages, or from one it is given (`from`), so a long conversation can be read from its start |
 | `send_message` | write to another session it can read, or to a chat, so that one a chat wrote to can answer it; queued if it is busy |
-| `spawn_session`, `close_session` | start a session in the same task, which works for the one that started it, up to six open, and close the idle ones it started |
-| `start_task` | start a new task in the same repository for work that needs a branch of its own, as New task does: on a new branch, on an existing one such as a pull request's (`branch`), or on a new one stacked on another (`from`). Its session gets the prompt once the task is set up, works for the session that started it and reports back to it. A session run with `swarmed session` is refused: the command ends with its turn |
+| `spawn_session`, `close_session` | start a session in the same task, which works for the one that started it, up to six open, with a role its own role may start (see [Roles](#roles)), and close the idle ones it started |
+| `start_task` | start a new task in the same repository for work that needs a branch of its own, as New task does: on a new branch, on an existing one such as a pull request's (`branch`), or on a new one stacked on another (`from`). Its session gets the prompt once the task is set up, works for the session that started it and reports back to it, and has a role as a spawned one does. A session run with `swarmed session` is refused: the command ends with its turn |
 | `delegate_to_cloud` | hand work to a Codex cloud agent or a Claude Code cloud session |
 | `use_skill` | read a skill Swarmed offers |
 | `set_mark` | put a colour and a few words on its own session in the sidebar |
@@ -572,6 +572,45 @@ Each agent is told who works with it when it starts. When you change it, the con
 concerns say so on a line of their own, and their agents are told who works with them now along
 with your next message. Closing a session leaves those that worked for it as they are; deleting
 one leaves them working for nobody. A fork starts working for nobody.
+
+### Roles
+
+A session can have a role, which says what it is for: its agent is told the role's rules and
+keeps to them. Without one, a session works as you ask, as every session did before roles.
+
+| Role | What it is for |
+| --- | --- |
+| `architect` | shapes a whole feature across tasks: splits it into parts, each one task, one branch and one pull request, and starts a planner for each |
+| `planner` | plans one part inside one task, hands every change to implementers in its worktree, and checks what they report against the plan |
+| `implementer` | builds the part it was given and nothing beside it, and reports back when done or stuck |
+| `reviewer` | reads and reviews what it is pointed at, changes nothing, and reports its findings |
+
+An architect and a planner are told apart by level. For a change that fits one pull request,
+start a planner and no architect.
+
+| | Architect | Planner |
+| --- | --- | --- |
+| Works on | the whole feature, across tasks | one part, inside one task |
+| Decides | the shape: boundaries, data model, interfaces between parts, trade-offs, which pull request stacks on which | the steps: which files, which tests, in what order |
+| Hands work to | planners, each in a task of its own (`start_task`) | implementers in its own worktree (`spawn_session`) |
+| Checks | that the parts fit together and land in order | that each implementer's report matches the plan |
+| Reports to | the user | its architect, or the user |
+
+Choose a role in the new-task view, beside the supervision, or in a session's header, where you
+can change it while the session runs; from the command line, `--role` on `swarmed session run`
+and `swarmed task new --prompt`, or `swarmed session role 12 planner` (`none` for no role). Each
+agent is told its role, what every role is for and who works with it when it starts. Once
+something was said in a session, a change of role shows on a line of its own in the
+conversation, and its agent is told the new role's rules, and that the old one's no longer
+apply, along with your next message.
+
+Every agent is given the same table, so it knows which role a piece of work belongs to. A
+session with a role starts only the roles its own may: an architect starts planners (a task for
+each part, with `start_task`) and reviewers, a planner starts implementers (with
+`spawn_session`, in its own worktree) and reviewers, and an implementer or a reviewer starts
+nobody. Without a role asked for, an architect's session is a planner and a planner's an
+implementer. A session with no role may start any role, or none. A fork keeps its session's role.
+Only you choose a role: `configure` cannot set one.
 
 ### Mentioning another session
 

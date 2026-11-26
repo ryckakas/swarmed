@@ -632,6 +632,56 @@ fn the_ui_can_have_a_session_work_for_another_across_tasks() {
 }
 
 #[test]
+fn the_ui_can_give_a_session_a_role_at_its_start_and_after() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    app.ok(
+        "task_new",
+        json!({ "project": "demo", "name": "one", "branch": null }),
+    );
+    let roles = app.ok("roles", json!({}));
+    let names: Vec<&str> = roles
+        .as_array()
+        .expect("a list")
+        .iter()
+        .filter_map(|role| role["name"].as_str())
+        .collect();
+    assert_eq!(names, ["architect", "planner", "implementer", "reviewer"]);
+    assert_eq!(roles[1]["starts"], json!(["implementer", "reviewer"]));
+    assert_eq!(roles[1]["child"], "implementer");
+    assert_eq!(roles[1]["changes_files"], false);
+    assert!(roles[1]["description"].is_string());
+
+    let how = json!({ "model": null, "supervision": "auto", "effort": null });
+    let options = json!({
+        "project": "demo", "task": "one", "agent": null, "role": "planner", "how": how,
+    });
+    let session = app.ok("session_new", options);
+    assert_eq!(session["role"], "planner");
+    let id = &session["id"];
+    let changed = app.ok("session_set_role", json!({ "id": id, "role": "reviewer" }));
+    assert_eq!(changed["role"], "reviewer");
+    let tree = app.ok("overview", json!({}));
+    assert_eq!(tree[0]["tasks"][0]["sessions"][0]["role"], "reviewer");
+    app.invoke("session_set_role", json!({ "id": id, "role": "boss" }))
+        .expect_err("no such role");
+    let off = app.ok("session_set_role", json!({ "id": id, "role": null }));
+    assert_eq!(off["role"], json!(null));
+
+    // A task's first session is given one as it starts.
+    let start = json!({
+        "branch": null, "environment": null, "agent": null, "role": "architect",
+        "how": { "model": null, "supervision": "plan", "effort": null, "fast": false },
+        "title": null, "prompt": "Shape the export", "files": [], "images": [],
+    });
+    let started = app.ok(
+        "task_start",
+        json!({ "project": "demo", "name": "export", "start": start }),
+    );
+    assert_eq!(started["session"]["role"], "architect");
+}
+
+#[test]
 fn the_ui_can_put_a_task_away_and_bring_it_back() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));

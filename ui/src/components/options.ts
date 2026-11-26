@@ -4,6 +4,7 @@ import type {
     AgentInfo,
     Effort,
     LimitWarnings,
+    RoleInfo,
     SlashCommand,
     Supervision,
     Theme,
@@ -132,6 +133,23 @@ export function useAgents(): AgentInfo[] {
         api.agents().then(setAgents).catch(useStore.getState().report);
     }, [version]);
     return agents;
+}
+
+/** The roles read once from the core, which keeps them for as long as it runs. */
+let rolesRead: Promise<RoleInfo[]> | null = null;
+
+/** The roles a session can have, in the order they are offered; none until they are read. */
+export function useRoles(): RoleInfo[] {
+    const [roles, setRoles] = useState<RoleInfo[]>([]);
+    useEffect(() => {
+        rolesRead ??= api.roles();
+        rolesRead.then(setRoles).catch((error: unknown) => {
+            // Asked again next time, rather than failing for good.
+            rolesRead = null;
+            useStore.getState().report(error);
+        });
+    }, []);
+    return roles;
 }
 
 /** Whether agent `id` takes a message into the turn under way; `false` until the agents are read. */

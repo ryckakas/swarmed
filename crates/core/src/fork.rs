@@ -174,6 +174,8 @@ impl Core {
                 supervision: source.supervision,
                 effort: source.effort,
                 fast: source.fast,
+                // A fork keeps what its session is for, and starts working for nobody.
+                role: source.role,
             },
             Some(other) => {
                 self.agents_now().backend(other)?;
@@ -184,6 +186,7 @@ impl Core {
                     supervision: supervision_on(other, source.supervision),
                     effort: None,
                     fast: false,
+                    role: source.role,
                 }
             }
         };

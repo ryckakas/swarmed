@@ -43,6 +43,7 @@ import { CloseIcon, CloudIcon, GlobeIcon, PlusIcon, PlusMinusIcon } from "./Icon
 import { Incubating } from "./Incubating";
 import { ProviderMark } from "./ProviderMark";
 import { PullBadge } from "./PullRequest";
+import { RoleChip } from "./Role";
 import { StatusMark } from "./StatusMark";
 import { useRowDrag } from "./useRowDrag";
 
@@ -1039,6 +1040,7 @@ function SessionRow(props: { session: Session; nested: boolean; elsewhere: numbe
                     </span>
                 )}
                 <span className="session-title">{title}</span>
+                <RoleChip role={session.role} />
                 <HighlightWords colour={session.highlight} />
                 <ProviderMark icon={iconForAgent(session.agent)} label={agentName(session.agent)} />
             </button>

@@ -144,6 +144,7 @@ fn local_tools() -> Value {
             "properties": {
                 "prompt": { "type": "string", "description": "What the new session is to do." },
                 "title": { "type": "string", "description": "A few words naming it." },
+                "role": role_argument(),
             },
             "required": ["prompt"],
         },
@@ -163,6 +164,17 @@ fn local_tools() -> Value {
             "required": ["session_id"],
         },
     }])
+}
+
+/// The role a session an agent starts is given, as `spawn_session` and `start_task` take it.
+fn role_argument() -> Value {
+    let names: Vec<&str> = crate::ROLES.iter().map(|role| role.name).collect();
+    json!({
+        "type": "string",
+        "enum": names,
+        "description": "What the new session is for. Left out, the role yours starts by \
+            default, or none if you have no role. A role may start only some roles.",
+    })
 }
 
 /// The tool that starts a new task, with a branch, worktree and session of its own.
@@ -194,6 +206,7 @@ fn start_task_tool() -> Value {
                 "from": text("A branch to start the new branch from instead of the \
                     repository's base, such as the head branch of the pull request this one \
                     stacks on. It becomes the task's base."),
+                "role": role_argument(),
             },
             "required": ["name", "prompt"],
         },

@@ -23,7 +23,7 @@ use crate::paths::SOCKET_PREFIX;
 use crate::sessions::{Session, SessionOptions, SessionStatus};
 use crate::store::Project;
 use crate::toolserver::{DELEGATE_TO_CLOUD, SHOW_BROWSER, START_TASK};
-use crate::{Core, Task, parents, rewind};
+use crate::{Core, Task, parents, rewind, roles};
 
 mod tasks;
 
@@ -184,7 +184,7 @@ fn place(task: &Task, reach: Reach, projects: &[Project]) -> String {
 }
 
 /// One line about a session, as another session is told of it: its number, its state, where
-/// it works, the session it works for, and its title.
+/// it works, the session it works for, its role, and its title.
 fn brief(session: &Session, place: &str, own: i64) -> String {
     let you = if session.id == own { " (you)" } else { "" };
     let state = if session.unread && !is_busy(session) {
@@ -202,8 +202,9 @@ fn brief(session: &Session, place: &str, own: i64) -> String {
         Some(parent) => parent.to_string(),
         None => "-".to_string(),
     };
+    let role = session.role.as_deref().unwrap_or("-");
     format!(
-        "{}{you}\t{state}\t{place}\t{works_for}\t{title}",
+        "{}{you}\t{state}\t{place}\t{works_for}\t{role}\t{title}",
         session.id
     )
 }
@@ -353,7 +354,7 @@ impl Core {
             task.filter(in_reach)
                 .map(|task| brief(session, &place(task, reach, &projects), from))
         };
-        let mut lines = vec!["id\tstate\ttask\tworks for\ttitle".to_string()];
+        let mut lines = vec!["id\tstate\ttask\tworks for\trole\ttitle".to_string()];
         lines.extend(sessions.iter().filter_map(line));
         Ok(lines.join("\n"))
     }
@@ -460,8 +461,8 @@ impl Core {
     ///
     /// Only an open session `from` can reach can be read: of its own project, or any from a
     /// chat. A repository's session cannot read a chat, which may hold another repository's.
-    /// Who works with it comes first, if anyone does, so that an agent can find again the
-    /// sessions that work for it.
+    /// Its role and who works with it come first, if it has one or anyone does, so that an
+    /// agent can find again the sessions that work for it.
     pub fn peer_digest(
         &self,
         from: i64,
@@ -469,10 +470,10 @@ impl Core {
         messages: Option<usize>,
         first: Option<usize>,
     ) -> Result<String> {
-        self.peer_in_reach(from, id, Access::Read)?;
+        let read_from = self.peer_in_reach(from, id, Access::Read)?;
         let read = self.peer_read(id, messages, first)?;
         let relations = self.store().relations(id)?;
-        Ok(match parents::about(id, &relations) {
+        Ok(match parents::about(&read_from, &relations) {
             Some(about) => format!("{about}\n\n{read}"),
             None => read,
         })
@@ -539,9 +540,17 @@ impl Core {
     /// same agent with the same settings, and gives it `prompt`. The new session works for
     /// `from`, and is told who started it and to report back when it is done.
     ///
-    /// A session that was itself started this way cannot start others, and one session can
-    /// have [`MAX_SPAWNED`] open that work for it at most.
-    pub fn peer_spawn(&self, from: i64, prompt: &str, title: Option<&str>) -> Result<Session> {
+    /// The new session has the role called `role`, or without one the role `from`'s own starts
+    /// by default (`roles.rs`); a role `from`'s may not start is refused. A session that was
+    /// itself started this way cannot start others, and one session can have [`MAX_SPAWNED`]
+    /// open that work for it at most.
+    pub fn peer_spawn(
+        &self,
+        from: i64,
+        prompt: &str,
+        title: Option<&str>,
+        role: Option<&str>,
+    ) -> Result<Session> {
         let parent = self.session(from)?;
         if prompt.trim().is_empty() {
             return Err(Error::EmptyMessage);
@@ -551,6 +560,7 @@ impl Core {
                 "a session that was started by another session cannot start sessions itself",
             ));
         }
+        let role = roles::of_child(&parent, role)?;
         let open = self.store().sessions_spawned_by(from)?;
         if open >= MAX_SPAWNED {
             return Err(refused(format!(
@@ -567,6 +577,7 @@ impl Core {
             supervision: parent.supervision,
             effort: parent.effort,
             fast: parent.fast,
+            role: role.map(|role| role.name.to_string()),
         };
         let child = {
             let store = self.store();
@@ -659,11 +670,15 @@ impl Core {
                 Ok(delivery.said().to_string())
             }
             "spawn_session" => {
-                let session =
-                    self.peer_spawn(from, word("prompt").unwrap_or_default(), word("title"))?;
+                let prompt = word("prompt").unwrap_or_default();
+                let role = word("role").filter(|role| !role.trim().is_empty());
+                let session = self.peer_spawn(from, prompt, word("title"), role)?;
+                let what = session
+                    .role
+                    .map_or_else(String::new, |role| format!(" (role: {role})"));
                 Ok(format!(
-                    "Started session {}. It works beside you in this worktree and will report \
-                     back with a message when it is done.",
+                    "Started session {}{what}. It works beside you in this worktree and will \
+                     report back with a message when it is done.",
                     session.id
                 ))
             }

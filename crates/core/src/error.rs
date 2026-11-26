@@ -329,6 +329,14 @@ pub enum Error {
         /// Why not.
         why: String,
     },
+    /// There is no role of the name asked for (`roles.rs`).
+    #[error("there is no role called `{name}`; the roles are {known}")]
+    UnknownRole {
+        /// The name asked for.
+        name: String,
+        /// The names of the roles there are, joined by commas.
+        known: String,
+    },
     /// An MCP server could not be saved or found as asked.
     #[error("{0}")]
     Mcp(String),

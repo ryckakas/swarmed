@@ -56,13 +56,17 @@ pub(crate) enum SessionCommand {
         /// listed under it. Without it, the session whose agent runs this command, if it may.
         #[arg(long, value_parser = parent)]
         parent: Option<Parent>,
+        /// What the new session is for: architect, planner, implementer or reviewer. Its
+        /// agent is told the role's rules. Without it, it has no role.
+        #[arg(long)]
+        role: Option<String>,
         #[arg(long, value_enum, default_value_t)]
         auth: AuthMode,
     },
     /// Continue a session with another turn.
     Send(SendArgs),
     /// List a task's sessions, each after the one it works for, with `for <id>` at the end of
-    /// the line of each that works for another.
+    /// the line of each that works for another, and then `role <role>` for each that has one.
     List { project: String, task: String },
     /// Print everything a session has said and been told.
     Show { id: i64 },
@@ -142,6 +146,13 @@ pub(crate) enum SessionCommand {
         /// The session it works for, by id, or `none`.
         #[arg(value_parser = parent)]
         parent: Parent,
+    },
+    /// Give a session a role: architect, planner, implementer or reviewer, or `none` for no
+    /// role. Once something was said in it, its agent is told with its next message.
+    Role {
+        id: i64,
+        /// The role, or `none`.
+        role: String,
     },
     /// Move a session among the other open sessions of its task, as the app lists them: one
     /// another session started, among those that one started, and a pinned one among the
@@ -288,8 +299,8 @@ fn parent(value: &str) -> std::result::Result<Parent, String> {
         .map_err(|_| "use a session's id, or none".to_string())
 }
 
-/// Prints a task's sessions, each after the one it works for, which a last column names after
-/// the columns there always were.
+/// Prints a task's sessions, each after the one it works for, which a column names after the
+/// columns there always were, and then its role.
 fn list(core: &Core, project: &str, task: &str) -> Result<()> {
     let sessions = core.sessions(project, task)?;
     for (s, _) in nested_sessions(&sessions) {
@@ -298,8 +309,27 @@ fn list(core: &Core, project: &str, task: &str) -> Result<()> {
         let parent = s
             .parent
             .map_or_else(String::new, |id| format!("\tfor {id}"));
-        say(&format!("{}\t{state}\t{mode}\t{}{parent}", s.id, s.title));
+        let role = s
+            .role
+            .as_deref()
+            .map_or_else(String::new, |role| format!("\trole {role}"));
+        say(&format!(
+            "{}\t{state}\t{mode}\t{}{parent}{role}",
+            s.id, s.title
+        ));
     }
+    Ok(())
+}
+
+/// Reads a role's name, or `none` for no role.
+fn role_asked(value: &str) -> Option<&str> {
+    (!value.eq_ignore_ascii_case("none")).then_some(value)
+}
+
+/// Gives session `id` the role `role`, or `none`, and prints what it has then.
+fn role_set(core: &Core, id: i64, role: &str) -> Result<()> {
+    let given = core.session_set_role(id, role_asked(role))?;
+    say(given.role.as_deref().unwrap_or("no role"));
     Ok(())
 }
 
@@ -372,6 +402,7 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             ask,
             plan,
             parent,
+            role,
             auth,
         } => {
             let chosen = (auto || ask || plan).then(|| supervision(auto, plan));
@@ -382,6 +413,7 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
                 supervision: chosen.unwrap_or(core.settings()?.default_supervision),
                 effort,
                 fast,
+                role: role.as_deref().and_then(role_asked).map(String::from),
             };
             let session = core.session_new(&project, &task, &options)?;
             say(&format!("session {}", session.id));
@@ -438,6 +470,7 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             ));
             Ok(())
         }
+        SessionCommand::Role { id, role } => role_set(core, id, &role),
         SessionCommand::Move { id, by } => moved(core, id, by),
         SessionCommand::Pin { id } => pinned(core, id, true),
         SessionCommand::Unpin { id } => pinned(core, id, false),
@@ -1071,6 +1104,13 @@ fn described_by_core(event: &AgentEvent) -> Option<String> {
             parent,
             previous,
         } => Some(regrouped(*child, *parent, *previous)),
+        AgentEvent::RoleChanged { role, previous } => {
+            let now = role.as_deref().unwrap_or("none");
+            let before = previous
+                .as_deref()
+                .map_or_else(String::new, |before| format!(", no longer {before}"));
+            Some(format!("role: {now} from here on{before}"))
+        }
         // An app is HTML for a sandboxed frame, which only the window has.
         AgentEvent::App { server, .. } => Some(format!(
             "— the {server} server showed an app, which the Swarmed window draws"

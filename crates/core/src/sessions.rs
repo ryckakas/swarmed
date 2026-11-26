@@ -43,7 +43,7 @@ use crate::toolserver::{
     SERVER_NAME, SESSION_ENV, SHOW_HTML_FOR_CLAUDE, SOCKET_ENV, TOOL_SERVER_ARG, VIEW_SPOOL_ENV,
     take_views,
 };
-use crate::{Core, elsewhere, git, lock, parents, peers, publish, remote, returned, views};
+use crate::{Core, elsewhere, git, lock, parents, peers, publish, remote, returned, roles, views};
 
 /// How long a session title derived from the first message may be.
 /// What stands above the user's rules where an agent reads them.
@@ -127,6 +127,7 @@ impl SessionStatus {
             | AgentEvent::ConfigChanged { .. }
             | AgentEvent::SupervisionChanged { .. }
             | AgentEvent::ParentChanged { .. }
+            | AgentEvent::RoleChanged { .. }
             | AgentEvent::Applied { .. }
             | AgentEvent::Continuation { .. }
             | AgentEvent::Suggestion { .. }
@@ -232,6 +233,9 @@ pub struct Session {
     /// the user: its first message is that agent's words, and its turns are reported to that
     /// session rather than to the user.
     pub spawned: bool,
+    /// What the session is for (`roles.rs`), by the name of its role: `planner` and the like.
+    /// `None` for no role, which works as the user asks.
+    pub role: Option<String>,
     /// Whether the agent is asked for its fast mode: quicker answers at a higher price, where
     /// the agent has such a thing. Off leaves the agent as it is set up.
     pub fast: bool,
@@ -282,19 +286,22 @@ pub struct SessionOptions {
     pub effort: Option<Effort>,
     /// Whether the agent is asked for its fast mode, where it has one.
     pub fast: bool,
+    /// The name of its role (`roles.rs`); `None` for no role. One there is no such role of is
+    /// refused.
+    pub role: Option<String>,
 }
 
 const SESSION_SELECT: &str = "SELECT id, task_id, title, agent_session_id, model, supervision, status, agent, effort, unread, spawned_by, fast, mark_colour, mark_label, \
      setup_prompt IS NOT NULL, pinned, continue_at, background_agents, background_commands, \
-     highlight, spawned FROM sessions";
+     highlight, spawned, role FROM sessions";
 
 /// What an agent's guidance tells of besides its task and the user's settings.
 #[derive(Debug, Clone, Copy)]
 struct Guided<'a> {
     /// The task's browser, when the session has an address of it.
     browser: Option<&'a AgentBrowser>,
-    /// Who works with the session, when anyone does (`parents.rs`).
-    relations: Option<&'a str>,
+    /// What the session is for and who works with it, when either is anything (`roles.rs`).
+    team: Option<&'a str>,
 }
 
 /// The order the sidebar lists a task's sessions in: the pinned ones first, then as the user
@@ -339,6 +346,7 @@ fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
             .as_deref()
             .and_then(MarkColour::parse),
         spawned: row.get(20)?,
+        role: row.get(21)?,
     })
 }
 
@@ -349,7 +357,7 @@ impl Store {
         self.conn.execute(
             // At the end of its task's sessions.
             "INSERT INTO sessions (task_id, title, model, supervision, agent, effort, fast, \
-             position) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, \
+             role, position) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, \
              (SELECT COALESCE(MAX(position), 0) + 1 FROM sessions WHERE task_id = ?1))",
             params![
                 task_id,
@@ -358,7 +366,8 @@ impl Store {
                 options.supervision.as_str(),
                 agent,
                 options.effort.map(Effort::as_str),
-                options.fast
+                options.fast,
+                options.role
             ],
         )?;
         Ok(Session {
@@ -374,6 +383,7 @@ impl Store {
             unread: false,
             parent: None,
             spawned: false,
+            role: options.role.clone(),
             fast: options.fast,
             mark: None,
             waits_for_setup: false,
@@ -793,6 +803,15 @@ impl Store {
         Ok(())
     }
 
+    /// Records what session `id` is for: the role called `role`, or with `None` none.
+    pub(crate) fn session_set_role(&self, id: i64, role: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions SET role = ?2 WHERE id = ?1",
+            params![id, role],
+        )?;
+        Ok(())
+    }
+
     /// The open sessions that work for session `parent`, oldest first.
     pub(crate) fn session_children(&self, parent: i64) -> Result<Vec<Session>> {
         let sql = format!(
@@ -987,6 +1006,9 @@ impl Core {
         if let Some(agent) = &options.agent {
             self.agents_now().backend(agent)?;
         }
+        if let Some(role) = &options.role {
+            roles::known(role)?;
+        }
         self.store().session_insert(task.id, options)
     }
 
@@ -1005,6 +1027,9 @@ impl Core {
             .map(|title| shortened(title, MAX_TITLE_CHARS))
             .filter(|title| !title.is_empty());
         let named = given.is_some();
+        if let Some(role) = &options.role {
+            roles::known(role)?;
+        }
         let options = SessionOptions {
             title: Some(given.unwrap_or_else(|| title_from(prompt))),
             ..options.clone()
@@ -1170,10 +1195,14 @@ impl Core {
             env.0
                 .push((browser::BROWSER_ENV.to_string(), browser.endpoint.clone()));
         }
-        let relations = self.relations_guidance(session.id)?;
+        // What it is for and who works with it; the others only where it can reach them.
+        let relations = self.store().relations(session.id)?;
+        let reach = self.tool_server.is_some().then_some(&relations);
+        let role = session.role.as_deref().and_then(roles::find);
+        let team = roles::section(role, reach);
         let told = Guided {
             browser: browser.as_ref(),
-            relations: relations.as_deref(),
+            team: team.as_deref(),
         };
         let guidance = self.guidance(&settings, &session.agent, &task, told);
         Ok(SessionSpec {
@@ -1205,10 +1234,11 @@ impl Core {
     /// What every agent is told by Swarmed, on top of what it knows by itself: the user's own
     /// rules, if they wrote any; to keep to its task's branch and worktree, or in a chat that
     /// it has neither; about the other sessions, when there is a tool server to reach them
-    /// through, and then who of them works with it; about the task's browser, when the session
-    /// has an address of it; and about showing views, when the user has those switched on.
+    /// through; its role, and who of the others works with it; about the task's browser, when
+    /// the session has an address of it; and about showing views, when the user has those
+    /// switched on.
     fn guidance(&self, settings: &Settings, agent: &str, task: &Task, told: Guided<'_>) -> String {
-        let Guided { browser, relations } = told;
+        let Guided { browser, team } = told;
         let rules = settings.rules.trim();
         let rules = (!rules.is_empty()).then(|| format!("{RULES_HEADING}\n{rules}"));
         let branch = if self.is_chat(task) {
@@ -1217,8 +1247,6 @@ impl Core {
             publish::worktree_instructions(&task.branch)
         };
         let sessions = self.tool_server.as_ref().map(|_| peers::INSTRUCTIONS);
-        // Reached through the tool server too: without it, there is no reporting to anyone.
-        let relations = sessions.and(relations);
         // Handed over through the tool server, so only worth naming when there is one.
         let skills = sessions.and_then(|_| self.skills_guidance(agent, &task.worktree_path));
         let views = settings.html_views.then_some(views::INSTRUCTIONS);
@@ -1227,7 +1255,7 @@ impl Core {
             rules.as_deref(),
             Some(branch.as_str()),
             sessions,
-            relations,
+            team,
             skills.as_deref(),
             browser.as_deref(),
             views,
@@ -1676,8 +1704,9 @@ pub(crate) fn send_text(
     // recorded as they typed them.
     let events = lock(store).events(id)?;
     let earlier = fork::carried(&events);
-    // Told who works with it now, if that changed since its last message.
+    // Told who works with it now, and its role, if either changed since its last message.
     let regrouped = parents::regrouped(&events);
+    let role_changed = roles::changed(&events);
     // The message's number, counted as a fork counts them: every message recorded before it.
     let number = events
         .iter()
@@ -1728,6 +1757,13 @@ pub(crate) fn send_text(
                 },
             )?;
             format!("{message}\n\n{note}")
+        }
+        None => message,
+    };
+    let message = match role_changed {
+        Some((now, previous)) => {
+            let now = now.as_deref().and_then(roles::find);
+            format!("{message}\n\n{}", roles::note(now, previous.as_deref()))
         }
         None => message,
     };

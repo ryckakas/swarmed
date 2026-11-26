@@ -195,7 +195,7 @@ async fn a_session_starts_others_beside_itself_within_limits() {
     let parent = new_session(&core);
 
     let child = core
-        .peer_spawn(parent.id, "write the tests", Some("Tests"))
+        .peer_spawn(parent.id, "write the tests", Some("Tests"), None)
         .expect("spawns");
     assert_eq!(child.task_id, parent.task_id);
     assert_eq!((child.parent, child.spawned), (Some(parent.id), true));
@@ -218,20 +218,20 @@ async fn a_session_starts_others_beside_itself_within_limits() {
 
     // Not a tree that grows by itself: one level, and a handful at a time.
     assert!(matches!(
-        core.peer_spawn(child.id, "more", None),
+        core.peer_spawn(child.id, "more", None, None),
         Err(Error::Peers(reason)) if reason.contains("cannot start sessions")
     ));
     for _ in 1..MAX_SPAWNED {
-        core.peer_spawn(parent.id, "another part", None)
+        core.peer_spawn(parent.id, "another part", None, None)
             .expect("spawns");
     }
     assert!(matches!(
-        core.peer_spawn(parent.id, "one too many", None),
+        core.peer_spawn(parent.id, "one too many", None, None),
         Err(Error::Peers(reason)) if reason.contains("most allowed")
     ));
     // Closing one makes room again.
     core.session_close(child.id).expect("closes");
-    core.peer_spawn(parent.id, "room again", None)
+    core.peer_spawn(parent.id, "room again", None, None)
         .expect("spawns");
 }
 
@@ -246,7 +246,9 @@ async fn a_closed_session_is_neither_read_nor_brought_back_by_a_message() {
     let core = core_with_task(&fx).await;
     let mut bus = core.subscribe();
     let parent = new_session(&core);
-    let child = core.peer_spawn(parent.id, "a part", None).expect("spawns");
+    let child = core
+        .peer_spawn(parent.id, "a part", None, None)
+        .expect("spawns");
     turn(&mut bus, child.id).await;
     core.session_close(child.id).expect("closes");
     while !matches!(next(&mut bus).await.event, AgentEvent::Exited { .. }) {}
@@ -268,7 +270,7 @@ async fn a_closed_session_is_neither_read_nor_brought_back_by_a_message() {
     // So closing sessions and writing to them is no way past the limit.
     let mut spawned = vec![];
     for _ in 0..MAX_SPAWNED {
-        let another = core.peer_spawn(parent.id, "another part", None);
+        let another = core.peer_spawn(parent.id, "another part", None, None);
         spawned.push(another.expect("spawns").id);
     }
     for id in &spawned {
@@ -375,7 +377,9 @@ async fn a_session_closes_only_what_it_started_and_only_when_that_is_done() {
     let core = core_with_task(&fx).await;
     let mut bus = core.subscribe();
     let (parent, stranger) = (new_session(&core), new_session(&core));
-    let child = core.peer_spawn(parent.id, "slow", None).expect("spawns");
+    let child = core
+        .peer_spawn(parent.id, "slow", None, None)
+        .expect("spawns");
     // The child's turn only ends when it is interrupted: it is at work.
     next(&mut bus).await;
     assert!(matches!(

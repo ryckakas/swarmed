@@ -36,6 +36,14 @@ notice adds its line under Unreleased.
   too, and `swarmed session list` adds it at the end of each line. See
   [Who works for whom](docs/coding-agents.md#who-works-for-whom).
 
+- **Roles.** Give a session a role, architect, planner, implementer or reviewer, in the
+  new-task view or the session's header, and its agent keeps to the role's rules: a planner
+  plans and hands each change to implementers, an architect splits a feature into tasks with a
+  planner in each. Change it while the session runs and the agent is told with your next
+  message; the conversation shows where. Sessions an agent starts get a role its own may start,
+  and the sidebar shows each session's role. `swarmed session role` and `--role` do the same
+  from the command line. See [Roles](docs/coding-agents.md#roles).
+
 ## [0.4.7] - 2026-11-26
 
 ### Added

@@ -52,6 +52,7 @@ import {
     useSlashCommands,
 } from "./options";
 import { Picker } from "./Picker";
+import { RoleMenu } from "./Role";
 
 /** The value of the branch picker that means "create a new branch". */
 const NEW_BRANCH = "";
@@ -81,6 +82,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
     const [model, setModel] = useState("");
     const [effort, setEffort] = useState<Effort | null>(null);
     const [fast, setFast] = useState(false);
+    const [role, setRole] = useState<string | null>(null);
     // More agents to run the same prompt on, each in a task of its own.
     const [variants, setVariants] = useState<Variant[]>([]);
     const agents = useAgents();
@@ -134,7 +136,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
                 title: naming?.title ?? null,
                 branch: from,
                 environment: environmentChoice(environments.names, environment),
-                setup: setupFor(agentId, model, supervision, effort, fast),
+                setup: { ...setupFor(agentId, model, supervision, effort, fast), role },
                 prompt: expandTokens(prompt.trim()),
                 files,
                 sessions: mentionedIn(prompt),
@@ -151,7 +153,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
             editNewTaskDraft(start.project, NO_DRAFT);
             linkIssue(start.project, null);
             noteCreating(home, null);
-            await startVariants(start, variants, taken, { supervision, effort });
+            await startVariants(start, variants, taken, { supervision, effort, role });
             forgetTokens(prompt);
         } catch (error) {
             reportStartFailed(error);
@@ -209,6 +211,7 @@ export function NewTask({ projects }: { projects: Project[] }) {
                     />
                 )}
                 <ModePicker value={supervision} agentId={agentId} onChange={setSupervision} />
+                <RoleMenu value={role} onChange={setRole} />
                 <AgentPickers
                     agents={agents}
                     agentId={agentId}
@@ -348,12 +351,14 @@ async function startVariants(
     start: Start,
     variants: Variant[],
     taken: string[],
-    how: { supervision: Supervision; effort: Effort | null },
+    how: { supervision: Supervision; effort: Effort | null; role: string | null },
 ) {
     const also = start.branch === null ? variants : [];
     const names = variantNames(start.name, also, taken);
     const started = also.map((variant, index) => {
-        const setup = setupFor(variant.agent, variant.model, how.supervision, how.effort);
+        const chosen = setupFor(variant.agent, variant.model, how.supervision, how.effort);
+        // Each does the same work, so each is for the same.
+        const setup = { ...chosen, role: how.role };
         return startTask({ ...start, name: names[index] ?? start.name, setup }, false).catch(
             reportStartFailed,
         );

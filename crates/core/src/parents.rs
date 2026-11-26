@@ -31,18 +31,23 @@ pub(crate) struct Relations {
     pub(crate) children: Vec<Session>,
 }
 
-/// A session as an agent is told of it: its number, and its title in quotes.
+/// A session as an agent is told of it: its number, its title in quotes, and its role if it
+/// has one.
 fn named(session: &Session) -> String {
     let title = if session.title.is_empty() {
         "untitled"
     } else {
         &session.title
     };
-    format!("session {} (\"{title}\")", session.id)
+    let role = session
+        .role
+        .as_deref()
+        .map_or_else(String::new, |role| format!(", {role}"));
+    format!("session {} (\"{title}\"{role})", session.id)
 }
 
 /// Who works with a session, in sentences for its agent; `None` for nobody.
-fn sentences(relations: &Relations) -> Option<String> {
+pub(crate) fn sentences(relations: &Relations) -> Option<String> {
     let parent = relations.parent.as_ref().map(|(parent, closed)| {
         if *closed {
             format!(
@@ -89,9 +94,14 @@ pub(crate) fn note(relations: &Relations) -> String {
     )
 }
 
-/// Who works with session `id`, in a line for another session's agent that reads it; `None`
-/// for nobody.
-pub(crate) fn about(id: i64, relations: &Relations) -> Option<String> {
+/// What `session` is for and who works with it, in a line for another session's agent that
+/// reads it; `None` for no role and nobody.
+pub(crate) fn about(session: &Session, relations: &Relations) -> Option<String> {
+    let id = session.id;
+    let role = session
+        .role
+        .as_deref()
+        .map(|role| format!("Session {id}'s role is {role}."));
     let parent = relations.parent.as_ref().map(|(parent, closed)| {
         let closed = if *closed { ", which is closed" } else { "" };
         format!("Session {id} works for {}{closed}.", named(parent))
@@ -100,7 +110,7 @@ pub(crate) fn about(id: i64, relations: &Relations) -> Option<String> {
         let listed: Vec<String> = relations.children.iter().map(named).collect();
         format!("Working for it: {}.", listed.join(", "))
     });
-    let parts: Vec<String> = [parent, children].into_iter().flatten().collect();
+    let parts: Vec<String> = [role, parent, children].into_iter().flatten().collect();
     (!parts.is_empty()).then(|| format!("({})", parts.join(" ")))
 }
 
@@ -280,21 +290,16 @@ impl Core {
         }
         Ok(())
     }
-
-    /// What the agent of session `id` is told at its start of who works with it, if anyone
-    /// does.
-    pub(crate) fn relations_guidance(&self, id: i64) -> Result<Option<String>> {
-        Ok(guidance(&self.store().relations(id)?))
-    }
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::collections::HashMap;
 
     use super::*;
 
-    fn session(id: i64, title: &str) -> Session {
+    /// A session of task 1 with nothing about it but its number and title.
+    pub(crate) fn session(id: i64, title: &str) -> Session {
         Session {
             id,
             task_id: 1,
@@ -308,6 +313,7 @@ mod tests {
             unread: false,
             parent: None,
             spawned: false,
+            role: None,
             fast: false,
             mark: None,
             waits_for_setup: false,
@@ -352,13 +358,36 @@ mod tests {
         ));
 
         assert_eq!(
-            about(9, &relations).as_deref(),
+            about(&session(9, ""), &relations).as_deref(),
             Some(
                 "(Session 9 works for session 5 (\"Plan the login\"). Working for it: session 7 \
                  (\"Build the form\"), session 8 (\"untitled\").)"
             )
         );
-        assert_eq!(about(9, &nobody), None);
+        assert_eq!(about(&session(9, ""), &nobody), None);
+        let reviewer = Session {
+            role: Some("reviewer".into()),
+            ..session(9, "")
+        };
+        assert_eq!(
+            about(&reviewer, &nobody).as_deref(),
+            Some("(Session 9's role is reviewer.)")
+        );
+        let planner = Relations {
+            parent: Some((
+                Session {
+                    role: Some("architect".into()),
+                    ..session(5, "Shape it")
+                },
+                false,
+            )),
+            children: vec![],
+        };
+        assert!(
+            guidance(&planner)
+                .expect("works for one")
+                .contains("session 5 (\"Shape it\", architect)")
+        );
 
         let orphan = Relations {
             parent: Some((session(5, "Plan the login"), true)),

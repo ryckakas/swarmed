@@ -1932,6 +1932,8 @@ code {
 }
 
 .session-row {
+    /* Its role's chip goes when it is too narrow for it (`.role-chip`). */
+    container: session-row / inline-size;
     flex: 1;
     min-width: 0;
     display: flex;
@@ -2320,6 +2322,26 @@ code {
 /* A session sits under the one it works for, one step in per level, down to the deepest drawn. */
 .sessions li[data-nested="true"] .session-row {
     padding-left: calc(9px + var(--space-4) * var(--depth, 1));
+}
+
+/* What a session is for, short, after its title: quiet, so the title stays what reads first. */
+.role-chip {
+    flex: none;
+    padding: 0 var(--space-1);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    color: var(--muted);
+    font-size: var(--text-xs);
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
+/* A row too narrow for its title and the chip, nested deep or in a narrow sidebar, keeps the
+   title: the chip goes, and the role is still in the session's header. */
+@container session-row (max-width: 15em) {
+    .role-chip {
+        display: none;
+    }
 }
 
 /* Whom a session works for when the sidebar lists it elsewhere: that one's number, which opens it. */

@@ -16,6 +16,7 @@ import { CLAUDE, useAgents, useSendsToBackground } from "./options";
 import { Picker } from "./Picker";
 import { ProviderMark } from "./ProviderMark";
 import { RemoteButton } from "./RemoteButton";
+import { SessionRole } from "./Role";
 import { SessionTitle } from "./SessionTitle";
 import { SetupPanel } from "./SetupPanel";
 import { StatusLine } from "./StatusLine";
@@ -121,6 +122,7 @@ export function SessionPane() {
                         <ProviderMark icon={iconForAgent(session.agent)} />
                         {agentName(session.agent)}
                     </p>
+                    <SessionRole session={session} />
                     <WorksForPicker session={session} />
                     <CloneTo session={session} />
                 </div>

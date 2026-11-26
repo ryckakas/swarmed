@@ -11,6 +11,7 @@ import { failedChecks, pullChangeSaid } from "../pulls";
 import { offersPutAway } from "../putAway";
 import { resetWhen } from "../rateLimit";
 import { commitsSaid, messageWords, rewoundSaid } from "../rewind";
+import { roleChangedSaid } from "../roles";
 import { screenHtml } from "../screens";
 import { useStore } from "../store";
 import {
@@ -356,6 +357,8 @@ function ItemView(props: ItemProps) {
             return <p className="forked-line">{words.forkedFrom(item.from)}</p>;
         case "regrouped":
             return <p className="aside regrouped-line">{regroupedSaid(item, sessionId, words)}</p>;
+        case "role":
+            return <p className="aside regrouped-line">{roleChangedSaid(item, words)}</p>;
         case "notice":
             return (
                 <p className={`notice-line notice-${item.tone}`} role="alert">

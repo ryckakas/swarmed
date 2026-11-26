@@ -359,6 +359,10 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE sessions ADD COLUMN spawned INTEGER NOT NULL DEFAULT 0;
     UPDATE sessions SET spawned = 1 WHERE spawned_by IS NOT NULL;
 ",
+    // What a session is for, by the name of its role (`roles.rs`); none for no role.
+    "
+    ALTER TABLE sessions ADD COLUMN role TEXT;
+",
 ];
 
 /// Stands in [`MIGRATIONS`] for the one change SQL in a transaction cannot make: every

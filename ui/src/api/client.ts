@@ -51,6 +51,7 @@ import type {
     Reachable,
     RewindCheck,
     RewindDone,
+    RoleInfo,
     SearchHit,
     Session,
     SessionEvent,
@@ -734,6 +735,13 @@ export interface Api {
      * however far up. Both agents are told with their next message.
      */
     sessionSetParent(id: number, parent: number | null): Promise<Session>;
+    /** The roles a session can have, in the order they are offered. */
+    roles(): Promise<RoleInfo[]>;
+    /**
+     * Gives a session the role called `role`, or with `null` takes its role off. Once something
+     * was said in it, the change is recorded and its agent is told with the next message.
+     */
+    sessionSetRole(id: number, role: string | null): Promise<Session>;
     /** Puts a mark on a session; the colour `none` takes it off. */
     sessionMark(id: number, colour: MarkColour | "none", label: string): Promise<Session>;
     /** A task's closed sessions, the one closed last first. */

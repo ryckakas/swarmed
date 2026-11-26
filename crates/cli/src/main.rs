@@ -308,6 +308,10 @@ struct NewArgs {
     /// The model the first session runs on; defaults to the agent's own default.
     #[arg(long, requires = "prompt")]
     model: Option<String>,
+    /// What the first session is for: architect, planner, implementer or reviewer. Without
+    /// it, it has no role.
+    #[arg(long, requires = "prompt")]
+    role: Option<String>,
     /// The number of the repository's GitHub issue the task is for, which it records: its
     /// pull request text then says `Closes #N`. See `swarmed issue list`.
     #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
@@ -1259,6 +1263,7 @@ async fn new_task(core: &Arc<Core>, args: NewArgs) -> Result<()> {
         prompt,
         agent,
         model,
+        role,
         issue,
     } = args;
     // The name is the user's own: one that is taken is refused, not changed.
@@ -1270,7 +1275,8 @@ async fn new_task(core: &Arc<Core>, args: NewArgs) -> Result<()> {
         issue,
     };
     if let Some(prompt) = prompt {
-        let prompted = setup::Prompted::new(prompt, agent, model);
+        let role = role.filter(|role| !role.eq_ignore_ascii_case("none"));
+        let prompted = setup::Prompted::new(prompt, agent, model, role);
         return setup::start(core, (&project, &name), options, prompted).await;
     }
     let making = core.task_new(&project, &name, options, &hook_line);

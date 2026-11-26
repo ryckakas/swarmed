@@ -22,6 +22,7 @@ import { mergeApi } from "./mockMerging";
 import { SAMPLE_PARENTS, SAMPLE_SPAWNED, sampleParentSet } from "./mockParents";
 import { bringBack, putAwayApi } from "./mockPutAway";
 import { rewindApi } from "./mockRewind";
+import { MOCK_ROLES, SAMPLE_ROLES, sampleRoleSet } from "./mockRoles";
 import { mockCheck } from "./mockScreenshot";
 import { MockSetups, taskSetupApi } from "./mockSetups";
 import { turnsApi } from "./mockTurns";
@@ -173,6 +174,7 @@ function session(id: number, taskId: number, title: string, status: SessionStatu
         unread: id === 5,
         parent: SAMPLE_PARENTS[id] ?? null,
         spawned: SAMPLE_SPAWNED.has(id),
+        role: SAMPLE_ROLES[id] ?? null,
         fast: false,
         // One sample session carries a mark, as a skill's last step would leave it.
         mark: id === 3 ? { colour: "green", label: "e2e passed" } : null,
@@ -3228,6 +3230,20 @@ class MockAgent {
         return session;
     }
 
+    /**
+     * Gives a session a role, recorded as the core records it once something was said in it,
+     * and has the window read the tree again.
+     */
+    setRole(id: number, role: string | null): Session {
+        const said = this.history(id).some((event) => event.type === "user_message");
+        const { session, event } = sampleRoleSet(this.projects, id, role, said);
+        if (event) {
+            this.publish(id, event, null);
+        }
+        this.tell(0, { type: "tree_changed" }, null);
+        return session;
+    }
+
     /** The sessions that were closed, by the id of their task, the one closed last first. */
     private readonly closedSessions = new Map<number, Session[]>();
 
@@ -3944,6 +3960,8 @@ export function createMockApi(): Api {
         sessionContinueCancel: async (id) => agent.cancelContinuation(id),
         sessionRename: async (id, title) => agent.rename(id, title),
         sessionSetParent: async (id, parent) => agent.setParent(id, parent),
+        roles: async () => MOCK_ROLES,
+        sessionSetRole: async (id, role) => agent.setRole(id, role),
         sessionMark: async (id, colour, label) => agent.mark(id, colour, label),
         sessionsSearch: async (query) => sampleSearch(agent.projects, query),
         ...closingApi(agent),

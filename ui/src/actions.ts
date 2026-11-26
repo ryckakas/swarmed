@@ -93,6 +93,20 @@ export async function setParent(id: number, parent: number | null) {
 }
 
 /**
+ * Gives session `id` the role called `role`, or with `null` takes its role off, and reads the
+ * tree again. Its agent hears of it with the next message.
+ */
+export async function setRole(id: number, role: string | null) {
+    const { refresh, report } = useStore.getState();
+    try {
+        await api.sessionSetRole(id, role);
+        await refresh(api);
+    } catch (error) {
+        report(error);
+    }
+}
+
+/**
  * The row of the sidebar that has the keyboard, with what in it has the keyboard, or the
  * session on screen when no row has it.
  */

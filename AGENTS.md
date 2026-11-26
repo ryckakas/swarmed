@@ -594,8 +594,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   #142, #428's text holds HTML GitHub draws (`<details>`, `<kbd>`) and HTML it does not, an
   HTML comment, an image and a view's block, and one of its comments is hidden on GitHub, and
   fsum is not on GitHub, so its list says why (`mockIssues.ts`). bonsai-lint's `rule-engine`
-  holds a planner with sessions working for it, three levels deep, and `rule-docs` one more
-  that works for it from another task (`mockParents.ts`). The task whose stack runs has
+  holds an architect with sessions working for it, three levels deep, and `rule-docs` a
+  planner that works for it from another task (`mockParents.ts`), each with a role
+  (`mockRoles.ts`). The task whose stack runs has
   its browser running too (`mockBrowser.ts`), drawn on a canvas as a made-up shop that shows
   clicks and typing, and whose parts Pick outlines and picks; an address with `console` logs a line, `alert` opens a dialog, `refused`
   fails, and a browser program with `missing` in it shows the offer to install one. With
@@ -1056,6 +1057,28 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     counts the same siblings), and one whose parent is elsewhere shows `for #N`
     (`parentElsewhere`). `list_sessions` and `read_session` say it. Deleting a parent leaves
     its children with none; closing leaves them as they are.
+- **A session's role says what it is for** (`roles.rs`, `roles.ts`, `Role.tsx`, #459). A role
+  is data (`Role`: name, one-line description, instructions, starting supervision, whether it
+  changes files, which roles it may start, its default child), so that roles of the user's own
+  can come; four are built in (`ROLES`: architect, planner, implementer, reviewer), and no
+  role is how every session worked before. `Session::role` is the name, in the `role` column;
+  one no built-in has (a newer Swarmed's) counts as none where rules apply.
+  - **Chosen at start** (`SessionOptions::role`: the new-task view, `--role`, a fork keeps it)
+    and **changed** by the user only (`session_set_role`, the header's menu,
+    `swarmed session role`), never through `configure`. Before anything was said nothing is
+    recorded: the agent starts with it. After, `AgentEvent::RoleChanged`, shown in the
+    transcript, and its agent is told with the next message (`roles::changed` against what it
+    last heard, `roles::note`).
+  - **Told:** `roles::section` is one part of the guidance: the role's rules, every role with
+    the architect and planner table (`TABLE`), and who works with it (folding in part of
+    `parents.rs`); with no role, only who works with it. `docs/coding-agents.md` holds the
+    same roles and table, and a test keeps the two together: change both.
+  - **What it may start:** `spawn_session` and `start_task` take a `role`, default to the
+    caller's role's child, and refuse one it may not start (`roles::of_child`); a role that
+    starts nothing starts no session, and a session with no role starts any.
+  - **Shown:** a short chip on its sidebar row, gone when the row has no room for it (a
+    container query), and the menu in the header and the new-task view. `list_sessions`,
+    `read_session` and `swarmed session list` (`role <name>` last) say it.
 - **A session starts a task for work that needs a branch of its own** (`start_task`,
   `peers/tasks.rs`). Without a tool for it, an agent asked for such work finds no way to make
   a task and switches its own worktree instead: `swarmed task new` is known only to an agent

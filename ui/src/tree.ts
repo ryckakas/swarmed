@@ -76,6 +76,8 @@ function rowChange(event: AgentEvent): ((session: Session) => Session) | null {
         }
         case "supervision_changed":
             return (session) => ({ ...session, supervision: event.supervision });
+        case "role_changed":
+            return (session) => ({ ...session, role: event.role });
         case "continuation":
             return (session) => ({ ...session, continue_at: event.at });
         default:

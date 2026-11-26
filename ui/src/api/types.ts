@@ -28,6 +28,8 @@ export interface Session {
      * message is that agent's words, and its turns are reported to that session.
      */
     spawned: boolean;
+    /** What the session is for, by the name of its role, such as `planner`; `null` for none. */
+    role: string | null;
     /** Whether the agent is asked for its fast mode, where it has one. */
     fast: boolean;
     /** The mark an agent or the user put on it, if any. */
@@ -1400,6 +1402,8 @@ export type AgentEvent =
      * sessions it worked for and works for now. `null` is nobody.
      */
     | { type: "parent_changed"; child: number; parent: number | null; previous: number | null }
+    /** The session's role changed, once something was said in it: its rules apply from here on. */
+    | { type: "role_changed"; role: string | null; previous: string | null }
     /** The task's pull request changed in a way worth telling, recorded in one of its sessions. */
     | { type: "pull_changed"; number: number; url: string; change: PullChange }
     /** A task's pull request as just read; with session id 0, never stored. */
@@ -1554,6 +1558,24 @@ export interface SessionSetup {
     effort: Effort | null;
     /** Whether the agent is asked for its fast mode, where it has one. Left out, it is off. */
     fast?: boolean;
+    /** The name of the session's role; left out or `null` for none. */
+    role?: string | null;
+}
+
+/** A role a session can have, as the core keeps it (`roles.rs`). */
+export interface RoleInfo {
+    /** Its name, which the session keeps: `architect` and the like. */
+    name: string;
+    /** What it is for, in one line that follows "A planner": "plans one part inside one task…". */
+    description: string;
+    /** The supervision it starts in; `null` for what was chosen for the session. */
+    supervision: Supervision | null;
+    /** Whether its agent changes files. */
+    changes_files: boolean;
+    /** The roles of the sessions it may start. */
+    starts: string[];
+    /** The role of a session it starts without naming one. */
+    child: string | null;
 }
 
 /** The browser a task's Chrome runs on, or what would install one. */

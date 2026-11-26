@@ -42,6 +42,7 @@ import type {
     Reachable,
     RewindCheck,
     RewindDone,
+    RoleInfo,
     SearchHit,
     Session,
     SessionEvent,
@@ -134,8 +135,12 @@ export const tauriApi: Api = {
         invoke<TaskNaming | null>("task_name_for", { project, prompt }),
     taskNew: (project, name, branch, environment) =>
         invoke<Task>("task_new", { project, name, branch, environment }),
-    taskStart: (project, name, { setup: { agent, ...how }, ...start }) =>
-        invoke<TaskStarted>("task_start", { project, name, start: { ...start, agent, how } }),
+    taskStart: (project, name, { setup: { agent, role, ...how }, ...start }) =>
+        invoke<TaskStarted>("task_start", {
+            project,
+            name,
+            start: { ...start, agent, role: role ?? null, how },
+        }),
     taskSetup: (project, name) => invoke<Task>("task_setup", { project, name }),
     taskSetupStop: (project, name) => invoke<void>("task_setup_stop", { project, name }),
     taskStartAnyway: (project, name) => invoke<number[]>("task_start_anyway", { project, name }),
@@ -233,8 +238,8 @@ export const tauriApi: Api = {
         invoke<Session>("session_fork", { id, from, agent: agent ?? null }),
     sessionForkInto: (id, project, task) =>
         invoke<Session>("session_fork_into", { id, project, task }),
-    sessionNew: (project, task, { agent, ...how }) =>
-        invoke<Session>("session_new", { project, task, agent, how }),
+    sessionNew: (project, task, { agent, role, ...how }) =>
+        invoke<Session>("session_new", { project, task, agent, role: role ?? null, how }),
     sessionEvents: (id) => invoke<AgentEvent[]>("session_events", { id }),
     sessionSend: (id, text, files, sessions, github, elements) =>
         invoke("session_send", { id, text, ...attached(files, sessions, github, elements) }),
@@ -345,6 +350,8 @@ export const tauriApi: Api = {
     sessionContinueCancel: (id) => invoke("session_continue_cancel", { id }),
     sessionRename: (id, title) => invoke<Session>("session_rename", { id, title }),
     sessionSetParent: (id, parent) => invoke<Session>("session_set_parent", { id, parent }),
+    roles: () => invoke<RoleInfo[]>("roles"),
+    sessionSetRole: (id, role) => invoke<Session>("session_set_role", { id, role }),
     sessionMark: (id, colour, label) => invoke<Session>("session_mark", { id, colour, label }),
     sessionClose: (id) => invoke("session_close", { id }),
     sessionDelete: (id) => invoke("session_delete", { id }),

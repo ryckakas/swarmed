@@ -167,6 +167,13 @@ export interface Words {
     /** What stands before the session the one on screen works for, and before those that work for it. */
     worksForHeading: string;
     workingFor: string;
+    /** A role by its name, as a menu or a line says it; one the window does not know, as named. */
+    role: (name: string) => string;
+    /** A role's short form, on a sidebar row. */
+    roleShort: (name: string) => string;
+    /** The role menu's name, and its choice of none. */
+    roleMenu: string;
+    noRole: string;
     /**
      * What a session, or the sessions under a folded heading, have running in the background,
      * as its status mark says when pointed at: "2 sub-agents, 1 command in the background".
@@ -291,6 +298,22 @@ export interface Words {
     };
 }
 
+/** The built-in roles' short forms, for a sidebar row; any other role is shown by its name. */
+const PLAIN_ROLES_SHORT: Partial<Record<string, string>> = {
+    architect: "arch",
+    planner: "plan",
+    implementer: "impl",
+    reviewer: "review",
+};
+
+/** The built-in roles as a swarm calls them, whole and short. */
+const SWARM_ROLES: Partial<Record<string, [string, string]>> = {
+    architect: ["Queen", "queen"],
+    planner: ["Broodkeeper", "brood"],
+    implementer: ["Worker", "worker"],
+    reviewer: ["Sentinel", "guard"],
+};
+
 const PLAIN: Words = {
     overview: "",
     newTask: "What should the agent work on?",
@@ -386,6 +409,10 @@ const PLAIN: Words = {
     worksForNobody: "Works for nobody",
     worksForHeading: "Works for",
     workingFor: "Working for it",
+    role: (name) => capitalized(name),
+    roleShort: (name) => PLAIN_ROLES_SHORT[name] ?? name,
+    roleMenu: "Role",
+    noRole: "No role",
     inBackground: ({ agents, commands }) =>
         `${counted([
             [agents, "sub-agent", "sub-agents"],
@@ -562,6 +589,10 @@ const SWARM: Words = {
     worksForNobody: "Serves no spawn",
     worksForHeading: "Serves",
     workingFor: "Serving it",
+    role: (name) => SWARM_ROLES[name]?.[0] ?? capitalized(name),
+    roleShort: (name) => SWARM_ROLES[name]?.[1] ?? name,
+    roleMenu: "Caste",
+    noRole: "No caste",
     inBackground: ({ agents, commands }) =>
         [
             agents > 0 ? `${counted([[agents, "hatchling", "hatchlings"]])} foraging` : "",

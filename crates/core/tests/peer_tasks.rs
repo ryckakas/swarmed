@@ -269,7 +269,9 @@ async fn a_task_is_refused_to_a_helper_a_chat_and_an_empty_prompt() {
         core.peer_start_task(asking.id, asked(" \n")).await,
         Err(Error::EmptyMessage)
     ));
-    let helper = core.peer_spawn(asking.id, "a part", None).expect("spawns");
+    let helper = core
+        .peer_spawn(asking.id, "a part", None, None)
+        .expect("spawns");
     turn(&mut bus, helper.id).await;
     let refused = core.peer_start_task(helper.id, asked("more")).await;
     assert!(
@@ -348,4 +350,47 @@ async fn the_tool_server_starts_a_task_over_its_socket() {
         "{text}"
     );
     assert!(text.contains(&task.branch), "{text}");
+}
+
+#[tokio::test]
+async fn a_task_s_session_has_the_role_its_starter_may_start() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let with_role = |role: &str| SessionOptions {
+        role: Some(role.into()),
+        ..SessionOptions::default()
+    };
+    let architect = core
+        .session_new("demo", "one", &with_role("architect"))
+        .expect("creates");
+    let asked = |name, role| PeerTask {
+        name,
+        prompt: "Plan the export.",
+        role,
+        ..PeerTask::default()
+    };
+    // Without a role asked for, the one an architect starts: a planner.
+    let started = core
+        .peer_start_task(architect.id, asked("export", None))
+        .await
+        .expect("starts");
+    assert_eq!(started.session.role.as_deref(), Some("planner"));
+    assert_eq!(started.session.parent, Some(architect.id));
+    let refused = core
+        .peer_start_task(architect.id, asked("build", Some("implementer")))
+        .await;
+    assert!(
+        matches!(&refused, Err(Error::Peers(why)) if why.contains("may start only planner or reviewer")),
+        "{refused:?}"
+    );
+    let implementer = core
+        .session_new("demo", "one", &with_role("implementer"))
+        .expect("creates");
+    let refused = core
+        .peer_start_task(implementer.id, asked("more", None))
+        .await;
+    assert!(
+        matches!(&refused, Err(Error::Peers(why)) if why.contains("starts no sessions")),
+        "{refused:?}"
+    );
 }
