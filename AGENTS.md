@@ -435,7 +435,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   A repository, a task or a session can be pinned (`pinned`, `project_pin` and the like):
   lists order by `pinned DESC` first, a move stays among the rows pinned as it is (each pin
   state is a drag group of its own in the UI), pinning puts a row last among the pinned and
-  unpinning first among the others, and a closed session or a task put away keeps its pin. A
+  unpinning first among the others, and a closed session or a task put away keeps its pin:
+  pinning or moving either is refused (`Error::SessionClosed`, `Error::TaskPutAway`). A
   pin is published as a move is. Cloud tasks and the chats among the repositories are not
   pinned.
 - **Closing a session keeps it; deleting one does not** (`session_close`, `session_delete`).

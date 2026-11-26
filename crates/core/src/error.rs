@@ -397,6 +397,14 @@ pub enum Error {
     /// No cloud task has this id.
     #[error("cloud task {0} not found")]
     CloudTaskNotFound(i64),
+    /// The task was put away. It has no place among the open tasks until it is brought back.
+    #[error("task `{task}` of `{project}` is put away: bring it back first")]
+    TaskPutAway {
+        /// The task's repository.
+        project: String,
+        /// The task.
+        task: String,
+    },
     /// The session was closed. Its agent is not started until it is reopened.
     #[error("session {0} is closed: reopen it first")]
     SessionClosed(i64),

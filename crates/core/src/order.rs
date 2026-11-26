@@ -225,25 +225,35 @@ impl Core {
     }
 
     /// Moves task `task` `by` places among the other open tasks of `project` pinned as it is.
-    /// A task put away is not among them, and is not moved.
+    /// A task put away is not among them, and is refused ([`Error::TaskPutAway`]).
     pub fn task_move(&self, project: &str, task: &str, by: i32) -> Result<()> {
-        let (project, task) = self.task(project, task)?;
-        let rows = self
-            .store()
-            .order_rows(&task_rows_sql(), params![project.id])?;
-        self.reorder(Kind::Task, &rows, task.id, by)
+        let (id, rows) = self.open_task_rows(project, task)?;
+        self.reorder(Kind::Task, &rows, id, by)
     }
 
     /// Pins task `task` above the open tasks of `project` that are not pinned, or with
     /// `pinned` false unpins it, as [`Core::project_pin`] does a repository. A chat is pinned
-    /// among the chats. A task put away keeps its pin and is not pinned or unpinned until it is
-    /// brought back.
+    /// among the chats. A task put away keeps its pin and cannot be pinned or unpinned until it
+    /// is brought back ([`Error::TaskPutAway`]).
     pub fn task_pin(&self, project: &str, task: &str, pinned: bool) -> Result<()> {
+        let (id, rows) = self.open_task_rows(project, task)?;
+        self.repin(Kind::Task, &rows, id, pinned)
+    }
+
+    /// The id of task `task` of `project` and the rows of that repository's tasks, or
+    /// [`Error::TaskPutAway`] for one put away: saying nothing would look as if it had worked.
+    fn open_task_rows(&self, project: &str, task: &str) -> Result<(i64, Vec<Row>)> {
         let (project, task) = self.task(project, task)?;
+        if task.done_at.is_some() {
+            return Err(Error::TaskPutAway {
+                project: project.name,
+                task: task.name,
+            });
+        }
         let rows = self
             .store()
             .order_rows(&task_rows_sql(), params![project.id])?;
-        self.repin(Kind::Task, &rows, task.id, pinned)
+        Ok((task.id, rows))
     }
 
     /// Moves session `id` `by` places among the other open sessions of its task pinned as it

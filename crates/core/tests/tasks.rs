@@ -2759,7 +2759,14 @@ async fn a_task_put_away_is_not_among_the_tasks_a_move_passes() {
     assert_eq!(open(&core), ["three", "one"]);
 
     // Put away, it keeps its pin as it is, and is brought back where it was: before "three".
-    core.task_pin("demo", "two", true).expect("leaves it");
+    // Neither pinned nor moved meanwhile, and told so.
+    let pinned = core.task_pin("demo", "two", true);
+    assert!(
+        matches!(pinned, Err(Error::TaskPutAway { .. })),
+        "{pinned:?}"
+    );
+    let moved = core.task_move("demo", "two", 1);
+    assert!(matches!(moved, Err(Error::TaskPutAway { .. })), "{moved:?}");
     assert!(!core.task("demo", "two").expect("found").1.pinned);
     core.task_undone("demo", "two").expect("brings back");
     assert_eq!(listed(&core).1, ["two", "three", "one"]);
