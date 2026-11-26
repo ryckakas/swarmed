@@ -1,7 +1,16 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import {
+    lazy,
+    type RefObject,
+    Suspense,
+    useCallback,
+    useEffect,
+    useLayoutEffect,
+    useRef,
+    useState,
+} from "react";
 import { api } from "../api";
 import type { BackgroundTask } from "../api/types";
-import { stopOffered } from "../background";
+import { cutShort, stopOffered } from "../background";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
 
@@ -117,9 +126,7 @@ function Row({ task, onChanged }: { task: BackgroundTask; onChanged(): void }) {
                     {task.session_title || words.sessionNumbered(task.session_id)}
                 </button>
             </p>
-            {task.summary && task.state !== "running" && (
-                <p className="background-summary">{task.summary}</p>
-            )}
+            {task.summary && task.state !== "running" && <Summary text={task.summary} />}
             {task.output && (
                 <button
                     type="button"
@@ -150,4 +157,52 @@ function Row({ task, onChanged }: { task: BackgroundTask; onChanged(): void }) {
             )}
         </li>
     );
+}
+
+/**
+ * What a finished one said of itself. A long one shows its first lines and a way to read the
+ * rest, which then scrolls inside the row: a few long summaries would make the list hard to scan.
+ */
+function Summary({ text }: { text: string }) {
+    const said = useRef<HTMLParagraphElement>(null);
+    const [open, setOpen] = useState(false);
+    const long = useCutShort(said, text, !open);
+    return (
+        <>
+            <p ref={said} className="background-said" data-folded={!open}>
+                {text}
+            </p>
+            {(long || open) && (
+                <button
+                    type="button"
+                    className="button background-show"
+                    aria-expanded={open}
+                    onClick={() => setOpen((was) => !was)}
+                >
+                    {open ? "Show less" : "Show all"}
+                </button>
+            )}
+        </>
+    );
+}
+
+/**
+ * Whether the folded text in `element` leaves some of it out, looked at again as it is drawn
+ * wider or narrower. While it is open, it stays what it was when last folded.
+ */
+function useCutShort(element: RefObject<HTMLElement | null>, text: string, folded: boolean) {
+    const [cut, setCut] = useState(false);
+    // biome-ignore lint/correctness/useExhaustiveDependencies: other words fold differently
+    useLayoutEffect(() => {
+        const shown = element.current;
+        if (!(shown && folded)) {
+            return;
+        }
+        const look = () => setCut(cutShort(shown.scrollHeight, shown.clientHeight));
+        look();
+        const observer = new ResizeObserver(look);
+        observer.observe(shown);
+        return () => observer.disconnect();
+    }, [element, text, folded]);
+    return cut;
 }

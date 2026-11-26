@@ -56,6 +56,12 @@ notice adds its line under Unreleased.
   was.
 - **The + for a new chat lines up with the others.** On the chats' heading in the sidebar it
   sat further right than the + on each repository's heading.
+- **A sub-agent's long prompt or answer no longer pushes its conversation out of reach.** In a
+  sub-agent's pane, What it was asked and what it handed back can each be folded, and opened
+  they scroll inside a height of their own, giving way where the window is short, so the
+  conversation between them always keeps its room. In the task panel's Background list, a long
+  summary of a finished sub-agent shows its first lines, with Show all to read the rest in a
+  box that scrolls.
 
 ## [0.4.6] - 2026-11-25
 

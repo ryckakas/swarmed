@@ -49,8 +49,11 @@ export function SubAgentPane({ session, crumbs, id, events }: Props) {
                     </button>
                 </div>
             </header>
+            {/* Each part is folded by its summary, and opened it scrolls in a height of its own:
+                a long prompt or answer must not push the conversation out of the pane. Keyed by
+                the sub-agent, so another one opened starts as they do, at the top. */}
             {subAgent?.prompt && (
-                <details className="sub-agent-asked">
+                <details key={`asked-${id}`} className="sub-agent-part sub-agent-asked">
                     <summary>What it was asked</summary>
                     <Markdown text={subAgent.prompt} streaming={false} />
                 </details>
@@ -70,10 +73,10 @@ export function SubAgentPane({ session, crumbs, id, events }: Props) {
                 />
             )}
             {answer !== null && (
-                <section className="sub-agent-answer" aria-label={words.subAgentAnswer}>
-                    <p className="sub-agent-answer-head">{words.subAgentAnswer}</p>
+                <details key={`answer-${id}`} className="sub-agent-part sub-agent-answer" open>
+                    <summary>{words.subAgentAnswer}</summary>
                     <Markdown text={answer} streaming={false} />
-                </section>
+                </details>
             )}
         </article>
     );

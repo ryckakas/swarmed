@@ -875,6 +875,29 @@ code {
     font-size: var(--text-xs);
 }
 
+/* What a finished one said of itself: its first lines, or opened, all of it in a height of its own. */
+.background-said {
+    grid-column: 1;
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--text-xs);
+    overflow-wrap: anywhere;
+}
+
+.background-said[data-folded="true"] {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+}
+
+.background-said[data-folded="false"] {
+    max-height: 16lh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
 .background-state {
     color: var(--faint);
     font-weight: 650;
@@ -2321,19 +2344,34 @@ code {
     color: var(--pollen);
 }
 
-.sub-agent-asked,
-.sub-agent-answer {
-    flex: none;
+/*
+ * What it was asked and what it handed back: each as tall as what it holds, up to a part of the
+ * window, and scrolling inside past that. Where the pane is too short for both and the
+ * conversation's least, they give way down to their summaries, so nothing is out of reach.
+ */
+.sub-agent-part {
+    flex: 0 1 auto;
+    min-height: calc(1lh + var(--space-2) * 2 + 2px);
+    max-height: 40vh;
     margin: var(--space-2) var(--space-8) 0;
-    padding: var(--space-2) var(--space-3);
+    overflow-y: auto;
     border: 1px solid var(--line);
     border-radius: 6px;
     background: var(--panel);
 }
 
-.sub-agent-asked summary {
+/* The summary stays in sight as the part scrolls, so it can be folded from anywhere in it. */
+.sub-agent-part > summary {
+    position: sticky;
+    top: 0;
+    padding: var(--space-2) var(--space-3);
+    background: var(--panel);
     color: var(--muted);
     cursor: pointer;
+}
+
+.sub-agent-part > :not(summary) {
+    padding: 0 var(--space-3) var(--space-2);
 }
 
 .sub-agent-answer {
@@ -2341,9 +2379,13 @@ code {
     border-left: 2px solid var(--pollen);
 }
 
-.sub-agent-answer-head {
-    color: var(--muted);
-    font-size: var(--text-sm);
+/*
+ * The conversation between them keeps some room, however much they hold. Only where even that
+ * does not fit, in a very short window, does the pane itself scroll.
+ */
+.session.sub-agent {
+    --transcript-least: min(8lh, 25vh);
+    overflow-y: auto;
 }
 
 /* A session an agent started, marked as hanging off another. */
@@ -2895,7 +2937,7 @@ code {
     flex: 1;
     display: flex;
     flex-direction: column;
-    min-height: 0;
+    min-height: var(--transcript-least, 0);
 }
 
 .transcript {
