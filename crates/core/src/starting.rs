@@ -44,6 +44,16 @@ pub struct FirstSession {
     pub images: Vec<String>,
 }
 
+/// A first session, and the session it works for from its start, if another's agent started
+/// its task.
+#[derive(Debug)]
+pub(crate) struct Handed {
+    /// What the task starts with.
+    pub(crate) first: FirstSession,
+    /// The session whose agent started the task.
+    pub(crate) parent: Option<i64>,
+}
+
 /// A task just started, and its first session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TaskStarted {
@@ -99,6 +109,27 @@ impl Core {
         auth: Auth,
         sink: OutputSink<'_>,
     ) -> Result<(TaskStarted, SetupGoing)> {
+        let handed = Handed {
+            first,
+            parent: None,
+        };
+        self.task_start_handed(project, name, options, handed, auth, sink)
+            .await
+    }
+
+    /// Starts a task as [`Core::task_start`] does, whose first session works for
+    /// `handed.parent` from when it is made: before its setup begins, which may be over, and
+    /// its agent started, by the time this returns.
+    pub(crate) async fn task_start_handed(
+        self: &Arc<Self>,
+        project: &str,
+        name: &str,
+        options: NewTaskOptions<'_>,
+        handed: Handed,
+        auth: Auth,
+        sink: OutputSink<'_>,
+    ) -> Result<(TaskStarted, SetupGoing)> {
+        let Handed { first, parent } = handed;
         paths::validate_name(name)?;
         if first.prompt.trim().is_empty() {
             return Err(Error::EmptyMessage);
@@ -115,7 +146,11 @@ impl Core {
         }
         let made = self.task_made(project, name, &options, sink).await?;
         let run = self.setup_begin(&made.task)?;
-        let session = self.session_for_prompt(&made.task, &first.options, &message)?;
+        let mut session = self.session_for_prompt(&made.task, &first.options, &message)?;
+        if parent.is_some() {
+            self.store().session_set_parent(session.id, parent)?;
+            session.parent = parent;
+        }
         let files = self.with_images(session.id, &first.files, &images)?;
         let message = with_files(&prompt, &files)?;
         self.keep_for_setup(made.task.id, session.id, &message)?;

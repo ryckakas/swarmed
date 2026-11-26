@@ -17,6 +17,7 @@ use crate::agent::{AgentEvent, Auth};
 use crate::environments::EnvironmentChoice;
 use crate::error::{Error, Result};
 use crate::sessions::{SessionOptions, title_from};
+use crate::starting::Handed;
 use crate::{Core, FirstSession, NewTaskOptions, TaskStarted, hooks};
 
 /// What a session asks for in a task it starts.
@@ -126,21 +127,22 @@ impl Core {
             github: Vec::new(),
             images: Vec::new(),
         };
-        let starting = self.task_start(
+        // Whom it works for is written with the session, before its setup begins: its agent
+        // starts once that is done, and is told from the start.
+        let handed = Handed {
+            first,
+            parent: Some(from),
+        };
+        let starting = self.task_start_handed(
             &project.name,
             asked.name,
             options,
-            first,
+            handed,
             Auth::default(),
             &hooks::discard,
         );
         // The setup goes on by itself, as the window's New task leaves it.
-        let (mut started, _going) = starting.await?;
-        // Before its agent starts, which is once the setup is done, so that it is told whom it
-        // works for from the start.
-        self.store()
-            .session_set_parent(started.session.id, Some(from))?;
-        started.session.parent = Some(from);
+        let (started, _going) = starting.await?;
         if asked.title.is_none() {
             self.name_later(started.session.id, asked.prompt);
         }
