@@ -19,9 +19,9 @@ use serde::Serialize;
 
 use crate::agent::{AgentCommand, AgentEvent, BackgroundState};
 use crate::error::Result;
-use crate::sessions::event_from_json;
+use crate::sessions::{SessionEvent, event_from_json};
 use crate::store::Store;
-use crate::{Core, Error};
+use crate::{Core, Error, lock};
 
 /// One thing an agent left running, as last heard of.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -142,6 +142,35 @@ impl Core {
         let mut alive = self.running_sessions();
         alive.extend(self.sessions_run_elsewhere());
         alive
+    }
+
+    /// Records the end of every agent that went without saying so while its session's row
+    /// still counts something in the background, and publishes it. A Swarmed that ends takes
+    /// its agents along and stores no end for them, as the command line does after each
+    /// turn: the row would count what the task's list shows as stopped until the agent next
+    /// ran. The house's look calls it, so that the end is recorded once.
+    pub(crate) fn background_settle_gone(&self) -> Result<()> {
+        let mut alive = self.agents_alive();
+        alive.extend(lock(&self.live.runs_held).keys());
+        let store = self.store();
+        let counted = store.background_counted()?;
+        let gone = counted.into_iter().filter(|id| !alive.contains(id));
+        let ended = gone.map(|id| Ok((id, store.background_ended(id)?)));
+        let ended = ended.collect::<Result<Vec<_>>>();
+        // Publishing takes the store itself.
+        drop(store);
+        for (session_id, (event, left)) in ended? {
+            let published = SessionEvent {
+                session_id,
+                status: None,
+                unread: None,
+                background: Some(left),
+                event,
+                elsewhere: false,
+            };
+            self.live.pass_on(&self.store, published);
+        }
+        Ok(())
     }
 
     /// Whether something a session of task `id` left running still runs.
@@ -304,7 +333,9 @@ impl Store {
         for text in rows {
             reported.push((id, String::new(), event_from_json(&text?)));
         }
-        // Whoever stores its reports runs its agent, here or elsewhere: its end is among them.
+        // Whoever stores its reports runs its agent, here or elsewhere, and its end is among
+        // them. One that went without a word has its end recorded by the house
+        // (`background_settle_gone`).
         let count = BackgroundCount::of(&listed(reported, &[id]));
         self.conn.execute(
             "UPDATE sessions SET background_agents = ?2, background_commands = ?3

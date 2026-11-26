@@ -226,6 +226,52 @@ async fn what_a_session_run_elsewhere_left_in_the_background_counts_here() {
 }
 
 #[tokio::test]
+async fn what_a_swarmed_that_ended_left_in_the_background_no_longer_counts() {
+    let fx = fixture();
+    let (here, there) = two_cores(&fx).await;
+    here.arrive().expect("arrives");
+    let session = new_session(&here);
+    here.notice_others().expect("looks");
+    let mut bus = here.subscribe();
+
+    let mut theirs = there.subscribe();
+    let attached = Attached::default();
+    there
+        .session_message(session.id, "background bash", &attached, Auth::Subscription)
+        .expect("sends");
+    turn(&mut theirs, session.id).await;
+    let reported = |event: &SessionEvent| matches!(event.event, AgentEvent::Background { .. });
+    noticed(&here, &mut bus, reported).await;
+    let counted = here.session(session.id).expect("reads").background;
+    assert_eq!(counted.commands, 1, "{counted:?}");
+
+    // It ends as the command line does after a turn: with its agent, and without a word.
+    drop(there);
+    let seen = noticed(&here, &mut bus, |event| {
+        matches!(event.event, AgentEvent::Exited { .. })
+    })
+    .await;
+    let nothing = BackgroundCount::default();
+    let end = seen
+        .iter()
+        .find(|event| matches!(event.event, AgentEvent::Exited { .. }));
+    assert_eq!(end.and_then(|event| event.background), Some(nothing));
+    assert_eq!(here.session(session.id).expect("reads").background, nothing);
+    let listed = here.task_background("demo", "one").expect("lists");
+    let running = listed
+        .iter()
+        .filter(|task| task.state == BackgroundState::Running);
+    assert_eq!(running.count(), 0, "{listed:?}");
+    // Recorded once: the next look finds nothing left to end.
+    let ends = |events: Vec<AgentEvent>| {
+        let ended = |event: &&AgentEvent| matches!(event, AgentEvent::Exited { .. });
+        events.iter().filter(ended).count()
+    };
+    here.notice_others().expect("looks");
+    assert_eq!(ends(here.session_events(session.id).expect("reads")), 1);
+}
+
+#[tokio::test]
 async fn what_a_swarmed_that_shows_its_own_notices_runs_is_not_shown_here_too() {
     let fx = fixture();
     let (here, there) = two_cores(&fx).await;

@@ -728,7 +728,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     here or by a Swarmed that only passes it on, in case the one that stored it did not know
     the count. It rides on those events (`SessionEvent::background`). It is a flag beside
     the status, never one: the session stays idle. The UI rings an idle mark with it
-    (`backgroundShown`), and folded headings add it up, ranked below working.
+    (`backgroundShown`), and folded headings add it up, ranked below working. A Swarmed
+    that ends takes its agents along and stores no `Exited`, as the command line does after
+    each turn: the house's look records one for each session that still counts something
+    and whose agent runs nowhere (`background_settle_gone`), and publishes it.
   - **OpenCode's shells** (`agent/acp/shells.rs`): a call that ends with
     `rawOutput.metadata.status: "running"` and a `shellID` left one running, reported as
     `local_bash`. Nothing over ACP tells its end, so every shell reported running is taken to

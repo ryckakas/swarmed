@@ -311,6 +311,9 @@ impl Core {
             self.live.publish_apart(AgentEvent::ConfigChanged { kind });
         }
         self.send_what_waited();
+        if lock(&self.house).is_some() {
+            self.background_settle_gone()?;
+        }
         Ok(())
     }
 

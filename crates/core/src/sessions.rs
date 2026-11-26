@@ -526,15 +526,31 @@ impl Store {
         )?;
         let left = statement.query_map(params![], |row| row.get::<_, i64>(0))?;
         let sessions = left.collect::<rusqlite::Result<Vec<_>>>()?;
+        for session in sessions.into_iter().filter(|id| !except.contains(id)) {
+            self.background_ended(session)?;
+        }
+        Ok(())
+    }
+
+    /// Records the end of session `id`'s agent, which went without saying so, and returns
+    /// the end recorded with what that leaves running on the session's row: nothing.
+    pub(crate) fn background_ended(&self, id: i64) -> Result<(AgentEvent, BackgroundCount)> {
         let ended = AgentEvent::Exited {
             code: None,
             stderr: String::new(),
         };
-        for session in sessions.into_iter().filter(|id| !except.contains(id)) {
-            self.keep(session, &ended)?;
-            self.background_after(session, &ended)?;
-        }
-        Ok(())
+        self.keep(id, &ended)?;
+        let left = self.background_refresh(id)?;
+        Ok((ended, left))
+    }
+
+    /// The sessions whose row says their agent has something running in the background.
+    pub(crate) fn background_counted(&self) -> Result<Vec<i64>> {
+        let mut statement = self.conn.prepare(
+            "SELECT id FROM sessions WHERE background_agents > 0 OR background_commands > 0",
+        )?;
+        let counted = statement.query_map(params![], |row| row.get::<_, i64>(0))?;
+        Ok(counted.collect::<rusqlite::Result<_>>()?)
     }
 
     fn session_close(&self, id: i64) -> Result<()> {
