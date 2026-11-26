@@ -683,7 +683,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   instead of all but one failing in git. A name the user chose, as the command line takes it,
   is refused instead (`BranchExists`, `TaskFolderExists`, `TaskExists`). Removing a task
   deletes its local branch (`delete_branch`, which the app sets) unless the task started from
-  it or commits on it are on neither the base nor a remote; a branch git will not check or
+  it, a task that is still there is based on it (`based_on`: one stacked on it with `from`
+  reads its changes against it), or commits on it are on neither the base nor a remote; a branch git will not check or
   delete is kept and noted, since the task is gone by then. A remote branch is never touched.
   What a task's sessions left (waiting messages, unread views, private files) is deleted only
   once the removal has gone through (`sessions_forgotten`), never by one that was refused.
@@ -1021,7 +1022,7 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   turn end arrives. Agents wrap their calls differently: directly, from a script, from a
   subagent. None of that matters this way. Reading the HTML out of the call's own shape is only
   a fallback for conversations recorded before.
-- **Sessions can see, read, message and start each other** (`peers.rs`), through four tools
+- **Sessions can see, read, message and start each other** (`peers.rs`), through tools
   of Swarmed's own server. The server is a process the agent starts, so it asks the core over
   a socket in the system's temporary folder (`Paths::tools_socket`; short, since a socket's
   path is limited), which a front end serves with `serve_session_tools`. A message arrives as
@@ -1031,6 +1032,23 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   in its parent's task with its settings, cannot spawn itself, and a session can have
   `MAX_SPAWNED` open. The tools are not on the allow list: in ask mode the user is asked.
   A session can close only sessions it started, and only idle ones (`peer_close`).
+- **A session starts a task for work that needs a branch of its own** (`start_task`,
+  `peers/tasks.rs`). Without a tool for it, an agent asked for such work finds no way to make
+  a task and switches its own worktree instead: `swarmed task new` is known only to an agent
+  that has read this repository. It is the window's New task
+  (`task_start`): the name gives way as a made-up one does, the setup runs in the process that
+  serves the tools and shows in the setup panel, and the prompt goes once it finished well,
+  so the session is the app's from the start. Its `branch` checks out an existing branch, a
+  pull request's; its `from` starts a new branch from another (`NewTaskOptions::from`, a
+  branch only, here or on a remote, which becomes the task's base and so its pull request's).
+  The first message is the starter's words, marked as `send_message` marks them (`left_by`),
+  with a note to report back; the session is not spawned (`spawned_by` stays empty), so it
+  can spawn and start tasks itself, as the next link of a chain of pull requests does. A
+  title left out is the prompt's, never the mark's, and the namer names it from the prompt.
+  Refused to a spawned session and to a chat, and by a process that ends with its turn, as
+  the command line's does, which would take the setup along: only one that stays answers it
+  (`Core::set_stays`, which the app sets). `TreeChanged` is published, since front ends
+  learn of a task their own process made only when told. Not on the allow list.
 - **A session's agent can be changed until it has begun** (`session_set_agent`): before its
   first message reaches an agent, which from then on holds the conversation. The model goes
   back to the new agent's default. The UI offers the agent menu for exactly that long.
@@ -1469,9 +1487,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   guidance whatever the settings (`publish::worktree_instructions`), that it already works in
   an isolated worktree, to keep to the task's branch, to make no other branch, worktree or
   clone even when a skill says to (skills written without Swarmed often do), how to read
-  another branch without checking it out, and to ask the user for a new task for work that
-  needs another branch. An agent has no tool to start a task; asking is the way. For parts
-  that can run beside it, it is pointed at `spawn_session`, which shares the worktree. Agents
+  another branch without checking it out, and to put work that needs another branch in a new
+  task it starts with `start_task`: at once when the user asked for that work, after asking
+  when it is only its own idea. For parts that can run beside it, it is pointed at
+  `spawn_session`, which shares the worktree. Agents
   are started with the task's `SWARMED_*` variables, as hooks are (`Core::task_env`), so a
   skill can tell it runs in a task and skip its own worktree step; `docs/coding-agents.md`
   tells users which skills to leave out, and has to agree with what agents are told.

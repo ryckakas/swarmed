@@ -7,7 +7,8 @@
 //! exists because an agent asked for something visual goes looking for a tool, and should find
 //! one that puts the result in the conversation. [`SHOW_BROWSER`] beside it opens the task's
 //! browser for the user, for the same reason: an agent asked to look at a page should find the
-//! browser the user sees, not launch one. The rest are answered by the core.
+//! browser the user sees, not launch one. The rest are answered by the core, `start_task`
+//! among them: work that needs a branch of its own goes into a task of its own.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
@@ -28,6 +29,9 @@ pub const SHOW_BROWSER: &str = "show_browser";
 /// The tool that hands work to a cloud agent. Answered by the core, as the session tools are,
 /// but not at once: the provider is asked first.
 pub(crate) const DELEGATE_TO_CLOUD: &str = "delegate_to_cloud";
+/// The tool that starts a new task for work that needs a branch of its own. Answered by the
+/// core, as the session tools are, but not at once: the repository is fetched first.
+pub(crate) const START_TASK: &str = "start_task";
 /// That tool as Claude Code names it: by server, then by tool.
 pub(crate) const SHOW_HTML_FOR_CLAUDE: &str = "mcp__swarmed__show_html";
 
@@ -98,6 +102,7 @@ fn local_tools() -> Value {
         },
     },
     show_browser_tool(),
+    start_task_tool(),
     {
         "name": "list_sessions",
         "title": "List the user's other agent sessions",
@@ -128,10 +133,11 @@ fn local_tools() -> Value {
         "title": "Start a new session beside you",
         "description": "Starts a new agent session in your own task and worktree, on the same \
             agent and settings as you, and gives it your prompt. It works at the same time as \
-            you and on the same files, so give it a part of the work that does not collide \
-            with yours, and everything it needs to know: it starts with no knowledge of your \
-            conversation. It reports back to you with a message when it is done. A session \
-            that was itself spawned cannot spawn, and you can have a few open at a time.",
+            you and on the same files and branch, so give it a part of the work that does not \
+            collide with yours, and everything it needs to know: it starts with no knowledge \
+            of your conversation. It reports back to you with a message when it is done. A \
+            session that was itself spawned cannot spawn, and you can have a few open at a \
+            time. For work on another branch, use start_task instead.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -156,6 +162,41 @@ fn local_tools() -> Value {
             "required": ["session_id"],
         },
     }])
+}
+
+/// The tool that starts a new task, with a branch, worktree and session of its own.
+fn start_task_tool() -> Value {
+    let text = |description: &str| json!({ "type": "string", "description": description });
+    json!({
+        "name": START_TASK,
+        "title": "Start a new task on a branch of its own",
+        "description": "Starts a new task in this repository, as the user's New task does: a \
+            branch and worktree of its own, set up as the repository says, and a new agent \
+            session on your agent and settings, which gets your prompt once the setup is \
+            done and reports back to you with a message when it is done. The user sees it in \
+            the sidebar and can watch and answer it. Use it for work that needs a branch of \
+            its own: a separate change, a fix to another pull request (pass its `branch`), \
+            the next pull request of a stack (pass `from`). Never switch your own worktree \
+            to another branch for such work. Start one when the user asks for that work; when \
+            it is only your own idea, ask first. The new session knows nothing of your \
+            conversation, so the prompt has to say everything it needs. For a part of your \
+            own task's work, on your branch, use spawn_session instead.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": text("The task's name: lower-case words joined by dashes, such as \
+                    fix-login-redirect. A name that is taken gets a number."),
+                "prompt": text("What the new session is to do."),
+                "title": text("A few words naming the new session."),
+                "branch": text("An existing branch to check out instead of making a new one, \
+                    such as a pull request's head branch."),
+                "from": text("A branch to start the new branch from instead of the \
+                    repository's base, such as the head branch of the pull request this one \
+                    stacks on. It becomes the task's base."),
+            },
+            "required": ["name", "prompt"],
+        },
+    })
 }
 
 /// The tool that opens the task's browser for the user.

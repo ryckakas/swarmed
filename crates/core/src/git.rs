@@ -191,17 +191,15 @@ pub(crate) async fn ref_exists(repo: &Path, name: &str) -> bool {
 
 /// Whether a local branch called `branch` exists.
 pub(crate) async fn local_branch_exists(repo: &Path, branch: &str) -> bool {
-    git(
-        repo,
-        &[
-            "show-ref",
-            "--verify",
-            "--quiet",
-            &format!("refs/heads/{branch}"),
-        ],
-    )
-    .await
-    .is_ok()
+    is_ref(repo, &format!("refs/heads/{branch}")).await
+}
+
+/// Whether `name` is a ref by exactly that name, `refs/heads/main`. Unlike [`ref_exists`],
+/// which takes anything git reads as a commit, `refs/heads/main~1` is none.
+pub(crate) async fn is_ref(repo: &Path, name: &str) -> bool {
+    git(repo, &["show-ref", "--verify", "--quiet", name])
+        .await
+        .is_ok()
 }
 
 /// The short names of every branch here and on any remote, as last fetched: `main`, and

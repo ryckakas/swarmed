@@ -159,7 +159,7 @@ pub use open::open_link;
 pub use overview::{ProjectOverview, TaskOverview};
 pub use pasted::MAX_IMAGE_MB;
 pub use paths::Paths;
-pub use peers::{Delivery, MAX_SPAWNED, Reachable, serve_session_tools};
+pub use peers::{Delivery, MAX_SPAWNED, PeerTask, Reachable, serve_session_tools};
 pub use prefix::{EXAMPLE_TASK, branch_example};
 pub use publish::{PullDraft, Unpublished};
 pub use pulls::{Check, CheckOutcome, Pull, PullState};
@@ -223,6 +223,8 @@ pub struct Core {
     apps: apps::AppStore,
     /// The executable that serves Swarmed's own tools to agents, if a front end named one.
     tool_server: Option<PathBuf>,
+    /// Whether this process goes on after a turn it runs has ended, as the window does.
+    stays: bool,
     /// The lock that says this was the first Swarmed to arrive on its data, once it has it.
     house: Mutex<Option<std::fs::File>>,
     /// The names of tasks being created, by project id, from when each name is chosen until
@@ -279,6 +281,7 @@ impl Core {
             views: ViewStore::default(),
             apps: apps::AppStore::default(),
             tool_server: None,
+            stays: false,
             house: Mutex::new(None),
             names_claimed: Mutex::default(),
             setups: Arc::default(),
@@ -294,6 +297,13 @@ impl Core {
     /// argument by calling [`serve_tools`].
     pub fn set_tool_server(&mut self, executable: PathBuf) {
         self.tool_server = Some(executable);
+    }
+
+    /// Says that this process goes on after a turn it runs has ended, as the window does and a
+    /// command does not. Only then may a session start a task (`start_task`): its setup and
+    /// its agent run in the process that answers the call, and would end with a command.
+    pub fn set_stays(&mut self) {
+        self.stays = true;
     }
 
     /// Looks for agents and their installers in `dirs` only, instead of on the `PATH`.

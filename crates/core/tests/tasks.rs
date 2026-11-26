@@ -2870,3 +2870,46 @@ async fn repositories_tasks_and_sessions_keep_the_order_they_are_put_in() {
         .collect();
     assert_eq!(told, [third, first, second, elsewhere]);
 }
+
+#[tokio::test]
+async fn removing_a_task_keeps_the_branch_another_task_is_based_on() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    let lower = core
+        .task_new("demo", "lower", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+    let stacked = NewTaskOptions {
+        from: Some(&lower.branch),
+        ..NewTaskOptions::default()
+    };
+    let upper = core
+        .task_new("demo", "upper", stacked, &hooks::discard)
+        .await
+        .expect("test setup");
+    assert_eq!(upper.base_ref, lower.branch);
+    let options = RemoveOptions {
+        force: false,
+        delete_branch: true,
+    };
+
+    let notes = core
+        .task_remove("demo", "lower", options, &hooks::discard)
+        .await
+        .expect("removes");
+    assert!(
+        notes
+            .iter()
+            .any(|note| note.contains(&lower.branch) && note.contains("upper is based on it")),
+        "{notes:?}"
+    );
+    let branch = format!("refs/heads/{}", lower.branch);
+    git(&fx.repo, &["show-ref", "--verify", "--quiet", &branch]);
+
+    // With nothing based on it, a branch with no commits of its own goes with its task.
+    let notes = core
+        .task_remove("demo", "upper", options, &hooks::discard)
+        .await
+        .expect("removes");
+    assert_eq!(notes, Vec::<String>::new());
+}

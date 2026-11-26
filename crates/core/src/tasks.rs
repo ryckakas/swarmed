@@ -28,6 +28,10 @@ use crate::{Settings, open};
 pub struct NewTaskOptions<'a> {
     /// Check out this existing branch instead of creating one from the base.
     pub existing_branch: Option<&'a str>,
+    /// Start the new branch from this branch, here or on a remote (`origin/<name>`), instead
+    /// of the repository's base, which it then is for the task: its changes, its pull
+    /// request's base. For work stacked on another branch's. Not with `existing_branch`.
+    pub from: Option<&'a str>,
     /// The environment of the project to set the task up in: by default the project's default
     /// one, if it has one.
     pub environment: EnvironmentChoice,
@@ -148,7 +152,10 @@ impl Core {
         git::fetch(repo).await?;
         // A brand new repository has nothing to branch from until it has a commit.
         git::ensure_first_commit(repo).await?;
-        let base = base_of(repo, &config).await?;
+        let base = match options.from {
+            Some(from) => start_point(repo, from, options.existing_branch).await?,
+            None => base_of(repo, &config).await?,
+        };
         let pattern = BranchPattern {
             project: &project,
             pattern: &config.branch_pattern,
@@ -492,10 +499,45 @@ impl Core {
             notes.push(format!("its checkpoints could not be deleted: {error}"));
         }
         self.sessions_forgotten(task.id)?;
-        if options.delete_branch && git::local_branch_exists(repo, &task.branch).await {
-            notes.extend(delete_branch_if_safe(repo, &task).await);
+        if options.delete_branch {
+            notes.extend(self.delete_branch_of(&project, repo, &task).await);
         }
         Ok(notes)
+    }
+
+    /// Deletes a removed task's local branch, if it is still there and nothing needs it; the
+    /// note returned says why it was kept.
+    async fn delete_branch_of(
+        &self,
+        project: &Project,
+        repo: &Path,
+        task: &Task,
+    ) -> Option<String> {
+        if !git::local_branch_exists(repo, &task.branch).await {
+            return None;
+        }
+        match self.based_on(project, &task.branch) {
+            Some(note) => Some(note),
+            None => delete_branch_if_safe(repo, task).await,
+        }
+    }
+
+    /// Why a removed task's `branch` is kept: a task of the project that is still there
+    /// started from it (`NewTaskOptions::from`), and reads its changes and writes its pull
+    /// request against it. A list of tasks that cannot be read keeps it too.
+    fn based_on(&self, project: &Project, branch: &str) -> Option<String> {
+        let tasks = match self.store().tasks(project.id, false) {
+            Ok(tasks) => tasks,
+            Err(error) => return Some(format!("the branch {branch} was kept: {error}")),
+        };
+        let stacked = tasks.iter().find(|other| {
+            let base = &other.base_ref;
+            base.strip_prefix("refs/heads/").unwrap_or(base) == branch
+        })?;
+        Some(format!(
+            "the branch {branch} was kept: the task {} is based on it",
+            stacked.name
+        ))
     }
 
     /// Stops what runs for a task that is being removed: its setup first, before anything else
@@ -970,6 +1012,28 @@ async fn base_of(repo: &Path, config: &ProjectConfig) -> Result<String> {
     } else {
         Ok(config.base_branch.clone())
     }
+}
+
+/// The branch a new task's branch starts from when it is asked for one: `from` itself, once it
+/// is known to be a branch, here or on a remote. Only a branch, since the task keeps it as its
+/// base and its pull request goes into it; and only for a new branch. One that is only on
+/// `origin` can be named as a pull request names its head, without the remote, and is then
+/// `origin/<from>`.
+async fn start_point(repo: &Path, from: &str, existing: Option<&str>) -> Result<String> {
+    if let Some(existing) = existing {
+        return Err(Error::ExistingBranchStartsFromNothing(existing.to_string()));
+    }
+    for kind in ["refs/heads", "refs/remotes"] {
+        // By its exact name: `main~1` is a commit and no branch.
+        if git::is_ref(repo, &format!("{kind}/{from}")).await {
+            return Ok(from.to_string());
+        }
+    }
+    let on_origin = format!("origin/{from}");
+    if git::is_ref(repo, &format!("refs/remotes/{on_origin}")).await {
+        return Ok(on_origin);
+    }
+    Err(Error::NoBranchToStartFrom(from.to_string()))
 }
 
 /// Adds the worktree at `worktree` on `branch`: a new branch from `base` if `new`, the
