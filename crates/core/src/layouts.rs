@@ -505,9 +505,43 @@ fn check_levels(levels: &SidebarLevels, dark: &Colours, light: &Colours) -> Resu
         for (form, colours, palette) in forms {
             let at = format!("sidebar.{name}.{form}");
             check_level(&at, colours, form, palette.get(&Colour::Panel), tenths)?;
+            let marked = MARKED_LEVELS.contains(&name).then_some(colours);
+            check_named_on(&at, marked, form, palette)?;
         }
     }
     Ok(())
+}
+
+/// The levels on whose rows a mark's words and a highlight's bar are drawn.
+const MARKED_LEVELS: [&str; 2] = ["task", "session"];
+
+/// That each colour of marks and highlights the form gives stands out from the background a
+/// level of `MARKED_LEVELS` gives its rows, as it has to from the form's own backgrounds: the
+/// row is what a mark is written on. `None` for a level nothing of the kind is drawn on.
+fn check_named_on(
+    at: &str,
+    level: Option<&LevelColours>,
+    form: &str,
+    palette: &Colours,
+) -> Result<()> {
+    // A background that is no colour has been refused as the level was checked.
+    let background = level.and_then(|level| level.background.as_deref());
+    let Some(background) = background.and_then(rgb) else {
+        return Ok(());
+    };
+    let faint = |named: &Colour| {
+        let given = palette.get(named).and_then(|value| rgb(value));
+        given.is_some_and(|ink| !stands_out(ink, background, QUIET_CONTRAST))
+    };
+    let Some(named) = NAMED.into_iter().find(faint) else {
+        return Ok(());
+    };
+    Err(refused(format!(
+        "`{form}.{}` cannot be read on `{at}.background`: their contrast has to be at least {} \
+         to 1",
+        name_of(named),
+        ratio(QUIET_CONTRAST)
+    )))
 }
 
 /// That each colour of a level is a colour, and that its text stands out from its own
@@ -818,6 +852,29 @@ mod tests {
             r##"{ "light": { "dusk": "#ffffff", "text": "#000000", "yellow": "#8a5d00" } }"##;
         assert!(CustomLayout::parse(clear).is_ok());
         assert!(why(r#"{ "dark": { "red": "red" } }"#).contains("`dark.red` is a colour"));
+    }
+
+    #[test]
+    fn the_colours_of_marks_and_highlights_stand_out_from_the_rows_they_are_drawn_on() {
+        let on = |level: &str, yellow: &str| {
+            format!(
+                r##"{{ "dark": {{ "yellow": "{yellow}" }}, "sidebar": {{ "{level}":
+                    {{ "dark": {{ "colour": "#ffffff", "background": "#202020" }} }} }} }}"##
+            )
+        };
+        // A session's and a task's rows are what a mark and a highlight are drawn on.
+        assert_eq!(
+            why(&on("session", "#222222")),
+            "`dark.yellow` cannot be read on `sidebar.session.dark.background`: their contrast \
+             has to be at least 3.0 to 1"
+        );
+        assert!(why(&on("task", "#222222")).contains("`sidebar.task.dark.background`"));
+        assert!(CustomLayout::parse(&on("session", "#ffcc00")).is_ok());
+        // Nothing of the kind is drawn on a repository's row, and the other form is apart.
+        assert!(CustomLayout::parse(&on("repository", "#222222")).is_ok());
+        let apart = r##"{ "light": { "yellow": "#222222" }, "sidebar": { "session":
+            { "dark": { "colour": "#ffffff", "background": "#202020" } } } }"##;
+        assert!(CustomLayout::parse(apart).is_ok());
     }
 
     #[test]
