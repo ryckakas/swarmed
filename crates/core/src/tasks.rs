@@ -499,10 +499,45 @@ impl Core {
             notes.push(format!("its checkpoints could not be deleted: {error}"));
         }
         self.sessions_forgotten(task.id)?;
-        if options.delete_branch && git::local_branch_exists(repo, &task.branch).await {
-            notes.extend(delete_branch_if_safe(repo, &task).await);
+        if options.delete_branch {
+            notes.extend(self.delete_branch_of(&project, repo, &task).await);
         }
         Ok(notes)
+    }
+
+    /// Deletes a removed task's local branch, if it is still there and nothing needs it; the
+    /// note returned says why it was kept.
+    async fn delete_branch_of(
+        &self,
+        project: &Project,
+        repo: &Path,
+        task: &Task,
+    ) -> Option<String> {
+        if !git::local_branch_exists(repo, &task.branch).await {
+            return None;
+        }
+        match self.based_on(project, &task.branch) {
+            Some(note) => Some(note),
+            None => delete_branch_if_safe(repo, task).await,
+        }
+    }
+
+    /// Why a removed task's `branch` is kept: a task of the project that is still there
+    /// started from it (`NewTaskOptions::from`), and reads its changes and writes its pull
+    /// request against it. A list of tasks that cannot be read keeps it too.
+    fn based_on(&self, project: &Project, branch: &str) -> Option<String> {
+        let tasks = match self.store().tasks(project.id, false) {
+            Ok(tasks) => tasks,
+            Err(error) => return Some(format!("the branch {branch} was kept: {error}")),
+        };
+        let stacked = tasks.iter().find(|other| {
+            let base = &other.base_ref;
+            base.strip_prefix("refs/heads/").unwrap_or(base) == branch
+        })?;
+        Some(format!(
+            "the branch {branch} was kept: the task {} is based on it",
+            stacked.name
+        ))
     }
 
     /// Stops what runs for a task that is being removed: its setup first, before anything else

@@ -683,7 +683,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   instead of all but one failing in git. A name the user chose, as the command line takes it,
   is refused instead (`BranchExists`, `TaskFolderExists`, `TaskExists`). Removing a task
   deletes its local branch (`delete_branch`, which the app sets) unless the task started from
-  it or commits on it are on neither the base nor a remote; a branch git will not check or
+  it, a task that is still there is based on it (`based_on`: one stacked on it with `from`
+  reads its changes against it), or commits on it are on neither the base nor a remote; a branch git will not check or
   delete is kept and noted, since the task is gone by then. A remote branch is never touched.
   What a task's sessions left (waiting messages, unread views, private files) is deleted only
   once the removal has gone through (`sessions_forgotten`), never by one that was refused.
