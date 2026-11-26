@@ -15,7 +15,7 @@ import { findSession, repositoryOf } from "../tree";
 import { usePastedImages } from "../usePastedImages";
 import { useWords } from "../useWords";
 import { FileChips } from "./FileChips";
-import { WithLinks } from "./Link";
+import { SaidText } from "./SaidText";
 
 /** Stands in for a queue that has not been read, without a new array on every render. */
 const NONE: QueuedMessage[] = [];
@@ -185,6 +185,7 @@ function QueuedRow(props: RowProps) {
                 <div className="queue-said">
                     <QueuedText
                         text={shown}
+                        sessionId={sessionId}
                         onEdit={() => {
                             // Its pastes and quotes behind tokens again, sent in full once saved.
                             const editing = { ...said, text: tokensAgain(said.text), images: [] };
@@ -241,10 +242,12 @@ function QueuedRow(props: RowProps) {
 
 /**
  * A waiting message's words, which open it for editing when pressed. The button lies under the
- * words rather than around them, since a button cannot hold links: only the addresses in them
- * stand above it, and open in the user's browser instead.
+ * words rather than around them, since a button cannot hold links: only the addresses and the
+ * paths in the worktree in them stand above it, and open in the user's browser or editor
+ * instead.
  */
-function QueuedText({ text, onEdit }: { text: string; onEdit(): void }) {
+function QueuedText(props: { text: string; sessionId: number; onEdit(): void }) {
+    const { text, sessionId, onEdit } = props;
     return (
         <div className="queue-text">
             <button
@@ -254,7 +257,9 @@ function QueuedText({ text, onEdit }: { text: string; onEdit(): void }) {
                 title="Edit this message"
                 onClick={onEdit}
             />
-            <span className="queue-words">{text ? <WithLinks text={text} /> : "Files only"}</span>
+            <span className="queue-words">
+                {text ? <SaidText text={text} sessionId={sessionId} /> : "Files only"}
+            </span>
         </div>
     );
 }

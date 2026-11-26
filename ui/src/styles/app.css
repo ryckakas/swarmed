@@ -3578,6 +3578,30 @@ code {
     text-underline-offset: 2px;
 }
 
+/*
+ * Code and a path in what the user wrote, drawn as a reply's inline code is. A message's own
+ * background is the one a reply's code has, so the code's is mixed from the text instead.
+ */
+.said-code {
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--text) 9%, transparent);
+    color: var(--teal);
+}
+
+/* A path in the worktree, which opens in the editor: a link, drawn as the code it is. */
+.said-path {
+    font-family: var(--font-mono);
+    font-size: 0.94em;
+    text-decoration-color: color-mix(in srgb, var(--teal) 45%, transparent);
+    text-underline-offset: 2px;
+}
+
+.said-path:hover {
+    background: color-mix(in srgb, var(--teal) 18%, transparent);
+    text-decoration-color: var(--teal);
+}
+
 /* Beside words selected in one of the agent's replies: quotes them into the message box. */
 .quote-button {
     position: absolute;

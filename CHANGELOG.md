@@ -22,6 +22,12 @@ notice adds its line under Unreleased.
   messages, and opens in your browser when pressed, as a link in an agent's reply does.
   Punctuation that ends the sentence after it, and a bracket closed around it, are not part of
   the address.
+- **Code and paths in your own messages look like code.** What you wrote between backticks is
+  drawn as code, without the backticks, as in an agent's reply, and so is a path: absolute,
+  from your home (`~/`), or relative with a folder and a file name (`ui/src/setup.ts`), with a
+  line and column after it if you wrote them. A path in the task's worktree, or in a chat's
+  folder, opens in your editor when pressed, at the top of the file. The rest of what you
+  write stays as you typed it: a heading, emphasis or a list is not drawn as Markdown.
 
 ## [0.4.8] - 2026-11-26
 
