@@ -682,6 +682,11 @@ impl Core {
     /// Only the session is closed: its task, worktree, branch and pull request stay.
     pub fn peer_close(&self, from: i64, id: i64) -> Result<()> {
         self.session(from)?;
+        // Whether the setup runs is asked before the session is read: a setup hands the first
+        // prompt on before it ends, so one seen as over means the row read after it already
+        // shows the turn, or the prompt still waiting. Read the other way round, a setup that
+        // ended in between would pass a row from before the prompt went.
+        let setting_up = self.setup_runs(&self.task_of(&self.session(id)?)?);
         let session = self.session(id)?;
         let started = session.spawned || self.store().session_started_by(id)? == Some(from);
         if session.parent != Some(from) || !started {
@@ -695,7 +700,7 @@ impl Core {
                 "that session is still at work; wait until it is done before closing it",
             ));
         }
-        if self.setup_runs(&self.task_of(&session)?) {
+        if setting_up {
             return Err(refused(
                 "that session's task is still being set up; wait until it is done before \
                  closing it",
