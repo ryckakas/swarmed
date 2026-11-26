@@ -15,6 +15,8 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-11-26
+
 ### Added
 
 - **Apps from MCP servers.** When Claude Code calls a tool whose MCP server attaches an app to
@@ -924,7 +926,8 @@ through Homebrew or a browser.
 - **Installing:** an install script, a Homebrew cask that also puts `swarmed` on the PATH, and
   `cargo install swarmed` for the command alone.
 
-[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.4.6...HEAD
+[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.4.7...HEAD
+[0.4.7]: https://github.com/ryckakas/swarmed/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/ryckakas/swarmed/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/ryckakas/swarmed/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/ryckakas/swarmed/compare/v0.4.3...v0.4.4
