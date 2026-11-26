@@ -185,9 +185,10 @@ fn draft_of(answer: &str) -> Option<PullDraft> {
 /// What every agent is told about the task's branch and worktree, as part of Swarmed's
 /// guidance. Swarmed follows a worktree switched to another branch, but the task's sessions,
 /// its name and its pull request are about one piece of work: another belongs in a task of
-/// its own, which the agent starts with `start_task` (`peers/tasks.rs`). Skills written for working without Swarmed often say to
-/// branch out or make a worktree first, so this says plainly that it holds against them, and
-/// how to read another branch without leaving this one.
+/// its own, which the agent starts with `start_task` (`peers/tasks.rs`). Skills written for
+/// working without Swarmed often say to branch out or make a worktree first, so this says
+/// plainly that it holds against them, and how to read another branch without leaving this
+/// one.
 pub(crate) fn worktree_instructions(branch: &str) -> String {
     format!(
         "\
