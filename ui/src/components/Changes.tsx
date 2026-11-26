@@ -3,6 +3,7 @@ import { sendOrQueue } from "../actions";
 import { api } from "../api";
 import type { FileChange, FileDiff, Project, SkippedFile, Task, Turn } from "../api/types";
 import { type DiffLine, parseDiff, splitPath } from "../diff";
+import { openable, opensInEditor } from "../files";
 import { commentKey, madeOn, type ReviewComment, reviewMessage } from "../review";
 import { useStore } from "../store";
 import {
@@ -14,6 +15,7 @@ import {
     WHOLE,
 } from "../turnChanges";
 import { useWords } from "../useWords";
+import { EditorIcon } from "./IconButton";
 import { Picker } from "./Picker";
 
 interface Props {
@@ -43,6 +45,9 @@ export function Changes({ project, task }: Props) {
     const changes = typeof read === "object" && read !== null ? read.files : read;
     const files = Array.isArray(changes) ? changes : [];
     const toggle = (path: string) => setOpen((current) => toggled(current, path));
+    const report = useStore((state) => state.report);
+    const openFile = (path: string) =>
+        void api.taskOpenFile(project.name, task.name, path).catch(report);
     const words = useWords();
 
     return (
@@ -106,6 +111,7 @@ export function Changes({ project, task }: Props) {
                             change={change}
                             open={open.has(change.path)}
                             onToggle={() => toggle(change.path)}
+                            onOpenFile={() => openFile(change.path)}
                             target={{ source, taskId: task.id, version }}
                         />
                     ))}
@@ -279,31 +285,57 @@ interface FileRowProps {
     change: FileChange;
     open: boolean;
     onToggle(): void;
+    /** Opens the file in the user's editor; not offered for a deleted one. */
+    onOpenFile(): void;
     target: Target;
 }
 
 const KIND_MARK = { added: "A", modified: "M", deleted: "D" } as const;
 
-function FileRow({ change, open, onToggle, target }: FileRowProps) {
+function FileRow({ change, open, onToggle, onOpenFile, target }: FileRowProps) {
     const { folder, name } = splitPath(change.path);
     return (
         <div className="change">
-            <button type="button" className="change-row" aria-expanded={open} onClick={onToggle}>
-                <svg className="change-chevron" viewBox="0 0 10 10" aria-hidden="true">
-                    <path d="M3.5 1.5 7 5 3.5 8.5" />
-                </svg>
-                <span className={`change-kind change-${change.kind}`} title={change.kind}>
-                    {KIND_MARK[change.kind]}
-                </span>
-                <span className="change-path" title={change.path}>
-                    {/* Kept left to right inside the right-to-left box that cuts the path's start. */}
-                    <bdi>
-                        <span className="change-folder">{folder}</span>
-                        {name}
-                    </bdi>
-                </span>
-                <Counts added={change.added} removed={change.removed} />
-            </button>
+            {/* Two buttons side by side: one button cannot hold another. */}
+            <div className="change-line" data-open={open}>
+                <button
+                    type="button"
+                    className="change-row"
+                    aria-expanded={open}
+                    onClick={onToggle}
+                >
+                    <svg className="change-chevron" viewBox="0 0 10 10" aria-hidden="true">
+                        <path d="M3.5 1.5 7 5 3.5 8.5" />
+                    </svg>
+                    <span className={`change-kind change-${change.kind}`} title={change.kind}>
+                        {KIND_MARK[change.kind]}
+                    </span>
+                    <span className="change-path" title={change.path}>
+                        {/* Kept left to right inside the right-to-left box that cuts the path's start. */}
+                        <bdi>
+                            <span className="change-folder">{folder}</span>
+                            {name}
+                        </bdi>
+                    </span>
+                    <Counts added={change.added} removed={change.removed} />
+                </button>
+                {openable(change) ? (
+                    <button
+                        type="button"
+                        className="change-open"
+                        aria-label={opensInEditor(change.path)}
+                        title={opensInEditor(change.path)}
+                        onClick={onOpenFile}
+                    >
+                        <svg viewBox="0 0 16 16" aria-hidden="true">
+                            <EditorIcon />
+                        </svg>
+                    </button>
+                ) : (
+                    // Keeps the counts of every row in one column.
+                    <span className="change-open-gap" />
+                )}
+            </div>
             {open && <Diff path={change.path} target={target} />}
         </div>
     );

@@ -1106,12 +1106,26 @@ code {
     overflow-wrap: anywhere;
 }
 
+/* A changed file's line: the button that folds its diff, then the one that opens it. */
+.change-line {
+    display: flex;
+    align-items: center;
+    padding-right: var(--space-2);
+}
+
+.change-line:hover,
+.change-line[data-open="true"] {
+    background: var(--raised);
+}
+
 .change-row {
+    flex: 1;
+    align-self: stretch;
     display: flex;
     align-items: baseline;
     gap: var(--space-2);
-    width: 100%;
-    padding: 4px var(--space-4) 4px var(--space-3);
+    min-width: 0;
+    padding: 4px var(--space-1) 4px var(--space-3);
     border: 0;
     background: none;
     color: var(--text);
@@ -1120,9 +1134,46 @@ code {
     text-align: left;
 }
 
-.change-row:hover,
-.change-row[aria-expanded="true"] {
-    background: var(--raised);
+/* Out of the way until its line is pointed at or reached with the keyboard. */
+.change-open {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--faint);
+    opacity: 0;
+}
+
+.change-open svg {
+    width: 13px;
+    height: 13px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.3;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+}
+
+.change-line:hover .change-open,
+.change-line:focus-within .change-open {
+    opacity: 1;
+}
+
+.change-open:hover,
+.change-open:focus-visible {
+    background: var(--line);
+    color: var(--text);
+}
+
+/* Where a deleted file, which has nothing to open, keeps the button's room. */
+.change-open-gap {
+    flex: none;
+    width: 22px;
 }
 
 /* Points right for a closed file and down for an open one. */

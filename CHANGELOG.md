@@ -33,6 +33,10 @@ notice adds its line under Unreleased.
   give each of the five colours its own value (`green`, `blue`, `yellow`, `red`, `purple`, in
   dark and in light), which marks follow too. `swarmed session highlight <id> <colour>` and
   `swarmed task highlight <project> <task> <colour>` do the same, and `--off` takes it off.
+- **Open a changed file in your editor from the Changes tab.** Pointing at a file's line in the
+  task panel's Changes tab shows a button at its end that opens the file in the editor from
+  the settings, in its worktree's window, as the Files tab does. Its diff stays as it was. A
+  deleted file has nothing to open, so its line has no button.
 
 ### Changed
 

@@ -1,7 +1,7 @@
 // A task's files as the panel shows them: folders that unfold, one line each. Pure, so it can be
 // tested; reading the folders is the component's part.
 
-import type { FileListing } from "./api/types";
+import type { FileChange, FileListing } from "./api/types";
 
 /** One line of the list: a file, or a folder that may be unfolded. */
 export interface FileRow {
@@ -52,4 +52,14 @@ export function toggled(unfolded: ReadonlySet<string>, path: string): Set<string
 export function leftOut(listing: FileListing | undefined): string | null {
     const more = listing?.more ?? 0;
     return more > 0 ? `${more} more not shown. Open the folder in your editor to see them.` : null;
+}
+
+/** What a button that opens a file in the editor says, here and in the Changes tab. */
+export function opensInEditor(path: string): string {
+    return `Opens ${path} in your editor`;
+}
+
+/** Whether a changed file can be opened: a deleted one is no longer in the worktree. */
+export function openable(change: Pick<FileChange, "kind">): boolean {
+    return change.kind !== "deleted";
 }

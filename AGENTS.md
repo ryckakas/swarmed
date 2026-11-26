@@ -550,6 +550,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   (`stays_inside`) and again once links are followed (`files::inside`); a link to a
   folder is listed as a file, since it may lead out. A file is opened in the user's editor
   together with its worktree, so an editor with a window per folder shows it in that window.
+  A changed file's line in the Changes tab opens it the same way, from a button beside the one
+  that folds its diff (`openable`: never a deleted file's, nor a cloud task's diff).
   Swarmed shows no file's contents itself: that is the editor's job.
 - **A place in a front end's list of events means nothing to the core.** That list also holds
   events that are only shown and never stored (`TextDelta`, `Queue`, `ConfigChanged`,
