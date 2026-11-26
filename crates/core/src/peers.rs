@@ -668,16 +668,19 @@ impl Core {
         Ok(before.unwrap_or(session.supervision))
     }
 
-    /// Closes session `id` on behalf of session `from`, which has to be the one that started
-    /// it and that it works for, and only once it is idle. A session the user started, even one
-    /// the user has work for `from`, or another agent's, is not an agent's to put away; and
-    /// closing one in the middle of a turn would throw its work away.
+    /// Closes session `id` on behalf of session `from`: one an agent started beside itself
+    /// ([`Session::spawned`]) that works for `from`, and only once it is idle. Who started it
+    /// is not kept apart from whom it works for, so one the user moved to work for `from` is
+    /// `from`'s to close too. A session the user started, even one the user has work for
+    /// `from`, or one that works for another, is not an agent's to put away; and closing one
+    /// in the middle of a turn would throw its work away.
     pub fn peer_close(&self, from: i64, id: i64) -> Result<()> {
         self.session(from)?;
         let session = self.session(id)?;
         if session.parent != Some(from) || !session.spawned {
             return Err(refused(
-                "a session can only close sessions it started itself; this one is not yours",
+                "a session can only close sessions an agent started that work for it; this one \
+                 is not yours",
             ));
         }
         if is_busy(&session) {
