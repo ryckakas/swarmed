@@ -236,9 +236,9 @@ export const TOOL_CALLS: [ToolCalls, string][] = [
 
 /** Which formulas in what agents write can be drawn as math. */
 export const MATH_SHOWN: [MathShown, string][] = [
-    ["off", "None, shown as written"],
-    ["standard", "$$…$$, \\(…\\), \\[…\\] and math blocks"],
-    ["with_single_dollars", "Those, and $…$ where it reads as math"],
+    ["off", "Off"],
+    ["standard", "$$ and brackets"],
+    ["with_single_dollars", "Also single $"],
 ];
 
 /** Which levels of the account's usage the notice at the top of the window says. */

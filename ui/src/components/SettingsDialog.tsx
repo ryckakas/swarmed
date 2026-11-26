@@ -461,7 +461,7 @@ function Sessions({ settings }: { settings: Settings }) {
             </Row>
             <Row
                 label="Math"
-                hint="Which formulas in agents' replies are drawn as math. A single $ counts only when chosen here, so prices and shell variables such as $5 and $HOME stay text. Code is never drawn, and copying a formula gives its TeX."
+                hint="Which formulas in agents' replies are drawn as math: $$…$$, \(…\), \[…\] and math blocks, and with Also single $, $…$ where it reads as math. Prices and shell variables such as $5 and $HOME stay text, code is never drawn, and copying a formula gives its TeX."
             >
                 <Picker
                     label="Math"
