@@ -12,6 +12,7 @@
 //! filed under that call, and reported at work in the background from when its agent says it
 //! runs to when it says it is done. Codex does not show the call that starts one, so one is
 //! made up for it. A sub-agent that is set to work again is shown again, by a call of its own.
+//! Antigravity tells of no sub-agents in either shape, so its are plain tool calls.
 
 use std::collections::HashMap;
 

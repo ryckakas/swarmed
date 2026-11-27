@@ -750,6 +750,8 @@ pub enum AgentEvent {
     /// Something a sub-agent said or did: an agent the session's own agent started for a part
     /// of its work, and whose answer it gets as the result of the tool it started it with.
     /// Kept apart from the conversation, which is between the user and the session's agent.
+    /// This is all there is of sub-agents: no table or row holds one. Conversations recorded
+    /// before this have a sub-agent's words among the agent's own.
     Sub {
         /// The [`AgentEvent::ToolUse`] that started the sub-agent, which is what tells one
         /// from another.

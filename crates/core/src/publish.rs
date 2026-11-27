@@ -2,6 +2,11 @@
 //!
 //! Each step is something the user asked for by name; nothing here is done by itself. Commits
 //! are made by the user's own git, as them, and the pull request is opened by their own `gh`.
+//! Nothing is added to either.
+//!
+//! What is shown and published follows the branch the worktree is on now
+//! (`git::current_branch`), never `task.branch` in its place, since an agent or the user can
+//! switch it: publishing the recorded branch beside another's work looked as if it had worked.
 
 use std::path::Path;
 use std::time::Duration;
@@ -188,7 +193,8 @@ fn draft_of(answer: &str) -> Option<PullDraft> {
 /// its own, which the agent starts with `start_task` (`peers/tasks.rs`). Skills written for
 /// working without Swarmed often say to branch out or make a worktree first, so this says
 /// plainly that it holds against them, and how to read another branch without leaving this
-/// one.
+/// one. Given whatever the settings say. `docs/coding-agents.md` ("Skills that make their own
+/// worktree or branch") tells users the same: change both.
 pub(crate) fn worktree_instructions(branch: &str) -> String {
     format!(
         "\
@@ -475,7 +481,8 @@ impl Core {
     }
 
     /// Opens a pull request for the branch a task's worktree is on into the task's base, with
-    /// the user's own `gh`. The branch has to be pushed first.
+    /// the user's own `gh`. The branch has to be pushed first. `draft` goes as it is, with
+    /// nothing added: a `Closes #N` the user took out stays out.
     pub async fn task_pull_create(
         &self,
         project: &str,

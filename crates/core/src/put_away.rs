@@ -21,7 +21,8 @@
 //!   its own number of days: a task whose pull request merged is put away that long after the
 //!   merge (GitHub's `mergedAt`), and a task none of whose sessions recorded anything for that
 //!   long. A terminal or a running stack is not activity. A task brought back after its merge
-//!   is not put away again for that merge.
+//!   is not put away again for that merge. Agents cannot turn a rule on through `configure`:
+//!   a rule stops agents by itself.
 //! - **Never while work goes on:** a session at work or waiting for the user, work an agent
 //!   left running, a session another Swarmed runs, a session that goes on by itself when a
 //!   usage limit resets, or a setup under way. The next look tries again.

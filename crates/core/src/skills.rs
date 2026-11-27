@@ -352,7 +352,9 @@ impl Paths {
 
     /// What the agent is sent in place of a message that calls a skill by name, `/name` and
     /// whatever follows: what the skill says, then the rest of the message. `None` for any
-    /// other message, which goes as it is.
+    /// other message, which goes as it is. The message is recorded as it was typed. This is on
+    /// `Paths`, not `Core`, so that a queued message, sent from a task without the core, gets
+    /// the same.
     pub(crate) fn skill_called(&self, agent: &str, worktree: &Path, text: &str) -> Option<String> {
         let called = text.strip_prefix('/')?;
         let (name, rest) = called

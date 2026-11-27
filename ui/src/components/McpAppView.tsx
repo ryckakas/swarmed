@@ -322,7 +322,7 @@ function AppFrame(props: {
                 className="html-view-frame"
                 title={`App from ${item.server}`}
                 // Scripts only: no origin of its own to keep anything in, no forms, no pop-ups,
-                // and no way to send the window anywhere.
+                // and no way to send the window anywhere. The user's choice.
                 sandbox="allow-scripts"
                 referrerPolicy="no-referrer"
                 src={address}

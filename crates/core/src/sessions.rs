@@ -231,7 +231,8 @@ pub struct Session {
     pub parent: Option<i64>,
     /// Whether another session's agent started it in its own worktree (`spawn_session`), not
     /// the user: its first message is that agent's words, and its turns are reported to that
-    /// session rather than to the user.
+    /// session rather than to the user, while that one is open. It keeps it from spawning
+    /// unless its role starts sessions. A parent the user chooses never changes it.
     pub spawned: bool,
     /// What the session is for (`roles.rs`), by the name of its role: `planner` and the like.
     /// `None` for no role, which works as the user asks.
@@ -1308,7 +1309,10 @@ impl Core {
             auth,
             resume_at: rewind::resume_at(&self.session_events(session.id)?),
             resume: session.agent_session_id,
-            // Showing a view changes nothing, so it is never worth a question.
+            // Showing a view changes nothing, so it is never worth a question. No other tool of
+            // Swarmed's is on it: the session tools start and reach agents, and `show_browser`
+            // navigates with the task's logins. A role uses its session tools unasked instead
+            // (`roles::uses_unasked`).
             allowed_tools: vec![SHOW_HTML_FOR_CLAUDE.to_string()],
             private_dir: Some(self.private_dir(session.id)),
             ..SessionSpec::default()
@@ -2694,6 +2698,8 @@ fn show_views(store: &Mutex<Store>, live: &Live, id: i64, spool: &Path) {
 /// Records a move of the task's worktree to another branch, seen when a tool answered or the
 /// turn ended: once per move, in the session whose agent was at work, which knows of it from
 /// then on. The branch is remembered for the task even if nobody looks at its panel meanwhile.
+/// Where worktrees were seen is kept in memory (`Live`): after a restart the first look only
+/// takes stock. Only the task's own worktree is read, so a checkout elsewhere is never a move.
 fn notice_moved(shared: &Shared, id: i64) {
     if in_chat(&shared.store, id) {
         return;

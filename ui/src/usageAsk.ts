@@ -4,8 +4,9 @@
 // answers from its own copy of the figures for a minute after it fetched them, so while that
 // copy is younger the core holds the question back until it is not (`waiting`), and the answer
 // is fetched after the user asked. Each step shows: the question going, the time it goes when
-// held back, counting down, and the answer to the second, new or the same as before. The
-// figures last heard stay drawn as they are meanwhile, never dimmed: what is refreshing is
+// held back, counting down, and the answer to the second, new or the same as before: an
+// answer that changed nothing would otherwise look like no answer. The figures last heard
+// stay drawn as they are meanwhile, never dimmed (the user's choice): what is refreshing is
 // said beside them.
 
 import type { AccountUsage, AgentEvent } from "./api/types";

@@ -8,7 +8,9 @@
 //! which hold their secrets, are not. An app is read once its call has a result that is not
 //! an error, and reported as [`AgentEvent::App`] with that result, which an app is handed.
 //! A tool called for an app is decided by Claude Code as the agent's own call of it would
-//! be, and its result is kept out of the model's context.
+//! be, and its result is kept out of the model's context (the user's choice).
+//!
+//! Tried with Claude Code 2.1.332.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 

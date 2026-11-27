@@ -190,7 +190,8 @@ const UNTRUSTED_COMPONENTS = { ...COMPONENTS, img: ImageLink };
  * Text anyone could write, such as a GitHub issue and its comments, drawn as GitHub draws it:
  * Markdown, and of its HTML only what `ISSUE_SCHEMA` keeps, such as a folded `<details>` or a
  * `<kbd>`. Whatever the settings say of views, a view's block stays code with no way to show
- * it, and an image is a link: nothing in it is run or loaded.
+ * it, an image is a link, and no formula is drawn: nothing in it is run or loaded. Drawn in the
+ * window only, never in a view or a frame.
  */
 export const UntrustedMarkdown = memo(function UntrustedMarkdown({ text }: { text: string }) {
     return (
