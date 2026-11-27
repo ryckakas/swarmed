@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import { describe, expect, it } from "vitest";
-import { copiedText, textOf } from "./codeText";
+import { barBeside, copiedText, textOf } from "./codeText";
 
 /** What the blocks drawn last copied, in order. */
 let copied: string[] = [];
@@ -81,5 +81,23 @@ describe("copiedText", () => {
 
     it("gives each block its own code", () => {
         expect(copiedFrom("```\none\n```\n\nThen:\n\n```\ntwo\n```")).toEqual(["one", "two"]);
+    });
+});
+
+describe("barBeside", () => {
+    it("is the room a scroll bar takes beside a block, borders left out", () => {
+        // A tool call's body, 400 wide with a 15px bar: 385 show its text.
+        expect(barBeside(400, 385, 0)).toBe(15);
+        // A code block's border on each side is not a bar.
+        expect(barBeside(402, 385, 2)).toBe(15);
+    });
+
+    it("is nothing where nothing scrolls, or the bar floats over the text", () => {
+        expect(barBeside(400, 400, 0)).toBe(0);
+        expect(barBeside(402, 400, 2)).toBe(0);
+    });
+
+    it("is never less than nothing, however the widths were rounded", () => {
+        expect(barBeside(400, 401, 0)).toBe(0);
     });
 });

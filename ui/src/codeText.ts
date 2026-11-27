@@ -21,3 +21,12 @@ export function copiedText(block: ReactNode): string {
     const text = textOf(block);
     return text.endsWith("\n") ? text.slice(0, -1) : text;
 }
+
+/**
+ * How wide the scroll bar beside a block is, from its box's width (`offsetWidth`), the width
+ * that shows its text (`clientWidth`) and its borders: what the copy button stands clear of. 0
+ * where the block does not scroll, and where scroll bars take no room and float over it.
+ */
+export function barBeside(box: number, shown: number, borders: number): number {
+    return Math.max(0, box - shown - borders);
+}

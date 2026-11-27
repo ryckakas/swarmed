@@ -1,4 +1,12 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import {
+    type ReactNode,
+    type RefObject,
+    useEffect,
+    useLayoutEffect,
+    useRef,
+    useState,
+} from "react";
+import { barBeside } from "../codeText";
 import { CopyIcon } from "./IconButton";
 
 /** How long the button says what came of a press, in milliseconds. */
@@ -23,12 +31,41 @@ interface Props {
  * the keyboard is on the button.
  */
 export function Copyable({ text, className, children }: Props) {
+    const box = useRef<HTMLDivElement>(null);
+    useClearOfBar(box);
     return (
-        <div className={className === undefined ? "copyable" : `copyable ${className}`}>
+        <div ref={box} className={className === undefined ? "copyable" : `copyable ${className}`}>
             {children}
             <CopyButton text={text} />
         </div>
     );
+}
+
+/**
+ * Keeps the button clear of the block's scroll bar where scroll bars take room, as a long tool
+ * call's body has one: its width is `--bar` on the box, which the button's corner is set in
+ * by, and is measured again as the block is drawn wider, narrower or taller.
+ */
+function useClearOfBar(box: RefObject<HTMLDivElement | null>) {
+    useLayoutEffect(() => {
+        const shown = box.current;
+        const block = shown?.firstElementChild;
+        if (!(shown && block instanceof HTMLElement)) {
+            return;
+        }
+        const look = () => {
+            const style = getComputedStyle(block);
+            const borders =
+                Number.parseFloat(style.borderLeftWidth) +
+                Number.parseFloat(style.borderRightWidth);
+            const bar = barBeside(block.offsetWidth, block.clientWidth, borders);
+            shown.style.setProperty("--bar", `${bar}px`);
+        };
+        look();
+        const observer = new ResizeObserver(look);
+        observer.observe(block);
+        return () => observer.disconnect();
+    }, [box]);
 }
 
 /** Puts `text` on the clipboard; a window with no clipboard refuses as one that says no. */

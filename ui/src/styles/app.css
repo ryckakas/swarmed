@@ -4199,7 +4199,8 @@ code {
 .copy-corner {
     position: absolute;
     top: var(--space-1);
-    right: var(--space-1);
+    /* Clear of the block's scroll bar, where one takes room (`Copyable`). */
+    right: calc(var(--space-1) + var(--bar, 0px));
     display: flex;
     align-items: center;
     gap: var(--space-1);

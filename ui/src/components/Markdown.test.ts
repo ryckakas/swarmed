@@ -10,8 +10,11 @@ const TABLE = [
     "| `own-links` | Lets a rule name the rules it builds on. |",
 ].join("\n");
 
-/** Where a table starts: in the box that scrolls it sideways, as a table still. */
-const BOXED = '<div class="prose-table"><table>';
+/**
+ * Where a table starts: in the box that scrolls it sideways, as a table still, which is named
+ * and a stop for the keyboard, so that the keyboard can scroll it.
+ */
+const BOXED = '<section class="prose-table" aria-label="Table" tabindex="0"><table>';
 
 describe("a table", () => {
     it("is in a box of its own in a reply, whatever the settings", () => {
@@ -51,6 +54,9 @@ function count(drawn: string, part: string): number {
     return drawn.split(part).length - 1;
 }
 
+/** Where a code block starts: before its button, named, and a stop for the keyboard. */
+const BLOCK = '<div class="copyable"><pre role="region" aria-label="Code" tabindex="0">';
+
 describe("a code block", () => {
     const CODE = "Run:\n\n```sh\ncargo test\n```\n\nThen:\n\n    cargo fmt\n";
 
@@ -66,7 +72,7 @@ describe("a code block", () => {
                 createElement(AgentMarkdown, { text: CODE, math, views }),
             );
             expect(count(drawn, COPY)).toBe(2);
-            expect(drawn).toContain('<div class="copyable"><pre>');
+            expect(drawn).toContain(BLOCK);
         }
     });
 

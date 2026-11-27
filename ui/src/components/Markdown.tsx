@@ -91,12 +91,22 @@ type PreProps = ComponentProps<"pre"> & { node?: unknown };
 
 /**
  * A code block, with a button that copies its code as written (`copiedText`). Every block in
- * text drawn here goes through it, whatever the settings say of views.
+ * text drawn here goes through it, whatever the settings say of views. A long line scrolls it
+ * sideways, so it is a stop for the keyboard, which scrolls it, just before its button.
  */
 function CodeBlock({ children, node: _node, ...rest }: PreProps) {
     return (
         <Copyable text={copiedText(children)}>
-            <pre {...rest}>{children}</pre>
+            {/* biome-ignore lint/a11y/useSemanticElements: the box that scrolls is the pre, which keeps the code's spaces */}
+            <pre
+                {...rest}
+                role="region"
+                aria-label="Code"
+                // biome-ignore lint/a11y/noNoninteractiveTabindex: WebKit gives a box that scrolls no stop of its own
+                tabIndex={0}
+            >
+                {children}
+            </pre>
         </Copyable>
     );
 }
@@ -156,13 +166,19 @@ function ImageLink({ src, alt }: ComponentProps<"img"> & { node?: unknown }) {
 
 /**
  * A table, in a box that scrolls sideways when the table is wider than the text around it, so
- * that the transcript never does. The table itself stays a table, as screen readers read one.
+ * that the transcript never does, and a stop for the keyboard, which scrolls it. The table
+ * itself stays a table, as screen readers read one.
  */
 function Table({ node: _node, ...rest }: ComponentProps<"table"> & { node?: unknown }) {
     return (
-        <div className="prose-table">
+        <section
+            className="prose-table"
+            aria-label="Table"
+            // biome-ignore lint/a11y/noNoninteractiveTabindex: WebKit gives a box that scrolls no stop of its own
+            tabIndex={0}
+        >
             <table {...rest} />
-        </div>
+        </section>
     );
 }
 
