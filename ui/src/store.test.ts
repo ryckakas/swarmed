@@ -347,6 +347,28 @@ describe("removing", () => {
         expect(queues[4]).toBeUndefined();
     });
 
+    it("closes a session with those that work for it, in any task, and leaves them otherwise (#470)", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        const shown = () =>
+            [9, 10, 11, 12, 13].filter((id) => findSession(useStore.getState().projects, id));
+        // The sample architect, 9, has 10 and 12 working for it, 11 under 10, and 13 elsewhere.
+        const under = await api.sessionDescendants(9, false);
+        expect(under.map((one) => [one.session.id, one.depth])).toEqual([
+            [10, 1],
+            [11, 2],
+            [12, 1],
+            [13, 1],
+        ]);
+        await useStore.getState().open(api, 11);
+        await useStore.getState().close(api, 10, false);
+        expect(shown()).toEqual([9, 11, 12, 13]);
+        await useStore.getState().close(api, 9, true);
+        expect(shown()).toEqual([]);
+        // The one on screen went with them.
+        expect(useStore.getState().selectedSessionId).toBeNull();
+    });
+
     it("forgets what it kept of a removed task's sessions", async () => {
         const api = createMockApi();
         await useStore.getState().refresh(api);
@@ -384,7 +406,7 @@ describe("the session on screen going", () => {
     it("opens the new task of its repository when it is closed", async () => {
         const api = createMockApi();
         const { project } = await onScreen(api);
-        await useStore.getState().close(api, 4);
+        await useStore.getState().close(api, 4, false);
         expect(centre()).toEqual({ selectedSessionId: null, draftProject: project });
     });
 
@@ -444,7 +466,7 @@ describe("the session on screen going", () => {
         };
         const disconnect = connect(api);
         const { project } = await onScreen(api);
-        await base.sessionClose(4);
+        await base.sessionClose(4, false);
         heard(published(4, { type: "closed" }));
         expect(centre()).toEqual({ selectedSessionId: null, draftProject: project });
 
@@ -542,7 +564,7 @@ describe("unsent messages", () => {
         }
         await useStore.getState().deleteSession(api, 4);
         expect(Object.keys(drafts())).toEqual(["3", "5"]);
-        await useStore.getState().close(api, 5);
+        await useStore.getState().close(api, 5, false);
         expect(Object.keys(drafts())).toEqual(["3"]);
         const { projects } = useStore.getState();
         const session = findSession(projects, 3);
@@ -569,7 +591,7 @@ describe("unsent messages", () => {
         await useStore.getState().deleteSession(api, 4);
         expect(useStore.getState().recalls).toEqual({});
         useStore.getState().noteRecall(5, browsing);
-        await useStore.getState().close(api, 5);
+        await useStore.getState().close(api, 5, false);
         expect(useStore.getState().recalls).toEqual({});
     });
 
@@ -596,7 +618,7 @@ describe("unsent messages", () => {
         ]);
         await useStore.getState().deleteSession(api, 4);
         expect(Object.keys(useStore.getState().scrolls).sort()).toEqual(["3", "5"]);
-        await useStore.getState().close(api, 5);
+        await useStore.getState().close(api, 5, false);
         expect(Object.keys(useStore.getState().scrolls)).toEqual(["3"]);
         // Its transcript goes after a closed session: what it would keep then is not kept.
         keepScroll(5, "5", up);
@@ -956,7 +978,7 @@ describe("closed sessions", () => {
     it("are counted on their task, listed, and come back when reopened", async () => {
         const api = createMockApi();
         await useStore.getState().refresh(api);
-        await useStore.getState().close(api, 3);
+        await useStore.getState().close(api, 3, false);
         const task = () =>
             useStore
                 .getState()

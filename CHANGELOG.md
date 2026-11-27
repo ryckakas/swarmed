@@ -17,6 +17,13 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **Close a session with every session that works for it.** When others work for the session you
+  close, however far down and in whichever task, the close dialog lists them with how each is
+  doing and offers to close them too, unticked unless you tick it. Putting a task away asks the
+  same about sessions of other tasks that work for its sessions; their tasks stay as they are.
+  If another Swarmed runs any of them, nothing is closed. From the command line,
+  `swarmed session close <id> --with-workers` and `swarmed task done <project> <task>
+  --close-workers`.
 - **How many sessions may work for one is yours to set.** Settings → Sessions → Workers per
   session (`max_workers`) sets how many open sessions may work for one session before its agent
   starts no more, from 1 to 20; it was a fixed six, which stays the default. When an agent is

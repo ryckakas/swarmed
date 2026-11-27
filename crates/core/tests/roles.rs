@@ -162,7 +162,7 @@ async fn a_role_changed_while_a_session_runs_is_recorded_and_told_with_the_next_
         core.session_set_role(session.id, Some("boss")),
         Err(Error::UnknownRole { .. })
     ));
-    core.session_close(session.id).expect("closes");
+    core.session_close(session.id, false).expect("closes");
     assert!(matches!(
         core.session_set_role(session.id, Some("reviewer")),
         Err(Error::SessionClosed(_))

@@ -52,7 +52,7 @@ async fn a_task_put_away_stops_its_agents_keeps_its_sessions_and_comes_back() {
     let mut bus = core.subscribe();
 
     let notes = core
-        .task_done("demo", "one", &hooks::discard)
+        .task_done("demo", "one", false, &hooks::discard)
         .await
         .expect("puts away");
     assert!(notes.is_empty(), "{notes:?}");
@@ -78,7 +78,7 @@ async fn a_task_put_away_stops_its_agents_keeps_its_sessions_and_comes_back() {
     assert_eq!(core.tasks("demo", false).expect("lists").len(), 1);
 
     // Putting away what is done changes nothing.
-    core.task_done("demo", "one", &hooks::discard)
+    core.task_done("demo", "one", false, &hooks::discard)
         .await
         .expect("done already");
     assert_eq!(task(&core).done_at, done.done_at);
@@ -96,7 +96,7 @@ async fn closing_the_sessions_is_a_setting_and_reopening_one_brings_the_task_bac
     core.set_settings(&settings(|s| s.put_away_closes_sessions = true))
         .expect("saves");
 
-    core.task_done("demo", "one", &hooks::discard)
+    core.task_done("demo", "one", false, &hooks::discard)
         .await
         .expect("puts away");
     assert_eq!(core.sessions("demo", "one").expect("lists"), []);
@@ -112,7 +112,7 @@ async fn starting_one_of_its_agents_brings_a_task_back() {
     let fx = fixture();
     let core = core_with_task(&fx).await;
     let session = worked_session(&core).await;
-    core.task_done("demo", "one", &hooks::discard)
+    core.task_done("demo", "one", false, &hooks::discard)
         .await
         .expect("puts away");
     assert!(task(&core).done_at.is_some());
@@ -130,7 +130,7 @@ async fn its_stack_is_stopped_and_starting_it_brings_the_task_back() {
     assert!(core.stack_start("demo", "one").expect("starts"));
     assert!(core.stack_is_running("demo", "one").expect("asks"));
 
-    core.task_done("demo", "one", &hooks::discard)
+    core.task_done("demo", "one", false, &hooks::discard)
         .await
         .expect("puts away");
     assert!(!core.stack_is_running("demo", "one").expect("asks"));
@@ -149,7 +149,7 @@ async fn a_chat_is_not_put_away() {
     core.task_new(CHATS, "talk", NewTaskOptions::default(), &hooks::discard)
         .await
         .expect("makes a chat");
-    let refused = core.task_done(CHATS, "talk", &hooks::discard).await;
+    let refused = core.task_done(CHATS, "talk", false, &hooks::discard).await;
     assert!(matches!(refused, Err(Error::NoRepository)), "{refused:?}");
 }
 

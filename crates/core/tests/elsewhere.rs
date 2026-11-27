@@ -337,7 +337,7 @@ async fn a_session_run_elsewhere_is_not_started_here_and_its_queue_waits_for_tha
     );
     // Nor is it put away or deleted here, nor its task or repository removed, even by force:
     // that agent would work on where no list shows it, or in a worktree that is gone.
-    let closed = here.session_close(session.id);
+    let closed = here.session_close(session.id, false);
     assert!(matches!(closed, Err(Error::RunsElsewhere(_))), "{closed:?}");
     let deleted = here.session_delete(session.id);
     assert!(

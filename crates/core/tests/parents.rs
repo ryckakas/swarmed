@@ -153,7 +153,7 @@ async fn who_works_for_whom_stays_a_tree() {
 
     // Not for a closed one, and a closed one is not given a parent either.
     let closed = new_session(&core, "one");
-    core.session_close(closed.id).expect("closes");
+    core.session_close(closed.id, false).expect("closes");
     refused(core.session_set_parent(top.id, Some(closed.id)), "closed");
     assert!(matches!(
         core.session_set_parent(closed.id, Some(top.id)),
@@ -301,7 +301,7 @@ async fn a_deleted_parent_leaves_those_that_worked_for_it_with_none() {
     core.session_set_parent(child.id, Some(parent.id))
         .expect("works for it");
     // Closed, it is still the one they worked for.
-    core.session_close(parent.id).expect("closes");
+    core.session_close(parent.id, false).expect("closes");
     assert_eq!(
         core.session(child.id).expect("reads").parent,
         Some(parent.id)

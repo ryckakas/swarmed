@@ -406,7 +406,7 @@ fn the_ui_can_paste_an_image_into_a_message_and_show_it_again() {
         format!("look\n\nAttached files:\n- {path}")
     );
     // The folder goes with the session, when it goes for good.
-    app.ok("session_close", json!({ "id": id }));
+    app.ok("session_close", json!({ "id": id, "withWorkers": false }));
     assert!(folder.exists());
     app.ok("session_delete", json!({ "id": id }));
     assert!(!folder.exists());
@@ -632,6 +632,79 @@ fn the_ui_can_have_a_session_work_for_another_across_tasks() {
 }
 
 #[test]
+fn the_ui_can_close_a_session_with_those_that_work_for_it_and_put_a_task_away_with_them() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    for name in ["one", "two"] {
+        app.ok(
+            "task_new",
+            json!({ "project": "demo", "name": name, "branch": null }),
+        );
+    }
+    let how = json!({ "model": null, "supervision": "auto", "effort": null });
+    let new = |task: &str| {
+        let options = json!({ "project": "demo", "task": task, "agent": null, "how": how });
+        app.ok("session_new", options)["id"].clone()
+    };
+    // An architect in one, a planner for it in two, an implementer for that in one.
+    let (architect, planner, implementer) = (new("one"), new("two"), new("one"));
+    for (id, parent) in [(&planner, &architect), (&implementer, &planner)] {
+        app.ok("session_set_parent", json!({ "id": id, "parent": parent }));
+    }
+
+    let under = app.ok(
+        "session_descendants",
+        json!({ "id": architect, "closed": false }),
+    );
+    let listed: Vec<_> = under
+        .as_array()
+        .expect("a list")
+        .iter()
+        .map(|one| {
+            (
+                one["session"]["id"].clone(),
+                one["depth"].clone(),
+                one["closed"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            (planner.clone(), json!(1), json!(false)),
+            (implementer.clone(), json!(2), json!(false))
+        ]
+    );
+    let elsewhere = app.ok(
+        "task_descendants_elsewhere",
+        json!({ "project": "demo", "name": "one" }),
+    );
+    assert_eq!(elsewhere[0]["session"]["id"], planner);
+    assert_eq!(elsewhere.as_array().map(Vec::len), Some(1));
+
+    // Closed alone, the planner leaves the implementer open; with them, the deepest first.
+    let closed = app.ok(
+        "session_close",
+        json!({ "id": planner, "withWorkers": false }),
+    );
+    assert_eq!(closed, json!([planner]));
+    let left = app.ok(
+        "session_descendants",
+        json!({ "id": architect, "closed": true }),
+    );
+    assert_eq!(left[0]["closed"], json!(true));
+    assert_eq!(left[1]["session"]["id"], implementer);
+    let closed = app.ok(
+        "session_close",
+        json!({ "id": architect, "withWorkers": true }),
+    );
+    assert_eq!(closed, json!([implementer, architect]));
+
+    let done = json!({ "project": "demo", "name": "two", "closeWorkers": true });
+    assert_eq!(app.ok("task_done", done), json!([]));
+}
+
+#[test]
 fn the_ui_can_give_a_session_a_role_at_its_start_and_after() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
@@ -690,7 +763,8 @@ fn the_ui_can_put_a_task_away_and_bring_it_back() {
     let task = json!({ "project": "demo", "name": "one", "branch": null });
     app.ok("task_new", task);
     let which = json!({ "project": "demo", "name": "one" });
-    assert_eq!(app.ok("task_done", which.clone()), json!([]));
+    let done = json!({ "project": "demo", "name": "one", "closeWorkers": false });
+    assert_eq!(app.ok("task_done", done), json!([]));
     let one = &app.ok("overview", json!({}))[0]["tasks"][0];
     assert!(one["done_at"].is_i64(), "{one}");
     assert_eq!(one["done_why"], json!("hand"));
@@ -700,8 +774,11 @@ fn the_ui_can_put_a_task_away_and_bring_it_back() {
         (&one["done_at"], &one["done_why"]),
         (&json!(null), &json!(null))
     );
-    app.invoke("task_done", json!({ "project": "demo", "name": "nope" }))
-        .expect_err("no such task");
+    app.invoke(
+        "task_done",
+        json!({ "project": "demo", "name": "nope", "closeWorkers": false }),
+    )
+    .expect_err("no such task");
 }
 
 #[test]
@@ -767,7 +844,7 @@ fn the_ui_can_deny_interrupt_and_remove() {
         app.invoke("session_rename", json!({ "id": id, "title": " " })),
         Err(json!("a session title cannot be empty"))
     );
-    app.ok("session_close", json!({ "id": id }));
+    app.ok("session_close", json!({ "id": id, "withWorkers": false }));
     assert_eq!(
         app.ok("overview", json!({}))[0]["tasks"][0]["sessions"],
         json!([])
@@ -1990,7 +2067,7 @@ fn the_ui_can_list_closed_sessions_and_reopen_one() {
         json!({ "project": "demo", "task": "one", "agent": null, "how": { "model": null, "supervision": "ask", "effort": null } }),
     );
     let id = &session["id"];
-    app.ok("session_close", json!({ "id": id }));
+    app.ok("session_close", json!({ "id": id, "withWorkers": false }));
 
     // Closed is not gone: it is counted, listed, and can be put back.
     let closed = |app: &App| app.ok("overview", json!({}))[0]["tasks"][0]["closed"].clone();

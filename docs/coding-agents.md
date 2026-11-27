@@ -617,8 +617,26 @@ works for and those that work for it, with how each is doing; pressing one opens
 
 Each agent is told who works with it when it starts. When you change it, the conversations it
 concerns say so on a line of their own, and their agents are told who works with them now along
-with your next message. Closing a session leaves those that worked for it as they are; deleting
-one leaves them working for nobody. A fork starts working for nobody.
+with your next message. Deleting a session leaves those that worked for it working for nobody. A
+fork starts working for nobody.
+
+**Closing a session** leaves those that work for it open, still working for it, unless you ask.
+When others work for it, however far down and in whichever task, the close dialog lists every
+open one with how it is doing, those at work named as such, since closing stops their agents in
+the middle of a turn, and offers **Also close the sessions that work for it**, unticked to begin
+with. Ticked, they are closed with it, the deepest first, and each keeps its conversation as any
+closed session does. Reopening the top one reopens only it. If another Swarmed runs any of them,
+nothing is closed and the refusal names that session, so a branch is never left half closed.
+From the command line, `swarmed session close 12 --with-workers`; closed without it, the command
+says on stderr which sessions still work for it.
+
+**Putting a task away** asks the same when sessions of other tasks work for its sessions:
+**Also close the sessions in other tasks that work for this task's sessions**. Their tasks are not
+put away, only those sessions closed; the task's own sessions follow the setting that closes them
+or not. From the command line, `swarmed task done shop fix-login --close-workers`. The rules that
+put tasks away by themselves never close anything outside the task.
+
+Agents cannot do either: `close_session` closes only an idle session the agent started.
 
 ### Roles
 

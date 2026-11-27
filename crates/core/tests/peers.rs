@@ -231,7 +231,7 @@ async fn a_session_starts_others_beside_itself_within_limits() {
         Err(Error::Peers(reason)) if reason.contains("most allowed")
     ));
     // Closing one makes room again.
-    core.session_close(child.id).expect("closes");
+    core.session_close(child.id, false).expect("closes");
     core.peer_spawn(parent.id, "room again", None, None)
         .expect("spawns");
 }
@@ -346,7 +346,7 @@ async fn a_started_session_tells_the_user_it_finished_once_nobody_else_hears_it(
     assert_eq!(core.notice_for(&done).expect("reads"), None);
 
     // With that one closed, its agent is told to report to the user, who hears of it.
-    core.session_close(parent.id).expect("closes");
+    core.session_close(parent.id, false).expect("closes");
     core.session_send(child.id, "carry on").expect("sends");
     let done = turn_end(&mut bus, child.id).await;
     let notice = core.notice_for(&done).expect("reads").expect("a notice");
@@ -374,7 +374,7 @@ async fn a_closed_session_is_neither_read_nor_brought_back_by_a_message() {
         .peer_spawn(parent.id, "a part", None, None)
         .expect("spawns");
     turn(&mut bus, child.id).await;
-    core.session_close(child.id).expect("closes");
+    core.session_close(child.id, false).expect("closes");
     while !matches!(next(&mut bus).await.event, AgentEvent::Exited { .. }) {}
 
     // Its agent stays stopped, whoever asks: a message, or a plain start.
@@ -398,7 +398,7 @@ async fn a_closed_session_is_neither_read_nor_brought_back_by_a_message() {
         spawned.push(another.expect("spawns").id);
     }
     for id in &spawned {
-        core.session_close(*id).expect("closes");
+        core.session_close(*id, false).expect("closes");
         assert!(out_of_reach(core.peer_message(parent.id, *id, "carry on")));
     }
     assert_eq!(core.running_sessions(), Vec::<i64>::new());

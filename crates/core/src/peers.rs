@@ -860,7 +860,7 @@ impl Core {
                  task up again or send the prompt anyway",
             ));
         }
-        self.session_close(id)
+        self.session_close(id, false).map(drop)
     }
 
     /// Answers one request of the tool server: `tool` called by session `from` with

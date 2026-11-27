@@ -58,6 +58,17 @@ export interface Session {
     highlight: MarkColour | null;
 }
 
+/**
+ * A session that works for another, directly or through others, as the core lists those under
+ * one (`Descendant`).
+ */
+export interface Descendant {
+    session: Session;
+    /** How far below: 1 for one that works for it, 2 for one that works for such a one. */
+    depth: number;
+    closed: boolean;
+}
+
 /** How many things a session's agent has running in the background now, by kind. */
 export interface BackgroundCount {
     /** Sub-agents at work. */

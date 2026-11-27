@@ -211,8 +211,15 @@ pub(crate) enum SessionCommand {
         #[arg(long)]
         cancel: bool,
     },
-    /// Take a session out of the lists. Its history is kept.
-    Close { id: i64 },
+    /// Take a session out of the lists. Its history is kept. The sessions that work for it stay
+    /// open, which is said, unless asked to close them too.
+    Close {
+        id: i64,
+        /// Also close the open sessions that work for it, however far down and in whichever
+        /// task, the deepest first. If another Swarmed runs any of them, nothing is closed.
+        #[arg(long)]
+        with_workers: bool,
+    },
     /// Put a closed session back in the lists.
     Reopen { id: i64 },
     /// Delete a session and its conversation for good, open or closed. The task's files stay.
@@ -499,7 +506,7 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
             remote_control(core, id, off, auth).await
         }
         SessionCommand::ContinueAtReset { id, cancel } => continue_at_reset(core, id, cancel),
-        SessionCommand::Close { id } => Ok(core.session_close(id)?),
+        SessionCommand::Close { id, with_workers } => closed(core, id, with_workers),
         SessionCommand::Delete { id } => Ok(core.session_delete(id)?),
         SessionCommand::Reopen { id } => reopened(core, id),
     }
@@ -567,6 +574,52 @@ async fn turn_diff(core: &Core, id: i64, message: usize, path: Option<String>) -
 }
 
 /// Puts a closed session back in the lists and prints its title.
+/// Closes a session, with the ones that work for it if asked, and says aside which of those
+/// it left open.
+fn closed(core: &Core, id: i64, with_workers: bool) -> Result<()> {
+    let closed = core.session_close(id, with_workers)?;
+    if closed.len() > 1 {
+        say(&format!(
+            "closed {} sessions: {}",
+            closed.len(),
+            ids_said(&closed)
+        ));
+    }
+    let left: Vec<i64> = core
+        .session_descendants(id, false)?
+        .iter()
+        .map(|one| one.session.id)
+        .collect();
+    if let Some(said) = left_open(id, &left) {
+        aside(&said);
+    }
+    Ok(())
+}
+
+/// Session ids as a list in words: `4, 7 and 9`.
+pub(crate) fn ids_said(ids: &[i64]) -> String {
+    let words: Vec<String> = ids.iter().map(ToString::to_string).collect();
+    match words.split_last() {
+        Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+        _ => words.join(""),
+    }
+}
+
+/// What is said aside when closing session `id` left the sessions `left` open, that work for
+/// it; `None` for none.
+fn left_open(id: i64, left: &[i64]) -> Option<String> {
+    let (count, verb) = match left.len() {
+        0 => return None,
+        1 => ("1 session".to_string(), "works"),
+        n => (format!("{n} sessions"), "work"),
+    };
+    Some(format!(
+        "{count} still {verb} for session {id}, open: {}. `swarmed session close {id} \
+         --with-workers` closes them too.",
+        ids_said(left)
+    ))
+}
+
 fn reopened(core: &Core, id: i64) -> Result<()> {
     say(&core.session_reopen(id)?.title);
     Ok(())
@@ -1213,6 +1266,21 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn sessions_left_open_under_a_closed_one_are_said_with_the_way_to_close_them() {
+        assert_eq!(left_open(7, &[]), None);
+        assert_eq!(
+            left_open(7, &[9]).as_deref(),
+            Some(
+                "1 session still works for session 7, open: 9. `swarmed session close 7 \
+                 --with-workers` closes them too."
+            )
+        );
+        let said = left_open(7, &[9, 11, 12]).expect("said");
+        assert!(said.starts_with("3 sessions still work for session 7, open: 9, 11 and 12."));
+        assert_eq!(ids_said(&[4, 7]), "4 and 7");
+    }
 
     #[test]
     fn what_runs_in_the_background_is_said_by_kind_and_nothing_is_not() {

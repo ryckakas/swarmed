@@ -159,7 +159,7 @@ pub use naming::TaskNaming;
 pub use notices::Notice;
 pub use open::open_link;
 pub use overview::{ProjectOverview, TaskOverview};
-pub use parents::nested_sessions;
+pub use parents::{Descendant, nested_sessions};
 pub use pasted::MAX_IMAGE_MB;
 pub use paths::Paths;
 pub use peers::{

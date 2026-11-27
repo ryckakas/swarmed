@@ -27,6 +27,7 @@ swarmed session send 12 "Review it" --pull 142        # and at pull request #142
 swarmed session send 12 "Make it blue" --element 3    # and at element 3 picked in the task's browser
 swarmed session parent 12 7                           # session 12 works for 7 now (`none` for nobody)
 swarmed session role 12 reviewer                      # what session 12 is for now (`none` for no role)
+swarmed session close 7 --with-workers                # and every session that works for it, however far down
 swarmed pr list shop login                            # the pull requests and issues # offers
 swarmed session turns 12                              # each turn with the files it changed
 swarmed session turn-diff 12 1                        # what the second message's turn changed
@@ -38,6 +39,7 @@ swarmed task pull shop fix-login --follow             # its checks, reviews and 
 swarmed task merge shop fix-login --squash            # or --auto, to merge once checks pass
 swarmed task browser shop fix-login                   # the task's own Chrome: where its DevTools endpoint answers
 swarmed task done shop fix-login                      # put away: agents and stack stopped, nothing deleted
+swarmed task done shop api --close-workers            # and close the sessions of other tasks that work for it
 swarmed task undone shop fix-login                    # back with the others
 swarmed task rm shop fix-login                        # teardown hook, worktree removed
 ```
@@ -66,7 +68,14 @@ or removed, or the app stops it unused; see
 `task done` puts a finished task away: its agents and its stack are stopped and `task list`
 says `done`; its sessions are closed too if `put_away_closes_sessions` is set. Starting one of
 its agents, reopening one of its sessions or starting its stack brings it back, as `task undone`
-does. The rules that put tasks away by themselves run in the app only.
+does. The rules that put tasks away by themselves run in the app only. Sessions of other tasks
+that work for its sessions stay open, which it says on stderr, unless `--close-workers` closes
+them too; their tasks stay as they are.
+
+`session close` closes one session and leaves those that work for it open, which it says on
+stderr; `--with-workers` closes them too, however far down and in whichever task, the deepest
+first. If another Swarmed runs any of them, nothing is closed. See
+[Who works for whom](coding-agents.md#who-works-for-whom).
 
 `task rm` refuses while the worktree has uncommitted changes or unpushed commits, or is one git
 no longer knows; `--force` removes it anyway. A failing `teardown` does not stop it: what it had

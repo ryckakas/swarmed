@@ -456,6 +456,17 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   nobody as their starter. `AgentEvent::Deleted` is published and never stored, since there is
   nothing left to store it in. Swarmed does not touch what an agent keeps of the conversation
   in its own folders. The close button always asks, and offers both.
+- **Closing can take the sessions that work for one along** (`session_close` with
+  `with_workers`, `task_done` with `close_workers`, `closing.ts`, `CloseWorkers.tsx`, #470).
+  `session_descendants` walks who works for whom at every depth and in any task, each right
+  after the one it works for, on below a closed session (listed only when asked for) and
+  never listing one of a removed task; `task_descendants_elsewhere` is the same for a task's
+  sessions, those of other tasks only. Unasked, nothing but the one session closes, as before.
+  Asked, the open ones are closed the deepest first (`deepest_first`), each with its `Closed`,
+  after `none_run_elsewhere` checked every one of them first: one another Swarmed runs refuses
+  the whole close, naming it. The dialogs list them from the core and draw their status from
+  the tree, and the tick box starts unticked. Agents are not given this: `peer_close` stays
+  one idle session.
 - **"Open in Terminal" hands the worktree to a terminal application** (`open::in_terminal`,
   `Settings::terminal_app`) through macOS's `open -a`, whose exit says whether there is such an
   application. It is apart from the session's own terminal, which is xterm.js in the window.
@@ -1113,7 +1124,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   - **Shown:** the sidebar nests to any depth (`nestedSessions`, `parentHere`; `order.rs`
     counts the same siblings), and one whose parent is elsewhere shows `for #N`
     (`parentElsewhere`). `list_sessions` and `read_session` say it. Deleting a parent leaves
-    its children with none; closing leaves them as they are.
+    its children with none; closing leaves them as they are, unless the user asks to close
+    them too (see closing above).
 - **A session's role says what it is for** (`roles.rs`, `roles.ts`, `Role.tsx`, #459). A role
   is data (`Role`: name, one-line description, instructions, starting supervision, whether it
   changes files, which roles it may start, its default child), so that roles of the user's own
@@ -1565,7 +1577,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **A finished task is put away, not removed** (`put_away.rs`, #375). `task_done` stops its
   agents and its stack, closes its sessions only with `Settings::put_away_closes_sessions`, and
   marks it done (`tasks.done_at`, `done_why`), which front ends list in a folded Done group
-  (`putAway.ts`). Nothing is deleted. Sessions left open get Remote Control turned off and
+  (`putAway.ts`). Nothing is deleted. Sessions of other tasks that work for its sessions are
+  closed only with `close_workers`, which the Put away button asks about when there are any;
+  their tasks stay, and a rule never asks for it. Sessions left open get Remote Control turned off and
   their continuation cancelled, since either would start the agent again by itself.
   - **Coming back.** `task_undone`, and anything that works on it: `session_reopen`,
     `session_start` (which a message does) and `stack_start` call `bring_back`, which keeps

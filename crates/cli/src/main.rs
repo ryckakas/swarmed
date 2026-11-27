@@ -28,8 +28,9 @@ use pr::PrCommand;
 use session::SessionCommand;
 use swarmed_core::agent::FakeBackend;
 use swarmed_core::{
-    AgentSetup, ApiKeyInfo, CloudOrigin, CloudProvider, CloudTask, Core, EnvironmentChoice,
-    MarkColour, McpServerView, NewTaskOptions, Paths, RemoveOptions, Settings, SetupStatus, Task,
+    AgentSetup, ApiKeyInfo, CloudOrigin, CloudProvider, CloudTask, Core, Descendant,
+    EnvironmentChoice, MarkColour, McpServerView, NewTaskOptions, Paths, RemoveOptions, Settings,
+    SetupStatus, Task,
 };
 use terminal::TerminalCommand;
 
@@ -357,7 +358,14 @@ enum TaskCommand {
     },
     /// Put a finished task away: stop its agents and its stack, and list it as done. Its
     /// sessions are closed too if the settings say so. Nothing is deleted.
-    Done { project: String, name: String },
+    Done {
+        project: String,
+        name: String,
+        /// Also close the open sessions of other tasks that work for its sessions, however far
+        /// down. Their tasks stay as they are.
+        #[arg(long)]
+        close_workers: bool,
+    },
     /// Bring a task that was put away back to the others. Nothing is started.
     Undone { project: String, name: String },
     /// Show the pull request of the task's branch and how its checks stand.
@@ -1210,11 +1218,20 @@ async fn sent_or_switched(core: &Core, command: TaskCommand) -> Result<Option<Ta
             let task = core.task_highlight_named(&project, &name, colour.as_deref())?;
             say(&highlight_said(task.highlight));
         }
-        TaskCommand::Done { project, name } => {
-            for note in core.task_done(&project, &name, &hook_line).await? {
+        TaskCommand::Done {
+            project,
+            name,
+            close_workers,
+        } => {
+            let elsewhere = core.task_descendants_elsewhere(&project, &name)?;
+            for note in core
+                .task_done(&project, &name, close_workers, &hook_line)
+                .await?
+            {
                 say(&note);
             }
             say(&format!("put away task `{name}`"));
+            done_left_open(&elsewhere, close_workers);
         }
         TaskCommand::Undone { project, name } => {
             core.task_undone(&project, &name)?;
@@ -1223,6 +1240,25 @@ async fn sent_or_switched(core: &Core, command: TaskCommand) -> Result<Option<Ta
         other => return Ok(Some(other)),
     }
     Ok(None)
+}
+
+/// Says what became of the sessions of other tasks that worked for a task's sessions when it
+/// was put away (`elsewhere`, read before): closed with `close_workers`, else said aside to be
+/// left open.
+fn done_left_open(elsewhere: &[Descendant], close_workers: bool) {
+    let ids: Vec<i64> = elsewhere.iter().map(|one| one.session.id).collect();
+    if ids.is_empty() {
+        return;
+    }
+    let listed = session::ids_said(&ids);
+    if close_workers {
+        say(&format!("closed sessions of other tasks: {listed}"));
+    } else {
+        aside(&format!(
+            "sessions of other tasks still work for its sessions, open: {listed}. \
+             `--close-workers` closes them too."
+        ));
+    }
 }
 
 /// Does a command that `written`, `sent_or_switched` or `set_up` knows, and hands any other

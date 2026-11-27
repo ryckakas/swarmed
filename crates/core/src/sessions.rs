@@ -1764,11 +1764,31 @@ impl Core {
     }
 
     /// Stops a session's agent and takes the session out of every list. Its history is kept.
-    /// Refused while another Swarmed runs its agent ([`Error::RunsElsewhere`]), which would work
-    /// on where no list shows it.
-    pub fn session_close(&self, id: i64) -> Result<()> {
+    /// With `with_workers`, the open sessions that work for it, however far down and in
+    /// whichever task ([`Core::session_descendants`]), are closed with it, the deepest first;
+    /// without, they stay open and keep working for it. Returns the sessions closed, `id` last.
+    ///
+    /// Refused, with nothing closed, while another Swarmed runs the agent of any of them
+    /// ([`Error::RunsElsewhere`], which names it): that agent would work on where no list shows
+    /// it, and a branch of the tree is never left half closed.
+    pub fn session_close(&self, id: i64, with_workers: bool) -> Result<Vec<i64>> {
         self.session(id)?;
-        self.none_run_elsewhere(&[id])?;
+        let mut closing = if with_workers {
+            parents::deepest_first(&self.store().session_descendants(id)?)
+        } else {
+            Vec::new()
+        };
+        closing.push(id);
+        self.none_run_elsewhere(&closing)?;
+        for one in &closing {
+            self.close_one(*one)?;
+        }
+        Ok(closing)
+    }
+
+    /// Closes session `id`, whose agent no other Swarmed runs: as [`Core::session_close`] does,
+    /// alone.
+    pub(crate) fn close_one(&self, id: i64) -> Result<()> {
         self.remote_control_closing(id)?;
         continuation::cancel(&self.store, &self.live, id)?;
         self.session_stop(id);

@@ -5948,6 +5948,62 @@ code {
     white-space: nowrap;
 }
 
+/* The sessions that closing one, or putting a task away, would take along (#470): nested as
+   they work for one another, with the tick box that takes them along. */
+.close-workers-heading {
+    margin-bottom: var(--space-1);
+    color: var(--muted);
+    font-size: var(--text-sm);
+}
+
+.close-workers-list {
+    margin: 0;
+    padding: var(--space-1) 0;
+    list-style: none;
+    border-block: 1px solid var(--line);
+}
+
+.close-workers-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    padding: 2px 0 2px calc(var(--space-4) * var(--depth, 0));
+}
+
+.close-workers-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.close-workers-task,
+.close-workers-status {
+    flex: none;
+    color: var(--muted);
+    font-size: var(--text-sm);
+}
+
+.close-workers-status {
+    color: var(--clay);
+}
+
+.close-workers-tick {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+}
+
+.close-workers-note {
+    margin-top: var(--space-1);
+    color: var(--clay);
+    font-size: var(--text-sm);
+}
+
 .dialog .note-problem {
     color: var(--clay);
 }
