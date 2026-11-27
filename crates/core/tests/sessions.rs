@@ -678,7 +678,7 @@ async fn a_highlight_stays_until_the_user_takes_it_off() {
     let other = core
         .session_new("demo", "one", &SessionOptions::default())
         .expect("creates");
-    core.session_close(session.id).expect("closes");
+    core.session_close(session.id, false).expect("closes");
     core.session_reopen(session.id).expect("reopens");
     assert_eq!(kept(&core), Some(MarkColour::Blue));
     let order: Vec<i64> = core
@@ -1181,7 +1181,7 @@ async fn a_deleted_session_is_gone_with_its_history_whether_open_or_closed() {
     let (open, closed) = (started_session(&core), started_session(&core));
     core.session_send(open.id, "hello").expect("sends");
     turn(&mut bus, open.id).await;
-    core.session_close(closed.id).expect("closes");
+    core.session_close(closed.id, false).expect("closes");
     while next(&mut bus).await.event != AgentEvent::Closed {}
 
     // Deleted while its agent runs: every front end is told, and the agent is stopped.
@@ -1225,7 +1225,7 @@ async fn a_closed_session_stops_and_leaves_the_lists_but_keeps_its_history() {
     core.session_send(session.id, "hello").expect("sends");
     turn(&mut bus, session.id).await;
 
-    core.session_close(session.id).expect("closes");
+    core.session_close(session.id, false).expect("closes");
     // Every front end is told, so the session leaves their lists too; then its agent exits.
     assert_eq!(next(&mut bus).await.event, AgentEvent::Closed);
     assert!(matches!(
@@ -1240,7 +1240,7 @@ async fn a_closed_session_stops_and_leaves_the_lists_but_keeps_its_history() {
     // close and the agent's exit.
     assert_eq!(core.session_events(session.id).expect("kept").len(), 7);
     assert!(matches!(
-        core.session_close(404),
+        core.session_close(404, false),
         Err(Error::SessionNotFound(404))
     ));
 }
@@ -1936,7 +1936,7 @@ async fn what_was_said_is_found_again_in_open_and_closed_sessions() {
     // A word that only stands in an event's own field names is not something anybody said.
     assert_eq!(core.sessions_search("user_message").expect("searches"), []);
 
-    core.session_close(first.id).expect("closes");
+    core.session_close(first.id, false).expect("closes");
     let closed = core.sessions_search("ZEPPELIN").expect("searches");
     assert_eq!(closed.len(), 1);
     assert!(closed[0].closed);

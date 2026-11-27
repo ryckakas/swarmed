@@ -58,7 +58,9 @@ variants and fields are only ever added, never renamed, and schema changes are a
   second app on the same data. The app looks every second. Another process's commit changes
   SQLite's `data_version`; the sessions' new events are then published in order as if the app
   had written them, the tree is read again when its rows changed or a stack started or
-  stopped, and a configuration file changed on disk has the configuration read again.
+  stopped, and a configuration file changed on disk has the configuration read again. A model,
+  effort or supervision another Swarmed stored for a session whose agent runs in the app, as
+  `swarmed session set` does, is passed on to that agent as a change in the header would be.
 - **A session's agent runs in one Swarmed at a time.** The one that starts it holds a lock on
   `run/sessions/<id>.lock` until the agent has gone; the system lets go of it when that
   process ends, however it ends. Another Swarmed refuses meanwhile to start, stop, close or

@@ -271,6 +271,18 @@ pub struct SessionSettings {
     pub fast: bool,
 }
 
+impl SessionSettings {
+    /// The settings `session` has.
+    pub(crate) fn of(session: &Session) -> Self {
+        Self {
+            model: session.model.clone(),
+            supervision: session.supervision,
+            effort: session.effort,
+            fast: session.fast,
+        }
+    }
+}
+
 /// Options for [`Core::session_new`].
 #[derive(Debug, Clone, Default)]
 pub struct SessionOptions {
@@ -1072,11 +1084,19 @@ impl Core {
     /// Makes a session in task `task_id` as `options` say, under the supervision its role
     /// holds if it holds one, keeping the one asked for to put back when the role is taken
     /// off. A role there is not is refused.
+    ///
+    /// A model or effort `options` leave to the agent is the role's default from the user's
+    /// settings, where it has one and the agent offers its model (`role_defaults`): whoever
+    /// makes the session, a choice of theirs wins over the role's.
     pub(crate) fn session_insert(&self, task_id: i64, options: &SessionOptions) -> Result<Session> {
         let role = options.role.as_deref().map(roles::known).transpose()?;
         let (supervision, before) = roles::starts_in(role, options.supervision);
+        let agent = options.agent.as_deref().unwrap_or(CLAUDE);
+        let defaults = self.role_defaults(role, agent)?;
         let options = SessionOptions {
             supervision,
+            model: options.model.clone().or(defaults.model),
+            effort: options.effort.or(defaults.effort),
             ..options.clone()
         };
         let store = self.store();
@@ -1703,22 +1723,34 @@ impl Core {
         let before = self.session(id)?;
         self.store().session_configure(id, settings)?;
         // Not running is fine: the session starts with the new settings.
-        if let Ok(commands) = self.live.sender(id) {
-            // A running agent knows the default it was started with, and the list it comes
-            // from may have changed since.
-            let default_model = self.agents_now().default_model(&before.agent);
-            tell_agent(&commands, &before, settings, default_model);
-        }
-        // Like its effort, an agent takes its fast mode when it starts.
-        if before.effort != settings.effort || before.fast != settings.fast {
-            self.live.restart_when_idle(id, before.status);
-        }
+        self.settings_told(id, &before.agent, before.status);
         if before.supervision != settings.supervision {
             let supervision = settings.supervision;
             let changed = AgentEvent::SupervisionChanged { supervision };
             self.live.note(&self.store, id, changed)?;
         }
         self.session(id)
+    }
+
+    /// Passes the settings session `id` on `agent` has stored now on to its agent if it runs
+    /// here, as far as that does not know them: a model and a supervision at once, a model from
+    /// its next turn, and an effort or fast mode by starting it again once its turn is over,
+    /// since it takes those only when it starts. `status` is the session's. What it knows is
+    /// what it was started with and told since, so a change another process stored, which
+    /// only that process's row shows, counts as one too (`settings_from_elsewhere`).
+    ///
+    /// The row is read under the lock on the running sessions, where they are told: read
+    /// before it, a change stored and told here meanwhile would be told back to what it was.
+    /// The store is never held while that lock is taken, so taking the store under it waits
+    /// on nothing that waits on it.
+    pub(crate) fn settings_told(&self, id: i64, agent: &str, status: SessionStatus) {
+        // A running agent knows the default it was started with, and the list it comes from
+        // may have changed since.
+        let default_model = self.agents_now().default_model(agent);
+        let stored = || self.session(id).ok().map(|now| SessionSettings::of(&now));
+        if self.live.tell_settings(id, stored, default_model) {
+            self.live.restart_when_idle(id, status);
+        }
     }
 
     /// Notes that the user has looked at the session, so it no longer counts as unread.
@@ -1744,11 +1776,31 @@ impl Core {
     }
 
     /// Stops a session's agent and takes the session out of every list. Its history is kept.
-    /// Refused while another Swarmed runs its agent ([`Error::RunsElsewhere`]), which would work
-    /// on where no list shows it.
-    pub fn session_close(&self, id: i64) -> Result<()> {
+    /// With `with_workers`, the open sessions that work for it, however far down and in
+    /// whichever task ([`Core::session_descendants`]), are closed with it, the deepest first;
+    /// without, they stay open and keep working for it. Returns the sessions closed, `id` last.
+    ///
+    /// Refused, with nothing closed, while another Swarmed runs the agent of any of them
+    /// ([`Error::RunsElsewhere`], which names it): that agent would work on where no list shows
+    /// it, and a branch of the tree is never left half closed.
+    pub fn session_close(&self, id: i64, with_workers: bool) -> Result<Vec<i64>> {
         self.session(id)?;
-        self.none_run_elsewhere(&[id])?;
+        let mut closing = if with_workers {
+            parents::deepest_first(&self.store().session_descendants(id)?)
+        } else {
+            Vec::new()
+        };
+        closing.push(id);
+        self.none_run_elsewhere(&closing)?;
+        for one in &closing {
+            self.close_one(*one)?;
+        }
+        Ok(closing)
+    }
+
+    /// Closes session `id`, whose agent no other Swarmed runs: as [`Core::session_close`] does,
+    /// alone.
+    pub(crate) fn close_one(&self, id: i64) -> Result<()> {
         self.remote_control_closing(id)?;
         continuation::cancel(&self.store, &self.live, id)?;
         self.session_stop(id);
@@ -1942,7 +1994,7 @@ pub(crate) fn skill_called(
 /// on as `default_model`, where Swarmed has one for the agent.
 fn tell_agent(
     commands: &mpsc::UnboundedSender<AgentCommand>,
-    before: &Session,
+    before: &SessionSettings,
     settings: &SessionSettings,
     default_model: Option<String>,
 ) {
@@ -1991,6 +2043,9 @@ struct Run {
     /// Never sent on. It goes when the run is dropped from the running ones, which is what
     /// tells the task following the run that it was stopped.
     _stop: oneshot::Sender<()>,
+    /// The settings its agent was started with or told of since, to tell a change apart from
+    /// what it knows: one made here, or one another process stored (`Core::settings_told`).
+    told: SessionSettings,
 }
 
 /// The running sessions' agents, by session.
@@ -2139,6 +2194,10 @@ pub(crate) struct Live {
     /// Whether this process is a front end that stays and shows notices, as the app is: said
     /// in the locks it holds, so that another does not show the same ones.
     pub(crate) shows_notices: AtomicBool,
+    /// Whether this process follows what others write (`follow_others`), and so passes a
+    /// change of settings another one stores on to the agents it runs: said in the locks it
+    /// holds, so that the process that made the change can say what became of it.
+    pub(crate) follows_others: AtomicBool,
     runs: AtomicU64,
     pub(crate) bus: broadcast::Sender<SessionEvent>,
 }
@@ -2169,6 +2228,7 @@ impl Default for Live {
             github: github_mentions::Known::default(),
             runs_held: Mutex::default(),
             shows_notices: AtomicBool::new(false),
+            follows_others: AtomicBool::new(false),
             runs: AtomicU64::new(0),
             bus: broadcast::Sender::new(EVENT_BUFFER),
         }
@@ -2307,6 +2367,31 @@ impl Live {
 
     pub(crate) fn is_running(&self, id: i64) -> bool {
         self.commands().contains_key(&id)
+    }
+
+    /// Tells session `id`'s agent, if it runs here, what of the settings `stored` reads it does
+    /// not know yet (`tell_agent`), and keeps them as what it knows. All of it under the lock
+    /// on the running sessions, the read included, so that two callers with the same change
+    /// tell it once and none tells settings older than another has told. Whether it has to be
+    /// started again for them: an agent takes a new effort and fast mode only when it starts.
+    /// Nothing is told if `stored` reads none.
+    fn tell_settings(
+        &self,
+        id: i64,
+        stored: impl FnOnce() -> Option<SessionSettings>,
+        default_model: Option<String>,
+    ) -> bool {
+        let mut commands = self.commands();
+        let Some(run) = commands.get_mut(&id) else {
+            return false;
+        };
+        let Some(settings) = stored() else {
+            return false;
+        };
+        tell_agent(&run.commands, &run.told, &settings, default_model);
+        let restart = run.told.effort != settings.effort || run.told.fast != settings.fast;
+        run.told = settings;
+        restart
     }
 
     /// Stops the session's agent, if one runs. Dropping the run closes the agent's input,
@@ -2733,10 +2818,17 @@ fn launch(shared: Shared, id: i64, how: Launch) -> Result<()> {
         discarded: Arc::default(),
     };
     // A run this takes the place of is dropped here, which stops it.
+    let told = SessionSettings {
+        model: shared.spec.model.clone(),
+        supervision: shared.spec.supervision,
+        effort: shared.spec.effort,
+        fast: shared.spec.fast,
+    };
     let run = Run {
         number,
         commands: handle.commands,
         _stop: stop,
+        told,
     };
     running.insert(id, run);
     drop(running);
@@ -3081,6 +3173,7 @@ mod tests {
             number: 1,
             commands,
             _stop: stop,
+            told: SessionSettings::default(),
         };
         live.commands().insert(7, run);
         let told = |sent: &str, typed: &str| Told {

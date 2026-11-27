@@ -117,7 +117,7 @@ async fn an_app_is_kept_served_under_its_policy_and_calls_only_its_own_servers_t
     assert!(!fx.paths.attachments(fork.id).exists());
 
     // An agent that is not running calls nothing.
-    core.session_close(session.id).expect("closes");
+    core.session_close(session.id, false).expect("closes");
     assert!(
         core.session_app_call(session.id, "tool-app", "refresh", json!({}))
             .await

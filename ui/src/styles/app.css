@@ -3016,51 +3016,187 @@ code {
     font-size: var(--text-xs);
 }
 
-/* Under the title: the session this one works for, and those that work for it. */
+/*
+ * Under the title: the session this one works for, and one line that counts everyone who works
+ * for it (#503), which unfolds into their tree. A long tree scrolls in a space of its own, so
+ * that the conversation keeps the room it needs.
+ */
 .working-with {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-1) var(--space-4);
     margin-top: var(--space-1);
-}
-
-.working-with-part {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-1);
-    margin: 0;
     color: var(--muted);
     font-size: var(--text-xs);
 }
 
-.working-with-label {
-    margin-right: var(--space-1);
+.working-with-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-4);
 }
 
-.session-chip {
+.working-with-parent {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    max-width: 100%;
+}
+
+/* The line that counts those working for it, and unfolds them: one button. */
+.workers-summary {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-3);
+    min-width: 0;
+    padding: 1px var(--space-2) 1px var(--space-1);
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.workers-summary:hover,
+.workers-summary:focus-visible {
+    background: var(--raised);
+    color: var(--text);
+}
+
+.workers-count {
     display: inline-flex;
     align-items: center;
     gap: var(--space-1);
-    max-width: 32ch;
+    white-space: nowrap;
+}
+
+/* One session that works for another, as every list of them draws it, nested by its depth. */
+.worker-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    padding: 2px 0 2px calc(var(--space-4) * var(--depth, 0));
+}
+
+.worker-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.worker-task {
+    flex: none;
+    color: var(--muted);
+    font-size: var(--text-sm);
+}
+
+.workers-tree {
+    max-height: 11lh;
+    margin: var(--space-1) 0 0 var(--space-4);
+    overflow-y: auto;
+}
+
+.workers {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+/* In a narrow window, what follows the title goes onto a line of its own, not out of sight. */
+.workers .worker-row {
+    flex-wrap: wrap;
+    row-gap: 0;
+    padding-block: 0;
+}
+
+/* The line that opens a session: its status, title and task, as wide as they need. */
+.worker-open,
+.worker-closed {
+    display: flex;
+    flex: 0 1 auto;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    padding: 1px var(--space-1);
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+}
+
+.worker-open {
+    cursor: pointer;
+}
+
+.worker-open:hover,
+.worker-open:focus-visible {
+    background: var(--raised);
+}
+
+.worker-closed {
+    color: var(--faint);
+}
+
+/* The session it works for: a chip, as one stands apart from the count beside it. */
+.working-with-parent .worker-open {
     padding: 1px var(--space-2) 1px var(--space-1);
     border: 1px solid var(--line);
     border-radius: 6px;
     background: var(--panel);
-    color: var(--text);
+}
+
+.working-with-parent .worker-open:hover,
+.working-with-parent .worker-open:focus-visible {
+    border-color: var(--sky);
+    background: var(--panel);
+}
+
+.worker-closed .worker-title {
+    color: inherit;
+}
+
+.workers .worker-task {
+    font-size: inherit;
+}
+
+/* Folds those under a line of a long tree, and the closed ones: quiet until pointed at. */
+.workers-toggle {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 1px var(--space-1);
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--faint);
     font: inherit;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
     cursor: pointer;
 }
 
-.session-chip:hover,
-.session-chip:focus-visible {
-    border-color: var(--sky);
+.workers-toggle:hover,
+.workers-toggle:focus-visible {
+    background: var(--raised);
+    color: var(--text);
 }
 
-.session-chip-title {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+.workers-toggle[aria-expanded="true"] .fold-chevron,
+.workers-summary[aria-expanded="true"] .fold-chevron {
+    transform: rotate(90deg);
+}
+
+.workers-closed {
+    margin-left: var(--space-4);
 }
 
 .session-status {
@@ -6059,6 +6195,40 @@ code {
     white-space: nowrap;
 }
 
+/* The sessions that closing one, or putting a task away, would take along (#470): nested as
+   they work for one another, with the tick box that takes them along. */
+.close-workers-heading {
+    margin-bottom: var(--space-1);
+    color: var(--muted);
+    font-size: var(--text-sm);
+}
+
+.close-workers-list {
+    margin: 0;
+    padding: var(--space-1) 0;
+    list-style: none;
+    border-block: 1px solid var(--line);
+}
+
+.close-workers-status {
+    flex: none;
+    color: var(--clay);
+    font-size: var(--text-sm);
+}
+
+.close-workers-tick {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+}
+
+.close-workers-note {
+    margin-top: var(--space-1);
+    color: var(--clay);
+    font-size: var(--text-sm);
+}
+
 .dialog .note-problem {
     color: var(--clay);
 }
@@ -6525,6 +6695,14 @@ code {
 
 /* A rule that puts tasks away by itself: on or off, and after how many days. */
 .rule-days {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+/* A role's default model and effort, side by side. */
+.role-default {
     display: flex;
     flex: none;
     align-items: center;

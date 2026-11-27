@@ -162,7 +162,7 @@ async fn a_role_changed_while_a_session_runs_is_recorded_and_told_with_the_next_
         core.session_set_role(session.id, Some("boss")),
         Err(Error::UnknownRole { .. })
     ));
-    core.session_close(session.id).expect("closes");
+    core.session_close(session.id, false).expect("closes");
     assert!(matches!(
         core.session_set_role(session.id, Some("reviewer")),
         Err(Error::SessionClosed(_))
@@ -205,7 +205,7 @@ async fn the_guidance_holds_the_role_and_who_works_with_it() {
     // The others read the role too.
     let listed = core.peer_sessions(architect.id).expect("lists");
     assert!(
-        listed.starts_with("id\tstate\ttask\tworks for\trole\ttitle"),
+        listed.starts_with("id\tstate\ttask\tworks for\trole\tmodel\teffort\ttitle"),
         "{listed}"
     );
     let line = format!(

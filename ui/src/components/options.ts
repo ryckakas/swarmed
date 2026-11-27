@@ -257,6 +257,22 @@ export const TEXT_SCALES: [string, string][] = [
     ["140", "Largest"],
 ];
 
+/**
+ * How many open sessions may work for one session, as the core takes it (`WORKER_LIMITS`), and
+ * how many unless the user chose (`MAX_SPAWNED`).
+ */
+export const WORKERS = { fewest: 1, most: 20, unchosen: 6 } as const;
+
+/** The choices for how many open sessions may work for one session, the default named. */
+export const WORKER_CHOICES: [string, string][] = Array.from(
+    { length: WORKERS.most - WORKERS.fewest + 1 },
+    (_, index) => {
+        const count = WORKERS.fewest + index;
+        const label = count === WORKERS.unchosen ? `${count} (default)` : String(count);
+        return [String(count), label];
+    },
+);
+
 /** The efforts a model can be asked for, as menu options. The empty one is the agent's default. */
 export const EFFORT_CHOICES: [value: Effort | "", label: string][] = [
     ["", "Default effort"],

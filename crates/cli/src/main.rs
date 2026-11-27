@@ -357,7 +357,14 @@ enum TaskCommand {
     },
     /// Put a finished task away: stop its agents and its stack, and list it as done. Its
     /// sessions are closed too if the settings say so. Nothing is deleted.
-    Done { project: String, name: String },
+    Done {
+        project: String,
+        name: String,
+        /// Also close the open sessions of other tasks that work for its sessions, however far
+        /// down. Their tasks stay as they are.
+        #[arg(long)]
+        close_workers: bool,
+    },
     /// Bring a task that was put away back to the others. Nothing is started.
     Undone { project: String, name: String },
     /// Show the pull request of the task's branch and how its checks stand.
@@ -1210,11 +1217,19 @@ async fn sent_or_switched(core: &Core, command: TaskCommand) -> Result<Option<Ta
             let task = core.task_highlight_named(&project, &name, colour.as_deref())?;
             say(&highlight_said(task.highlight));
         }
-        TaskCommand::Done { project, name } => {
-            for note in core.task_done(&project, &name, &hook_line).await? {
-                say(&note);
+        TaskCommand::Done {
+            project,
+            name,
+            close_workers,
+        } => {
+            let done = core
+                .task_done(&project, &name, close_workers, &hook_line)
+                .await?;
+            for note in &done.notes {
+                say(note);
             }
             say(&format!("put away task `{name}`"));
+            done_left_open(core, &project, &name, &done.workers_closed, close_workers)?;
         }
         TaskCommand::Undone { project, name } => {
             core.task_undone(&project, &name)?;
@@ -1223,6 +1238,41 @@ async fn sent_or_switched(core: &Core, command: TaskCommand) -> Result<Option<Ta
         other => return Ok(Some(other)),
     }
     Ok(None)
+}
+
+/// Says what became of the sessions of other tasks that worked for the sessions of task `name`
+/// once it is put away: those it `closed`, as the core says it closed them, and aside, those
+/// still open, read after. A task put away already closes none, `close_workers` or not.
+fn done_left_open(
+    core: &Core,
+    project: &str,
+    name: &str,
+    closed: &[i64],
+    close_workers: bool,
+) -> Result<()> {
+    if !closed.is_empty() {
+        let listed = session::ids_said(closed);
+        say(&format!("closed sessions of other tasks: {listed}"));
+    }
+    let open: Vec<i64> = core
+        .task_descendants_elsewhere(project, name)?
+        .iter()
+        .map(|one| one.session.id)
+        .collect();
+    if open.is_empty() {
+        return Ok(());
+    }
+    let one_by_one = "`swarmed session close <id> --with-workers` closes one with those under it.";
+    let how = match (close_workers, closed.is_empty()) {
+        (false, _) => "`--close-workers` closes them too.".to_string(),
+        (true, true) => format!("The task was put away already, so none were closed: {one_by_one}"),
+        (true, false) => one_by_one.to_string(),
+    };
+    aside(&format!(
+        "sessions of other tasks still work for its sessions, open: {}. {how}",
+        session::ids_said(&open)
+    ));
+    Ok(())
 }
 
 /// Does a command that `written`, `sent_or_switched` or `set_up` knows, and hands any other

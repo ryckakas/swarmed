@@ -141,6 +141,14 @@ interface State {
     scrolls: Record<string, ScrollSpot>;
     /** Keeps where a transcript was left, if its session is still there to come back to. */
     keepScroll(sessionId: number, key: string, spot: ScrollSpot): void;
+    /**
+     * The sessions whose header shows everyone working for them as a tree. Every other one folds
+     * them into one line that counts them, which is how a session starts. In memory only, and
+     * forgotten with the session, as its draft is.
+     */
+    workersShown: number[];
+    /** Unfolds the tree of those working for session `sessionId`, or folds it again. */
+    toggleWorkersShown(sessionId: number): void;
     /** What the new-task box holds and has not sent, per repository by its name; in memory too. */
     newTaskDrafts: Record<string, Draft>;
     /** Changes what the new-task box holds for repository `project`. */
@@ -291,7 +299,7 @@ interface State {
      * Puts a task away and reads the tree again. What went wrong on the way, a `stop` that
      * failed say, is said; a refusal is thrown, for whoever asked to say.
      */
-    putAway(api: Api, project: string, task: string): Promise<void>;
+    putAway(api: Api, project: string, task: string, closeWorkers: boolean): Promise<void>;
     /** Brings a task that was put away back to the others, and reads the tree again. */
     bringBack(api: Api, project: string, task: string): Promise<void>;
     /** Whether the status line under the message box is shown, or folded away. */
@@ -480,8 +488,11 @@ interface State {
      */
     forgetTasks(taskIds: number[]): void;
 
-    /** Stops a session and takes it out of the tree. */
-    close(api: Api, sessionId: number): Promise<void>;
+    /**
+     * Stops a session and takes it out of the tree; with `withWorkers`, the open sessions that
+     * work for it too, however far down.
+     */
+    close(api: Api, sessionId: number, withWorkers: boolean): Promise<void>;
     report(problem: unknown): void;
     dismissProblem(): void;
 }
@@ -768,6 +779,7 @@ function forgotten(state: State, sessionIds: number[], taskIds: number[]): Parti
         recalls: without(state.recalls, sessionIds),
         appContexts: without(state.appContexts, sessionIds),
         scrolls: withoutScrolls(state.scrolls, sessionIds),
+        workersShown: withoutIds(state.workersShown, sessionIds),
         subView: of(state.subView),
         terminalCommand: of(state.terminalCommand),
         edits: without(state.edits, taskIds),
@@ -817,7 +829,17 @@ function closed(state: State, sessionId: number): Partial<State> {
         recalls: without(state.recalls, [sessionId]),
         appContexts: without(state.appContexts, [sessionId]),
         scrolls: withoutScrolls(state.scrolls, [sessionId]),
+        workersShown: withoutIds(state.workersShown, [sessionId]),
     };
+}
+
+/** What changes when the sessions `ids` are closed, one after the other. */
+function closedAll(state: State, ids: number[]): State {
+    let now = state;
+    for (const id of ids) {
+        now = { ...now, ...closed(now, id) };
+    }
+    return now;
 }
 
 /** What changes when the tree is read again: a session on screen that is not in it has gone. */
@@ -987,11 +1009,10 @@ function doneInView(state: State): Partial<State> {
  */
 async function putTaskAway(
     api: Api,
-    project: string,
-    task: string,
+    { project, task, closeWorkers }: { project: string; task: string; closeWorkers: boolean },
     store: Pick<State, "refresh" | "report"> & { keepInView(): void },
 ) {
-    const passedOver = await api.taskDone(project, task);
+    const passedOver = await api.taskDone(project, task, closeWorkers);
     await store.refresh(api);
     store.keepInView();
     if (passedOver.length > 0) {
@@ -1031,6 +1052,9 @@ export const useStore = create<State>((set, get) => ({
     allowApps: (key) => set((state) => ({ appsAllowed: withAllowed(state.appsAllowed, key) })),
     scrolls: {},
     keepScroll: (sessionId, key, spot) => set((state) => keptScroll(state, sessionId, key, spot)),
+    workersShown: [],
+    toggleWorkersShown: (sessionId) =>
+        set((state) => ({ workersShown: toggledId(state.workersShown, sessionId) })),
     newTaskDrafts: {},
     editNewTaskDraft: (project, change) =>
         set((state) => ({ newTaskDrafts: withDraft(state.newTaskDrafts, project, change) })),
@@ -1143,8 +1167,15 @@ export const useStore = create<State>((set, get) => ({
     doneShown: [],
     toggleDoneShown: (projectId) =>
         set((state) => ({ doneShown: toggledId(state.doneShown, projectId) })),
-    putAway: (api, project, task) =>
-        putTaskAway(api, project, task, { ...get(), keepInView: () => set(doneInView) }),
+    putAway: (api, project, task, closeWorkers) =>
+        putTaskAway(
+            api,
+            { project, task, closeWorkers },
+            {
+                ...get(),
+                keepInView: () => set(doneInView),
+            },
+        ),
     bringBack: async (api, project, task) => {
         await api.taskUndone(project, task);
         await get().refresh(api);
@@ -1334,10 +1365,10 @@ export const useStore = create<State>((set, get) => ({
             const session = await api.sessionConfigure(sessionId, settings);
             set((state) => ({ projects: withSession(state.projects, session) }));
         }),
-    close: (api, sessionId) =>
+    close: (api, sessionId, withWorkers) =>
         reporting(async () => {
-            await api.sessionClose(sessionId);
-            set((state) => closed(state, sessionId));
+            const gone = await api.sessionClose(sessionId, withWorkers);
+            set((state) => closedAll(state, gone));
             // The task now counts one more closed session.
             await get().refresh(api);
         }),

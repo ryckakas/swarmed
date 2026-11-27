@@ -1,5 +1,6 @@
 import { lastDays } from "../analytics";
 import { CHATS } from "../chats";
+import { deepestFirst, descendantsOf, type KeptSession } from "../closing";
 import { movedAmong, pinnedAmong } from "../ordering";
 import { calledCommand } from "../slash";
 import { PLAN_TOOL } from "../transcript";
@@ -3392,6 +3393,15 @@ class MockAgent {
         return this.closedSessions.get(taskId) ?? [];
     }
 
+    /** Every session of a task not removed, open or closed, as the core keeps them. */
+    keptSessions(): KeptSession[] {
+        const live = this.tasks().filter((task) => !task.archived);
+        return live.flatMap((task) => [
+            ...task.sessions.map((session) => ({ session, closed: false })),
+            ...this.closed(task.id).map((session) => ({ session, closed: true })),
+        ]);
+    }
+
     reopen(id: number): Session {
         for (const task of this.tasks()) {
             const back = this.closed(task.id).find((candidate) => candidate.id === id);
@@ -3690,13 +3700,33 @@ const SAMPLE_COSTS: Costs = {
     ],
 };
 
+/** The sample session whose agent another Swarmed runs, which nothing closes here. */
+const RUN_ELSEWHERE = 6;
+
 function closingApi(
     agent: MockAgent,
-): Pick<Api, "sessionClose" | "sessionDelete" | "sessionsClosed" | "sessionReopen"> {
+): Pick<
+    Api,
+    "sessionClose" | "sessionDescendants" | "sessionDelete" | "sessionsClosed" | "sessionReopen"
+> {
     const taskNamed = (name: string) =>
         agent.projects.flatMap((project) => project.tasks).find((task) => task.name === name);
     return {
-        sessionClose: async (id) => agent.close(id),
+        // With those that work for it, the deepest first, or none of them if one runs elsewhere.
+        sessionClose: async (id, withWorkers) => {
+            const under = withWorkers ? descendantsOf(agent.keptSessions(), id, false) : [];
+            const closing = [...deepestFirst(under), id];
+            if (closing.includes(RUN_ELSEWHERE)) {
+                throw new Error(
+                    `session ${RUN_ELSEWHERE} runs in another Swarmed: do this there, or once it is stopped there or that Swarmed has quit`,
+                );
+            }
+            for (const one of closing) {
+                agent.close(one);
+            }
+            return closing;
+        },
+        sessionDescendants: async (id, closed) => descendantsOf(agent.keptSessions(), id, closed),
         sessionDelete: async (id) => agent.delete(id),
         sessionsClosed: async (_project, name) => agent.closed(taskNamed(name)?.id ?? -1),
         sessionReopen: async (id) => agent.reopen(id),
@@ -3785,6 +3815,7 @@ export function createMockApi(): Api {
         layout: "classic",
         text_scale: 100,
         default_supervision: "auto",
+        max_workers: 6,
         html_views: true,
         tool_calls: "folded",
         turn_end_lines: true,
@@ -3894,6 +3925,7 @@ export function createMockApi(): Api {
             settings: () => settings,
             stop: (id) => agent.stopAgent(id),
             close: (id) => agent.close(id),
+            kept: () => agent.keptSessions(),
         }),
         branchChoices: async (projectName) => ({
             base: "origin/main",

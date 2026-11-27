@@ -22,6 +22,7 @@ import type {
     ConsoleLine,
     Costs,
     CustomLayout,
+    Descendant,
     Environment,
     EnvironmentChoice,
     FileChange,
@@ -187,10 +188,16 @@ export interface Api {
     taskRemove(project: string, name: string, force: boolean): Promise<string[]>;
     /**
      * Puts a task away: stops its agents and its stack, closes its sessions if the settings say
-     * so, and lists it with the done ones. Nothing is deleted. Resolves to what went wrong on
-     * the way, a `stop` that failed say, for the user to read.
+     * so, and lists it with the done ones. Nothing is deleted. With `closeWorkers`, the open
+     * sessions of other tasks that work for its sessions are closed too; their tasks stay.
+     * Resolves to what went wrong on the way, a `stop` that failed say, for the user to read.
      */
-    taskDone(project: string, name: string): Promise<string[]>;
+    taskDone(project: string, name: string, closeWorkers: boolean): Promise<string[]>;
+    /**
+     * The open sessions of other tasks that work for a task's sessions, however far down: those
+     * putting it away closes when asked to.
+     */
+    taskDescendantsElsewhere(project: string, name: string): Promise<Descendant[]>;
     /** Brings a task that was put away back to the others. Nothing is started. */
     taskUndone(project: string, name: string): Promise<void>;
     /** What a new task in the project can start from. */
@@ -750,8 +757,19 @@ export interface Api {
     sessionsClosed(project: string, task: string): Promise<Session[]>;
     /** Puts a closed session back in the tree, with its conversation as it was. */
     sessionReopen(id: number): Promise<Session>;
-    /** Stops the session's agent and takes the session out of the tree. Its history is kept. */
-    sessionClose(id: number): Promise<void>;
+    /**
+     * Stops the session's agent and takes the session out of the tree. Its history is kept.
+     * With `withWorkers`, the open sessions that work for it, however far down and in whichever
+     * task, are closed too, the deepest first; refused whole if another Swarmed runs one.
+     * Resolves to the sessions closed, `id` last.
+     */
+    sessionClose(id: number, withWorkers: boolean): Promise<number[]>;
+    /**
+     * The sessions that work for a session, however far down and in whichever task, each right
+     * after the one it works for; the closed ones too with `closed`. Those under a closed one
+     * are listed either way.
+     */
+    sessionDescendants(id: number, closed: boolean): Promise<Descendant[]>;
     /** Deletes a session and its conversation for good, open or closed. */
     sessionDelete(id: number): Promise<void>;
     /** Calls `listener` for every event of every running session, from now on. */
