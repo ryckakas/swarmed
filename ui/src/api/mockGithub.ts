@@ -66,6 +66,7 @@ const PULLS: Record<string, GitHubItem[]> = {
     "bonsai-lint": [
         pull("bonsai-lint", 87, "Lint Rust files", "merged", "rust-support", 20),
         pull("bonsai-lint", 93, "A threshold per folder", "open", "folder-threshold", 2),
+        pull("bonsai-lint", 90, "Document the rule format", "closed", "rule-docs", 9),
     ],
 };
 

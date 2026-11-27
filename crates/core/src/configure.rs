@@ -31,7 +31,7 @@ use crate::agent::AgentEvent;
 use crate::environments::Environment;
 use crate::error::Error;
 use crate::layouts::layout_schema;
-use crate::settings::{Layout, LimitWarnings, MAX_RULES_BYTES, Settings, ToolCalls};
+use crate::settings::{Layout, LimitWarnings, MAX_RULES_BYTES, MathShown, Settings, ToolCalls};
 use crate::store::Project;
 use crate::termconfig::terminal_schema;
 use crate::{Core, Result, lock};
@@ -479,6 +479,11 @@ impl Core {
         if let Some(lines) = asked.choice("turn_end_lines")? {
             settings.turn_end_lines = lines;
         }
+        // Done at once too: it changes only how formulas in replies are drawn, never what an
+        // agent is told or what the user sees of its work.
+        if let Some(math) = asked.choice::<MathShown>("math")? {
+            settings.math = math;
+        }
         let tool_calls: Option<ToolCalls> = asked.choice("tool_calls")?;
         // Hiding what agents do is the one part of the looks the user has to agree to: an
         // agent could hide its own calls with it, in every session from then on.
@@ -739,6 +744,7 @@ fn appearance_of(settings: &Settings) -> String {
     let layout = word(serde_json::to_value(settings.layout).unwrap_or_default());
     let tool_calls = word(serde_json::to_value(settings.tool_calls).unwrap_or_default());
     let warnings = word(serde_json::to_value(settings.limit_warnings).unwrap_or_default());
+    let math = word(serde_json::to_value(settings.math).unwrap_or_default());
     format!(
         "theme {theme} (system, dark, light); palette {palette} (dusk, graphite, forest, plum, \
          ember, swarm); style {style} (plain, swarm, colony); layout {layout} (classic, senior, custom: \
@@ -746,7 +752,9 @@ fn appearance_of(settings: &Settings) -> String {
          text_size {} (80 to 150); tool_calls {tool_calls} (all, folded, hidden); \
          turn_end_lines {} (true or false: a line where each turn ends); \
          limit_warnings {warnings} (which levels the usage notice at the top of the window says; \
-         frequent: from 50% used; rare: from 90% used; none: only requests stopped)",
+         frequent: from 50% used; rare: from 90% used; none: only requests stopped); \
+         math {math} (which formulas in replies are drawn as math; off; standard: $$…$$, \\(…\\), \
+         \\[…\\] and fenced math blocks; with_single_dollars: $…$ too)",
         settings.text_scale, settings.turn_end_lines
     )
 }

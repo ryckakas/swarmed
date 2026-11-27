@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { SetupProgress, Task } from "./api/types";
+import type { SetupEnd, SetupProgress, Task } from "./api/types";
 import {
     elapsed,
     headline,
@@ -8,6 +8,8 @@ import {
     lastLines,
     ranSince,
     readFrom,
+    SETUP_GRACE,
+    setupShown,
     setupState,
     sidebarSays,
     standing,
@@ -146,6 +148,58 @@ describe("how a setup is told", () => {
         expect(standing("idle", running)).toBe("working");
         expect(standing("idle", { setup: "ok", setting_up: null })).toBe("idle");
         expect(standing("waiting", undefined)).toBe("waiting");
+    });
+});
+
+describe("whether a setup is shown", () => {
+    const ended = (end: SetupEnd) => heard(undefined, report({ ended: end }));
+
+    it("waits out the grace of one under way here, counted from when it began", () => {
+        expect(setupShown(running, undefined, 1000)).toBe(false);
+        expect(setupShown(running, undefined, 1000 + SETUP_GRACE - 1)).toBe(false);
+        expect(setupShown(running, undefined, 1000 + SETUP_GRACE)).toBe(true);
+        // A window that opens on one long under way shows it at once.
+        expect(setupShown(running, undefined, 61_000)).toBe(true);
+        // What was heard of it as it goes changes nothing.
+        expect(setupShown(running, heard(undefined, report({ output: "npm ci\n" })), 1100)).toBe(
+            false,
+        );
+    });
+
+    it("never shows one that ended well within the grace, even before the tree says so", () => {
+        const done = ended({ outcome: "done" });
+        expect(setupShown(running, done, 1100)).toBe(false);
+        expect(setupShown(running, done, 1000 + SETUP_GRACE * 10)).toBe(false);
+        expect(setupShown({ setup: "ok", setting_up: null }, done, 1100)).toBe(false);
+    });
+
+    it("shows one that failed or was stopped at once", () => {
+        const failed = ended({ outcome: "failed", reason: "killed" });
+        expect(setupShown(running, failed, 1100)).toBe(true);
+        const stopped = ended({ outcome: "stopped", why: "user", reason: "Stopped by you." });
+        expect(setupShown(running, stopped, 1100)).toBe(true);
+        // A stop for the task's removal is said nowhere, and the task goes.
+        const removed = ended({ outcome: "stopped", why: "removed", reason: "Stopped because…" });
+        expect(setupShown(running, removed, 1100)).toBe(false);
+        expect(setupShown({ setup: "failed", setting_up: null }, failed, 1100)).toBe(true);
+        expect(
+            setupShown({ setup: "pending", setting_up: { state: "interrupted" } }, undefined, 0),
+        ).toBe(true);
+    });
+
+    it("goes by the end of the run under way, not of an earlier one", () => {
+        const earlier = heard(
+            undefined,
+            report({ began: 5, ended: { outcome: "failed", reason: "x" } }),
+        );
+        expect(setupShown(running, earlier, 1100)).toBe(false);
+        expect(setupShown(running, earlier, 1000 + SETUP_GRACE)).toBe(true);
+    });
+
+    it("shows one another Swarmed runs, which says nothing of when it began", () => {
+        expect(
+            setupShown({ setup: "pending", setting_up: { state: "elsewhere" } }, undefined, 0),
+        ).toBe(true);
     });
 });
 

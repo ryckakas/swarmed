@@ -175,6 +175,41 @@ export function setupState(task: Pick<Task, "setup" | "setting_up">): SetupState
     return task.setup === "failed" ? "failed" : "done";
 }
 
+/**
+ * How long a setup under way here runs before the window shows it, in milliseconds. One with
+ * nothing to run ends sooner and is never seen: a panel that comes and goes again at once only
+ * draws the eye and moves the conversation down and back. Shorter than `useNow`'s tick, so that
+ * a longer setup shows at its first tick after this.
+ */
+export const SETUP_GRACE = 800;
+
+/**
+ * Whether the window shows a task's setup, in the session's panel and under the task in the
+ * sidebar. One under way here shows once it has run [`SETUP_GRACE`] by `now`, counted from when
+ * it began; a report of this run's end decides before the tree is read again: shown at once if
+ * it failed or was stopped, never if it finished well or was stopped for its task's removal,
+ * which the window says nothing of. Any other that is not done shows at once: failed, stopped
+ * or cut short, or run by another Swarmed, which says nothing of when it began. Only what is
+ * drawn waits: what is typed waits for the setup all the same (`standing`).
+ */
+export function setupShown(
+    task: Pick<Task, "setup" | "setting_up">,
+    seen: SetupSeen | undefined,
+    now: number,
+): boolean {
+    const at = task.setting_up;
+    if (at?.state !== "here") {
+        return setupState(task) !== "done";
+    }
+    const ended = seen?.began === at.began ? seen.ended : null;
+    if (ended !== null) {
+        return (
+            ended.outcome === "failed" || (ended.outcome === "stopped" && ended.why !== "removed")
+        );
+    }
+    return now - at.began >= SETUP_GRACE;
+}
+
 /** Whether a task's setup is under way, here or elsewhere. */
 export function isSettingUp(task: Pick<Task, "setup" | "setting_up">): boolean {
     const state = setupState(task);

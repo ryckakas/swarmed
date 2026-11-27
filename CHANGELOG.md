@@ -15,6 +15,26 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Added
+
+- **Math in agents' replies is drawn as math.** A formula an agent writes in `$$…$$`, `\(…\)`,
+  `\[…\]` or a fenced `math` block is drawn by KaTeX, which comes with the app, so nothing is
+  fetched from the network. A single `$` stays a dollar sign, so replies about prices and shell
+  variables (`$5 and $10`, `$HOME`) read as before; Settings → Sessions → Math also draws `$…$`
+  where it reads as math, or turns math off. Code is never drawn as math, a formula KaTeX cannot
+  read shows as written, and copying a formula gives its TeX.
+- **Links in your own messages open.** An address you wrote in a message (`https://`, `http://`
+  or one starting with `www.`) is a link in the conversation and in the queue of waiting
+  messages, and opens in your browser when pressed, as a link in an agent's reply does.
+  Punctuation that ends the sentence after it, and a bracket closed around it, are not part of
+  the address.
+- **Code and paths in your own messages look like code.** What you wrote between backticks is
+  drawn as code, without the backticks, as in an agent's reply, and so is a path: absolute,
+  from your home (`~/`), or relative with a folder and a file name (`ui/src/setup.ts`), with a
+  line and column after it if you wrote them. A path in the task's worktree, or in a chat's
+  folder, opens in your editor when pressed, at the top of the file. The rest of what you
+  write stays as you typed it: a heading, emphasis or a list is not drawn as Markdown.
+
 ### Fixed
 
 - **Agents close the sessions they start with `start_task`.** An architect or a planner that
@@ -23,6 +43,29 @@ notice adds its line under Unreleased.
   so makes room to start more. The task, its worktree, branch and pull request stay. A session
   you started stays yours to close, even one you set to work for an agent, and one whose task
   is still being set up is not closed.
+- **A setup with nothing to run no longer flashes its panel.** Starting a task on the
+  repository's own setup, where there is nothing to set up, showed the setup panel and the
+  sidebar's setup line for a moment before they went again. A setup now shows only once it has
+  run for most of a second, and at once if it fails or is stopped; a longer one shows as before,
+  with how long it has run counted from its start. What you type meanwhile still waits for it.
+- **A closed pull request no longer looks like a draft.** Its number is struck through on the
+  task's badge in the sidebar, in the task panel, and where a message or the `#` menu names a
+  closed pull request or issue. It stays grey: red still means a failed check.
+- **In the senior layout, a task's + lines up with the others.** The button that starts a
+  session on a task's row sat about 4px right of the + on the chats and repository headings, so
+  the column of + buttons broke at every task. They are in one column now, as in classic, and
+  stay so at any icon size a custom layout sets.
+- **A highlighted session's title has room again in a narrow sidebar.** The drop that opens a
+  row's colours stayed in view on a highlighted task or session, so in a narrow sidebar a
+  session with a mark as well had no room left for its title. The drop now shows only while
+  you point at the row, reach it with the keyboard or have its colours open, in every layout,
+  and takes no room otherwise: the bar at the row's right edge shows its colour. In classic,
+  every task and session row has that room for its name again, highlighted or not.
+- **Purple marks and highlights no longer look red.** Purple was half the palette's link colour
+  and half red, so in the swarm palette, whose link colour is magenta, it came out next to red,
+  and in the others a greyish mauve. Each palette now has a purple of its own, in dark and in
+  light, which stands apart from its red, its blue and its link colour, and a custom layout's
+  `purple` still takes its place.
 
 ## [0.4.8] - 2026-11-26
 

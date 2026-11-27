@@ -8,6 +8,7 @@ import type { Mentioned } from "../mentions";
 import { useStore } from "../store";
 import { findSession } from "../tree";
 import { Dialog } from "./Dialog";
+import { SaidText } from "./SaidText";
 
 /**
  * A session a message mentions, by its title as it is now: pressing it opens that session.
@@ -213,16 +214,17 @@ interface MentionedProps {
 
 /**
  * What the user wrote, with the sessions, pull requests, issues and picked elements listed
- * under the message drawn where their tokens stand.
+ * under the message drawn where their tokens stand, its addresses as links and its code and
+ * paths as code.
  */
 export function WithMentions({ text, sessions, github, elements, sessionId }: MentionedProps) {
     if (sessions.length === 0 && github.length === 0 && elements.length === 0) {
-        return <span>{text}</span>;
+        return <SaidText text={text} sessionId={sessionId} />;
     }
     return mentionedPieces(text, sessions, github, elements).map((piece, index) => {
         if (typeof piece === "string") {
             // biome-ignore lint/suspicious/noArrayIndexKey: the pieces of a sent message never change
-            return <span key={index}>{piece}</span>;
+            return <SaidText key={index} text={piece} sessionId={sessionId} />;
         }
         if ("session" in piece) {
             // biome-ignore lint/suspicious/noArrayIndexKey: a session can be named twice

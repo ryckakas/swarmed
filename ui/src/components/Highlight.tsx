@@ -16,9 +16,9 @@ import { useStore } from "../store";
 import { useDismiss } from "./UsageButton";
 
 /**
- * The highlight on a task or a session: out of the way until the row is pointed at or has the
- * keyboard, and in view, in the row's colour, once it has one. Pressing it opens the palette,
- * as the shortcut does for the focused row or the open session.
+ * The highlight on a task or a session: shown, in the row's colour if it has one, only while the
+ * row is pointed at or has the keyboard, or while the palette is open (#475). Pressing it opens
+ * the palette, as the shortcut does for the focused row or the open session.
  */
 export function HighlightButton(props: {
     target: HighlightTarget;

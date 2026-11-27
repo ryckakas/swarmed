@@ -4,6 +4,7 @@ import type {
     AgentInfo,
     Effort,
     LimitWarnings,
+    MathShown,
     RoleInfo,
     SlashCommand,
     Supervision,
@@ -231,6 +232,13 @@ export const TOOL_CALLS: [ToolCalls, string][] = [
     ["all", "All, each on its own line"],
     ["folded", "Folded, one line for the calls in a row"],
     ["hidden", "Hidden, with a larger animation while it works"],
+];
+
+/** Which formulas in what agents write can be drawn as math. */
+export const MATH_SHOWN: [MathShown, string][] = [
+    ["off", "Off"],
+    ["standard", "$$ and brackets"],
+    ["with_single_dollars", "Also single $"],
 ];
 
 /** Which levels of the account's usage the notice at the top of the window says. */

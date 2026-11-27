@@ -17,7 +17,7 @@ import {
 import { agentName, iconForAgent } from "../providerIcons";
 import { doneSaid, doneTasks, openTasks } from "../putAway";
 import { clockTime } from "../rateLimit";
-import { isSettingUp, sidebarSays } from "../setup";
+import { isSettingUp, setupShown, sidebarSays } from "../setup";
 import { useStore } from "../store";
 import type { SubAgent } from "../subagents";
 import { listedUnder } from "../subagents";
@@ -450,13 +450,14 @@ function SetupFlag({ task }: { task: Task }) {
 
 /**
  * Under a task being set up: how long it has run and what it printed last, or that it waits
- * for a place, in place of "nothing spawned yet".
+ * for a place, in place of "nothing spawned yet". Nothing in a setup's first moments
+ * (`setupShown`), which one with nothing to run never outlasts.
  */
 function SetupLine({ task }: { task: Task }) {
     const busy = isSettingUp(task);
     const seen = useStore((state) => state.setups[task.id]);
     const now = useNow(busy);
-    const says = busy ? sidebarSays(task, seen, now) : null;
+    const says = busy && setupShown(task, seen, now) ? sidebarSays(task, seen, now) : null;
     if (says === null) {
         return null;
     }

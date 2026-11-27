@@ -123,6 +123,19 @@ function tokensIn(value: string) {
 }
 
 /**
+ * Where every token in `value` stands, of any kind: a paste's, a quote's, a mentioned
+ * session's, pull request's or issue's, or a picked element's. In no particular order.
+ */
+export function tokenSpans(value: string): { start: number; end: number }[] {
+    return [
+        ...tokensIn(value),
+        ...mentionSpans(value),
+        ...githubSpans(value),
+        ...elementSpans(value),
+    ];
+}
+
+/**
  * The token a deleting key takes out whole, a paste's, a quote's, a mentioned session's, pull
  * request's or issue's, or a picked element's: the one that ends at the caret for Backspace, the one that starts there
  * for Delete. `null` if the caret is not at a token, or text is selected.
@@ -136,13 +149,7 @@ export function tokenToRemove(
     if (start !== end || (key !== "Backspace" && key !== "Delete")) {
         return null;
     }
-    const tokens = [
-        ...tokensIn(value),
-        ...mentionSpans(value),
-        ...githubSpans(value),
-        ...elementSpans(value),
-    ];
-    const touched = tokens.find((token) =>
+    const touched = tokenSpans(value).find((token) =>
         key === "Backspace" ? token.end === start : token.start === start,
     );
     return touched ? { start: touched.start, end: touched.end } : null;

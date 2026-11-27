@@ -495,6 +495,11 @@ code {
     color: var(--lilac);
 }
 
+/* Closed struck through, as its badge in the sidebar: the number only, not the word "closed". */
+.pull-number[data-state="closed"] .pull-numeral {
+    text-decoration: line-through;
+}
+
 .pull-summary {
     color: var(--muted);
     font-size: var(--text-sm);
@@ -1600,8 +1605,10 @@ code {
 }
 
 /*
- * The highlight on a row: out of the way until the row is pointed at or has the keyboard, and in
- * view, filled with its colour, once the row has one.
+ * The highlight on a row: shown while the row is pointed at or has the keyboard, or while its
+ * palette is open, filled with the row's colour if it has one. Otherwise it takes no room, even on
+ * a highlighted row, whose bar at the right edge shows the colour: in a narrow sidebar its title
+ * needs that room, beside a mark most of all (#475).
  */
 .highlight-wrap {
     position: relative;
@@ -1619,21 +1626,15 @@ code {
     border-radius: 4px;
     background: none;
     color: var(--faint);
-    opacity: 0;
 }
 
-.row-head:hover .row-highlight,
-.row-head:focus-within .row-highlight,
-.session-line:hover .row-highlight,
-.session-line:focus-within .row-highlight,
-.row-highlight:focus-visible,
-.row-highlight[aria-expanded="true"] {
-    opacity: 1;
+.row-head:not(:hover, :focus-within) .row-highlight:not([aria-expanded="true"]),
+.session-line:not(:hover, :focus-within) .row-highlight:not([aria-expanded="true"]) {
+    display: none;
 }
 
 .row-highlight[data-highlight] {
     color: var(--highlight);
-    opacity: 1;
 }
 
 .row-highlight[data-highlight] .highlight-drop {
@@ -1790,6 +1791,8 @@ code {
 /*
  * Merged or closed: done with, whatever its checks said. Merged is lilac, as GitHub draws it in
  * purple, so that it cannot be taken for a draft, which is grey until its checks say otherwise.
+ * Closed stays grey, since GitHub's red is a failed check here, and is struck through instead:
+ * at this size a dashed border alone reads as a draft's solid one. The dash stays as a second cue.
  */
 .pull-badge[data-state="merged"] {
     color: var(--lilac);
@@ -1798,6 +1801,7 @@ code {
 .pull-badge[data-state="closed"] {
     color: var(--faint);
     border-style: dashed;
+    text-decoration: line-through;
 }
 
 /* The issue a task was started for: GitHub's ring with a dot, and its number. */
@@ -2065,6 +2069,8 @@ code {
  * The five colours marks and highlights are named by: each the palette's own, unless the custom
  * layout gives one (`--green` and the others, on the body), which then changes both. Read on the
  * element itself, so that it is the custom layout's value that is read and not the root's.
+ * Purple's own is `--violet`, under another name than the custom layout's so that a palette set
+ * on an element below the body can never take its place.
  */
 .mark-green {
     --mark: var(--green, var(--moss));
@@ -2083,7 +2089,7 @@ code {
 }
 
 .mark-purple {
-    --mark: var(--purple, color-mix(in srgb, var(--sky) 50%, var(--clay)));
+    --mark: var(--purple, var(--violet));
 }
 
 [data-highlight="green"] {
@@ -2103,7 +2109,7 @@ code {
 }
 
 [data-highlight="purple"] {
-    --highlight: var(--purple, color-mix(in srgb, var(--sky) 50%, var(--clay)));
+    --highlight: var(--purple, var(--violet));
 }
 
 /*
@@ -2306,13 +2312,20 @@ code {
 
 /* The worktree's band: marked off from the rows around it, and quieter than a repository. */
 .task > .row-head {
-    margin: 0 6px 0 22px;
+    --band-inset: 6px;
+    margin: 0 var(--band-inset) 0 22px;
     border-radius: 5px;
     background: var(--sidebar-task-background, color-mix(in srgb, var(--raised) 55%, transparent));
 }
 
+/*
+ * Its remove button ends as far from the sidebar's edge as a heading's does, so its + stays in
+ * their column. The button is zoomed in some layouts, and its margin with it, but the band's inset
+ * is not: the inset is taken off in the button's own units, so the two add up to a heading's gap
+ * whatever the zoom (#474).
+ */
 .task > .row-head .row-close {
-    margin-right: 2px;
+    margin-right: calc(var(--space-2) - var(--band-inset) / var(--button-zoom, 1));
 }
 
 .task > .row-head .row-icon {
@@ -3571,6 +3584,37 @@ code {
     color: var(--muted);
 }
 
+/* An address in what the user wrote, drawn as a reply's links are: it opens in the browser. */
+.said-link {
+    color: var(--sky);
+    text-decoration-color: color-mix(in srgb, var(--sky) 45%, transparent);
+    text-underline-offset: 2px;
+}
+
+/*
+ * Code and a path in what the user wrote, drawn as a reply's inline code is. A message's own
+ * background is the one a reply's code has, so the code's is mixed from the text instead.
+ */
+.said-code {
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--text) 9%, transparent);
+    color: var(--teal);
+}
+
+/* A path in the worktree, which opens in the editor: a link, drawn as the code it is. */
+.said-path {
+    font-family: var(--font-mono);
+    font-size: 0.94em;
+    text-decoration-color: color-mix(in srgb, var(--teal) 45%, transparent);
+    text-underline-offset: 2px;
+}
+
+.said-path:hover {
+    background: color-mix(in srgb, var(--teal) 18%, transparent);
+    text-decoration-color: var(--teal);
+}
+
 /* Beside words selected in one of the agent's replies: quotes them into the message box. */
 .quote-button {
     position: absolute;
@@ -3694,6 +3738,41 @@ code {
 
 .prose pre {
     border: 1px solid var(--line);
+}
+
+/*
+ * Formulas, drawn by KaTeX in the reply's own colour and in proportion to its text, so every
+ * palette and layout draws them. KaTeX lays out its own boxes, so nothing in one wraps as the
+ * reply's words do, and a display formula wider than the reply scrolls sideways on its own.
+ */
+.prose .katex {
+    overflow-wrap: normal;
+}
+
+.prose .katex-display {
+    padding-block: 2px;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+/* A formula KaTeX cannot read, shown as written, as code is; KaTeX colours it (`errorColor`). */
+.prose .katex-error {
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: var(--raised);
+    font-family: var(--font-mono);
+    white-space: pre-wrap;
+}
+
+/* One that was a block of its own, as a code block is. */
+.prose > .katex-error,
+.prose :is(li, blockquote) > .katex-error {
+    display: block;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    font-size: var(--text-sm);
 }
 
 /* Syntax colours for code blocks that name their language (highlight.js class names). */
@@ -4259,34 +4338,45 @@ code {
 }
 
 .queue-text {
+    position: relative;
     flex: 1;
     min-width: 0;
     padding: var(--space-1) var(--space-2);
+    color: var(--text);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+/* What opens a waiting message for editing: the whole of its text, under its words. */
+.queue-open {
+    position: absolute;
+    inset: 0;
+    padding: 0;
     border: 0;
     border-radius: 8px;
     background: none;
-    color: var(--text);
-    font: inherit;
-    text-align: left;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
     cursor: text;
 }
 
-.queue-text:hover,
-.queue-text:focus-visible {
+.queue-text:hover .queue-open,
+.queue-open:focus-visible {
     background: var(--raised);
+}
+
+/* The words let a press through to the button under them; their links alone take it. */
+.queue-words {
+    position: relative;
+    pointer-events: none;
+}
+
+.queue-words a {
+    pointer-events: auto;
 }
 
 /* A waiting message's text, with its files under it. */
 .queue-said {
     flex: 1;
     min-width: 0;
-}
-
-.queue-said .queue-text {
-    display: block;
-    width: 100%;
 }
 
 .queue-said .file-chips {
@@ -5286,8 +5376,8 @@ code {
 }
 
 /*
- * A pull request's or issue's number, in the menu and on its chip, in the colour of its state as
- * the sidebar's badges draw it: open in moss, merged in lilac, a draft and a closed one faint.
+ * A pull request's or issue's number, in the menu and on its chip, as the sidebar's badges draw
+ * it: open in moss, merged in lilac, a draft faint, and a closed one faint and struck through.
  */
 .github-number {
     margin-right: var(--space-1);
@@ -5301,6 +5391,10 @@ code {
 
 .github-number[data-state="merged"] {
     color: var(--lilac);
+}
+
+.github-number[data-state="closed"] {
+    text-decoration: line-through;
 }
 
 .github-chip .github-number {

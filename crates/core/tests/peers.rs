@@ -7,8 +7,9 @@ use std::sync::Arc;
 use common::{core_with_project, fixture, next, turn};
 use swarmed_core::agent::{AgentEvent, Auth};
 use swarmed_core::{
-    CHATS, Core, Delivery, Environment, Error, Layout, LimitWarnings, MAX_SPAWNED, NewTaskOptions,
-    Palette, Session, SessionEvent, SessionOptions, ToolCalls, hooks, serve_session_tools,
+    CHATS, Core, Delivery, Environment, Error, Layout, LimitWarnings, MAX_SPAWNED, MathShown,
+    NewTaskOptions, Palette, Session, SessionEvent, SessionOptions, ToolCalls, hooks,
+    serve_session_tools,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
@@ -549,12 +550,13 @@ async fn an_agent_changes_what_is_harmless_at_once() {
     let (ok, said) = configure(
         &socket,
         session.id,
-        json(serde_json::json!({ "kind": "appearance", "op": "save", "palette": "Forest", "layout": "senior", "text_size": 110, "tool_calls": "Folded", "turn_end_lines": false })),
+        json(serde_json::json!({ "kind": "appearance", "op": "save", "palette": "Forest", "layout": "senior", "text_size": 110, "tool_calls": "Folded", "turn_end_lines": false, "math": "with_single_dollars" })),
     )
     .await;
     assert!(ok, "{said}");
     assert!(said.contains("tool_calls folded"), "{said}");
     assert!(said.contains("turn_end_lines false"), "{said}");
+    assert!(said.contains("math with_single_dollars"), "{said}");
     let settings = core.settings().expect("reads");
     assert_eq!(
         (
@@ -572,6 +574,7 @@ async fn an_agent_changes_what_is_harmless_at_once() {
             false
         )
     );
+    assert_eq!(settings.math, MathShown::WithSingleDollars);
     let layout = serde_json::json!({ "kind": "layout", "op": "save", "json": { "base": "senior", "icons": 140 } });
     let (ok, said) = configure(&socket, session.id, json(layout)).await;
     assert!(ok, "{said}");

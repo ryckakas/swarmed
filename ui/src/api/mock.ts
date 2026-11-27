@@ -1611,13 +1611,46 @@ export function safeNext(next: string | null): string {
 
 The existing tests pass. I'd like to push the branch so CI runs the browser tests too.`;
 
+/**
+ * A reply with formulas in every form math is drawn from: inline and display, `$$`, `\(…\)`,
+ * `\[…\]` and a fenced block, one KaTeX cannot read, and dollars that stay text: prices, shell
+ * variables, code, and a single `$r$`, drawn only with single dollars on.
+ */
+const VAT_ANSWER = `The VAT column goes missing because \`columnsFor(invoice)\` builds the header from the first row of a batch, and a batch that starts with a credit note has no VAT there. The header is fixed now, and VAT is worked out for each row.
+
+Each row's VAT is \\(v = \\lfloor 100\\,n r + \\tfrac{1}{2} \\rfloor / 100\\): the net amount \\(n\\) times the rate $r$, rounded half up to the cent. The spec wants the total to agree with the rows, so it is summed from the rounded rows rather than taken from the summed net:
+
+$$
+V = \\sum_{i=1}^{k} v_i \\quad\\text{not}\\quad \\operatorname{round}\\Big(r \\sum_{i=1}^{k} n_i\\Big)
+$$
+
+Two lines of $5 and $10 at 19% give $0.95 and $1.90, as the spec wants. A line's gross amount is then
+
+\\[ g = n + v \\approx n\\,(1 + r) \\]
+
+and the rates a row can have are
+
+\`\`\`math
+r \\in \\{\\, 0,\\ 0.07,\\ 0.19 \\,\\}
+\`\`\`
+
+The spec writes the rate as \\(\\frac{v}{n\\), with a brace missing; I read it as VAT over net. The export still writes to $EXPORT_DIR, or to $HOME/exports when that is unset, and in the code the rate stays \`rate * net\`, not \`\\(r \\cdot n\\)\`.`;
+
 /** What the sample sessions have said so far. */
 export function sampleEvents(sessionId: number): AgentEvent[] {
+    if (sessionId === 3) {
+        return [
+            { type: "user_message", text: "Why does the CSV export drop the VAT column?" },
+            INIT,
+            { type: "text", text: VAT_ANSWER },
+            { type: "turn_done", is_error: false, result: null, cost_usd: 0.04, duration_ms: 9800 },
+        ];
+    }
     if (sessionId === 1) {
         return [
             {
                 type: "user_message",
-                text: "Users get stuck in a redirect loop after login. Fix it.",
+                text: "Users get stuck in a redirect loop after login (try https://shop.example.com/login?next=/login). It starts in `redirectAfterLogin`, src/auth/login.ts:41, and my notes from the last outage are in ~/notes/storefront.md. Fix it.",
             },
             INIT,
             { type: "text", text: "I'll look at how the login redirect is built." },
@@ -1769,9 +1802,10 @@ const SAMPLE_DRAFT: PullDraft = {
 };
 
 /**
- * Three sample tasks have a pull request: one open with a check still running, which fails
- * {@link CHECK_FAILS_AFTER} after the window opens, one merged, and one a draft with no checks
- * yet, which is grey beside the merged one's lilac. The others have none.
+ * Five sample tasks have a pull request: one open with a check still running, which fails
+ * {@link CHECK_FAILS_AFTER} after the window opens, two merged, one a draft with no checks
+ * yet, which is grey beside the merged one's lilac, and one closed without merging, grey too
+ * and struck through. The others have none.
  */
 const SAMPLE_PULLS: Record<string, () => Pull> = {
     "fix-login-redirect": openPull,
@@ -1821,6 +1855,21 @@ const SAMPLE_PULLS: Record<string, () => Pull> = {
         base: "main",
         auto_merge: null,
         merge_state: "draft",
+        merged_at: null,
+    }),
+    "rule-docs": () => ({
+        number: 90,
+        title: "Document the rule format",
+        url: "https://github.com/example/bonsai-lint/pull/90",
+        state: "closed",
+        draft: false,
+        review: "changes_requested",
+        checks: [{ name: "Lint", workflow: "CI", outcome: "passed", url: null }],
+        conflicts: false,
+        head: "0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c",
+        base: "main",
+        auto_merge: null,
+        merge_state: null,
         merged_at: null,
     }),
 };
@@ -1954,6 +2003,18 @@ const SAMPLE_TREE: Record<string, string[]> = {
     test: ["auth/"],
     "test/auth": ["login.test.ts"],
 };
+
+/**
+ * Opens a sample file, as the core does: one the sample worktree does not hold is refused in
+ * the core's words.
+ */
+function openSampleFile(path: string) {
+    const slash = path.lastIndexOf("/");
+    const [dir, name] = slash < 0 ? ["", path] : [path.slice(0, slash), path.slice(slash + 1)];
+    if (!SAMPLE_TREE[dir]?.includes(name)) {
+        throw new Error(`\`${path}\` is not a path inside the worktree`);
+    }
+}
 
 function sampleFiles(dir: string): FileListing {
     const names = SAMPLE_TREE[dir] ?? [];
@@ -3696,6 +3757,7 @@ export function createMockApi(): Api {
         html_views: true,
         tool_calls: "folded",
         turn_end_lines: true,
+        math: "standard",
         limit_warnings: "frequent",
         continue_after_limit: false,
         notifications: true,
@@ -3879,7 +3941,7 @@ export function createMockApi(): Api {
         taskOpenEditor: async () => undefined,
         taskOpenTerminal: async () => undefined,
         taskFiles: async (_project, _name, dir) => sampleFiles(dir),
-        taskOpenFile: async () => undefined,
+        taskOpenFile: async (_project, _name, path) => openSampleFile(path),
         taskOpenUrl: async () => undefined,
         openLink: async (url) => {
             window.open(url, "_blank", "noopener");

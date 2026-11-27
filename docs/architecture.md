@@ -77,6 +77,16 @@ from `swarmed-view://`, a scheme the app serves with a policy of its own (`VIEW_
 from `data:`. The app's own policy allows frames from that scheme and nowhere else. A link
 pressed in a view is shown with its address and opened only when the user says so.
 
+## Math in replies
+
+Formulas in agents' replies are drawn by KaTeX, whose script, stylesheet and fonts are bundled
+into the app, so the window's policy is unchanged and nothing is fetched. KaTeX runs with
+`trust` off: a formula can neither link nor load anything (`\href`, `\includegraphics`, `\html…`
+are drawn as text), and its sizes are capped. What it draws is parsed in an inert template and
+drawn by React, never set as HTML in the page, and a formula it cannot read is shown as written.
+Which delimiters count is decided by one pure function, `marked` in `ui/src/math.ts`, which never
+looks inside code.
+
 ## Building from source
 
 Needs Rust (the version in `rust-version` in `Cargo.toml`) and Node with Corepack.

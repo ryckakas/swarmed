@@ -1209,7 +1209,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
             "editor": "code", "terminal_app": "Terminal", "auto_title": true, "theme": "system", "palette": "swarm",
             "style": "colony", "layout": "classic",
             "text_scale": 100,
-            "html_views": true, "tool_calls": "folded", "turn_end_lines": true, "limit_warnings": "frequent", "continue_after_limit": false, "notifications": true, "default_supervision": "auto",
+            "html_views": true, "tool_calls": "folded", "turn_end_lines": true, "math": "standard", "limit_warnings": "frequent", "continue_after_limit": false, "notifications": true, "default_supervision": "auto",
             "status_items": ["branch", "changes", "model", "context", "cost"],
             "status_command": "", "rules": "", "updates": "automatic", "branch_prefix": "",
             "put_away_merged": false, "put_away_merged_days": 1, "put_away_idle": false,

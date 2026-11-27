@@ -582,18 +582,26 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   The pull request of `fix-login-redirect` has a check running that fails 15 seconds after the
   window opens, as the core's follower would say it (`pull_read`, `pull_changed`). Its
   required check holds a merge back (`mockMerging.ts`): Force merge is refused in GitHub's
-  words, auto-merge can be turned on, and Bypass requirements merges it.
+  words, auto-merge can be turned on, and Bypass requirements merges it. The first message of
+  `fix-login-redirect` holds an address, a code span and two paths, one in the worktree that
+  opens and one from home that does not, and `rule-docs` has a pull request closed without
+  merging, #90.
   Removing the sample task `invoice-export` is refused over unsaved work, and `shop-142` over
-  a session another Swarmed runs. The second session of `invoice-export` is idle with a
+  a session another Swarmed runs. The first session of `invoice-export` answered with
+  formulas in every form math is drawn from (`VAT_ANSWER`), one KaTeX cannot read, and prices,
+  shell variables and a single `$r$` that stay text unless single dollars are on. The second
+  session of `invoice-export` is idle with a
   sub-agent at work and a dev server left running; stopping them from the Background list
   changes its mark. A session can be taken back with Edit from here once idle
   (`mockRewind.ts`); a busy one is refused, and so are the files of one whose task has a session
-  at work, as in `fix-login-redirect`. A new task's setup is quick in storefront, takes half a
-  minute in bonsai-lint, and in fsum is killed the first time and succeeds when run again
-  (`mockSetups.ts`). Storefront and bonsai-lint have GitHub issues, `shop-142` was started for
-  #142, #428's text holds HTML GitHub draws (`<details>`, `<kbd>`) and HTML it does not, an
-  HTML comment, an image and a view's block, and one of its comments is hidden on GitHub, and
-  fsum is not on GitHub, so its list says why (`mockIssues.ts`). bonsai-lint's `rule-engine`
+  at work, as in `fix-login-redirect`. A new task's setup is quick in storefront's `staging`
+  environment and has nothing to run on storefront's own setup, so it ends within the grace
+  and is never shown (`SETUP_GRACE`), takes half a minute in bonsai-lint, and in fsum is killed
+  the first time and succeeds when run again (`mockSetups.ts`). Storefront and bonsai-lint
+  have GitHub issues, `shop-142` was started for #142, #428's text holds HTML GitHub draws
+  (`<details>`, `<kbd>`) and HTML it does not, an HTML comment, an image and a view's block,
+  and one of its comments is hidden on GitHub, and fsum is not on GitHub, so its list says why
+  (`mockIssues.ts`). bonsai-lint's `rule-engine`
   holds an architect with sessions working for it, three levels deep, and `rule-docs` a
   planner that works for it from another task (`mockParents.ts`), each with a role
   (`mockRoles.ts`). The task whose stack runs has
@@ -914,6 +922,24 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   holds a view that swings between two heights at the taller one. When the frame stops
   following a view (`holdsBack`), the host tells it so and it may scroll again. Test a change
   here in Safari with "Always show scroll bars": Chromium does not reproduce the loop.
+- **Math in replies is drawn by KaTeX** (`math.ts`, `Markdown.tsx`, `Settings::math`, #389),
+  bundled with the app: its stylesheet and its fonts, `woff2` only, as files of the app's own
+  (`vite.config.ts` inlines no font, since the window's policy refuses a `data:` one).
+  - **What counts is decided before Markdown is read** (`marked`, pure): remark-math reads only
+    dollars, never a single one (`REMARK_MATH_OPTIONS`), so `\(…\)`, `\[…\]` and, with the
+    setting, a single `$…$` as Pandoc reads one are written as dollars first, in the text of
+    paragraphs, headings and table cells only: never in code, links or math already there.
+    `\[` and `\]` on lines of their own become a block of math, whose lines Markdown does not
+    read. The fence's length says what was written: even may stand alone as display
+    (`remarkMathAlone`, as GitHub draws `$$…$$` on a line of its own), odd stays in the line.
+  - **Nothing in a formula reaches anything** (`KATEX_OPTIONS`): `trust` stays off, so `\href`,
+    `\includegraphics` and `\html…` are drawn as text, and sizes are capped. KaTeX's markup is
+    read into the tree by `rehype-katex`: parsed in an inert template and drawn by React, never
+    set as HTML in the page, and a reply's own HTML stays text. A formula it cannot read shows
+    as written, in the code style (`.katex-error`).
+  - **Agents' text only:** replies, plans, peers' messages and sub-agents' panes. The user's
+    messages are not Markdown, and issues (`UntrustedMarkdown`) draw none. Copying a formula
+    gives its TeX (`katex/contrib/copy-tex`, in `main.tsx`).
 - **MCP servers' apps are shown under their calls** (MCP Apps, #385: `apps.rs`,
   `agent/claude/apps.rs`, `mcpApps.ts`, `McpAppView.tsx`). An app is a third party's HTML, the
   server author's, and gets every rule a view has and more.
@@ -978,8 +1004,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **Agents change Swarmed's own configuration through one tool, `configure`** (`configure.rs`),
   in three kinds. Done at once: prompts, actions that send a prompt, the status line's pieces,
   appearance (with `limit_warnings`, which levels the usage notice at the top of the window
-  says: a limit that stops requests is said whatever it is; and `turn_end_lines`, whether
-  turns end with a line: one that failed or was stopped keeps it whatever it is). Only
+  says: a limit that stops requests is said whatever it is; `turn_end_lines`, whether
+  turns end with a line: one that failed or was stopped keeps it whatever it is; and `math`,
+  which formulas in replies are drawn). Only
   proposed: rules, environments, an action's command, the status line's script, hiding tool
   calls (`tool_calls` to `hidden`; all and folded are appearance like the rest). These
   outlive the session, so an agent that read something hostile could plant one;

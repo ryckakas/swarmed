@@ -15,6 +15,7 @@ import { findSession, repositoryOf } from "../tree";
 import { usePastedImages } from "../usePastedImages";
 import { useWords } from "../useWords";
 import { FileChips } from "./FileChips";
+import { SaidText } from "./SaidText";
 
 /** Stands in for a queue that has not been read, without a new array on every render. */
 const NONE: QueuedMessage[] = [];
@@ -182,20 +183,17 @@ function QueuedRow(props: RowProps) {
         return (
             <div className="queue-row">
                 <div className="queue-said">
-                    <button
-                        type="button"
-                        className="queue-text"
-                        title="Edit this message"
-                        onClick={() => {
+                    <QueuedText
+                        text={shown}
+                        sessionId={sessionId}
+                        onEdit={() => {
                             // Its pastes and quotes behind tokens again, sent in full once saved.
                             const editing = { ...said, text: tokensAgain(said.text), images: [] };
                             opened.current = editing;
                             setDraft(editing);
                             onEditing(true);
                         }}
-                    >
-                        {shown || "Files only"}
-                    </button>
+                    />
                     <FileChips files={said.files} sessionId={sessionId} />
                 </div>
                 {onTellNow && <TellNow onClick={onTellNow} />}
@@ -239,6 +237,30 @@ function QueuedRow(props: RowProps) {
             }}
             onCancel={close}
         />
+    );
+}
+
+/**
+ * A waiting message's words, which open it for editing when pressed. The button lies under the
+ * words rather than around them, since a button cannot hold links: only the addresses and the
+ * paths in the worktree in them stand above it, and open in the user's browser or editor
+ * instead.
+ */
+function QueuedText(props: { text: string; sessionId: number; onEdit(): void }) {
+    const { text, sessionId, onEdit } = props;
+    return (
+        <div className="queue-text">
+            <button
+                type="button"
+                className="queue-open"
+                aria-label="Edit this message"
+                title="Edit this message"
+                onClick={onEdit}
+            />
+            <span className="queue-words">
+                {text ? <SaidText text={text} sessionId={sessionId} /> : "Files only"}
+            </span>
+        </div>
     );
 }
 
