@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { Stylesheet } from "./api/types";
 import {
+    answersInOrder,
+    changedAt,
     changedLines,
     changeSaid,
     drawUserStylesheet,
+    mayKeep,
     NOTHING_PUT_ASIDE,
+    shownLine,
+    stylesheetBox,
     stylesheetNotice,
 } from "./stylesheet";
 
@@ -14,6 +19,7 @@ const sheet = (over: Partial<Stylesheet> = {}): Stylesheet => ({
     applied: "a {}",
     accepted: "a {}",
     file: "a {}",
+    too_large: false,
     changed_at: 1_700_000_000,
     waiting: false,
     ...over,
@@ -126,5 +132,85 @@ describe("changedLines", () => {
         expect(changeSaid(lines)).toBe("3 lines added");
         expect(changeSaid(changedLines("a\nb", "a"))).toBe("1 line removed");
         expect(changeSaid(changedLines("a\n", "a"))).toBe("only line breaks changed");
+    });
+});
+
+describe("changedLines at its edges", () => {
+    it("keeps a carriage return in its line, so a line ending changed shows", () => {
+        expect(changedLines("a {}\n", "a {}\r\n")).toEqual([
+            { kind: "removed", text: "a {}" },
+            { kind: "added", text: "a {}\r" },
+        ]);
+    });
+
+    it("shows everything of both past what it compares line by line", () => {
+        const many = (last: string) =>
+            [...Array.from({ length: 2_100 }, (_, n) => `.r${n} {}`), last].join("\n");
+        const lines = changedLines(many("a {}"), many("b {}"));
+        expect(lines.filter((line) => line.kind === "removed")).toHaveLength(2_101);
+        expect(lines.filter((line) => line.kind === "added")).toHaveLength(2_101);
+    });
+});
+
+describe("shownLine", () => {
+    it("draws what would not show as its code", () => {
+        expect(shownLine("a\u200B{}\u202Eb")).toBe("a⟨U+200B⟩{}⟨U+202E⟩b");
+        expect(shownLine("--sky: #4fc8b4;")).toBe("--sky: #4fc8b4;");
+    });
+});
+
+describe("stylesheetBox", () => {
+    it("starts from what is applied, never from a change not accepted", () => {
+        const waiting = sheet({ file: ".deny { display: none; }", waiting: true });
+        expect(stylesheetBox(waiting)).toEqual({ kind: "box", text: "a {}" });
+        expect(stylesheetBox(sheet())).toEqual({ kind: "box", text: "a {}" });
+        expect(stylesheetBox(sheet({ file: null }))).toEqual({ kind: "box", text: "" });
+    });
+
+    it("offers no box for a file too large to read, which saving would replace unseen", () => {
+        const large = sheet({ file: null, too_large: true, applied: "" });
+        expect(stylesheetBox(large)).toEqual({ kind: "too_large" });
+    });
+
+    it("saves only an edit of the user's own", () => {
+        expect(mayKeep("a {}", null)).toBe(false);
+        expect(mayKeep("a {}", "a {}")).toBe(false);
+        expect(mayKeep("a {}", "b {}")).toBe(true);
+    });
+});
+
+describe("answersInOrder", () => {
+    it("takes no answer asked before one taken", () => {
+        const answers = answersInOrder();
+        const read = answers.ask();
+        const accept = answers.ask();
+        expect(answers.takes(accept)).toBe(true);
+        expect(answers.takes(read)).toBe(false);
+        expect(answers.takes(answers.ask())).toBe(true);
+    });
+});
+
+describe("changedAt", () => {
+    it("says when the file changed, and nothing when that is not known", () => {
+        expect(changedAt(sheet({ changed_at: null }))).toBe("");
+        expect(changedAt(sheet())).toMatch(/2023/);
+    });
+});
+
+// The UI's source, as text: every module but the tests.
+const sources = import.meta.glob<string>(["./**/*.{ts,tsx}", "!./**/*.test.ts"], {
+    query: "?raw",
+    import: "default",
+    eager: true,
+});
+
+describe("the app's own stylesheets", () => {
+    it("are all imported in main.tsx, so none can come after the user's", () => {
+        // A stylesheet imported by a module that loads later is put in the head as it loads,
+        // after the user's, and would win over it.
+        const importing = Object.entries(sources)
+            .filter(([, text]) => /^import\s+["'][^"']+\.css["'];?$/m.test(text))
+            .map(([path]) => path);
+        expect(importing).toEqual(["./main.tsx"]);
     });
 });

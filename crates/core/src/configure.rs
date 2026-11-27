@@ -22,7 +22,9 @@
 //!   those of a session it starts in its call, where the user sees it. Nor the user's own
 //!   stylesheet (`stylesheet.rs`), its text or whether it is used, not even as a proposal: CSS
 //!   can hide a Deny button or this very kind of proposal, and few users can tell from CSS
-//!   what it would hide. The custom layout is reachable because it can hide nothing.
+//!   what it would hide. The custom layout is reachable because it can hide nothing. An agent
+//!   that asks for it is told where the file is: written there, it waits for the user's yes in
+//!   the window, which shows what changed.
 //!
 //! The values of an environment's variables are never told to an agent, only their names.
 
@@ -622,6 +624,10 @@ impl Core {
             "layout" => self.configure_layout(op, &asked),
             "terminal" => self.configure_terminal(op, &asked),
             "environment" => self.configure_environment(from, op, &asked),
+            // Refused like any kind there is not, with the way an agent can still write one.
+            "stylesheet" | "style" | "css" | "user_stylesheet" => Err(refused(
+                crate::stylesheet::how_agents_write_it(&self.paths.stylesheet()),
+            )),
             _ => Err(refused(
                 "`kind` is one of prompt, action, rule, status_line, appearance, layout, \
                  terminal, environment. \

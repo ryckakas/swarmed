@@ -54,6 +54,11 @@ fn stylesheet_said(sheet: &Stylesheet) -> String {
     if !sheet.on {
         return "Your stylesheet is off: the window is drawn without it.".to_string();
     }
+    if sheet.too_large {
+        return "Your stylesheet is on, but style.css is too large to be read, so nothing of it is \
+                applied."
+            .to_string();
+    }
     if sheet.file.is_none() {
         return "Your stylesheet is on, but there is no style.css to apply.".to_string();
     }
@@ -76,6 +81,7 @@ mod tests {
             applied: String::new(),
             accepted: "a {}".to_string(),
             file: file.map(str::to_string),
+            too_large: false,
             changed_at: None,
             waiting,
         }

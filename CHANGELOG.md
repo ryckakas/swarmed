@@ -20,10 +20,10 @@ notice adds its line under Unreleased.
 - **A stylesheet of your own.** For what the custom layout has no field for, such as a wider
   conversation or rounder corners, turn on **Your stylesheet** in Settings, under Appearance:
   `style.css` in Swarmed's data folder, applied after the app's own styles so that it wins.
-  Write it in Settings, where saving applies it at once, or open it in your editor. Since CSS can
-  hide anything in the window, a Deny button included, a change made to the file outside Settings
-  is shown to you, line by line, and applied only once you press Apply, and agents cannot change
-  it through Swarmed at all. It loads nothing from elsewhere: no web fonts, no remote images. The
+  Write it in Settings, where saving applies it at once, open it in your editor, or ask an agent
+  to write it. Since CSS can hide anything in the window, a Deny button included, a change made
+  to the file outside Settings is shown to you, line by line, and applied only once you press
+  Apply, and Swarmed's own tools give agents no way around that. It loads nothing from elsewhere: no web fonts, no remote images. The
   app's colour and size variables stay from version to version; its class names may not. If a
   stylesheet ever hides the switch that turns it off, hold ⌥ while Swarmed starts, or run
   `swarmed layout stylesheet off`.

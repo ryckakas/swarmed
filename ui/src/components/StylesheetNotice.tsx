@@ -1,7 +1,14 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useStore } from "../store";
-import { type ChangedLine, changedLines, changeSaid, stylesheetNotice } from "../stylesheet";
+import {
+    APPLY_AFTER_MS,
+    type ChangedLine,
+    changedLines,
+    changeSaid,
+    shownLine,
+    stylesheetNotice,
+} from "../stylesheet";
 
 /**
  * What the window says of the user's own stylesheet, at its top: that its file changed on disk,
@@ -16,11 +23,21 @@ export function StylesheetNotice() {
     const leaveOut = useStore((state) => state.leaveStylesheetOut);
     const use = useStore((state) => state.useStylesheet);
     const notice = stylesheetNotice(sheet, aside);
+    const again = useChangedAgain(notice?.kind === "changed" ? notice.file : null);
     if (notice === null) {
         return null;
     }
     if (notice.kind === "changed") {
-        return <ChangedOnDisk file={notice.file} accepted={notice.accepted} />;
+        return (
+            <ChangedOnDisk
+                // A new text is a new notice: nothing of the one before carries over to it.
+                key={notice.file}
+                file={notice.file}
+                accepted={notice.accepted}
+                again={again}
+                onLater={() => putAside({ file: notice.file })}
+            />
+        );
     }
     return (
         <div className="stylesheet-notice" role="status">
@@ -46,21 +63,50 @@ export function StylesheetNotice() {
     );
 }
 
-/** A change of the stylesheet's file, shown line by line, applied once the user says so. */
-function ChangedOnDisk({ file, accepted }: { file: string; accepted: string }) {
+/** Whether the change shown, `file`, took the place of another while that one was shown. */
+export function useChangedAgain(file: string | null): boolean {
+    const before = useRef<string | null>(null);
+    const again = file !== null && before.current !== null && before.current !== file;
+    useEffect(() => {
+        before.current = file;
+    });
+    return again;
+}
+
+interface ChangedOnDiskProps {
+    /** The file as it is shown, which is what Apply accepts. */
+    file: string;
+    /** What the user accepted before, which the change is shown against. */
+    accepted: string;
+    /** Whether it took the place of another change while that one was shown. */
+    again: boolean;
+    /** Puts it aside until the file changes again; without it there is no Not now. */
+    onLater?: () => void;
+}
+
+/**
+ * A change of the stylesheet's file, shown line by line, applied once the user says so. Mounted
+ * anew for each text, so Apply always takes what is on screen; and it waits a moment before it
+ * can be pressed, so that a click meant for the change before cannot take this one.
+ */
+export function ChangedOnDisk({ file, accepted, again, onLater }: ChangedOnDiskProps) {
     const accept = useStore((state) => state.acceptStylesheet);
-    const putAside = useStore((state) => state.putStylesheetAside);
+    const [wasAgain] = useState(again);
     const [folded, setFolded] = useState(false);
+    const [ready, setReady] = useState(false);
     const [problem, setProblem] = useState<string | null>(null);
+    useEffect(() => {
+        const timer = setTimeout(() => setReady(true), APPLY_AFTER_MS);
+        return () => clearTimeout(timer);
+    }, []);
     const lines = changedLines(accepted, file);
-    // What is applied is the file as shown here, even if it changes again meanwhile.
     const apply = async () => setProblem(await accept(api, file));
     return (
         <div className="stylesheet-notice" role="alert">
             <div className="stylesheet-notice-head">
                 <span className="stylesheet-notice-text">
-                    Your stylesheet changed on disk ({changeSaid(lines)}). It is applied once you
-                    say so.
+                    Your stylesheet changed on disk{wasAgain ? " again" : ""} ({changeSaid(lines)}
+                    ). It is applied once you say so.
                 </span>
                 <button
                     type="button"
@@ -70,12 +116,19 @@ function ChangedOnDisk({ file, accepted }: { file: string; accepted: string }) {
                 >
                     {folded ? "Show the change" : "Hide the change"}
                 </button>
-                <button type="button" className="button button-primary" onClick={apply}>
+                <button
+                    type="button"
+                    className="button button-primary"
+                    disabled={!ready}
+                    onClick={apply}
+                >
                     Apply
                 </button>
-                <button type="button" className="button" onClick={() => putAside({ file })}>
-                    Not now
-                </button>
+                {onLater && (
+                    <button type="button" className="button" onClick={onLater}>
+                        Not now
+                    </button>
+                )}
             </div>
             {problem && <p className="stylesheet-notice-problem">{problem}</p>}
             {!folded && <Change lines={lines} />}
@@ -92,7 +145,7 @@ function Change({ lines }: { lines: ChangedLine[] }) {
                     // biome-ignore lint/suspicious/noArrayIndexKey: the lines of one change never reorder
                     <div key={index} className={`diff-line ${LINE_CLASS[line.kind]}`}>
                         <span className="diff-sign">{SIGN[line.kind]}</span>
-                        {line.kind === "gap" ? "⋯" : line.text}
+                        {line.kind === "gap" ? "⋯" : shownLine(line.text)}
                     </div>
                 ))}
             </div>

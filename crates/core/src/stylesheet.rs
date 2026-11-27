@@ -7,7 +7,9 @@
 //! made-up text with `content:`. So:
 //!
 //! - **No agent reaches it through Swarmed.** `configure` has no kind for it, not even a
-//!   proposal: a proposal would show the CSS, and few users can tell from CSS what it hides.
+//!   proposal: a proposal would show the CSS, and few users can tell from CSS what it hides. An
+//!   agent that asks is told where the file is (`how_agents_write_it`): what it writes there
+//!   waits for the user like any change on disk.
 //! - **The window applies only what the user has seen.** The text they last saved in Settings,
 //!   or accepted when told the file changed, is kept in the database (`stylesheets`), and that
 //!   is what the window applies, whatever the file holds now. An agent runs as the user and can
@@ -24,6 +26,7 @@
 //! read and is named with the configuration's problems. Nothing of it can stop Swarmed from
 //! starting.
 
+use std::io::Write;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::time::UNIX_EPOCH;
@@ -66,6 +69,10 @@ const STARTER: &str = "\
 
 /// The user's own stylesheet, as the window is to apply it and as the file stands.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each is a fact of its own that front ends read as it is, apart from the others"
+)]
 pub struct Stylesheet {
     /// Whether the user turned it on (`user_stylesheet` in the settings).
     pub on: bool,
@@ -78,6 +85,9 @@ pub struct Stylesheet {
     pub accepted: String,
     /// What `style.css` holds; `None` while there is no such file, or none that can be read.
     pub file: Option<String>,
+    /// Whether `style.css` is there but too large to be read as a stylesheet: then `file` is
+    /// `None`, and nothing of it is applied.
+    pub too_large: bool,
     /// When the file last changed, in seconds since 1970.
     pub changed_at: Option<i64>,
     /// Whether the file holds what the user has not accepted: a change made on disk, which
@@ -85,24 +95,26 @@ pub struct Stylesheet {
     pub waiting: bool,
 }
 
-/// The file at `path` as a stylesheet, and when it last changed; nothing for no file, one too
-/// large, or one that cannot be read. Bytes that are not UTF-8 are read as the browser would
-/// show them, replaced.
-fn read_file(path: &Path) -> (Option<String>, Option<i64>) {
+/// The file at `path` as a stylesheet, when it last changed, and whether it is too large to be
+/// read; no text for no file, one too large, or one that cannot be read. Bytes that are not
+/// UTF-8 are read as the browser would show them, replaced.
+fn read_file(path: &Path) -> (Option<String>, Option<i64>, bool) {
     let meta = match std::fs::metadata(path) {
         Ok(meta) if meta.is_file() => meta,
-        _ => return (None, None),
+        _ => return (None, None, false),
     };
     let changed = meta
         .modified()
         .ok()
         .and_then(|at| at.duration_since(UNIX_EPOCH).ok())
         .and_then(|since| i64::try_from(since.as_secs()).ok());
-    let text = fits(meta.len())
-        .then(|| std::fs::read(path).ok())
-        .flatten()
+    if !fits(meta.len()) {
+        return (None, changed, true);
+    }
+    let text = std::fs::read(path)
+        .ok()
         .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
-    (text, changed)
+    (text, changed, false)
 }
 
 /// Whether a file of `len` bytes is small enough to be read as a stylesheet.
@@ -133,13 +145,6 @@ fn check_size(text: &str) -> Result<()> {
     Ok(())
 }
 
-fn seconds_now() -> i64 {
-    let since = std::time::SystemTime::now().duration_since(UNIX_EPOCH);
-    since.map_or(0, |since| {
-        i64::try_from(since.as_secs()).unwrap_or(i64::MAX)
-    })
-}
-
 impl Store {
     /// The stylesheet the user last saved or accepted; empty for none.
     fn stylesheet_accepted(&self) -> Result<String> {
@@ -150,13 +155,35 @@ impl Store {
 
     /// Keeps `css` as the stylesheet the user accepted, in place of the one before.
     fn stylesheet_keep(&self, css: &str) -> Result<()> {
-        let sql = "INSERT INTO stylesheets (css, accepted_at) VALUES (?1, ?2)";
-        self.conn.execute(sql, params![css, seconds_now()])?;
+        let sql = "INSERT INTO stylesheets (css) VALUES (?1)";
+        self.conn.execute(sql, params![css])?;
         let id = self.conn.last_insert_rowid();
         self.conn
             .execute("DELETE FROM stylesheets WHERE id < ?1", params![id])?;
         Ok(())
     }
+
+    /// The id of the latest acceptance, 0 for none: a new one is how another Swarmed on the same
+    /// data learns that the user accepted a stylesheet, which writes no file (`elsewhere.rs`).
+    pub(crate) fn stylesheet_id(&self) -> Result<i64> {
+        let sql = "SELECT COALESCE(MAX(id), 0) FROM stylesheets";
+        Ok(self.conn.query_row(sql, [], |row| row.get(0))?)
+    }
+}
+
+/// What an agent is told when it asks `configure` for the user's stylesheet: that the tool does
+/// not reach it, and how it can still write one for the user to see and accept.
+pub(crate) fn how_agents_write_it(path: &Path) -> String {
+    format!(
+        "The user's own stylesheet cannot be changed through `configure`, not even as a \
+         proposal. To write one for them, write the CSS to {} with your own file tools; read it \
+         first if it is there, since its opening comment names what stays from version to \
+         version (the variables such as --text, --sky and --space-2, and the root's \
+         data-theme, data-palette and data-layout; class names change). Nothing is loaded from \
+         elsewhere. Swarmed shows the user the change and applies it only once they press \
+         Apply, and only while Your stylesheet is on in Settings, which they turn on themselves.",
+        path.display()
+    )
 }
 
 impl Core {
@@ -165,7 +192,7 @@ impl Core {
         let on = self.settings()?.user_stylesheet;
         let left_out = self.stylesheet_left_out.load(Ordering::Relaxed);
         let accepted = self.store().stylesheet_accepted()?;
-        let (file, changed_at) = read_file(&self.paths.stylesheet());
+        let (file, changed_at, too_large) = read_file(&self.paths.stylesheet());
         let applied = if on && !left_out && file.is_some() {
             accepted.clone()
         } else {
@@ -178,6 +205,7 @@ impl Core {
             applied,
             accepted,
             file,
+            too_large,
             changed_at,
             waiting,
         })
@@ -220,12 +248,25 @@ impl Core {
         self.stylesheet()
     }
 
-    /// Opens `style.css` in the user's editor, made first with a comment that says what a
-    /// stylesheet can use if there is none. Swarmed wrote that one, so it is taken as accepted.
+    /// Opens `style.css` in the user's editor. If there is none, it is made first with what the
+    /// user last accepted, which is then what the window applies again, or with a comment that
+    /// says what a stylesheet can use, taken as accepted: Swarmed wrote it. A file that is there
+    /// is never written over, made between the look and the write or not.
     pub fn stylesheet_open(&self) -> Result<()> {
         let path = self.paths.stylesheet();
-        if !path.exists() {
-            self.stylesheet_save(STARTER)?;
+        let accepted = self.store().stylesheet_accepted()?;
+        let made = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path);
+        match made {
+            Ok(mut file) if accepted.is_empty() => {
+                file.write_all(STARTER.as_bytes())?;
+                self.store().stylesheet_keep(STARTER)?;
+            }
+            Ok(mut file) => file.write_all(accepted.as_bytes())?,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e.into()),
         }
         open::lone_file_in_editor(&self.settings()?.editor, &path)
     }
@@ -334,10 +375,40 @@ mod tests {
         write(&core, &large);
         let read = core.stylesheet().expect("reads");
         assert_eq!((read.file, read.applied.as_str()), (None, ""));
+        assert!(read.too_large);
         let said = problems_in(&core.paths.stylesheet());
         assert!(said[0].contains("not read"), "{said:?}");
         assert!(core.stylesheet_save(&large).is_err());
         assert!(core.stylesheet_accept(&large).is_err());
+    }
+
+    #[test]
+    fn a_file_of_the_largest_size_is_read_and_one_byte_more_is_not() {
+        let (_dir, core) = core();
+        write(&core, &"a".repeat(MAX_STYLESHEET_BYTES));
+        let read = core.stylesheet().expect("reads");
+        assert!(read.file.is_some() && !read.too_large);
+        assert_eq!(problems_in(&core.paths.stylesheet()), Vec::<String>::new());
+        write(&core, &"a".repeat(MAX_STYLESHEET_BYTES + 1));
+        let read = core.stylesheet().expect("reads");
+        assert!(read.file.is_none() && read.too_large);
+        assert!(read.changed_at.is_some());
+    }
+
+    #[test]
+    fn opening_a_file_taken_away_puts_back_what_was_accepted() {
+        let (_dir, core) = core();
+        core.stylesheet_use(true).expect("turns on");
+        core.stylesheet_save("a { color: blue; }").expect("saves");
+        std::fs::remove_file(core.paths.stylesheet()).expect("removes");
+        let mut settings = core.settings().expect("reads");
+        settings.editor = "swarmed-no-such-editor".to_string();
+        core.set_settings(&settings).expect("saves");
+        assert!(core.stylesheet_open().is_err());
+        let back = core.stylesheet().expect("reads");
+        assert_eq!(back.file.as_deref(), Some("a { color: blue; }"));
+        assert_eq!(back.accepted, "a { color: blue; }");
+        assert!(!back.waiting);
     }
 
     #[test]

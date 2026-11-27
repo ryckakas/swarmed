@@ -51,7 +51,7 @@ One key Swarmed cannot understand never stops it, whether it is misspelt or writ
 | `projects/<project>.toml` | left out | that key is at its default | an error: the project's tasks cannot be set up, started or removed with their hooks, which there is no telling |
 | `projects/<project>.environments.toml` | left out of that environment | that environment is left out | an error for tasks in its environments |
 
-`templates.toml`, the actions, `layout.json` and `terminal.json` affect only their own part: the saved prompts, the action buttons, the custom layout and the terminal. A key `layout.json` does not know is left out and named like the others above; see [The custom layout](#the-custom-layout). A rule of `style.css` the window cannot read costs only that rule, as in any browser; a `style.css` larger than 200 kB is not read, and named.
+`templates.toml`, the actions, `layout.json` and `terminal.json` affect only their own part: the saved prompts, the action buttons, the custom layout and the terminal. A key `layout.json` does not know is left out and named like the others above; see [The custom layout](#the-custom-layout). A rule of `style.css` the window cannot read costs only that rule, as in any browser; a `style.css` larger than 200 kB is not read, and named, and Settings says so instead of showing it.
 
 ## A project's configuration
 
@@ -520,8 +520,10 @@ For what the custom layout has no field for, such as a wider conversation, round
 look of your own for code, `style.css` in the data directory is a stylesheet of your own. Turned
 on in Settings, under Appearance, as Your stylesheet, the window applies it after every
 stylesheet of its own, the custom layout's included, so that it wins where they disagree. Settings
-shows it and saves it, and Open in editor opens the file in your editor, made first with a
-comment that names what you can use. There is one stylesheet for every layout: a rule meant for
+shows what is applied and saves your edits to it, and Open in editor opens the file in your
+editor: if there is none, it is made first with what you last applied, or with a comment that
+names what you can use. An agent can write it for you too: ask one, and it writes the file,
+which you then apply as below. There is one stylesheet for every layout: a rule meant for
 one says so, as `:root[data-layout="senior"] { … }` does. It is applied to the window only, not
 to the HTML views agents answer with.
 
@@ -544,12 +546,16 @@ A stylesheet can hide or fake anything in the window, a permission prompt's Deny
 included, so Swarmed applies only what you have seen:
 
 - What you save in Settings is yours, and applied at once.
-- A change made to the file anywhere else, in your editor or by an agent with a shell, is not
-  applied until you say so. The window keeps applying what you last saved or accepted, and says
-  "Your stylesheet changed on disk", with the lines that changed and an Apply button. What is
-  applied is the file as it was shown to you. A file taken away is no stylesheet.
-- Agents cannot reach it through Swarmed: the `configure` tool has nothing for it, not even a
-  proposal for you to accept.
+- A change made to the file anywhere else, in your editor or by an agent, is not applied until
+  you say so. The window keeps applying what you last saved or accepted, and says "Your
+  stylesheet changed on disk", with every line that changed, wrapped so that none runs out of
+  sight, characters that would not show written as their codes, and an Apply button; Settings
+  shows the same above its box. What is applied is the file as it was shown to you. If the file
+  changes again while it is shown, the notice says so and Apply waits a moment before it can be
+  pressed. A file taken away is no stylesheet.
+- Agents cannot change it through Swarmed's own tools: the `configure` tool has nothing for it,
+  not even a proposal for you to accept. An agent that asks is told where the file is, and that
+  you apply what it writes.
 
 If a stylesheet hides the very switch that turns it off, hold ⌥ while Swarmed starts, until its
 window shows: it is left out until Swarmed quits, and the window says so, with a way to turn it

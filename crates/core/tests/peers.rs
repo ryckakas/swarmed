@@ -688,8 +688,21 @@ async fn an_agent_can_neither_write_nor_propose_the_users_stylesheet() {
             "text": hiding, "json": hiding, "on": true });
         let (ok, said) = configure(&socket, session.id, asked).await;
         assert!(!ok, "{said}");
-        assert!(said.contains("the user's own stylesheet cannot"), "{said}");
+        assert!(said.contains("stylesheet cannot be changed"), "{said}");
+        // It says where an agent can write one, for the user to see and accept.
+        let path = core.paths().stylesheet();
+        assert!(said.contains(&path.display().to_string()), "{said}");
+        assert!(said.contains("Apply"), "{said}");
     }
+    // A kind it does not know says only that the stylesheet is out of reach.
+    let (_, said) = configure(
+        &socket,
+        session.id,
+        serde_json::json!({ "kind": "theme",
+        "op": "save" }),
+    )
+    .await;
+    assert!(said.contains("the user's own stylesheet cannot"), "{said}");
     // Nor does a layout carry it.
     let layout = serde_json::json!({ "kind": "layout", "op": "save",
         "json": { "base": "classic", "css": hiding } });

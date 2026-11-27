@@ -402,12 +402,11 @@ const MIGRATIONS: &[&str] = &[
 ",
     // The user's own stylesheet as they last saved it in Settings or accepted it when told its
     // file changed: what the window applies, whatever `style.css` holds (`stylesheet.rs`). Only
-    // the latest row is kept; `accepted_at` is in seconds since 1970.
+    // the latest row is kept; a new id is how another Swarmed hears of an acceptance.
     "
     CREATE TABLE stylesheets (
-        id          INTEGER PRIMARY KEY AUTOINCREMENT,
-        css         TEXT NOT NULL,
-        accepted_at INTEGER NOT NULL
+        id  INTEGER PRIMARY KEY AUTOINCREMENT,
+        css TEXT NOT NULL
     );
 ",
 ];

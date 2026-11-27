@@ -3502,10 +3502,21 @@ code {
     color: var(--clay);
 }
 
-/* Long enough to read a rule or two; a longer change scrolls. */
+/* Long enough to read a rule or two; a longer change scrolls, but only down: every line wraps,
+   so nothing of one can sit off to the side, out of sight, as the user is asked to accept it. */
 .stylesheet-change {
     max-height: 16em;
+    overflow-x: hidden;
     overflow-y: auto;
+}
+
+.stylesheet-change .diff-lines {
+    width: auto;
+}
+
+.stylesheet-change .diff-line {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
 }
 
 .session {

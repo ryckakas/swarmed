@@ -37,7 +37,7 @@ import { type ReviewComment, withComment } from "./review";
 import { type ScrollSpot, withoutPlaces } from "./scrollSpot";
 import { type Draft, NO_DRAFT, putBack, withDraft } from "./sending";
 import { heard, readFrom, type SetupSeen } from "./setup";
-import { NOTHING_PUT_ASIDE, type StylesheetPutAside } from "./stylesheet";
+import { answersInOrder, NOTHING_PUT_ASIDE, type StylesheetPutAside } from "./stylesheet";
 import { atWork, type SubAgent, subAgentsIn } from "./subagents";
 import {
     applySessionEvent,
@@ -1213,26 +1213,22 @@ export const useStore = create<State>((set, get) => ({
     stylesheet: null,
     saveStylesheet: (api, text) =>
         kept(
-            () => api.stylesheetSave(text),
-            (stylesheet) => set({ stylesheet }),
+            () => takeStylesheet(() => api.stylesheetSave(text)),
+            () => {},
         ),
     acceptStylesheet: (api, text) =>
         kept(
-            () => api.stylesheetAccept(text),
-            (stylesheet) => set({ stylesheet }),
+            () => takeStylesheet(() => api.stylesheetAccept(text)),
+            () => {},
         ),
     useStylesheet: (api, on) =>
         reporting(async () => {
             await get().changeSettings(api, { user_stylesheet: on });
             // At once, not at the core's next look at the settings file.
-            const stylesheet = await api.stylesheet();
-            set({ stylesheet });
+            await takeStylesheet(() => api.stylesheet());
         }),
     leaveStylesheetOut: (api, leftOut) =>
-        reporting(async () => {
-            const stylesheet = await api.stylesheetLeftOut(leftOut);
-            set({ stylesheet });
-        }),
+        reporting(() => takeStylesheet(() => api.stylesheetLeftOut(leftOut))),
     stylesheetAside: NOTHING_PUT_ASIDE,
     putStylesheetAside: (aside) =>
         set((state) => ({ stylesheetAside: { ...state.stylesheetAside, ...aside } })),
@@ -1518,10 +1514,7 @@ function readConfiguration(api: Api) {
     });
     // Read whenever a file changed: a change of `style.css` on disk is asked about, never
     // applied by reading it (`stylesheet.rs`).
-    void reporting(async () => {
-        const stylesheet = await api.stylesheet();
-        useStore.setState((state) => ({ stylesheet: unlessSame(state.stylesheet, stylesheet) }));
-    });
+    void reporting(() => takeStylesheet(() => api.stylesheet()));
     void reporting(async () => {
         const config = await api.terminalConfig();
         useStore.setState((state) => ({
@@ -1532,6 +1525,22 @@ function readConfiguration(api: Api) {
         const templates = await api.templates();
         useStore.setState((state) => ({ templates: unlessSame(state.templates, templates) }));
     });
+}
+
+/** Every answer about the user's stylesheet, taken in the order asked (`answersInOrder`). */
+const stylesheetAnswers = answersInOrder();
+
+/**
+ * Asks the core about the user's stylesheet, by reading, saving or accepting it, and keeps the
+ * answer only if none asked for later was kept before it: a read begun before an acceptance
+ * must not put back the stylesheet it replaced.
+ */
+async function takeStylesheet(asked: () => Promise<Stylesheet>) {
+    const read = stylesheetAnswers.ask();
+    const stylesheet = await asked();
+    if (stylesheetAnswers.takes(read)) {
+        useStore.setState((state) => ({ stylesheet: unlessSame(state.stylesheet, stylesheet) }));
+    }
 }
 
 /** The problems with the configuration last said, so that reading it again does not repeat them. */

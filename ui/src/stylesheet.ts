@@ -166,6 +166,71 @@ export function changeSaid(lines: ChangedLine[]): string {
     return said.length > 0 ? said.join(", ") : "only line breaks changed";
 }
 
+/**
+ * Characters that change how text is drawn without showing themselves: zero-width ones and
+ * those that turn the direction of text. In a change shown for the user's yes, each is drawn as
+ * its code instead, so that nothing in a line hides what the line does.
+ */
+const UNSEEN = /[\u00AD\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u206F\uFEFF]/g;
+
+/** A line of a change as it is shown: every character that would not show, by its code. */
+export function shownLine(text: string): string {
+    return text.replace(
+        UNSEEN,
+        (unseen) =>
+            `⟨U+${(unseen.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, "0")}⟩`,
+    );
+}
+
+/** How long Apply waits after a change is shown, so that a click meant for the one before cannot take it. */
+export const APPLY_AFTER_MS = 1500;
+
+/** What the CSS box in Settings starts from: what is applied, never a change not yet accepted. */
+export type StylesheetBox = { kind: "box"; text: string } | { kind: "too_large" };
+
+/**
+ * What Settings offers to edit. While the file holds a change the user has not accepted, the box
+ * starts from what they accepted, and the change is shown apart, as in the window's notice: a
+ * box that started from the file would have Save accept a change unseen. A file too large to be
+ * read is no box at all, so that saving cannot replace what was never shown.
+ */
+export function stylesheetBox(sheet: Stylesheet): StylesheetBox {
+    if (sheet.too_large) {
+        return { kind: "too_large" };
+    }
+    return { kind: "box", text: sheet.waiting ? sheet.accepted : (sheet.file ?? "") };
+}
+
+/** Whether the box holds an edit of the user's own to save: typed, and not what it started from. */
+export function mayKeep(started: string, typed: string | null): boolean {
+    return typed !== null && typed !== started;
+}
+
+/**
+ * Answers taken only in the order they were asked. The core reads the stylesheet off the main
+ * thread and saves it on it, so an answer can arrive after one asked for later; taken, it would
+ * put back what a save or an acceptance replaced.
+ */
+export function answersInOrder() {
+    let asked = 0;
+    let taken = 0;
+    return {
+        /** A number for the next answer. */
+        ask: () => {
+            asked += 1;
+            return asked;
+        },
+        /** Whether answer `read` is newer than every answer taken, which it then is. */
+        takes: (read: number) => {
+            if (read <= taken) {
+                return false;
+            }
+            taken = read;
+            return true;
+        },
+    };
+}
+
 /** When the stylesheet's file last changed, as a date and a time of day; empty if unknown. */
 export function changedAt(sheet: Stylesheet): string {
     if (sheet.changed_at === null) {

@@ -643,6 +643,8 @@ export interface Stylesheet {
     accepted: string;
     /** What the file holds; `null` without a file, or one too large to read. */
     file: string | null;
+    /** Whether the file is there but too large to be read: nothing of it is applied. */
+    too_large: boolean;
     /** When the file last changed, in seconds since 1970. */
     changed_at: number | null;
     /** Whether the file holds what the user has not accepted: a change on disk, waiting. */

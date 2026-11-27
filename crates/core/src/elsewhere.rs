@@ -13,7 +13,8 @@
 //! - **Configuration files.** One changed on disk, by another process or by hand, is published
 //!   as [`AgentEvent::ConfigChanged`], and a changed `agents.toml` is read again. They are
 //!   known by their ending: `.toml`, `.json`, and `.css` for the user's stylesheet, whose
-//!   change the window then asks about (`stylesheet.rs`).
+//!   change the window then asks about (`stylesheet.rs`). The user accepting a stylesheet
+//!   writes no file, only a row, and is published the same way.
 //! - **Settings of a session whose agent runs here.** A model, effort or supervision another
 //!   process stored, as `swarmed session set` does, is passed on to the agent as a change made
 //!   here would be ([`Core::settings_told`]): that process can only store it.
@@ -232,6 +233,9 @@ struct Seen {
     /// The records of running stacks and browsers.
     stacks: Vec<FileSeen>,
     files: Vec<FileSeen>,
+    /// The latest acceptance of the user's stylesheet (`stylesheet.rs`), which writes no file
+    /// and counts as a change of one.
+    stylesheet: i64,
 }
 
 /// What changed between two looks.
@@ -247,7 +251,7 @@ impl Changes {
         let agents = |files: &[FileSeen]| files.iter().find(|file| file.0 == agents_file).cloned();
         Self {
             tree: last.tree != now.tree || last.stacks != now.stacks,
-            files: last.files != now.files,
+            files: last.files != now.files || last.stylesheet != now.stylesheet,
             agents: agents(&last.files) != agents(&now.files),
         }
     }
@@ -427,9 +431,13 @@ impl Core {
         let version = self.store().data_version()?;
         let mut seen = lock(&self.elsewhere.seen);
         // The rows are read again only after another process committed.
-        let tree = match seen.as_ref() {
-            Some(last) if last.version == version => last.tree,
-            _ => self.store().tree_print()?,
+        let (tree, stylesheet) = match seen.as_ref() {
+            Some(last) if last.version == version => (last.tree, last.stylesheet),
+            _ => {
+                // One lock for both: two in one expression would wait on each other.
+                let store = self.store();
+                (store.tree_print()?, store.stylesheet_id()?)
+            }
         };
         let data = &self.paths.data_dir;
         let now = Seen {
@@ -441,6 +449,7 @@ impl Core {
             ]
             .concat(),
             files: config_files(data),
+            stylesheet,
         };
         let agents = self.paths.agents_config();
         let changes = seen.as_ref().map_or_else(Changes::default, |last| {
@@ -711,6 +720,7 @@ mod tests {
             tree: 7,
             stacks: vec![],
             files,
+            stylesheet: 3,
         };
         let before = seen(vec![file("agents.toml", 1), file("settings.toml", 1)]);
         let settings = seen(vec![file("agents.toml", 1), file("settings.toml", 2)]);
@@ -720,6 +730,13 @@ mod tests {
         assert!(changed.files && !changed.agents && !changed.tree);
         let changed = Changes::between(&before, &agents, path);
         assert!(changed.files && changed.agents);
+        // A stylesheet accepted writes no file, and counts as a file changed.
+        let accepted = Seen {
+            stylesheet: 4,
+            ..seen(vec![file("agents.toml", 1), file("settings.toml", 1)])
+        };
+        let changed = Changes::between(&before, &accepted, path);
+        assert!(changed.files && !changed.agents && !changed.tree);
     }
 
     #[test]

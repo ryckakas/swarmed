@@ -1142,7 +1142,7 @@ fn the_ui_applies_the_users_stylesheet_only_once_they_said_yes() {
     assert_eq!(
         none,
         json!({ "on": false, "left_out": false, "applied": "", "accepted": "", "file": null,
-            "changed_at": null, "waiting": false })
+            "too_large": false, "changed_at": null, "waiting": false })
     );
     let mut settings = app.ok("settings", json!({}));
     settings["user_stylesheet"] = json!(true);

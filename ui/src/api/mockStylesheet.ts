@@ -4,7 +4,8 @@ import type { Settings, Stylesheet } from "./types";
 // The user's own stylesheet in the sample (`pnpm dev`), as the core keeps it (`stylesheet.rs`):
 // a sample file, accepted already, applied once Your stylesheet is turned on in Settings.
 // `restyle` in a session writes the file as an agent with a shell could, which the window then
-// asks about before applying; `restyle out` leaves it out, as ⌥ held at the start does.
+// asks about before applying (again, a further change); `restyle out` leaves it out, as ⌥ held
+// at the start does.
 
 /** The sample stylesheet: links in teal, and round buttons. */
 export const SAMPLE_STYLESHEET = `/* A sample stylesheet: links in teal, and round buttons. */
@@ -42,6 +43,7 @@ function read(on: boolean): Stylesheet {
         applied: on && !leftOut && file !== null ? accepted : "",
         accepted,
         file,
+        too_large: false,
         changed_at: file === null ? null : sample.changedAt,
         waiting: file !== null && file !== accepted,
     };
@@ -52,9 +54,17 @@ function written(text: string) {
     sample.changedAt = Math.floor(Date.now() / 1000);
 }
 
+/** What `restyle` writes after that: a further rule, so that the change shown changes again. */
+const RESTYLED_AGAIN = `${RESTYLED}
+/* And it hides the problems the window reports. */
+.problem {
+    display: none;
+}
+`;
+
 /** Changes the sample's file on disk as an agent would, behind the window's back. */
 export function restyleSample() {
-    written(sample.file === RESTYLED ? SAMPLE_STYLESHEET : RESTYLED);
+    written(sample.file === RESTYLED ? RESTYLED_AGAIN : RESTYLED);
 }
 
 /** Leaves the sample's stylesheet out for this run, as ⌥ held as Swarmed starts does. */
