@@ -10,8 +10,8 @@
 //! agent has the role in its guidance ([`section`]), with what each of the other roles is for
 //! and who works with it.
 //!
-//! Swarmed's session tools are a role's work, so a Claude Code session with a role uses them
-//! without the user being asked ([`uses_unasked`]), in plan mode too: Claude Code holds every MCP tool that
+//! Swarmed's session tools are a role's work, so a session with a role uses them without the
+//! user being asked ([`uses_unasked`]), in plan mode too: Claude Code holds every MCP tool that
 //! is not read-only at a question there, whatever its allow rules say. The two that start a
 //! session are the exception in plan mode, where the user is asked about each start: what it
 //! starts changes files, and nothing of a plan was approved yet.
@@ -223,11 +223,10 @@ const KEPT_FROM_CHANGES: &str = "Swarmed keeps you to that: your role starts you
 in your agent's read-only mode where it has no plan mode, either of which keeps you from changing \
 files. Swarmed's session tools (`list_sessions`, `read_session`, `send_message`, `spawn_session`, \
 `start_task`, `close_session`) change none of your files and are your role's work, so they are \
-yours to use in that mode, even where it says to run nothing that changes anything. With Claude \
-Code the user is not asked about them, but for one thing: while you are in plan mode the user is \
-asked about each session or task you start (`spawn_session`, `start_task`), since what you start \
-changes files. Another agent may ask the user about any of them, as its own settings say. When \
-the user approves a plan you present, you are told how to hand it on: an approval is \
+yours to use in that mode, even where it says to run nothing that changes anything, and the user \
+is not asked about them, but for one thing: while you are in plan mode the user is asked about \
+each session or task you start (`spawn_session`, `start_task`), since what you start changes \
+files. When the user approves a plan you present, you are told how to hand it on: an approval is \
 never a go-ahead to change anything yourself.";
 
 /// Swarmed's session tools, as Claude Code names them: by server, then by tool. Each is a
