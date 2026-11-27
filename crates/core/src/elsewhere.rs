@@ -12,6 +12,9 @@
 //!   to read it again. So does a stack started or stopped elsewhere.
 //! - **Configuration files.** One changed on disk, by another process or by hand, is published
 //!   as [`AgentEvent::ConfigChanged`], and a changed `agents.toml` is read again.
+//! - **Settings of a session whose agent runs here.** A model, effort or supervision another
+//!   process stored, as `swarmed session set` does, is passed on to the agent as a change made
+//!   here would be ([`Core::settings_told`]): that process can only store it.
 //!
 //! A session's agent runs in one process at a time. The process that starts it holds a lock on
 //! `run/sessions/<id>.lock` until the agent has gone, and the system lets go of it when the
@@ -25,7 +28,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
 
 use rusqlite::types::ValueRef;
@@ -35,7 +38,8 @@ use crate::agent::{AgentEvent, Auth};
 use crate::error::{Error, Result};
 use crate::paths::Paths;
 use crate::sessions::{
-    Live, SessionEvent, SessionStatus, event_from_json, leaves_something_to_read, track,
+    Live, SessionEvent, SessionSettings, SessionStatus, event_from_json, leaves_something_to_read,
+    track,
 };
 use crate::store::Store;
 use crate::{Core, lock};
@@ -56,6 +60,23 @@ const CLAIM_PAUSE: Duration = Duration::from_millis(5);
 
 /// What a session's lock says of a holder that shows notices itself, as the app does.
 const SHOWS_NOTICES: &str = "shows notices";
+
+/// What a session's lock says of a holder that follows what others write ([`follow_others`]),
+/// and so passes a change of the session's settings stored elsewhere on to its agent.
+const FOLLOWS_OTHERS: &str = "follows others";
+
+/// What became of a change of a session's settings, for its agent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsReach {
+    /// Its agent runs in this process and was told.
+    Told,
+    /// Its agent runs in another Swarmed that follows what this one writes, as the app does,
+    /// which passes the change on to it at its next look, within a second.
+    PassedOn,
+    /// Its agent is not running, or runs in a Swarmed that does not follow what others write,
+    /// such as another command: it takes the change when it next starts.
+    NextStart,
+}
 
 /// The tables whose rows the tree shows.
 const TREE: [&str; 4] = ["projects", "tasks", "sessions", "cloud_tasks"];
@@ -266,6 +287,8 @@ impl Elsewhere {
 /// Publishes what other Swarmed processes on the same data write, looking every second, for as
 /// long as the core is there: for a front end that stays, such as the app.
 pub async fn follow_others(core: Arc<Core>) {
+    // Said in the locks of the agents this process starts from now on.
+    core.live.follows_others.store(true, Ordering::Relaxed);
     let mut looks = tokio::time::interval(LOOK_EVERY);
     // Nobody else holds the core once its front end has gone: there is nothing left to tell.
     while Arc::strong_count(&core) > 1 {
@@ -282,8 +305,9 @@ impl Core {
     /// order, with status and unread state, never one this core published itself;
     /// [`AgentEvent::TreeChanged`] when repositories, tasks or sessions changed or a stack was
     /// started or stopped; and [`AgentEvent::ConfigChanged`] when a configuration file changed
-    /// on disk. Messages queued for a session whose agent ran elsewhere are sent once that run
-    /// is over.
+    /// on disk. A model, effort or supervision stored elsewhere for a session whose agent runs
+    /// here is passed on to that agent (`settings_from_elsewhere`). Messages queued for a
+    /// session whose agent ran elsewhere are sent once that run is over.
     ///
     /// The first look takes stock of the tree and the files and says nothing of them. Events
     /// stored elsewhere since the core was opened are published from the first. A front end
@@ -302,6 +326,9 @@ impl Core {
         self.pass_on(events);
         drop(passing);
         let changes = changes?;
+        if changes.tree {
+            self.settings_from_elsewhere();
+        }
         if changes.agents {
             // What could not be read is said in the problem banner, which reads it again.
             self.reload_agents().ok();
@@ -414,6 +441,41 @@ impl Core {
         });
         *seen = Some(now);
         Ok(changes)
+    }
+
+    /// Passes on to each agent this process runs the settings another process stored for its
+    /// session since the agent knew them, as `swarmed session set` stores them: as a change
+    /// made here is passed on, a model from its next turn and an effort once its turn is over
+    /// ([`Core::settings_told`]). What the change records, such as a change of supervision,
+    /// that process recorded, and it reaches front ends with its other events.
+    fn settings_from_elsewhere(&self) {
+        let running = self.running_sessions().into_iter();
+        for session in running.filter_map(|id| self.session(id).ok()) {
+            let settings = SessionSettings {
+                model: session.model,
+                supervision: session.supervision,
+                effort: session.effort,
+                fast: session.fast,
+            };
+            self.settings_told(session.id, &session.agent, session.status, &settings);
+        }
+    }
+
+    /// What became of a change of session `id`'s settings just stored, for its agent: told
+    /// here, passed on by another Swarmed that runs it and follows what this one writes, or
+    /// taken when the agent next starts.
+    pub fn session_settings_reach(&self, id: i64) -> Result<SettingsReach> {
+        self.session(id)?;
+        if self.live.is_running(id) {
+            return Ok(SettingsReach::Told);
+        }
+        let path = run_lock(&self.paths, id);
+        let follows = std::fs::read_to_string(&path)
+            .is_ok_and(|said| said.lines().any(|line| line == FOLLOWS_OTHERS));
+        if follows && self.runs_elsewhere(id) {
+            return Ok(SettingsReach::PassedOn);
+        }
+        Ok(SettingsReach::NextStart)
     }
 
     /// Sends what was queued for sessions whose agent another process ran, once that run is
@@ -566,14 +628,20 @@ pub(crate) fn claim_run(live: &Live, paths: &Paths, id: i64) -> Result<()> {
     if !taken(&file)? {
         return Err(Error::RunsElsewhere(id));
     }
-    // Who holds it, for whoever reads the file, and whether that one shows notices itself.
-    let shows = if live.shows_notices.load(Ordering::Relaxed) {
-        SHOWS_NOTICES
-    } else {
-        ""
+    // Who holds it, for whoever reads the file, whether that one shows notices itself, and
+    // whether it passes on a change of settings made elsewhere.
+    let said_if = |flag: &AtomicBool, words: &'static str| {
+        if flag.load(Ordering::Relaxed) {
+            words
+        } else {
+            ""
+        }
     };
-    let said = format!("{}\n{shows}\n", std::process::id());
-    // Nothing depends on the words but notices, which are shown twice at worst.
+    let shows = said_if(&live.shows_notices, SHOWS_NOTICES);
+    let follows = said_if(&live.follows_others, FOLLOWS_OTHERS);
+    let said = format!("{}\n{shows}\n{follows}\n", std::process::id());
+    // Nothing depends on the words but notices, which are shown twice at worst, and what a
+    // command that changed a session's settings says became of the change.
     file.set_len(0)
         .and_then(|()| file.write_all(said.as_bytes()))
         .ok();

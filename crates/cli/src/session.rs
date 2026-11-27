@@ -12,7 +12,7 @@ use swarmed_core::agent::{
 };
 use swarmed_core::{
     Attached, BackgroundCount, Core, SESSION_ENV, Session, SessionEvent, SessionOptions,
-    SessionSettings, nested_sessions,
+    SessionSettings, SettingsReach, nested_sessions,
 };
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::broadcast::error::RecvError;
@@ -111,7 +111,8 @@ pub(crate) enum SessionCommand {
     /// Put back the files a session's latest rewind took back, as they were before it.
     PutBack { id: i64 },
     /// Change the model and supervision a session runs with from now on. Without `--auto`,
-    /// `--ask` or `--plan` the session stays supervised as it is.
+    /// `--ask` or `--plan` the session stays supervised as it is. Says what became of the
+    /// change: passed on to the agent the app runs, or taken when the agent next starts.
     Set {
         id: i64,
         /// The model to run on; without it, the agent's own default.
@@ -336,6 +337,20 @@ fn role_set(core: &Core, id: i64, role: &str) -> Result<()> {
     Ok(())
 }
 
+/// What became of a change of session `id`'s settings, for its agent.
+fn reach_said(id: i64, reach: SettingsReach) -> String {
+    match reach {
+        SettingsReach::Told => format!("told session {id}'s agent"),
+        SettingsReach::PassedOn => format!(
+            "passed on to session {id}'s agent, which another Swarmed runs: a new model from \
+             its next turn, a new effort once its turn is over"
+        ),
+        SettingsReach::NextStart => {
+            format!("session {id}'s agent takes it when it next starts")
+        }
+    }
+}
+
 /// What a session works for, said after it was changed.
 fn parent_said(parent: Option<i64>) -> String {
     parent.map_or_else(
@@ -455,6 +470,7 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
                 fast,
             };
             core.session_configure(id, &settings)?;
+            say(&reach_said(id, core.session_settings_reach(id)?));
             Ok(())
         }
         SessionCommand::Status { id } => {

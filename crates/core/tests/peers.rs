@@ -621,11 +621,43 @@ async fn an_agent_cannot_change_how_many_sessions_may_work_for_one() {
         let (ok, said) = configure(&socket, session.id, asked).await;
         assert!(!ok, "{said}");
         assert!(
-            said.contains("how many sessions may work for one cannot be changed"),
+            said.contains("how many sessions may work for one and the roles' models"),
             "{said}"
         );
     }
     assert_eq!(limit(), MAX_SPAWNED);
+}
+
+#[tokio::test]
+async fn an_agent_cannot_change_the_models_and_efforts_of_roles() {
+    let fx = fixture();
+    let core = Arc::new(core_with_task(&fx).await);
+    let session = new_session(&core);
+    drop(tokio::spawn(serve_session_tools(Arc::clone(&core))));
+    let socket = core.paths().tools_socket();
+    listening(&socket).await;
+    let defaults = serde_json::json!({ "reviewer": { "model": "opus", "effort": "max" } });
+
+    // Given among the looks, it is not one of them.
+    let among = serde_json::json!({ "kind": "appearance", "op": "save", "palette": "Forest",
+        "role_defaults": defaults });
+    let (ok, said) = configure(&socket, session.id, among).await;
+    assert!(ok, "{said}");
+    assert!(!said.contains("role_defaults"), "{said}");
+    assert_eq!(core.settings().expect("reads").palette, Palette::Forest);
+    assert!(core.settings().expect("reads").role_defaults.is_empty());
+
+    // Nor is there a kind of its own.
+    for kind in ["roles", "role_defaults", "models"] {
+        let asked = serde_json::json!({ "kind": kind, "op": "save", "role_defaults": defaults });
+        let (ok, said) = configure(&socket, session.id, asked).await;
+        assert!(!ok, "{said}");
+        assert!(
+            said.contains("the roles' models and efforts cannot be changed"),
+            "{said}"
+        );
+    }
+    assert!(core.settings().expect("reads").role_defaults.is_empty());
 }
 
 #[tokio::test]

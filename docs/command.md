@@ -112,7 +112,9 @@ A session runs on Claude Code unless `--agent` names another (`swarmed agents` l
 `--ask`, `--auto` and `--plan` choose how it is supervised; without one, the settings' default
 applies. `--role` gives it a role: `architect`, `planner`, `implementer` or `reviewer` (see
 [Roles](coding-agents.md#roles)). An architect, a planner or a reviewer starts in plan mode
-whatever `--ask` or `--auto` says, and goes back to that when the role is taken off. `SWARMED_FAKE_AGENT=1` swaps in a scripted agent that spends no tokens.
+whatever `--ask` or `--auto` says, and goes back to that when the role is taken off. Without
+`--model` or `--effort`, a session with a role starts on the role's defaults from the settings,
+if it has any ([A role's model and effort](coding-agents.md#a-roles-model-and-effort)). `SWARMED_FAKE_AGENT=1` swaps in a scripted agent that spends no tokens.
 
 ## Commands
 
@@ -121,7 +123,7 @@ whatever `--ask` or `--auto` says, and goes back to that when the role is taken 
 | `project` | add, list, remove, move and pin repositories; `project config` prints the path of a project's config file |
 | `task` | create, remove, move, pin and highlight tasks, rerun `setup`, run the `start` command, see changes, commit, push, open a pull request, follow it (`task pull --follow`) and merge it (`task merge`) |
 | `issue` | list a repository's GitHub issues with filters, or print one with its comments, through your own `gh` |
-| `session` | run, continue, list, show, fork, rename, mark, move, pin, highlight, close, reopen and delete sessions; choose whom one works for (`parent`, or `--parent` on `run`, which without it takes the session whose agent runs the command, from `SWARMED_SESSION`); choose what one is for (`role`, or `--role` on `run`); list a session's turns with the files each changed (`turns`) and print one turn's diff (`turn-diff`); take a session back to before one of its messages, its files too with `--files` (`rewind`), and put those files back (`put-back`); change a session's model or supervision; let a Claude Code session be reached from claude.ai (`remote-control`); let one a usage limit stopped go on by itself when the limit resets (`continue-at-reset`, which the app sends) |
+| `session` | run, continue, list, show, fork, rename, mark, move, pin, highlight, close, reopen and delete sessions; choose whom one works for (`parent`, or `--parent` on `run`, which without it takes the session whose agent runs the command, from `SWARMED_SESSION`); choose what one is for (`role`, or `--role` on `run`); list a session's turns with the files each changed (`turns`) and print one turn's diff (`turn-diff`); take a session back to before one of its messages, its files too with `--files` (`rewind`), and put those files back (`put-back`); change a session's model, effort or supervision (`set`, which says whether the app passes the change on to the agent it runs, within a second, or the agent takes it when it next starts); let a Claude Code session be reached from claude.ai (`remote-control`); let one a usage limit stopped go on by itself when the limit resets (`continue-at-reset`, which the app sends) |
 | `environment` | list a project's environments; choose the default one new tasks are set up in |
 | `snapshot` | keep the files git ignores in a set-up task, for new tasks to start from |
 | `agents`, `agent` | list the agents sessions can run on; install and configure the others |

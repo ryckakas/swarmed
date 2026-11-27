@@ -129,7 +129,7 @@ pub use commands::{CommandKind, SlashCommand};
 pub use config::{Hooks, ProjectConfig};
 pub use continuation::{CONTINUE_MESSAGE, follow_resets};
 pub use costs::{Costs, DayCost, TaskCost};
-pub use elsewhere::follow_others;
+pub use elsewhere::{SettingsReach, follow_others};
 pub use environments::{Environment, EnvironmentChoice};
 pub use error::{Error, Result};
 pub use files::{FileEntry, FileListing};
@@ -163,7 +163,8 @@ pub use parents::nested_sessions;
 pub use pasted::MAX_IMAGE_MB;
 pub use paths::Paths;
 pub use peers::{
-    Delivery, MAX_DEPTH, MAX_SPAWNED, PeerTask, Reachable, WORKER_LIMITS, serve_session_tools,
+    Delivery, MAX_DEPTH, MAX_SPAWNED, PeerSpawn, PeerTask, Reachable, WORKER_LIMITS,
+    serve_session_tools,
 };
 pub use prefix::{EXAMPLE_TASK, branch_example};
 pub use publish::{PullDraft, Unpublished};
@@ -181,8 +182,8 @@ pub use sessions::{
     EVENT_BUFFER, Session, SessionEvent, SessionOptions, SessionSettings, SessionStatus,
 };
 pub use settings::{
-    BrowserDisplay, Layout, LimitWarnings, MathShown, Palette, Settings, Style, Theme, ToolCalls,
-    UpdateMode,
+    BrowserDisplay, Layout, LimitWarnings, MathShown, Palette, RoleDefault, Settings, Style, Theme,
+    ToolCalls, UpdateMode,
 };
 pub use setups::{SettingUp, SetupEnd, SetupLog, SetupProgress, SetupStep, SetupStop};
 pub use skills::Skill;

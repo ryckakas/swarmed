@@ -205,7 +205,7 @@ async fn the_guidance_holds_the_role_and_who_works_with_it() {
     // The others read the role too.
     let listed = core.peer_sessions(architect.id).expect("lists");
     assert!(
-        listed.starts_with("id\tstate\ttask\tworks for\trole\ttitle"),
+        listed.starts_with("id\tstate\ttask\tworks for\trole\tmodel\teffort\ttitle"),
         "{listed}"
     );
     let line = format!(

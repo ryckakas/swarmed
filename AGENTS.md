@@ -273,6 +273,15 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     changed on disk is published as `ConfigChanged` with the kind `file` on session id 0, and
     a changed `agents.toml` is read again. Own writes count too: the UI keeps what it reads
     again when it is the same (`unlessSame`), and says the same problems once.
+  - **Settings of the agents it runs:** after the tree changed, each session whose agent runs
+    here is compared with what that agent was started with or told since (`Run::told`), and a
+    model, effort or supervision another process stored (`swarmed session set`) is passed on
+    as a change made here is (`settings_from_elsewhere`, `Core::settings_told`): a model from
+    the next turn, an effort or fast mode by starting it again once its turn is over. What it
+    records, that process recorded. `Core::configure` compares with `told` too, under the lock
+    on the running sessions, so a change is told once. A process that follows others says so
+    in the locks it holds (`FOLLOWS_OTHERS`), from which `session_settings_reach` tells the
+    command whether the change was passed on or waits for the agent's next start.
   - **A history read** (`session_events`) passes on what is above the mark first, under the
     same lock as a look (`Elsewhere::passing`), and reads only up to it (`events_upto`):
     everything it returns has been published, so a front end that reads it and adds what it
@@ -1013,8 +1022,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   the change is shown in the conversation (`ConfigProposed`) and made when the user accepts it
   there (`Core::config_answer`), whatever the agent's own permission mode. Not reachable at
   all: API keys, MCP servers, sign-ins, supervision, notes, the branch prefix (set once by the
-  user, and not worth a line in a description every agent is sent), and `max_workers` (an agent
-  must not raise its own ceiling). Keep it one tool: every tool's
+  user, and not worth a line in a description every agent is sent), `max_workers` (an agent
+  must not raise its own ceiling) and `role_defaults` (they decide what agents cost; an agent
+  chooses those of a session it starts in its call, where it shows). Keep it one tool: every tool's
   description is sent to every agent in every session. A new setting goes into one of the three
   kinds on purpose; when unsure, propose. An environment's variable values are never told to
   an agent, only their names. An agent may set variables and ports, one by one; the proposal
@@ -1062,7 +1072,12 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   the caller's own project can be read or written to (`peer_in_reach`), and from a chat those
   of every project (see the chats above): a closed one would be started out of sight. A spawned session runs
   in its parent's task with its settings, cannot spawn itself (`Session::spawned`) unless its
-  role starts sessions (see roles below). While as many open sessions work for a session as
+  role starts sessions (see roles below). `spawn_session` and `start_task` take a `model` and
+  an `effort` (`PeerSpawn`, `PeerTask`, `started_on`): a model the agent's menu lists
+  (`Agents::models`) and an effort there is, anything else refused with the list
+  (`asked_for`); left out, the role's default, else the starter's. No cap at the starter's
+  own; fast mode stays the starter's. Written with the session, before its first message or
+  its setup, and named in the answer (`started_said`) and in `list_sessions`. While as many open sessions work for a session as
   `Settings::max_workers` allows (`MAX_SPAWNED`, six, unless the user changed it, within
   `WORKER_LIMITS`; one out of range in the file is the default, said), however each came to,
   its agent starts no more, with `spawn_session` or `start_task` (`room_for_another`), whose
@@ -1115,6 +1130,14 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     the architect and planner table (`TABLE`), and who works with it (folding in part of
     `parents.rs`); with no role, only who works with it. `docs/coding-agents.md` holds the
     same roles and table, and a test keeps the two together: change both.
+  - **Its model and effort** (`Settings::role_defaults`, `roles::Defaults`,
+    `Core::role_defaults`): per role, applied in `Core::session_insert` to what the options
+    leave to the agent, whoever makes the session; a choice wins. A model the session's agent
+    does not offer is passed over (`passed_over`, said to a starting agent). A role given later
+    changes neither. Read entry by entry (`lenient::entries_at`); one for a role not known is
+    kept and not applied. `set_settings` checks only the entries that changed
+    (`role_defaults_new`): a role there is, a model some agent offers. The settings file keeps
+    them as its one table, written after every plain value, the unknown ones included.
   - **What it may start** (`Core::may_start`): `spawn_session` and `start_task` take a
     `role`, default to the caller's role's child, and refuse one it may not start
     (`roles::of_child`); a role that starts nothing starts no session, and a session with no

@@ -243,6 +243,19 @@ pub enum Error {
         most = crate::WORKER_LIMITS.end()
     )]
     WorkersOutOfRange(usize),
+    /// A role's default model in the settings that none of the agents offers.
+    #[error(
+        "no agent offers the model `{model}` chosen for the {role}'s sessions; the models \
+         offered are {offered}"
+    )]
+    RoleModelNotOffered {
+        /// The role it was chosen for.
+        role: String,
+        /// The model chosen.
+        model: String,
+        /// The models the agents offer, joined by commas.
+        offered: String,
+    },
     /// A note longer than notes may be.
     #[error("a note can hold at most {0} bytes")]
     NoteTooLong(usize),

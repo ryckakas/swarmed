@@ -84,7 +84,7 @@ async fn a_session_works_for_another_of_its_repository_in_any_task() {
     // The agents can find each other again: who works for whom is in what they read.
     let listed = core.peer_sessions(planner.id).expect("lists");
     assert!(
-        listed.starts_with("id\tstate\ttask\tworks for\trole\ttitle"),
+        listed.starts_with("id\tstate\ttask\tworks for\trole\tmodel\teffort\ttitle"),
         "{listed}"
     );
     let line = format!("{}\tidle\ttask two\tyou\t", implementer.id);

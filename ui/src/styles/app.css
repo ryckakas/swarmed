@@ -6420,6 +6420,14 @@ code {
     gap: var(--space-2);
 }
 
+/* A role's default model and effort, side by side. */
+.role-default {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-2);
+}
+
 .rule-days-count {
     width: 7ch;
 }

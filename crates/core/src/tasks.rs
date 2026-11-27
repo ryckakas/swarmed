@@ -799,12 +799,40 @@ impl Core {
     /// branch's name, and refused with git's reason. One kept already is not: one written by
     /// hand that git refuses must not stop every other setting from being saved, and git says
     /// why when a task is made with it.
+    ///
+    /// So is a role default other than the one kept: one for a role there is not is refused
+    /// (`Error::UnknownRole`), and so is a model no agent offers
+    /// (`Error::RoleModelNotOffered`).
     pub fn set_settings(&self, settings: &Settings) -> Result<()> {
+        let kept = self.settings()?;
         let prefix = prefix::trimmed(&settings.branch_prefix);
-        if !prefix.is_empty() && prefix != self.settings()?.branch_prefix {
+        if !prefix.is_empty() && prefix != kept.branch_prefix {
             prefix::branch_example(prefix)?;
         }
+        self.role_defaults_check(settings, &kept)?;
         settings.save(&self.paths.settings())
+    }
+
+    /// Refuses the role defaults of `settings` that differ from those `kept` has if they name
+    /// a role there is not, or a model no agent offers.
+    fn role_defaults_check(&self, settings: &Settings, kept: &Settings) -> Result<()> {
+        let new = settings.role_defaults_new(kept);
+        for (role, _) in &new {
+            crate::roles::known(role)?;
+        }
+        let offered = self.agents_now().every_model();
+        let not_offered = new.into_iter().find_map(|(role, chosen)| {
+            let model = chosen.model.filter(|model| !offered.contains(model))?;
+            Some((role, model))
+        });
+        match not_offered {
+            Some((role, model)) => Err(Error::RoleModelNotOffered {
+                role,
+                model,
+                offered: offered.join(", "),
+            }),
+            None => Ok(()),
+        }
     }
 
     /// The variables a task's hooks and environment values can use.

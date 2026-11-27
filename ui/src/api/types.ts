@@ -715,6 +715,12 @@ export interface Settings {
      * to 20 (`WORKER_LIMITS`). Six unless changed. Agents cannot change it.
      */
     max_workers: number;
+    /**
+     * The model and effort the sessions of a role start on where nothing else was chosen, by
+     * the role's name: whoever starts them, the user or an agent. Left out while there are
+     * none. Agents cannot change it.
+     */
+    role_defaults?: Record<string, RoleDefault>;
     /** Whether agents may answer with small HTML views, and those are shown. */
     html_views: boolean;
     /** How the agents' tool calls show in a conversation. */
@@ -1577,6 +1583,17 @@ export interface SessionSetup {
 }
 
 /** A role a session can have, as the core keeps it (`roles.rs`). */
+/**
+ * A role's own model and effort (`RoleDefault`); either left out is the agent's own, or that of
+ * the agent that starts the session. A model the session's agent does not offer is passed over.
+ */
+export interface RoleDefault {
+    /** A model by the name its agent offers it under, such as `fable`. */
+    model?: string | null;
+    /** How hard the model thinks. */
+    effort?: Effort | null;
+}
+
 export interface RoleInfo {
     /** Its name, which the session keeps: `architect` and the like. */
     name: string;

@@ -22,6 +22,22 @@ notice adds its line under Unreleased.
   starts no more, from 1 to 20; it was a fixed six, which stays the default. When an agent is
   refused one more, it is told the setting's name, so it can tell you what to change. Agents
   cannot change it themselves.
+- **Agents choose the model and effort of the sessions they start.** `spawn_session` and
+  `start_task` take a `model` and an `effort`: a model the agent offers and an effort it has,
+  or the agent is told the list to choose from. The session starts on them from its first turn,
+  however quick its setup, and the starting agent and `list_sessions` say what each session
+  runs on. Left out, a session runs on its role's defaults, else on its starter's, as before.
+- **Each role can have a model and effort of its own.** Settings → Sessions → Role defaults
+  (`role_defaults`) starts every new session with a role on them, such as a reviewer on Fable
+  at medium effort, whoever starts it: you or an agent. A model or effort chosen for the
+  session wins. Agents cannot change these.
+
+### Fixed
+
+- **`swarmed session set` reaches an agent the app runs.** A model, effort or supervision set
+  from the command line for a session whose agent runs in the app is passed on to that agent
+  within a second, as a change in the session's header would be, and the command says whether it
+  was passed on or is taken when the agent next starts.
 
 ## [0.4.9] - 2026-11-27
 

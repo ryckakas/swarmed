@@ -7,7 +7,7 @@ use serde_json::json;
 use tokio::sync::mpsc;
 
 use super::{
-    AgentBackend, AgentCommand, AgentEvent, AgentHandle, Auth, BackgroundState, PLAN_TOOL,
+    AgentBackend, AgentCommand, AgentEvent, AgentHandle, Auth, BackgroundState, Effort, PLAN_TOOL,
     RemoteState, ScreenKind, ScreenRow, ScreenSection, SessionSpec, Supervision, UsageLimit,
 };
 use crate::error::Result;
@@ -67,6 +67,8 @@ fn run_by(server: &crate::mcp::McpServer) -> String {
 ///   reconnecting, and on again;
 /// - `resumed`: replies with where it was started to resume its conversation: the session id
 ///   and the point in it it was given, or `none`;
+/// - `settings`: replies with the model, effort and supervision it runs on, as it was started
+///   with them and told of them since (`default` for a model or effort left to it);
 /// - `app`: calls an MCP tool whose server attached an app to it, which is read once the call
 ///   has its result; a tool called for the app between turns answers with its name and what
 ///   it was given;
@@ -299,6 +301,10 @@ impl Script {
                 self.spec.supervision = supervision;
                 return Next::Continue;
             }
+            AgentCommand::SetModel(model) => {
+                self.spec.model = model;
+                return Next::Continue;
+            }
             AgentCommand::Show(kind) => {
                 self.emit(screen(kind));
                 return Next::Continue;
@@ -424,6 +430,29 @@ impl Script {
         }
     }
 
+    /// What it says when asked about itself: where it was started to resume its conversation
+    /// (`resumed`), or what it runs on (`settings`); `None` for any other message.
+    fn about_itself(&self, message: &str) -> Option<String> {
+        let spec = &self.spec;
+        match message {
+            "resumed" => {
+                let at = |what: &Option<String>| what.clone().unwrap_or_else(|| "none".into());
+                Some(format!(
+                    "resumed {} at {}",
+                    at(&spec.resume),
+                    at(&spec.resume_at)
+                ))
+            }
+            "settings" => {
+                let model = spec.model.as_deref().unwrap_or("default");
+                let effort = spec.effort.map_or("default", Effort::as_str);
+                let supervision = spec.supervision.as_str();
+                Some(format!("model {model}, effort {effort}, {supervision}"))
+            }
+            _ => None,
+        }
+    }
+
     async fn turn(&mut self, message: &str) -> Next {
         if let Some(name) = message.strip_prefix("env:") {
             let found = self
@@ -470,13 +499,8 @@ impl Script {
         if let Some(what) = message.strip_prefix("foreground ") {
             return self.foreground(what).await;
         }
-        if message == "resumed" {
-            let at = |what: &Option<String>| what.clone().unwrap_or_else(|| "none".to_string());
-            self.text(format!(
-                "resumed {} at {}",
-                at(&self.spec.resume),
-                at(&self.spec.resume_at)
-            ));
+        if let Some(answer) = self.about_itself(message) {
+            self.text(answer);
             self.end_answered();
             return Next::Continue;
         }

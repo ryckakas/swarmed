@@ -116,9 +116,9 @@ fn local_tools() -> Value {
         "title": "List the user's other agent sessions",
         "description": "Lists the agent sessions the user has open in this project, yours \
             included: each one's id, whether it is idle, working or waiting for the user, the \
-            task (worktree) it is in, the session it works for, and its title. Use it to see \
-            who else is at work, and who works for you, before reading from or writing to \
-            another session.",
+            task (worktree) it is in, the session it works for, its role, the model and effort \
+            it runs on, and its title. Use it to see who else is at work, and who works for \
+            you, before reading from or writing to another session.",
         "inputSchema": { "type": "object", "properties": {} },
     },
     read_session_tool(),
@@ -140,8 +140,9 @@ fn local_tools() -> Value {
     }, {
         "name": "spawn_session",
         "title": "Start a new session beside you",
-        "description": "Starts a new agent session in your own task and worktree, on the same \
-            agent and settings as you, and gives it your prompt. It works at the same time as \
+        "description": "Starts a new agent session in your own task and worktree, on your \
+            agent and settings unless you choose its model and effort, and gives it your \
+            prompt. It works at the same time as \
             you and on the same files and branch, so give it a part of the work that does not \
             collide with yours, and everything it needs to know: it starts with no knowledge \
             of your conversation. It works for you, and reports back to you with a message \
@@ -153,6 +154,8 @@ fn local_tools() -> Value {
                 "prompt": { "type": "string", "description": "What the new session is to do." },
                 "title": { "type": "string", "description": "A few words naming it." },
                 "role": role_argument(),
+                "model": model_argument(),
+                "effort": effort_argument(),
             },
             "required": ["prompt"],
         },
@@ -187,6 +190,25 @@ fn role_argument() -> Value {
     })
 }
 
+/// The model a session an agent starts runs on, as `spawn_session` and `start_task` take it.
+fn model_argument() -> Value {
+    json!({
+        "type": "string",
+        "description": "The model it runs on, one your agent offers. Left out, its role's \
+            default in the user's settings, or yours.",
+    })
+}
+
+/// How hard a session an agent starts thinks, as `spawn_session` and `start_task` take it.
+fn effort_argument() -> Value {
+    json!({
+        "type": "string",
+        "enum": ["low", "medium", "high", "xhigh", "max"],
+        "description": "How hard it thinks. Left out, its role's default in the user's \
+            settings, or yours.",
+    })
+}
+
 /// The tool that starts a new task, with a branch, worktree and session of its own.
 fn start_task_tool() -> Value {
     let text = |description: &str| json!({ "type": "string", "description": description });
@@ -195,7 +217,8 @@ fn start_task_tool() -> Value {
         "title": "Start a new task on a branch of its own",
         "description": "Starts a new task in this repository, as the user's New task does: a \
             branch and worktree of its own, set up as the repository says, and a new agent \
-            session on your agent and settings, which gets your prompt once the setup is \
+            session on your agent and settings unless you choose its model and effort, which \
+            gets your prompt once the setup is \
             done, works for you, and reports back to you with a message when it is done. The \
             user sees it in the sidebar and can watch and answer it. Use it for work that \
             needs a branch of its own: a separate change, a fix to another pull request (pass \
@@ -217,6 +240,8 @@ fn start_task_tool() -> Value {
                     repository's base, such as the head branch of the pull request this one \
                     stacks on. It becomes the task's base."),
                 "role": role_argument(),
+                "model": model_argument(),
+                "effort": effort_argument(),
             },
             "required": ["name", "prompt"],
         },

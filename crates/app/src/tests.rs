@@ -1295,6 +1295,42 @@ fn the_ui_sets_how_many_sessions_may_work_for_one_within_what_the_core_takes() {
 }
 
 #[test]
+fn the_ui_sets_a_role_s_default_model_and_effort_and_is_told_what_no_agent_offers() {
+    let app = app();
+    let mut settings = app.ok("settings", json!({}));
+    // None yet, and none is left out.
+    assert_eq!(settings.get("role_defaults"), None);
+    let reviewer = json!({ "reviewer": { "model": "fable", "effort": "medium" } });
+    settings["role_defaults"] = reviewer.clone();
+    app.ok("set_settings", json!({ "settings": settings.clone() }));
+    assert_eq!(app.ok("settings", json!({}))["role_defaults"], reviewer);
+
+    // As the window sends one it cleared: a model left out, the effort kept.
+    settings["role_defaults"] = json!({ "reviewer": { "model": null, "effort": "low" } });
+    app.ok("set_settings", json!({ "settings": settings.clone() }));
+    assert_eq!(
+        app.ok("settings", json!({}))["role_defaults"],
+        json!({ "reviewer": { "effort": "low" } })
+    );
+
+    settings["role_defaults"] = json!({ "reviewer": { "model": "gpt-x" } });
+    let refused = app.invoke("set_settings", json!({ "settings": settings.clone() }));
+    let said = refused.expect_err("refused");
+    let said = said.as_str().expect("words");
+    assert!(
+        said.starts_with("no agent offers the model `gpt-x` chosen for the reviewer's sessions"),
+        "{said}"
+    );
+    settings["role_defaults"] = json!({ "critic": { "effort": "low" } });
+    let refused = app.invoke("set_settings", json!({ "settings": settings }));
+    assert!(refused.is_err(), "{refused:?}");
+    assert_eq!(
+        app.ok("settings", json!({}))["role_defaults"],
+        json!({ "reviewer": { "effort": "low" } })
+    );
+}
+
+#[test]
 fn the_ui_can_list_what_was_left_running_and_cannot_stop_what_no_agent_runs() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));

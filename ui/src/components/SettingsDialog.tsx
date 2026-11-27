@@ -36,6 +36,7 @@ import {
     WORKER_CHOICES,
 } from "./options";
 import { Picker } from "./Picker";
+import { RoleDefaultsSettings } from "./RoleDefaultsSettings";
 import { Row } from "./SettingsRow";
 import { ShortcutLists } from "./Shortcuts";
 import { SkillsSettings } from "./SkillsSettings";
@@ -159,6 +160,7 @@ function Panel({ tab, settings }: { tab: SettingsTab; settings: Settings }) {
             return (
                 <>
                     <Sessions settings={settings} />
+                    <RoleDefaultsSettings settings={settings} />
                     <FinishedTasks settings={settings} />
                     <BrowserSettings settings={settings} />
                 </>

@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 
-use crate::agent::{AgentEvent, Auth, Supervision};
+use crate::agent::{AgentEvent, Auth, Effort, Supervision};
 use crate::chats::CHATS;
 use crate::cloud::{CloudOrigin, CloudProvider};
 use crate::error::{Error, Result};
@@ -106,6 +106,84 @@ impl Delivery {
 
 fn refused(reason: impl Into<String>) -> Error {
     Error::Peers(reason.into())
+}
+
+/// The efforts there are, as `spawn_session` and `start_task` take them.
+const EFFORTS: [Effort; 5] = [
+    Effort::Low,
+    Effort::Medium,
+    Effort::High,
+    Effort::Xhigh,
+    Effort::Max,
+];
+
+/// What a session asks for in a session it starts beside itself (`spawn_session`).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PeerSpawn<'a> {
+    /// What the new session is to do.
+    pub prompt: &'a str,
+    /// What it is called; named after the prompt if left out.
+    pub title: Option<&'a str>,
+    /// Its role; without one, the role the asking session's starts by default (`roles.rs`).
+    pub role: Option<&'a str>,
+    /// The model it runs on, one the agent offers; without one, its role's default from the
+    /// user's settings, else the asking session's.
+    pub model: Option<&'a str>,
+    /// How hard it thinks, by name (`medium`); without one, its role's default, else the
+    /// asking session's.
+    pub effort: Option<&'a str>,
+}
+
+/// The model and effort an agent asked for a session it starts, checked: a model among
+/// `models`, the ones the session's agent offers, and an effort there is. Anything else is
+/// refused with what there is to choose from, so that the agent can correct itself.
+fn asked_for(
+    models: &[String],
+    model: Option<&str>,
+    effort: Option<&str>,
+) -> Result<(Option<String>, Option<Effort>)> {
+    let model = model.map(str::trim).filter(|model| !model.is_empty());
+    let effort = effort.map(str::trim).filter(|effort| !effort.is_empty());
+    if let Some(model) = model.filter(|model| !models.iter().any(|offered| offered == model)) {
+        return Err(refused(if models.is_empty() {
+            format!(
+                "your agent offers no models to choose from, so `{model}` cannot be chosen; \
+                 leave `model` out"
+            )
+        } else {
+            format!(
+                "`{model}` is not a model your agent offers; `model` is one of {}, or left out \
+                 for the role's default or your own",
+                models.join(", ")
+            )
+        }));
+    }
+    let parsed = effort
+        .map(|effort| Effort::parse(effort).ok_or(effort))
+        .transpose();
+    let effort = parsed.map_err(|effort| {
+        let efforts: Vec<&str> = EFFORTS.iter().map(|effort| effort.as_str()).collect();
+        refused(format!(
+            "`{effort}` is not an effort; `effort` is one of {}, or left out for the role's \
+             default or your own",
+            efforts.join(", ")
+        ))
+    })?;
+    Ok((model.map(String::from), effort))
+}
+
+/// What a session runs on, as the agent that started it is told: its model and its effort,
+/// each the agent's own default where none was chosen.
+pub(crate) fn runs_on(session: &Session) -> String {
+    let model = session.model.as_deref().map_or_else(
+        || "the agent's default model".to_string(),
+        |model| format!("`{model}`"),
+    );
+    let effort = session.effort.map_or_else(
+        || "its default effort".to_string(),
+        |effort| format!("{} effort", effort.as_str()),
+    );
+    format!("on {model} at {effort}")
 }
 
 /// `text` as session `sender` leaves it in another conversation, marked with who wrote it.
@@ -219,7 +297,8 @@ fn place(task: &Task, reach: Reach, projects: &[Project]) -> String {
 }
 
 /// One line about a session, as another session is told of it: its number, its state, where
-/// it works, the session it works for, its role, and its title.
+/// it works, the session it works for, its role, the model and effort it runs on (`default`
+/// for the agent's own), and its title.
 fn brief(session: &Session, place: &str, own: i64) -> String {
     let you = if session.id == own { " (you)" } else { "" };
     let state = if session.unread && !is_busy(session) {
@@ -238,8 +317,10 @@ fn brief(session: &Session, place: &str, own: i64) -> String {
         None => "-".to_string(),
     };
     let role = session.role.as_deref().unwrap_or("-");
+    let model = session.model.as_deref().unwrap_or("default");
+    let effort = session.effort.map_or("default", Effort::as_str);
     format!(
-        "{}{you}\t{state}\t{place}\t{works_for}\t{role}\t{title}",
+        "{}{you}\t{state}\t{place}\t{works_for}\t{role}\t{model}\t{effort}\t{title}",
         session.id
     )
 }
@@ -389,7 +470,7 @@ impl Core {
             task.filter(in_reach)
                 .map(|task| brief(session, &place(task, reach, &projects), from))
         };
-        let mut lines = vec!["id\tstate\ttask\tworks for\trole\ttitle".to_string()];
+        let mut lines = vec!["id\tstate\ttask\tworks for\trole\tmodel\teffort\ttitle".to_string()];
         lines.extend(sessions.iter().filter_map(line));
         Ok(lines.join("\n"))
     }
@@ -572,15 +653,8 @@ impl Core {
     }
 
     /// Starts a new session beside `from`, in the same task and so the same worktree, on the
-    /// same agent with the same settings, and gives it `prompt`. The new session works for
-    /// `from`, and is told who started it and to report back when it is done.
-    ///
-    /// The new session has the role called `role`, or without one the role `from`'s own starts
-    /// by default (`roles.rs`); a role `from`'s may not start is refused (`may_start`).
-    /// It starts as `from` would without its role, under the supervision its own role holds if
-    /// it holds one: an implementer a planner starts is not held in the planner's plan mode.
-    /// Refused while as many open sessions work for `from` as the settings allow
-    /// (`room_for_another`).
+    /// same agent with the same settings, and gives it `prompt`, as [`Core::peer_spawn_asked`]
+    /// does with nothing else asked for.
     pub fn peer_spawn(
         &self,
         from: i64,
@@ -588,35 +662,96 @@ impl Core {
         title: Option<&str>,
         role: Option<&str>,
     ) -> Result<Session> {
+        let asked = PeerSpawn {
+            prompt,
+            title,
+            role,
+            ..PeerSpawn::default()
+        };
+        self.peer_spawn_asked(from, asked)
+    }
+
+    /// Starts a new session beside `from`, in the same task and so the same worktree, on the
+    /// same agent, and gives it the prompt `asked` holds. The new session works for `from`,
+    /// and is told who started it and to report back when it is done.
+    ///
+    /// The new session has the role asked for, or without one the role `from`'s own starts
+    /// by default (`roles.rs`); a role `from`'s may not start is refused (`may_start`).
+    /// It runs on the model and effort asked for, which the agent has to offer
+    /// (`started_on`), else its role's defaults, else `from`'s own, all of it written before
+    /// its first message goes. It starts as `from` would without its role, under the
+    /// supervision its own role holds if it holds one: an implementer a planner starts is not
+    /// held in the planner's plan mode. Refused while as many open sessions work for `from` as
+    /// the settings allow (`room_for_another`).
+    pub fn peer_spawn_asked(&self, from: i64, asked: PeerSpawn<'_>) -> Result<Session> {
         let parent = self.session(from)?;
-        if prompt.trim().is_empty() {
+        if asked.prompt.trim().is_empty() {
             return Err(Error::EmptyMessage);
         }
-        let role = self.may_start(&parent, role, Starting::Session)?;
+        let role = self.may_start(&parent, asked.role, Starting::Session)?;
+        let (model, effort) = self.started_on(&parent, role, asked.model, asked.effort)?;
         self.room_for_another(from)?;
         let options = SessionOptions {
             agent: Some(parent.agent.clone()),
-            title: title
+            title: asked
+                .title
                 .map(String::from)
                 .filter(|title| !title.trim().is_empty()),
-            model: parent.model.clone(),
+            model,
             supervision: self.supervision_without_role(&parent)?,
-            effort: parent.effort,
+            effort,
             fast: parent.fast,
             role: role.map(|role| role.name.to_string()),
         };
         let child = self.session_insert(parent.task_id, &options)?;
         self.store().session_set_spawned_by(child.id, from)?;
         let message = format!(
-            "{prompt}\n\n(You were started by session {from}, another agent session of the same \
+            "{}\n\n(You were started by session {from}, another agent session of the same \
              user, working in this same worktree. When you are done, report what you did and \
-             found to it with the `send_message` tool, to session {from}.)"
+             found to it with the `send_message` tool, to session {from}.)",
+            asked.prompt
         );
         self.session_start(child.id, Auth::Subscription)?;
         // As typed: a prompt that begins like a command is the starting agent's words, never
         // a command of the user's, which could turn Remote Control on with nobody asked.
         self.session_send_as_typed(child.id, &message)?;
         self.session(child.id)
+    }
+
+    /// The model and effort of a session `starter` starts on its own agent with `role`: those
+    /// asked for, refused unless the agent offers the model and the effort is one there is
+    /// (`asked_for`); else the role's defaults from the user's settings, where the agent
+    /// offers the role's model; else `starter`'s own, as before there was a choice.
+    pub(crate) fn started_on(
+        &self,
+        starter: &Session,
+        role: Option<&Role>,
+        model: Option<&str>,
+        effort: Option<&str>,
+    ) -> Result<(Option<String>, Option<Effort>)> {
+        let models = self.agents_now().models(&starter.agent).to_vec();
+        let (model, effort) = asked_for(&models, model, effort)?;
+        let defaults = self.role_defaults(role, &starter.agent)?;
+        let model = model.or(defaults.model).or_else(|| starter.model.clone());
+        Ok((model, effort.or(defaults.effort).or(starter.effort)))
+    }
+
+    /// What the agent that started `session`, asking for model `asked` or none, is told of
+    /// what it runs on: its model and effort, and its role's default model if the agent does
+    /// not offer it and it was passed over.
+    pub(crate) fn started_said(&self, session: &Session, asked: Option<&str>) -> Result<String> {
+        let mut said = runs_on(session);
+        let asked = asked.is_some_and(|model| !model.trim().is_empty());
+        let role = session.role.as_deref().and_then(roles::find);
+        let passed_over = self.role_defaults(role, &session.agent)?.passed_over;
+        if let (Some(role), Some(model), false) = (role, passed_over, asked) {
+            said = format!(
+                "{said} (the {}'s default model in the user's settings, `{model}`, is not one \
+                 your agent offers, so it was passed over)",
+                role.name
+            );
+        }
+        Ok(said)
     }
 
     /// Refuses while as many open sessions work for session `from` as the user's settings
@@ -781,15 +916,21 @@ impl Core {
                 Ok(delivery.said().to_string())
             }
             "spawn_session" => {
-                let prompt = word("prompt").unwrap_or_default();
-                let role = word("role").filter(|role| !role.trim().is_empty());
-                let session = self.peer_spawn(from, prompt, word("title"), role)?;
+                let asked = PeerSpawn {
+                    prompt: word("prompt").unwrap_or_default(),
+                    title: word("title"),
+                    role: word("role").filter(|role| !role.trim().is_empty()),
+                    model: word("model"),
+                    effort: word("effort"),
+                };
+                let session = self.peer_spawn_asked(from, asked)?;
+                let runs_on = self.started_said(&session, asked.model)?;
                 let what = session
                     .role
                     .map_or_else(String::new, |role| format!(" (role: {role})"));
                 Ok(format!(
-                    "Started session {}{what}. It works beside you in this worktree and will \
-                     report back with a message when it is done.",
+                    "Started session {}{what}, {runs_on}. It works beside you in this worktree \
+                     and will report back with a message when it is done.",
                     session.id
                 ))
             }
@@ -885,6 +1026,27 @@ pub async fn serve_session_tools(core: Arc<Core>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_model_the_agent_offers_and_an_effort_there_is_are_taken_and_the_rest_refused() {
+        let models = ["opus", "fable"].map(String::from);
+        let taken = asked_for(&models, Some(" fable "), Some("medium")).expect("takes");
+        assert_eq!(taken, (Some("fable".to_string()), Some(Effort::Medium)));
+        assert_eq!(
+            asked_for(&models, None, Some("")).expect("takes"),
+            (None, None)
+        );
+        let said = |result: Result<(Option<String>, Option<Effort>)>| match result {
+            Err(Error::Peers(said)) => said,
+            other => panic!("{other:?}"),
+        };
+        let wrong = said(asked_for(&models, Some("claude-fable-5-2"), None));
+        assert!(wrong.contains("`model` is one of opus, fable"), "{wrong}");
+        let none = said(asked_for(&[], Some("fable"), None));
+        assert!(none.contains("offers no models"), "{none}");
+        let effort = said(asked_for(&models, None, Some("Medium")));
+        assert!(effort.contains("low, medium, high, xhigh, max"), "{effort}");
+    }
 
     #[test]
     fn the_end_of_a_text_is_kept_whole_characters_and_all() {
