@@ -133,8 +133,9 @@ anything; running tests and checks is fine. Report your findings to the session 
 with `send_message`, or to the user if you work for none: each with where it is and why it \
 matters, the most severe first. When you were asked to get them fixed as well, hand the fixes to \
 implementers with `spawn_session` (its `role` is `implementer`), in parts that do not touch the \
-same files, check what each reports back, and then report what was found and fixed. Start no \
-tasks.",
+same files, check what each reports back, and then report what was found and fixed. Where you \
+cannot start one, as when you work for a planner that itself works for an architect, report the \
+fixes to make to the session you work for instead, which hands them on. Start no tasks.",
     supervision: Some(Supervision::Plan),
     approved_supervision: None,
     changes_files: false,
@@ -143,7 +144,8 @@ tasks.",
     approved: Some(
         "Report your findings now to the session you work for with `send_message`, or to the \
          user if you work for none, or hand their fixes to implementers with `spawn_session` if \
-         you were asked to get them fixed.",
+         you were asked to get them fixed. If you cannot start an implementer, report the fixes \
+         to make to the session you work for instead.",
     ),
 };
 
@@ -630,8 +632,13 @@ mod tests {
         assert!(approved.ends_with(planner.approved.expect("kept")));
         assert!(note(Some(planner), None).contains(KEPT_FROM_CHANGES));
         // A reviewer has no sessions to follow once approved: it stays where it reads.
-        let reviewer = approval(find("reviewer").expect("built in")).expect("kept");
+        let reviewing = find("reviewer").expect("built in");
+        let reviewer = approval(reviewing).expect("kept");
         assert!(reviewer.contains("You stay in the mode that keeps you from it."));
+        // Third in a row it starts nobody, so it is told where its fixes go then, both times.
+        let back = "report the fixes to make to the session you work for instead";
+        assert!(reviewing.instructions.contains(back));
+        assert!(reviewer.contains(back));
     }
 
     #[test]

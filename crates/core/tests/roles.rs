@@ -272,6 +272,20 @@ async fn a_session_starts_only_the_roles_its_own_may() {
         matches!(&refused, Err(Error::Peers(why)) if why.contains("may start only implementer")),
         "{refused:?}"
     );
+    // Under an architect's planner it is the third with a role in a row and starts nobody: it
+    // is told to ask the session it works for, to which its rules have it report the fixes.
+    let architect = new_session(&core, Some("architect"));
+    let part = new_session(&core, Some("planner"));
+    let deep = new_session(&core, Some("reviewer"));
+    core.session_set_parent(part.id, Some(architect.id))
+        .expect("works for it");
+    core.session_set_parent(deep.id, Some(part.id))
+        .expect("works for it");
+    let refused = core.peer_spawn(deep.id, "fix the finding", None, None);
+    assert!(
+        matches!(&refused, Err(Error::Peers(why)) if why.contains("at most 3 in a row") && why.contains("ask the session you work for")),
+        "{refused:?}"
+    );
 
     // With no role, as before: none by default, any role asked for.
     let free = new_session(&core, None);

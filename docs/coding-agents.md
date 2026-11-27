@@ -657,7 +657,9 @@ A session with a role may start sessions and tasks if its role starts any, even 
 session started: a planner an architect or another session started starts its implementers.
 Sessions with a role work for one another at most three in a row (an architect, its planner and
 the planner's implementers), and while six open sessions work for a session, its agent starts
-no more, in its own task or as new tasks. A session
+no more, in its own task or as new tasks. A reviewer that works for an architect's planner is
+already the third, so it starts no implementers: it reports the fixes to make to its planner,
+which hands them on. A session
 with no role that another session started starts nothing, as before, and a session with no role
 counts for nothing in a row, so a chain of tasks where each starts the next is not limited by
 it. The sessions a session with a role starts begin under the supervision it had before its own
