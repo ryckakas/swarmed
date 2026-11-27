@@ -972,6 +972,69 @@ describe("a folded task", () => {
         expect(useStore.getState().foldedTasks).toEqual([2]);
         expect(remembered()).toBe("[2]");
     });
+
+    it("folds by itself when its last open session is closed or deleted here", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        // fix-login-redirect (1) has sessions 1 and 2, dark-mode (6) has session 7 alone.
+        await useStore.getState().close(api, 1, false);
+        expect(useStore.getState().foldedTasks).toEqual([]);
+        await useStore.getState().close(api, 2, false);
+        expect(useStore.getState().foldedTasks).toEqual([1]);
+        expect(remembered()).toBe("[1]");
+        await useStore.getState().deleteSession(api, 7);
+        expect(useStore.getState().foldedTasks).toEqual([1, 6]);
+
+        // Unfolded by the user, it stays so as the tree is read again.
+        useStore.getState().toggleTaskFolded(1);
+        await useStore.getState().refresh(api);
+        expect(useStore.getState().foldedTasks).toEqual([6]);
+    });
+
+    it("folds by itself when its last open session goes from another window", async () => {
+        const base = createMockApi();
+        let heard: (event: SessionEvent) => void = () => {};
+        const api: Api = {
+            ...base,
+            onSessionEvent: async (listener) => {
+                heard = listener;
+                return () => {};
+            },
+        };
+        const disconnect = connect(api);
+        await useStore.getState().refresh(api);
+        useStore.setState({ foldedTasks: [] });
+        // rule-docs (8) has session 13 alone; invoice-export (2) has sessions 3 and 8.
+        await base.sessionClose(13, false);
+        heard(published(13, { type: "closed" }));
+        expect(useStore.getState().foldedTasks).toEqual([8]);
+        await base.sessionDelete(3);
+        heard(published(3, { type: "deleted" }));
+        await base.sessionDelete(8);
+        heard(published(8, { type: "deleted" }));
+        expect(useStore.getState().foldedTasks).toEqual([8, 2]);
+        disconnect();
+    });
+
+    it("folds every task left with no open session when a session is closed with its workers", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        useStore.setState({ foldedTasks: [] });
+        // The rule-engine (7) planner, 9, with those working for it there and in rule-docs (8).
+        await useStore.getState().close(api, 9, true);
+        // In the order their sessions were closed, the workers first.
+        expect(useStore.getState().foldedTasks).toEqual([8, 7]);
+    });
+
+    it("folds by itself when a tree read finds its last open session gone", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        useStore.setState({ foldedTasks: [] });
+        // Closed by the command line, which only says that the tree changed.
+        await api.sessionClose(7, false);
+        await useStore.getState().refresh(api);
+        expect(useStore.getState().foldedTasks).toEqual([6]);
+    });
 });
 
 describe("setting up an agent", () => {
