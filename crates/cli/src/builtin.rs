@@ -93,9 +93,9 @@ fn show(view: &BuiltinMcpView) {
     show_elsewhere(view);
     for check in &view.checks {
         let how = match (check.ok, check.warning) {
-            (_, true) => "warning",
+            (true, true) => "warning",
             (true, false) => "ok",
-            (false, false) => "failed",
+            (false, _) => "failed",
         };
         let fix = check.fix.as_deref().unwrap_or("");
         say(&format!(

@@ -523,7 +523,7 @@ mod tests {
             "checks": [
                 {"name": "config", "ok": true, "warning": false, "detail": "fine", "fix": null},
                 "not a check",
-                {"name": "model", "ok": false, "warning": true, "detail": "slow"}
+                {"name": "model", "ok": true, "warning": true, "detail": "slow"}
             ],
             "server": {"running": true, "pid": 42, "version": "0.5.1", "relays": 2},
             "registrations": [{"client": "claude", "client_name": "Claude Code",

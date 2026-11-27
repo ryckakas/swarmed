@@ -224,7 +224,8 @@ pub struct DoctorCheck {
     pub name: String,
     /// Whether it passed.
     pub ok: bool,
-    /// Whether what it found is only worth a warning.
+    /// Whether what it found is worth a warning, though it passed: repolore writes a warning
+    /// with `ok` true.
     pub warning: bool,
     /// What it found.
     pub detail: String,
@@ -233,9 +234,9 @@ pub struct DoctorCheck {
 }
 
 impl DoctorCheck {
-    /// Whether it failed outright: neither passed nor only a warning.
+    /// Whether it did not pass. A warning passed: it stops nothing.
     fn failed(&self) -> bool {
-        !self.ok && !self.warning
+        !self.ok
     }
 }
 
@@ -1253,9 +1254,9 @@ mod tests {
         assert_eq!(shown, "\"waiting\"");
     }
 
-    #[test]
-    fn a_view_is_serialised_in_the_shape_front_ends_read() {
-        let view = BuiltinMcpView {
+    /// A view with something in every field.
+    fn sample_view() -> BuiltinMcpView {
+        BuiltinMcpView {
             name: REPOLORE.into(),
             state: BuiltinState::Waiting,
             version: Some("0.5.1".into()),
@@ -1287,7 +1288,7 @@ mod tests {
             hook: true,
             checks: vec![DoctorCheck {
                 name: "model".into(),
-                ok: false,
+                ok: true,
                 warning: true,
                 detail: "slow".into(),
                 fix: None,
@@ -1298,8 +1299,12 @@ mod tests {
             status: Some("connected".into()),
             page_open: false,
             problem: None,
-        };
-        let shown = serde_json::to_value(&view).expect("serialises");
+        }
+    }
+
+    #[test]
+    fn a_view_is_serialised_in_the_shape_front_ends_read() {
+        let shown = serde_json::to_value(sample_view()).expect("serialises");
         let expected = serde_json::json!({
             "name": "repolore", "state": "waiting", "version": "0.5.1", "minimum": "0.5.1",
             "install_command": "uv tool install", "home": "/data/repolore", "home_ready": true,
@@ -1310,12 +1315,56 @@ mod tests {
             "old_server": {"pid": 42, "relays": 1},
             "sessions": [{"id": 7, "title": "Fix it", "idle": true}],
             "hook": true,
-            "checks": [{"name": "model", "ok": false, "warning": true, "detail": "slow",
+            "checks": [{"name": "model", "ok": true, "warning": true, "detail": "slow",
                 "fix": null}],
             "checked": "offline", "built_at": "2026-11-20", "refreshed_at": null,
             "status": "connected", "page_open": false, "problem": null,
         });
         assert_eq!(shown, expected);
+    }
+
+    #[test]
+    fn the_old_setup_goes_only_once_every_check_is_ok_and_its_server_stopped() {
+        let on = || BuiltinMcpView {
+            state: BuiltinState::On,
+            old_server: None,
+            ..sample_view()
+        };
+        // A warning is a check that passed.
+        let folders = trashable(&on()).expect("may go");
+        assert_eq!(folders, [PathBuf::from("/old/repolore")]);
+        let refused = |view: BuiltinMcpView| trashable(&view).map_err(|e| e.to_string());
+        let mut failing = on();
+        failing.checks[0].ok = false;
+        assert!(refused(failing).is_err_and(|e| e.contains("check passes")));
+        let unchecked = BuiltinMcpView {
+            checked: None,
+            ..on()
+        };
+        assert!(refused(unchecked).is_err_and(|e| e.contains("check passes")));
+        let problem = BuiltinMcpView {
+            problem: Some("no answer".into()),
+            ..on()
+        };
+        assert!(refused(problem).is_err_and(|e| e.contains("check passes")));
+        let waiting = BuiltinMcpView {
+            state: BuiltinState::Waiting,
+            ..on()
+        };
+        assert!(refused(waiting).is_err_and(|e| e.contains("is on")));
+        let running = BuiltinMcpView {
+            old_server: Some(OldServer {
+                pid: None,
+                relays: 0,
+            }),
+            ..on()
+        };
+        assert!(refused(running).is_err_and(|e| e.contains("still runs")));
+        let none = BuiltinMcpView {
+            existing: None,
+            ..on()
+        };
+        assert!(refused(none).is_err_and(|e| e.contains("no old setup")));
     }
 
     #[test]

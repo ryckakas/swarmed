@@ -144,7 +144,7 @@ fn doctor(configured: bool, registrations: &[String], folder: &Path) -> String {
             "configured": {configured},
             "index": {{"built_at": "2026-11-20T10:00:00Z", "refreshed_at": "2026-11-27T08:00:00Z"}},
             "checks": [{{"name": "config", "ok": true, "warning": false, "detail": "fine", "fix": null}},
-                       {{"name": "model", "ok": false, "warning": true, "detail": "not loaded", "fix": "wait"}}],
+                       {{"name": "model", "ok": true, "warning": true, "detail": "not loaded", "fix": "wait"}}],
             "server": {{"running": false, "pid": null, "version": null, "relays": 0}},
             "registrations": [{}]}}"#,
         registrations.join(", ")
