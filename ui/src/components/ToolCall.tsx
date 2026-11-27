@@ -14,6 +14,7 @@ import {
     toolRunSummary,
 } from "../transcript";
 import { useWords } from "../useWords";
+import { Copyable } from "./Copyable";
 import { HtmlView } from "./HtmlView";
 import { Markdown } from "./Markdown";
 import { ToolImages } from "./ToolImages";
@@ -68,15 +69,28 @@ export const ToolCall = memo(function ToolCall(call: CallProps) {
                     {state !== "done" && <span className="tool-state">{state}</span>}
                     {state === "done" && moved && <span className="tool-state">{MOVED}</span>}
                 </summary>
-                {opened && <pre className="tool-body">{JSON.stringify(input, null, 2)}</pre>}
-                {opened && result && (
-                    <pre className="tool-body">{result.content || "(no output)"}</pre>
-                )}
+                {opened && <ToolBody text={JSON.stringify(input, null, 2)} />}
+                {opened && result && <ToolBody text={result.content} />}
             </details>
             <ToolImages sessionId={sessionId} paths={result?.images ?? []} />
         </>
     );
 }, sameCall);
+
+/**
+ * A call's input or result, opened, with a button that copies it as shown. A result with no
+ * output says so, and has nothing to copy.
+ */
+function ToolBody({ text }: { text: string }) {
+    if (text === "") {
+        return <pre className="tool-body">(no output)</pre>;
+    }
+    return (
+        <Copyable text={text} className="tool-copyable">
+            <pre className="tool-body">{text}</pre>
+        </Copyable>
+    );
+}
 
 /** What is said where the work of a call did not go to the background, as asked. */
 const NOT_MOVED = "not sent: it ended, or is there already";

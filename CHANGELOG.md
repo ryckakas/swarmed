@@ -15,6 +15,15 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Added
+
+- **Code blocks and tool calls can be copied with one press.** Pointing at a code block in an
+  agent's reply, a plan, a sub-agent's conversation or an issue shows a copy button in its top
+  right corner, which the keyboard reaches with Tab too. It copies the code as written: no
+  fence, no language name, no colours, and no newline left at its end. An opened tool call's
+  input and result have the same button. It says **Copied** for a moment, or that the copy did
+  not go through, and pressing it selects nothing, so the Quote button stays away.
+
 ### Fixed
 
 - **Tables in replies no longer break short words in the middle.** A column of a table in an

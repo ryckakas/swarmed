@@ -78,7 +78,8 @@
     .agent-ready,
     .activity-swatch,
     .image-chip,
-    .issue-badge svg
+    .issue-badge svg,
+    .copy-button svg
 ) {
     zoom: var(--icon-zoom, 1);
 }

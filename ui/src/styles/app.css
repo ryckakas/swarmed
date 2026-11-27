@@ -3851,6 +3851,77 @@ code {
 }
 
 /*
+ * A code block, or a tool call's body, with the button that copies it in its top right corner.
+ * The button floats over the block, outside the part that scrolls, so it stays in the corner of
+ * what is seen and never moves a line. Out of sight until the block is pointed at or the
+ * keyboard reaches the button, and for a moment after a press, while it says what came of it.
+ */
+.copyable {
+    position: relative;
+}
+
+.copy-corner {
+    position: absolute;
+    top: var(--space-1);
+    right: var(--space-1);
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    opacity: 0;
+    user-select: none;
+}
+
+.copyable:hover > .copy-corner,
+.copy-corner:focus-within,
+.copy-corner[data-said] {
+    opacity: 1;
+}
+
+.copy-button {
+    display: grid;
+    place-items: center;
+    padding: var(--space-1);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--muted);
+}
+
+.copy-button:hover,
+.copy-button:focus-visible {
+    background: var(--raised);
+    color: var(--text);
+}
+
+.copy-button svg {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentcolor;
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.copy-said {
+    padding: 1px var(--space-2);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--muted);
+    font-family: var(--font-ui);
+    font-size: var(--text-xs);
+    line-height: 1.4;
+}
+
+.copy-said:empty {
+    display: none;
+}
+
+.copy-corner[data-said="refused"] .copy-said {
+    color: var(--clay);
+}
+
+/*
  * A table's column is as wide as its longest word, so a long path can make the table wider
  * than the reply: then it scrolls sideways in a box of its own (`Table` in `Markdown.tsx`),
  * and the transcript never does.
@@ -4009,6 +4080,16 @@ code {
     max-height: 24em;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+}
+
+/* A call's body with its copy button: the box takes the body's margins, so the button sits in
+   the body's corner. */
+.tool-copyable {
+    margin: 0 var(--space-3) var(--space-2);
+}
+
+.tool-copyable > .tool-body {
+    margin: 0;
 }
 
 .aside,
@@ -4666,7 +4747,7 @@ code {
     gap: 2px;
 }
 
-.html-code pre {
+.html-code > .copyable {
     justify-self: stretch;
 }
 
