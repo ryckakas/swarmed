@@ -213,9 +213,24 @@ code {
  * The rows draw some things shorter the narrower the sidebar is (#500), by the room they have:
  * this one's width, which a scroll bar that takes room leaves out. The scroller's own width as a
  * container would count the scroll bar in.
+ *
+ * The steps are measured in its `em`, made of what a row's room goes to where they start, in
+ * the shares measured there: icons and buttons for the most part, which a layout enlarges more
+ * than its text (`--icon-zoom`), then spacing, and a little text. That is 13px in classic, the
+ * text's size, and 16.9px in senior, so the same steps hold in both and follow a custom
+ * layout's icons and spacing. Icons smaller or spacing tighter than classic's count as
+ * classic's, since they save little room there, and it is never smaller than the text. The
+ * rows themselves are set at the text's size again.
  */
 .sidebar-rows {
+    --rows-icons: calc(9.1px * max(var(--icon-zoom, 1), 1));
+    --rows-spacing: calc(0.3 * max(var(--space-2), 8px));
     container: sidebar / inline-size;
+    font-size: max(var(--text-sm), 0.1 * var(--text-sm) + var(--rows-icons) + var(--rows-spacing));
+}
+
+.sidebar-rows > * {
+    font-size: var(--text-sm);
 }
 
 /* With the task panel open the window has a third column. */
@@ -1424,7 +1439,11 @@ code {
     letter-spacing: 0.01em;
 }
 
-/* The repository's name folds its tasks away and brings them back. */
+/*
+ * The repository's name folds its tasks away and brings them back. It cuts what it holds short,
+ * as a task's does: pointed at in a narrow sidebar, its name gives its room to the buttons
+ * after it, and must not be drawn over them.
+ */
 .project-toggle {
     display: flex;
     align-items: center;
@@ -1437,6 +1456,7 @@ code {
     font: inherit;
     letter-spacing: inherit;
     text-align: left;
+    overflow: hidden;
 }
 
 /*
@@ -1882,7 +1902,8 @@ code {
  *   4. on a row with badges, a pinned pin and a note that holds something take no room until
  *      the row is pointed at or focused, as the buttons that only matter there already do.
  * What is left out is still in each one's name and title. The browser's badge, work left
- * running, never goes.
+ * running, never goes. The widths are in the rows' own `em` (`.sidebar-rows`): in classic,
+ * 19.5em is 254px of room, in senior 329px.
  */
 @container sidebar (max-width: 19.5em) {
     .pull-hash {
@@ -1922,16 +1943,26 @@ code {
  * beside a session's mark, continuation or parent: then these take no room even so, in this
  * order (#500):
  *   on a task with badges, its cloud below 19.5em, then a note with nothing in it below 16.5em;
- *   on a session with one of those, its pin below 17.25em; with two, its pin and then its
- *   highlight below 19.5em.
- * Each is still a tab stop with its name, out of sight, and shows over the start of the name
- * (`--over-name`, in the button's own units) while it has the keyboard, or its palette is
- * open. With the pointer they are reached otherwise: ⌘D pins and ⌘⇧H highlights the
- * open session or the focused row, ⌘⇧N opens the note of the open session's task, and the
- * session's header hands work to the cloud.
+ *   on a session with one of those, its pin while not pinned below 17.25em; with two, that pin
+ *   and its highlight below 19.5em.
+ * A pinned pin stays, as what it says: the session's title gives it its room, short of the
+ * narrowest line with all three of those (below). Each that goes is still a tab stop with its
+ * name, out of sight, and shows over the start of the name (`--over-name`, in the button's own
+ * units) while it has the keyboard, or its palette is open. With the pointer they are reached
+ * otherwise: ⌘D pins and ⌘⇧H highlights the open session or the focused row, ⌘⇧N opens the
+ * note of the open session's task, and the session's header hands work to the cloud.
  */
-:is(.row-head, .session-line) {
+.row-head {
     --over-name: calc((2 * var(--space-2) + 13px * var(--icon-zoom, 1)) / var(--button-zoom, 1));
+}
+
+/* A session's title starts after where its row starts, its tendril if it is nested, its status
+   and their gap (`.session-row`), however deep it is. */
+.session-line {
+    --over-name: calc(
+        (var(--row-start) + var(--row-tendril) + var(--row-status) + var(--space-2)) /
+        var(--button-zoom, 1)
+    );
 }
 
 @container sidebar (max-width: 19.5em) {
@@ -1971,7 +2002,8 @@ code {
 }
 
 @container sidebar (max-width: 17.25em) {
-    .session-line:has(.session-mark, .session-continues, .parent-link) .row-pin {
+    .session-line:has(.session-mark, .session-continues, .parent-link)
+        .row-pin:not([data-pinned="true"]) {
         position: absolute;
         inset-block: 0;
         inset-inline-start: var(--over-name);
@@ -1980,7 +2012,7 @@ code {
     }
 
     .session-line:has(.session-mark, .session-continues, .parent-link)
-        .row-pin:not(:focus-visible) {
+        .row-pin:not([data-pinned="true"], :focus-visible) {
         width: 1px;
         height: 1px;
         overflow: hidden;
@@ -1993,7 +2025,7 @@ code {
             :has(.session-mark):has(.session-continues, .parent-link),
             :has(.session-continues):has(.parent-link)
         )
-        :is(.row-pin, .row-highlight) {
+        :is(.row-pin:not([data-pinned="true"]), .row-highlight) {
         position: absolute;
         inset-block: 0;
         inset-inline-start: var(--over-name);
@@ -2005,7 +2037,10 @@ code {
             :has(.session-mark):has(.session-continues, .parent-link),
             :has(.session-continues):has(.parent-link)
         )
-        :is(.row-pin, .row-highlight):not(:focus-visible, [aria-expanded="true"]) {
+        :is(.row-pin:not([data-pinned="true"]), .row-highlight):not(
+            :focus-visible,
+            [aria-expanded="true"]
+        ) {
         width: 1px;
         height: 1px;
         overflow: hidden;
@@ -2019,6 +2054,30 @@ code {
         )
         .highlight-wrap {
         position: static;
+    }
+}
+
+/*
+ * With all three beside it, whom it works for, a mark and a continuation, the narrowest line
+ * has no room even for a pinned pin once its title is gone: that one goes out of sight too,
+ * as the others do, and ⌘D or Tab still reach it.
+ */
+@container sidebar (max-width: 15.5em) {
+    .session-line:has(.session-mark):has(.session-continues):has(.parent-link)
+        .row-pin[data-pinned="true"] {
+        position: absolute;
+        inset-block: 0;
+        inset-inline-start: var(--over-name);
+        z-index: 1;
+        margin-block: auto;
+    }
+
+    .session-line:has(.session-mark):has(.session-continues):has(.parent-link)
+        .row-pin[data-pinned="true"]:not(:focus-visible) {
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
     }
 }
 
@@ -2092,6 +2151,8 @@ code {
    colour the layout gives sessions is theirs whatever they are doing; one that waits on you,
    or has an answer you have not read, is still drawn at least as heavy as the signal needs. */
 .session-line {
+    /* Its status, before its title (`.session-row`, `--over-name`). */
+    --row-status: calc(13px * var(--icon-zoom, 1));
     display: flex;
     align-items: center;
     /* The bar that turns pollen when a session needs you; transparent holds its place. */
@@ -2130,12 +2191,9 @@ code {
  * go below those few characters, so that the line is never wider than the sidebar. That width
  * is added up from the parts before the title, since the container leaves its content out of
  * its size: where it starts (`--row-start`, set in for a nested one), its status, a nested
- * one's tendril (`--row-tendril`), and their gaps.
+ * one's tendril (`--row-tendril`), and their gaps, which its list sets (`.sessions > li`).
  */
 .session-row {
-    --row-start: 9px;
-    --row-tendril: 0px;
-    --row-status: calc(13px * var(--icon-zoom, 1));
     /* Its role's chip goes when it is too narrow for it (`.role-chip`). */
     container: session-row / inline-size;
     flex: 1 1
@@ -2250,8 +2308,9 @@ code {
 
 /*
  * In a narrow sidebar the clock alone, and sooner beside a mark or whom the session works for:
- * the time is in its title and its name (#500). At the narrowest, the pin of such a line takes
- * no room until the line is pointed at or focused, as a task's does beside its badges.
+ * the time is in its title and its name (#500). At the narrowest, a pinned pin on such a line
+ * takes no room until the line is pointed at or focused, as a task's does beside its badges;
+ * then it shows, and the title gives it its room.
  */
 @container sidebar (max-width: 22em) {
     .session-line:has(.session-mark, .parent-link) .session-continues > span {
@@ -2593,7 +2652,14 @@ code {
     }
 }
 
-.sessions li[data-nested="true"] .session-row {
+/* Where a session's title starts, which its line and its row both read (`.session-row`,
+   `--over-name`): set in by its depth, after a nested one's tendril. */
+.sessions > li {
+    --row-start: 9px;
+    --row-tendril: 0px;
+}
+
+.sessions > li[data-nested="true"] {
     --row-start: calc(9px + var(--nest-step) * var(--depth, 1));
     --row-tendril: calc(11px * var(--icon-zoom, 1) + var(--space-2));
 }
@@ -2613,7 +2679,7 @@ code {
 /* A row too narrow for its title and the chip, nested deep or in a narrow sidebar, keeps the
    title: the chip goes, and the role is still in the session's header. Measured on the row's
    button, which the agent's icon comes after: 13.4em there is 15em with the icon and its gap
-   (21px, 1.6em at the sidebar's size). */
+   in classic (21px there, 1.6em at the row's size). */
 @container session-row (max-width: 13.4em) {
     .role-chip {
         display: none;
