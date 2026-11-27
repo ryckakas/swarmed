@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import type { BackgroundCount, SessionStatus } from "../api/types";
 import { isSwarm } from "../appearance";
 import {
     anyInBackground,
     type BackgroundLevel,
     backgroundShown,
+    broodBeads,
+    broodSize,
     NOTHING_IN_BACKGROUND,
 } from "../inBackground";
 import { useStore } from "../store";
@@ -58,8 +60,8 @@ interface Props {
  * has its own shape, not only its own colour. An idle session that has answered and not been
  * looked at is told apart from one that is merely idle; a session that is busy, waiting or
  * failed already says more than "unread" would. An idle one with work left in the background
- * is never drawn as merely idle: a ring around it says so, clear for sub-agents at work and
- * quiet for commands left running.
+ * is never drawn as merely idle: something circles it while that runs, a grub for each
+ * sub-agent at work, or for commands left running a quieter thread that creeps round.
  */
 export function StatusMark({
     status,
@@ -72,6 +74,7 @@ export function StatusMark({
     const kind = statusKind(status, unread);
     const hatching = useHatching(kind);
     const ring = backgroundShown(status, background) ?? undefined;
+    const brood = broodSize(background);
     const name = label ?? own;
     if (!swarm) {
         return (
@@ -81,38 +84,124 @@ export function StatusMark({
                 role="img"
                 aria-label={name}
                 title={name}
-            />
+            >
+                {ring && <DotOrbit level={ring} />}
+            </span>
         );
     }
     const Shape = SHAPES[kind];
-    return <Shape label={name} hatching={hatching} background={ring} />;
+    return <Shape label={name} hatching={hatching} background={ring} brood={brood} />;
 }
 
 interface ShapeProps {
     label: string;
     /** Whether to flash once, as what just hatched. */
     hatching: boolean;
-    /** What runs in the background, which a ring around the shape says. */
+    /** What runs in the background, which circles the shape. */
     background?: BackgroundLevel | undefined;
+    /** How many grubs circle it: one for each sub-agent at work, up to a few. */
+    brood: number;
+}
+
+/** The oval an orbit runs on round a shape, in the shape's own units. */
+interface Oval {
+    cx: number;
+    cy: number;
+    rx: number;
+    ry: number;
+}
+
+/** Where a brood runs round a shape, and how long a turn takes. */
+interface OrbitPath extends Oval {
+    /** Seconds for a turn. */
+    period: number;
+}
+
+/** Round the sac, clear of its roots. */
+const SAC_ORBIT: OrbitPath = { cx: 6, cy: 7, rx: 7.2, ry: 7.8, period: 2.4 };
+
+/** Round the grub, wider than tall as it is, so a turn takes a little longer. */
+const GRUB_ORBIT: OrbitPath = { cx: 8.6, cy: 5, rx: 9.8, ry: 6.8, period: 2.8 };
+
+/** Round the plain style's dot, where its ring stood. Its arc keeps the pace the styles set. */
+const DOT_ORBIT: Oval = { cx: 4, cy: 4, rx: 6.5, ry: 6.5 };
+
+/** An orbit's oval alone, as an ellipse's attributes. */
+function oval(path: Oval): Oval {
+    return { cx: path.cx, cy: path.cy, rx: path.rx, ry: path.ry };
+}
+
+/**
+ * What runs in the background, circling a shape of the swarm's: for sub-agents at work a grub
+ * for each, on a faint track; for commands left running, often on purpose, a thread of silk
+ * that creeps round, quieter. Drawn under the shape.
+ */
+function Orbit({ path, level, brood }: { path: OrbitPath; level: BackgroundLevel; brood: number }) {
+    if (level === "commands") {
+        return <ellipse className="orbit orbit-silk" {...oval(path)} pathLength={100} />;
+    }
+    const style = {
+        "--rx": `${path.rx}px`,
+        "--ry": `${path.ry}px`,
+        "--half-turn": `${path.period / 2}s`,
+    } as CSSProperties;
+    return (
+        <g className="orbit" data-level="agents" style={style}>
+            <ellipse className="orbit-track" {...oval(path)} />
+            {broodBeads(Math.max(brood, 1), path.period).map((bead) => (
+                <g
+                    key={bead.across}
+                    className="orbit-across"
+                    style={{ animationDelay: `${bead.across}s` }}
+                >
+                    <g className="orbit-up-down" style={{ animationDelay: `${bead.upDown}s` }}>
+                        <circle
+                            className="orbit-bead"
+                            cx={path.cx}
+                            cy={path.cy}
+                            r={bead.r}
+                            opacity={bead.opacity}
+                        />
+                    </g>
+                </g>
+            ))}
+        </g>
+    );
+}
+
+/**
+ * The plain style's: round its dot, for sub-agents at work an arc that runs round a faint track,
+ * and for commands left running the same quiet thread as the swarm's.
+ */
+function DotOrbit({ level }: { level: BackgroundLevel }) {
+    return (
+        <svg className="mark-orbit" viewBox="0 0 8 8" aria-hidden="true">
+            {level === "commands" ? (
+                <ellipse className="orbit orbit-silk" {...DOT_ORBIT} pathLength={100} />
+            ) : (
+                <g className="orbit" data-level="agents">
+                    <ellipse className="orbit-track" {...DOT_ORBIT} />
+                    <ellipse className="orbit-arc" {...DOT_ORBIT} pathLength={100} />
+                </g>
+            )}
+        </svg>
+    );
 }
 
 /** Dormant: a sac standing on three roots, waiting. */
 export function Egg({
     label,
     background,
+    brood = 0,
 }: {
     label: string;
     background?: BackgroundLevel | undefined;
+    brood?: number;
 }) {
     return (
-        <svg
-            className="egg"
-            data-background={background}
-            viewBox="0 0 12 14"
-            role="img"
-            aria-label={label}
-        >
+        <svg className="egg" viewBox="0 0 12 14" role="img" aria-label={label}>
             <title>{label}</title>
+            {background && <Orbit path={SAC_ORBIT} level={background} brood={brood} />}
             <path
                 className="swarm-body"
                 d="M6 .8C3.4.8 2 4.2 2 7a4 4 0 0 0 8 0C10 4.2 8.6.8 6 .8z"
@@ -132,18 +221,21 @@ function Crawling({ label }: ShapeProps) {
     );
 }
 
-/** The same grub, glowing: it has hatched an answer nobody has looked at. */
-function Hatched({ label, hatching, background }: ShapeProps) {
+/**
+ * The same grub, glowing: it has hatched an answer nobody has looked at. What it left at work
+ * circles it as it circles the sac.
+ */
+function Hatched({ label, hatching, background, brood }: ShapeProps) {
     return (
         <svg
             className="larva larva-unread"
             data-hatching={hatching}
-            data-background={background}
             viewBox="0 0 16 10"
             role="img"
             aria-label={label}
         >
             <title>{label}</title>
+            {background && <Orbit path={GRUB_ORBIT} level={background} brood={brood} />}
             <Grub />
         </svg>
     );
@@ -197,3 +289,21 @@ const SHAPES: Record<StatusKind, (props: ShapeProps) => React.ReactNode> = {
     waiting: Reared,
     errored: Burst,
 };
+
+/**
+ * Beside a sub-agent at work in the sidebar. The swarm's is a tiny grub that crawls as a working
+ * session's does; the plain style's a dot that pulses.
+ */
+export function SubAgentMark() {
+    const swarm = useStore((state) => isSwarm(state.settings?.style));
+    if (!swarm) {
+        return <span className="sub-agent-pulse" aria-hidden="true" />;
+    }
+    return (
+        <svg className="sub-agent-grub" viewBox="0 0 11 7" aria-hidden="true">
+            <circle cx="1.8" cy="4" r="1.1" />
+            <circle cx="4.5" cy="3.7" r="1.5" />
+            <circle cx="7.9" cy="3.4" r="2" />
+        </svg>
+    );
+}

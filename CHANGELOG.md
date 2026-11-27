@@ -52,6 +52,16 @@ notice adds its line under Unreleased.
   input and result have the same button. It says **Copied** for a moment, or that the copy did
   not go through, and pressing it selects nothing, so the Quote button stays away.
 
+### Changed
+
+- **What runs moves.** A session with work left in the background no longer shows a ring that
+  stands nearly still: while sub-agents are at work, a small grub for each (up to three) circles
+  its mark, or an arc in the plain style, and while only commands run, a faint dashed thread
+  creeps round it, quieter. A pull request's badge has a light passing across it while its
+  checks run, a task's browser badge turns slowly while its browser runs, and a sub-agent at
+  work in the sidebar is a tiny crawling grub. With reduced motion turned on in the system, each
+  stands still as before.
+
 ### Fixed
 
 - **`swarmed session set` reaches an agent the app runs.** A model, effort or supervision set
