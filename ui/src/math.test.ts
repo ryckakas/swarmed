@@ -42,6 +42,12 @@ describe("marked", () => {
         expect(marked("where \\(a*b*c\\) holds", false)).toBe("where $$$ a*b*c $$$ holds");
     });
 
+    it("keeps two formulas that touch apart, so their fences do not join", () => {
+        expect(marked("\\(a\\)\\(b\\)", false)).toBe("$$$ a $$$ $$$ b $$$");
+        expect(marked("\\[a\\]\\[b\\]", false)).toBe("$$ a $$ $$ b $$");
+        expect(marked("\\(a\\)\\[b\\]", false)).toBe("$$$ a $$$ $$ b $$");
+    });
+
     it("makes \\[ and \\] on lines of their own a block of math, in quotes and lists too", () => {
         expect(marked("Energy:\n\\[\nE = mc^2\n\\]\nand on.", false)).toBe(
             "Energy:\n$$\nE = mc^2\n$$\nand on.",
@@ -50,6 +56,15 @@ describe("marked", () => {
         expect(marked("\\[\na\n- b\n+ c\n\\]", false)).toBe("$$\na\n- b\n+ c\n$$");
         expect(marked("> \\[\n> x\n> \\]", false)).toBe("> $$\n> x\n> $$");
         expect(marked("- item\n  \\[\n  x\n  \\]", false)).toBe("- item\n  $$\n  x\n  $$");
+    });
+
+    it("counts an escaped \\\\[ in a block's lines, such as row spacing, as part of it", () => {
+        const aligned = "\\[\n\\begin{aligned}\na &= b \\\\[2pt]\n- c &= d\n\\end{aligned}\n\\]";
+        expect(marked(aligned, false)).toBe(
+            "$$\n\\begin{aligned}\na &= b \\\\[2pt]\n- c &= d\n\\end{aligned}\n$$",
+        );
+        // A \[ after an escaped backslash is a delimiter all the same.
+        expect(marked("\\[\nx \\\\\\[ y\n\\]", false)).not.toMatch(/^\$\$\n/);
     });
 
     it("guesses no block past a blank line, code, or a quote it did not start in", () => {
@@ -138,6 +153,22 @@ describe("a reply with formulas, as the transcript draws it", () => {
         // \( … \) alone in its paragraph, or a list item, is still in the line.
         const alone = drawn("\\(x\\)\n\n- \\(y\\)");
         expect([formulas(alone), displays(alone)]).toEqual([2, 0]);
+    });
+
+    it("draws two formulas that touch as two", () => {
+        for (const text of ["\\(a\\)\\(b\\)", "\\[a\\]\\[b\\]", "\\(a\\)\\[b\\]"]) {
+            const html = drawn(text);
+            expect(formulas(html), text).toBe(2);
+            expect(html, text).not.toContain("$");
+        }
+    });
+
+    it("draws an aligned block with row spacing as one display, its lines no list", () => {
+        const html = drawn(
+            "\\[\n\\begin{aligned}\na &= b \\\\[2pt]\n- c &= d\n\\end{aligned}\n\\]",
+        );
+        expect([formulas(html), displays(html)]).toEqual([1, 1]);
+        expect(html).not.toContain("<li>");
     });
 
     it("keeps prices, shell variables and code as text by default", () => {

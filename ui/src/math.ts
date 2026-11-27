@@ -201,6 +201,14 @@ function formulaAt(text: string, at: number, segment: Span, singleDollars: boole
     return text[at] === "$" && singleDollars ? dollarAt(text, at, segment) : null;
 }
 
+/**
+ * `edit` with a space before it if it starts where `before` ends: `touchesDollar` reads the text
+ * as written, so two formulas that touch, `\(a\)\(b\)`, would have their fences join into one
+ * run of dollars, which closes neither.
+ */
+const apart = (edit: Edit, before: Edit | undefined): Edit =>
+    before?.to === edit.from ? { ...edit, put: ` ${edit.put}` } : edit;
+
 /** The formulas written in one stretch of a block's own text, in order. */
 function formulasIn(text: string, segment: Span, singleDollars: boolean): Edit[] {
     const edits: Edit[] = [];
@@ -208,7 +216,7 @@ function formulasIn(text: string, segment: Span, singleDollars: boolean): Edit[]
     while (at < segment.to) {
         const edit = formulaAt(text, at, segment, singleDollars);
         if (edit) {
-            edits.push(edit);
+            edits.push(apart(edit, edits.at(-1)));
         }
         // An escaped character is passed with its backslash, so `\\(` stays text.
         at = edit ? edit.to : at + (text[at] === "\\" ? 2 : 1);
@@ -260,6 +268,9 @@ const BLANK = /^[ \t>]*\r?$/;
 /** How deep in quotes a line's marks put it. */
 const quotes = (marks: string) => marks.split(">").length - 1;
 
+/** A `\[` or `\]` that is not escaped: `\\[2pt]`, a row's spacing, is a backslash and `[`. */
+const DELIMITER = /(?<!\\)(?:\\\\)*\\[[\]]/;
+
 /**
  * The index of the line that closes a display formula opened on line `open`, or -1. Nothing
  * between may be blank, in a code block, or hold a `\[` or `\]` of its own: a formula has none
@@ -276,7 +287,7 @@ function closingLine(lines: Line[], open: number, shielded: Span[]): number {
         if (closes) {
             return quotes(closes[1] ?? "") === depth ? at : -1;
         }
-        if (/\\[[\]]/.test(line.text)) {
+        if (DELIMITER.test(line.text)) {
             return -1;
         }
     }
