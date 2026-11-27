@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentInfo } from "../api/types";
-import { modelChoices } from "./options";
+import { modelChoices, WORKER_CHOICES } from "./options";
 
 const opencode: AgentInfo = {
     id: "opencode",
@@ -23,5 +23,14 @@ describe("modelChoices", () => {
         const codex: AgentInfo = { ...opencode, id: "codex", default_model: null };
         expect(modelChoices(codex)[0]).toEqual(["", "Default model"]);
         expect(modelChoices(undefined)).toEqual([["", "Default model"]]);
+    });
+});
+
+describe("WORKER_CHOICES", () => {
+    it("offers 1 to 20 sessions working for one, as the core takes them, and names six", () => {
+        expect(WORKER_CHOICES).toHaveLength(20);
+        expect(WORKER_CHOICES[0]).toEqual(["1", "1"]);
+        expect(WORKER_CHOICES[5]).toEqual(["6", "6 (default)"]);
+        expect(WORKER_CHOICES[19]).toEqual(["20", "20"]);
     });
 });

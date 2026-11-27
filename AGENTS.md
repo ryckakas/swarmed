@@ -1013,7 +1013,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   the change is shown in the conversation (`ConfigProposed`) and made when the user accepts it
   there (`Core::config_answer`), whatever the agent's own permission mode. Not reachable at
   all: API keys, MCP servers, sign-ins, supervision, notes, the branch prefix (set once by the
-  user, and not worth a line in a description every agent is sent). Keep it one tool: every tool's
+  user, and not worth a line in a description every agent is sent), and `max_workers` (an agent
+  must not raise its own ceiling). Keep it one tool: every tool's
   description is sent to every agent in every session. A new setting goes into one of the three
   kinds on purpose; when unsure, propose. An environment's variable values are never told to
   an agent, only their names. An agent may set variables and ports, one by one; the proposal
@@ -1061,9 +1062,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   the caller's own project can be read or written to (`peer_in_reach`), and from a chat those
   of every project (see the chats above): a closed one would be started out of sight. A spawned session runs
   in its parent's task with its settings, cannot spawn itself (`Session::spawned`) unless its
-  role starts sessions (see roles below). While `MAX_SPAWNED` open sessions work for a
-  session, however each came to, its agent starts no more, with `spawn_session` or
-  `start_task` (`room_for_another`); the user can still have more work for it. The tools are
+  role starts sessions (see roles below). While as many open sessions work for a session as
+  `Settings::max_workers` allows (`MAX_SPAWNED`, six, unless the user changed it, within
+  `WORKER_LIMITS`; one out of range in the file is the default, said), however each came to,
+  its agent starts no more, with `spawn_session` or `start_task` (`room_for_another`), whose
+  refusal names the setting; the user can still have more work for it. The tools are
   not on the allow list: in ask mode the user is asked, unless the session has a role (see
   roles below). A session can close only sessions
   that work for it and that an agent started (`peer_close`): spawned ones, and those its own

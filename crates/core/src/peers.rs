@@ -7,6 +7,7 @@
 //! answer on a line. Everything here is also plain methods on [`Core`], which is what the
 //! tests use.
 
+use std::ops::RangeInclusive;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -30,9 +31,14 @@ mod tasks;
 
 pub use tasks::PeerTask;
 
-/// How many open sessions may work for one session before its agent starts no more, beside it
-/// or in a task. A runaway agent stops here instead of filling the machine.
+/// How many open sessions may work for one session unless the user chose otherwise.
+///
+/// Beyond it its agent starts no more, beside it or in a task, so that a runaway agent stops
+/// here instead of filling the machine. The user's choice is `Settings::max_workers`.
 pub const MAX_SPAWNED: usize = 6;
+/// How many open sessions the settings may let work for one session, at the fewest and the
+/// most.
+pub const WORKER_LIMITS: RangeInclusive<usize> = 1..=20;
 /// How many sessions with a role may work one for another in a row: an architect, its
 /// planners and their implementers. A chain of roles that start one another stops here.
 pub const MAX_DEPTH: usize = 3;
@@ -545,7 +551,7 @@ impl Core {
     /// Only an open session `from` can reach can be written to: one it can read, or a chat, so
     /// that a session a chat wrote to can answer it. A closed one
     /// stays closed: a message must not start an agent where no list shows it, nor bring back
-    /// sessions that were closed to make room under [`MAX_SPAWNED`].
+    /// sessions that were closed to make room under `Settings::max_workers`.
     pub fn peer_message(&self, from: i64, to: i64, text: &str) -> Result<Delivery> {
         let sender = self.session(from)?;
         if from == to {
@@ -573,7 +579,8 @@ impl Core {
     /// by default (`roles.rs`); a role `from`'s may not start is refused (`may_start`).
     /// It starts as `from` would without its role, under the supervision its own role holds if
     /// it holds one: an implementer a planner starts is not held in the planner's plan mode.
-    /// Refused while [`MAX_SPAWNED`] open sessions work for `from` (`room_for_another`).
+    /// Refused while as many open sessions work for `from` as the settings allow
+    /// (`room_for_another`).
     pub fn peer_spawn(
         &self,
         from: i64,
@@ -612,15 +619,20 @@ impl Core {
         self.session(child.id)
     }
 
-    /// Refuses while [`MAX_SPAWNED`] open sessions work for session `from`, however each came
-    /// to: one more that its agent starts, beside it or in a task, would be one too many.
+    /// Refuses while as many open sessions work for session `from` as the user's settings
+    /// allow (`Settings::max_workers`, [`MAX_SPAWNED`] unless changed), however each came to:
+    /// one more that its agent starts, beside it or in a task, would be one too many. The
+    /// refusal names the setting, so that the agent can tell the user what to change.
     pub(crate) fn room_for_another(&self, from: i64) -> Result<()> {
         let open = self.store().sessions_spawned_by(from)?;
-        if open >= MAX_SPAWNED {
+        let most = self.settings()?.max_workers;
+        if open >= most {
             return Err(refused(format!(
-                "this session already has {open} open sessions working for it, which is the \
-                 most allowed; close those you started that are done, with close_session, or \
-                 ask the user to close some"
+                "this session already has {open} open sessions working for it, the most allowed: \
+                 the user's settings let {most} work for one session (Workers per session, in \
+                 Settings, Sessions; `max_workers` in settings.toml). Close those you started \
+                 that are done, with close_session, or ask the user to close some or to allow \
+                 more there"
             )));
         }
         Ok(())

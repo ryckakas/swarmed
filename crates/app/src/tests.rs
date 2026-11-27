@@ -1212,6 +1212,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
             "style": "colony", "layout": "classic",
             "text_scale": 100,
             "html_views": true, "tool_calls": "folded", "turn_end_lines": true, "math": "standard", "limit_warnings": "frequent", "continue_after_limit": false, "notifications": true, "default_supervision": "auto",
+            "max_workers": 6,
             "status_items": ["branch", "changes", "model", "context", "cost"],
             "status_command": "", "rules": "", "updates": "automatic", "branch_prefix": "",
             "put_away_merged": false, "put_away_merged_days": 1, "put_away_idle": false,
@@ -1273,6 +1274,24 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
         app.invoke("task_open_url", target),
         Err(json!("project `demo` has no `open_url` in its config"))
     );
+}
+
+#[test]
+fn the_ui_sets_how_many_sessions_may_work_for_one_within_what_the_core_takes() {
+    let app = app();
+    assert_eq!(app.ok("settings", json!({}))["max_workers"], 6);
+    let mut settings = app.ok("settings", json!({}));
+    settings["max_workers"] = json!(9);
+    app.ok("set_settings", json!({ "settings": settings.clone() }));
+    assert_eq!(app.ok("settings", json!({}))["max_workers"], 9);
+    settings["max_workers"] = json!(21);
+    assert_eq!(
+        app.invoke("set_settings", json!({ "settings": settings })),
+        Err(json!(
+            "how many open sessions may work for one session is from 1 to 20, not 21"
+        ))
+    );
+    assert_eq!(app.ok("settings", json!({}))["max_workers"], 9);
 }
 
 #[test]

@@ -710,6 +710,11 @@ export interface Settings {
     text_scale: number;
     /** How much a new session's agent may do without asking, unless chosen otherwise. */
     default_supervision: Supervision;
+    /**
+     * How many open sessions may work for one session before its agent starts no more, from 1
+     * to 20 (`WORKER_LIMITS`). Six unless changed. Agents cannot change it.
+     */
+    max_workers: number;
     /** Whether agents may answer with small HTML views, and those are shown. */
     html_views: boolean;
     /** How the agents' tool calls show in a conversation. */

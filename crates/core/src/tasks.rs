@@ -792,6 +792,9 @@ impl Core {
 
     /// Replaces the user's preferences.
     ///
+    /// A `max_workers` out of [`WORKER_LIMITS`](crate::WORKER_LIMITS) is refused
+    /// (`Error::WorkersOutOfRange`), and so are rules too long to keep.
+    ///
     /// A branch prefix other than the one kept is checked first, by git's rules for a
     /// branch's name, and refused with git's reason. One kept already is not: one written by
     /// hand that git refuses must not stop every other setting from being saved, and git says

@@ -3760,6 +3760,7 @@ export function createMockApi(): Api {
         layout: "classic",
         text_scale: 100,
         default_supervision: "auto",
+        max_workers: 6,
         html_views: true,
         tool_calls: "folded",
         turn_end_lines: true,

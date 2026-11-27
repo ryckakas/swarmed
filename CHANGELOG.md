@@ -15,6 +15,14 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Added
+
+- **How many sessions may work for one is yours to set.** Settings → Sessions → Workers per
+  session (`max_workers`) sets how many open sessions may work for one session before its agent
+  starts no more, from 1 to 20; it was a fixed six, which stays the default. When an agent is
+  refused one more, it is told the setting's name, so it can tell you what to change. Agents
+  cannot change it themselves.
+
 ## [0.4.9] - 2026-11-27
 
 ### Added

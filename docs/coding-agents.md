@@ -534,9 +534,9 @@ Every session gets an MCP server named `swarmed`, with these tools:
 | `show_browser` | opens the task's browser beside the conversation, on an address, in a tab of the session's own; see [The task's browser and your browser tools](#the-tasks-browser-and-your-browser-tools) |
 | `list_sessions`, `read_session` | see and read the other open sessions of the same project; from a chat, every open session. Both say which session each works for and its role, and `read_session` which work for the one it reads. It reads the latest messages, or from one it is given (`from`), so a long conversation can be read from its start |
 | `send_message` | write to another session it can read, or to a chat, so that one a chat wrote to can answer it; queued if it is busy |
-| `spawn_session` | start a session in the same task, which works for the one that started it, up to six open, with a role its own role may start (see [Roles](#roles)). A session another one started starts none itself unless its role starts sessions |
+| `spawn_session` | start a session in the same task, which works for the one that started it, up to six open unless you change that (see [How many may work for one](#how-many-may-work-for-one)), with a role its own role may start (see [Roles](#roles)). A session another one started starts none itself unless its role starts sessions |
 | `close_session` | close an idle session it started, with `spawn_session`, `start_task` or `swarmed session run` from its shell, that still works for it, which makes room for another. Only the session closes: a task, its worktree, branch and pull request stay. Refused for a session you started, even one you set to work for it, and while that session's task is being set up or its first prompt still waits for the setup |
-| `start_task` | start a new task in the same repository for work that needs a branch of its own, as New task does: on a new branch, on an existing one such as a pull request's (`branch`), or on a new one stacked on another (`from`). Its session gets the prompt once the task is set up, works for the session that started it and reports back to it, and has a role as a spawned one does. Refused while six open sessions work for the one that asks. A session run with `swarmed session` is refused: the command ends with its turn |
+| `start_task` | start a new task in the same repository for work that needs a branch of its own, as New task does: on a new branch, on an existing one such as a pull request's (`branch`), or on a new one stacked on another (`from`). Its session gets the prompt once the task is set up, works for the session that started it and reports back to it, and has a role as a spawned one does. Refused while as many open sessions work for the one that asks as [Workers per session](#how-many-may-work-for-one) allows, six unless you change it. A session run with `swarmed session` is refused: the command ends with its turn |
 | `delegate_to_cloud` | hand work to a Codex cloud agent or a Claude Code cloud session |
 | `use_skill` | read a skill Swarmed offers |
 | `set_mark` | put a colour and a few words on its own session in the sidebar |
@@ -554,7 +554,23 @@ line's pieces, the looks, which levels the usage notice says, whether turns end 
 settings, and removing an action, a prompt or the status line's script. Adding a rule, saving an environment, an action that runs a command, a status
 line script, or hiding tool calls it can only propose: the change is shown in the conversation and made when you
 accept it. API keys, MCP servers, sign-ins, supervision, notes and the branch prefix are out of its reach, and it
-tells an agent the names of an environment's variables, never their values.
+tells an agent the names of an environment's variables, never their values. Nor can it change
+how many sessions may work for one: an agent must not raise its own ceiling.
+
+### How many may work for one
+
+An agent starts sessions and tasks only while fewer open sessions work for its session than
+**Workers per session** allows (Settings, Sessions; `max_workers` in `settings.toml`): six
+unless you change it, from 1 to 20. It counts every open session that works for it however it
+came to, by `spawn_session`, `start_task`, `swarmed session run` from its shell, or because you
+set it to work for that one. Once there are as many, the agent is refused one more, with the
+setting's name, until one is closed: it can close those it started that are done
+(`close_session`), or ask you to close some or to allow more. Lowering it closes nothing; it
+only stops new ones until fewer are open. A runaway agent stops there instead of filling your
+machine, so `configure` cannot change it: an agent must not raise its own ceiling. How many
+sessions with a role may work one for another in a row (three, see [Roles](#roles)) is fixed:
+it stops a chain of roles starting one another, which has nothing to do with how much the
+machine holds.
 
 ### Who works for whom
 
@@ -564,7 +580,7 @@ session, and so does one started with `swarmed session run` from an agent's shel
 given `SWARMED_SESSION`, the number of their own session, which the command takes as the parent
 unless `--parent` names another one or `none`. Without `--parent`, the new session works for
 the agent's session only where that one could have started it with `spawn_session` (its role
-allows it, and fewer than six open sessions work for it); otherwise it is started and works for
+allows it, and fewer open sessions work for it than [Workers per session](#how-many-may-work-for-one) allows); otherwise it is started and works for
 nobody, and the command says so. You choose it yourself from the menu in the
 session's header, or with `swarmed session parent 12 7` (`none` for nobody).
 
@@ -659,8 +675,9 @@ while they plan, not only tells them:
 A session with a role may start sessions and tasks if its role starts any, even one another
 session started: a planner an architect or another session started starts its implementers.
 Sessions with a role work for one another at most three in a row (an architect, its planner and
-the planner's implementers), and while six open sessions work for a session, its agent starts
-no more, in its own task or as new tasks. A reviewer that works for an architect's planner is
+the planner's implementers), and while as many open sessions work for a session as
+[Workers per session](#how-many-may-work-for-one) allows, six unless you change it, its agent
+starts no more, in its own task or as new tasks. A reviewer that works for an architect's planner is
 already the third, so it starts no implementers: it reports the fixes to make to its planner,
 which hands them on. A session
 with no role that another session started starts nothing, as before, and a session with no role

@@ -71,8 +71,8 @@ impl Core {
     /// `from`'s own starts by default, and starts under the supervision that role holds, if it
     /// holds one. Who may start what is `may_start`'s: a role `from`'s may not start is
     /// refused, and so is a task asked for by a session with no role that another session's
-    /// agent started, and one more while [`MAX_SPAWNED`](crate::MAX_SPAWNED) open sessions
-    /// work for `from`. A chat starts none, having no repository. Must be called from within a
+    /// agent started, and one more while as many open sessions work for `from` as the settings
+    /// allow (`room_for_another`). A chat starts none, having no repository. Must be called from within a
     /// tokio runtime.
     pub async fn peer_start_task(
         self: &Arc<Self>,

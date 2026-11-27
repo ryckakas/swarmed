@@ -33,6 +33,7 @@ import {
     THEMES,
     TOOL_CALLS,
     terminalAppChoices,
+    WORKER_CHOICES,
 } from "./options";
 import { Picker } from "./Picker";
 import { Row } from "./SettingsRow";
@@ -435,6 +436,17 @@ function Sessions({ settings }: { settings: Settings }) {
                         void change(api, { default_supervision: value as Supervision })
                     }
                     options={supervisionChoices(settings.default_supervision)}
+                />
+            </Row>
+            <Row
+                label="Workers per session"
+                hint="How many open sessions may work for one session, however its agent started them. That agent starts no more until one is closed, so a runaway one cannot fill the machine. Agents cannot change this."
+            >
+                <Picker
+                    label="Workers per session"
+                    value={String(settings.max_workers)}
+                    onChange={(count) => void change(api, { max_workers: Number(count) })}
+                    options={WORKER_CHOICES}
                 />
             </Row>
             <Row

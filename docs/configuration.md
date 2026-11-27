@@ -447,6 +447,7 @@ Set in the app's Settings, kept in `settings.toml`.
 | `editor` | `code` | the command that opens a folder in your editor |
 | `terminal_app` | `Terminal` | the application "Open in Terminal" uses |
 | `default_supervision` | `auto` | how new sessions are supervised: `ask`, `auto` or `plan`; `bypass`, which allows everything, is not offered in Settings |
+| `max_workers` | `6` | how many open sessions may work for one session, from 1 to 20, before its agent starts no more until one is closed; see [How many may work for one](coding-agents.md#how-many-may-work-for-one). Shown as Workers per session. Agents cannot change it. A number out of range is read as `6` and named as a problem |
 | `auto_title` | `true` | a model names each new session after its first message |
 | `branch_prefix` | empty | what a new task's branch starts with, before `/` and the task's name; empty is your login. See [A task's branch](#a-tasks-branch) |
 | `notifications` | `true` | notify when a session needs you, finishes, fails or moves its worktree to another branch, and when a task's pull request changed (see [Pull requests](#pull-requests)) |

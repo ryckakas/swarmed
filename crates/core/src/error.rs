@@ -235,6 +235,14 @@ pub enum Error {
     /// Rules longer than rules may be.
     #[error("the rules can hold at most {0} bytes")]
     RulesTooLong(usize),
+    /// A number of open sessions that may work for one session outside what the settings
+    /// take ([`WORKER_LIMITS`](crate::WORKER_LIMITS)).
+    #[error(
+        "how many open sessions may work for one session is from {fewest} to {most}, not {0}",
+        fewest = crate::WORKER_LIMITS.start(),
+        most = crate::WORKER_LIMITS.end()
+    )]
+    WorkersOutOfRange(usize),
     /// A note longer than notes may be.
     #[error("a note can hold at most {0} bytes")]
     NoteTooLong(usize),

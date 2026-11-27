@@ -8,6 +8,7 @@ use crate::agent::Supervision;
 use crate::browser::MAX_IDLE_MINUTES;
 use crate::error::{Error, Result};
 use crate::lenient::{self, Problems};
+use crate::peers::{MAX_SPAWNED, WORKER_LIMITS};
 use crate::put_away::MAX_DAYS;
 use crate::statusline::StatusItem;
 
@@ -40,6 +41,12 @@ pub struct Settings {
     pub text_scale: u16,
     /// How much a new session's agent may do without asking, unless chosen otherwise.
     pub default_supervision: Supervision,
+    /// How many open sessions may work for one session, within [`WORKER_LIMITS`].
+    ///
+    /// Beyond it its agent starts no more, beside it or in a task. One out of range in the
+    /// file is read as the default, [`MAX_SPAWNED`], and said. Not reachable through
+    /// `configure`: an agent must not raise its own ceiling.
+    pub max_workers: usize,
     /// Whether the system shows a notification when a session needs the user, finishes or
     /// fails while they look elsewhere.
     pub notifications: bool,
@@ -251,6 +258,7 @@ impl Default for Settings {
             layout: Layout::Classic,
             text_scale: 100,
             default_supervision: Supervision::Auto,
+            max_workers: MAX_SPAWNED,
             notifications: true,
             html_views: true,
             tool_calls: ToolCalls::Folded,
@@ -292,7 +300,8 @@ impl Settings {
         };
         match text.parse::<toml::Table>() {
             Ok(table) => {
-                let (settings, problems) = lenient::fields::<Self>(table);
+                let (mut settings, mut problems) = lenient::fields::<Self>(table);
+                problems.extend(settings.workers_at_default_if_out_of_range());
                 Ok((settings.within_limits(), problems))
             }
             Err(error) => {
@@ -307,6 +316,22 @@ impl Settings {
                 ))
             }
         }
+    }
+
+    /// Puts `max_workers` back at its default if it is out of range, and says so. Not brought
+    /// to the nearest end of the range, as the sizes are: the user wrote a ceiling by hand that
+    /// this version does not take, and the default is the one the app chose for them.
+    fn workers_at_default_if_out_of_range(&mut self) -> Option<String> {
+        if WORKER_LIMITS.contains(&self.max_workers) {
+            return None;
+        }
+        let written = std::mem::replace(&mut self.max_workers, MAX_SPAWNED);
+        Some(format!(
+            "`max_workers` is {written}, but it takes {} to {}, so it is at its default, \
+             {MAX_SPAWNED}.",
+            WORKER_LIMITS.start(),
+            WORKER_LIMITS.end()
+        ))
     }
 
     /// The settings with every value brought into the range the app can show, and the branch
@@ -325,9 +350,15 @@ impl Settings {
     /// written, are written back as they were, so this one does not erase that one's choices. A
     /// file that is not TOML is kept beside it first: what the user wrote there is not lost to
     /// the defaults that stood in for it.
+    ///
+    /// Refused, with nothing written, for rules longer than [`MAX_RULES_BYTES`] and for a
+    /// `max_workers` out of [`WORKER_LIMITS`].
     pub(crate) fn save(&self, path: &Path) -> Result<()> {
         if self.rules.len() > MAX_RULES_BYTES {
             return Err(Error::RulesTooLong(MAX_RULES_BYTES));
+        }
+        if !WORKER_LIMITS.contains(&self.max_workers) {
+            return Err(Error::WorkersOutOfRange(self.max_workers));
         }
         let mut text =
             toml::to_string(&self.clone().within_limits()).map_err(|e| invalid(path, &e))?;
@@ -397,6 +428,7 @@ mod tests {
             layout: Layout::Senior,
             text_scale: 110,
             default_supervision: Supervision::Ask,
+            max_workers: 12,
             notifications: false,
             html_views: false,
             tool_calls: ToolCalls::Hidden,
@@ -615,6 +647,64 @@ mod tests {
         std::fs::write(&path, "browser_display = \"tab\"\n").expect("writes");
         let display = Settings::load(&path).expect("loads").browser_display;
         assert_eq!(display, BrowserDisplay::Pane);
+    }
+
+    #[test]
+    fn workers_are_six_unless_chosen_and_a_number_out_of_range_is_the_default_said() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.toml");
+        assert_eq!(Settings::load(&path).expect("defaults").max_workers, 6);
+        // A file written before the setting existed.
+        std::fs::write(&path, "theme = \"dark\"").expect("writes");
+        let (settings, problems) = Settings::read(&path).expect("reads");
+        assert_eq!((settings.max_workers, problems.len()), (MAX_SPAWNED, 0));
+        for (written, read) in [(1, 1), (2, 2), (20, 20)] {
+            std::fs::write(&path, format!("max_workers = {written}")).expect("writes");
+            let (settings, problems) = Settings::read(&path).expect("reads");
+            assert_eq!((settings.max_workers, problems), (read, vec![]));
+        }
+        // Written by hand out of range: the default, not the nearest end, and said.
+        for written in [0, 21, 500] {
+            std::fs::write(&path, format!("max_workers = {written}\ntheme = \"dark\""))
+                .expect("writes");
+            let (settings, problems) = Settings::read(&path).expect("reads");
+            assert_eq!((settings.max_workers, settings.theme), (6, Theme::Dark));
+            assert_eq!(problems.len(), 1, "{problems:?}");
+            assert!(
+                problems[0].contains(&format!("`max_workers` is {written}")),
+                "{problems:?}"
+            );
+            assert!(problems[0].contains("1 to 20"), "{problems:?}");
+            assert!(problems[0].contains("at its default, 6"), "{problems:?}");
+        }
+        // Not a number of sessions at all.
+        std::fs::write(&path, "max_workers = -3").expect("writes");
+        let (settings, problems) = Settings::read(&path).expect("reads");
+        assert_eq!(settings.max_workers, 6);
+        assert!(problems[0].contains("`max_workers`"), "{problems:?}");
+    }
+
+    #[test]
+    fn workers_out_of_range_are_not_saved() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.toml");
+        let with = |max_workers| Settings {
+            max_workers,
+            ..Settings::default()
+        };
+        with(9).save(&path).expect("saves");
+        for refused in [0, 21] {
+            assert!(matches!(
+                with(refused).save(&path),
+                Err(Error::WorkersOutOfRange(n)) if n == refused
+            ));
+        }
+        assert_eq!(Settings::load(&path).expect("loads").max_workers, 9);
+        let said = Error::WorkersOutOfRange(0).to_string();
+        assert_eq!(
+            said,
+            "how many open sessions may work for one session is from 1 to 20, not 0"
+        );
     }
 
     #[test]
