@@ -53,6 +53,9 @@ const ENDS = new Set([".", ",", ";", ":", "!", "?", "'"]);
 /** Each closing bracket, with the one that opens it. */
 const OPENS: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
 
+/** Every bracket, opening and closing. */
+const BRACKETS = new Set(Object.entries(OPENS).flat());
+
 /** `text` taken apart into words, addresses, code and paths, in order, its tokens left words. */
 export function saidPieces(text: string): SaidPiece[] {
     const pieces: SaidPiece[] = [];
@@ -137,30 +140,44 @@ function words(pieces: SaidPiece[], text: string) {
     }
 }
 
-/** `found` without what ends the sentence after it or closes a bracket opened before it. */
+/**
+ * `found` without what ends the sentence after it or closes a bracket opened before it. Its
+ * brackets are counted once and a closing one taken off as it is trimmed, so a long run of
+ * them is not counted again for each.
+ */
 function trimmed(found: string): string {
-    let address = found;
-    for (let last = address.at(-1); last !== undefined; last = address.at(-1)) {
-        if (!(ENDS.has(last) || unopened(address, last))) {
+    const brackets = bracketsIn(found);
+    let end = found.length;
+    for (let last = found[end - 1]; last !== undefined; last = found[end - 1]) {
+        if (!(ENDS.has(last) || unopened(brackets, last))) {
             break;
         }
-        address = address.slice(0, -1);
+        if (brackets.has(last)) {
+            brackets.set(last, (brackets.get(last) ?? 0) - 1);
+        }
+        end -= 1;
     }
-    return address;
+    return found.slice(0, end);
 }
 
-/** Whether `last`, the end of `address`, is a closing bracket that no bracket in it opens. */
-function unopened(address: string, last: string): boolean {
+/** Whether `last` is a closing bracket that fewer brackets in `brackets` open than it closes. */
+function unopened(brackets: Map<string, number>, last: string): boolean {
     const opening = OPENS[last];
     if (opening === undefined) {
         return false;
     }
-    return count(address, last) > count(address, opening);
+    return (brackets.get(last) ?? 0) > (brackets.get(opening) ?? 0);
 }
 
-/** How many times `character` stands in `text`. */
-function count(text: string, character: string): number {
-    return text.split(character).length - 1;
+/** How many of each bracket `text` holds, opening and closing. */
+function bracketsIn(text: string): Map<string, number> {
+    const brackets = new Map<string, number>();
+    for (const character of text) {
+        if (BRACKETS.has(character)) {
+            brackets.set(character, (brackets.get(character) ?? 0) + 1);
+        }
+    }
+    return brackets;
 }
 
 /** Where an address as written leads: one that starts with `www.` is on the web. */

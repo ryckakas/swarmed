@@ -87,6 +87,14 @@ describe("pathsIn", () => {
         expect(pathsIn("--config=ui/a.json")).toEqual(["--config=", path("ui/a.json")]);
     });
 
+    it("trims a long run of closing brackets in one pass, not a count per bracket", () => {
+        const brackets = "]".repeat(20_000);
+        const started = performance.now();
+        expect(pathsIn(`ui/a.ts${brackets}`)).toEqual([path("ui/a.ts"), brackets]);
+        // Counted again for each bracket, this took over a second.
+        expect(performance.now() - started).toBeLessThan(200);
+    });
+
     it("leaves words with a slash that name no file as words", () => {
         for (const text of [
             "and/or",

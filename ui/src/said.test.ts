@@ -86,6 +86,14 @@ describe("saidPieces", () => {
         expect(saidPieces("http://[::1]:8080/health")).toEqual([link("http://[::1]:8080/health")]);
     });
 
+    it("trims a long run of closing brackets in one pass, not a count per bracket", () => {
+        const brackets = ")".repeat(20_000);
+        const started = performance.now();
+        expect(saidPieces(`https://a.com/${brackets}`)).toEqual([link("https://a.com/"), brackets]);
+        // Counted again for each bracket, this took over a second.
+        expect(performance.now() - started).toBeLessThan(200);
+    });
+
     it("finds every address in a message", () => {
         const text =
             "Compare https://a.example.com/1 with www.b.example.com,\nthen http://c.example.com.";

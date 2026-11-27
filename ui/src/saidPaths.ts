@@ -86,18 +86,25 @@ function foundPath(match: RegExpExecArray): SaidPath | null {
     };
 }
 
-/** `found` without the dots that end a sentence after it, or a bracket closed after it. */
+/**
+ * `found` without the dots that end a sentence after it, or a square bracket it does not open.
+ * Its brackets are counted once and a closing one taken off as it is trimmed, so a long run of
+ * them is not counted again for each.
+ */
 function trimmed(found: string): string {
-    let path = found;
-    while (path.endsWith(".") || (path.endsWith("]") && unopened(path))) {
-        path = path.slice(0, -1);
+    const opened = count(found, "[");
+    let closed = count(found, "]");
+    let end = found.length;
+    while (found[end - 1] === "." || (found[end - 1] === "]" && closed > opened)) {
+        closed -= found[end - 1] === "]" ? 1 : 0;
+        end -= 1;
     }
-    return path;
+    return found.slice(0, end);
 }
 
-/** Whether `path` closes more square brackets than it opens. */
-function unopened(path: string): boolean {
-    return path.split("]").length > path.split("[").length;
+/** How many times `character` stands in `text`. */
+function count(text: string, character: string): number {
+    return text.split(character).length - 1;
 }
 
 /** Whether `path` is one by the rules above, rather than words with a slash in them. */
