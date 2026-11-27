@@ -15,6 +15,8 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+## [0.4.10] - 2026-11-27
+
 ### Added
 
 - **See everyone who works for a session, all the way down.** The session's header counts every
@@ -1127,7 +1129,8 @@ through Homebrew or a browser.
 - **Installing:** an install script, a Homebrew cask that also puts `swarmed` on the PATH, and
   `cargo install swarmed` for the command alone.
 
-[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.4.9...HEAD
+[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.4.10...HEAD
+[0.4.10]: https://github.com/ryckakas/swarmed/compare/v0.4.9...v0.4.10
 [0.4.9]: https://github.com/ryckakas/swarmed/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/ryckakas/swarmed/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/ryckakas/swarmed/compare/v0.4.6...v0.4.7
